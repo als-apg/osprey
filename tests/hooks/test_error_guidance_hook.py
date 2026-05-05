@@ -25,15 +25,26 @@ DEFAULT_ERROR_CONFIG = {
 
 
 def _make_error_response(error_type, message, suggestions=None):
-    """Build the standard OSPREY error envelope as a JSON string."""
-    return json.dumps(
-        {
-            "error": True,
-            "error_type": error_type,
-            "error_message": message,
-            "suggestions": suggestions or [],
-        }
-    )
+    """Build the post-migration OSPREY error response: a CallToolResult-shaped
+    dict (``isError=True`` with the structured envelope inside the first
+    text content block) — mirrors what the SDK actually delivers to PostToolUse.
+    """
+    return {
+        "isError": True,
+        "content": [
+            {
+                "type": "text",
+                "text": json.dumps(
+                    {
+                        "error": True,
+                        "error_type": error_type,
+                        "error_message": message,
+                        "suggestions": suggestions or [],
+                    }
+                ),
+            }
+        ],
+    }
 
 
 # -- Positive detection tests --
@@ -216,15 +227,19 @@ def test_non_json_success_no_output(hook_runner, make_config):
 
 
 @pytest.mark.unit
-def test_non_json_error_string_detected(hook_runner, make_config):
-    """Non-JSON strings containing error keywords trigger fallback detection."""
+def test_isError_without_envelope_falls_back_to_internal(hook_runner, make_config):
+    """A CallToolResult with isError=True but no parseable envelope still
+    triggers Internal-class guidance (defensive fallback in _detect_error)."""
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
         "mcp__controls__channel_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
-        tool_response="Error: Failed to connect to IOC at 192.168.1.100:5064",
+        tool_response={
+            "isError": True,
+            "content": [{"type": "text", "text": "raw connection failure: 192.168.1.100:5064"}],
+        },
         hook_config=DEFAULT_ERROR_CONFIG,
     )
 
@@ -280,19 +295,28 @@ def test_guidance_includes_anti_pattern_reminders(hook_runner, make_config):
 
 @pytest.mark.unit
 def test_dict_tool_response_detected(hook_runner, make_config):
-    """Error detection works when tool_response is already a dict (not JSON string)."""
+    """Error detection on a CallToolResult-shaped dict with isError=True."""
     config = make_config({})
-    # Pass dict directly -- the hook should handle both str and dict
     result = hook_runner(
         "osprey_error_guidance.py",
         "mcp__controls__channel_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         tool_response={
-            "error": True,
-            "error_type": "connection_error",
-            "error_message": "IOC offline",
-            "suggestions": [],
+            "isError": True,
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        {
+                            "error": True,
+                            "error_type": "connection_error",
+                            "error_message": "IOC offline",
+                            "suggestions": [],
+                        }
+                    ),
+                }
+            ],
         },
         hook_config=DEFAULT_ERROR_CONFIG,
     )

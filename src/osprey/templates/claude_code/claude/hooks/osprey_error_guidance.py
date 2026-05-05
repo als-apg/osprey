@@ -73,34 +73,32 @@ ERROR_CLASS_MAP = {
 def _detect_error(tool_response: str | dict | None) -> tuple[str | None, str | None]:
     """Detect a structured error in the tool response.
 
-    Returns (error_class, error_message) or (None, None) if no error detected.
+    OSPREY tools now return ``CallToolResult(isError=True, ...)`` for every
+    failure. The PostToolUse hook input surfaces this as a dict with
+    ``isError: true`` and a ``content`` list of text blocks; the first text
+    block carries the structured envelope JSON. Returns
+    ``(error_class, error_message)`` or ``(None, None)`` if no error detected.
     """
-    if tool_response is None:
+    if not isinstance(tool_response, dict) or tool_response.get("isError") is not True:
         return None, None
 
-    # tool_response may be a JSON string or an already-parsed dict
-    if isinstance(tool_response, str):
+    for block in tool_response.get("content", []) or []:
+        if not isinstance(block, dict) or block.get("type") != "text":
+            continue
         try:
-            parsed = json.loads(tool_response)
+            parsed = json.loads(block.get("text", ""))
         except (json.JSONDecodeError, ValueError):
-            # Not JSON — check for common error substrings as a fallback
-            lower = tool_response.lower()
-            if any(kw in lower for kw in ("error", "failed", "traceback", "exception")):
-                return "Internal", tool_response[:200]
-            return None, None
-    elif isinstance(tool_response, dict):
-        parsed = tool_response
-    else:
-        return None, None
+            continue
+        if isinstance(parsed, dict) and parsed.get("error") is True:
+            error_type = parsed.get("error_type", "unknown")
+            return (
+                ERROR_CLASS_MAP.get(error_type, "Internal"),
+                parsed.get("error_message", str(parsed)),
+            )
 
-    # Standard OSPREY error envelope: {"error": true, "error_type": ..., "error_message": ...}
-    if parsed.get("error") is True:
-        error_type = parsed.get("error_type", "unknown")
-        error_class = ERROR_CLASS_MAP.get(error_type, "Internal")
-        error_message = parsed.get("error_message", str(parsed))
-        return error_class, error_message
-
-    return None, None
+    # isError=True but no structured envelope (shouldn't happen for OSPREY
+    # tools, but cover the case so guidance still fires).
+    return "Internal", "Tool returned an error"
 
 
 def main():
