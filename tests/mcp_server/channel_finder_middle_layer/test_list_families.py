@@ -2,6 +2,7 @@
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
+from tests.mcp_server.conftest import assert_error, extract_response_dict
 
 import pytest
 
@@ -38,7 +39,7 @@ def test_list_families_returns_families(tmp_path, monkeypatch):
         fn = get_tool_fn(list_families)
         result = fn(system="SR")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["total"] == 2
     assert data["families"][0]["name"] == "BPM"
     assert data["families"][1]["name"] == "QF"
@@ -63,9 +64,7 @@ def test_list_families_validation_error(tmp_path, monkeypatch):
         fn = get_tool_fn(list_families)
         result = fn(system="XX")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
     assert "Unknown system" in data["error_message"]
 
 
@@ -87,7 +86,5 @@ def test_list_families_internal_error(tmp_path, monkeypatch):
         fn = get_tool_fn(list_families)
         result = fn(system="SR")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    data = assert_error(result, error_type="internal_error")
     assert "DB broke" in data["error_message"]

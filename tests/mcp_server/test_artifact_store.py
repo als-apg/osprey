@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_error, extract_response_dict, get_tool_fn
 
 # ---------------------------------------------------------------------------
 # ArtifactStore — core storage layer
@@ -411,7 +411,7 @@ class TestArtifactSaveTool:
             content_type="markdown",
         )
 
-        data = json.loads(result)
+        data = extract_response_dict(result)
         assert data["status"] == "success"
         assert data["artifact_type"] == "markdown"
 
@@ -426,7 +426,7 @@ class TestArtifactSaveTool:
             content_type="html",
         )
 
-        data = json.loads(result)
+        data = extract_response_dict(result)
         assert data["status"] == "success"
         assert data["artifact_type"] == "html"
 
@@ -441,7 +441,7 @@ class TestArtifactSaveTool:
             content_type="json",
         )
 
-        data = json.loads(result)
+        data = extract_response_dict(result)
         assert data["status"] == "success"
         assert data["artifact_type"] == "json"
 
@@ -459,7 +459,7 @@ class TestArtifactSaveTool:
             file_path=str(source),
         )
 
-        data = json.loads(result)
+        data = extract_response_dict(result)
         assert data["status"] == "success"
 
     @pytest.mark.asyncio
@@ -473,9 +473,7 @@ class TestArtifactSaveTool:
             content="some content",
         )
 
-        data = json.loads(result)
-        assert data["error"] is True
-        assert data["error_type"] == "validation_error"
+        data = assert_error(result, error_type="validation_error")
 
     @pytest.mark.asyncio
     async def test_neither_file_nor_content_error(self, tmp_path, monkeypatch):
@@ -484,9 +482,7 @@ class TestArtifactSaveTool:
         fn = _get_artifact_save()
         result = await fn(title="Empty")
 
-        data = json.loads(result)
-        assert data["error"] is True
-        assert data["error_type"] == "validation_error"
+        data = assert_error(result, error_type="validation_error")
 
     @pytest.mark.asyncio
     async def test_invalid_content_type_error(self, tmp_path, monkeypatch):
@@ -499,8 +495,7 @@ class TestArtifactSaveTool:
             content_type="xml",
         )
 
-        data = json.loads(result)
-        assert data["error"] is True
+        data = assert_error(result)
         assert "Unknown content_type" in data["error_message"]
 
     @pytest.mark.asyncio
@@ -513,9 +508,7 @@ class TestArtifactSaveTool:
             file_path="/nonexistent/file.txt",
         )
 
-        data = json.loads(result)
-        assert data["error"] is True
-        assert data["error_type"] == "file_not_found"
+        data = assert_error(result, error_type="file_not_found")
 
 
 # ---------------------------------------------------------------------------

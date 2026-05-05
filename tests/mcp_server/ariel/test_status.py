@@ -3,6 +3,7 @@
 import json
 from datetime import datetime
 from unittest.mock import AsyncMock, patch
+from tests.mcp_server.conftest import assert_error
 
 import pytest
 
@@ -121,6 +122,4 @@ async def test_status_service_exception(tmp_path, monkeypatch):
         fn = _get_status()
         result = await fn()
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    data = assert_error(result, error_type="internal_error")

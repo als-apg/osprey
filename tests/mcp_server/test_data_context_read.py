@@ -12,7 +12,7 @@ import json
 import pytest
 
 from osprey.stores.artifact_store import initialize_artifact_store
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
 
 def _save_entry(store, tool="channel_read", category="channel_values", data=None):
@@ -49,14 +49,14 @@ class TestDataRead:
     async def test_read_valid_entry(self, store, read_tool):
         entry = _save_entry(store)
 
-        result = json.loads(await read_tool(entry_id=entry.id))
+        result = extract_response_dict(await read_tool(entry_id=entry.id))
 
         assert result["value"] == 42
         assert result["units"] == "mA"
 
     @pytest.mark.asyncio
     async def test_read_missing_entry(self, store, read_tool):
-        result = json.loads(await read_tool(entry_id="nonexistent_id"))
+        result = extract_response_dict(await read_tool(entry_id="nonexistent_id"))
 
         assert result["error"] is True
         assert result["error_type"] == "not_found"
@@ -69,7 +69,7 @@ class TestDataRead:
         # Delete the data file from disk
         store.get_file_path(entry.id).unlink()
 
-        result = json.loads(await read_tool(entry_id=entry.id))
+        result = extract_response_dict(await read_tool(entry_id=entry.id))
 
         assert result["error"] is True
         assert result["error_type"] == "file_not_found"
@@ -81,7 +81,7 @@ class TestDataRead:
         # Overwrite data file with >5 MB content
         store.get_file_path(entry.id).write_text("x" * (6 * 1024 * 1024))
 
-        result = json.loads(await read_tool(entry_id=entry.id))
+        result = extract_response_dict(await read_tool(entry_id=entry.id))
 
         assert result["error"] is True
         assert result["error_type"] == "file_too_large"

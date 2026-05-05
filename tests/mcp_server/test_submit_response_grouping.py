@@ -9,6 +9,7 @@ while ``source_agent`` carries the delegating agent name.
 """
 
 import json
+from tests.mcp_server.conftest import extract_response_dict
 
 import pytest
 
@@ -40,7 +41,7 @@ class TestSubmitResponseGrouping:
             content="Found 3 beam loss events.",
             source_agent="logbook-search",
         )
-        data = json.loads(raw)
+        data = extract_response_dict(raw)
         assert data["status"] == "success"
 
         store = get_artifact_store()
@@ -58,7 +59,7 @@ class TestSubmitResponseGrouping:
             title="Generic Result",
             content="Some result without an agent.",
         )
-        data = json.loads(raw)
+        data = extract_response_dict(raw)
         assert data["status"] == "success"
 
         store = get_artifact_store()
@@ -75,7 +76,7 @@ class TestSubmitResponseGrouping:
             content="Found logbook entries.",
             source_agent="logbook-search",
         )
-        data = json.loads(raw)
+        data = extract_response_dict(raw)
 
         store = get_artifact_store()
         entry = store.get_entry(data["artifact_id"])
@@ -141,7 +142,7 @@ class TestSubmitResponseGrouping:
             content="Test content.",
             source_agent="logbook-search",
         )
-        data = json.loads(raw)
+        data = extract_response_dict(raw)
 
         store = get_artifact_store()
         entry = store.get_entry(data["artifact_id"])

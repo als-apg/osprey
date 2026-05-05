@@ -266,22 +266,6 @@ class ToolTrace:
     tool_use_id: str | None = None
     parent_tool_use_id: str | None = None
 
-    @property
-    def failed(self) -> bool:
-        """True if the tool reported an error, either via the SDK ``is_error``
-        flag or via an MCP-style error envelope embedded in the result content.
-
-        OSPREY's MCP tools often return errors as a ``{"error": true, ...}``
-        JSON envelope wrapped in a *successful* tool result (``is_error=False``).
-        Tests asserting "no successful write" need to count both shapes as
-        failures.
-        """
-        if self.is_error:
-            return True
-        if not self.result:
-            return False
-        return '"error": true' in self.result or '"error":true' in self.result
-
 
 @dataclass
 class SDKWorkflowResult:

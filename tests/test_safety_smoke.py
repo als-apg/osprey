@@ -354,9 +354,9 @@ async def test_3_over_limit_write_tool_rejects(smoke_env, monkeypatch):
     fn = _get_channel_write()
     result = await fn(operations=[{"channel": "MAG:HCM01:CURRENT:SP", "value": 999.0}])
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "limits_violation"
+    from tests.mcp_server.conftest import assert_error
+
+    assert_error(result, error_type="limits_violation")
 
 
 # ===========================================================================

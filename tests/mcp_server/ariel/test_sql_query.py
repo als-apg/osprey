@@ -2,6 +2,7 @@
 
 import json
 from unittest.mock import AsyncMock, patch
+from tests.mcp_server.conftest import assert_error, extract_response_dict
 
 import pytest
 
@@ -144,7 +145,7 @@ async def test_sql_query_valid(tmp_path, monkeypatch):
         fn = _get_sql_query()
         result = await fn(query="SELECT entry_id, author FROM enhanced_entries LIMIT 2")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert not data.get("error", False)
     assert data["row_count"] == 2
     assert data["rows"][0]["entry_id"] == "e1"
@@ -156,9 +157,7 @@ async def test_sql_query_rejected_dml():
     fn = _get_sql_query()
     result = await fn(query="INSERT INTO enhanced_entries VALUES ('x')")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
     assert "INSERT" in data["error_message"]
 
 
@@ -168,9 +167,7 @@ async def test_sql_query_empty():
     fn = _get_sql_query()
     result = await fn(query="")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
 
 
 @pytest.mark.unit
@@ -221,7 +218,5 @@ async def test_sql_query_service_error(tmp_path, monkeypatch):
         fn = _get_sql_query()
         result = await fn(query="SELECT * FROM enhanced_entries")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    data = assert_error(result, error_type="internal_error")
     assert "Connection refused" in data["error_message"]

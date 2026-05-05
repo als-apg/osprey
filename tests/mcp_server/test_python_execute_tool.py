@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from osprey.mcp_server.python_executor.executor import ExecutionResult
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_error, extract_response_dict, get_tool_fn
 
 
 def _get_python_execute():
@@ -67,7 +67,7 @@ async def test_python_execute_readonly(tmp_path, monkeypatch):
             execution_mode="readonly",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert "42" in data["summary"]["output"]
     assert data["summary"]["status"] == "Success"
@@ -93,9 +93,7 @@ async def test_python_execute_write_pattern_detection(tmp_path, monkeypatch):
             execution_mode="readonly",
         )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "safety_error"
+    data = assert_error(result, error_type="safety_error")
     assert "suggestions" in data
 
 
@@ -126,7 +124,7 @@ async def test_python_execute_execution_error(tmp_path, monkeypatch):
             execution_mode="readonly",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["summary"]["status"] == "Failed"
     assert "NameError" in data["summary"]["error"]
 
@@ -148,7 +146,7 @@ async def test_python_execute_data_file_saving(tmp_path, monkeypatch):
             save_output=True,
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert "artifact_id" in data
     assert "data_file" in data
@@ -182,7 +180,7 @@ async def test_python_execute_no_saving(tmp_path, monkeypatch):
             save_output=False,
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     # When save_output=False, returns inline (no context entry)
     assert "data_file" not in data
     assert "stdout" in data
@@ -217,7 +215,7 @@ async def test_python_execute_readwrite_mode(tmp_path, monkeypatch):
             execution_mode="readwrite",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["summary"]["status"] == "Success"
 
@@ -230,9 +228,7 @@ async def test_python_execute_empty_code(tmp_path, monkeypatch):
     fn = _get_python_execute()
     result = await fn(code="", description="empty")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
 
 
 @pytest.mark.unit
@@ -259,7 +255,7 @@ async def test_python_execute_pattern_detection_import_error(tmp_path, monkeypat
             execution_mode="readonly",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert "fallback" in data["summary"]["output"]
 
@@ -300,7 +296,7 @@ async def test_python_execute_uses_adapter(tmp_path, monkeypatch):
     assert call_kwargs["description"] == "adapter test"
     assert "save_artifact_fn" not in call_kwargs
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["summary"]["status"] == "Success"
     assert "adapter called" in data["summary"]["output"]
 
@@ -332,9 +328,7 @@ async def test_safety_checks_run_before_adapter(tmp_path, monkeypatch):
     # Adapter should NOT have been called
     mock_exec.assert_not_called()
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "safety_error"
+    data = assert_error(result, error_type="safety_error")
 
 
 @pytest.mark.unit
@@ -367,9 +361,7 @@ async def test_pattern_detection_runs_before_adapter(tmp_path, monkeypatch):
 
     mock_exec.assert_not_called()
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "safety_error"
+    data = assert_error(result, error_type="safety_error")
 
 
 @pytest.mark.unit
@@ -400,7 +392,7 @@ async def test_adapter_result_maps_to_tool_response(tmp_path, monkeypatch):
             execution_mode="readonly",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["summary"]["status"] == "Success"
     assert "output line 1" in data["summary"]["output"]
     assert data["summary"]["has_errors"] is False
@@ -433,7 +425,7 @@ async def test_adapter_error_returns_tool_error(tmp_path, monkeypatch):
             execution_mode="readonly",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["summary"]["status"] == "Failed"
     assert data["summary"]["has_errors"] is True
     assert "RuntimeError" in data["summary"]["error"]
@@ -466,7 +458,7 @@ async def test_notebook_artifact_created_from_adapter_result(tmp_path, monkeypat
             execution_mode="readonly",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     # Notebook artifact should be created
     assert "notebook_artifact_id" in data or "artifact_ids" in data.get("summary", {})
 
@@ -505,7 +497,7 @@ async def test_figure_artifacts_created_post_execution(tmp_path, monkeypatch):
             execution_mode="readonly",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     # Figure should have been saved as an artifact
     artifact_ids = data.get("summary", {}).get("artifact_ids", [])
     # At least notebook artifact + figure artifact
@@ -576,7 +568,7 @@ async def test_data_context_saves_adapter_result(tmp_path, monkeypatch):
             save_output=True,
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert "artifact_id" in data
     assert "data_file" in data
@@ -714,7 +706,7 @@ async def test_save_artifact_registered_in_gallery(tmp_path, monkeypatch):
             execution_mode="readonly",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     # Should have: 1 subprocess artifact + 1 notebook artifact
     artifact_ids = data.get("summary", {}).get("artifact_ids", data.get("artifact_ids", []))
     assert len(artifact_ids) >= 2

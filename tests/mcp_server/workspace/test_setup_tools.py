@@ -12,7 +12,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
 
 def _get_setup_inspect():
@@ -244,7 +244,7 @@ async def test_patch_yaml_file(project_dir):
     """setup_patch modifies a YAML config value."""
     fn = _get_setup_patch()
     with _patch_config_path(project_dir):
-        result = json.loads(
+        result = extract_response_dict(
             await fn(file="config.yml", key_path="control_system.writes_enabled", value="false")
         )
 
@@ -264,7 +264,7 @@ async def test_patch_json_file(project_dir):
     """setup_patch modifies a JSON config value."""
     fn = _get_setup_patch()
     with _patch_config_path(project_dir):
-        result = json.loads(
+        result = extract_response_dict(
             await fn(
                 file=".mcp.json",
                 key_path="mcpServers.workspace.command",
@@ -287,7 +287,7 @@ async def test_patch_yaml_type_conversion(project_dir):
     fn = _get_setup_patch()
     with _patch_config_path(project_dir):
         # String "42" should become integer 42
-        result = json.loads(
+        result = extract_response_dict(
             await fn(
                 file="config.yml",
                 key_path="control_system.timeout",
@@ -305,7 +305,7 @@ async def test_patch_creates_nested_keys(project_dir):
     """setup_patch creates intermediate keys that don't exist."""
     fn = _get_setup_patch()
     with _patch_config_path(project_dir):
-        result = json.loads(
+        result = extract_response_dict(
             await fn(
                 file="config.yml",
                 key_path="new_section.sub.key",
@@ -326,7 +326,7 @@ async def test_patch_whitelist_enforcement(project_dir):
     """setup_patch rejects files not in the whitelist."""
     fn = _get_setup_patch()
     with _patch_config_path(project_dir):
-        result = json.loads(await fn(file="settings.json", key_path="foo", value="bar"))
+        result = extract_response_dict(await fn(file="settings.json", key_path="foo", value="bar"))
 
     assert result["error"] is True
     assert result["error_type"] == "validation_error"
@@ -339,7 +339,7 @@ async def test_patch_rejects_traversal(project_dir):
     """setup_patch rejects key_path with '..' traversal."""
     fn = _get_setup_patch()
     with _patch_config_path(project_dir):
-        result = json.loads(await fn(file="config.yml", key_path="foo..bar", value="baz"))
+        result = extract_response_dict(await fn(file="config.yml", key_path="foo..bar", value="baz"))
 
     assert result["error"] is True
     assert result["error_type"] == "validation_error"
@@ -352,7 +352,7 @@ async def test_patch_rejects_absolute_path(project_dir):
     """setup_patch rejects key_path starting with / or ~."""
     fn = _get_setup_patch()
     with _patch_config_path(project_dir):
-        result = json.loads(await fn(file="config.yml", key_path="/etc/passwd", value="x"))
+        result = extract_response_dict(await fn(file="config.yml", key_path="/etc/passwd", value="x"))
 
     assert result["error"] is True
     assert result["error_type"] == "validation_error"
@@ -364,7 +364,7 @@ async def test_patch_rejects_empty_key_path(project_dir):
     """setup_patch rejects empty key_path."""
     fn = _get_setup_patch()
     with _patch_config_path(project_dir):
-        result = json.loads(await fn(file="config.yml", key_path="", value="x"))
+        result = extract_response_dict(await fn(file="config.yml", key_path="", value="x"))
 
     assert result["error"] is True
     assert result["error_type"] == "validation_error"
@@ -376,7 +376,7 @@ async def test_patch_hot_change_classification(project_dir):
     """setup_patch classifies known hot paths correctly."""
     fn = _get_setup_patch()
     with _patch_config_path(project_dir):
-        result = json.loads(
+        result = extract_response_dict(
             await fn(
                 file="config.yml",
                 key_path="control_system.writes_enabled",
@@ -393,7 +393,7 @@ async def test_patch_cold_change_classification(project_dir):
     """setup_patch classifies unknown paths as cold changes."""
     fn = _get_setup_patch()
     with _patch_config_path(project_dir):
-        result = json.loads(
+        result = extract_response_dict(
             await fn(
                 file="config.yml",
                 key_path="control_system.type",
@@ -412,7 +412,7 @@ async def test_patch_file_not_found(project_dir):
     # Remove .mcp.json
     (project_dir / ".mcp.json").unlink()
     with _patch_config_path(project_dir):
-        result = json.loads(await fn(file=".mcp.json", key_path="foo", value="bar"))
+        result = extract_response_dict(await fn(file=".mcp.json", key_path="foo", value="bar"))
 
     assert result["error"] is True
     assert result["error_type"] == "not_found"

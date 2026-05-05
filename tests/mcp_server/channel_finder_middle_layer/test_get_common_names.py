@@ -2,6 +2,7 @@
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
+from tests.mcp_server.conftest import assert_error, extract_response_dict
 
 import pytest
 
@@ -35,7 +36,7 @@ def test_get_common_names_returns_names(tmp_path, monkeypatch):
         fn = get_tool_fn(get_common_names)
         result = fn(system="SR", family="BPM")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["common_names"] == ["BPM 1", "BPM 2", "BPM 3"]
     mock_db.get_common_names.assert_called_once_with("SR", "BPM")
 
@@ -58,7 +59,7 @@ def test_get_common_names_returns_none(tmp_path, monkeypatch):
         fn = get_tool_fn(get_common_names)
         result = fn(system="SR", family="QF")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["common_names"] is None
     assert "message" in data
     assert "No common names" in data["message"]
@@ -82,7 +83,5 @@ def test_get_common_names_internal_error(tmp_path, monkeypatch):
         fn = get_tool_fn(get_common_names)
         result = fn(system="SR", family="BPM")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    data = assert_error(result, error_type="internal_error")
     assert "DB connection lost" in data["error_message"]

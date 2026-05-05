@@ -2,6 +2,7 @@
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
+from tests.mcp_server.conftest import assert_error, extract_response_dict
 
 import pytest
 
@@ -38,7 +39,7 @@ def test_list_systems_returns_systems(tmp_path, monkeypatch):
         fn = get_tool_fn(list_systems)
         result = fn()
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["total"] == 2
     assert data["systems"][0]["name"] == "SR"
     assert data["systems"][1]["name"] == "BR"
@@ -62,7 +63,7 @@ def test_list_systems_empty(tmp_path, monkeypatch):
         fn = get_tool_fn(list_systems)
         result = fn()
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["total"] == 0
     assert data["systems"] == []
 
@@ -85,7 +86,5 @@ def test_list_systems_internal_error(tmp_path, monkeypatch):
         fn = get_tool_fn(list_systems)
         result = fn()
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    data = assert_error(result, error_type="internal_error")
     assert "DB broke" in data["error_message"]

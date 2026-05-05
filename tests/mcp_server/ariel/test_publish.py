@@ -2,6 +2,7 @@
 
 import json
 from unittest.mock import AsyncMock, patch
+from tests.mcp_server.conftest import assert_error
 
 import pytest
 
@@ -58,9 +59,7 @@ async def test_entry_publish_empty_id():
     fn = _get_entry_publish()
     result = await fn(entry_id="")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = assert_error(result, error_type="validation_error")
 
 
 @pytest.mark.unit
@@ -78,9 +77,7 @@ async def test_entry_publish_not_found(tmp_path, monkeypatch):
         fn = _get_entry_publish()
         result = await fn(entry_id="e99")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "not_found"
+    data = assert_error(result, error_type="not_found")
 
 
 @pytest.mark.unit
@@ -100,6 +97,4 @@ async def test_entry_publish_writes_not_supported(tmp_path, monkeypatch):
         fn = _get_entry_publish()
         result = await fn(entry_id="e1")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "not_supported"
+    data = assert_error(result, error_type="not_supported")

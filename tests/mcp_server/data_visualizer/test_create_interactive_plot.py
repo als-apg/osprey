@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
+from tests.mcp_server.conftest import extract_response_dict
 
 import pytest
 
@@ -37,13 +38,13 @@ class TestCreateInteractivePlot:
         return folder
 
     async def test_empty_code_returns_error(self, tool_fn):
-        result = json.loads(await tool_fn(code="", title="test"))
+        result = extract_response_dict(await tool_fn(code="", title="test"))
         assert result["error"] is True
         assert result["error_type"] == "validation_error"
         assert "No plotting code" in result["error_message"]
 
     async def test_whitespace_code_returns_error(self, tool_fn):
-        result = json.loads(await tool_fn(code="   ", title="test"))
+        result = extract_response_dict(await tool_fn(code="   ", title="test"))
         assert result["error"] is True
 
     async def test_execution_failure(self, tool_fn, mock_execution_folder):
@@ -58,7 +59,7 @@ class TestCreateInteractivePlot:
             patch(_SANDBOX_EXEC_TARGET, new_callable=AsyncMock, return_value=mock_result),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
         ):
-            result = json.loads(await tool_fn(code="import plotly", title="Bad Plot"))
+            result = extract_response_dict(await tool_fn(code="import plotly", title="Bad Plot"))
 
         assert result["error"] is True
         assert result["error_type"] == "execution_error"
@@ -75,7 +76,7 @@ class TestCreateInteractivePlot:
             patch(_SANDBOX_EXEC_TARGET, new_callable=AsyncMock, return_value=mock_result),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
         ):
-            result = json.loads(await tool_fn(code="x = 1", title="No-op Plot"))
+            result = extract_response_dict(await tool_fn(code="x = 1", title="No-op Plot"))
 
         assert result["status"] == "success"
         assert result["artifact_ids"] == []
@@ -104,7 +105,7 @@ class TestCreateInteractivePlot:
             patch(_SANDBOX_EXEC_TARGET, new_callable=AsyncMock, return_value=mock_result),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
         ):
-            result = json.loads(
+            result = extract_response_dict(
                 await tool_fn(
                     code="import plotly.graph_objects as go\nfig = go.Figure()\nsave_artifact(fig, 'Interactive Chart')",
                     title="Interactive Chart",

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_error, extract_response_dict, get_tool_fn
 
 
 def _get_python_execute():
@@ -30,9 +30,7 @@ async def test_syntax_error_caught_before_execution(tmp_path, monkeypatch):
         execution_mode="readonly",
     )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "safety_error"
+    data = assert_error(result, error_type="safety_error")
     assert any("Syntax error" in s for s in data["suggestions"])
 
 
@@ -48,9 +46,7 @@ async def test_exec_call_flagged(tmp_path, monkeypatch):
         execution_mode="readonly",
     )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "safety_error"
+    data = assert_error(result, error_type="safety_error")
     assert any("exec" in s.lower() for s in data["suggestions"])
 
 
@@ -66,9 +62,7 @@ async def test_eval_call_flagged(tmp_path, monkeypatch):
         execution_mode="readonly",
     )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "safety_error"
+    data = assert_error(result, error_type="safety_error")
     assert any("eval" in s.lower() for s in data["suggestions"])
 
 
@@ -84,9 +78,7 @@ async def test_prohibited_import_blocked(tmp_path, monkeypatch):
         execution_mode="readonly",
     )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "safety_error"
+    data = assert_error(result, error_type="safety_error")
     assert any("subprocess" in s.lower() for s in data["suggestions"])
 
 
@@ -121,7 +113,7 @@ async def test_valid_code_passes_safety_checks(tmp_path, monkeypatch):
             execution_mode="readonly",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data.get("error") is not True
     assert "4" in data["summary"]["output"]
 
@@ -138,9 +130,7 @@ async def test_dunder_import_flagged(tmp_path, monkeypatch):
         execution_mode="readonly",
     )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "safety_error"
+    data = assert_error(result, error_type="safety_error")
 
 
 @pytest.mark.unit

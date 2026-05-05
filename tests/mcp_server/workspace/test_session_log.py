@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_error, extract_response_dict, get_tool_fn
 
 
 def _get_session_log():
@@ -509,7 +509,7 @@ async def test_agent_id_correlation(concurrent_agent_events, tmp_path):
         _patch_transcript_reader(concurrent_agent_events),
     ):
         # agent-B should get only create_dashboard (its agent_id)
-        result = json.loads(await fn(agent_id="agent-B"))
+        result = extract_response_dict(await fn(agent_id="agent-B"))
 
     tool_calls = [e for e in result["events"] if e["type"] == "tool_call"]
     assert len(tool_calls) == 1
@@ -555,7 +555,7 @@ async def test_time_window_fallback(tmp_path):
         ),
         _patch_transcript_reader(events),
     ):
-        result = json.loads(await fn(agent="data-visualizer"))
+        result = extract_response_dict(await fn(agent="data-visualizer"))
 
     # Should still match the tool_call via time-window fallback
     assert result["total_events"] == 3
@@ -578,9 +578,5 @@ async def test_since_invalid_format(tmp_path):
     ):
         result = await fn(since="not-a-timestamp")
 
-    # make_error returns a dict, check it has error fields
-    if isinstance(result, str):
-        result = json.loads(result)
-    assert result["error"] is True
-    assert result["error_type"] == "validation_error"
-    assert "since" in result["error_message"]
+    envelope = assert_error(result, error_type="validation_error")
+    assert "since" in envelope["error_message"]
