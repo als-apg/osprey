@@ -388,9 +388,9 @@ class TestKeywordSearchE2E:
         )
 
         # Should find E006 (Morning Shift Summary by oper_smith)
-        if results:
-            authors = {entry["author"] for entry, score, highlights in results}
-            assert "oper_smith" in authors, f"Expected oper_smith in authors, got: {authors}"
+        assert results, "Expected at least one result for 'author:oper_smith shift'"
+        authors = {entry["author"] for entry, score, highlights in results}
+        assert "oper_smith" in authors, f"Expected oper_smith in authors, got: {authors}"
 
     async def test_no_results_for_nonexistent_term(self, seeded_ariel_db):
         """Search for nonexistent term returns empty results."""
@@ -575,10 +575,24 @@ class TestRAGSearchE2E:
             similarity_threshold=0.7,  # High threshold to ensure no matches
         )
 
-        # Should have no sources or acknowledge lack of information
+        # Should have no sources or acknowledge lack of information.
+        # The answer must explicitly state insufficient info — the previous
+        # `or len(result.entries) == 0` disjunct made the assertion vacuous
+        # whenever the `if` guard was true.
         if not result.entries:
-            assert (
-                "don't have enough information" in result.answer.lower() or len(result.entries) == 0
+            answer_lower = result.answer.lower()
+            no_info_phrases = [
+                "don't have enough information",
+                "no relevant",
+                "not enough information",
+                "no information",
+                "cannot answer",
+                "unable to answer",
+                "no entries",
+            ]
+            assert any(phrase in answer_lower for phrase in no_info_phrases), (
+                "With no retrieved entries, the answer should acknowledge "
+                f"insufficient information. Got: {result.answer[:300]}"
             )
         # If there are sources, they shouldn't be about moon composition
         # (the model should still ground its answer appropriately)

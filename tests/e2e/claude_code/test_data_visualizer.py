@@ -210,12 +210,29 @@ class TestDataVisualizerAgent:
             f"{[t.result[:200] for t in viz_errors if t.result]}"
         )
 
-        # Verify data_source was passed
-        for call in viz_calls:
-            ds = call.input.get("data_source")
-            if ds is not None:
-                print(f"  data_source value: {ds!r}")
-                break
+        # REGRESSION CRITERION: at least one viz call must have used a
+        # context-entry ID (small integer, or its string repr) as data_source.
+        # The bug under test was that build_data_reader() rejected integer
+        # IDs — accepting a file path or 12-char hex artifact ID would
+        # leave the regression unverified.
+        def _looks_like_context_entry_id(ds: object) -> bool:
+            if isinstance(ds, int):
+                return True
+            if isinstance(ds, str):
+                stripped = ds.strip()
+                # Plain int repr like "2" or "17" — exclude artifact IDs
+                # (12-char hex) and file paths (contain "/" or ".").
+                return stripped.isdigit() and len(stripped) <= 6
+            return False
+
+        data_sources = [call.input.get("data_source") for call in viz_calls]
+        print(f"  data_source values: {data_sources!r}")
+        assert any(_looks_like_context_entry_id(ds) for ds in data_sources), (
+            "No create_interactive_plot call used a context-entry ID as data_source. "
+            "The agent may have fallen back to file paths or artifact IDs, which "
+            "would not exercise the regression target. "
+            f"data_source values seen: {data_sources!r}"
+        )
 
         # HTML artifact produced
         html_files = find_html_files(project_dir / "_agent_data")
