@@ -133,6 +133,9 @@ def log_hook(hook_name, hook_input, status="ok", detail=""):
 
             log_path = Path(project_dir) / ".claude" / "hooks" / "hook_debug.jsonl"
             record = {"ts": ts, "hook": hook_name, "tool": tool, "status": status}
+            tool_use_id = hook_input.get("tool_use_id")
+            if tool_use_id:
+                record["tool_use_id"] = tool_use_id
             if detail:
                 record["detail"] = detail
             with open(log_path, "a") as f:
