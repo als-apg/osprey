@@ -47,10 +47,8 @@ def get_common_names(system: str, family: str) -> str:
 
     except Exception as exc:
         logger.exception("get_common_names failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to get common names: {exc}",
                 ["Check that the channel finder database is configured."],
             )
-        )

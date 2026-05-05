@@ -55,21 +55,17 @@ def build_channels(selections: dict) -> str:
         return json.dumps(result)
 
     except ValueError as exc:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 str(exc),
                 [
                     "Use get_options to discover hierarchy levels and valid options.",
                 ],
             )
-        )
     except Exception as exc:
         logger.exception("build_channels failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to build channels: {exc}",
                 ["Check that the channel finder database is configured."],
             )
-        )

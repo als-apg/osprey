@@ -25,10 +25,8 @@ def statistics() -> str:
 
     except Exception as exc:
         logger.exception("statistics failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to get statistics: {exc}",
                 ["Check that the channel finder database is configured."],
             )
-        )

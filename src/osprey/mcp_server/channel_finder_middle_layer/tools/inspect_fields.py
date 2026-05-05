@@ -41,8 +41,7 @@ def inspect_fields(
         return json.dumps({"fields": fields})
 
     except ValueError as exc:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 str(exc),
                 [
@@ -50,13 +49,10 @@ def inspect_fields(
                     "Use list_families to see families in a system.",
                 ],
             )
-        )
     except Exception as exc:
         logger.exception("inspect_fields failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to inspect fields: {exc}",
                 ["Check that the channel finder database is configured."],
             )
-        )

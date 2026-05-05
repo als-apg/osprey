@@ -31,19 +31,15 @@ def list_families(system: str) -> str:
         return json.dumps({"families": families, "total": len(families)})
 
     except ValueError as exc:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 str(exc),
                 ["Use list_systems to see available systems."],
             )
-        )
     except Exception as exc:
         logger.exception("list_families failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to list families: {exc}",
                 ["Check that the channel finder database is configured."],
             )
-        )

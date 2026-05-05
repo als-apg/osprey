@@ -29,10 +29,8 @@ def list_systems() -> str:
 
     except Exception as exc:
         logger.exception("list_systems failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to list systems: {exc}",
                 ["Check that the channel finder database is configured."],
             )
-        )

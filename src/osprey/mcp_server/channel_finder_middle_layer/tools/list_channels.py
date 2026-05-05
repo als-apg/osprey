@@ -51,8 +51,7 @@ def list_channels(
         return json.dumps(result)
 
     except ValueError as exc:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 str(exc),
                 [
@@ -61,13 +60,10 @@ def list_channels(
                     "Use inspect_fields to see available fields.",
                 ],
             )
-        )
     except Exception as exc:
         logger.exception("list_channels failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to list channels: {exc}",
                 ["Check that the channel finder database is configured."],
             )
-        )
