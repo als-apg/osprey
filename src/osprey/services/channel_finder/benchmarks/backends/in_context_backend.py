@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from osprey.services.channel_finder.benchmarks.harness import mcp_client_session
 from osprey.services.channel_finder.benchmarks.sdk import ToolTrace, sdk_env
 
 from .base import Backend, WorkflowOutput
+
+if TYPE_CHECKING:
+    from osprey.cli.claude_code_resolver import ClaudeCodeModelSpec
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +38,11 @@ class InContextBackend(Backend):
     """Run a single ``query_channels`` MCP tool call with no outer agent loop.
 
     The inner LLM call happens inside the spawned MCP subprocess; the outer
-    benchmark process only sees the tool result string.
+    benchmark process only sees the tool result string. The subprocess reads
+    its own provider/model_id from ``OSPREY_CONFIG`` and routes through
+    ``aget_chat_completion`` (which calls ``get_litellm_model_name``
+    internally), so the slug grammar never appears here. The ``provider`` /
+    ``model`` fields on this backend are observability metadata only.
 
     The backend identifier is ``"direct"`` rather than ``"in_context"`` —
     that's the *paradigm* this backend can host, not the harness shape.
@@ -45,9 +53,17 @@ class InContextBackend(Backend):
 
     name = "direct"
 
-    def __init__(self, project_dir: Path, model: str) -> None:
+    def __init__(
+        self,
+        project_dir: Path,
+        spec: ClaudeCodeModelSpec,
+        tier: str,
+    ) -> None:
         self.project_dir = project_dir
-        self.model = model
+        self.spec = spec
+        self.tier = tier
+        self.provider = spec.provider
+        self.model = spec.tier_to_model[tier]
         # sdk_env injects provider auth; OSPREY_CONFIG ensures the subprocess
         # finds the project config.yml regardless of cwd.
         self._env = sdk_env(project_dir) | {
@@ -78,7 +94,11 @@ class InContextBackend(Backend):
 
         trace = ToolTrace(
             name="query_channels",
-            input={"query": prompt, "_inner_model_id": self.model},
+            input={
+                "query": prompt,
+                "_inner_provider": self.provider,
+                "_inner_model_id": self.model,
+            },
             result=result_text,
             is_error=is_error,
         )

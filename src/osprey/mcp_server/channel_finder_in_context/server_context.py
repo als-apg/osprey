@@ -101,28 +101,39 @@ class ChannelFinderICContext:
         facility = self._raw_config.get("facility", {})
         self._facility_name = facility.get("name", "control system")
 
-        # Resolve subagent model and provider
+        # Resolve subagent model and provider.
+        #
+        # The pipeline-local override (subagent_model / subagent_provider) wins
+        # because the outer agent's provider — often an OpenAI-compatible
+        # router like cborg — cannot dispatch every model the inner subagent
+        # might run (e.g. an ollama/* model must reach a local Ollama daemon,
+        # not cborg's /chat/completions).
+        #
+        # When no override is given, fall through to the same resolver that
+        # `osprey build` uses for the outer Claude Code config so the in-context
+        # server agrees with what the rest of the toolchain considers "the
+        # configured model" — that's `claude_code.default_model` (a tier) +
+        # `claude_code.models` / `api.providers[name].models` (tier→model map).
         cc_config = self._raw_config.get("claude_code", {})
         ic_model = ic_config.get("subagent_model")
-        cc_model = cc_config.get("model")
+        ic_provider = ic_config.get("subagent_provider")
+
         if ic_model:
             self._subagent_model_id = ic_model
-        elif cc_model:
-            self._subagent_model_id = cc_model
+            self._subagent_provider = ic_provider if ic_provider else cc_config.get("provider", "")
         else:
-            raise RuntimeError(
-                "No subagent model configured. Set either "
-                "'channel_finder.pipelines.in_context.subagent_model' or "
-                "'claude_code.model' in config.yml."
-            )
+            from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
 
-        # Provider precedence: explicit pipelines.in_context.subagent_provider wins,
-        # else fall back to claude_code.provider. The override exists because the
-        # outer agent's provider (often an OpenAI-compatible router like cborg)
-        # cannot dispatch every model the inner subagent might run — e.g. an
-        # ollama/* model must reach a local Ollama daemon, not cborg's /chat/completions.
-        ic_provider = ic_config.get("subagent_provider")
-        self._subagent_provider = ic_provider if ic_provider else cc_config.get("provider", "")
+            api_providers = self._raw_config.get("api", {}).get("providers", {})
+            spec = ClaudeCodeModelResolver.resolve(cc_config, api_providers)
+            if spec is None:
+                raise RuntimeError(
+                    "No subagent model configured. Set either "
+                    "'channel_finder.pipelines.in_context.subagent_model' or "
+                    "'claude_code.provider' (with 'default_model' tier) in config.yml."
+                )
+            self._subagent_model_id = spec.tier_to_model[spec.default_model_tier]
+            self._subagent_provider = ic_provider if ic_provider else spec.provider
 
         # Arm rate limiter for providers with a known RPM cap
         rpm_cap = PROVIDER_RPM.get(self._subagent_provider)

@@ -121,7 +121,7 @@ The database follows MATLAB Middle Layer (MML) functional organization
 
    python -m osprey.services.channel_finder.utils.mml_converter \
       --input path/to/mml_exports.py \
-      --output data/channel_databases/middle_layer.json
+      --output data/channel_databases/tiers/tier1/middle_layer.json
 
 
 Web Interface
@@ -146,12 +146,12 @@ Key ``config.yml`` settings:
      pipeline_mode: in_context  # "in_context", "hierarchical", or "middle_layer"
      pipelines:
        in_context:
-         database: {type: template, path: data/channel_databases/in_context.json}
+         database: {type: template, path: data/channel_databases/tiers/tier1/in_context.json}
          processing: {chunk_dictionary: false, chunk_size: 50}
        hierarchical:
-         database: {type: hierarchical, path: data/channel_databases/hierarchical.json}
+         database: {type: hierarchical, path: data/channel_databases/tiers/tier1/hierarchical.json}
        middle_layer:
-         database: {type: middle_layer, path: data/channel_databases/middle_layer.json}
+         database: {type: middle_layer, path: data/channel_databases/tiers/tier1/middle_layer.json}
      benchmark:
        dataset_path: data/benchmarks/datasets/benchmark.json
    benchmark:

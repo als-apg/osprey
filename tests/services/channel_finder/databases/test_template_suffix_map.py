@@ -132,9 +132,12 @@ class TestShippedTemplateDatabaseRenders:
 
     @pytest.fixture()
     def shipped_db(self) -> ChannelDatabase:
+        # tier3 carries the same content the now-removed top-level
+        # in_context.json carried — use it so address-mapping assertions
+        # stay anchored to the full preset DB.
         path = (
             Path(__file__).parents[4]
-            / "src/osprey/templates/apps/control_assistant/data/channel_databases/in_context.json"
+            / "src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/tier3/in_context.json"
         )
         return ChannelDatabase(str(path))
 

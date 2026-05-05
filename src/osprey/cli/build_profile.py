@@ -170,6 +170,12 @@ class BuildProfile:
     provider: str | None = None
     model: str | None = None
     channel_finder_mode: str | None = None
+    tier: int = 1
+    """Channel-database tier (1|2|3) controlling which `tiers/tier{N}` DB the
+    rendered config points at. Tier 1 is the smallest slice and the default
+    for benchmarks; tier 3 is the full preset. Same value gates query and
+    DB scope so per-paradigm benchmarks stay coherent.
+    """
     config: dict[str, Any] = field(default_factory=dict)
     overlay: dict[str, str] = field(default_factory=dict)
     mcp_servers: dict[str, McpServerDef] = field(default_factory=dict)
@@ -196,6 +202,9 @@ class BuildProfile:
 
         if not self.name:
             errors.append("Profile 'name' is required")
+
+        if self.tier not in (1, 2, 3):
+            errors.append(f"tier must be 1, 2, or 3 (got {self.tier!r})")
 
         # Validate overlay source paths exist
         for src, _dst in self.overlay.items():
@@ -350,6 +359,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "provider",
         "model",
         "channel_finder_mode",
+        "tier",
         "config",
         "overlay",
         "mcp_servers",
@@ -447,6 +457,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         provider=raw.get("provider"),
         model=raw.get("model"),
         channel_finder_mode=raw.get("channel_finder_mode"),
+        tier=int(raw.get("tier", 1)),
         config=raw.get("config", {}),
         overlay=raw.get("overlay", {}),
         mcp_servers=mcp_servers,

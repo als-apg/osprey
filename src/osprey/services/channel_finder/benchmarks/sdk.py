@@ -118,6 +118,19 @@ def sdk_env(project_dir: Path | None = None) -> dict[str, str]:
     Bypasses nested-session guard (CLAUDECODE="") and injects provider
     auth from the project's config.yml so the CLI authenticates correctly
     against Anthropic, CBORG, or other configured providers.
+
+    Two grammars are propagated, because the project has two LLM call paths:
+
+    * The outer Claude Code CLI authenticates via the gateway bearer
+      (``ANTHROPIC_AUTH_TOKEN`` etc.) — that's what ``inject_provider_env``
+      sets up.
+    * The inner ``aget_chat_completion`` path (used by the in-context MCP
+      server's ``query_channels`` tool) reads
+      ``api.providers[name].api_key: ${SECRET}`` from config.yml and expands
+      it against the subprocess environment. MCP's ``stdio_client`` inherits
+      only a tiny safe-list (HOME, LOGNAME, PATH, SHELL, TERM, USER), so the
+      raw secret env var must be carried through explicitly or the literal
+      ``${SECRET}`` reaches litellm and fails authentication.
     """
     import os
 
@@ -146,10 +159,49 @@ def sdk_env(project_dir: Path | None = None) -> dict[str, str]:
                     for key in list(scratch):
                         if scratch[key] != os.environ.get(key):
                             env[key] = scratch[key]
+
+                    # Also propagate the raw upstream secret so config.yml's
+                    # ${SECRET} placeholders in api.providers[name].api_key
+                    # expand correctly inside the MCP subprocess (see docstring).
+                    if spec.auth_secret_env:
+                        secret_value = os.environ.get(spec.auth_secret_env)
+                        if secret_value:
+                            env[spec.auth_secret_env] = secret_value
         except Exception:
             pass  # Fall back to bare env if resolver unavailable
 
     return env
+
+
+def _resolve_default_sdk_model(project_dir: Path) -> str:
+    """Resolve the bare wire id of the project's default Claude Code model.
+
+    Reads ``config.yml`` and returns ``spec.tier_to_model[spec.default_model_tier]``
+    — the same wire id the production CLI uses. Raises ``ValueError`` when no
+    provider is configured so callers fail loudly instead of silently sending
+    a bogus default to the upstream API.
+    """
+    import yaml
+
+    from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
+
+    config_path = project_dir / "config.yml"
+    if not config_path.exists():
+        raise ValueError(
+            f"config.yml not found in {project_dir}; cannot resolve default SDK model"
+        )
+
+    config = yaml.safe_load(config_path.read_text()) or {}
+    spec = ClaudeCodeModelResolver.resolve(
+        config.get("claude_code", {}),
+        config.get("api", {}).get("providers", {}),
+    )
+    if spec is None:
+        raise ValueError(
+            f"No claude_code.provider configured in {config_path}; "
+            "pass model= explicitly to run_sdk_query"
+        )
+    return spec.tier_to_model[spec.default_model_tier]
 
 
 def combined_text(result: SDKWorkflowResult) -> str:
@@ -168,6 +220,7 @@ def init_project(
     provider: str = "anthropic",
     model: str = "haiku",
     channel_finder_mode: str | None = None,
+    tier: int = 1,
 ) -> Path:
     """Create a project via ``osprey build --preset <template>``, return project_dir."""
     from click.testing import CliRunner
@@ -183,6 +236,8 @@ def init_project(
         "--skip-lifecycle",
         "--output-dir",
         str(tmp_path),
+        "--tier",
+        str(tier),
         "--set",
         f"provider={provider}",
         "--set",
@@ -252,7 +307,7 @@ async def run_sdk_query(
     *,
     max_turns: int = 25,
     max_budget_usd: float = 2.0,
-    model: str = "anthropic/claude-haiku",
+    model: str | None = None,
 ) -> SDKWorkflowResult:
     """Run a benchmark query as the channel-finder sub-agent.
 
@@ -275,11 +330,20 @@ async def run_sdk_query(
         prompt: The user prompt to send.
         max_turns: Maximum agentic turns before stopping.
         max_budget_usd: Budget cap in USD.
-        model: Model to use (defaults to Haiku for cost-effectiveness).
+        model: Bare wire-id of the Anthropic-compatible model to use
+            (e.g. ``"claude-haiku-4-5-20251001"``). Must be a wire id, not
+            a LiteLLM-style ``provider/<wire>`` slug — the SDK CLI forwards
+            ``--model`` verbatim to the upstream Anthropic API and gateways
+            like als-apg reject prefixed slugs with ``key_model_access_denied``.
+            When ``None``, resolves the project's ``claude_code.provider``
+            default tier from ``config.yml``.
 
     Returns:
         SDKWorkflowResult with all collected tool traces, text, and metadata.
     """
+    if model is None:
+        model = _resolve_default_sdk_model(project_dir)
+
     # Read the channel-finder agent's dedicated prompt
     agent_prompt = _read_agent_prompt(project_dir)
 

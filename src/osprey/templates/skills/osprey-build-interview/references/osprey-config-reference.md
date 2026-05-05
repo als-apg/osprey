@@ -188,7 +188,7 @@ channel_finder:
     in_context:
       database:
         type: flat
-        path: data/channel_databases/in_context.json
+        path: data/channel_databases/tiers/tier1/in_context.json
         presentation_mode: explicit
       processing:
         chunk_dictionary: false
@@ -400,7 +400,7 @@ channel_finder:
     in_context:
       database:
         type: flat
-        path: data/channel_databases/in_context.json
+        path: data/channel_databases/tiers/tier1/in_context.json
         presentation_mode: explicit
       processing:
         chunk_dictionary: false

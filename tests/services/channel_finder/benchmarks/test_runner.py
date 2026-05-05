@@ -81,8 +81,15 @@ def _make_project_dir(
     *,
     pipeline_mode: str = "in_context",
     queries: list[dict] | None = None,
+    provider: str = "anthropic",
 ) -> Path:
-    """Create a fake project directory with config.yml and benchmark queries."""
+    """Create a fake project directory with config.yml and benchmark queries.
+
+    Always writes a ``claude_code.provider`` so ``BenchmarkRunner`` can
+    resolve a ``ClaudeCodeModelSpec`` (the runner refuses to construct
+    without one). Defaults to ``anthropic`` so the resolver picks up
+    built-in tier→wire-id mappings without needing ``api.providers``.
+    """
     project_dir = tmp_path / "project"
     project_dir.mkdir(exist_ok=True)
 
@@ -94,6 +101,7 @@ def _make_project_dir(
     )
 
     config = {
+        "claude_code": {"provider": provider},
         "channel_finder": {
             "pipeline_mode": pipeline_mode,
             "pipelines": {
@@ -106,10 +114,17 @@ def _make_project_dir(
                     },
                 }
             },
-        }
+        },
     }
     (project_dir / "config.yml").write_text(yaml.dump(config), encoding="utf-8")
     return project_dir
+
+
+# Wire IDs that the anthropic provider's CLAUDE_CODE_PROVIDERS entry maps tiers to.
+# Used by the assertions below — kept here so a model-ID change in the resolver
+# is caught at one place rather than scattered across tests.
+_HAIKU_WIRE = "claude-haiku-4-5-20251001"
+_SONNET_WIRE = "claude-sonnet-4-5-20250929"
 
 
 # ---------------------------------------------------------------------------
@@ -124,7 +139,8 @@ class TestBenchmarkRunnerInit:
         project_dir = _make_project_dir(tmp_path)
         runner = BenchmarkRunner(project_dir)
         assert runner.project_dir == project_dir
-        assert runner.model == "anthropic/claude-haiku"
+        assert runner.model_tier == "haiku"
+        assert runner.model == _HAIKU_WIRE
         assert runner.max_turns == 25
         assert runner.max_budget_per_query == 2.0
         assert runner.max_concurrent == 5
@@ -136,19 +152,36 @@ class TestBenchmarkRunnerInit:
         override = tmp_path / "custom.json"
         runner = BenchmarkRunner(
             project_dir,
-            model="anthropic/claude-sonnet",
+            model_tier="sonnet",
             max_turns=10,
             max_budget_per_query=5.0,
             max_concurrent=3,
             verbose=True,
             queries_override=override,
         )
-        assert runner.model == "anthropic/claude-sonnet"
+        assert runner.model_tier == "sonnet"
+        assert runner.model == _SONNET_WIRE
         assert runner.max_turns == 10
         assert runner.max_budget_per_query == 5.0
         assert runner.max_concurrent == 3
         assert runner.verbose is True
         assert runner.queries_override == override
+
+    def test_unknown_tier_raises(self, tmp_path: Path):
+        project_dir = _make_project_dir(tmp_path)
+        with pytest.raises(KeyError, match="not configured for provider"):
+            BenchmarkRunner(project_dir, model_tier="bogus-tier")
+
+    def test_missing_provider_raises(self, tmp_path: Path):
+        project_dir = tmp_path / "no-provider"
+        project_dir.mkdir()
+        # Config without claude_code.provider — runner must refuse to construct.
+        (project_dir / "config.yml").write_text(
+            yaml.dump({"channel_finder": {"pipeline_mode": "in_context"}}),
+            encoding="utf-8",
+        )
+        with pytest.raises(ValueError, match="No claude_code.provider configured"):
+            BenchmarkRunner(project_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -165,8 +198,14 @@ class TestConfigReading:
         config = runner._read_config()
         assert config["channel_finder"]["pipeline_mode"] == "in_context"
 
-    def test_read_config_missing_file(self, tmp_path: Path):
-        runner = BenchmarkRunner(tmp_path)
+    def test_read_config_missing_file_after_delete(self, tmp_path: Path):
+        # Construct against a valid config, then remove it to verify the
+        # internal reader still raises when called later. (Construction
+        # itself eagerly resolves the spec, so we can't construct without
+        # config — that case is covered by ``test_missing_provider_raises``.)
+        project_dir = _make_project_dir(tmp_path)
+        runner = BenchmarkRunner(project_dir)
+        (project_dir / "config.yml").unlink()
         with pytest.raises(FileNotFoundError):
             runner._read_config()
 
@@ -233,7 +272,7 @@ class TestRunQueries:
         assert isinstance(result, BenchmarkRun)
         assert result.paradigm == "in_context"
         assert result.tier is None
-        assert result.model == "anthropic/claude-haiku"
+        assert result.model == _HAIKU_WIRE
         assert len(result.query_results) == 2
 
         for qr in result.query_results:
@@ -355,7 +394,7 @@ class TestRunQueries:
             await runner.run_queries(output_dir=output_dir)
 
         assert output_dir.exists()
-        json_files = list(output_dir.glob("query_*_anthropic_claude-haiku_sdk_r0.json"))
+        json_files = list(output_dir.glob(f"query_*_{_HAIKU_WIRE}_sdk_r0.json"))
         assert len(json_files) == 2
 
     @pytest.mark.asyncio()
@@ -378,8 +417,8 @@ class TestRunQueries:
             run = await runner.run_queries(output_dir=output_dir)
 
         assert run.repeat_idx == 2
-        files_r2 = list(output_dir.glob("query_*_anthropic_claude-haiku_sdk_r2.json"))
-        files_r0 = list(output_dir.glob("query_*_anthropic_claude-haiku_sdk_r0.json"))
+        files_r2 = list(output_dir.glob(f"query_*_{_HAIKU_WIRE}_sdk_r2.json"))
+        files_r0 = list(output_dir.glob(f"query_*_{_HAIKU_WIRE}_sdk_r0.json"))
         assert len(files_r2) == 2
         assert len(files_r0) == 0
 
@@ -464,7 +503,7 @@ class TestReadDbPathFromConfig:
                 "pipelines": {
                     "in_context": {
                         "database": {
-                            "path": "data/channel_databases/in_context.json",
+                            "path": "data/channel_databases/tiers/tier1/in_context.json",
                         }
                     }
                 }
@@ -473,7 +512,14 @@ class TestReadDbPathFromConfig:
         (project_dir / "config.yml").write_text(yaml.dump(config), encoding="utf-8")
 
         result = read_db_path_from_config(project_dir, "in_context")
-        expected = (project_dir / "data" / "channel_databases" / "in_context.json").resolve()
+        expected = (
+            project_dir
+            / "data"
+            / "channel_databases"
+            / "tiers"
+            / "tier1"
+            / "in_context.json"
+        ).resolve()
         assert result == expected
 
     def test_missing_config_raises(self, tmp_path: Path):

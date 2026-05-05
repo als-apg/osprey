@@ -461,7 +461,7 @@ config:
   system.timezone: "<facility_timezone>"
 
 overlay:
-  channels.json: data/channel_databases/in_context.json
+  channels.json: data/channel_databases/tiers/tier1/in_context.json
   # channel_limits.json: data/channel_limits.json  # if write access
 ```
 

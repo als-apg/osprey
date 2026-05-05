@@ -503,9 +503,15 @@ def _parse_query_indices(queries_spec: str, total: int) -> list[int]:
 
 @channel_finder.command("benchmark")
 @click.option(
-    "--model",
-    default="anthropic/claude-haiku",
-    help="Model identifier (default: anthropic/claude-haiku)",
+    "--tier",
+    type=click.Choice(["haiku", "sonnet", "opus"]),
+    default="haiku",
+    help=(
+        "Model tier alias (default: haiku). Resolves to the wire id from "
+        "the project's claude_code.provider — the same path the Claude "
+        "Code CLI uses. To switch providers, edit claude_code.provider "
+        "in config.yml; no flag change needed."
+    ),
 )
 @click.option(
     "--queries",
@@ -544,7 +550,7 @@ def _parse_query_indices(queries_spec: str, total: int) -> list[int]:
 @click.pass_context
 def benchmark(
     ctx,
-    model: str,
+    tier: str,
     queries: str,
     verbose: bool,
     runs_per_query: int,
@@ -555,14 +561,14 @@ def benchmark(
     """Run channel finder benchmarks against the current project.
 
     Evaluates channel finder accuracy using the Claude Agent SDK.
-    Reads the pipeline mode and benchmark dataset from the project's
-    config.yml.
+    Reads the pipeline mode, provider, and benchmark dataset from the
+    project's config.yml.
 
     Examples:
 
     \b
       osprey channel-finder benchmark
-      osprey channel-finder benchmark --queries 0:5 --model anthropic/claude-haiku
+      osprey channel-finder benchmark --queries 0:5 --tier haiku
       osprey channel-finder benchmark --runs-per-query 3 --concurrency 10
       osprey channel-finder benchmark --verbose
     """
@@ -592,7 +598,7 @@ def benchmark(
 
     runner = BenchmarkRunner(
         project_dir,
-        model=model,
+        model_tier=tier,
         max_concurrent=concurrency,
         verbose=verbose,
         queries_override=Path(queries_path) if queries_path else None,
@@ -607,8 +613,9 @@ def benchmark(
         logging.getLogger("osprey").setLevel(logging.DEBUG)
 
     console.print(
-        f"Benchmark: {len(indices)} query/queries "
-        f"x {runs_per_query} run(s) | model={model} | concurrency={concurrency}",
+        f"Benchmark: {len(indices)} query/queries x {runs_per_query} run(s) | "
+        f"provider={runner._spec.provider} tier={tier} model={runner.model} | "
+        f"concurrency={concurrency}",
         style=Styles.INFO,
     )
 
@@ -649,7 +656,9 @@ def benchmark(
         combined = BenchmarkSuite(
             runs=all_runs,
             metadata={
-                "model": model,
+                "provider": runner._spec.provider,
+                "tier": tier,
+                "model": runner.model,
                 "runs_per_query": runs_per_query,
                 "query_count": len(indices),
             },

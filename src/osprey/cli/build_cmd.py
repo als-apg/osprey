@@ -103,6 +103,14 @@ def _list_presets_callback(ctx: click.Context, param: click.Parameter, value: bo
     help="Override project_root in rendered config (for container builds where the "
     "build path differs from the runtime path, e.g. --runtime-root /app/als-assistant)",
 )
+@click.option(
+    "--tier",
+    type=click.IntRange(1, 3),
+    default=None,
+    help="Channel-database tier (1|2|3). Selects which "
+    "data/channel_databases/tiers/tier{N}/ DB the rendered config points at. "
+    "Defaults to the profile's tier (which itself defaults to 1).",
+)
 def build(
     project_name: str | None,
     profile: str | None,
@@ -115,6 +123,7 @@ def build(
     skip_lifecycle: bool,
     skip_deps: bool,
     runtime_root: str | None,
+    tier: int | None,
 ) -> None:
     """Build a facility-specific assistant from a profile or bundled preset.
 
@@ -168,8 +177,14 @@ def build(
                 raise click.UsageError(msg) from e
             raise
 
+        # CLI --tier overrides any value coming from the profile/preset/overrides.
+        # Equivalent to --set tier=N but more discoverable in --help.
+        if tier is not None:
+            build_profile.tier = tier
+
         logger.info("  Profile: %s", build_profile.name)
         logger.info("  Data bundle: %s", build_profile.data_bundle)
+        logger.info("  Tier: %d", build_profile.tier)
 
         # 1b. Collect and validate profile artifact selections
         artifacts: dict[str, list[str]] = {}
@@ -256,6 +271,9 @@ def build(
             context["default_model"] = build_profile.model
         if build_profile.channel_finder_mode:
             context["channel_finder_mode"] = build_profile.channel_finder_mode
+        # Always thread tier — the rendered config's database paths reference
+        # `tiers/tier{tier}/`, so an unset value would render `tiers/tier/`.
+        context["tier"] = build_profile.tier
 
         # 6b. Create project directory early (venv creation needs it)
         project_path.mkdir(parents=True, exist_ok=True)

@@ -5,7 +5,9 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+from osprey.models.providers.litellm_adapter import get_litellm_model_name
 from osprey.services.channel_finder.benchmarks.harness import (
     combined_text_from_react,
     mcp_client_session,
@@ -13,6 +15,11 @@ from osprey.services.channel_finder.benchmarks.harness import (
 )
 from osprey.services.channel_finder.benchmarks.sdk import _read_agent_prompt
 from osprey.services.channel_finder.rate_limiter import configure_rate_limiter
+
+from .base import Backend, WorkflowOutput
+
+if TYPE_CHECKING:
+    from osprey.cli.claude_code_resolver import ClaudeCodeModelSpec
 
 # Per-provider LiteLLM call rate caps (calls per minute). Set conservatively
 # below the documented limit to leave a small safety margin. ``None`` disables
@@ -23,27 +30,11 @@ _PROVIDER_RATE_LIMIT_RPM: dict[str, int | None] = {
     "als-apg": None,
 }
 
-from .base import Backend, WorkflowOutput
-
 logger = logging.getLogger(__name__)
 
 
-def _resolve_provider_name(project_dir: Path) -> str | None:
-    """Read the configured ``claude_code.provider`` from project config.yml."""
-    config_path = project_dir / "config.yml"
-    if not config_path.exists():
-        return None
-    try:
-        import yaml
-
-        config = yaml.safe_load(config_path.read_text()) or {}
-        return config.get("claude_code", {}).get("provider")
-    except Exception:
-        return None
-
-
-def _resolve_litellm_endpoint(project_dir: Path, model: str) -> dict | None:
-    """Resolve provider routing kwargs for a non-ollama model.
+def _resolve_litellm_endpoint(project_dir: Path, spec: ClaudeCodeModelSpec) -> dict | None:
+    """Resolve provider routing kwargs for a non-ollama provider.
 
     The SDK path injects ``ANTHROPIC_BASE_URL`` + ``ANTHROPIC_AUTH_TOKEN``
     into the subprocess environment via ``inject_provider_env``. LiteLLM
@@ -54,26 +45,7 @@ def _resolve_litellm_endpoint(project_dir: Path, model: str) -> dict | None:
     Returns ``None`` for ollama (already handled by ``_litellm_call_kwargs``)
     and for direct Anthropic (LiteLLM's default routing is correct).
     """
-    if model.startswith(("ollama/", "ollama_chat/")):
-        return None
-
-    try:
-        import yaml
-
-        from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
-    except ImportError:  # pragma: no cover — optional dep
-        logger.warning("Could not import ClaudeCodeModelResolver; skipping endpoint resolution")
-        return None
-
-    config_path = project_dir / "config.yml"
-    if not config_path.exists():
-        return None
-
-    config = yaml.safe_load(config_path.read_text()) or {}
-    cc_config = config.get("claude_code", {})
-    api_providers = config.get("api", {}).get("providers", {})
-    spec = ClaudeCodeModelResolver.resolve(cc_config, api_providers)
-    if spec is None:
+    if spec.provider == "ollama":
         return None
 
     # ``upstream_base_url`` is only set when the proxy is needed; cborg/als-apg
@@ -110,19 +82,32 @@ class ReactBackend(Backend):
 
     name = "react"
 
-    def __init__(self, project_dir: Path, model: str, max_turns: int) -> None:
+    def __init__(
+        self,
+        project_dir: Path,
+        spec: ClaudeCodeModelSpec,
+        tier: str,
+        max_turns: int,
+    ) -> None:
         self.project_dir = project_dir
-        self.model = model
+        self.spec = spec
+        self.tier = tier
+        wire_id = spec.tier_to_model[tier]
+        # Format the slug for LiteLLM's grammar. Critically, OpenAI-compat
+        # proxies (als-apg, cborg) need ``openai/<wire>`` even though the
+        # endpoint is reached via ``ANTHROPIC_BASE_URL`` — the prefix tells
+        # LiteLLM which wire protocol to speak; the proxy is selected via
+        # ``api_base`` resolved below.
+        self.model = get_litellm_model_name(spec.provider, wire_id)
         self.max_turns = max_turns
         self.system_prompt = _read_agent_prompt(project_dir)
-        self._call_kwargs_override = _resolve_litellm_endpoint(project_dir, model)
+        self._call_kwargs_override = _resolve_litellm_endpoint(project_dir, spec)
 
         # Arm the global rate limiter based on which provider the project
         # is configured to hit. Ollama models bypass this (the override
         # resolver returned None earlier and the provider is local).
-        if not model.startswith(("ollama/", "ollama_chat/")):
-            provider = _resolve_provider_name(project_dir)
-            rpm = _PROVIDER_RATE_LIMIT_RPM.get(provider, None)
+        if spec.provider != "ollama":
+            rpm = _PROVIDER_RATE_LIMIT_RPM.get(spec.provider, None)
             configure_rate_limiter(rpm)
 
     async def run_query(self, prompt: str, pipeline_mode: str) -> WorkflowOutput:

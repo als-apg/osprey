@@ -287,7 +287,7 @@ channel_finder:
     in_context:
       database:
         type: template                # Database type: "template" (with device family expansion) or "flat" (simple list)
-        path: data/channel_databases/in_context.json
+        path: data/channel_databases/tiers/tier{{ tier | default(1) }}/in_context.json
         presentation_mode: template    # How to present device families to LLM:
                                       # "explicit" - list all expanded channel names (BPM01XPosition, BPM02XPosition, ...)
                                       # "template" - use pattern notation (BPM{01-10}{XPosition,YPosition})
@@ -313,7 +313,7 @@ channel_finder:
     hierarchical:
       database:
         type: hierarchical            # Always "hierarchical" for this pipeline mode
-        path: data/channel_databases/hierarchical.json
+        path: data/channel_databases/tiers/tier{{ tier | default(1) }}/hierarchical.json
                                       # Database must follow nested structure: system → family → device → field → subfield
 
       # Tree preview: compact database overview injected into LLM prompts
@@ -340,7 +340,7 @@ channel_finder:
     middle_layer:
       database:
         type: middle_layer            # Always "middle_layer" for this pipeline mode
-        path: data/channel_databases/middle_layer.json
+        path: data/channel_databases/tiers/tier{{ tier | default(1) }}/middle_layer.json
                                       # Database must follow MML structure: System → Family → Field → ChannelNames
                                       # Supports optional _description fields and device/sector filtering via DeviceList
 

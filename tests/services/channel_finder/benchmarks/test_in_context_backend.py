@@ -9,10 +9,22 @@ from pathlib import Path
 import pytest
 import yaml
 
+from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
 from osprey.services.channel_finder.benchmarks.backends.in_context_backend import (
     InContextBackend,
 )
 from osprey.services.channel_finder.benchmarks.sdk import init_project
+
+
+def _resolve_spec(project_dir: Path):
+    """Resolve the project's ClaudeCodeModelSpec for backend construction."""
+    config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8")) or {}
+    spec = ClaudeCodeModelResolver.resolve(
+        config.get("claude_code", {}),
+        config.get("api", {}).get("providers", {}),
+    )
+    assert spec is not None, f"claude_code.provider not configured in {project_dir}"
+    return spec
 
 # ---------------------------------------------------------------------------
 # Minimal test DB — 8 channels, compact enough to stay within any model's context
@@ -135,7 +147,8 @@ def _make_test_project(tmp_path: Path, subagent_model: str = _SUBAGENT_MODEL) ->
 async def test_in_context_backend_basic(tmp_path):
     """InContextBackend runs a real query end-to-end and returns a WorkflowOutput."""
     project_dir = _make_test_project(tmp_path)
-    backend = InContextBackend(project_dir, _SUBAGENT_MODEL)
+    spec = _resolve_spec(project_dir)
+    backend = InContextBackend(project_dir, spec, "haiku")
 
     output = await backend.run_query(
         "What is the PV address for the storage ring beam current?",
@@ -151,33 +164,23 @@ async def test_in_context_backend_basic(tmp_path):
     response = output.response_text
     assert "SR:BEAM:CURRENT" in response or "StorageRing_Current" in response
 
-    # Inner model identifier is recorded in the trace
-    assert output.tool_traces[0].input.get("_inner_model_id") == _SUBAGENT_MODEL
+    # Inner provider + model identifier are recorded in the trace; both
+    # come from the resolved spec, not a free-form caller string.
+    trace_input = output.tool_traces[0].input
+    assert trace_input.get("_inner_provider") == spec.provider
+    assert trace_input.get("_inner_model_id") == spec.tier_to_model["haiku"]
 
 
 @pytest.mark.integration
-async def test_in_context_backend_inner_model_per_cell(tmp_path):
-    """Each InContextBackend instance records its own model label in the trace.
+async def test_in_context_backend_records_tier_wire_id(tmp_path):
+    """Backend records the resolved wire id for whichever tier it was constructed with."""
+    project_dir = _make_test_project(tmp_path)
+    spec = _resolve_spec(project_dir)
+    backend = InContextBackend(project_dir, spec, "haiku")
 
-    Both cells use the same real underlying model (cheap); what changes is
-    the label passed to InContextBackend(project_dir, model=...) which
-    appears in trace.input["_inner_model_id"] for observability.
-    """
-    label_a = _SUBAGENT_MODEL
-    label_b = f"{_SUBAGENT_MODEL}-cell-b-label"  # distinguishing label only
+    out = await backend.run_query("What channels monitor RF power?", "in_context")
 
-    # Both projects use the same real model in config (avoids invalid model errors)
-    proj_a = _make_test_project(tmp_path / "cell_a", subagent_model=_SUBAGENT_MODEL)
-    proj_b = _make_test_project(tmp_path / "cell_b", subagent_model=_SUBAGENT_MODEL)
-
-    backend_a = InContextBackend(proj_a, label_a)
-    backend_b = InContextBackend(proj_b, label_b)
-
-    out_a = await backend_a.run_query("What channels monitor RF power?", "in_context")
-    out_b = await backend_b.run_query("What channels monitor vacuum pressure?", "in_context")
-
-    # Each backend records its own label, not the other's
-    assert out_a.tool_traces[0].input["_inner_model_id"] == label_a
-    assert out_b.tool_traces[0].input["_inner_model_id"] == label_b
-    assert out_a.num_turns == 1
-    assert out_b.num_turns == 1
+    # The trace's `_inner_model_id` is the bare wire id from the spec, not
+    # the LiteLLM-style slug. Backends never invent their own labels.
+    assert out.tool_traces[0].input["_inner_model_id"] == spec.tier_to_model["haiku"]
+    assert out.num_turns == 1

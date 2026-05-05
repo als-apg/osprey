@@ -85,6 +85,25 @@ async def query_channels(query: str) -> QueryChannelsResult:
             input_tokens=input_tokens,
             output_tokens=0,
         )
+    except litellm.BadRequestError as exc:
+        # Some upstream gateways (e.g. Bedrock via OpenAI-compatible proxies)
+        # surface context-window overflow as a generic BadRequestError that
+        # only mentions ContextWindowExceededError in the message string.
+        # ContextWindowExceededError IS a BadRequestError subclass, but the
+        # mapping in litellm.exception_mapping_utils may not always reclassify
+        # the wrapped error — fall back to substring matching here so the
+        # caller still gets the friendly ERROR string instead of a traceback.
+        if "ContextWindowExceededError" in str(exc) or "context window" in str(exc).lower():
+            logger.warning(
+                "query_channels: context window exceeded (wrapped BadRequestError) for model %s",
+                ctx.subagent_model_id,
+            )
+            return QueryChannelsResult(
+                text="ERROR: context_window_exceeded",
+                input_tokens=input_tokens,
+                output_tokens=0,
+            )
+        raise
     except litellm.RateLimitError:
         logger.warning("query_channels: rate limit hit for provider %s", ctx.subagent_provider)
         return QueryChannelsResult(

@@ -109,6 +109,7 @@ dependencies = [
     # Lattice physics (Accelerator Toolbox for lattice dashboard)
     "accelerator-toolbox[plot]",
     "duckdb>=1.5.1",
+    "tenacity>=9.1.4",
 ]
 
 [project.optional-dependencies]

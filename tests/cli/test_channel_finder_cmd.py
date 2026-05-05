@@ -423,7 +423,7 @@ class TestBenchmarkSubcommand:
         """benchmark --help shows expected options."""
         result = runner.invoke(channel_finder, ["benchmark", "--help"])
         assert result.exit_code == 0
-        assert "--model" in result.output
+        assert "--tier" in result.output
         assert "--queries" in result.output
 
     def test_benchmark_missing_config(self, runner, tmp_path):
@@ -478,6 +478,11 @@ class TestBenchmarkSubcommand:
             mock_instance = MockRunner.return_value
             mock_instance.load_queries.return_value = [{"user_query": "test", "targeted_pv": ["A"]}]
             mock_instance.run_queries = AsyncMock(return_value=canned_run)
+            # The CLI serializes metadata that pulls runner._spec.provider
+            # and runner.model into the suite JSON; configure both as
+            # plain strings so json.dump doesn't choke on MagicMocks.
+            mock_instance._spec.provider = "anthropic"
+            mock_instance.model = "claude-haiku-4-5-20251001"
 
             result = runner.invoke(
                 channel_finder,

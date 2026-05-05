@@ -39,7 +39,7 @@ Validate database format and structure:
 
 ```bash
 osprey channel-finder validate
-osprey channel-finder validate --database data/channel_databases/in_context.json
+osprey channel-finder validate --database data/channel_databases/tiers/tier1/in_context.json
 ```
 
 ### 3. Preview Database
@@ -48,7 +48,7 @@ Preview database contents:
 
 ```bash
 osprey channel-finder preview
-osprey channel-finder preview --database data/channel_databases/in_context.json
+osprey channel-finder preview --database data/channel_databases/tiers/tier1/in_context.json
 ```
 
 ## CSV Format

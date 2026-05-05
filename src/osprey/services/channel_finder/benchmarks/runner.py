@@ -106,13 +106,21 @@ def model_slug(model: str) -> str:
 
 
 class BenchmarkRunner:
-    """Runs benchmark queries against a single OSPREY project."""
+    """Runs benchmark queries against a single OSPREY project.
+
+    The runner speaks model **tiers** (``haiku`` / ``sonnet`` / ``opus``).
+    The concrete wire id and provider come from the project's ``config.yml``
+    via ``ClaudeCodeModelResolver`` — the same resolution path the
+    production Claude Code CLI uses. Each backend then formats the wire id
+    for its own consumer (bare for the SDK CLI; provider-prefixed slug for
+    LiteLLM).
+    """
 
     def __init__(
         self,
         project_dir: Path,
         *,
-        model: str = "anthropic/claude-haiku",
+        model_tier: str = "haiku",
         max_turns: int = 25,
         max_budget_per_query: float = 2.0,
         max_concurrent: int = 5,
@@ -123,7 +131,18 @@ class BenchmarkRunner:
         use_llm_judge: bool = False,
     ) -> None:
         self.project_dir = Path(project_dir)
-        self.model = model
+        self.model_tier = model_tier
+        self._spec = self._resolve_model_spec()
+        if model_tier not in self._spec.tier_to_model:
+            available = ", ".join(sorted(self._spec.tier_to_model)) or "(none)"
+            raise KeyError(
+                f"Tier {model_tier!r} not configured for provider "
+                f"{self._spec.provider!r}; available: {available}"
+            )
+        # Bare wire id (e.g. "claude-haiku-4-5-20251001"). Used for output
+        # filename slugs and BenchmarkRun serialization. Each backend
+        # converts this to its own grammar.
+        self.model = self._spec.tier_to_model[model_tier]
         self.max_turns = max_turns
         self.max_budget_per_query = max_budget_per_query
         self.max_concurrent = max_concurrent
@@ -134,11 +153,27 @@ class BenchmarkRunner:
         self._backend = create_backend(
             backend,
             self.project_dir,
-            self.model,
+            self._spec,
+            model_tier,
             max_turns=max_turns,
             max_budget_usd=max_budget_per_query,
         )
         self.backend_name = self._backend.name
+
+    def _resolve_model_spec(self):
+        """Resolve the project's Claude Code model spec from config.yml."""
+        from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
+
+        config = self._read_config()
+        cc_config = config.get("claude_code", {})
+        api_providers = config.get("api", {}).get("providers", {})
+        spec = ClaudeCodeModelResolver.resolve(cc_config, api_providers)
+        if spec is None:
+            raise ValueError(
+                f"No claude_code.provider configured in {self.project_dir}/config.yml; "
+                "BenchmarkRunner cannot resolve a model wire id."
+            )
+        return spec
 
     def _read_config(self) -> dict[str, Any]:
         """Read and return the project's config.yml as a dict."""

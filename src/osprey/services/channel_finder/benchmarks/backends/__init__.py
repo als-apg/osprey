@@ -1,10 +1,8 @@
 """Backend protocol and dispatch for benchmark execution.
 
 Decouples *which model* from *which agent harness* in the cross-paradigm
-benchmark. Today the runner branches on ``model.startswith("ollama/")``,
-which conflates the model axis with the harness axis. The Backend
-protocol lets us run the same model through either harness so cell
-scores attribute cleanly.
+benchmark. The Backend protocol lets us run the same model through either
+harness so cell scores attribute cleanly.
 
 Backends (the harness axis):
     sdk    — claude_agent_sdk.query() (Anthropic-native tool-use loop)
@@ -16,16 +14,25 @@ Backends (the harness axis):
 The ``direct`` backend is *not* a third option for hierarchical or
 middle_layer; those paradigms expose multi-tool surfaces that require
 SDK or ReAct to orchestrate.
+
+Backends are constructed from a resolved ``ClaudeCodeModelSpec`` plus a
+tier alias rather than a raw model string. Each backend formats the wire
+id into the grammar its consumer expects (bare wire id for the Claude
+SDK CLI; provider-prefixed slug for LiteLLM).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from .base import Backend, WorkflowOutput
 from .in_context_backend import InContextBackend
 from .react_backend import ReactBackend
 from .sdk_backend import SdkBackend
+
+if TYPE_CHECKING:
+    from osprey.cli.claude_code_resolver import ClaudeCodeModelSpec
 
 __all__ = [
     "Backend",
@@ -54,7 +61,8 @@ def _read_pipeline_mode(project_dir: Path) -> str | None:
 def create_backend(
     name: str,
     project_dir: Path,
-    model: str,
+    spec: ClaudeCodeModelSpec,
+    tier: str,
     *,
     max_turns: int = 25,
     max_budget_usd: float = 2.0,
@@ -66,12 +74,12 @@ def create_backend(
             ``"auto"`` checks ``channel_finder.pipeline_mode`` in config.yml
             first; if the project is configured for the ``in_context``
             paradigm, returns ``InContextBackend`` (i.e. the ``direct``
-            backend). Otherwise selects ``react`` for ollama models,
-            ``sdk`` for all others. Note: ``"direct"`` is only valid for
-            the ``in_context`` paradigm; hierarchical / middle_layer
-            require ``sdk`` or ``react``.
+            backend). Otherwise selects ``react`` for ollama providers,
+            ``sdk`` for all others.
         project_dir: OSPREY project root.
-        model: LiteLLM-style model identifier.
+        spec: Resolved Claude Code model spec — provider, tier→wire-id
+            mapping, env block, auth env vars.
+        tier: Tier alias (e.g. ``"haiku"``); must exist in ``spec.tier_to_model``.
         max_turns: Max agentic turns per query.
         max_budget_usd: Per-query budget (sdk backend only).
 
@@ -80,21 +88,23 @@ def create_backend(
             (e.g. SDK + ollama).
     """
     if name == "direct":
-        return InContextBackend(project_dir, model)
+        return InContextBackend(project_dir, spec, tier)
 
-    is_ollama = model.startswith(("ollama/", "ollama_chat/"))
+    is_ollama = spec.provider == "ollama"
 
     if name == "auto":
         if _read_pipeline_mode(project_dir) == "in_context":
-            return InContextBackend(project_dir, model)
+            return InContextBackend(project_dir, spec, tier)
         name = "react" if is_ollama else "sdk"
 
     if name == "sdk":
         if is_ollama:
-            raise ValueError(f"SDK backend does not support Ollama models: {model!r}")
-        return SdkBackend(project_dir, model, max_turns, max_budget_usd)
+            raise ValueError(
+                f"SDK backend does not support Ollama provider (tier={tier!r})"
+            )
+        return SdkBackend(project_dir, spec, tier, max_turns, max_budget_usd)
 
     if name == "react":
-        return ReactBackend(project_dir, model, max_turns)
+        return ReactBackend(project_dir, spec, tier, max_turns)
 
     raise ValueError(f"Unknown backend: {name!r}")
