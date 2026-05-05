@@ -51,8 +51,7 @@ async def status() -> str:
 
     except Exception as exc:
         logger.exception("status failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to get status: {exc}",
                 [
@@ -60,4 +59,3 @@ async def status() -> str:
                     "Verify config.yml has correct ariel.database settings.",
                 ],
             )
-        )

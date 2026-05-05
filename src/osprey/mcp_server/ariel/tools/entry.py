@@ -77,13 +77,11 @@ async def entry_get(
         JSON with the full entry data, or a not_found error.
     """
     if not entry_id or not entry_id.strip():
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 "entry_id is required.",
                 ["Provide a valid entry ID."],
             )
-        )
 
     try:
         registry = get_ariel_context()
@@ -91,8 +89,7 @@ async def entry_get(
 
         entry = await service.repository.get_entry(entry_id)
         if not entry:
-            return json.dumps(
-                make_error(
+            return make_error(
                     "not_found",
                     f"Entry {entry_id} not found.",
                     [
@@ -100,7 +97,6 @@ async def entry_get(
                         "Use keyword_search/semantic_search or browse to find valid entry IDs.",
                     ],
                 )
-            )
 
         # TypedDict -- dict access, not attribute access
         return json.dumps(
@@ -122,13 +118,11 @@ async def entry_get(
 
     except Exception as exc:
         logger.exception("entry_get failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to get entry: {exc}",
                 ["Check ARIEL database connectivity."],
             )
-        )
 
 
 @mcp.tool()
@@ -149,22 +143,18 @@ async def entries_by_ids(
         if some IDs don't exist.
     """
     if not entry_ids:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 "entry_ids list is empty.",
                 ["Provide at least one entry ID."],
             )
-        )
 
     if len(entry_ids) > 50:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 f"Too many entry IDs ({len(entry_ids)}). Maximum is 50 per call.",
                 ["Split into multiple calls of 50 or fewer IDs."],
             )
-        )
 
     try:
         registry = get_ariel_context()
@@ -186,13 +176,11 @@ async def entries_by_ids(
 
     except Exception as exc:
         logger.exception("entries_by_ids failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to get entries: {exc}",
                 ["Check ARIEL database connectivity."],
             )
-        )
 
 
 @mcp.tool()
@@ -230,21 +218,17 @@ async def entry_create(
         JSON with draft_id and URL (draft mode), or entry_id and confirmation (direct mode).
     """
     if not subject or not subject.strip():
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 "subject is required.",
                 ["Provide a subject/title for the entry."],
             )
-        )
     if not details or not details.strip():
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 "details is required.",
                 ["Provide details/body for the entry."],
             )
-        )
 
     # --- Resolve artifact_ids to file paths (both modes) ---
     artifact_paths: list[str] = []
@@ -252,24 +236,20 @@ async def entry_create(
         try:
             artifact_paths = await _resolve_artifacts(artifact_ids)
         except ValueError as exc:
-            return json.dumps(
-                make_error(
+            return make_error(
                     "validation_error",
                     str(exc),
                     ["Check artifact IDs via the gallery or artifact_save output."],
                 )
-            )
         except Exception as exc:
             logger.warning("Artifact resolution failed (non-fatal for draft): %s", exc)
             # For draft mode, store IDs for deferred resolution
             if not draft:
-                return json.dumps(
-                    make_error(
+                return make_error(
                         "internal_error",
                         f"Failed to resolve artifacts: {exc}",
                         ["Check MCP server logs for details."],
                     )
-                )
 
     # Merge artifact-resolved paths with explicit file_paths (used by both modes)
     all_file_paths = list(file_paths or []) + artifact_paths
@@ -288,13 +268,11 @@ async def entry_create(
             for path in all_file_paths:
                 read_local_file(path)  # validates existence + size
         except AttachmentValidationError as exc:
-            return json.dumps(
-                make_error(
+            return make_error(
                     "validation_error",
                     str(exc),
                     ["Check file path and ensure file is under 10 MB."],
                 )
-            )
 
     # --- Draft mode: write a JSON file for the web UI to pick up ---
     if draft:
@@ -345,13 +323,11 @@ async def entry_create(
             )
         except Exception as exc:
             logger.exception("entry_create (draft) failed")
-            return json.dumps(
-                make_error(
+            return make_error(
                     "internal_error",
                     f"Failed to create draft: {exc}",
                     ["Check that _agent_data/drafts/ is writable."],
                 )
-            )
 
     # --- Direct mode: write straight to the database ---
 
@@ -413,10 +389,8 @@ async def entry_create(
 
     except Exception as exc:
         logger.exception("entry_create failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to create entry: {exc}",
                 ["Check ARIEL database connectivity."],
             )
-        )

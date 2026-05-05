@@ -64,13 +64,11 @@ async def data_list(
 
     except Exception as exc:
         logger.exception("data_list failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to list data: {exc}",
                 ["Check that the _agent_data directory is accessible."],
             )
-        )
 
 
 @mcp.tool()
@@ -93,19 +91,16 @@ async def data_read(entry_id: str) -> str:
         entry = store.get_entry(entry_id)
 
         if entry is None:
-            return json.dumps(
-                make_error(
+            return make_error(
                     "not_found",
                     f"Data entry '{entry_id}' not found.",
                     ["Use data_list to see available entries."],
                 )
-            )
 
         # Get the data file path
         file_path = store.get_file_path(entry_id)
         if file_path is None or not file_path.exists():
-            return json.dumps(
-                make_error(
+            return make_error(
                     "file_not_found",
                     f"Data file for entry '{entry_id}' is missing from disk.",
                     [
@@ -113,13 +108,11 @@ async def data_read(entry_id: str) -> str:
                         "Use data_list to find other entries.",
                     ],
                 )
-            )
 
         # Guard against very large files (>5 MB)
         size = file_path.stat().st_size
         if size > 5 * 1024 * 1024:
-            return json.dumps(
-                make_error(
+            return make_error(
                     "file_too_large",
                     f"Data file for entry '{entry_id}' is {size:,} bytes (>5 MB).",
                     [
@@ -127,20 +120,17 @@ async def data_read(entry_id: str) -> str:
                         f"File path: {file_path}",
                     ],
                 )
-            )
 
         content = file_path.read_text(encoding="utf-8")
         return content
 
     except Exception as exc:
         logger.exception("data_read failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to read data entry: {exc}",
                 ["Check that the _agent_data directory is accessible."],
             )
-        )
 
 
 @mcp.tool()
@@ -162,13 +152,11 @@ async def data_delete(entry_id: str) -> str:
         deleted = store.delete_entry(entry_id)
 
         if not deleted:
-            return json.dumps(
-                make_error(
+            return make_error(
                     "not_found",
                     f"Data entry '{entry_id}' not found.",
                     ["Check the entry_id from a previous tool response."],
                 )
-            )
 
         return json.dumps(
             {
@@ -180,10 +168,8 @@ async def data_delete(entry_id: str) -> str:
 
     except Exception as exc:
         logger.exception("data_delete failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to delete data entry: {exc}",
                 ["Check that the _agent_data directory is accessible."],
             )
-        )

@@ -44,13 +44,11 @@ async def execute(
         JSON with a compact summary (truncated stdout/stderr) and a data file path.
     """
     if not code or not code.strip():
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 "No code provided.",
                 ["Provide Python code to execute."],
             )
-        )
 
     # Pre-execution safety checks (syntax, security, imports)
     try:
@@ -58,13 +56,11 @@ async def execute(
 
         passed, safety_issues = quick_safety_check(code)
         if not passed:
-            return json.dumps(
-                make_error(
+            return make_error(
                     "safety_error",
                     "Code failed pre-execution safety checks.",
                     safety_issues,
                 )
-            )
     except ImportError:
         logger.warning("Safety check module unavailable — executing without pre-checks")
 
@@ -80,8 +76,7 @@ async def execute(
         patterns = {"has_writes": False, "has_reads": False, "detected_patterns": {}}
 
     if patterns.get("has_writes") and execution_mode == "readonly":
-        return json.dumps(
-            make_error(
+        return make_error(
                 "safety_error",
                 "Control-system write patterns detected in readonly mode.",
                 [
@@ -89,7 +84,6 @@ async def execute(
                     "Detected patterns: " + json.dumps(patterns.get("detected_patterns", {})),
                 ],
             )
-        )
 
     # Execute code via adapter (container or subprocess)
     from osprey.mcp_server.python_executor.executor import execute_code

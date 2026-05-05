@@ -46,13 +46,11 @@ async def keyword_search(
         JSON with matching entries, scores, and workspace file path.
     """
     if not query or not query.strip():
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 "Empty search query.",
                 ["Provide search terms describing what you are looking for."],
             )
-        )
 
     try:
         from osprey.services.ariel_search.models import SearchMode
@@ -99,8 +97,7 @@ async def keyword_search(
 
     except Exception as exc:
         logger.exception("keyword_search failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"ARIEL keyword search failed: {exc}",
                 [
@@ -108,4 +105,3 @@ async def keyword_search(
                     "Verify the ARIEL database is reachable.",
                 ],
             )
-        )

@@ -79,13 +79,11 @@ async def create_static_plot(
         JSON with artifact_ids, context_entry_id, and preview info.
     """
     if not code or not code.strip():
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 "No plotting code provided.",
                 ["Provide Python code that creates a static matplotlib/seaborn plot."],
             )
-        )
 
     # Build the full code to execute
     parts = [_STATIC_PREAMBLE]
@@ -107,8 +105,7 @@ async def create_static_plot(
     exec_result = await execute_sandbox_code(code=full_code, execution_folder=execution_folder)
 
     if not exec_result.success:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "execution_error",
                 f"Static plot creation failed: {exec_result.error_message or exec_result.stderr}",
                 [
@@ -117,7 +114,6 @@ async def create_static_plot(
                     "Ensure data variables are defined or use data_source parameter.",
                 ],
             )
-        )
 
     # Collect artifacts with category and embedded metadata
     artifact_ids = collect_and_register_artifacts(

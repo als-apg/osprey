@@ -91,24 +91,20 @@ async def lattice_init(lattice_path: str) -> str:
             default=str,
         )
     except httpx.ConnectError:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "service_unavailable",
                 "Lattice dashboard server is not running.",
                 ["The dashboard starts automatically with 'osprey web'."],
             )
-        )
     except httpx.HTTPStatusError as exc:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "lattice_error",
                 f"Failed to load lattice: {exc.response.text}",
                 ["Check that the lattice file path is correct and readable."],
             )
-        )
     except Exception as exc:
         logger.exception("lattice_init failed")
-        return json.dumps(make_error("lattice_error", str(exc)))
+        return make_error("lattice_error", str(exc))
 
 
 @mcp.tool()
@@ -124,16 +120,14 @@ async def lattice_state() -> str:
         result = await _dashboard_request("GET", "/api/state")
         return json.dumps(result, default=str)
     except httpx.ConnectError:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "service_unavailable",
                 "Lattice dashboard server is not running.",
                 ["The dashboard starts automatically with 'osprey web'."],
             )
-        )
     except Exception as exc:
         logger.exception("lattice_state failed")
-        return json.dumps(make_error("lattice_error", str(exc)))
+        return make_error("lattice_error", str(exc))
 
 
 @mcp.tool()
@@ -166,23 +160,19 @@ async def lattice_set_param(family: str, value: float) -> str:
             default=str,
         )
     except httpx.HTTPStatusError as exc:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "lattice_error",
                 f"Failed to set parameter: {exc.response.text}",
                 ["Check that the family name exists in the lattice."],
             )
-        )
     except httpx.ConnectError:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "service_unavailable",
                 "Lattice dashboard server is not running.",
             )
-        )
     except Exception as exc:
         logger.exception("lattice_set_param failed")
-        return json.dumps(make_error("lattice_error", str(exc)))
+        return make_error("lattice_error", str(exc))
 
 
 @mcp.tool()
@@ -209,15 +199,13 @@ async def lattice_refresh(figure: str | None = None) -> str:
             result = await _dashboard_request("POST", f"/api/refresh/{figure}")
         return json.dumps(result, default=str)
     except httpx.ConnectError:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "service_unavailable",
                 "Lattice dashboard server is not running.",
             )
-        )
     except Exception as exc:
         logger.exception("lattice_refresh failed")
-        return json.dumps(make_error("lattice_error", str(exc)))
+        return make_error("lattice_error", str(exc))
 
 
 @mcp.tool()
@@ -242,15 +230,13 @@ async def lattice_set_baseline() -> str:
             default=str,
         )
     except httpx.ConnectError:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "service_unavailable",
                 "Lattice dashboard server is not running.",
             )
-        )
     except Exception as exc:
         logger.exception("lattice_set_baseline failed")
-        return json.dumps(make_error("lattice_error", str(exc)))
+        return make_error("lattice_error", str(exc))
 
 
 @mcp.tool()
@@ -273,8 +259,7 @@ async def lattice_get_figure(name: str) -> str:
         result = await _dashboard_request("GET", f"/api/figures/{name}")
         return json.dumps(result, default=str)
     except httpx.HTTPStatusError as exc:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "lattice_error",
                 f"Failed to fetch figure '{name}': {exc.response.text}",
                 [
@@ -282,17 +267,14 @@ async def lattice_get_figure(name: str) -> str:
                     "If the figure status is 'idle' or 'stale', call lattice_refresh first.",
                 ],
             )
-        )
     except httpx.ConnectError:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "service_unavailable",
                 "Lattice dashboard server is not running.",
             )
-        )
     except Exception as exc:
         logger.exception("lattice_get_figure failed")
-        return json.dumps(make_error("lattice_error", str(exc)))
+        return make_error("lattice_error", str(exc))
 
 
 @mcp.tool()
@@ -314,8 +296,7 @@ async def lattice_get_data(name: str) -> str:
         result = await _dashboard_request("GET", f"/api/data/{name}")
         return json.dumps(result, default=str)
     except httpx.HTTPStatusError as exc:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "lattice_error",
                 f"Failed to fetch data for '{name}': {exc.response.text}",
                 [
@@ -323,17 +304,14 @@ async def lattice_get_data(name: str) -> str:
                     "If the figure status is 'idle' or 'stale', call lattice_refresh first.",
                 ],
             )
-        )
     except httpx.ConnectError:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "service_unavailable",
                 "Lattice dashboard server is not running.",
             )
-        )
     except Exception as exc:
         logger.exception("lattice_get_data failed")
-        return json.dumps(make_error("lattice_error", str(exc)))
+        return make_error("lattice_error", str(exc))
 
 
 @mcp.tool()
@@ -352,15 +330,13 @@ async def lattice_get_settings() -> str:
         result = await _dashboard_request("GET", "/api/settings")
         return json.dumps(result, default=str)
     except httpx.ConnectError:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "service_unavailable",
                 "Lattice dashboard server is not running.",
             )
-        )
     except Exception as exc:
         logger.exception("lattice_get_settings failed")
-        return json.dumps(make_error("lattice_error", str(exc)))
+        return make_error("lattice_error", str(exc))
 
 
 @mcp.tool()
@@ -384,23 +360,19 @@ async def lattice_update_settings(settings: dict) -> str:
         result = await _dashboard_request("PUT", "/api/settings", json_body={"settings": settings})
         return json.dumps(result, default=str)
     except httpx.HTTPStatusError as exc:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "lattice_error",
                 f"Failed to update settings: {exc.response.text}",
                 ["Check the settings shape — nested dict keyed by group name."],
             )
-        )
     except httpx.ConnectError:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "service_unavailable",
                 "Lattice dashboard server is not running.",
             )
-        )
     except Exception as exc:
         logger.exception("lattice_update_settings failed")
-        return json.dumps(make_error("lattice_error", str(exc)))
+        return make_error("lattice_error", str(exc))
 
 
 @mcp.tool()
@@ -417,12 +389,10 @@ async def lattice_clear_baseline() -> str:
         result = await _dashboard_request("DELETE", "/api/baseline")
         return json.dumps(result, default=str)
     except httpx.ConnectError:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "service_unavailable",
                 "Lattice dashboard server is not running.",
             )
-        )
     except Exception as exc:
         logger.exception("lattice_clear_baseline failed")
-        return json.dumps(make_error("lattice_error", str(exc)))
+        return make_error("lattice_error", str(exc))

@@ -34,8 +34,7 @@ async def facility_description() -> str:
         facility_file = project_root / ".claude" / "rules" / "facility.md"
 
         if not facility_file.exists():
-            return json.dumps(
-                make_error(
+            return make_error(
                     "not_found",
                     "Facility description file not found at .claude/rules/facility.md",
                     [
@@ -45,7 +44,6 @@ async def facility_description() -> str:
                         "systems, terminology, and operational context.",
                     ],
                 )
-            )
 
         content = facility_file.read_text(encoding="utf-8")
 
@@ -58,10 +56,8 @@ async def facility_description() -> str:
 
     except Exception as exc:
         logger.exception("facility_description failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to read facility description: {exc}",
                 ["Check that .claude/rules/facility.md is readable."],
             )
-        )

@@ -54,8 +54,7 @@ async def artifact_save(
         JSON with artifact ID and gallery URL.
     """
     if file_path and content:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 "Provide exactly one of file_path or content, not both.",
                 [
@@ -63,11 +62,9 @@ async def artifact_save(
                     "Use content for inline markdown/HTML/text/JSON.",
                 ],
             )
-        )
 
     if not file_path and not content:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 "Provide either file_path or content.",
                 [
@@ -75,7 +72,6 @@ async def artifact_save(
                     "Use content for inline markdown/HTML/text/JSON.",
                 ],
             )
-        )
 
     from osprey.stores.artifact_store import get_artifact_store
 
@@ -96,13 +92,11 @@ async def artifact_save(
         else:
             # Inline content
             if content_type not in _CONTENT_TYPE_MAP:
-                return json.dumps(
-                    make_error(
+                return make_error(
                         "validation_error",
                         f"Unknown content_type '{content_type}'.",
                         [f"Valid types: {', '.join(_CONTENT_TYPE_MAP)}"],
                     )
-                )
 
             a_type, mime, ext = _CONTENT_TYPE_MAP[content_type]
             from osprey.stores.artifact_store import _slugify
@@ -124,17 +118,14 @@ async def artifact_save(
         return json.dumps(entry.to_tool_response(gallery_url=url), default=str)
 
     except FileNotFoundError as exc:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "file_not_found",
                 str(exc),
                 ["Check the file path exists.", "Use an absolute path or path relative to CWD."],
             )
-        )
     except PermissionError as exc:
         logger.exception("artifact_save permission denied")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "permission_denied",
                 f"Cannot write artifact: {exc}",
                 [
@@ -143,16 +134,13 @@ async def artifact_save(
                     "If running via dispatch sidecar, confirm supervisord.conf and the interactive web process run as the same user.",
                 ],
             )
-        )
     except Exception as exc:
         logger.exception("artifact_save failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Artifact save failed: {exc}",
                 ["Check MCP server logs for details."],
             )
-        )
 
 
 @mcp.tool()
@@ -174,13 +162,11 @@ async def artifact_delete(artifact_id: str) -> str:
         deleted = store.delete_entry(artifact_id)
 
         if not deleted:
-            return json.dumps(
-                make_error(
+            return make_error(
                     "not_found",
                     f"Artifact {artifact_id} not found.",
                     ["Check the artifact_id from a previous artifact_save response."],
                 )
-            )
 
         return json.dumps(
             {
@@ -192,13 +178,11 @@ async def artifact_delete(artifact_id: str) -> str:
 
     except Exception as exc:
         logger.exception("artifact_delete failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to delete artifact: {exc}",
                 ["Check MCP server logs for details."],
             )
-        )
 
 
 @mcp.tool()
@@ -222,13 +206,11 @@ async def artifact_get(artifact_id: str) -> str:
         entry = store.get_entry(artifact_id)
 
         if entry is None:
-            return json.dumps(
-                make_error(
+            return make_error(
                     "not_found",
                     f"Artifact {artifact_id} not found.",
                     ["Use data_list or check a previous artifact_save response."],
                 )
-            )
 
         file_path = store.get_file_path(artifact_id)
         url = gallery_url()
@@ -248,10 +230,8 @@ async def artifact_get(artifact_id: str) -> str:
 
     except Exception as exc:
         logger.exception("artifact_get failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to get artifact: {exc}",
                 ["Check MCP server logs for details."],
             )
-        )

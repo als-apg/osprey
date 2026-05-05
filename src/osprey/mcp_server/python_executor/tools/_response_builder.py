@@ -4,6 +4,7 @@ import json
 import logging
 
 import nbformat
+from mcp.types import CallToolResult, TextContent
 
 from osprey.mcp_server.python_executor.executor import ExecutionResult
 
@@ -22,11 +23,13 @@ async def build_execution_response(
     patterns: dict,
     save_output: bool,
     tool_source: str = "execute",
-) -> str:
-    """Build a JSON response from an execution result.
+) -> CallToolResult:
+    """Build a CallToolResult response from an execution result.
 
     Handles figure/artifact saving, notebook creation, summary building,
-    ArtifactStore persistence, and gallery URL injection.
+    ArtifactStore persistence, and gallery URL injection. The CallToolResult's
+    ``isError`` flag mirrors ``exec_result.success`` so the SDK boundary signal
+    matches the in-content ``has_errors`` field.
 
     Args:
         code: Original source code (for notebook/metadata — not augmented).
@@ -38,7 +41,8 @@ async def build_execution_response(
         tool_source: Tool identifier for stored metadata ("execute" or "execute_file").
 
     Returns:
-        JSON string with execution summary and artifact references.
+        CallToolResult whose first content block carries the execution summary
+        as JSON; ``isError`` is True when the execution reported errors.
     """
     artifact_ids: list[str] = []
 
@@ -138,7 +142,10 @@ async def build_execution_response(
         }
         if artifact_ids:
             result["artifact_ids"] = artifact_ids
-        return json.dumps(result, default=str)
+        return CallToolResult(
+            content=[TextContent(type="text", text=json.dumps(result, default=str))],
+            isError=has_errors,
+        )
 
     # Build compact summary inline
     summary = {
@@ -184,4 +191,7 @@ async def build_execution_response(
             pass
     if notebook_artifact_id:
         response["notebook_artifact_id"] = notebook_artifact_id
-    return json.dumps(response, default=str)
+    return CallToolResult(
+        content=[TextContent(type="text", text=json.dumps(response, default=str))],
+        isError=has_errors,
+    )

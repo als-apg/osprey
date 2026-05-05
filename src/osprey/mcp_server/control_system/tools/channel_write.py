@@ -32,13 +32,11 @@ async def channel_write(
         JSON with per-operation results including verification status.
     """
     if not operations:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 "No write operations provided.",
                 ["Provide at least one operation with 'channel' and 'value'."],
             )
-        )
 
     # Limits validation (additional safety layer inside the tool)
     try:
@@ -55,13 +53,11 @@ async def channel_write(
         channel = op.get("channel")
         value = op.get("value")
         if not channel:
-            return json.dumps(
-                make_error(
+            return make_error(
                     "validation_error",
                     "Each operation must include a 'channel' key.",
                     ["Ensure every entry in operations has 'channel' and 'value'."],
                 )
-            )
         if validator:
             try:
                 validator.validate(channel, value)
@@ -93,8 +89,7 @@ async def channel_write(
                 part += f" (max step: {v['max_step']})"
             parts.append(part)
 
-        return json.dumps(
-            make_error(
+        return make_error(
                 "limits_violation",
                 f"Channel limits violated: {'; '.join(parts)}",
                 [
@@ -104,7 +99,6 @@ async def channel_write(
                 ],
                 details=violations,
             )
-        )
 
     # Execute writes
     try:

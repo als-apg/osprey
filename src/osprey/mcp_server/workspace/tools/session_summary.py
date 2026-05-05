@@ -55,12 +55,10 @@ async def session_summary() -> str:
     try:
         workspace_root = resolve_workspace_root()
     except Exception as e:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Could not resolve workspace root: {e}",
             )
-        )
 
     # --- Unified artifact store ---
     from osprey.stores.artifact_store import ArtifactStore

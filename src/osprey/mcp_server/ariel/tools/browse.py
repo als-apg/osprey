@@ -75,13 +75,11 @@ async def browse(
 
     except Exception as exc:
         logger.exception("browse failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Browse failed: {exc}",
                 ["Check ARIEL database connectivity."],
             )
-        )
 
 
 @mcp.tool()
@@ -110,13 +108,11 @@ async def filter_options(
 
         method_name = field_methods.get(field)
         if not method_name:
-            return json.dumps(
-                make_error(
+            return make_error(
                     "validation_error",
                     f"Unknown filter field: {field}",
                     [f"Available fields: {', '.join(field_methods)}"],
                 )
-            )
 
         method = getattr(service.repository, method_name)
         values = await method()
@@ -131,10 +127,8 @@ async def filter_options(
 
     except Exception as exc:
         logger.exception("filter_options failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Filter options failed: {exc}",
                 ["Check ARIEL database connectivity."],
             )
-        )

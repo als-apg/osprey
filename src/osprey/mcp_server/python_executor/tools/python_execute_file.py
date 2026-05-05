@@ -38,13 +38,11 @@ async def execute_file(
         JSON with a compact summary (truncated stdout/stderr) and a data file path.
     """
     if not file_path or not file_path.strip():
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 "No file path provided.",
                 ["Provide a path to a Python (.py) file."],
             )
-        )
 
     # Resolve project root and file path
     from osprey.mcp_server.python_executor.executor import _resolve_project_root
@@ -59,61 +57,49 @@ async def execute_file(
     try:
         resolved.relative_to(project_root.resolve())
     except ValueError:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 f"File path is outside the project root: {file_path}",
                 ["Provide a path within the project directory."],
             )
-        )
 
     # Validate file
     if not resolved.exists():
-        return json.dumps(
-            make_error(
+        return make_error(
                 "file_not_found",
                 f"File not found: {file_path}",
                 ["Check the file path and try again."],
             )
-        )
 
     if resolved.suffix != ".py":
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 f"Not a Python file: {file_path}",
                 ["Only .py files can be executed."],
             )
-        )
 
     # Read file contents
     try:
         code = resolved.read_text("utf-8")
     except UnicodeDecodeError:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 f"File is not valid UTF-8 text: {file_path}",
                 ["Ensure the file is a text-based Python script."],
             )
-        )
     except PermissionError:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 f"Permission denied reading file: {file_path}",
                 ["Check file permissions."],
             )
-        )
 
     if not code.strip():
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 f"File is empty: {file_path}",
                 ["Provide a non-empty Python file."],
             )
-        )
 
     # Pre-execution safety checks on original file contents
     try:
@@ -121,13 +107,11 @@ async def execute_file(
 
         passed, safety_issues = quick_safety_check(code)
         if not passed:
-            return json.dumps(
-                make_error(
+            return make_error(
                     "safety_error",
                     "File failed pre-execution safety checks.",
                     safety_issues,
                 )
-            )
     except ImportError:
         logger.warning("Safety check module unavailable — executing without pre-checks")
 
@@ -143,8 +127,7 @@ async def execute_file(
         patterns = {"has_writes": False, "has_reads": False, "detected_patterns": {}}
 
     if patterns.get("has_writes") and execution_mode == "readonly":
-        return json.dumps(
-            make_error(
+        return make_error(
                 "safety_error",
                 "Control-system write patterns detected in readonly mode.",
                 [
@@ -152,7 +135,6 @@ async def execute_file(
                     "Detected patterns: " + json.dumps(patterns.get("detected_patterns", {})),
                 ],
             )
-        )
 
     # Build preamble: set sys.argv and __file__ to point at the original script
     argv_items = [str(resolved)]

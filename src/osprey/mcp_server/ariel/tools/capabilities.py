@@ -46,10 +46,8 @@ async def capabilities() -> str:
 
     except Exception as exc:
         logger.exception("capabilities failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to get capabilities: {exc}",
                 ["Check ARIEL configuration in config.yml."],
             )
-        )

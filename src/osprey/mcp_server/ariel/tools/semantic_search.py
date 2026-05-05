@@ -48,13 +48,11 @@ async def semantic_search(
         JSON with matching entries, similarity scores, and workspace file path.
     """
     if not query or not query.strip():
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 "Empty search query.",
                 ["Provide a natural language description of what you are looking for."],
             )
-        )
 
     try:
         from osprey.services.ariel_search.models import SearchMode
@@ -103,8 +101,7 @@ async def semantic_search(
 
     except Exception as exc:
         logger.exception("semantic_search failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"ARIEL semantic search failed: {exc}",
                 [
@@ -112,4 +109,3 @@ async def semantic_search(
                     "Verify the ARIEL database is reachable.",
                 ],
             )
-        )

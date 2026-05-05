@@ -25,13 +25,11 @@ async def channel_read(
         JSON with a compact summary of channel values and a data file path for full details.
     """
     if not channels:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 "No channels provided.",
                 ["Provide at least one channel address."],
             )
-        )
 
     try:
         async with connector_error_handler("channel_read"):

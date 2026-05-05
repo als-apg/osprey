@@ -7,10 +7,11 @@ channel_read, channel_write, and archiver_read.
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+
+from mcp.types import CallToolResult
 
 from osprey.errors import ChannelLimitsViolationError
 from osprey.mcp_server.errors import make_error
@@ -19,11 +20,16 @@ logger = logging.getLogger("osprey.mcp_server.control_system.error_handling")
 
 
 class ToolError(Exception):
-    """Raised inside the context manager to short-circuit with an error response."""
+    """Raised inside the context manager to short-circuit with an error response.
 
-    def __init__(self, response: str) -> None:
+    The ``response`` attribute carries a ``CallToolResult`` (with
+    ``isError=True`` and the structured envelope in content) so callers can
+    ``return exc.response`` directly.
+    """
+
+    def __init__(self, response: CallToolResult) -> None:
         self.response = response
-        super().__init__(response)
+        super().__init__(getattr(response, "content", response))
 
 
 @asynccontextmanager
@@ -39,7 +45,7 @@ async def connector_error_handler(
             registry = get_server_context()
             connector = await registry.control_system()
             # ... tool logic ...
-            return json.dumps(result)
+            return CallToolResult(...)
 
     On ConnectionError, the connector is invalidated and a structured
     error response is raised as a ``ToolError``.
@@ -54,25 +60,21 @@ async def connector_error_handler(
         registry = get_server_context()
         await registry.invalidate_connector(connector_name)
         raise ToolError(
-            json.dumps(
-                make_error(
-                    "connection_error",
-                    f"Failed to connect to the {connector_name.replace('_', ' ')}: {exc}",
-                    [
-                        f"Check that the {connector_name.replace('_', ' ')} is running.",
-                        f"Verify config.yml {connector_name} settings.",
-                    ],
-                )
+            make_error(
+                "connection_error",
+                f"Failed to connect to the {connector_name.replace('_', ' ')}: {exc}",
+                [
+                    f"Check that the {connector_name.replace('_', ' ')} is running.",
+                    f"Verify config.yml {connector_name} settings.",
+                ],
             )
         ) from exc
     except TimeoutError as exc:
         raise ToolError(
-            json.dumps(
-                make_error(
-                    "timeout_error",
-                    f"{tool_name} timed out: {exc}",
-                    ["Check network connectivity.", "Try a smaller request."],
-                )
+            make_error(
+                "timeout_error",
+                f"{tool_name} timed out: {exc}",
+                ["Check network connectivity.", "Try a smaller request."],
             )
         ) from exc
     except ChannelLimitsViolationError as exc:
@@ -96,26 +98,22 @@ async def connector_error_handler(
             msg += f" (allowed range: [{exc.min_value}, {exc.max_value}])"
 
         raise ToolError(
-            json.dumps(
-                make_error(
-                    "limits_violation",
-                    msg,
-                    [
-                        "Do NOT attempt to work around this limit.",
-                        "Report the violation to the operator with the allowed range.",
-                    ],
-                    details=violation,
-                )
+            make_error(
+                "limits_violation",
+                msg,
+                [
+                    "Do NOT attempt to work around this limit.",
+                    "Report the violation to the operator with the allowed range.",
+                ],
+                details=violation,
             )
         ) from exc
     except Exception as exc:
         logger.exception("%s failed", tool_name)
         raise ToolError(
-            json.dumps(
-                make_error(
-                    "internal_error",
-                    f"Unexpected error during {tool_name}: {exc}",
-                    ["Check the MCP server logs for details."],
-                )
+            make_error(
+                "internal_error",
+                f"Unexpected error during {tool_name}: {exc}",
+                ["Check the MCP server logs for details."],
             )
         ) from exc

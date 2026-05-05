@@ -50,13 +50,11 @@ async def sql_query(
         JSON with query results as a list of row objects.
     """
     if not query or not query.strip():
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 "Empty SQL query.",
                 ["Provide a SELECT query against the enhanced_entries table."],
             )
-        )
 
     try:
         # Fail fast before acquiring a DB connection
@@ -81,8 +79,7 @@ async def sql_query(
 
     except ValueError as exc:
         # Validation errors from validate_sql_query
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 str(exc),
                 [
@@ -90,11 +87,9 @@ async def sql_query(
                     "text_embeddings_* tables are allowed.",
                 ],
             )
-        )
     except Exception as exc:
         logger.exception("sql_query failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"ARIEL SQL query failed: {exc}",
                 [
@@ -102,4 +97,3 @@ async def sql_query(
                     "Verify your SQL syntax is correct.",
                 ],
             )
-        )

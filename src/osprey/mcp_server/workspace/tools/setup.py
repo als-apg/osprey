@@ -153,13 +153,11 @@ async def setup_inspect() -> str:
 
     except Exception as exc:
         logger.exception("setup_inspect failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to inspect configuration: {exc}",
                 ["Check that config.yml exists and is readable."],
             )
-        )
 
 
 def _validate_key_path(key_path: str) -> str | None:
@@ -224,36 +222,30 @@ async def setup_patch(file: str, key_path: str, value: str) -> str:
     try:
         # Validate file whitelist
         if file not in _PATCHABLE_FILES:
-            return json.dumps(
-                make_error(
+            return make_error(
                     "validation_error",
                     f"File '{file}' is not patchable. Allowed: {sorted(_PATCHABLE_FILES)}",
                     ["Only config.yml and .mcp.json can be patched."],
                 )
-            )
 
         # Validate key_path
         key_error = _validate_key_path(key_path)
         if key_error:
-            return json.dumps(
-                make_error(
+            return make_error(
                     "validation_error",
                     f"Invalid key_path: {key_error}",
                     ["Use dot-notation like 'control_system.writes_enabled'."],
                 )
-            )
 
         project_root = resolve_config_path().parent
         file_path = project_root / file
 
         if not file_path.exists():
-            return json.dumps(
-                make_error(
+            return make_error(
                     "not_found",
                     f"File not found: {file}",
                     [f"Create {file} first, or run `osprey claude regen`."],
                 )
-            )
 
         keys = key_path.split(".")
 
@@ -303,10 +295,8 @@ async def setup_patch(file: str, key_path: str, value: str) -> str:
 
     except Exception as exc:
         logger.exception("setup_patch failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Failed to patch {file}: {exc}",
                 ["Check that the file is valid YAML/JSON."],
             )
-        )

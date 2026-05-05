@@ -58,32 +58,26 @@ async def screenshot_capture(
     """
     valid_modes = ("full", "display", "region", "window")
     if mode not in valid_modes:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 f"Invalid mode '{mode}'. Must be one of: {', '.join(valid_modes)}.",
                 [f"Use mode='{m}' for {m} capture." for m in valid_modes],
             )
-        )
 
     # Validate mode-specific params before touching the backend
     if mode == "region" and not target:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 "Region mode requires target in 'x,y,w,h' format.",
                 ["Example: target='100,100,800,600'"],
             )
-        )
 
     if mode == "window" and not target:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 "Window mode requires a target (app name or window ID).",
                 ["Use list_windows to find available windows and their IDs."],
             )
-        )
 
     # Build filename
     if not filename:
@@ -138,10 +132,9 @@ async def screenshot_capture(
         return json.dumps(entry.to_tool_response(), default=str)
 
     except BackendUnavailableError as exc:
-        return json.dumps(make_error("platform_error", str(exc), exc.suggestions))
+        return make_error("platform_error", str(exc), exc.suggestions)
     except WindowNotFoundError as exc:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "window_not_found",
                 str(exc),
                 [
@@ -149,26 +142,21 @@ async def screenshot_capture(
                     "Check that the application is running and visible.",
                 ],
             )
-        )
     except ValueError as exc:
-        return json.dumps(make_error("validation_error", str(exc)))
+        return make_error("validation_error", str(exc))
     except RuntimeError as exc:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "capture_error",
                 str(exc),
                 ["Check that Screen Recording permission is granted to the terminal."],
             )
-        )
     except Exception as exc:
         logger.exception("screenshot_capture failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Screenshot capture failed: {exc}",
                 ["Check permissions and MCP server logs."],
             )
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -200,16 +188,14 @@ async def list_windows(
         )
 
     except BackendUnavailableError as exc:
-        return json.dumps(make_error("platform_error", str(exc), exc.suggestions))
+        return make_error("platform_error", str(exc), exc.suggestions)
     except Exception as exc:
         logger.exception("list_windows failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Window listing failed: {exc}",
                 ["Ensure the terminal has Screen Recording permission."],
             )
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -239,32 +225,26 @@ async def manage_window(
     """
     valid_actions = ("bring_to_front", "move", "resize")
     if action not in valid_actions:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 f"Invalid action '{action}'. Must be one of: {', '.join(valid_actions)}.",
                 [f"Use action='{a}' to {a.replace('_', ' ')}." for a in valid_actions],
             )
-        )
 
     # Validate action-specific params before touching the backend
     if action == "move" and (x is None or y is None):
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 "Move action requires both x and y parameters.",
                 ["Example: manage_window(app='Terminal', action='move', x=100, y=100)"],
             )
-        )
 
     if action == "resize" and (width is None or height is None):
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 "Resize action requires both width and height parameters.",
                 ["Example: manage_window(app='Terminal', action='resize', width=800, height=600)"],
             )
-        )
 
     try:
         backend = get_backend()
@@ -290,21 +270,17 @@ async def manage_window(
         )
 
     except BackendUnavailableError as exc:
-        return json.dumps(make_error("platform_error", str(exc), exc.suggestions))
+        return make_error("platform_error", str(exc), exc.suggestions)
     except ValueError as exc:
-        return json.dumps(
-            make_error(
+        return make_error(
                 "validation_error",
                 str(exc),
                 ["Example: app='Phoebus' or app='Google Chrome'"],
             )
-        )
     except Exception as exc:
         logger.exception("manage_window failed")
-        return json.dumps(
-            make_error(
+        return make_error(
                 "internal_error",
                 f"Window management failed: {exc}",
                 ["Check permissions.", "Check MCP server logs."],
             )
-        )
