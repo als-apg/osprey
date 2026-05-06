@@ -112,12 +112,21 @@ class SDKWorkflowResult:
 # ---------------------------------------------------------------------------
 
 
-def sdk_env(project_dir: Path | None = None) -> dict[str, str]:
+def sdk_env(
+    project_dir: Path | None = None,
+    *,
+    provider: str | None = None,
+) -> dict[str, str]:
     """Return env overrides for SDK subprocess.
 
     Bypasses nested-session guard (CLAUDECODE="") and injects provider
     auth from the project's config.yml so the CLI authenticates correctly
     against Anthropic, CBORG, or other configured providers.
+
+    When ``provider`` is given it overrides the project's ``claude_code.provider``
+    so callers sweeping models across providers (e.g. anthropic for one cell,
+    ollama for another) inject env for the model they're actually running, not
+    whatever the project's claude_code section happens to be configured for.
 
     Two grammars are propagated, because the project has two LLM call paths:
 
@@ -149,6 +158,8 @@ def sdk_env(project_dir: Path | None = None) -> dict[str, str]:
             if config_path.exists():
                 config = yaml.safe_load(config_path.read_text()) or {}
                 cc_config = config.get("claude_code", {})
+                if provider is not None:
+                    cc_config = {**cc_config, "provider": provider}
                 api_providers = config.get("api", {}).get("providers", {})
                 spec = ClaudeCodeModelResolver.resolve(cc_config, api_providers)
                 if spec:
@@ -308,6 +319,7 @@ async def run_sdk_query(
     max_turns: int = 25,
     max_budget_usd: float = 2.0,
     model: str | None = None,
+    provider: str | None = None,
 ) -> SDKWorkflowResult:
     """Run a benchmark query as the channel-finder sub-agent.
 
@@ -359,7 +371,7 @@ async def run_sdk_query(
         permission_mode="bypassPermissions",
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
-        env=sdk_env(project_dir),
+        env=sdk_env(project_dir, provider=provider),
         stderr=lambda line: stderr_lines.append(line),
         # Use the channel-finder agent prompt as the system prompt
         system_prompt=agent_prompt,

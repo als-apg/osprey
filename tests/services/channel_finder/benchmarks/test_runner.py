@@ -81,14 +81,11 @@ def _make_project_dir(
     *,
     pipeline_mode: str = "in_context",
     queries: list[dict] | None = None,
-    provider: str = "anthropic",
 ) -> Path:
     """Create a fake project directory with config.yml and benchmark queries.
 
-    Always writes a ``claude_code.provider`` so ``BenchmarkRunner`` can
-    resolve a ``ClaudeCodeModelSpec`` (the runner refuses to construct
-    without one). Defaults to ``anthropic`` so the resolver picks up
-    built-in tier→wire-id mappings without needing ``api.providers``.
+    The runner no longer reads ``claude_code.provider`` (the model is passed
+    in directly), so the config only needs the channel_finder section.
     """
     project_dir = tmp_path / "project"
     project_dir.mkdir(exist_ok=True)
@@ -101,7 +98,6 @@ def _make_project_dir(
     )
 
     config = {
-        "claude_code": {"provider": provider},
         "channel_finder": {
             "pipeline_mode": pipeline_mode,
             "pipelines": {
@@ -120,11 +116,11 @@ def _make_project_dir(
     return project_dir
 
 
-# Wire IDs that the anthropic provider's CLAUDE_CODE_PROVIDERS entry maps tiers to.
-# Used by the assertions below — kept here so a model-ID change in the resolver
-# is caught at one place rather than scattered across tests.
-_HAIKU_WIRE = "claude-haiku-4-5-20251001"
-_SONNET_WIRE = "claude-sonnet-4-5-20250929"
+# LiteLLM-form model strings used by tests. The slug is what model_slug()
+# produces for output filenames.
+_HAIKU_MODEL = "anthropic/claude-haiku-4-5-20251001"
+_SONNET_MODEL = "anthropic/claude-sonnet-4-5-20250929"
+_HAIKU_SLUG = "anthropic_claude-haiku-4-5-20251001"
 
 
 # ---------------------------------------------------------------------------
@@ -137,10 +133,11 @@ class TestBenchmarkRunnerInit:
 
     def test_defaults(self, tmp_path: Path):
         project_dir = _make_project_dir(tmp_path)
-        runner = BenchmarkRunner(project_dir)
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL)
         assert runner.project_dir == project_dir
-        assert runner.model_tier == "haiku"
-        assert runner.model == _HAIKU_WIRE
+        assert runner.model == _HAIKU_MODEL
+        assert runner.provider == "anthropic"
+        assert runner.wire_id == "claude-haiku-4-5-20251001"
         assert runner.max_turns == 25
         assert runner.max_budget_per_query == 2.0
         assert runner.max_concurrent == 5
@@ -152,36 +149,24 @@ class TestBenchmarkRunnerInit:
         override = tmp_path / "custom.json"
         runner = BenchmarkRunner(
             project_dir,
-            model_tier="sonnet",
+            model=_SONNET_MODEL,
             max_turns=10,
             max_budget_per_query=5.0,
             max_concurrent=3,
             verbose=True,
             queries_override=override,
         )
-        assert runner.model_tier == "sonnet"
-        assert runner.model == _SONNET_WIRE
+        assert runner.model == _SONNET_MODEL
         assert runner.max_turns == 10
         assert runner.max_budget_per_query == 5.0
         assert runner.max_concurrent == 3
         assert runner.verbose is True
         assert runner.queries_override == override
 
-    def test_unknown_tier_raises(self, tmp_path: Path):
+    def test_missing_slash_raises(self, tmp_path: Path):
         project_dir = _make_project_dir(tmp_path)
-        with pytest.raises(KeyError, match="not configured for provider"):
-            BenchmarkRunner(project_dir, model_tier="bogus-tier")
-
-    def test_missing_provider_raises(self, tmp_path: Path):
-        project_dir = tmp_path / "no-provider"
-        project_dir.mkdir()
-        # Config without claude_code.provider — runner must refuse to construct.
-        (project_dir / "config.yml").write_text(
-            yaml.dump({"channel_finder": {"pipeline_mode": "in_context"}}),
-            encoding="utf-8",
-        )
-        with pytest.raises(ValueError, match="No claude_code.provider configured"):
-            BenchmarkRunner(project_dir)
+        with pytest.raises(ValueError, match="provider/wire_id"):
+            BenchmarkRunner(project_dir, model="bogus-no-slash")
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +179,7 @@ class TestConfigReading:
 
     def test_read_config(self, tmp_path: Path):
         project_dir = _make_project_dir(tmp_path)
-        runner = BenchmarkRunner(project_dir)
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL)
         config = runner._read_config()
         assert config["channel_finder"]["pipeline_mode"] == "in_context"
 
@@ -204,31 +189,31 @@ class TestConfigReading:
         # itself eagerly resolves the spec, so we can't construct without
         # config — that case is covered by ``test_missing_provider_raises``.)
         project_dir = _make_project_dir(tmp_path)
-        runner = BenchmarkRunner(project_dir)
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL)
         (project_dir / "config.yml").unlink()
         with pytest.raises(FileNotFoundError):
             runner._read_config()
 
     def test_resolve_pipeline_mode(self, tmp_path: Path):
         project_dir = _make_project_dir(tmp_path, pipeline_mode="hierarchical")
-        runner = BenchmarkRunner(project_dir)
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL)
         assert runner._resolve_pipeline_mode() == "hierarchical"
 
     def test_resolve_queries_path_from_config(self, tmp_path: Path):
         project_dir = _make_project_dir(tmp_path)
-        runner = BenchmarkRunner(project_dir)
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL)
         path = runner._resolve_queries_path()
         assert path == project_dir / "data" / "benchmark_queries.json"
 
     def test_resolve_queries_path_override(self, tmp_path: Path):
         project_dir = _make_project_dir(tmp_path)
         override = tmp_path / "custom_queries.json"
-        runner = BenchmarkRunner(project_dir, queries_override=override)
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL, queries_override=override)
         assert runner._resolve_queries_path() == override
 
     def test_load_queries(self, tmp_path: Path):
         project_dir = _make_project_dir(tmp_path)
-        runner = BenchmarkRunner(project_dir)
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL)
         queries = runner.load_queries()
         assert len(queries) == 2
         assert queries[0]["user_query"] == SAMPLE_QUERIES[0]["user_query"]
@@ -253,7 +238,7 @@ class TestRunQueries:
     async def test_run_queries_returns_benchmark_run(self, tmp_path: Path):
         """run_queries returns a BenchmarkRun with correct paradigm and model."""
         project_dir = _make_project_dir(tmp_path)
-        runner = BenchmarkRunner(project_dir, backend="sdk")
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL, backend="sdk")
 
         fake_result_q0 = _make_fake_sdk_result(SAMPLE_QUERIES[0]["targeted_pv"])
         fake_result_q1 = _make_fake_sdk_result(SAMPLE_QUERIES[1]["targeted_pv"])
@@ -272,7 +257,7 @@ class TestRunQueries:
         assert isinstance(result, BenchmarkRun)
         assert result.paradigm == "in_context"
         assert result.tier is None
-        assert result.model == _HAIKU_WIRE
+        assert result.model == _HAIKU_MODEL
         assert len(result.query_results) == 2
 
         for qr in result.query_results:
@@ -286,7 +271,7 @@ class TestRunQueries:
     async def test_run_queries_partial_match(self, tmp_path: Path):
         """run_queries handles partial matches (F1 < 1.0)."""
         project_dir = _make_project_dir(tmp_path)
-        runner = BenchmarkRunner(project_dir, backend="sdk")
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL, backend="sdk")
 
         fake_result = _make_fake_sdk_result(["SR:MAG:DIPOLE:B01:CURRENT:SP"])
         mock_sdk = AsyncMock(return_value=fake_result)
@@ -314,7 +299,7 @@ class TestRunQueries:
     async def test_run_queries_with_indices(self, tmp_path: Path):
         """run_queries respects query_indices filter."""
         project_dir = _make_project_dir(tmp_path)
-        runner = BenchmarkRunner(project_dir, backend="sdk")
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL, backend="sdk")
 
         fake_result = _make_fake_sdk_result(SAMPLE_QUERIES[1]["targeted_pv"])
         mock_sdk = AsyncMock(return_value=fake_result)
@@ -336,7 +321,7 @@ class TestRunQueries:
     async def test_run_queries_out_of_range_index_skipped(self, tmp_path: Path):
         """run_queries silently skips out-of-range indices."""
         project_dir = _make_project_dir(tmp_path)
-        runner = BenchmarkRunner(project_dir, backend="sdk")
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL, backend="sdk")
 
         fake_result = _make_fake_sdk_result(SAMPLE_QUERIES[0]["targeted_pv"])
         mock_sdk = AsyncMock(return_value=fake_result)
@@ -357,7 +342,7 @@ class TestRunQueries:
     async def test_run_queries_progress_callback(self, tmp_path: Path):
         """run_queries calls progress_callback for each query."""
         project_dir = _make_project_dir(tmp_path)
-        runner = BenchmarkRunner(project_dir, backend="sdk")
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL, backend="sdk")
 
         fake_result = _make_fake_sdk_result(["SR:MAG:DIPOLE:B01:CURRENT:SP"])
         mock_sdk = AsyncMock(return_value=fake_result)
@@ -378,7 +363,7 @@ class TestRunQueries:
     async def test_run_queries_saves_per_query_json(self, tmp_path: Path):
         """run_queries saves per-query JSON when output_dir is set."""
         project_dir = _make_project_dir(tmp_path)
-        runner = BenchmarkRunner(project_dir, backend="sdk")
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL, backend="sdk")
         output_dir = tmp_path / "results"
 
         fake_result = _make_fake_sdk_result(["SR:MAG:DIPOLE:B01:CURRENT:SP"])
@@ -394,14 +379,14 @@ class TestRunQueries:
             await runner.run_queries(output_dir=output_dir)
 
         assert output_dir.exists()
-        json_files = list(output_dir.glob(f"query_*_{_HAIKU_WIRE}_sdk_r0.json"))
+        json_files = list(output_dir.glob(f"query_*_{_HAIKU_SLUG}_sdk_r0.json"))
         assert len(json_files) == 2
 
     @pytest.mark.asyncio()
     async def test_repeat_idx_suffix_in_filenames(self, tmp_path: Path):
         """repeat_idx is reflected in per-query filenames and on the BenchmarkRun."""
         project_dir = _make_project_dir(tmp_path)
-        runner = BenchmarkRunner(project_dir, backend="sdk", repeat_idx=2)
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL, backend="sdk", repeat_idx=2)
         output_dir = tmp_path / "results"
 
         fake_result = _make_fake_sdk_result(["SR:MAG:DIPOLE:B01:CURRENT:SP"])
@@ -417,8 +402,8 @@ class TestRunQueries:
             run = await runner.run_queries(output_dir=output_dir)
 
         assert run.repeat_idx == 2
-        files_r2 = list(output_dir.glob(f"query_*_{_HAIKU_WIRE}_sdk_r2.json"))
-        files_r0 = list(output_dir.glob(f"query_*_{_HAIKU_WIRE}_sdk_r0.json"))
+        files_r2 = list(output_dir.glob(f"query_*_{_HAIKU_SLUG}_sdk_r2.json"))
+        files_r0 = list(output_dir.glob(f"query_*_{_HAIKU_SLUG}_sdk_r0.json"))
         assert len(files_r2) == 2
         assert len(files_r0) == 0
 
@@ -435,7 +420,7 @@ class TestNumFailed:
     async def test_one_exception_returns_fewer_results(self, tmp_path: Path):
         """One failing query yields num_failed=1."""
         project_dir = _make_project_dir(tmp_path)
-        runner = BenchmarkRunner(project_dir, backend="sdk")
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL, backend="sdk")
 
         fake_result = _make_fake_sdk_result(SAMPLE_QUERIES[0]["targeted_pv"])
         call_count = 0
@@ -463,7 +448,7 @@ class TestNumFailed:
     async def test_all_exceptions_returns_empty(self, tmp_path: Path):
         """All failing queries yields num_failed == total."""
         project_dir = _make_project_dir(tmp_path)
-        runner = BenchmarkRunner(project_dir, backend="sdk")
+        runner = BenchmarkRunner(project_dir, model=_HAIKU_MODEL, backend="sdk")
 
         mock_sdk = AsyncMock(side_effect=RuntimeError("boom"))
 
