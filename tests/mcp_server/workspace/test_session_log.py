@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.mcp_server.conftest import assert_error, extract_response_dict, get_tool_fn
+from tests.mcp_server.conftest import assert_error, assert_raises_error, extract_response_dict, get_tool_fn
 
 
 def _get_session_log():
@@ -576,7 +576,8 @@ async def test_since_invalid_format(tmp_path):
         ),
         _patch_transcript_reader([]),
     ):
-        result = await fn(since="not-a-timestamp")
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await fn(since="not-a-timestamp")
 
-    envelope = assert_error(result, error_type="validation_error")
+    envelope = _exc_ctx["envelope"]
     assert "since" in envelope["error_message"]

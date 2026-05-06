@@ -5,7 +5,7 @@ and returns its content, or a proper error envelope if the file is missing.
 """
 
 import json
-from tests.mcp_server.conftest import extract_response_dict
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 import pytest
 import yaml
@@ -68,10 +68,9 @@ class TestFacilityDescription:
         from tests.mcp_server.conftest import get_tool_fn
 
         fn = get_tool_fn(facility_description)
-        result = extract_response_dict(await fn())
-
-        assert result["error"] is True
-        assert result["error_type"] == "not_found"
+        with assert_raises_error(error_type="not_found") as _exc_ctx:
+            await fn()
+        result = _exc_ctx["envelope"]
         assert "facility.md" in result["error_message"]
         assert len(result["suggestions"]) > 0
 

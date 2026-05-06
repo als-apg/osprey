@@ -92,17 +92,21 @@ async def test_load_osprey_config_resolves_env_vars(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 async def test_make_error_format():
-    """make_error produces standard CallToolResult with envelope content."""
-    from osprey.mcp_server.errors import extract_error_envelope, make_error
+    """make_error raises fastmcp ToolError with the standard envelope as message."""
+    import json
 
-    result = make_error(
-        error_type="test_error",
-        error_message="something went wrong",
-        suggestions=["try again", "check logs"],
-    )
-    assert result.isError is True
-    envelope = extract_error_envelope(result)
-    assert envelope is not None
+    import pytest as _pytest
+    from fastmcp.exceptions import ToolError
+
+    from osprey.mcp_server.errors import make_error
+
+    with _pytest.raises(ToolError) as exc_info:
+        make_error(
+            error_type="test_error",
+            error_message="something went wrong",
+            suggestions=["try again", "check logs"],
+        )
+    envelope = json.loads(str(exc_info.value))
     assert envelope["error"] is True
     assert envelope["error_type"] == "test_error"
     assert envelope["error_message"] == "something went wrong"
@@ -111,15 +115,20 @@ async def test_make_error_format():
 
 @pytest.mark.unit
 async def test_make_error_no_suggestions():
-    """make_error with no suggestions returns empty list."""
-    from osprey.mcp_server.errors import extract_error_envelope, make_error
+    """make_error with no suggestions raises with empty suggestions list."""
+    import json
 
-    result = make_error(
-        error_type="simple_error",
-        error_message="oops",
-    )
-    envelope = extract_error_envelope(result)
-    assert envelope is not None
+    import pytest as _pytest
+    from fastmcp.exceptions import ToolError
+
+    from osprey.mcp_server.errors import make_error
+
+    with _pytest.raises(ToolError) as exc_info:
+        make_error(
+            error_type="simple_error",
+            error_message="oops",
+        )
+    envelope = json.loads(str(exc_info.value))
     assert envelope["error"] is True
     assert envelope["suggestions"] == []
 

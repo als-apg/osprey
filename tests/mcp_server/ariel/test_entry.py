@@ -2,7 +2,7 @@
 
 import json
 from unittest.mock import AsyncMock, patch
-from tests.mcp_server.conftest import assert_error, extract_response_dict
+from tests.mcp_server.conftest import assert_error, assert_raises_error, extract_response_dict
 
 import pytest
 
@@ -71,18 +71,20 @@ async def test_entry_get_nonexistent(tmp_path, monkeypatch):
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_entry_get()
-        result = await fn(entry_id="nonexistent")
+        with assert_raises_error(error_type="not_found") as _exc_ctx:
+            await fn(entry_id="nonexistent")
 
-    data = assert_error(result, error_type="not_found")
+    data = _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
 async def test_entry_get_empty_id():
     """Empty entry_id returns validation error."""
     fn = _get_entry_get()
-    result = await fn(entry_id="")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(entry_id="")
 
-    data = assert_error(result, error_type="validation_error")
+    data = _exc_ctx["envelope"]
 
 
 # ---------------------------------------------------------------------------
@@ -154,18 +156,20 @@ async def test_entry_create_minimal_fields(tmp_path, monkeypatch):
 async def test_entry_create_empty_subject():
     """Empty subject returns validation error."""
     fn = _get_entry_create()
-    result = await fn(subject="", details="some details")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(subject="", details="some details")
 
-    data = assert_error(result, error_type="validation_error")
+    data = _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
 async def test_entry_create_empty_details():
     """Empty details returns validation error."""
     fn = _get_entry_create()
-    result = await fn(subject="A subject", details="")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(subject="A subject", details="")
 
-    data = assert_error(result, error_type="validation_error")
+    data = _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -213,14 +217,14 @@ async def test_entry_create_with_invalid_file_path(tmp_path, monkeypatch):
     _setup_registry(tmp_path, monkeypatch)
 
     fn = _get_entry_create()
-    result = await fn(
-        subject="Test",
-        details="Bad file",
-        file_paths=["/nonexistent/file.png"],
-        draft=False,
-    )
-
-    data = assert_error(result, error_type="validation_error")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(
+            subject="Test",
+            details="Bad file",
+            file_paths=["/nonexistent/file.png"],
+            draft=False,
+        )
+    data = _exc_ctx["envelope"]
     assert "not found" in data["error_message"]
 
 
@@ -233,14 +237,14 @@ async def test_entry_create_with_oversized_file(tmp_path, monkeypatch):
     big_file.write_bytes(b"\x00" * (10 * 1024 * 1024 + 1))
 
     fn = _get_entry_create()
-    result = await fn(
-        subject="Test",
-        details="Big file",
-        file_paths=[str(big_file)],
-        draft=False,
-    )
-
-    data = assert_error(result, error_type="validation_error")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(
+            subject="Test",
+            details="Big file",
+            file_paths=[str(big_file)],
+            draft=False,
+        )
+    data = _exc_ctx["envelope"]
     assert "exceeds" in data["error_message"]
 
 
@@ -574,13 +578,14 @@ async def test_entry_create_with_invalid_artifact_id(tmp_path, monkeypatch):
         return_value=store,
     ):
         fn = _get_entry_create()
-        result = await fn(
-            subject="Test",
-            details="Bad artifact",
-            artifact_ids=["nonexistent-id"],
-        )
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await fn(
+                subject="Test",
+                details="Bad artifact",
+                artifact_ids=["nonexistent-id"],
+            )
 
-    data = assert_error(result, error_type="validation_error")
+    data = _exc_ctx["envelope"]
     assert "not found" in data["error_message"]
 
 
@@ -705,14 +710,14 @@ async def test_entry_create_draft_with_invalid_file_path(tmp_path, monkeypatch):
     monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
 
     fn = _get_entry_create()
-    result = await fn(
-        subject="Bad file",
-        details="File does not exist",
-        file_paths=["/nonexistent/screenshot.png"],
-        draft=True,
-    )
-
-    data = assert_error(result, error_type="validation_error")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(
+            subject="Bad file",
+            details="File does not exist",
+            file_paths=["/nonexistent/screenshot.png"],
+            draft=True,
+        )
+    data = _exc_ctx["envelope"]
     assert "not found" in data["error_message"]
 
 
@@ -758,18 +763,20 @@ async def test_entries_by_ids_batch_retrieval(tmp_path, monkeypatch):
 async def test_entries_by_ids_empty_list():
     """Empty list returns validation error."""
     fn = _get_entries_by_ids()
-    result = await fn(entry_ids=[])
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(entry_ids=[])
 
-    data = assert_error(result, error_type="validation_error")
+    data = _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
 async def test_entries_by_ids_max_limit_exceeded():
     """More than 50 IDs returns validation error."""
     fn = _get_entries_by_ids()
-    result = await fn(entry_ids=[f"e{i}" for i in range(51)])
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(entry_ids=[f"e{i}" for i in range(51)])
 
-    data = assert_error(result, error_type="validation_error")
+    data = _exc_ctx["envelope"]
     assert "50" in data["error_message"]
 
 
@@ -786,6 +793,7 @@ async def test_entries_by_ids_service_error(tmp_path, monkeypatch):
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_entries_by_ids()
-        result = await fn(entry_ids=["e1"])
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            await fn(entry_ids=["e1"])
 
-    data = assert_error(result, error_type="internal_error")
+    data = _exc_ctx["envelope"]

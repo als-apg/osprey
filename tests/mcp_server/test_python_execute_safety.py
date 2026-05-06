@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from tests.mcp_server.conftest import assert_error, extract_response_dict, get_tool_fn
+from tests.mcp_server.conftest import assert_error, assert_raises_error, extract_response_dict, get_tool_fn
 
 
 def _get_python_execute():
@@ -24,13 +24,14 @@ async def test_syntax_error_caught_before_execution(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     fn = _get_python_execute()
-    result = await fn(
-        code="def foo(\n  x = ",
-        description="syntax error",
-        execution_mode="readonly",
-    )
+    with assert_raises_error(error_type="safety_error") as _exc_ctx:
+        await fn(
+            code="def foo(\n  x = ",
+            description="syntax error",
+            execution_mode="readonly",
+        )
 
-    data = assert_error(result, error_type="safety_error")
+    data = _exc_ctx["envelope"]
     assert any("Syntax error" in s for s in data["suggestions"])
 
 
@@ -40,13 +41,14 @@ async def test_exec_call_flagged(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     fn = _get_python_execute()
-    result = await fn(
-        code="exec('print(1)')",
-        description="exec call",
-        execution_mode="readonly",
-    )
+    with assert_raises_error(error_type="safety_error") as _exc_ctx:
+        await fn(
+            code="exec('print(1)')",
+            description="exec call",
+            execution_mode="readonly",
+        )
 
-    data = assert_error(result, error_type="safety_error")
+    data = _exc_ctx["envelope"]
     assert any("exec" in s.lower() for s in data["suggestions"])
 
 
@@ -56,13 +58,14 @@ async def test_eval_call_flagged(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     fn = _get_python_execute()
-    result = await fn(
-        code="result = eval('2 + 2')",
-        description="eval call",
-        execution_mode="readonly",
-    )
+    with assert_raises_error(error_type="safety_error") as _exc_ctx:
+        await fn(
+            code="result = eval('2 + 2')",
+            description="eval call",
+            execution_mode="readonly",
+        )
 
-    data = assert_error(result, error_type="safety_error")
+    data = _exc_ctx["envelope"]
     assert any("eval" in s.lower() for s in data["suggestions"])
 
 
@@ -72,13 +75,14 @@ async def test_prohibited_import_blocked(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     fn = _get_python_execute()
-    result = await fn(
-        code="import subprocess\nsubprocess.run(['ls'])",
-        description="prohibited import",
-        execution_mode="readonly",
-    )
+    with assert_raises_error(error_type="safety_error") as _exc_ctx:
+        await fn(
+            code="import subprocess\nsubprocess.run(['ls'])",
+            description="prohibited import",
+            execution_mode="readonly",
+        )
 
-    data = assert_error(result, error_type="safety_error")
+    data = _exc_ctx["envelope"]
     assert any("subprocess" in s.lower() for s in data["suggestions"])
 
 
@@ -124,13 +128,14 @@ async def test_dunder_import_flagged(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     fn = _get_python_execute()
-    result = await fn(
-        code="os = __import__('os')\nos.listdir('.')",
-        description="dunder import",
-        execution_mode="readonly",
-    )
+    with assert_raises_error(error_type="safety_error") as _exc_ctx:
+        await fn(
+            code="os = __import__('os')\nos.listdir('.')",
+            description="dunder import",
+            execution_mode="readonly",
+        )
 
-    data = assert_error(result, error_type="safety_error")
+    data = _exc_ctx["envelope"]
 
 
 @pytest.mark.unit

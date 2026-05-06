@@ -14,7 +14,12 @@ import pandas as pd
 import pytest
 
 from osprey.mcp_server.control_system.server_context import initialize_server_context
-from tests.mcp_server.conftest import assert_error, extract_response_dict, get_tool_fn
+from tests.mcp_server.conftest import (
+    assert_error,
+    assert_raises_error,
+    extract_response_dict,
+    get_tool_fn,
+)
 
 
 def _make_archiver_df(channels_data):
@@ -195,13 +200,14 @@ async def test_archiver_read_timeout(tmp_path, monkeypatch):
         return_value=mock_connector,
     ):
         fn = _get_archiver_read()
-        result = await fn(
-            channels=["SR:CURRENT:RB"],
-            start_time="2020-01-01",
-            end_time="2024-01-01",
-        )
+        with assert_raises_error(error_type="timeout_error") as _exc_ctx:
+            await fn(
+                channels=["SR:CURRENT:RB"],
+                start_time="2020-01-01",
+                end_time="2024-01-01",
+            )
 
-    data = assert_error(result, error_type="timeout_error")
+    data = _exc_ctx["envelope"]
     assert "error_message" in data
     assert "suggestions" in data
 
@@ -222,12 +228,13 @@ async def test_archiver_read_connection_error(tmp_path, monkeypatch):
         return_value=mock_connector,
     ):
         fn = _get_archiver_read()
-        result = await fn(
-            channels=["SR:CURRENT:RB"],
-            start_time="2024-01-15T10:00:00",
-        )
+        with assert_raises_error(error_type="connection_error") as _exc_ctx:
+            await fn(
+                channels=["SR:CURRENT:RB"],
+                start_time="2024-01-15T10:00:00",
+            )
 
-    data = assert_error(result, error_type="connection_error")
+    data = _exc_ctx["envelope"]
     assert "error_message" in data
     assert "suggestions" in data
 
@@ -287,6 +294,7 @@ async def test_archiver_read_empty_channels(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     fn = _get_archiver_read()
-    result = await fn(channels=[], start_time="2024-01-15T10:00:00")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(channels=[], start_time="2024-01-15T10:00:00")
 
-    data = assert_error(result, error_type="validation_error")
+    data = _exc_ctx["envelope"]

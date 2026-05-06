@@ -2,7 +2,7 @@
 
 import json
 from unittest.mock import AsyncMock, patch
-from tests.mcp_server.conftest import assert_error
+from tests.mcp_server.conftest import assert_error, assert_raises_error
 
 import pytest
 
@@ -57,9 +57,10 @@ async def test_entry_publish_success(tmp_path, monkeypatch):
 async def test_entry_publish_empty_id():
     """Empty entry_id returns validation error."""
     fn = _get_entry_publish()
-    result = await fn(entry_id="")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(entry_id="")
 
-    data = assert_error(result, error_type="validation_error")
+    data = _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -75,9 +76,10 @@ async def test_entry_publish_not_found(tmp_path, monkeypatch):
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_entry_publish()
-        result = await fn(entry_id="e99")
+        with assert_raises_error(error_type="not_found") as _exc_ctx:
+            await fn(entry_id="e99")
 
-    data = assert_error(result, error_type="not_found")
+    data = _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -95,6 +97,7 @@ async def test_entry_publish_writes_not_supported(tmp_path, monkeypatch):
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_entry_publish()
-        result = await fn(entry_id="e1")
+        with assert_raises_error(error_type="not_supported") as _exc_ctx:
+            await fn(entry_id="e1")
 
-    data = assert_error(result, error_type="not_supported")
+    data = _exc_ctx["envelope"]

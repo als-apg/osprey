@@ -2,7 +2,7 @@
 
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
-from tests.mcp_server.conftest import assert_error, extract_response_dict
+from tests.mcp_server.conftest import assert_error, assert_raises_error, extract_response_dict
 
 import pytest
 
@@ -112,9 +112,10 @@ async def test_semantic_search_exclude_entry_ids(tmp_path, monkeypatch):
 async def test_semantic_search_empty_query():
     """Empty query returns validation error."""
     fn = _get_semantic_search()
-    result = await fn(query="")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(query="")
 
-    data = assert_error(result, error_type="validation_error")
+    data = _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -130,7 +131,8 @@ async def test_semantic_search_service_error(tmp_path, monkeypatch):
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_semantic_search()
-        result = await fn(query="test")
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            await fn(query="test")
 
-    data = assert_error(result, error_type="internal_error")
+    data = _exc_ctx["envelope"]
     assert "Embedding service down" in data["error_message"]

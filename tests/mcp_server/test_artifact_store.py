@@ -13,7 +13,12 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.mcp_server.conftest import assert_error, extract_response_dict, get_tool_fn
+from tests.mcp_server.conftest import (
+    assert_error,
+    assert_raises_error,
+    extract_response_dict,
+    get_tool_fn,
+)
 
 # ---------------------------------------------------------------------------
 # ArtifactStore — core storage layer
@@ -467,35 +472,38 @@ class TestArtifactSaveTool:
         monkeypatch.chdir(tmp_path)
 
         fn = _get_artifact_save()
-        result = await fn(
-            title="Bad",
-            file_path="/some/file",
-            content="some content",
-        )
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await fn(
+                title="Bad",
+                file_path="/some/file",
+                content="some content",
+            )
 
-        data = assert_error(result, error_type="validation_error")
+        data = _exc_ctx["envelope"]
 
     @pytest.mark.asyncio
     async def test_neither_file_nor_content_error(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
 
         fn = _get_artifact_save()
-        result = await fn(title="Empty")
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await fn(title="Empty")
 
-        data = assert_error(result, error_type="validation_error")
+        data = _exc_ctx["envelope"]
 
     @pytest.mark.asyncio
     async def test_invalid_content_type_error(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
 
         fn = _get_artifact_save()
-        result = await fn(
-            title="Bad Type",
-            content="data",
-            content_type="xml",
-        )
+        with assert_raises_error() as _exc_ctx:
+            await fn(
+                title="Bad Type",
+                content="data",
+                content_type="xml",
+            )
 
-        data = assert_error(result)
+        data = _exc_ctx["envelope"]
         assert "Unknown content_type" in data["error_message"]
 
     @pytest.mark.asyncio
@@ -503,12 +511,13 @@ class TestArtifactSaveTool:
         monkeypatch.chdir(tmp_path)
 
         fn = _get_artifact_save()
-        result = await fn(
-            title="Missing",
-            file_path="/nonexistent/file.txt",
-        )
+        with assert_raises_error(error_type="file_not_found") as _exc_ctx:
+            await fn(
+                title="Missing",
+                file_path="/nonexistent/file.txt",
+            )
 
-        data = assert_error(result, error_type="file_not_found")
+        data = _exc_ctx["envelope"]
 
 
 # ---------------------------------------------------------------------------

@@ -2,7 +2,7 @@
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
-from tests.mcp_server.conftest import assert_error, extract_response_dict
+from tests.mcp_server.conftest import assert_error, assert_raises_error, extract_response_dict
 
 import pytest
 
@@ -100,8 +100,9 @@ def test_build_channels_value_error(tmp_path, monkeypatch):
         )
 
         fn = get_tool_fn(build_channels)
-        result = fn(selections={})
-    data = assert_error(result, error_type="validation_error")
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            fn(selections={})
+    data = _exc_ctx["envelope"]
     assert "Missing required level" in data["error_message"]
 
 
@@ -119,6 +120,7 @@ def test_build_channels_internal_error(tmp_path, monkeypatch):
         )
 
         fn = get_tool_fn(build_channels)
-        result = fn(selections={"system": "SR"})
-    data = assert_error(result, error_type="internal_error")
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            fn(selections={"system": "SR"})
+    data = _exc_ctx["envelope"]
     assert "db crashed" in data["error_message"]

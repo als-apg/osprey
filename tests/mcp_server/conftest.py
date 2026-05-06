@@ -9,10 +9,12 @@ objects. To call the original async function in tests, use the `.fn` attribute:
 """
 
 import json
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import yaml
+from fastmcp.exceptions import ToolError
 from mcp.types import CallToolResult
 
 from osprey.mcp_server.control_system.server_context import (
@@ -61,6 +63,31 @@ def assert_error(result, *, error_type: str | None = None) -> dict:
             f"Expected error_type={error_type!r}, got {envelope.get('error_type')!r}"
         )
     return envelope
+
+
+@contextmanager
+def assert_raises_error(*, error_type: str | None = None):
+    """Assert the wrapped tool call raises ToolError carrying the standard envelope.
+
+    Yields a dict with ``envelope`` populated after the block exits, so callers can
+    make further assertions on ``error_message``, ``details``, etc.::
+
+        with assert_raises_error(error_type="validation_error") as ctx:
+            tool.fn(...)
+        assert "expected token" in ctx["envelope"]["error_message"]
+    """
+    captured: dict = {}
+    with pytest.raises(ToolError) as exc_info:
+        yield captured
+    envelope = json.loads(str(exc_info.value))
+    assert isinstance(envelope, dict) and envelope.get("error") is True, (
+        f"Expected error envelope in ToolError message, got: {envelope!r}"
+    )
+    if error_type is not None:
+        assert envelope.get("error_type") == error_type, (
+            f"Expected error_type={error_type!r}, got {envelope.get('error_type')!r}"
+        )
+    captured["envelope"] = envelope
 
 
 def extract_response_dict(result) -> dict:

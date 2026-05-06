@@ -2,7 +2,7 @@
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
-from tests.mcp_server.conftest import assert_error, extract_response_dict
+from tests.mcp_server.conftest import assert_error, assert_raises_error, extract_response_dict
 
 import pytest
 
@@ -81,7 +81,8 @@ def test_get_common_names_internal_error(tmp_path, monkeypatch):
         )
 
         fn = get_tool_fn(get_common_names)
-        result = fn(system="SR", family="BPM")
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            fn(system="SR", family="BPM")
 
-    data = assert_error(result, error_type="internal_error")
+    data = _exc_ctx["envelope"]
     assert "DB connection lost" in data["error_message"]
