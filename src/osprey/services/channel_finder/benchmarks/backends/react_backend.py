@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from osprey.models.providers.litellm_adapter import get_litellm_model_name
 from osprey.services.channel_finder.benchmarks.harness import (
@@ -17,9 +16,6 @@ from osprey.services.channel_finder.benchmarks.sdk import _read_agent_prompt
 from osprey.services.channel_finder.rate_limiter import configure_rate_limiter
 
 from .base import Backend, WorkflowOutput
-
-if TYPE_CHECKING:
-    from osprey.cli.claude_code_resolver import ClaudeCodeModelSpec
 
 # Per-provider LiteLLM call rate caps (calls per minute). Set conservatively
 # below the documented limit to leave a small safety margin. ``None`` disables
@@ -33,7 +29,7 @@ _PROVIDER_RATE_LIMIT_RPM: dict[str, int | None] = {
 logger = logging.getLogger(__name__)
 
 
-def _resolve_litellm_endpoint(project_dir: Path, spec: ClaudeCodeModelSpec) -> dict | None:
+def _resolve_litellm_endpoint(project_dir: Path, provider: str) -> dict | None:
     """Resolve provider routing kwargs for a non-ollama provider.
 
     The SDK path injects ``ANTHROPIC_BASE_URL`` + ``ANTHROPIC_AUTH_TOKEN``
@@ -45,12 +41,22 @@ def _resolve_litellm_endpoint(project_dir: Path, spec: ClaudeCodeModelSpec) -> d
     Returns ``None`` for ollama (already handled by ``_litellm_call_kwargs``)
     and for direct Anthropic (LiteLLM's default routing is correct).
     """
-    if spec.provider == "ollama":
+    if provider == "ollama":
         return None
 
-    # ``upstream_base_url`` is only set when the proxy is needed; cborg/als-apg
-    # are Anthropic-native so it stays None there. Read the literal from the
-    # env_block instead — it's set whenever the provider has a base_url.
+    import yaml
+
+    from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
+
+    config_path = project_dir / "config.yml"
+    if not config_path.exists():
+        return None
+    config = yaml.safe_load(config_path.read_text()) or {}
+    api_providers = config.get("api", {}).get("providers", {})
+    spec = ClaudeCodeModelResolver.resolve({"provider": provider}, api_providers)
+    if spec is None:
+        return None
+
     base_url = spec.env_block.get("ANTHROPIC_BASE_URL")
     if not base_url:
         return None  # direct Anthropic — LiteLLM default routing works
@@ -85,29 +91,27 @@ class ReactBackend(Backend):
     def __init__(
         self,
         project_dir: Path,
-        spec: ClaudeCodeModelSpec,
-        tier: str,
+        model: str,
         max_turns: int,
     ) -> None:
         self.project_dir = project_dir
-        self.spec = spec
-        self.tier = tier
-        wire_id = spec.tier_to_model[tier]
+        self.model = model
+        self.provider, self.wire_id = model.split("/", 1)
         # Format the slug for LiteLLM's grammar. Critically, OpenAI-compat
         # proxies (als-apg, cborg) need ``openai/<wire>`` even though the
         # endpoint is reached via ``ANTHROPIC_BASE_URL`` — the prefix tells
         # LiteLLM which wire protocol to speak; the proxy is selected via
         # ``api_base`` resolved below.
-        self.model = get_litellm_model_name(spec.provider, wire_id)
+        self.litellm_model = get_litellm_model_name(self.provider, self.wire_id)
         self.max_turns = max_turns
         self.system_prompt = _read_agent_prompt(project_dir)
-        self._call_kwargs_override = _resolve_litellm_endpoint(project_dir, spec)
+        self._call_kwargs_override = _resolve_litellm_endpoint(project_dir, self.provider)
 
         # Arm the global rate limiter based on which provider the project
         # is configured to hit. Ollama models bypass this (the override
         # resolver returned None earlier and the provider is local).
-        if spec.provider != "ollama":
-            rpm = _PROVIDER_RATE_LIMIT_RPM.get(spec.provider, None)
+        if self.provider != "ollama":
+            rpm = _PROVIDER_RATE_LIMIT_RPM.get(self.provider, None)
             configure_rate_limiter(rpm)
 
     async def run_query(self, prompt: str, pipeline_mode: str) -> WorkflowOutput:
@@ -115,7 +119,7 @@ class ReactBackend(Backend):
             result = await run_react_query(
                 client=client,
                 prompt=prompt,
-                model=self.model,
+                model=self.litellm_model,
                 system_prompt=self.system_prompt,
                 max_turns=self.max_turns,
                 call_kwargs_override=self._call_kwargs_override,

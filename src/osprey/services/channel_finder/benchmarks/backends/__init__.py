@@ -15,24 +15,20 @@ The ``direct`` backend is *not* a third option for hierarchical or
 middle_layer; those paradigms expose multi-tool surfaces that require
 SDK or ReAct to orchestrate.
 
-Backends are constructed from a resolved ``ClaudeCodeModelSpec`` plus a
-tier alias rather than a raw model string. Each backend formats the wire
-id into the grammar its consumer expects (bare wire id for the Claude
+Backends are constructed from a LiteLLM-form ``provider/wire_id`` model
+string. Each backend splits that into provider + wire id and formats the
+wire id into the grammar its consumer expects (bare wire id for the Claude
 SDK CLI; provider-prefixed slug for LiteLLM).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from .base import Backend, WorkflowOutput
 from .in_context_backend import InContextBackend
 from .react_backend import ReactBackend
 from .sdk_backend import SdkBackend
-
-if TYPE_CHECKING:
-    from osprey.cli.claude_code_resolver import ClaudeCodeModelSpec
 
 __all__ = [
     "Backend",
@@ -61,8 +57,7 @@ def _read_pipeline_mode(project_dir: Path) -> str | None:
 def create_backend(
     name: str,
     project_dir: Path,
-    spec: ClaudeCodeModelSpec,
-    tier: str,
+    model: str,
     *,
     max_turns: int = 25,
     max_budget_usd: float = 2.0,
@@ -77,9 +72,8 @@ def create_backend(
             backend). Otherwise selects ``react`` for ollama providers,
             ``sdk`` for all others.
         project_dir: OSPREY project root.
-        spec: Resolved Claude Code model spec — provider, tier→wire-id
-            mapping, env block, auth env vars.
-        tier: Tier alias (e.g. ``"haiku"``); must exist in ``spec.tier_to_model``.
+        model: LiteLLM-form ``provider/wire_id`` (e.g. ``"anthropic/claude-haiku-4-5"``,
+            ``"ollama/gemma3:4b"``).
         max_turns: Max agentic turns per query.
         max_budget_usd: Per-query budget (sdk backend only).
 
@@ -87,24 +81,26 @@ def create_backend(
         ValueError: For unknown backend names or invalid combinations
             (e.g. SDK + ollama).
     """
-    if name == "direct":
-        return InContextBackend(project_dir, spec, tier)
+    provider = model.split("/", 1)[0]
 
-    is_ollama = spec.provider == "ollama"
+    if name == "direct":
+        return InContextBackend(project_dir, model)
+
+    is_ollama = provider == "ollama"
 
     if name == "auto":
         if _read_pipeline_mode(project_dir) == "in_context":
-            return InContextBackend(project_dir, spec, tier)
+            return InContextBackend(project_dir, model)
         name = "react" if is_ollama else "sdk"
 
     if name == "sdk":
         if is_ollama:
             raise ValueError(
-                f"SDK backend does not support Ollama provider (tier={tier!r})"
+                f"SDK backend does not support Ollama provider (model={model!r})"
             )
-        return SdkBackend(project_dir, spec, tier, max_turns, max_budget_usd)
+        return SdkBackend(project_dir, model, max_turns, max_budget_usd)
 
     if name == "react":
-        return ReactBackend(project_dir, spec, tier, max_turns)
+        return ReactBackend(project_dir, model, max_turns)
 
     raise ValueError(f"Unknown backend: {name!r}")

@@ -4,15 +4,11 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 from osprey.services.channel_finder.benchmarks.harness import mcp_client_session
 from osprey.services.channel_finder.benchmarks.sdk import ToolTrace, sdk_env
 
 from .base import Backend, WorkflowOutput
-
-if TYPE_CHECKING:
-    from osprey.cli.claude_code_resolver import ClaudeCodeModelSpec
 
 logger = logging.getLogger(__name__)
 
@@ -56,17 +52,14 @@ class InContextBackend(Backend):
     def __init__(
         self,
         project_dir: Path,
-        spec: ClaudeCodeModelSpec,
-        tier: str,
+        model: str,
     ) -> None:
         self.project_dir = project_dir
-        self.spec = spec
-        self.tier = tier
-        self.provider = spec.provider
-        self.model = spec.tier_to_model[tier]
+        self.model = model
+        self.provider, self.wire_id = model.split("/", 1)
         # sdk_env injects provider auth; OSPREY_CONFIG ensures the subprocess
         # finds the project config.yml regardless of cwd.
-        self._env = sdk_env(project_dir) | {
+        self._env = sdk_env(project_dir, provider=self.provider) | {
             "OSPREY_CONFIG": str(project_dir / "config.yml"),
         }
 
@@ -97,7 +90,7 @@ class InContextBackend(Backend):
             input={
                 "query": prompt,
                 "_inner_provider": self.provider,
-                "_inner_model_id": self.model,
+                "_inner_model_id": self.wire_id,
             },
             result=result_text,
             is_error=is_error,

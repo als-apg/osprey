@@ -9,22 +9,10 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
 from osprey.services.channel_finder.benchmarks.backends.in_context_backend import (
     InContextBackend,
 )
 from osprey.services.channel_finder.benchmarks.sdk import init_project
-
-
-def _resolve_spec(project_dir: Path):
-    """Resolve the project's ClaudeCodeModelSpec for backend construction."""
-    config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8")) or {}
-    spec = ClaudeCodeModelResolver.resolve(
-        config.get("claude_code", {}),
-        config.get("api", {}).get("providers", {}),
-    )
-    assert spec is not None, f"claude_code.provider not configured in {project_dir}"
-    return spec
 
 # ---------------------------------------------------------------------------
 # Minimal test DB — 8 channels, compact enough to stay within any model's context
@@ -83,11 +71,15 @@ if _CBORG_KEY:
     _PROVIDER_API_KEY = _CBORG_KEY
     _SUBAGENT_MODEL = "anthropic/claude-haiku"  # CBORG model name
     _PROVIDER_BASE_URL = "https://api.cborg.lbl.gov/v1"
+    _BACKEND_MODEL = "cborg/claude-haiku-4-5"
+    _EXPECTED_WIRE = "claude-haiku-4-5"
 else:
     _PROVIDER = "anthropic"
     _PROVIDER_API_KEY = _ANTHROPIC_KEY
     _SUBAGENT_MODEL = "anthropic/claude-haiku-4-5"
     _PROVIDER_BASE_URL = None
+    _BACKEND_MODEL = "anthropic/claude-haiku-4-5-20251001"
+    _EXPECTED_WIRE = "claude-haiku-4-5-20251001"
 
 pytestmark = pytest.mark.skipif(
     not _PROVIDER_API_KEY,
@@ -147,8 +139,7 @@ def _make_test_project(tmp_path: Path, subagent_model: str = _SUBAGENT_MODEL) ->
 async def test_in_context_backend_basic(tmp_path):
     """InContextBackend runs a real query end-to-end and returns a WorkflowOutput."""
     project_dir = _make_test_project(tmp_path)
-    spec = _resolve_spec(project_dir)
-    backend = InContextBackend(project_dir, spec, "haiku")
+    backend = InContextBackend(project_dir, _BACKEND_MODEL)
 
     output = await backend.run_query(
         "What is the PV address for the storage ring beam current?",
@@ -164,23 +155,22 @@ async def test_in_context_backend_basic(tmp_path):
     response = output.response_text
     assert "SR:BEAM:CURRENT" in response or "StorageRing_Current" in response
 
-    # Inner provider + model identifier are recorded in the trace; both
-    # come from the resolved spec, not a free-form caller string.
+    # Inner provider + wire id are recorded in the trace from the model
+    # string the backend was constructed with.
     trace_input = output.tool_traces[0].input
-    assert trace_input.get("_inner_provider") == spec.provider
-    assert trace_input.get("_inner_model_id") == spec.tier_to_model["haiku"]
+    assert trace_input.get("_inner_provider") == _PROVIDER
+    assert trace_input.get("_inner_model_id") == _EXPECTED_WIRE
 
 
 @pytest.mark.integration
-async def test_in_context_backend_records_tier_wire_id(tmp_path):
-    """Backend records the resolved wire id for whichever tier it was constructed with."""
+async def test_in_context_backend_records_wire_id(tmp_path):
+    """Backend records the wire id half of its provider/wire_id model string."""
     project_dir = _make_test_project(tmp_path)
-    spec = _resolve_spec(project_dir)
-    backend = InContextBackend(project_dir, spec, "haiku")
+    backend = InContextBackend(project_dir, _BACKEND_MODEL)
 
     out = await backend.run_query("What channels monitor RF power?", "in_context")
 
-    # The trace's `_inner_model_id` is the bare wire id from the spec, not
-    # the LiteLLM-style slug. Backends never invent their own labels.
-    assert out.tool_traces[0].input["_inner_model_id"] == spec.tier_to_model["haiku"]
+    # The trace's `_inner_model_id` is the bare wire id (the part after the
+    # slash), not the LiteLLM-style slug. Backends never invent their own labels.
+    assert out.tool_traces[0].input["_inner_model_id"] == _EXPECTED_WIRE
     assert out.num_turns == 1
