@@ -2,7 +2,7 @@
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
-from tests.mcp_server.conftest import assert_error, extract_response_dict
+from tests.mcp_server.conftest import assert_error, assert_raises_error, extract_response_dict
 
 import pytest
 
@@ -87,8 +87,9 @@ def test_get_options_value_error(tmp_path, monkeypatch):
         )
 
         fn = get_tool_fn(get_options)
-        result = fn(level="bogus", selections=None)
-    data = assert_error(result, error_type="validation_error")
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            fn(level="bogus", selections=None)
+    data = _exc_ctx["envelope"]
     assert "bogus" in data["error_message"]
 
 
@@ -106,6 +107,7 @@ def test_get_options_internal_error(tmp_path, monkeypatch):
         )
 
         fn = get_tool_fn(get_options)
-        result = fn(level="system", selections=None)
-    data = assert_error(result, error_type="internal_error")
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            fn(level="system", selections=None)
+    data = _exc_ctx["envelope"]
     assert "db exploded" in data["error_message"]

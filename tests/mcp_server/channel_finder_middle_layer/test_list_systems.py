@@ -2,7 +2,7 @@
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
-from tests.mcp_server.conftest import assert_error, extract_response_dict
+from tests.mcp_server.conftest import assert_error, assert_raises_error, extract_response_dict
 
 import pytest
 
@@ -84,7 +84,8 @@ def test_list_systems_internal_error(tmp_path, monkeypatch):
         )
 
         fn = get_tool_fn(list_systems)
-        result = fn()
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            fn()
 
-    data = assert_error(result, error_type="internal_error")
+    data = _exc_ctx["envelope"]
     assert "DB broke" in data["error_message"]

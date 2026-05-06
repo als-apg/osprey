@@ -20,7 +20,11 @@ from osprey.stores.artifact_store import (
     initialize_artifact_store,
     reset_artifact_store,
 )
-from tests.mcp_server.conftest import assert_error, extract_response_dict
+from tests.mcp_server.conftest import (
+    assert_error,
+    assert_raises_error,
+    extract_response_dict,
+)
 
 # Extract the raw async function from the FastMCP FunctionTool wrapper
 _fn = submit_response.fn if hasattr(submit_response, "fn") else submit_response
@@ -72,19 +76,22 @@ class TestSubmitResponse:
 
     @pytest.mark.asyncio
     async def test_submit_response_empty_title(self, workspace):
-        raw = await _fn(title="", content="Some content.")
-        data = assert_error(raw, error_type="validation_error")
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await _fn(title="", content="Some content.")
+        data = _exc_ctx["envelope"]
         assert "title" in data["error_message"]
 
     @pytest.mark.asyncio
     async def test_submit_response_whitespace_title(self, workspace):
-        raw = await _fn(title="   ", content="Some content.")
-        data = assert_error(raw, error_type="validation_error")
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await _fn(title="   ", content="Some content.")
+        data = _exc_ctx["envelope"]
 
     @pytest.mark.asyncio
     async def test_submit_response_empty_content(self, workspace):
-        raw = await _fn(title="Valid Title", content="")
-        data = assert_error(raw, error_type="validation_error")
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await _fn(title="Valid Title", content="")
+        data = _exc_ctx["envelope"]
         assert "content" in data["error_message"]
 
     @pytest.mark.asyncio
@@ -227,7 +234,8 @@ class TestSubmitResponse:
     @pytest.mark.asyncio
     async def test_artifact_not_created_on_validation_error(self, workspace):
         """Validation errors should NOT create an artifact."""
-        raw = await _fn(title="", content="Some content.")
-        data = assert_error(raw)
+        with assert_raises_error() as _exc_ctx:
+            await _fn(title="", content="Some content.")
+        data = _exc_ctx["envelope"]
         store = get_artifact_store()
         assert len(store.list_entries()) == 0

@@ -10,7 +10,7 @@ import json
 import pytest
 
 from osprey.stores.artifact_store import initialize_artifact_store
-from tests.mcp_server.conftest import assert_error, get_tool_fn
+from tests.mcp_server.conftest import assert_error, assert_raises_error, get_tool_fn
 
 
 def _get_archiver_downsample():
@@ -155,8 +155,9 @@ class TestArchiverDownsampleChannelFilter:
     @pytest.mark.asyncio
     async def test_filter_nonexistent_channel_errors(self, multi_channel_entry):
         fn = _get_archiver_downsample()
-        raw = await fn(entry_id=multi_channel_entry.id, channels=["NONEXISTENT"])
-        result = assert_error(raw, error_type="validation_error")
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await fn(entry_id=multi_channel_entry.id, channels=["NONEXISTENT"])
+        result = _exc_ctx["envelope"]
         assert result["error"] is True
 
 
@@ -178,15 +179,17 @@ class TestArchiverDownsampleErrors:
     @pytest.mark.asyncio
     async def test_wrong_category(self, workspace, non_archiver_entry):
         fn = _get_archiver_downsample()
-        raw = await fn(entry_id=non_archiver_entry.id)
-        result = assert_error(raw)
+        with assert_raises_error() as _exc_ctx:
+            await fn(entry_id=non_archiver_entry.id)
+        result = _exc_ctx["envelope"]
         assert "archiver_data" in result["error_message"].lower()
 
     @pytest.mark.asyncio
     async def test_nonexistent_entry(self, workspace, art_store):
         fn = _get_archiver_downsample()
-        raw = await fn(entry_id="deadbeef0000")
-        result = assert_error(raw)
+        with assert_raises_error() as _exc_ctx:
+            await fn(entry_id="deadbeef0000")
+        result = _exc_ctx["envelope"]
         assert "not found" in result["error_message"].lower()
 
 

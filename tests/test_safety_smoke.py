@@ -351,12 +351,12 @@ async def test_3_over_limit_write_tool_rejects(smoke_env, monkeypatch):
     monkeypatch.setenv("OSPREY_CONFIG", str(smoke_env["config_path"]))
     initialize_server_context()
 
+    from tests.mcp_server.conftest import assert_raises_error
+
     fn = _get_channel_write()
-    result = await fn(operations=[{"channel": "MAG:HCM01:CURRENT:SP", "value": 999.0}])
+    with assert_raises_error(error_type="limits_violation"):
+        await fn(operations=[{"channel": "MAG:HCM01:CURRENT:SP", "value": 999.0}])
 
-    from tests.mcp_server.conftest import assert_error
-
-    assert_error(result, error_type="limits_violation")
 
 
 # ===========================================================================

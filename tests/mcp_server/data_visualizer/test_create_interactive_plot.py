@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
-from tests.mcp_server.conftest import extract_response_dict
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 import pytest
 
@@ -38,14 +38,14 @@ class TestCreateInteractivePlot:
         return folder
 
     async def test_empty_code_returns_error(self, tool_fn):
-        result = extract_response_dict(await tool_fn(code="", title="test"))
-        assert result["error"] is True
-        assert result["error_type"] == "validation_error"
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await tool_fn(code="", title="test")
+        result = _exc_ctx["envelope"]
         assert "No plotting code" in result["error_message"]
 
     async def test_whitespace_code_returns_error(self, tool_fn):
-        result = extract_response_dict(await tool_fn(code="   ", title="test"))
-        assert result["error"] is True
+        with assert_raises_error():
+            await tool_fn(code="   ", title="test")
 
     async def test_execution_failure(self, tool_fn, mock_execution_folder):
         mock_result = SandboxExecutionResult(
@@ -58,11 +58,9 @@ class TestCreateInteractivePlot:
         with (
             patch(_SANDBOX_EXEC_TARGET, new_callable=AsyncMock, return_value=mock_result),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
+            assert_raises_error(error_type="execution_error"),
         ):
-            result = extract_response_dict(await tool_fn(code="import plotly", title="Bad Plot"))
-
-        assert result["error"] is True
-        assert result["error_type"] == "execution_error"
+            await tool_fn(code="import plotly", title="Bad Plot")
 
     async def test_successful_plot_no_artifacts(self, tool_fn, mock_execution_folder):
         mock_result = SandboxExecutionResult(

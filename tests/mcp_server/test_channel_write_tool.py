@@ -13,7 +13,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from osprey.mcp_server.control_system.server_context import initialize_server_context
-from tests.mcp_server.conftest import assert_error, extract_response_dict, get_tool_fn
+from tests.mcp_server.conftest import (
+    assert_error,
+    assert_raises_error,
+    extract_response_dict,
+    get_tool_fn,
+)
 
 
 def _make_write_result(
@@ -129,9 +134,10 @@ async def test_channel_write_limits_violation(tmp_path, monkeypatch):
         return_value=mock_validator,
     ):
         fn = _get_channel_write()
-        result = await fn(operations=[{"channel": "TEST:PV", "value": 9999.0}])
+        with assert_raises_error(error_type="limits_violation") as _exc_ctx:
+            await fn(operations=[{"channel": "TEST:PV", "value": 9999.0}])
 
-    data = assert_error(result, error_type="limits_violation")
+    data = _exc_ctx["envelope"]
     # Error message includes the channel, value, reason, and allowed range
     assert "TEST:PV" in data["error_message"]
     assert "9999.0" in data["error_message"]
@@ -169,9 +175,10 @@ async def test_channel_write_connection_error(tmp_path, monkeypatch):
         ),
     ):
         fn = _get_channel_write()
-        result = await fn(operations=[{"channel": "TEST:PV", "value": 1.0}])
+        with assert_raises_error(error_type="connection_error") as _exc_ctx:
+            await fn(operations=[{"channel": "TEST:PV", "value": 1.0}])
 
-    data = assert_error(result, error_type="connection_error")
+    data = _exc_ctx["envelope"]
     assert "error_message" in data
     assert "suggestions" in data
 
@@ -246,9 +253,10 @@ async def test_channel_write_connector_limits_violation(tmp_path, monkeypatch):
         ),
     ):
         fn = _get_channel_write()
-        result = await fn(operations=[{"channel": "TEST:PV", "value": 999.0}])
+        with assert_raises_error() as _exc_ctx:
+            await fn(operations=[{"channel": "TEST:PV", "value": 999.0}])
 
-    data = assert_error(result)
+    data = _exc_ctx["envelope"]
     assert data["error_type"] == "limits_violation", (
         f"Expected limits_violation but got {data['error_type']} — "
         "ChannelLimitsViolationError from connector must not be misclassified as internal_error"
@@ -266,9 +274,10 @@ async def test_channel_write_empty_operations(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     fn = _get_channel_write()
-    result = await fn(operations=[])
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(operations=[])
 
-    data = assert_error(result, error_type="validation_error")
+    data = _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -282,6 +291,7 @@ async def test_channel_write_missing_channel_key(tmp_path, monkeypatch):
         return_value=None,
     ):
         fn = _get_channel_write()
-        result = await fn(operations=[{"value": 42.0}])
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await fn(operations=[{"value": 42.0}])
 
-    data = assert_error(result, error_type="validation_error")
+    data = _exc_ctx["envelope"]

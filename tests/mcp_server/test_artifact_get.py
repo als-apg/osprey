@@ -11,7 +11,7 @@ import json
 import pytest
 
 from osprey.stores.artifact_store import initialize_artifact_store
-from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 
 @pytest.fixture
@@ -61,10 +61,9 @@ class TestArtifactGet:
 
     @pytest.mark.asyncio
     async def test_get_missing_artifact(self, store, get_tool):
-        result = extract_response_dict(await get_tool(artifact_id="nonexistent-id"))
-
-        assert result["error"] is True
-        assert result["error_type"] == "not_found"
+        with assert_raises_error(error_type="not_found") as _exc_ctx:
+            await get_tool(artifact_id="nonexistent-id")
+        result = _exc_ctx["envelope"]
         assert "nonexistent-id" in result["error_message"]
 
     @pytest.mark.asyncio

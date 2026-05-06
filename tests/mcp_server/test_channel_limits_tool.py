@@ -10,7 +10,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tests.mcp_server.conftest import assert_error, extract_response_dict, get_tool_fn
+from tests.mcp_server.conftest import (
+    assert_error,
+    assert_raises_error,
+    extract_response_dict,
+    get_tool_fn,
+)
 
 # ---------------------------------------------------------------------------
 # Test data
@@ -231,9 +236,10 @@ async def test_pattern_no_match():
 async def test_pattern_invalid_regex():
     """Invalid regex → validation_error."""
     fn = _get_channel_limits()
-    result = await fn(pattern="[invalid")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(pattern="[invalid")
 
-    data = assert_error(result, error_type="validation_error")
+    data = _exc_ctx["envelope"]
     assert "regex" in data["error_message"].lower()
 
 
@@ -337,18 +343,20 @@ async def test_combined_pattern_and_filter():
 async def test_channels_and_pattern_error():
     """Both channels and pattern → validation_error."""
     fn = _get_channel_limits()
-    result = await fn(channels=["TEST:PV"], pattern="TEST:.*")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(channels=["TEST:PV"], pattern="TEST:.*")
 
-    data = assert_error(result, error_type="validation_error")
+    data = _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
 async def test_invalid_filter_error():
     """Unknown filter_by value → validation_error."""
     fn = _get_channel_limits()
-    result = await fn(filter_by="bogus_filter")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(filter_by="bogus_filter")
 
-    data = assert_error(result, error_type="validation_error")
+    data = _exc_ctx["envelope"]
     assert "bogus_filter" in data["error_message"]
 
 

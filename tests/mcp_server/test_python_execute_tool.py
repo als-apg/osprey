@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from osprey.mcp_server.python_executor.executor import ExecutionResult
-from tests.mcp_server.conftest import assert_error, extract_response_dict, get_tool_fn
+from tests.mcp_server.conftest import assert_error, assert_raises_error, extract_response_dict, get_tool_fn
 
 
 def _get_python_execute():
@@ -87,13 +87,14 @@ async def test_python_execute_write_pattern_detection(tmp_path, monkeypatch):
         },
     ):
         fn = _get_python_execute()
-        result = await fn(
-            code="caput('TEST:PV', 42.0)",
-            description="write to PV",
-            execution_mode="readonly",
-        )
+        with assert_raises_error(error_type="safety_error") as _exc_ctx:
+            await fn(
+                code="caput('TEST:PV', 42.0)",
+                description="write to PV",
+                execution_mode="readonly",
+            )
 
-    data = assert_error(result, error_type="safety_error")
+    data = _exc_ctx["envelope"]
     assert "suggestions" in data
 
 
@@ -226,9 +227,10 @@ async def test_python_execute_empty_code(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     fn = _get_python_execute()
-    result = await fn(code="", description="empty")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(code="", description="empty")
 
-    data = assert_error(result, error_type="validation_error")
+    data = _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -319,16 +321,17 @@ async def test_safety_checks_run_before_adapter(tmp_path, monkeypatch):
         ),
     ):
         fn = _get_python_execute()
-        result = await fn(
-            code="exec('bad')",
-            description="safety check test",
-            execution_mode="readonly",
-        )
+        with assert_raises_error(error_type="safety_error") as _exc_ctx:
+            await fn(
+                code="exec('bad')",
+                description="safety check test",
+                execution_mode="readonly",
+            )
 
     # Adapter should NOT have been called
     mock_exec.assert_not_called()
 
-    data = assert_error(result, error_type="safety_error")
+    data = _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -353,15 +356,16 @@ async def test_pattern_detection_runs_before_adapter(tmp_path, monkeypatch):
         ),
     ):
         fn = _get_python_execute()
-        result = await fn(
-            code="caput('TEST:PV', 1.0)",
-            description="pattern detection test",
-            execution_mode="readonly",
-        )
+        with assert_raises_error(error_type="safety_error") as _exc_ctx:
+            await fn(
+                code="caput('TEST:PV', 1.0)",
+                description="pattern detection test",
+                execution_mode="readonly",
+            )
 
     mock_exec.assert_not_called()
 
-    data = assert_error(result, error_type="safety_error")
+    data = _exc_ctx["envelope"]
 
 
 @pytest.mark.unit

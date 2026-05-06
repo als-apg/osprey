@@ -2,7 +2,7 @@
 
 import json
 from unittest.mock import MagicMock, PropertyMock, patch
-from tests.mcp_server.conftest import assert_error, extract_response_dict
+from tests.mcp_server.conftest import assert_error, assert_raises_error, extract_response_dict
 
 import pytest
 
@@ -53,9 +53,10 @@ def test_validate_empty_list(tmp_path, monkeypatch):
     )
 
     fn = get_tool_fn(validate)
-    result = fn(channels=[])
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        fn(channels=[])
 
-    data = assert_error(result, error_type="validation_error")
+    data = _exc_ctx["envelope"]
     assert "Empty channel list" in data["error_message"]
 
 
@@ -75,7 +76,8 @@ def test_validate_internal_error(tmp_path, monkeypatch):
         )
 
         fn = get_tool_fn(validate)
-        result = fn(channels=["SR:BPM1:X"])
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            fn(channels=["SR:BPM1:X"])
 
-    data = assert_error(result, error_type="internal_error")
+    data = _exc_ctx["envelope"]
     assert "Corrupted index" in data["error_message"]
