@@ -13,13 +13,12 @@ from typing import TYPE_CHECKING
 
 import httpx
 import yaml
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from osprey.interfaces.common_middleware import ExceptionLoggingMiddleware, NoCacheStaticMiddleware
-from osprey.interfaces.vendor import vendor_url
 from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster, WorkspaceWatcher
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
@@ -30,9 +29,6 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
 STATIC_DIR = Path(__file__).parent / "static"
-
-templates = Jinja2Templates(directory=str(STATIC_DIR))
-templates.env.globals["vendor_url"] = vendor_url
 
 logger = __import__("logging").getLogger(__name__)
 
@@ -358,13 +354,9 @@ def create_app(
     app.include_router(router)
 
     @app.get("/")
-    async def root(request: Request):
-        return templates.TemplateResponse(request, "index.html", {})
+    async def root():
+        return FileResponse(STATIC_DIR / "index.html")
 
-    # Mount shared fonts before /static (Starlette matches in declaration order)
-    SHARED_FONTS_DIR = Path(__file__).parent.parent / "shared_fonts"
-    if SHARED_FONTS_DIR.exists():
-        app.mount("/static/fonts", StaticFiles(directory=SHARED_FONTS_DIR), name="shared-fonts")
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
