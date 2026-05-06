@@ -5,7 +5,7 @@ import logging
 import math
 from datetime import UTC, datetime, timedelta
 
-from osprey.mcp_server.control_system.error_handling import ToolError, connector_error_handler
+from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
 
@@ -90,106 +90,102 @@ async def archiver_read(
                 ["Use ISO-8601 format or 'now'."],
             )
 
-    try:
-        async with connector_error_handler("archiver_read", connector_name="archiver"):
-            from osprey.mcp_server.control_system.server_context import get_server_context
+    async with connector_error_handler("archiver_read", connector_name="archiver"):
+        from osprey.mcp_server.control_system.server_context import get_server_context
 
-            registry = get_server_context()
-            connector = await registry.archiver()
+        registry = get_server_context()
+        connector = await registry.archiver()
 
-            df = await connector.get_data(
-                channels,
-                start_dt,
-                end_dt,
-                precision_ms=1000 if bin_size is None else bin_size * 1000,
-            )
+        df = await connector.get_data(
+            channels,
+            start_dt,
+            end_dt,
+            precision_ms=1000 if bin_size is None else bin_size * 1000,
+        )
 
-            # Full data payload goes to file; compact summary returned inline
-            records = json.loads(df.to_json(orient="split", date_format="iso"))
-            data_payload = {
-                "query": {
-                    "channels": channels,
-                    "start_time": str(start_dt),
-                    "end_time": str(end_dt),
-                    "processing": processing,
-                    "bin_size": bin_size,
-                },
-                "dataframe": records,
-            }
-
-            def _safe_stat(value: float) -> float | None:
-                """Convert NaN to None for JSON-safe serialization."""
-                v = float(value)
-                return None if math.isnan(v) else v
-
-            per_channel = {}
-            for ch in channels:
-                if ch in df.columns:
-                    col = df[ch]
-                    mean = _safe_stat(col.mean())
-                    per_channel[ch] = {
-                        "points": int(col.count()),
-                        "min": _safe_stat(col.min()),
-                        "max": _safe_stat(col.max()),
-                        "mean": round(mean, 6) if mean is not None else None,
-                    }
-
-            summary = {
-                "channels_queried": len(channels),
-                "total_rows": len(df),
-                "time_range": {"start": str(start_dt), "end": str(end_dt)},
-                "per_channel": per_channel,
-            }
-            access_details = {
-                "data_file_structure": {
-                    "root_keys": ["query", "dataframe"],
-                    "dataframe_format": "pandas split-orient JSON",
-                    "dataframe_keys": ["index", "columns", "data"],
-                },
-                "schema": {
-                    "index": "list of ISO-8601 timestamp strings (one per row)",
-                    "columns": f"list of channel names: {list(df.columns)}",
-                    "data": (
-                        "list of lists — each inner list has one value per column, "
-                        "aligned with index"
-                    ),
-                },
-                "access_patterns": {
-                    "all_timestamps": 'json_data["dataframe"]["index"]',
-                    "channel_names": 'json_data["dataframe"]["columns"]',
-                    "all_rows": 'json_data["dataframe"]["data"]',
-                    "single_channel_values": (
-                        'col_idx = columns.index("CHANNEL"); [row[col_idx] for row in data]'
-                    ),
-                    "value_at_time": "data[row_idx][col_idx]",
-                },
-                "example_row": {
-                    "timestamp": str(df.index[0]) if len(df) > 0 else None,
-                    "values": (
-                        {ch: _safe_stat(df[ch].iloc[0]) for ch in df.columns} if len(df) > 0 else {}
-                    ),
-                },
-                "row_count": len(df),
+        # Full data payload goes to file; compact summary returned inline
+        records = json.loads(df.to_json(orient="split", date_format="iso"))
+        data_payload = {
+            "query": {
+                "channels": channels,
+                "start_time": str(start_dt),
+                "end_time": str(end_dt),
                 "processing": processing,
                 "bin_size": bin_size,
-            }
+            },
+            "dataframe": records,
+        }
 
-            # Save via ArtifactStore (unified)
-            from osprey.stores.artifact_store import get_artifact_store
+        def _safe_stat(value: float) -> float | None:
+            """Convert NaN to None for JSON-safe serialization."""
+            v = float(value)
+            return None if math.isnan(v) else v
 
-            store = get_artifact_store()
-            entry = store.save_data(
-                tool="archiver_read",
-                data=data_payload,
-                title=f"Archiver data for {len(channels)} channel(s)",
-                description=f"Archiver data for {len(channels)} channel(s), {len(df)} points",
-                summary=summary,
-                access_details=access_details,
-                category="archiver_data",
-                metadata={"data_type": "timeseries"},
-            )
+        per_channel = {}
+        for ch in channels:
+            if ch in df.columns:
+                col = df[ch]
+                mean = _safe_stat(col.mean())
+                per_channel[ch] = {
+                    "points": int(col.count()),
+                    "min": _safe_stat(col.min()),
+                    "max": _safe_stat(col.max()),
+                    "mean": round(mean, 6) if mean is not None else None,
+                }
 
-            return json.dumps(entry.to_tool_response(), default=str)
+        summary = {
+            "channels_queried": len(channels),
+            "total_rows": len(df),
+            "time_range": {"start": str(start_dt), "end": str(end_dt)},
+            "per_channel": per_channel,
+        }
+        access_details = {
+            "data_file_structure": {
+                "root_keys": ["query", "dataframe"],
+                "dataframe_format": "pandas split-orient JSON",
+                "dataframe_keys": ["index", "columns", "data"],
+            },
+            "schema": {
+                "index": "list of ISO-8601 timestamp strings (one per row)",
+                "columns": f"list of channel names: {list(df.columns)}",
+                "data": (
+                    "list of lists — each inner list has one value per column, "
+                    "aligned with index"
+                ),
+            },
+            "access_patterns": {
+                "all_timestamps": 'json_data["dataframe"]["index"]',
+                "channel_names": 'json_data["dataframe"]["columns"]',
+                "all_rows": 'json_data["dataframe"]["data"]',
+                "single_channel_values": (
+                    'col_idx = columns.index("CHANNEL"); [row[col_idx] for row in data]'
+                ),
+                "value_at_time": "data[row_idx][col_idx]",
+            },
+            "example_row": {
+                "timestamp": str(df.index[0]) if len(df) > 0 else None,
+                "values": (
+                    {ch: _safe_stat(df[ch].iloc[0]) for ch in df.columns} if len(df) > 0 else {}
+                ),
+            },
+            "row_count": len(df),
+            "processing": processing,
+            "bin_size": bin_size,
+        }
 
-    except ToolError as exc:
-        return exc.response
+        # Save via ArtifactStore (unified)
+        from osprey.stores.artifact_store import get_artifact_store
+
+        store = get_artifact_store()
+        entry = store.save_data(
+            tool="archiver_read",
+            data=data_payload,
+            title=f"Archiver data for {len(channels)} channel(s)",
+            description=f"Archiver data for {len(channels)} channel(s), {len(df)} points",
+            summary=summary,
+            access_details=access_details,
+            category="archiver_data",
+            metadata={"data_type": "timeseries"},
+        )
+
+        return json.dumps(entry.to_tool_response(), default=str)

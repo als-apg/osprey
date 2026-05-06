@@ -8,6 +8,7 @@ keeping the payload small enough for inline report generation.
 import json
 import logging
 
+from fastmcp.exceptions import ToolError
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
 from osprey.utils.timeseries import extract_timeseries_frame, lttb_downsample
@@ -42,6 +43,8 @@ async def archiver_downsample(
     """
     try:
         workspace_root = resolve_workspace_root()
+    except ToolError:
+        raise
     except Exception as e:
         return make_error(
                 "internal_error",

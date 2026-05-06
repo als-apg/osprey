@@ -6,6 +6,7 @@ PROMPT-PROVIDER: Tool docstrings are static prompts visible to Claude Code.
   attachment limits, logbook name conventions
 """
 
+from fastmcp.exceptions import ToolError
 import json
 import logging
 import os
@@ -116,6 +117,8 @@ async def entry_get(
             default=str,
         )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("entry_get failed")
         return make_error(
@@ -174,6 +177,8 @@ async def entries_by_ids(
             default=str,
         )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("entries_by_ids failed")
         return make_error(
@@ -241,6 +246,8 @@ async def entry_create(
                     str(exc),
                     ["Check artifact IDs via the gallery or artifact_save output."],
                 )
+        except ToolError:
+            raise
         except Exception as exc:
             logger.warning("Artifact resolution failed (non-fatal for draft): %s", exc)
             # For draft mode, store IDs for deferred resolution
@@ -309,6 +316,8 @@ async def entry_create(
                 from osprey.mcp_server.http import notify_panel_focus
 
                 notify_panel_focus("ariel", url=url)
+            except ToolError:
+                raise
             except Exception:
                 pass  # Non-fatal — web terminal may not be running
 
@@ -321,6 +330,8 @@ async def entry_create(
                     ),
                 }
             )
+        except ToolError:
+            raise
         except Exception as exc:
             logger.exception("entry_create (draft) failed")
             return make_error(
@@ -387,6 +398,8 @@ async def entry_create(
             default=str,
         )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("entry_create failed")
         return make_error(

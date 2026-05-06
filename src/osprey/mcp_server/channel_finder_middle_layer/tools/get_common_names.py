@@ -5,6 +5,7 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
   Facility-customizable: device name examples (e.g., "BPM 1", "BPM 2")
 """
 
+from fastmcp.exceptions import ToolError
 import json
 import logging
 
@@ -45,6 +46,8 @@ def get_common_names(system: str, family: str) -> str:
                 }
             )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("get_common_names failed")
         return make_error(

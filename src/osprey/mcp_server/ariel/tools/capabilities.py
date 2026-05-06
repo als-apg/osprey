@@ -1,5 +1,6 @@
 """MCP tool: capabilities — report ARIEL service capabilities."""
 
+from fastmcp.exceptions import ToolError
 import json
 import logging
 
@@ -44,6 +45,8 @@ async def capabilities() -> str:
             default=str,
         )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("capabilities failed")
         return make_error(

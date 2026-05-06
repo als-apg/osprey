@@ -12,6 +12,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from fastmcp.exceptions import ToolError
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
 
@@ -187,6 +188,8 @@ async def create_document(
         from osprey.mcp_server.http import gallery_url
 
         response["gallery_url"] = gallery_url()
+    except ToolError:
+        raise
     except Exception:
         pass
     return json.dumps(response, default=str)

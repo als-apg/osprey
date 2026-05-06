@@ -7,7 +7,7 @@ Tool docstring is the static prompt visible to Claude Code.
 import json
 import logging
 
-from osprey.mcp_server.control_system.error_handling import ToolError, connector_error_handler
+from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
 
@@ -101,87 +101,83 @@ async def channel_write(
             )
 
     # Execute writes
-    try:
-        async with connector_error_handler("channel_write"):
-            from osprey.mcp_server.control_system.server_context import get_server_context
+    async with connector_error_handler("channel_write"):
+        from osprey.mcp_server.control_system.server_context import get_server_context
 
-            registry = get_server_context()
-            connector = await registry.control_system()
+        registry = get_server_context()
+        connector = await registry.control_system()
 
-            # Determine per-channel verification level and tolerance
-            connector_results = []  # Raw connector results for bridge
-            results_serialised = []  # Serialised dicts for the data file
+        # Determine per-channel verification level and tolerance
+        connector_results = []  # Raw connector results for bridge
+        results_serialised = []  # Serialised dicts for the data file
 
-            if len(operations) == 1:
-                op = operations[0]
-                channel, value = op["channel"], op["value"]
-                level = verification_level
-                tolerance = None
-                if validator:
-                    cfg_level, cfg_tol = validator.get_verification_config(channel, value)
-                    if cfg_level:
-                        level = cfg_level
-                    if cfg_tol is not None:
-                        tolerance = cfg_tol
-                wr = await connector.write_channel(
-                    channel, value, verification_level=level, tolerance=tolerance
-                )
-                connector_results.append(wr)
-            else:
-                write_ops = [(op["channel"], op["value"]) for op in operations]
-                connector_results = await connector.write_multiple_channels(
-                    write_ops,
-                    verification_level=verification_level,
-                )
-
-            for op, wr in zip(operations, connector_results, strict=True):
-                result_entry = {
-                    "channel": wr.channel_address,
-                    "value_written": wr.value_written,
-                    "success": wr.success,
-                    "error_message": wr.error_message,
-                }
-                if wr.verification:
-                    result_entry["verification"] = {
-                        "level": wr.verification.level,
-                        "verified": wr.verification.verified,
-                        "readback_value": wr.verification.readback_value,
-                        "tolerance_used": wr.verification.tolerance_used,
-                        "notes": wr.verification.notes,
-                    }
-                if op.get("notes"):
-                    result_entry["notes"] = op["notes"]
-                results_serialised.append(result_entry)
-
-            # Build compact summary inline
-            successful = sum(1 for r in results_serialised if r["success"])
-            summary = {
-                "total_writes": len(results_serialised),
-                "successful": successful,
-                "failed": len(results_serialised) - successful,
-                "results": [
-                    {
-                        "channel": r["channel"],
-                        "value": r["value_written"],
-                        "success": r["success"],
-                        "error": r.get("error_message"),
-                        "verification": r.get("verification"),
-                    }
-                    for r in results_serialised
-                ],
-            }
-            access_details = {"verification_level": verification_level}
-
-            # Return ephemeral result (no persistent storage for channel writes)
-            return json.dumps(
-                {
-                    "status": "success",
-                    "description": f"Wrote {len(results_serialised)} channel(s)",
-                    "summary": summary,
-                    "access_details": access_details,
-                },
-                default=str,
+        if len(operations) == 1:
+            op = operations[0]
+            channel, value = op["channel"], op["value"]
+            level = verification_level
+            tolerance = None
+            if validator:
+                cfg_level, cfg_tol = validator.get_verification_config(channel, value)
+                if cfg_level:
+                    level = cfg_level
+                if cfg_tol is not None:
+                    tolerance = cfg_tol
+            wr = await connector.write_channel(
+                channel, value, verification_level=level, tolerance=tolerance
+            )
+            connector_results.append(wr)
+        else:
+            write_ops = [(op["channel"], op["value"]) for op in operations]
+            connector_results = await connector.write_multiple_channels(
+                write_ops,
+                verification_level=verification_level,
             )
 
-    except ToolError as exc:
-        return exc.response
+        for op, wr in zip(operations, connector_results, strict=True):
+            result_entry = {
+                "channel": wr.channel_address,
+                "value_written": wr.value_written,
+                "success": wr.success,
+                "error_message": wr.error_message,
+            }
+            if wr.verification:
+                result_entry["verification"] = {
+                    "level": wr.verification.level,
+                    "verified": wr.verification.verified,
+                    "readback_value": wr.verification.readback_value,
+                    "tolerance_used": wr.verification.tolerance_used,
+                    "notes": wr.verification.notes,
+                }
+            if op.get("notes"):
+                result_entry["notes"] = op["notes"]
+            results_serialised.append(result_entry)
+
+        # Build compact summary inline
+        successful = sum(1 for r in results_serialised if r["success"])
+        summary = {
+            "total_writes": len(results_serialised),
+            "successful": successful,
+            "failed": len(results_serialised) - successful,
+            "results": [
+                {
+                    "channel": r["channel"],
+                    "value": r["value_written"],
+                    "success": r["success"],
+                    "error": r.get("error_message"),
+                    "verification": r.get("verification"),
+                }
+                for r in results_serialised
+            ],
+        }
+        access_details = {"verification_level": verification_level}
+
+        # Return ephemeral result (no persistent storage for channel writes)
+        return json.dumps(
+            {
+                "status": "success",
+                "description": f"Wrote {len(results_serialised)} channel(s)",
+                "summary": summary,
+                "access_details": access_details,
+            },
+            default=str,
+        )

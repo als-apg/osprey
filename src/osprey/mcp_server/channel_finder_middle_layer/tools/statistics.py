@@ -1,5 +1,6 @@
 """MCP tool: statistics — get database statistics."""
 
+from fastmcp.exceptions import ToolError
 import json
 import logging
 
@@ -23,6 +24,8 @@ def statistics() -> str:
 
         return json.dumps(stats)
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("statistics failed")
         return make_error(

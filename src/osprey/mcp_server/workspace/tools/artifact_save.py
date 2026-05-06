@@ -8,6 +8,7 @@ import json
 import logging
 from pathlib import Path
 
+from fastmcp.exceptions import ToolError
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import gallery_url
 from osprey.mcp_server.workspace.server import mcp
@@ -134,6 +135,8 @@ async def artifact_save(
                     "If running via dispatch sidecar, confirm supervisord.conf and the interactive web process run as the same user.",
                 ],
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("artifact_save failed")
         return make_error(
@@ -176,6 +179,8 @@ async def artifact_delete(artifact_id: str) -> str:
             }
         )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("artifact_delete failed")
         return make_error(
@@ -228,6 +233,8 @@ async def artifact_get(artifact_id: str) -> str:
         }
         return json.dumps(result, default=str)
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("artifact_get failed")
         return make_error(

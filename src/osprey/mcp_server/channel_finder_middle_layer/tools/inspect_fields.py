@@ -6,6 +6,7 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
   system/family name examples
 """
 
+from fastmcp.exceptions import ToolError
 import json
 import logging
 
@@ -49,6 +50,8 @@ def inspect_fields(
                     "Use list_families to see families in a system.",
                 ],
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("inspect_fields failed")
         return make_error(

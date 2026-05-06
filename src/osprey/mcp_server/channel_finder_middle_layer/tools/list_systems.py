@@ -5,6 +5,7 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
   Facility-customizable: tool description with facility-specific system examples
 """
 
+from fastmcp.exceptions import ToolError
 import json
 import logging
 
@@ -27,6 +28,8 @@ def list_systems() -> str:
 
         return json.dumps({"systems": systems, "total": len(systems)})
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("list_systems failed")
         return make_error(

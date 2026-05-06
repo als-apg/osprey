@@ -3,6 +3,7 @@
 import json
 import logging
 
+from fastmcp.exceptions import ToolError
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import gallery_url
 from osprey.mcp_server.workspace.server import mcp
@@ -102,6 +103,8 @@ async def artifact_export(
                     "Install browser: playwright install chromium",
                 ],
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("artifact_export conversion failed")
         return make_error(
@@ -127,6 +130,8 @@ async def artifact_export(
         url = gallery_url()
         return json.dumps(new_entry.to_tool_response(gallery_url=url))
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("artifact_export save failed")
         return make_error(

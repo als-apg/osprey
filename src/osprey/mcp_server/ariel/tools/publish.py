@@ -1,5 +1,6 @@
 """MCP tool: entry_publish — publish an existing ARIEL entry to the facility logbook."""
 
+from fastmcp.exceptions import ToolError
 import json
 import logging
 
@@ -62,6 +63,8 @@ async def entry_publish(
                 str(exc),
                 ["The configured adapter does not support writing entries."],
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("entry_publish failed for %s", entry_id)
         return make_error(

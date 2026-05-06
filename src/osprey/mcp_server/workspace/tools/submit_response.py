@@ -8,6 +8,7 @@ UI can all reference it.
 import json
 import logging
 
+from fastmcp.exceptions import ToolError
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import gallery_url
 from osprey.mcp_server.workspace.server import mcp
@@ -135,6 +136,8 @@ async def submit_response(
         response["gallery_url"] = gallery_url()
         return json.dumps(response, default=str)
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("submit_response failed")
         return make_error(
