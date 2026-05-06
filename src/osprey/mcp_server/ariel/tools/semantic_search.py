@@ -4,6 +4,7 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
   Facility-customizable: similarity threshold guidance, embedding model info
 """
 
+from fastmcp.exceptions import ToolError
 import json
 import logging
 
@@ -99,6 +100,8 @@ async def semantic_search(
 
         return json.dumps(response, default=str)
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("semantic_search failed")
         return make_error(

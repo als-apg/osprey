@@ -1,5 +1,6 @@
 """MCP tool: status — report ARIEL service health and statistics."""
 
+from fastmcp.exceptions import ToolError
 import json
 import logging
 
@@ -49,6 +50,8 @@ async def status() -> str:
             default=str,
         )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("status failed")
         return make_error(

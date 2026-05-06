@@ -8,6 +8,7 @@ and operational details.
 import json
 import logging
 
+from fastmcp.exceptions import ToolError
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
 from osprey.utils.workspace import resolve_config_path
@@ -54,6 +55,8 @@ async def facility_description() -> str:
             }
         )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("facility_description failed")
         return make_error(

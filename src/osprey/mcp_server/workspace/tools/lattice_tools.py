@@ -19,6 +19,7 @@ import os
 
 import httpx
 
+from fastmcp.exceptions import ToolError
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
 from osprey.utils.workspace import load_osprey_config
@@ -102,6 +103,8 @@ async def lattice_init(lattice_path: str) -> str:
                 f"Failed to load lattice: {exc.response.text}",
                 ["Check that the lattice file path is correct and readable."],
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("lattice_init failed")
         return make_error("lattice_error", str(exc))
@@ -125,6 +128,8 @@ async def lattice_state() -> str:
                 "Lattice dashboard server is not running.",
                 ["The dashboard starts automatically with 'osprey web'."],
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("lattice_state failed")
         return make_error("lattice_error", str(exc))
@@ -170,6 +175,8 @@ async def lattice_set_param(family: str, value: float) -> str:
                 "service_unavailable",
                 "Lattice dashboard server is not running.",
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("lattice_set_param failed")
         return make_error("lattice_error", str(exc))
@@ -203,6 +210,8 @@ async def lattice_refresh(figure: str | None = None) -> str:
                 "service_unavailable",
                 "Lattice dashboard server is not running.",
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("lattice_refresh failed")
         return make_error("lattice_error", str(exc))
@@ -234,6 +243,8 @@ async def lattice_set_baseline() -> str:
                 "service_unavailable",
                 "Lattice dashboard server is not running.",
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("lattice_set_baseline failed")
         return make_error("lattice_error", str(exc))
@@ -272,6 +283,8 @@ async def lattice_get_figure(name: str) -> str:
                 "service_unavailable",
                 "Lattice dashboard server is not running.",
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("lattice_get_figure failed")
         return make_error("lattice_error", str(exc))
@@ -309,6 +322,8 @@ async def lattice_get_data(name: str) -> str:
                 "service_unavailable",
                 "Lattice dashboard server is not running.",
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("lattice_get_data failed")
         return make_error("lattice_error", str(exc))
@@ -334,6 +349,8 @@ async def lattice_get_settings() -> str:
                 "service_unavailable",
                 "Lattice dashboard server is not running.",
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("lattice_get_settings failed")
         return make_error("lattice_error", str(exc))
@@ -370,6 +387,8 @@ async def lattice_update_settings(settings: dict) -> str:
                 "service_unavailable",
                 "Lattice dashboard server is not running.",
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("lattice_update_settings failed")
         return make_error("lattice_error", str(exc))
@@ -393,6 +412,8 @@ async def lattice_clear_baseline() -> str:
                 "service_unavailable",
                 "Lattice dashboard server is not running.",
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("lattice_clear_baseline failed")
         return make_error("lattice_error", str(exc))

@@ -6,6 +6,7 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
   parameter descriptions
 """
 
+from fastmcp.exceptions import ToolError
 import json
 import logging
 
@@ -60,6 +61,8 @@ def list_channels(
                     "Use inspect_fields to see available fields.",
                 ],
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("list_channels failed")
         return make_error(

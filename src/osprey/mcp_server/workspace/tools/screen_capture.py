@@ -10,6 +10,7 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
+from fastmcp.exceptions import ToolError
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
 from osprey.mcp_server.workspace.tools.screen_capture_backends import (
@@ -150,6 +151,8 @@ async def screenshot_capture(
                 str(exc),
                 ["Check that Screen Recording permission is granted to the terminal."],
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("screenshot_capture failed")
         return make_error(
@@ -189,6 +192,8 @@ async def list_windows(
 
     except BackendUnavailableError as exc:
         return make_error("platform_error", str(exc), exc.suggestions)
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("list_windows failed")
         return make_error(
@@ -277,6 +282,8 @@ async def manage_window(
                 str(exc),
                 ["Example: app='Phoebus' or app='Google Chrome'"],
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("manage_window failed")
         return make_error(

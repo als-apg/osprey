@@ -4,6 +4,7 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
   Facility-customizable: table schema, metadata JSONB keys
 """
 
+from fastmcp.exceptions import ToolError
 import json
 import logging
 
@@ -87,6 +88,8 @@ async def sql_query(
                     "text_embeddings_* tables are allowed.",
                 ],
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("sql_query failed")
         return make_error(

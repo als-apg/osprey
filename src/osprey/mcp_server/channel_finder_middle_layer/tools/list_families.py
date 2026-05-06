@@ -5,6 +5,7 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
   Facility-customizable: tool description, system name examples (e.g., "SR" for Storage Ring)
 """
 
+from fastmcp.exceptions import ToolError
 import json
 import logging
 
@@ -36,6 +37,8 @@ def list_families(system: str) -> str:
                 str(exc),
                 ["Use list_systems to see available systems."],
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("list_families failed")
         return make_error(

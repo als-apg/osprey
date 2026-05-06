@@ -5,6 +5,7 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
   Facility-customizable: selection dict examples, level name examples
 """
 
+from fastmcp.exceptions import ToolError
 import json
 import logging
 
@@ -62,6 +63,8 @@ def build_channels(selections: dict) -> str:
                     "Use get_options to discover hierarchy levels and valid options.",
                 ],
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("build_channels failed")
         return make_error(

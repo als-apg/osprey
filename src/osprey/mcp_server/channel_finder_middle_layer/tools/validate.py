@@ -1,5 +1,6 @@
 """MCP tool: validate — validate that channel names exist in the database."""
 
+from fastmcp.exceptions import ToolError
 import json
 import logging
 
@@ -42,6 +43,8 @@ def validate(channels: list[str]) -> str:
 
         return json.dumps({"results": results, "total": len(results)})
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("validate failed")
         return make_error(

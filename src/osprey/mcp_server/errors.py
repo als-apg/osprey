@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+from typing import NoReturn
 
-from mcp.types import CallToolResult, TextContent
+from fastmcp.exceptions import ToolError
+from mcp.types import CallToolResult
 
 
 def make_error(
@@ -12,13 +14,15 @@ def make_error(
     error_message: str,
     suggestions: list[str] | None = None,
     details: dict | list | None = None,
-) -> CallToolResult:
-    """Build a CallToolResult error with the cross-team standard envelope.
+) -> NoReturn:
+    """Raise a ``fastmcp.ToolError`` carrying the cross-team standard envelope.
 
-    All MCP tools must return this on failure so that the SDK's ``isError``
-    flag is meaningful AND the model still receives the structured envelope
-    (``error_type``, ``error_message``, ``suggestions``, ``details``) in the
-    text content for downstream guidance hooks.
+    fastmcp converts a raised ``ToolError`` into a ``CallToolResult`` with
+    ``isError=True`` and the exception message verbatim as a ``TextContent``
+    block. Returning a ``CallToolResult`` directly does *not* set ``isError``
+    correctly under fastmcp's structured-output wrapping (see PR for the
+    reproduction); raising is the only path that produces a clean
+    error response on the wire.
 
     Args:
         error_type: Machine-readable error category (e.g. "limits_violation").
@@ -35,14 +39,11 @@ def make_error(
     }
     if details is not None:
         envelope["details"] = details
-    return CallToolResult(
-        content=[TextContent(type="text", text=json.dumps(envelope))],
-        isError=True,
-    )
+    raise ToolError(json.dumps(envelope))
 
 
 def extract_error_envelope(result: CallToolResult) -> dict | None:
-    """Reverse of make_error: pull the structured envelope out of a CallToolResult.
+    """Pull the structured envelope out of a wire-form error CallToolResult.
 
     Returns ``None`` when the result is not an error or its content cannot be
     parsed as the envelope dict. Useful for tests and hooks that need to

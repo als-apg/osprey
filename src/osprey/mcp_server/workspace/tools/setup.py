@@ -10,6 +10,7 @@ import os
 import re
 from pathlib import Path
 
+from fastmcp.exceptions import ToolError
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
 from osprey.utils.workspace import load_osprey_config, resolve_config_path
@@ -151,6 +152,8 @@ async def setup_inspect() -> str:
             indent=2,
         )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("setup_inspect failed")
         return make_error(
@@ -293,6 +296,8 @@ async def setup_patch(file: str, key_path: str, value: str) -> str:
             default=str,
         )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("setup_patch failed")
         return make_error(

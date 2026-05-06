@@ -5,6 +5,7 @@ PROMPT-PROVIDER: Tool docstrings are static prompts visible to Claude Code.
   Facility-customizable: filter field descriptions, source system examples
 """
 
+from fastmcp.exceptions import ToolError
 import json
 import logging
 
@@ -73,6 +74,8 @@ async def browse(
             default=str,
         )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("browse failed")
         return make_error(
@@ -125,6 +128,8 @@ async def filter_options(
             default=str,
         )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("filter_options failed")
         return make_error(

@@ -9,6 +9,7 @@ All data is stored in the unified ArtifactStore.
 import json
 import logging
 
+from fastmcp.exceptions import ToolError
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
 
@@ -62,6 +63,8 @@ async def data_list(
             default=str,
         )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("data_list failed")
         return make_error(
@@ -124,6 +127,8 @@ async def data_read(entry_id: str) -> str:
         content = file_path.read_text(encoding="utf-8")
         return content
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("data_read failed")
         return make_error(
@@ -166,6 +171,8 @@ async def data_delete(entry_id: str) -> str:
             }
         )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("data_delete failed")
         return make_error(

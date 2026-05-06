@@ -4,6 +4,7 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
   Facility-customizable: field prefix examples, operator guidance
 """
 
+from fastmcp.exceptions import ToolError
 import json
 import logging
 
@@ -95,6 +96,8 @@ async def keyword_search(
 
         return json.dumps(response, default=str)
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("keyword_search failed")
         return make_error(

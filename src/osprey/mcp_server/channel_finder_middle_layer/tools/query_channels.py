@@ -4,6 +4,7 @@ Provides agents with ad-hoc SQL access to the channel finder data,
 including full-text search via the FTS index.
 """
 
+from fastmcp.exceptions import ToolError
 import json
 import logging
 
@@ -106,6 +107,8 @@ def query_channels(sql: str) -> str:
                     "Use 'SELECT * FROM channels LIMIT 10' to explore the schema.",
                 ],
             )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("query_channels failed")
         return make_error(
