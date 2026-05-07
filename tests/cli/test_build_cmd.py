@@ -823,6 +823,104 @@ class TestCreateProjectVenv:
 
 
 # ---------------------------------------------------------------------------
+# Osprey install spec resolution
+# ---------------------------------------------------------------------------
+
+
+class TestResolveOspreySpec:
+    """Tests for _resolve_osprey_spec() — auto-detect install mode from metadata.
+
+    Regression coverage for issue #216: building from a non-editable install
+    (e.g., ``uv tool install osprey-framework``) used to error with
+    "no pyproject.toml at <python lib>" because the resolver walked
+    ``Path(__file__).parents[3]`` instead of consulting package metadata.
+    """
+
+    def _fake_dist(
+        self,
+        version: str = "2026.5.0",
+        direct_url: dict | None = None,
+    ):
+        class _Dist:
+            def __init__(self, ver, du):
+                self.version = ver
+                self._du = du
+
+            def read_text(self, name):
+                if name == "direct_url.json" and self._du is not None:
+                    return json.dumps(self._du)
+                return None
+
+        return _Dist(version, direct_url)
+
+    def test_editable_install_uses_source_path(self, monkeypatch):
+        """Editable install (``pip install -e .``) → spec is the source dir."""
+        from osprey.cli.build_cmd import _resolve_osprey_spec
+
+        fake = self._fake_dist(
+            direct_url={"url": "file:///abs/path/to/osprey", "dir_info": {"editable": True}},
+        )
+        monkeypatch.setattr("osprey.cli.build_cmd.distribution", lambda _name: fake)
+
+        spec, label = _resolve_osprey_spec("local")
+        assert spec == "/abs/path/to/osprey"
+        assert "editable" in label
+
+    def test_wheel_install_pins_to_version(self, monkeypatch):
+        """uv tool / pip wheel install → pinned to ``osprey-framework==<version>``."""
+        from osprey.cli.build_cmd import _resolve_osprey_spec
+
+        fake = self._fake_dist(
+            version="2026.5.0",
+            direct_url={"url": "https://pypi/...", "archive_info": {"hash": "sha256=abc"}},
+        )
+        monkeypatch.setattr("osprey.cli.build_cmd.distribution", lambda _name: fake)
+
+        spec, label = _resolve_osprey_spec("local")
+        assert spec == "osprey-framework==2026.5.0"
+        assert label == "osprey-framework==2026.5.0"
+
+    def test_wheel_install_without_direct_url_pins_to_version(self, monkeypatch):
+        """Older pip wheel install (no direct_url.json) → still pinned to version."""
+        from osprey.cli.build_cmd import _resolve_osprey_spec
+
+        fake = self._fake_dist(version="2026.5.0", direct_url=None)
+        monkeypatch.setattr("osprey.cli.build_cmd.distribution", lambda _name: fake)
+
+        spec, _label = _resolve_osprey_spec("local")
+        assert spec == "osprey-framework==2026.5.0"
+
+    def test_pip_keyword_uses_unpinned_pypi(self, monkeypatch):
+        """Explicit ``osprey_install: pip`` → unpinned ``osprey-framework``."""
+        from osprey.cli.build_cmd import _resolve_osprey_spec
+
+        spec, _label = _resolve_osprey_spec("pip")
+        assert spec == "osprey-framework"
+
+    def test_pep508_spec_passthrough(self):
+        """Explicit PEP 508 spec → passed through verbatim."""
+        from osprey.cli.build_cmd import _resolve_osprey_spec
+
+        spec, label = _resolve_osprey_spec("osprey-framework==2026.4.0")
+        assert spec == "osprey-framework==2026.4.0"
+        assert label == "osprey-framework==2026.4.0"
+
+    def test_metadata_missing_falls_back_to_source_tree(self, monkeypatch, tmp_path):
+        """If metadata is unavailable but a source tree exists at parents[3], use it."""
+        from importlib.metadata import PackageNotFoundError
+
+        from osprey.cli import build_cmd
+
+        def _missing(_name):
+            raise PackageNotFoundError
+
+        monkeypatch.setattr(build_cmd, "distribution", _missing)
+        # Real build_cmd.py is in a source checkout (pyproject.toml at parents[3]).
+        spec, _label = build_cmd._resolve_osprey_spec("local")
+        assert (Path(spec) / "pyproject.toml").exists()
+
+
+# ---------------------------------------------------------------------------
 # CLI Integration
 # ---------------------------------------------------------------------------
 
