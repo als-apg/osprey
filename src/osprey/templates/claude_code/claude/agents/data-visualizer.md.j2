@@ -28,7 +28,7 @@ You have access to these workspace MCP tools:
 - `create_document` — Compile LaTeX source to PDF (Beamer slides or article reports)
 - `artifact_save` — Save additional files or inline content as artifacts
 - `data_list` — List all collected data entries (find datasets to visualize)
-- `data_read` — Read full data content of a data context entry by ID
+- `data_read` — Read the full content of an artifact by ID
 - `artifact_get` — Look up an artifact by ID to get its file path and metadata
 - `facility_description` — Get facility context and terminology
 
@@ -92,9 +92,8 @@ When asked to create an interactive chart (data exploration, hover tooltips, zoo
 ### Data Loading
 
 The `data_source` parameter on `create_static_plot` and `create_interactive_plot` auto-loads data:
-- **Context entry ID** (numeric string, e.g. `"2"`): resolves via DataContext to the data file
-- **Artifact ID** (12-char hex): resolves via ArtifactStore to the artifact file
-- **File path**: loads directly from the workspace
+- **Artifact ID** (12-char hex, e.g. `"a1b2c3d4e5f6"`): resolves via ArtifactStore to the artifact file. Prefer this form when referencing data produced by a tool earlier in the conversation (e.g. `archiver_read`).
+- **File path**: loads directly from the workspace. Use this for files you wrote yourself or for paths returned by `data_list`.
 
 When `data_source` is provided, the loaded data is available as the **`data` variable —
 always a pandas DataFrame** (auto-converted from CSV, JSON, Excel, or Parquet).

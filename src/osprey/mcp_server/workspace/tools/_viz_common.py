@@ -37,7 +37,7 @@ def resolve_data_source(data_source: str) -> str:
 
 
 def build_data_loading_code(data_source: str) -> str:
-    """Generate preamble code to load data from an artifact ID, context entry ID, or file path.
+    """Generate preamble code to load data from an artifact ID or file path.
 
     Resolution is done server-side (not in the sandbox) so that the generated
     code always contains an absolute file path.

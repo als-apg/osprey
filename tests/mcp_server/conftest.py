@@ -115,7 +115,7 @@ def extract_response_dict(result) -> dict:
 
 @pytest.fixture(autouse=True)
 def _reset_singletons(monkeypatch):
-    """Reset the MCP registry and DataContext singletons between tests."""
+    """Reset the MCP registry and ArtifactStore singletons between tests."""
     # Reset config caches BEFORE each test to prevent cross-contamination
     reset_config_cache()
     import osprey.utils.config as _cfg

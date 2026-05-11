@@ -1,7 +1,7 @@
-"""Tests for MCP server shared utilities and DataContext.
+"""Tests for MCP server shared utilities and startup wiring.
 
-Covers: config loading, make_error format, DataContext
-save/list/get operations, config bridge (create_server primes ConfigBuilder).
+Covers: config loading, make_error format, and the config bridge
+(create_server primes ConfigBuilder).
 """
 
 import pytest
