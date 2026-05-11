@@ -133,10 +133,11 @@ async def test_archiver_read_file_persistence(tmp_path, monkeypatch):
     data = extract_response_dict(result)
     assert "data_file" in data
 
-    # Data file is a relative filename within the artifacts dir
-
-    artifacts_dir = tmp_path / "_agent_data" / "artifacts"
-    data_file = artifacts_dir / data["data_file"]
+    # data_file is a project-CWD-relative path (e.g.
+    # ``_agent_data/artifacts/{id}_archiver_read.json``) so the agent can
+    # pass it directly to open(). Test resolves it from the project root.
+    assert data["data_file"].startswith("_agent_data/artifacts/")
+    data_file = tmp_path / data["data_file"]
     assert data_file.exists()
 
     # Verify the data file is raw JSON (no _osprey_metadata envelope)
@@ -146,6 +147,7 @@ async def test_archiver_read_file_persistence(tmp_path, monkeypatch):
     assert "_osprey_metadata" not in file_content
 
     # Verify the index file was created (inside the artifacts subdir)
+    artifacts_dir = tmp_path / "_agent_data" / "artifacts"
     index_file = artifacts_dir / "artifacts.json"
     assert index_file.exists()
 

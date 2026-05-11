@@ -577,13 +577,21 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
         filepath = Path(data_file)
         if not filepath.is_absolute():
-            # New unified artifacts store files in the artifacts/ subdirectory;
-            # legacy DataContext entries used absolute paths.
-            candidate = store._store_dir / filepath
-            if candidate.exists():
-                filepath = candidate
-            else:
-                filepath = store._workspace / filepath
+            # data_file may be (a) a project-CWD-relative path like
+            # "_agent_data/artifacts/foo.json" (current ArtifactStore format),
+            # (b) a bare filename (legacy entries written before the format
+            # change), or (c) some other workspace-relative path. Try each
+            # candidate; the legacy DataContext path used absolute strings
+            # which are handled by the is_absolute() branch above.
+            candidates = [
+                store._workspace.parent / filepath,
+                store._store_dir / filepath,
+                store._workspace / filepath,
+            ]
+            for candidate in candidates:
+                if candidate.exists():
+                    filepath = candidate
+                    break
         if not filepath.exists():
             raise HTTPException(status_code=404, detail="Data file not found on disk")
 

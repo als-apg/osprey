@@ -196,6 +196,41 @@ class TestArtifactStore:
         assert resp["artifact_id"] == entry.id
         assert resp["gallery_url"] == "http://localhost:8086"
 
+    def test_save_data_sets_agent_usable_data_file(self, tmp_path, monkeypatch):
+        """data_file must be a path the agent can open() from project CWD.
+
+        Regression guard: previously this was a bare filename
+        (``{id}_{tool}.json``) which caused FileNotFoundError when the agent
+        passed it to ``open()`` directly. The contract is now a path relative
+        to the project root (one level above the workspace dir).
+        """
+        from osprey.stores.artifact_store import ArtifactStore
+
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+        # Mirror production layout: <project>/_agent_data/artifacts/...
+        monkeypatch.chdir(project_root)
+        store = ArtifactStore(workspace_root=project_root / "_agent_data")
+
+        entry = store.save_data(
+            tool="archiver_read",
+            data={"value": 1},
+            title="Path Test",
+        )
+
+        # data_file is project-relative and contains the workspace + artifacts dirs
+        assert entry.data_file.startswith("_agent_data/artifacts/")
+        assert entry.data_file.endswith("_archiver_read.json")
+
+        # Crucially, opening data_file from project CWD must succeed
+        from pathlib import Path
+
+        assert (Path.cwd() / entry.data_file).exists()
+
+        # And the same path is what shows up in the tool response
+        resp = entry.to_tool_response()
+        assert resp["data_file"] == entry.data_file
+
     def test_unique_ids(self, tmp_path):
         from osprey.stores.artifact_store import ArtifactStore
 

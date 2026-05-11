@@ -162,9 +162,9 @@ async def test_python_execute_data_file_saving(tmp_path, monkeypatch):
     assert data["status"] == "success"
     assert "artifact_id" in data
     assert "data_file" in data
-    # data_file is a relative filename within the artifacts/ directory
-    artifacts_dir = tmp_path / "_agent_data" / "artifacts"
-    assert (artifacts_dir / data["data_file"]).exists()
+    # data_file is a project-CWD-relative path the agent can open() directly
+    assert data["data_file"].startswith("_agent_data/artifacts/")
+    assert (tmp_path / data["data_file"]).exists()
 
 
 @pytest.mark.unit
@@ -590,9 +590,9 @@ async def test_data_context_saves_adapter_result(tmp_path, monkeypatch):
     assert "artifact_id" in data
     assert "data_file" in data
 
-    # data_file is a relative filename within the artifacts/ directory
-    artifacts_dir = tmp_path / "_agent_data" / "artifacts"
-    data_file = artifacts_dir / data["data_file"]
+    # data_file is a project-CWD-relative path the agent can open() directly
+    assert data["data_file"].startswith("_agent_data/artifacts/")
+    data_file = tmp_path / data["data_file"]
     assert data_file.exists()
     # ArtifactStore writes raw JSON (no envelope)
     saved_data = json.loads(data_file.read_text())
