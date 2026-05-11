@@ -11,6 +11,8 @@ import logging
 import re
 from pathlib import Path
 
+from osprey.cli.project_utils import encode_claude_project_path
+
 logger = logging.getLogger(__name__)
 
 # Maximum line count at which MEMORY.md gets truncated in Claude's context
@@ -47,11 +49,11 @@ class ClaudeMemoryService:
         """Return the Claude Code memory directory for this project.
 
         Claude Code stores memory files in
-        ``~/.claude/projects/<encoded>/memory/``
-        where ``<encoded>`` is the absolute project path with ``/``
-        replaced by ``-``.
+        ``~/.claude/projects/<encoded>/memory/``;
+        see :func:`osprey.cli.project_utils.encode_claude_project_path`
+        for the encoding rule.
         """
-        encoded = str(self._project_dir).replace("/", "-")
+        encoded = encode_claude_project_path(self._project_dir)
         return Path.home() / ".claude" / "projects" / encoded / "memory"
 
     # ── List ──────────────────────────────────────────────────────────

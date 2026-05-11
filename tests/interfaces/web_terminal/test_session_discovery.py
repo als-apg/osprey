@@ -24,6 +24,18 @@ class TestResolveSessionsDir:
         # /foo/bar -> -foo-bar (leading - kept)
         assert sessions_dir.name == "-foo-bar"
 
+    def test_underscores_normalized_to_dashes(self, tmp_path):
+        """Underscores in the cwd must be normalized to dashes.
+
+        Claude Code's CLI replaces every non-alphanumeric char (not just
+        ``/``); pytest tmpdirs and macOS tmp folder names regularly contain
+        ``_``, so a ``/``-only rule silently mis-locates the directory.
+        """
+        discovery = SessionDiscovery("/var/folders/aa_bb_cc/T/my_proj")
+        sessions_dir = discovery._resolve_sessions_dir()
+        assert "_" not in sessions_dir.name, sessions_dir.name
+        assert sessions_dir.name.endswith("-my-proj")
+
 
 class TestListSessions:
     def test_empty_dir(self, tmp_path, monkeypatch):

@@ -49,23 +49,30 @@ directory, so saved memories appear in the UI automatically.
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from osprey_hook_log import get_hook_input, get_project_dir, log_hook
 
+# Keep this regex in sync with
+# ``osprey.cli.project_utils.encode_claude_project_path``. Duplicated inline
+# because this hook runs in user projects where the ``osprey`` package may
+# not be importable at hook-execution time.
+_CLAUDE_PROJECT_DIR_NORMALIZE = re.compile(r"[^A-Za-z0-9-]")
+
 
 def resolve_memory_dir(project_dir: str) -> Path:
     """Compute the Claude Code memory directory for a project.
 
     Claude Code stores memory files in
-    ``~/.claude/projects/<encoded>/memory/``
-    where ``<encoded>`` is the absolute project path with ``/`` replaced
-    by ``-``.
+    ``~/.claude/projects/<encoded>/memory/`` where ``<encoded>`` is the
+    absolute project path with every non-alphanumeric character normalized
+    to ``-``.
     """
     abs_project = str(Path(project_dir).resolve())
-    encoded = abs_project.replace("/", "-")
+    encoded = _CLAUDE_PROJECT_DIR_NORMALIZE.sub("-", abs_project)
     return Path.home() / ".claude" / "projects" / encoded / "memory"
 
 

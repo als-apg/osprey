@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from osprey.cli.project_utils import encode_claude_project_path
+
 logger = logging.getLogger(__name__)
 
 
@@ -36,11 +38,11 @@ class SessionDiscovery:
     def _resolve_sessions_dir(self) -> Path:
         """Return the Claude projects directory for this project.
 
-        Claude Code stores sessions in ``~/.claude/projects/<encoded>/``
-        where ``<encoded>`` is the absolute project path with ``/`` replaced
-        by ``-`` (e.g. ``/Users/x/proj`` becomes ``-Users-x-proj``).
+        Claude Code stores sessions in ``~/.claude/projects/<encoded>/``;
+        see :func:`osprey.cli.project_utils.encode_claude_project_path`
+        for the encoding rule.
         """
-        encoded = str(self._project_dir).replace("/", "-")
+        encoded = encode_claude_project_path(self._project_dir)
         return Path.home() / ".claude" / "projects" / encoded
 
     def list_sessions(self, allowed_ids: set[str] | None = None) -> list[SessionInfo]:
