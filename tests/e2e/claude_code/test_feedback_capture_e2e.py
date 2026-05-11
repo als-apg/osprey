@@ -18,7 +18,9 @@ from tests.e2e.sdk_helpers import combined_text, init_project, run_sdk_query_wit
 def feedback_project(tmp_path_factory):
     """Module-scoped project with channel_finder_mode=hierarchical."""
     tmp = tmp_path_factory.mktemp("feedback-capture")
-    return init_project(tmp, "feedback-capture", channel_finder_mode="hierarchical")
+    return init_project(
+        tmp, "feedback-capture", provider="als-apg", channel_finder_mode="hierarchical"
+    )
 
 
 # ---------------------------------------------------------------------------

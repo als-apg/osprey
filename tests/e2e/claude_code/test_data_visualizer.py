@@ -46,7 +46,7 @@ class TestDataVisualizerAgent:
 
         Pipeline: archiver_read → data-visualizer → create_interactive_plot
         """
-        project_dir = init_project(tmp_path, "e2e-viz-data-source")
+        project_dir = init_project(tmp_path, "e2e-viz-data-source", provider="als-apg")
 
         prompt = (
             "Use archiver_read to retrieve data for channels "
@@ -155,7 +155,7 @@ class TestDataVisualizerAgent:
         data_source resolver (artifact-ID round-trip, file-path passthrough)
         are pinned by unit tests in tests/mcp_server/data_visualizer/.
         """
-        project_dir = init_project(tmp_path, "e2e-viz-archiver-to-plot")
+        project_dir = init_project(tmp_path, "e2e-viz-archiver-to-plot", provider="als-apg")
 
         prompt = (
             "Use archiver_read to retrieve data for channels "

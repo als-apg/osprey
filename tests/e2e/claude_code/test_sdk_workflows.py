@@ -44,7 +44,7 @@ class TestClaudeCodeSDKIntegration:
         Uses a simple prompt that triggers a single MCP tool call
         (channel_find) to prove the observability pipeline works.
         """
-        project_dir = init_project(tmp_path, "sdk-smoke-test")
+        project_dir = init_project(tmp_path, "sdk-smoke-test", provider="als-apg")
 
         prompt = (
             "Use the channel_find tool to search for BPM channels. "
@@ -108,7 +108,7 @@ class TestClaudeCodeSDKIntegration:
         Uses hardcoded channel names to bypass the channel-finder and
         reduce LLM non-determinism and cost.
         """
-        project_dir = init_project(tmp_path, "sdk-archiver-plot")
+        project_dir = init_project(tmp_path, "sdk-archiver-plot", provider="als-apg")
 
         prompt = (
             "Use the archiver_read tool to retrieve data for channels "
@@ -184,7 +184,7 @@ class TestClaudeCodeSDKIntegration:
         Natural language prompt matching the user's interactive workflow:
         channel-finder sub-agent -> archiver_read -> execute -> artifact.
         """
-        project_dir = init_project(tmp_path, "sdk-bpm-pipeline")
+        project_dir = init_project(tmp_path, "sdk-bpm-pipeline", provider="als-apg")
 
         prompt = (
             "Give me a timeseries and a correlation plot of all horizontal "
@@ -290,7 +290,7 @@ class TestClaudeCodeSDKIntegration:
 
         Cost budget: $2.00
         """
-        project_dir = init_project(tmp_path, "sdk-3d-scatter")
+        project_dir = init_project(tmp_path, "sdk-3d-scatter", provider="als-apg")
 
         prompt = (
             "Use archiver_read to retrieve data for channels "

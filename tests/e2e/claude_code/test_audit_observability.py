@@ -45,6 +45,7 @@ class TestAuditObservability:
         project_dir = init_project(
             tmp_path,
             "audit-workflow",
+            provider="als-apg",
             channel_finder_mode="in_context",
         )
 

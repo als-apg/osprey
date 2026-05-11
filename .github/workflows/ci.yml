@@ -280,7 +280,8 @@ jobs:
         # the matrix entry is the kebab-case preset id, which appears in the
         # function name (test_hello_world_*) so -k matches both.
         PRESET_K="${PRESET//-/_}"
-        uv run pytest tests/e2e/test_preset_agentic.py -v --tb=short -k "$PRESET_K"
+        uv run pytest tests/e2e/test_preset_agentic.py -v --tb=short -k "$PRESET_K" \
+          --judge-provider=als-apg
 
   e2e-tests:
     name: E2E Tests

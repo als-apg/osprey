@@ -84,22 +84,21 @@ def init_project(
     tmp_path: Path,
     name: str,
     template: str = "control_assistant",
-    provider: str = "als-apg",
+    *,
+    provider: str,
     model: str = "haiku",
     channel_finder_mode: str | None = None,
     tier: int = 1,
 ) -> Path:
     """Create a project via ``osprey build --preset <template>``, return project_dir.
 
-    Defaults to ``provider="als-apg"`` because the ALS-APG AWS Bedrock proxy
-    is the only Anthropic-compatible endpoint reachable from GitHub Actions
-    runners. CBORG enforces an IP allowlist that does not cover the GitHub
-    Actions egress range, so any cborg-routed CI test 403s with
-    ``ip_not_authorized``. With ``provider="anthropic"``, the bundled Claude
-    CLI silently falls back to whatever credentials happen to live in
-    ``~/.claude`` on the developer machine — making tests pass locally and
-    fail in CI's clean HOME. Local development with cborg still works:
-    pass ``provider="cborg"`` explicitly when running from an allowlisted IP.
+    ``provider`` is required (keyword-only) — every test callsite must name
+    it explicitly. Each provider gates on different credentials (CBORG needs
+    LBLnet/VPN; als-apg needs ``ALS_APG_API_KEY``; anthropic-direct needs
+    ``ANTHROPIC_API_KEY``), so a kwarg default silently couples tests to one
+    provider's auth and produces the local-passes-CI-fails asymmetry. Pick
+    ``"als-apg"`` for GitHub Actions runners, ``"cborg"`` from LBLnet, or
+    ``"anthropic"`` when you have an ``ANTHROPIC_API_KEY`` available.
     """
     runner = CliRunner()
     args = [
@@ -150,23 +149,24 @@ def enable_writes_in_project(project_dir: Path) -> None:
 
 
 def _resolve_project_spec(project_dir: Path):
-    """Return the project's ``ClaudeCodeModelSpec`` or None on any failure.
+    """Return the project's ``ClaudeCodeModelSpec`` or ``None`` when the
+    project's ``config.yml`` has no ``claude_code`` block.
 
     Reads ``config.yml`` and runs the same resolver ``osprey claude chat``
-    uses, so test routing matches production exactly.
+    uses, so test routing matches production exactly. Unlike the earlier
+    bare-``except`` version, this surfaces any unexpected error (missing
+    ``config.yml``, YAML parse failure, resolver import failure) rather
+    than masking it as ``None``.
     """
-    try:
-        import yaml
+    import yaml
 
-        from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
+    from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
 
-        cfg = yaml.safe_load((project_dir / "config.yml").read_text()) or {}
-        return ClaudeCodeModelResolver.resolve(
-            cfg.get("claude_code", {}),
-            cfg.get("api", {}).get("providers", {}),
-        )
-    except Exception:
-        return None
+    cfg = yaml.safe_load((project_dir / "config.yml").read_text()) or {}
+    return ClaudeCodeModelResolver.resolve(
+        cfg.get("claude_code", {}),
+        cfg.get("api", {}).get("providers", {}),
+    )
 
 
 def provider_env_for_project(project_dir: Path) -> dict[str, str]:
@@ -179,12 +179,18 @@ def provider_env_for_project(project_dir: Path) -> dict[str, str]:
 
     Returns the spec's ``env_block`` (``ANTHROPIC_BASE_URL``,
     ``ANTHROPIC_DEFAULT_*_MODEL``, ...) plus the auth var populated from
-    the configured shell secret. Returns ``{}`` if the project has no
-    resolvable provider config or the auth secret is unset.
+    the configured shell secret. Raises ``RuntimeError`` if the project
+    has no resolvable provider — silently falling back to ``{}`` would
+    let the test subprocess inherit ambient env, which is the exact
+    local-vs-CI divergence we are trying to eliminate.
     """
     spec = _resolve_project_spec(project_dir)
     if spec is None:
-        return {}
+        raise RuntimeError(
+            f"Project at {project_dir} has no resolvable provider in "
+            "config.yml — pass provider=<als-apg|cborg|anthropic|amsc|argo> "
+            "to init_project()."
+        )
     env: dict[str, str] = dict(spec.env_block)
     if spec.auth_secret_env and spec.auth_env_var:
         secret = os.environ.get(spec.auth_secret_env)

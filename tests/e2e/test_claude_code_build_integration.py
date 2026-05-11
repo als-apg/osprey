@@ -66,12 +66,15 @@ def init_project(
     tmp_path: Path,
     name: str,
     template: str = "control_assistant",
-    provider: str = "als-apg",
+    *,
+    provider: str,
     model: str = "haiku",
 ) -> Path:
     """Create a project via ``osprey build --preset <template>``, return project_dir.
 
-    Uses the Click test runner so we don't need a real shell.
+    Uses the Click test runner so we don't need a real shell. ``provider`` is
+    keyword-only and required — see the helper in ``tests/e2e/sdk_helpers``
+    for rationale.
     """
     runner = CliRunner()
     args = [
@@ -327,7 +330,7 @@ class TestBuildProjectClaudeCodeFilesSmoke:
     @pytest.mark.e2e_smoke
     def test_build_creates_valid_claude_code_files(self, tmp_path):
         """osprey build creates all 8 Claude Code files with valid content."""
-        project_dir = init_project(tmp_path, "smoke-test")
+        project_dir = init_project(tmp_path, "smoke-test", provider="als-apg")
 
         # -- All 8 files exist --
         assert (project_dir / ".mcp.json").exists()
@@ -390,7 +393,7 @@ class TestClaudeExecutesArchiverAndPlots:
         reason="ALS_APG_API_KEY not set",
     )
     def test_claude_executes_archiver_and_plots(self, tmp_path):
-        project_dir = init_project(tmp_path, "archiver-plot-test")
+        project_dir = init_project(tmp_path, "archiver-plot-test", provider="als-apg")
         disable_approval(project_dir)
         allow_all_tools(project_dir)
 
@@ -491,7 +494,7 @@ class TestClaudeFullBpmAnalysisPipeline:
         reason="ALS_APG_API_KEY not set",
     )
     def test_claude_full_bpm_analysis_pipeline(self, tmp_path):
-        project_dir = init_project(tmp_path, "bpm-pipeline-test")
+        project_dir = init_project(tmp_path, "bpm-pipeline-test", provider="als-apg")
         disable_approval(project_dir)
         allow_all_tools(project_dir)
 

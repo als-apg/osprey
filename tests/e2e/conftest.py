@@ -88,10 +88,17 @@ def reset_registry_between_tests():
 def llm_judge(request):
     """Fixture providing an LLM judge for evaluation.
 
-    Can be configured via pytest command line:
+    ``--judge-provider`` is required — must be passed on the pytest command
+    line (no default, see plan-remove-implicit-synchronous-narwhal). Example:
         pytest --judge-provider=als-apg --judge-model=claude-haiku-4-5-20251001
     """
-    provider = request.config.getoption("--judge-provider", default="als-apg")
+    provider = request.config.getoption("--judge-provider")
+    if not provider:
+        raise RuntimeError(
+            "--judge-provider is required when using the llm_judge fixture. "
+            "Pass --judge-provider=<als-apg|cborg|anthropic|amsc|argo> on the "
+            "pytest command line."
+        )
     model = request.config.getoption("--judge-model", default="claude-haiku-4-5-20251001")
     verbose = request.config.getoption("--judge-verbose", default=False)
 
@@ -103,8 +110,12 @@ def pytest_addoption(parser):
     parser.addoption(
         "--judge-provider",
         action="store",
-        default="als-apg",
-        help="AI provider to use for LLM judge evaluation",
+        default=None,
+        help=(
+            "AI provider for LLM judge evaluation (required when llm_judge "
+            "fixture is used; no default — see "
+            "plan-remove-implicit-synchronous-narwhal)"
+        ),
     )
     parser.addoption(
         "--judge-model",

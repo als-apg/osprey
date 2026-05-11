@@ -69,7 +69,8 @@ class LLMJudge:
 
     def __init__(
         self,
-        provider: str = "als-apg",
+        *,
+        provider: str,
         model: str = "claude-haiku-4-5-20251001",
         verbose: bool = False,
         provider_config: dict[str, str] | None = None,
@@ -77,7 +78,7 @@ class LLMJudge:
         """Initialize the LLM judge.
 
         Args:
-            provider: AI provider to use for evaluation
+            provider: AI provider to use for evaluation (keyword-only, required)
             model: Model name for the judge
             verbose: If True, prints detailed evaluation information
             provider_config: Explicit ``{api_key, base_url}`` to skip the

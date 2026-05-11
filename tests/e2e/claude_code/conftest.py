@@ -44,7 +44,7 @@ def safety_project(tmp_path_factory):
     across all tests in that file. Writes are enabled (default).
     """
     tmp = tmp_path_factory.mktemp("safety")
-    return init_project(tmp, "safety-test-project")
+    return init_project(tmp, "safety-test-project", provider="als-apg")
 
 
 @pytest.fixture(scope="module")
@@ -55,7 +55,7 @@ def safety_project_writes_off(tmp_path_factory):
     blocks all write operations when the master kill switch is off.
     """
     tmp = tmp_path_factory.mktemp("safety-writes-off")
-    project_dir = init_project(tmp, "safety-writes-off")
+    project_dir = init_project(tmp, "safety-writes-off", provider="als-apg")
     config_path = project_dir / "config.yml"
     config = yaml.safe_load(config_path.read_text())
     config["control_system"]["writes_enabled"] = False
@@ -73,7 +73,7 @@ def safety_project_selective(tmp_path_factory):
     skip approval, writes always ask, ``execute`` is content-aware.
     """
     tmp = tmp_path_factory.mktemp("safety-selective")
-    project_dir = init_project(tmp, "safety-selective")
+    project_dir = init_project(tmp, "safety-selective", provider="als-apg")
     config_path = project_dir / "config.yml"
     config = yaml.safe_load(config_path.read_text())
     config["approval"] = {
@@ -102,7 +102,7 @@ def safety_project_all_capabilities(tmp_path_factory):
     path — equivalent to the legacy ``global_mode: all_capabilities``.
     """
     tmp = tmp_path_factory.mktemp("safety-all-caps")
-    project_dir = init_project(tmp, "safety-all-caps")
+    project_dir = init_project(tmp, "safety-all-caps", provider="als-apg")
     config_path = project_dir / "config.yml"
     config = yaml.safe_load(config_path.read_text())
     config["approval"] = {"enabled": True, "default_policy": "always"}

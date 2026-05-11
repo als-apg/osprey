@@ -146,7 +146,7 @@ def delegation_project(tmp_path_factory):
     These agents are read-only search agents — no state leaks between tests.
     """
     tmp = tmp_path_factory.mktemp("delegation")
-    return init_project(tmp, "delegation-test-project")
+    return init_project(tmp, "delegation-test-project", provider="als-apg")
 
 
 # ---------------------------------------------------------------------------
