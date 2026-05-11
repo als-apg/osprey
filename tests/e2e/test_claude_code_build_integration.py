@@ -32,6 +32,7 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
+from tests.e2e.sdk_helpers import provider_env_for_project
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -108,8 +109,15 @@ def run_claude(
     On timeout, kills the process and returns a ``CompletedProcess`` with
     returncode=-1 so callers can inspect partial stdout/stderr and run
     diagnostics instead of crashing with an unhandled ``TimeoutExpired``.
+
+    Injects the project's resolved provider env block (``ANTHROPIC_BASE_URL``,
+    ``ANTHROPIC_DEFAULT_*_MODEL``, auth token) so the bundled Claude CLI
+    routes to the provider the project was built with. Without this, the
+    CLI would inherit whatever ambient ``ANTHROPIC_BASE_URL`` the developer
+    has set (e.g. CBORG, which 403s off LBLnet).
     """
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+    env.update(provider_env_for_project(project_dir))
     cmd = [
         "claude",
         "--print",
