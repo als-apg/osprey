@@ -74,12 +74,94 @@ async def data_list(
             )
 
 
+# Inline read cap. Above this, the file is too large to safely return in a
+# tool result (single MCP messages above ~1 MB break the Claude Agent SDK
+# stdio transport's JSON buffer, and even smaller payloads pollute the
+# model's context with bulk data that should be processed via `execute`).
+_MAX_INLINE_SIZE = 100 * 1024
+
+# Hard ceiling for over-cap preview generation. Files above this size skip
+# JSON parsing entirely to avoid pathological memory use on the error path.
+_PREVIEW_PARSE_LIMIT = 16 * 1024 * 1024
+
+
+def _build_oversize_preview(file_path, size: int) -> dict:
+    """Build a structured peek of an over-cap data file.
+
+    Tries (in order): split-orient dataframe → top-level JSON shape → raw text
+    head/tail. Always returns a dict with at least ``shape`` set.
+    """
+    preview: dict = {"shape": "unknown"}
+
+    if size > _PREVIEW_PARSE_LIMIT:
+        preview["shape"] = "skipped_too_large_for_preview"
+        return preview
+
+    try:
+        text = file_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        preview["shape"] = "binary"
+        return preview
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        preview["shape"] = "text"
+        preview["head"] = text[:512]
+        preview["tail"] = text[-256:] if len(text) > 512 else ""
+        return preview
+
+    # Archiver-style wrapper: {"query": ..., "dataframe": {split-orient}}.
+    df_block = data.get("dataframe") if isinstance(data, dict) else None
+    if (
+        isinstance(df_block, dict)
+        and "index" in df_block
+        and "columns" in df_block
+        and "data" in df_block
+    ):
+        index = df_block.get("index") or []
+        columns = df_block.get("columns") or []
+        rows = df_block.get("data") or []
+        preview["shape"] = "dataframe_split"
+        preview["columns"] = columns
+        preview["row_count"] = len(rows)
+        preview["first_rows"] = [
+            {"index": index[i] if i < len(index) else None, "values": rows[i]}
+            for i in range(min(5, len(rows)))
+        ]
+        preview["last_rows"] = [
+            {"index": index[i] if i < len(index) else None, "values": rows[i]}
+            for i in range(max(min(5, len(rows)), len(rows) - 5), len(rows))
+        ]
+        return preview
+
+    if isinstance(data, dict):
+        preview["shape"] = "json_object"
+        preview["top_level_keys"] = list(data.keys())
+        return preview
+    if isinstance(data, list):
+        preview["shape"] = "json_array"
+        preview["length"] = len(data)
+        preview["first_items"] = data[:5]
+        return preview
+
+    preview["shape"] = "json_scalar"
+    preview["value_preview"] = str(data)[:200]
+    return preview
+
+
 @mcp.tool()
 async def data_read(entry_id: str) -> str:
-    """Read the full data content of a data entry.
+    """Read the full data content of a data entry (small entries only).
 
-    Returns the complete JSON payload stored in the data file for the given
-    entry. Use ``data_list`` first to discover available entry IDs.
+    Returns the complete JSON payload stored in the data file when the file
+    is at most 100 KB. Larger files raise ``file_too_large`` with a
+    structured preview (schema + first/last rows when applicable) and
+    suggestions for processing the data via the Python sandbox instead.
+
+    Bulk data should be loaded through ``execute`` (``with open(path) as
+    f: json.load(f)``) or via the ``data_source=`` parameter on the plot
+    tools, both of which keep the payload out of the agent context.
 
     Args:
         entry_id: ID of the artifact/data entry to read.
@@ -112,16 +194,39 @@ async def data_read(entry_id: str) -> str:
                     ],
                 )
 
-        # Guard against very large files (>5 MB)
         size = file_path.stat().st_size
-        if size > 5 * 1024 * 1024:
+        if size > _MAX_INLINE_SIZE:
+            preview = _build_oversize_preview(file_path, size)
             return make_error(
                     "file_too_large",
-                    f"Data file for entry '{entry_id}' is {size:,} bytes (>5 MB).",
+                    (
+                        f"Data file for entry '{entry_id}' is {size:,} bytes "
+                        f"(>{_MAX_INLINE_SIZE:,} bytes / "
+                        f"{_MAX_INLINE_SIZE // 1024} KB)."
+                    ),
                     [
-                        "Read the file directly for large datasets.",
-                        f"File path: {file_path}",
+                        (
+                            "Load the file in the Python sandbox: pass the code "
+                            f"`with open('{file_path}') as f: data = json.load(f)` "
+                            "to the `execute` tool."
+                        ),
+                        (
+                            "For visualization, pass entry_id as `data_source=` to "
+                            "`create_static_plot` or `create_interactive_plot` — the "
+                            "plot tool auto-loads the data inside its sandbox."
+                        ),
+                        (
+                            "Use `archiver_downsample` to reduce row count before "
+                            "reading if this is timeseries data."
+                        ),
                     ],
+                    details={
+                        "entry_id": entry_id,
+                        "size_bytes": size,
+                        "limit_bytes": _MAX_INLINE_SIZE,
+                        "file_path": str(file_path),
+                        "preview": preview,
+                    },
                 )
 
         content = file_path.read_text(encoding="utf-8")

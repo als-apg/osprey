@@ -73,13 +73,111 @@ class TestDataRead:
 
     @pytest.mark.asyncio
     async def test_read_oversized_file(self, store, read_tool):
+        """Files over the 100 KB inline cap raise file_too_large."""
         entry = _save_entry(store)
 
-        # Overwrite data file with >5 MB content
-        store.get_file_path(entry.id).write_text("x" * (6 * 1024 * 1024))
+        # Overwrite data file with content above the 100 KB inline cap
+        store.get_file_path(entry.id).write_text("x" * (200 * 1024))
 
-        with assert_raises_error(error_type="file_too_large"):
+        with assert_raises_error(error_type="file_too_large") as ctx:
             await read_tool(entry_id=entry.id)
+        envelope = ctx["envelope"]
+        details = envelope["details"]
+        assert details["size_bytes"] == 200 * 1024
+        assert details["limit_bytes"] == 100 * 1024
+        assert details["entry_id"] == entry.id
+        assert details["file_path"].endswith(entry.data_file)
+
+    @pytest.mark.asyncio
+    async def test_read_just_under_cap_works(self, store, read_tool):
+        """Files just under the cap are still returned inline."""
+        entry = _save_entry(store)
+        # 50 KB of text — well under the 100 KB cap
+        payload = "y" * (50 * 1024)
+        store.get_file_path(entry.id).write_text(payload)
+
+        content = await read_tool(entry_id=entry.id)
+        assert content == payload
+
+    @pytest.mark.asyncio
+    async def test_oversize_dataframe_split_preview(self, store, read_tool):
+        """Archiver-style split-orient dataframes get a structured peek."""
+        entry = _save_entry(store)
+        # 200 rows × 3 columns of large floats → comfortably over 100 KB
+        # once JSON-encoded with timestamps. Pad timestamps to push over the
+        # cap deterministically.
+        index = [f"2026-05-11T00:{i // 60:02d}:{i % 60:02d}Z" for i in range(200)]
+        columns = ["CH_A", "CH_B", "CH_C"]
+        rows = [[float(i), float(i) * 2, float(i) * 3] for i in range(200)]
+        payload = {
+            "query": {"channels": columns, "padding": "z" * (110 * 1024)},
+            "dataframe": {"index": index, "columns": columns, "data": rows},
+        }
+        store.get_file_path(entry.id).write_text(json.dumps(payload))
+
+        with assert_raises_error(error_type="file_too_large") as ctx:
+            await read_tool(entry_id=entry.id)
+        preview = ctx["envelope"]["details"]["preview"]
+        assert preview["shape"] == "dataframe_split"
+        assert preview["columns"] == columns
+        assert preview["row_count"] == 200
+        assert len(preview["first_rows"]) == 5
+        assert len(preview["last_rows"]) == 5
+        # First row should align with row 0 of the data
+        assert preview["first_rows"][0]["values"] == [0.0, 0.0, 0.0]
+        # Last row should be row 199
+        assert preview["last_rows"][-1]["values"] == [199.0, 398.0, 597.0]
+        # First and last rows must not overlap on a 200-row frame
+        first_indices = {row["index"] for row in preview["first_rows"]}
+        last_indices = {row["index"] for row in preview["last_rows"]}
+        assert first_indices.isdisjoint(last_indices)
+
+    @pytest.mark.asyncio
+    async def test_oversize_json_object_preview(self, store, read_tool):
+        """Non-dataframe JSON objects expose top-level keys in the preview."""
+        entry = _save_entry(store)
+        payload = {
+            "alpha": "a" * (60 * 1024),
+            "beta": "b" * (60 * 1024),
+            "gamma": [1, 2, 3],
+        }
+        store.get_file_path(entry.id).write_text(json.dumps(payload))
+
+        with assert_raises_error(error_type="file_too_large") as ctx:
+            await read_tool(entry_id=entry.id)
+        preview = ctx["envelope"]["details"]["preview"]
+        assert preview["shape"] == "json_object"
+        assert set(preview["top_level_keys"]) == {"alpha", "beta", "gamma"}
+
+    @pytest.mark.asyncio
+    async def test_oversize_text_preview(self, store, read_tool):
+        """Non-JSON oversized files expose a text head/tail preview."""
+        entry = _save_entry(store)
+        # Mostly filler with a recognizable head and tail for the assertion
+        head = "HEAD_MARKER_LINE\n"
+        tail = "TAIL_MARKER_LINE\n"
+        filler = "x" * (150 * 1024)
+        store.get_file_path(entry.id).write_text(head + filler + tail)
+
+        with assert_raises_error(error_type="file_too_large") as ctx:
+            await read_tool(entry_id=entry.id)
+        preview = ctx["envelope"]["details"]["preview"]
+        assert preview["shape"] == "text"
+        assert preview["head"].startswith("HEAD_MARKER_LINE")
+        assert preview["tail"].endswith("TAIL_MARKER_LINE\n")
+
+    @pytest.mark.asyncio
+    async def test_oversize_error_includes_actionable_suggestions(self, store, read_tool):
+        """The over-cap error envelope points the agent at execute / data_source."""
+        entry = _save_entry(store)
+        store.get_file_path(entry.id).write_text("x" * (200 * 1024))
+
+        with assert_raises_error(error_type="file_too_large") as ctx:
+            await read_tool(entry_id=entry.id)
+        suggestions = ctx["envelope"]["suggestions"]
+        joined = "\n".join(suggestions)
+        assert "execute" in joined
+        assert "data_source" in joined
 
     @pytest.mark.asyncio
     async def test_read_returns_raw_json_string(self, store, read_tool):
