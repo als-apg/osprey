@@ -416,7 +416,7 @@ class TestClaudeExecutesArchiverAndPlots:
             f"--- Execution diagnostics ---\n{diagnose_python_execute(project_dir)}"
         )
 
-        # Archiver data was produced (saved to _agent_data/data/ by DataContextStore)
+        # Archiver data was produced (saved to _agent_data/data/ by ArtifactStore)
         workspace_dir = project_dir / "_agent_data"
         data_dir = workspace_dir / "data"
         data_files = list(data_dir.rglob("*")) if data_dir.exists() else []
@@ -516,7 +516,7 @@ class TestClaudeFullBpmAnalysisPipeline:
             f"--- Execution diagnostics ---\n{diagnose_python_execute(project_dir)}"
         )
 
-        # Archiver data was retrieved (saved to _agent_data/data/ by DataContextStore)
+        # Archiver data was retrieved (saved to _agent_data/data/ by ArtifactStore)
         workspace_dir = project_dir / "_agent_data"
         data_dir = workspace_dir / "data"
         data_files = list(data_dir.rglob("*")) if data_dir.exists() else []

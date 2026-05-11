@@ -58,7 +58,7 @@ async def create_dashboard(
         description: Description of the dashboard.
 
     Returns:
-        JSON with artifact_ids and context_entry_id.
+        JSON with artifact_ids and the primary artifact_id.
     """
     if not code or not code.strip():
         return make_error(

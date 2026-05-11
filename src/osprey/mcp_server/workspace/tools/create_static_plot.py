@@ -67,16 +67,15 @@ async def create_static_plot(
         title: Human-readable title for the plot.
         description: Description of what the plot shows.
         data_source: Optional data reference to auto-load as the ``data``
-            variable before your code runs. Accepts three forms:
-            (1) context entry ID (numeric string, e.g. "2"),
-            (2) artifact ID (12-char hex), or
-            (3) workspace file path.
+            variable before your code runs. Accepts two forms:
+            (1) artifact ID (12-char hex), or
+            (2) workspace file path.
             When provided, ``data`` is a **pandas DataFrame** — do NOT
             re-parse or re-unwrap it; use it directly (e.g. ``data.columns``,
             ``data['col']``).
 
     Returns:
-        JSON with artifact_ids, context_entry_id, and preview info.
+        JSON with artifact_ids and preview info.
     """
     if not code or not code.strip():
         return make_error(

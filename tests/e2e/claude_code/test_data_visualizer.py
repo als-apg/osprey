@@ -36,16 +36,13 @@ class TestDataVisualizerAgent:
     async def test_interactive_plot_with_data_source(self, tmp_path):
         """Regression: data-visualizer should use data_source without errors.
 
-        Reproduces a real failure where the agent:
-        1. Passed a context entry ID ("2") as data_source → FileNotFoundError
-           (only artifact IDs and file paths are supported)
-        2. Passed a file path but wrote code assuming raw dict structure →
-           KeyError because build_data_reader() auto-unwraps the JSON
-           envelope before the agent's code runs
+        Reproduces a real failure where the agent passed a file path but wrote
+        code assuming the raw dict structure — KeyError because
+        build_data_reader() auto-unwraps the JSON envelope before the agent's
+        code runs.
 
-        The agent should be able to pass data_source (file path or context
-        entry ID) and have create_interactive_plot load the data correctly
-        on the FIRST attempt.
+        The agent should pass data_source (artifact ID or file path) and have
+        create_interactive_plot load the data correctly on the FIRST attempt.
 
         Pipeline: archiver_read → data-visualizer → create_interactive_plot
         """
@@ -139,36 +136,33 @@ class TestDataVisualizerAgent:
         print(f"  HTML files: {[p.name for p in html_files]}")
 
     # -------------------------------------------------------------------
-    # Test 2 — Interactive plot with context entry ID as data_source
+    # Test 2 — Archiver → data-visualizer → interactive HTML artifact
     # -------------------------------------------------------------------
 
     @pytest.mark.slow
     @pytest.mark.requires_api
     @pytest.mark.requires_anthropic
     @pytest.mark.asyncio
-    async def test_interactive_plot_context_entry_id(self, tmp_path):
-        """Regression: data_source should accept context entry IDs.
+    async def test_archiver_read_to_interactive_plot(self, tmp_path):
+        """End-to-end: archiver_read → data-visualizer → HTML artifact.
 
-        The archiver_read tool returns a context_entry_id (e.g., 2) in its
-        response. The agent naturally passes this as data_source, but
-        build_data_reader() only recognizes 12-char hex artifact IDs and
-        file paths — integer IDs cause FileNotFoundError.
+        Verifies the orchestrator can fetch archiver data, delegate to the
+        data-visualizer subagent, and produce an interactive Plotly chart as
+        an HTML artifact — the canonical workflow operators use for time-series
+        exploration.
 
-        This test verifies the agent can reference archiver data by its
-        context entry ID.
-
-        Pipeline: archiver_read → data-visualizer → create_interactive_plot
+        This is an emergent-behavior test. The narrower invariants of the
+        data_source resolver (artifact-ID round-trip, file-path passthrough)
+        are pinned by unit tests in tests/mcp_server/data_visualizer/.
         """
-        project_dir = init_project(tmp_path, "e2e-viz-context-id")
+        project_dir = init_project(tmp_path, "e2e-viz-archiver-to-plot")
 
         prompt = (
             "Use archiver_read to retrieve data for channels "
             "'DIAG:BPM[BPM18]:POSITION:X' and 'DIAG:BPM[BPM19]:POSITION:X' "
             "over the last 4 hours with processing 'mean' and bin_size 300. "
             "Then delegate to the data-visualizer agent to create an "
-            "interactive Plotly line chart of both BPMs over time. "
-            "Tell the data-visualizer to reference the archiver data by its "
-            "context entry ID when calling create_interactive_plot."
+            "interactive Plotly line chart of both BPMs over time."
         )
 
         result = await run_sdk_query(
@@ -179,7 +173,7 @@ class TestDataVisualizerAgent:
         )
 
         # -- Debug output --
-        print("\n--- data-visualizer context entry ID test ---")
+        print("\n--- archiver_read → interactive plot test ---")
         print(f"  tools called ({len(result.tool_traces)}): {result.tool_names}")
         print(f"  num_turns: {result.num_turns}")
         print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
@@ -203,35 +197,11 @@ class TestDataVisualizerAgent:
             f"create_interactive_plot not called. Tools used: {result.tool_names}"
         )
 
-        # No viz errors — if context entry ID resolution works, first try succeeds
+        # No viz errors
         viz_errors = [t for t in viz_calls if t.is_error]
         assert len(viz_errors) == 0, (
             f"{len(viz_errors)} create_interactive_plot error(s): "
             f"{[t.result[:200] for t in viz_errors if t.result]}"
-        )
-
-        # REGRESSION CRITERION: at least one viz call must have used a
-        # context-entry ID (small integer, or its string repr) as data_source.
-        # The bug under test was that build_data_reader() rejected integer
-        # IDs — accepting a file path or 12-char hex artifact ID would
-        # leave the regression unverified.
-        def _looks_like_context_entry_id(ds: object) -> bool:
-            if isinstance(ds, int):
-                return True
-            if isinstance(ds, str):
-                stripped = ds.strip()
-                # Plain int repr like "2" or "17" — exclude artifact IDs
-                # (12-char hex) and file paths (contain "/" or ".").
-                return stripped.isdigit() and len(stripped) <= 6
-            return False
-
-        data_sources = [call.input.get("data_source") for call in viz_calls]
-        print(f"  data_source values: {data_sources!r}")
-        assert any(_looks_like_context_entry_id(ds) for ds in data_sources), (
-            "No create_interactive_plot call used a context-entry ID as data_source. "
-            "The agent may have fallen back to file paths or artifact IDs, which "
-            "would not exercise the regression target. "
-            f"data_source values seen: {data_sources!r}"
         )
 
         # HTML artifact produced

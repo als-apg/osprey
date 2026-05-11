@@ -71,7 +71,7 @@ async def create_document(
             in the build directory.
 
     Returns:
-        JSON with artifact_ids (PDF + source) and context_entry_id.
+        JSON with artifact_ids (PDF + source) and the primary artifact_id.
     """
     if not latex_source or not latex_source.strip():
         return make_error(
