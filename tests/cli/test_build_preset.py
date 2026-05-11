@@ -247,6 +247,7 @@ def test_unknown_profile_key_warns(runner: CliRunner, tmp_path: Path, caplog) ->
     profile.write_text(
         "name: TypoTest\n"
         "data_bundle: hello_world\n"
+        "provider: anthropic\n"
         "mcp_server: {}\n"  # typo of mcp_servers
         "permission: []\n"  # typo of permissions
     )
@@ -708,6 +709,7 @@ def test_profile_mcp_servers_persisted_to_config(runner: CliRunner, tmp_path: Pa
     profile.write_text(
         "name: McpTest\n"
         "data_bundle: hello_world\n"
+        "provider: anthropic\n"
         "mcp_servers:\n"
         "  echo:\n"
         "    command: echo\n"
@@ -742,6 +744,7 @@ def test_profile_categories_persisted_to_config(runner: CliRunner, tmp_path: Pat
     profile.write_text(
         "name: CatTest\n"
         "data_bundle: hello_world\n"
+        "provider: anthropic\n"
         "categories:\n"
         "  diagnostics:\n"
         "    label: Diagnostics\n"
@@ -776,6 +779,7 @@ def test_overlay_md_files_registered_as_user_owned(runner: CliRunner, tmp_path: 
     profile.write_text(
         "name: OverlayTest\n"
         "data_bundle: hello_world\n"
+        "provider: anthropic\n"
         "overlay:\n"
         "  extra.md: .claude/rules/extra.md\n"
     )

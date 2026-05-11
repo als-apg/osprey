@@ -28,7 +28,8 @@ class LLMChannelNamer:
 
     def __init__(
         self,
-        provider: str = "anthropic",
+        *,
+        provider: str,
         model_id: str = "google/gemini-flash",
         max_tokens: int = 1000,
         batch_size: int = 10,
@@ -38,7 +39,8 @@ class LLMChannelNamer:
         """Initialize the LLM channel namer.
 
         Args:
-            provider: LLM provider ('cborg', 'amsc', 'anthropic', 'openai')
+            provider: LLM provider (keyword-only, required — one of
+                'als-apg', 'cborg', 'amsc', 'anthropic', 'argo', 'openai')
             model_id: Model identifier
             max_tokens: Maximum tokens per request
             batch_size: Number of channels to process per batch
@@ -341,7 +343,13 @@ def create_namer_from_config(config_path: str | None = None) -> LLMChannelNamer:
     name_gen_config = config.get("channel_finder", {}).get("channel_name_generation", {})
 
     llm_config = name_gen_config.get("llm_model", {})
-    provider = llm_config.get("provider", "anthropic")
+    provider = llm_config.get("provider")
+    if not provider:
+        raise ValueError(
+            "channel_finder.channel_name_generation.llm_model.provider is "
+            "required in config.yml (must be one of "
+            "als-apg|cborg|amsc|anthropic|argo|openai)."
+        )
 
     api_config = config.get("api", {}).get("providers", {}).get(provider, {})
     base_url = api_config.get("base_url")

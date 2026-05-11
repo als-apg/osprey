@@ -182,6 +182,17 @@ def build(
         if tier is not None:
             build_profile.tier = tier
 
+        # Provider is required — no implicit fallback. Each provider has
+        # different auth gating (CBORG: LBLnet; als-apg: ALS_APG_API_KEY;
+        # anthropic: ANTHROPIC_API_KEY), so silently defaulting masks
+        # misconfiguration as a credential failure at runtime.
+        if not build_profile.provider:
+            raise click.UsageError(
+                "Profile does not specify a provider. Add `provider: "
+                "<als-apg|cborg|anthropic|amsc|argo>` to your profile or "
+                "pass `--set provider=<...>` on the build command."
+            )
+
         logger.info("  Profile: %s", build_profile.name)
         logger.info("  Data bundle: %s", build_profile.data_bundle)
         logger.info("  Tier: %d", build_profile.tier)
@@ -370,8 +381,8 @@ def build(
 
         # 16. Generate manifest
         manifest_context = {
-            "default_provider": build_profile.provider or "anthropic",
-            "default_model": build_profile.model or "haiku",
+            "default_provider": build_profile.provider,
+            "default_model": build_profile.model,
         }
         if build_profile.channel_finder_mode:
             manifest_context["channel_finder_mode"] = build_profile.channel_finder_mode

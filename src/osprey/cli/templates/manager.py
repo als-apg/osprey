@@ -139,7 +139,16 @@ class TemplateManager:
             Path to created project directory
 
         Raises:
-            ValueError: If data bundle doesn't exist or project directory exists
+            ValueError: If data bundle doesn't exist or the project directory
+                exists without ``force=True``.
+
+        Note:
+            ``default_provider`` is no longer defaulted here — callers must
+            inject it via ``context``. ``osprey build`` enforces this at the
+            CLI boundary (``click.UsageError``); internal callers that omit
+            it produce an empty ``provider:`` in the rendered ``config.yml``,
+            which the config loader rejects at project runtime. See
+            plan-remove-implicit-synchronous-narwhal.
         """
         # 1. Validate data bundle exists
         bundle_dir = self.template_root / "apps" / data_bundle
@@ -196,8 +205,6 @@ class TemplateManager:
             "project_root": str(project_dir.absolute()),
             "venv_path": "${LOCAL_PYTHON_VENV}",
             "current_python_env": current_python,  # Default; overridden by caller context
-            "default_provider": "anthropic",
-            "default_model": "haiku",
             "template_name": data_bundle,  # Make bundle name available in config.yml
             "data_bundle": data_bundle,
             "selected_hooks": selected_hooks,
