@@ -100,7 +100,7 @@ async def test_python_execute_write_pattern_detection(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 async def test_python_execute_execution_error(tmp_path, monkeypatch):
-    """Code execution error populates stderr and has_errors in summary."""
+    """Code execution error raises ToolError with execution_error envelope."""
     monkeypatch.chdir(tmp_path)
 
     mock_exec = _mock_execute_code(
@@ -117,17 +117,20 @@ async def test_python_execute_execution_error(tmp_path, monkeypatch):
             "osprey.mcp_server.python_executor.executor.execute_code",
             mock_exec,
         ),
+        assert_raises_error(error_type="execution_error") as ctx,
     ):
         fn = _get_python_execute()
-        result = await fn(
+        await fn(
             code="print(undefined_var)",
             description="error case",
             execution_mode="readonly",
         )
 
-    data = extract_response_dict(result)
-    assert data["summary"]["status"] == "Failed"
-    assert "NameError" in data["summary"]["error"]
+    envelope = ctx["envelope"]
+    assert "NameError" in envelope["error_message"]
+    summary = envelope["details"]["summary"]
+    assert summary["status"] == "Failed"
+    assert summary["has_errors"] is True
 
 
 @pytest.mark.unit
@@ -135,9 +138,17 @@ async def test_python_execute_data_file_saving(tmp_path, monkeypatch):
     """Execution saves output to artifact store data file."""
     monkeypatch.chdir(tmp_path)
 
-    with patch(
-        "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-        return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+    mock_exec = _mock_execute_code(success=True, stdout="42\n")
+
+    with (
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
+            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+        ),
+        patch(
+            "osprey.mcp_server.python_executor.executor.execute_code",
+            mock_exec,
+        ),
     ):
         fn = _get_python_execute()
         result = await fn(
@@ -404,7 +415,7 @@ async def test_adapter_result_maps_to_tool_response(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 async def test_adapter_error_returns_tool_error(tmp_path, monkeypatch):
-    """When adapter returns failed result, tool returns error status."""
+    """When adapter returns failed result, tool raises ToolError with envelope."""
     monkeypatch.chdir(tmp_path)
 
     mock_exec = _mock_execute_code(
@@ -421,18 +432,20 @@ async def test_adapter_error_returns_tool_error(tmp_path, monkeypatch):
             "osprey.mcp_server.python_executor.executor.execute_code",
             mock_exec,
         ),
+        assert_raises_error(error_type="execution_error") as ctx,
     ):
         fn = _get_python_execute()
-        result = await fn(
+        await fn(
             code="raise RuntimeError('something broke')",
             description="error test",
             execution_mode="readonly",
         )
 
-    data = extract_response_dict(result)
-    assert data["summary"]["status"] == "Failed"
-    assert data["summary"]["has_errors"] is True
-    assert "RuntimeError" in data["summary"]["error"]
+    envelope = ctx["envelope"]
+    assert "RuntimeError" in envelope["error_message"]
+    summary = envelope["details"]["summary"]
+    assert summary["status"] == "Failed"
+    assert summary["has_errors"] is True
 
 
 @pytest.mark.unit

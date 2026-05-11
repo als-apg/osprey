@@ -4,6 +4,7 @@ import json
 import logging
 
 import nbformat
+from fastmcp.exceptions import ToolError
 from mcp.types import CallToolResult, TextContent
 
 from osprey.mcp_server.python_executor.executor import ExecutionResult
@@ -27,9 +28,11 @@ async def build_execution_response(
     """Build a CallToolResult response from an execution result.
 
     Handles figure/artifact saving, notebook creation, summary building,
-    ArtifactStore persistence, and gallery URL injection. The CallToolResult's
-    ``isError`` flag mirrors ``exec_result.success`` so the SDK boundary signal
-    matches the in-content ``has_errors`` field.
+    ArtifactStore persistence, and gallery URL injection. When the execution
+    reported errors, raises ``ToolError`` carrying the OSPREY error envelope
+    so fastmcp produces a wire-form ``CallToolResult(isError=True)`` (returning
+    a CallToolResult with ``isError`` set is silently dropped by fastmcp's
+    ``convert_result`` — see the migration in commit cdba442d).
 
     Args:
         code: Original source code (for notebook/metadata — not augmented).
@@ -142,9 +145,24 @@ async def build_execution_response(
         }
         if artifact_ids:
             result["artifact_ids"] = artifact_ids
+        if has_errors:
+            raise ToolError(
+                json.dumps(
+                    {
+                        "error": True,
+                        "error_type": "execution_error",
+                        "error_message": (stderr_text or "Execution reported an error.")[
+                            :_STDERR_PREVIEW_LIMIT
+                        ],
+                        "suggestions": [],
+                        "details": result,
+                    },
+                    default=str,
+                )
+            )
         return CallToolResult(
             content=[TextContent(type="text", text=json.dumps(result, default=str))],
-            isError=has_errors,
+            isError=False,
         )
 
     # Build compact summary inline
@@ -191,7 +209,22 @@ async def build_execution_response(
             pass
     if notebook_artifact_id:
         response["notebook_artifact_id"] = notebook_artifact_id
+    if has_errors:
+        raise ToolError(
+            json.dumps(
+                {
+                    "error": True,
+                    "error_type": "execution_error",
+                    "error_message": (stderr_text or "Execution reported an error.")[
+                        :_STDERR_PREVIEW_LIMIT
+                    ],
+                    "suggestions": [],
+                    "details": response,
+                },
+                default=str,
+            )
+        )
     return CallToolResult(
         content=[TextContent(type="text", text=json.dumps(response, default=str))],
-        isError=has_errors,
+        isError=False,
     )
