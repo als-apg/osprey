@@ -121,7 +121,7 @@ jobs:
       continue-on-error: true
 
     - name: Upload documentation artifact
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       if: github.event_name == 'pull_request'
       with:
         name: documentation-preview
@@ -151,7 +151,7 @@ jobs:
       run: uvx twine check dist/*
 
     - name: Upload package artifacts
-      uses: actions/upload-artifact@v6
+      uses: actions/upload-artifact@v7
       with:
         name: package
         path: dist/
