@@ -102,6 +102,25 @@ class AgentResponse(BaseModel):
 # =============================================================================
 
 
+def _cborg_reachable(base_url: str) -> bool:
+    """Probe whether the CBORG gateway accepts requests from the current IP.
+
+    A 403 with "Access denied: IP address ... not recognized" — or any other
+    failure to reach the gateway — means we're off LBLnet/VPN. Returns False
+    in that case so the matrix tests SKIP rather than FAIL.
+    """
+    try:
+        import httpx
+
+        # /v1/models is the cheapest endpoint that exercises auth + IP-allowlist.
+        resp = httpx.get(f"{base_url.rstrip('/')}/v1/models", timeout=3.0)
+        if resp.status_code == 403 and "ip address" in resp.text.lower():
+            return False
+        return resp.status_code < 500
+    except Exception:
+        return False
+
+
 def get_available_providers_raw() -> dict[str, dict[str, Any]]:
     """Detect which providers have valid API keys configured."""
     try:
@@ -147,6 +166,12 @@ def get_available_providers_raw() -> dict[str, dict[str, Any]]:
             api_key = None
 
         if api_key:
+            # CBORG enforces an LBL IP allowlist — drop it from the available
+            # set when the current network can't reach the gateway, otherwise
+            # the matrix tests fail (instead of skip) off-VPN and on GitHub
+            # Actions runners.
+            if provider_name == "cborg" and not _cborg_reachable(default_base_url):
+                continue
             available[provider_name] = {
                 "api_key": api_key,
                 "base_url": default_base_url,

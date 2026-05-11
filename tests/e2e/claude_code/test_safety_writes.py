@@ -128,19 +128,18 @@ async def test_write_over_limits_denied(safety_project):
     # came back as an error. (Replaces a brittle DENY_KEYWORDS check on
     # Claude's text response — the actual safety invariant is "no
     # successful write", which the trace records.)
+    #
+    # Note: the limits hook does emit "deny" in its log, but Claude Code
+    # 2.1.27 still invokes the can_use_tool callback when the chained
+    # approval hook emits "ask" — so hook_events may be non-empty. The
+    # safety invariant ("no successful writes") is what matters and is
+    # also enforced server-side in the channel_write MCP tool.
     write_calls = result.tools_matching("channel_write")
     successful_writes = [t for t in write_calls if not t.is_error]
     assert len(successful_writes) == 0, (
         f"Limits hook breached: {len(successful_writes)} write(s) succeeded.\n"
         f"  Tools: {result.tool_names}\n"
         f"  Successful results: {[(t.result or '')[:100] for t in successful_writes]}"
-    )
-
-    # Limits hook returns "deny" (not "ask"), so no approval callback fires
-    assert len(result.hook_events) == 0, (
-        f"Expected no hook_events (limits should deny before ask) "
-        f"but got {len(result.hook_events)}: "
-        f"{[(e.tool_name, e.decision) for e in result.hook_events]}"
     )
 
 
@@ -192,20 +191,15 @@ async def test_write_to_readonly_denied(safety_project):
     assert result.result is not None, "No ResultMessage received from SDK"
 
     # Tool-trace assertion: no successful write to a read-only channel.
-    # See test_write_over_limits_denied for the rationale.
+    # See test_write_over_limits_denied for the rationale (and the note
+    # on Claude Code 2.1.27 hook chain semantics — hook_events may be
+    # non-empty even when the limits hook denies).
     write_calls = result.tools_matching("channel_write")
     successful_writes = [t for t in write_calls if not t.is_error]
     assert len(successful_writes) == 0, (
         f"Read-only protection breached: {len(successful_writes)} write(s) succeeded.\n"
         f"  Tools: {result.tool_names}\n"
         f"  Successful results: {[(t.result or '')[:100] for t in successful_writes]}"
-    )
-
-    # Limits hook returns "deny" (not "ask"), so no approval callback fires
-    assert len(result.hook_events) == 0, (
-        f"Expected no hook_events (limits should deny before ask) "
-        f"but got {len(result.hook_events)}: "
-        f"{[(e.tool_name, e.decision) for e in result.hook_events]}"
     )
 
 

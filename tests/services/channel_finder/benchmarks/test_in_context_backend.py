@@ -61,12 +61,21 @@ _TEST_CHANNELS = [
     },
 ]
 
-# Use CBORG (available in CI env) — anthropic-compatible proxy with CBORG_API_KEY.
-# Falls back to direct anthropic if ANTHROPIC_API_KEY is set.
+# Provider preference: als-apg first (AWS Bedrock proxy — IP-unrestricted, works
+# in CI and off-VPN), then CBORG (LBLnet-gated, faster locally), then anthropic
+# direct. Matches the CI auth choice in commit 5d0dcd72.
+_ALS_APG_KEY = os.environ.get("ALS_APG_API_KEY", "")
 _CBORG_KEY = os.environ.get("CBORG_API_KEY", "")
 _ANTHROPIC_KEY = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_API_KEY_o", "")
 
-if _CBORG_KEY:
+if _ALS_APG_KEY:
+    _PROVIDER = "als-apg"
+    _PROVIDER_API_KEY = _ALS_APG_KEY
+    _SUBAGENT_MODEL = "claude-haiku-4-5-20251001"  # bare wire id; gateway rejects prefixed slugs
+    _PROVIDER_BASE_URL = "https://llm.gianlucamartino.com"
+    _BACKEND_MODEL = "als-apg/claude-haiku-4-5-20251001"
+    _EXPECTED_WIRE = "claude-haiku-4-5-20251001"
+elif _CBORG_KEY:
     _PROVIDER = "cborg"
     _PROVIDER_API_KEY = _CBORG_KEY
     _SUBAGENT_MODEL = "anthropic/claude-haiku"  # CBORG model name
