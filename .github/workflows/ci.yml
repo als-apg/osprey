@@ -357,7 +357,7 @@ jobs:
       run: uv python install 3.11
 
     - name: Set up Docker Compose
-      uses: docker/setup-compose-action@v1
+      uses: docker/setup-compose-action@v2
 
     - name: Install osprey
       run: uv sync --extra dev
