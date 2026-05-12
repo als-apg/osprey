@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 
 from osprey.registry import reset_registry
-from tests.e2e.judge import LLMJudge
 
 
 # Warn if tests are being run the wrong way
@@ -84,51 +83,8 @@ def reset_registry_between_tests():
         del os.environ["CONFIG_FILE"]
 
 
-@pytest.fixture
-def llm_judge(request):
-    """Fixture providing an LLM judge for evaluation.
-
-    ``--judge-provider`` is required — must be passed on the pytest command
-    line (no default, see plan-remove-implicit-synchronous-narwhal). Example:
-        pytest --judge-provider=als-apg --judge-model=claude-haiku-4-5-20251001
-    """
-    provider = request.config.getoption("--judge-provider")
-    if not provider:
-        raise RuntimeError(
-            "--judge-provider is required when using the llm_judge fixture. "
-            "Pass --judge-provider=<als-apg|cborg|anthropic|amsc|argo> on the "
-            "pytest command line."
-        )
-    model = request.config.getoption("--judge-model", default="claude-haiku-4-5-20251001")
-    verbose = request.config.getoption("--judge-verbose", default=False)
-
-    return LLMJudge(provider=provider, model=model, verbose=verbose)
-
-
 def pytest_addoption(parser):
     """Add custom command-line options for E2E tests."""
-    parser.addoption(
-        "--judge-provider",
-        action="store",
-        default=None,
-        help=(
-            "AI provider for LLM judge evaluation (required when llm_judge "
-            "fixture is used; no default — see "
-            "plan-remove-implicit-synchronous-narwhal)"
-        ),
-    )
-    parser.addoption(
-        "--judge-model",
-        action="store",
-        default="claude-haiku-4-5-20251001",
-        help="Model to use for LLM judge evaluation",
-    )
-    parser.addoption(
-        "--judge-verbose",
-        action="store_true",
-        default=False,
-        help="Print detailed judge evaluation information",
-    )
     parser.addoption(
         "--e2e-verbose",
         action="store_true",

@@ -5,9 +5,6 @@ Requires Ollama with nomic-embed-text (skips if unavailable).
 
 Run with:
     pytest tests/e2e/test_ariel_search.py -v
-
-With verbose LLM judge output:
-    pytest tests/e2e/test_ariel_search.py -v --judge-verbose
 """
 
 from __future__ import annotations
