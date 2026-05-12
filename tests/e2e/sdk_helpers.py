@@ -337,6 +337,7 @@ async def run_sdk_query(
     max_turns: int = 25,
     max_budget_usd: float = 2.0,
     model: str | None = None,
+    disallowed_tools: list[str] | None = None,
 ) -> SDKWorkflowResult:
     """Run a query via the Claude Agent SDK and collect full tool traces.
 
@@ -348,6 +349,12 @@ async def run_sdk_query(
         model: Model to use. Defaults to the project's haiku-tier model
             resolved from ``config.yml`` (e.g. ``claude-haiku-4-5`` for
             cborg, ``claude-haiku-4-5-20251001`` for direct anthropic).
+        disallowed_tools: Optional list of tool names to forbid at the SDK
+            level. Forwarded to the Claude Code CLI as ``--disallowedTools``,
+            which takes precedence over ``permission_mode=bypassPermissions``
+            and over per-tool ``permissions_allow`` in ``.mcp.json``. Use this
+            to architecturally force delegation to subagents (the main agent
+            cannot call a disallowed tool even when settings would permit it).
 
     Returns:
         SDKWorkflowResult with all collected tool traces, text, and metadata.
@@ -364,6 +371,7 @@ async def run_sdk_query(
         env=sdk_env(project_dir),
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
+        disallowed_tools=disallowed_tools or [],
     )
 
     workflow = SDKWorkflowResult()

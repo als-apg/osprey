@@ -95,6 +95,17 @@ class TestDataVisualizerAgent:
             f"create_interactive_plot not called. Tools used: {result.tool_names}"
         )
 
+        # Delegation contract: every viz call must originate from a subagent
+        # context. A direct orchestrator call would mean the CLAUDE.md
+        # delegation directive regressed — caught here even though this
+        # test's primary purpose is data_source-resolver correctness.
+        direct_viz_calls = [t for t in viz_calls if t.parent_tool_use_id is None]
+        assert not direct_viz_calls, (
+            f"Orchestrator called {len(direct_viz_calls)} viz tool(s) directly "
+            "instead of delegating to data-visualizer. "
+            f"Names: {[t.name for t in direct_viz_calls]}"
+        )
+
         # REGRESSION CRITERION: The first create_interactive_plot call should
         # succeed. If data_source handling is broken, the agent will fail on
         # the first attempt and retry with workarounds.
@@ -195,6 +206,15 @@ class TestDataVisualizerAgent:
         viz_calls = result.tools_matching("create_interactive_plot")
         assert len(viz_calls) > 0, (
             f"create_interactive_plot not called. Tools used: {result.tool_names}"
+        )
+
+        # Delegation contract: every viz call must come from a subagent
+        # context (CLAUDE.md directive enforcement).
+        direct_viz_calls = [t for t in viz_calls if t.parent_tool_use_id is None]
+        assert not direct_viz_calls, (
+            f"Orchestrator called {len(direct_viz_calls)} viz tool(s) directly "
+            "instead of delegating to data-visualizer. "
+            f"Names: {[t.name for t in direct_viz_calls]}"
         )
 
         # No viz errors
