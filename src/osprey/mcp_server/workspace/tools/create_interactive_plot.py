@@ -92,6 +92,9 @@ async def create_interactive_plot(
                     "Check your Plotly code for syntax or runtime errors.",
                     "Ensure you call save_artifact(fig, 'title') to produce output.",
                     "Ensure data variables are defined or use data_source parameter.",
+                    "If the error mentions `titlefont` or `titleside`, Plotly removed "
+                    "those in 5.x — use `title=dict(text='...', font=dict(size=N))` "
+                    "(and `title=dict(side=...)` for colorbars).",
                 ],
             )
 

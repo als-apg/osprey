@@ -88,6 +88,12 @@ When asked to create an interactive chart (data exploration, hover tooltips, zoo
 - **Add grid lines** for readability (enabled by default styling in static plots)
 - **Use appropriate plot types**: scatter for correlations, line for time series,
   bar for comparisons, histogram for distributions
+- **Plotly 5+ compatibility**: `titlefont=` was removed. Use
+  `title=dict(text='...', font=dict(size=N))` on any axis (`xaxis`, `yaxis`,
+  `zaxis`, including under `scene=`), on `colorbar` (and `colorbar.title.side`
+  instead of `titleside`), and on top-level `layout.title`. For simple cases
+  prefer the shortcuts `xaxis_title='...'`, `yaxis_title='...'`, or a plain
+  `title='...'` string in `update_layout`.
 
 ### Data Loading
 
