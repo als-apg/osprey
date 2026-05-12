@@ -100,8 +100,42 @@ always a pandas DataFrame** (auto-converted from CSV, JSON, Excel, or Parquet).
 JSON files are automatically unwrapped from OSPREY metadata envelopes and archiver
 nested formats before conversion to DataFrame.
 
-**IMPORTANT**: Do NOT re-parse or re-unwrap `data` — it is already a DataFrame.
-Use it directly: `data.columns`, `data['column_name']`, `data.index`, etc.
+**CRITICAL — Do NOT re-load or re-parse the file when `data_source` is set.** The
+sandbox preamble has already loaded `data` as a DataFrame for you. Re-parsing
+breaks because the file format (`{"query": ..., "dataframe": {"index", "columns",
+"data"}}` for archiver output) requires multi-step unwrapping that the preamble
+handles correctly and ad-hoc agent code reliably gets wrong.
+
+**Forbidden patterns when `data_source` is set** — never write any of these in
+your plot code:
+
+- `open(...)` / `json.load(...)` / `pd.read_json(...)` / `pd.read_csv(...)` on
+  the data file — the preamble already did this
+- `raw["data"]`, `raw["dataframe"]`, or any manual envelope unwrap — the preamble
+  already did this and `data` is the final DataFrame
+- `pd.DataFrame(data=..., index=..., columns=...)` constructed from manual JSON
+  parsing — `data` is *already* the DataFrame; this overwrites it with broken
+  contents
+
+**Correct usage** — treat `data` as a ready-to-use DataFrame. Examples:
+
+```python
+# Time series with timestamp index:
+data.index = pd.to_datetime(data.index)           # if you need datetime index
+fig = go.Figure()
+for col in data.columns:
+    fig.add_trace(go.Scatter(x=data.index, y=data[col], name=col))
+save_artifact(fig, "Title")
+```
+
+```python
+# Scatter of one channel vs another:
+fig = px.scatter(data, x="CHANNEL_A", y="CHANNEL_B", color=data.index)
+save_artifact(fig, "Title")
+```
+
+If you find yourself writing `open()` or `json.load()` inside `create_*_plot`
+code, stop — you almost certainly meant to use `data` directly.
 
 ## Dashboard Workflow
 
