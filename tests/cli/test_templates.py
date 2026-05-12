@@ -285,6 +285,8 @@ class TestGitIsolation:
         """Test that --force removes Claude Code's session directory."""
         from pathlib import Path
 
+        from osprey.cli.project_utils import encode_claude_project_path
+
         runner = CliRunner()
 
         # Create project first time
@@ -294,7 +296,7 @@ class TestGitIsolation:
         project_path = (tmp_path / "session-test").resolve()
 
         # Simulate Claude Code's session directory
-        encoded_key = str(project_path).replace("/", "-")
+        encoded_key = encode_claude_project_path(project_path)
         claude_project_dir = Path.home() / ".claude" / "projects" / encoded_key
         claude_project_dir.mkdir(parents=True, exist_ok=True)
         (claude_project_dir / "sessions-index.json").write_text("{}")
