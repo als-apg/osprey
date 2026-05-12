@@ -32,6 +32,9 @@ from tests.e2e.sdk_helpers import (
     run_sdk_query_with_hooks,
 )
 
+# ALS_APG_API_KEY is enforced via `requires_als_apg` — the root
+# `tests/conftest.py` hook auto-skips when the key is missing. Every test
+# in this file passes `provider="als-apg"` to `init_project` and `LLMJudge`.
 pytestmark = [
     pytest.mark.e2e,
     pytest.mark.requires_als_apg,
@@ -118,7 +121,7 @@ async def _assert_approval_hook_fires(
 
 
 @pytest.mark.asyncio
-async def test_hello_world_canonical_flow(tmp_path: Path, llm_judge: LLMJudge) -> None:
+async def test_hello_world_canonical_flow(tmp_path: Path) -> None:
     """Hello-world preset: agent reads the example mock channel.
 
     Asserts the agent reached for ``mcp__controls__channel_read``. If the
@@ -126,6 +129,7 @@ async def test_hello_world_canonical_flow(tmp_path: Path, llm_judge: LLMJudge) -
     Claude Code session hanging on missing tools.
     """
     project = init_project(tmp_path, "hello_demo", template="hello_world", provider="als-apg")
+    judge = LLMJudge(provider="als-apg")
     query = (
         "Use the controls MCP server to read the channel named 'example' "
         "and report its current value."
@@ -136,7 +140,7 @@ async def test_hello_world_canonical_flow(tmp_path: Path, llm_judge: LLMJudge) -
         f"agent did not call mcp__controls__channel_read. Tools called: {result.tool_names}"
     )
 
-    eval = await llm_judge.evaluate(
+    eval = await judge.evaluate(
         _to_workflow_result(query, result),
         expectations=(
             "The agent reads a control-system channel using the controls MCP "
@@ -148,7 +152,7 @@ async def test_hello_world_canonical_flow(tmp_path: Path, llm_judge: LLMJudge) -
 
 
 @pytest.mark.asyncio
-async def test_control_assistant_channel_finder_flow(tmp_path: Path, llm_judge: LLMJudge) -> None:
+async def test_control_assistant_channel_finder_flow(tmp_path: Path) -> None:
     """Control-assistant preset: agent uses the channel-finder pipeline.
 
     Soft assertion (the channel-finder backend differs by preset config) —
@@ -159,6 +163,7 @@ async def test_control_assistant_channel_finder_flow(tmp_path: Path, llm_judge: 
     if cf_server is None:
         pytest.skip("control-assistant preset has no channel-finder server")
 
+    judge = LLMJudge(provider="als-apg")
     query = "Help me find the address of a beam-position-monitor channel for sector 5."
     result = await run_sdk_query(project, query, max_turns=4, max_budget_usd=0.25)
 
@@ -167,7 +172,7 @@ async def test_control_assistant_channel_finder_flow(tmp_path: Path, llm_judge: 
         f"agent did not call any mcp__channel-finder__* tool. Tools called: {result.tool_names}"
     )
 
-    eval = await llm_judge.evaluate(
+    eval = await judge.evaluate(
         _to_workflow_result(query, result),
         expectations=(
             "The agent uses the channel-finder MCP server to search for or "
