@@ -31,7 +31,7 @@ safety-limits enforcement on all write operations.
 Channel Finding
 ---------------
 
-OSPREY provides four channel finder variants, each suited to different
+OSPREY provides three channel finder variants, each suited to different
 facility data models and search strategies. Deployments typically enable
 one or two variants depending on available metadata.
 
