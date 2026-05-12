@@ -57,11 +57,6 @@ def is_claude_code_available() -> bool:
         return False
 
 
-def has_als_apg_api_key() -> bool:
-    """Check if ALS_APG_API_KEY is set (CI-default Bedrock proxy auth)."""
-    return bool(os.environ.get("ALS_APG_API_KEY"))
-
-
 def init_project(
     tmp_path: Path,
     name: str,
@@ -388,10 +383,6 @@ class TestClaudeExecutesArchiverAndPlots:
     @pytest.mark.slow
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg
-    @pytest.mark.skipif(
-        not has_als_apg_api_key(),
-        reason="ALS_APG_API_KEY not set",
-    )
     def test_claude_executes_archiver_and_plots(self, tmp_path):
         project_dir = init_project(tmp_path, "archiver-plot-test", provider="als-apg")
         disable_approval(project_dir)
@@ -489,10 +480,6 @@ class TestClaudeFullBpmAnalysisPipeline:
     @pytest.mark.slow
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg
-    @pytest.mark.skipif(
-        not has_als_apg_api_key(),
-        reason="ALS_APG_API_KEY not set",
-    )
     def test_claude_full_bpm_analysis_pipeline(self, tmp_path):
         project_dir = init_project(tmp_path, "bpm-pipeline-test", provider="als-apg")
         disable_approval(project_dir)

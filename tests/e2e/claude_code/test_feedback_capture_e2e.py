@@ -29,7 +29,7 @@ def feedback_project(tmp_path_factory):
 
 
 @pytest.mark.requires_api
-@pytest.mark.requires_anthropic
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_feedback_hook_captures_search_results(feedback_project):
     """The feedback capture hook should write results to pending_reviews.json.
@@ -86,7 +86,7 @@ async def test_feedback_hook_captures_search_results(feedback_project):
 
 
 @pytest.mark.requires_api
-@pytest.mark.requires_anthropic
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_feedback_hook_is_silent(feedback_project):
     """The feedback capture hook must not contaminate agent output.

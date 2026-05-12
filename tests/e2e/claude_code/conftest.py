@@ -9,7 +9,6 @@ import yaml
 
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
-    has_als_apg_api_key,
     init_project,
     is_claude_code_available,
 )
@@ -22,17 +21,14 @@ def reset_registry_between_tests():
     yield
 
 
-# Module-level skip conditions applied to all tests in this directory.
-# Skip-gate is ALS_APG_API_KEY (not ANTHROPIC_API_KEY) because init_project
-# defaults to provider="als-apg"/model="haiku" — see sdk_helpers.init_project
-# for why (CBORG IP allowlist excludes GitHub Actions; Anthropic direct relies
-# on local ~/.claude credentials and was the silent CI-skip cause for the
-# entire post-LangGraph era).
+# Module-level prerequisites. The ALS_APG_API_KEY gate lives on each test
+# via `@pytest.mark.requires_als_apg` (auto-enforced by the root
+# `tests/conftest.py` hook) rather than here, so the gating travels with
+# the test rather than the directory.
 pytestmark = [
     pytest.mark.e2e,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
     pytest.mark.skipif(not is_claude_code_available(), reason="Claude Code CLI not installed"),
-    pytest.mark.skipif(not has_als_apg_api_key(), reason="ALS_APG_API_KEY not set"),
 ]
 
 
