@@ -55,14 +55,13 @@ device, signal) to narrow results.
 
 Package: ``osprey.mcp_server.channel_finder_in_context``
 
-Provides synchronous access to channel databases stored in flat or
-template format. Designed for smaller databases that fit in context.
+Answers natural-language questions about channels by handing the full
+channel database to an inner LLM as context. Designed for databases small
+enough to fit in a single context window.
 
 **Tools:**
 
-- ``get_channels`` -- Get channels from the database, optionally paginated in chunks.
-- ``resolve_addresses`` -- Resolve channel names to their control system PV addresses.
-- ``statistics`` -- Get database statistics (total channels, format, chunk info).
+- ``query_channels`` -- Answer a natural-language question about channels; an inner LLM call sees the full channel database as context and returns the answer text together with tokenizer-estimated input/output token counts (used by the benchmark harness for cost accounting).
 
 ``channel_finder_middle_layer``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -82,6 +81,7 @@ lookups and validation.
 - ``inspect_fields`` -- Inspect the field structure of a device family.
 - ``validate`` -- Validate that channel names exist in the database.
 - ``statistics`` -- Get database statistics (total channels, systems, families).
+- ``query_channels`` -- Run a read-only SQL query directly against the channel finder DuckDB database (``channels``, ``systems``, ``families`` tables).
 
 Workspace
 ---------
