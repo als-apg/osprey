@@ -70,13 +70,11 @@ def get_available_providers() -> dict[str, dict]:
 # Cache at import time
 _AVAILABLE_PROVIDERS = get_available_providers()
 
-# Skip all tests if no API key is available
+# Skip-gate via marker: auto-enforced by the root `tests/conftest.py` hook.
+# `_AVAILABLE_PROVIDERS` is still used by the test bodies to pick a provider.
 pytestmark = [
     pytest.mark.e2e,
-    pytest.mark.skipif(
-        len(_AVAILABLE_PROVIDERS) == 0,
-        reason="Requires CBORG_API_KEY, AMSC_I2_API_KEY, ANTHROPIC_API_KEY, or ALS_APG_API_KEY",
-    ),
+    pytest.mark.requires_api,
 ]
 
 

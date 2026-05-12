@@ -14,7 +14,7 @@ from tests.e2e.sdk_helpers import run_sdk_query_with_hooks
 
 
 @pytest.mark.requires_api
-@pytest.mark.requires_anthropic
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_channel_read_succeeds(safety_project):
     """Scenario 1: Reading a channel should succeed without error.

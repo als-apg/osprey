@@ -46,6 +46,88 @@ def reset_state_between_tests():
 
 
 # ===================================================================
+# Marker-driven resource skip-gating
+# ===================================================================
+#
+# Tests use @pytest.mark.requires_<resource> to declare what they need.
+# This hook turns those markers into real skips when the resource is
+# unavailable. Markers are registered in pyproject.toml under
+# [tool.pytest.ini_options].markers; predicates live here.
+#
+# To add a new resource: append to _RESOURCE_CHECKS. Predicate must be
+# zero-arg, side-effect-free, and fast (gets called once per item per
+# resource at collection time).
+
+
+def _has_als_apg_api_key() -> bool:
+    import os as _os
+
+    return bool(_os.environ.get("ALS_APG_API_KEY"))
+
+
+def _has_anthropic_api_key() -> bool:
+    import os as _os
+
+    return bool(_os.environ.get("ANTHROPIC_API_KEY"))
+
+
+def _has_any_provider_api_key() -> bool:
+    """True if any supported LLM provider key is set.
+
+    Mirrors the inline detection in tests/e2e/test_llm_channel_namer.py:
+    als-apg, cborg, amsc, anthropic.
+    """
+    import os as _os
+
+    return any(
+        _os.environ.get(k)
+        for k in ("ALS_APG_API_KEY", "CBORG_API_KEY", "AMSC_I2_API_KEY", "ANTHROPIC_API_KEY")
+    )
+
+
+def _is_ollama_available() -> bool:
+    """True if a local Ollama server responds at localhost:11434."""
+    try:
+        import requests
+
+        return requests.get("http://localhost:11434/api/tags", timeout=2).status_code == 200
+    except Exception:
+        return False
+
+
+_RESOURCE_CHECKS: dict[str, tuple[callable, str]] = {
+    "requires_als_apg": (_has_als_apg_api_key, "ALS_APG_API_KEY not set"),
+    "requires_anthropic": (_has_anthropic_api_key, "ANTHROPIC_API_KEY not set"),
+    "requires_api": (
+        _has_any_provider_api_key,
+        "No LLM provider API key set (ALS_APG_API_KEY / CBORG_API_KEY / "
+        "AMSC_I2_API_KEY / ANTHROPIC_API_KEY)",
+    ),
+    "requires_ollama": (_is_ollama_available, "Ollama not reachable at localhost:11434"),
+}
+
+
+def pytest_collection_modifyitems(config, items):
+    """Auto-skip items whose `requires_<resource>` marker's resource is missing.
+
+    Each predicate is evaluated at most once per pytest run via cache. A
+    missing resource adds a real `pytest.mark.skip(reason=...)`; satisfied
+    markers are no-ops.
+    """
+    cache: dict[str, bool] = {}
+    for item in items:
+        for marker_name, (predicate, reason) in _RESOURCE_CHECKS.items():
+            if marker_name not in item.keywords:
+                continue
+            available = cache.get(marker_name)
+            if available is None:
+                available = predicate()
+                cache[marker_name] = available
+            if not available:
+                item.add_marker(pytest.mark.skip(reason=reason))
+
+
+# ===================================================================
 # Prompt Testing Helpers
 # ===================================================================
 

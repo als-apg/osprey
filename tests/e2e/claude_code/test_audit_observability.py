@@ -31,7 +31,7 @@ class TestAuditObservability:
     """Natural workflow + transcript-based audit verification."""
 
     @pytest.mark.requires_api
-    @pytest.mark.requires_anthropic
+    @pytest.mark.requires_als_apg
     @pytest.mark.asyncio
     async def test_channel_read_archiver_plot_with_audit(self, tmp_path):
         """Full pipeline: channel_find → archiver_read → execute (plot) + audit.

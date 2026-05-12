@@ -78,7 +78,7 @@ pytestmark = [
     pytest.mark.e2e_services,
     pytest.mark.slow,
     pytest.mark.requires_api,
-    pytest.mark.requires_anthropic,
+    pytest.mark.requires_als_apg,
 ]
 
 # ---------------------------------------------------------------------------

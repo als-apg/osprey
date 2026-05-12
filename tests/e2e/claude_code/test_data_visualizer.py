@@ -31,7 +31,7 @@ class TestDataVisualizerAgent:
 
     @pytest.mark.slow
     @pytest.mark.requires_api
-    @pytest.mark.requires_anthropic
+    @pytest.mark.requires_als_apg
     @pytest.mark.asyncio
     async def test_interactive_plot_with_data_source(self, tmp_path):
         """Regression: data-visualizer should use data_source without errors.
@@ -152,7 +152,7 @@ class TestDataVisualizerAgent:
 
     @pytest.mark.slow
     @pytest.mark.requires_api
-    @pytest.mark.requires_anthropic
+    @pytest.mark.requires_als_apg
     @pytest.mark.asyncio
     async def test_archiver_read_to_interactive_plot(self, tmp_path):
         """End-to-end: archiver_read → data-visualizer → HTML artifact.

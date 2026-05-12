@@ -36,7 +36,7 @@ class TestClaudeCodeSDKIntegration:
     # -------------------------------------------------------------------
 
     @pytest.mark.requires_api
-    @pytest.mark.requires_anthropic
+    @pytest.mark.requires_als_apg
     @pytest.mark.asyncio
     async def test_tool_call_observability_smoke(self, tmp_path):
         """Verify that the SDK ToolTrace collection works correctly.
@@ -100,7 +100,7 @@ class TestClaudeCodeSDKIntegration:
 
     @pytest.mark.slow
     @pytest.mark.requires_api
-    @pytest.mark.requires_anthropic
+    @pytest.mark.requires_als_apg
     @pytest.mark.asyncio
     async def test_archiver_and_plot_via_sdk(self, tmp_path):
         """Verify archiver_read -> execute pipeline with tool ordering.
@@ -176,7 +176,7 @@ class TestClaudeCodeSDKIntegration:
 
     @pytest.mark.slow
     @pytest.mark.requires_api
-    @pytest.mark.requires_anthropic
+    @pytest.mark.requires_als_apg
     @pytest.mark.asyncio
     async def test_full_bpm_correlation_pipeline_via_sdk(self, tmp_path):
         """Full multi-tool pipeline with sub-agent delegation.
@@ -276,7 +276,7 @@ class TestClaudeCodeSDKIntegration:
 
     @pytest.mark.slow
     @pytest.mark.requires_api
-    @pytest.mark.requires_anthropic
+    @pytest.mark.requires_als_apg
     @pytest.mark.asyncio
     async def test_3d_scatter_plot_via_data_visualizer(self, tmp_path):
         """Verify the data-visualizer agent can create a 3D scatter plot.

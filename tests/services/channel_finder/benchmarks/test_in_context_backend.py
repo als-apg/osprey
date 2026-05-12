@@ -90,10 +90,7 @@ else:
     _BACKEND_MODEL = "anthropic/claude-haiku-4-5-20251001"
     _EXPECTED_WIRE = "claude-haiku-4-5-20251001"
 
-pytestmark = pytest.mark.skipif(
-    not _PROVIDER_API_KEY,
-    reason="No LLM provider API key available (CBORG_API_KEY or ANTHROPIC_API_KEY)",
-)
+pytestmark = pytest.mark.requires_api
 
 
 def _make_test_project(tmp_path: Path, subagent_model: str = _SUBAGENT_MODEL) -> Path:
