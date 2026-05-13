@@ -924,3 +924,118 @@ class TestLoadTemplate:
         assert "SR" in tree_data
         # Custom template may produce fewer channels
         assert isinstance(channels, list)
+
+
+class TestMaterializedTierDatabases:
+    """Verify the on-disk tier DBs shipped with the control_assistant preset.
+
+    The generator's in-memory consistency is covered by TestTierSpecs above.
+    These tests catch a different failure: the materialized JSON files under
+    src/osprey/templates/.../channel_databases/tiers/{tier1,tier2,tier3}/
+    drifting from the live filter — e.g. someone bumps the template or the
+    TierSpec but forgets to re-run scripts/generate_tier_databases.py for
+    every (tier, paradigm) combination.
+    """
+
+    # TEMPLATE_DB_PATH points at .../tiers/tier3/hierarchical.json — walk up
+    # two levels to reach the tiers/ root.
+    TIERS_ROOT = TEMPLATE_DB_PATH.parents[1]
+
+    @staticmethod
+    def _count_hierarchical(path) -> int:
+        """Sum (device_count × subfield_leaf_count) across the tree."""
+        raw = json.loads(path.read_text())
+        tree = raw.get("tree", raw)
+        n = 0
+
+        def expansion_count(exp: dict) -> int:
+            if exp["_type"] == "range":
+                lo, hi = exp["_range"]
+                return hi - lo + 1
+            if exp["_type"] == "list":
+                return len(exp["_instances"])
+            raise ValueError(f"Unknown expansion type: {exp['_type']}")
+
+        def recurse(node, ring=None):
+            nonlocal n
+            if not isinstance(node, dict):
+                return
+            for k, v in node.items():
+                if k.startswith("_") or not isinstance(v, dict):
+                    continue
+                if k in ("SR", "BR", "BTS") and ring is None:
+                    recurse(v, ring=k)
+                    continue
+                if "DEVICE" in v and "_expansion" in v.get("DEVICE", {}):
+                    dev = v["DEVICE"]
+                    ndev = expansion_count(dev["_expansion"])
+                    for fk, fv in dev.items():
+                        if fk.startswith("_") or not isinstance(fv, dict):
+                            continue
+                        for sk, sv in fv.items():
+                            if sk.startswith("_") or not isinstance(sv, dict):
+                                continue
+                            n += ndev
+                    continue
+                recurse(v, ring=ring)
+
+        recurse(tree)
+        return n
+
+    @staticmethod
+    def _count_in_context(path) -> int:
+        """Envelope schema: {_metadata, channels: [...]}."""
+        data = json.loads(path.read_text())
+        return len(data["channels"])
+
+    @staticmethod
+    def _count_middle_layer(path) -> int:
+        """ring → family → field → subfield → {ChannelNames: [...]}."""
+        data = json.loads(path.read_text())
+        n = 0
+
+        def recurse(node):
+            nonlocal n
+            if not isinstance(node, dict):
+                return
+            if "ChannelNames" in node and isinstance(node["ChannelNames"], list):
+                n += len(node["ChannelNames"])
+                return
+            for k, v in node.items():
+                if k.startswith("_"):
+                    continue
+                recurse(v)
+
+        recurse(data)
+        return n
+
+    _COUNTERS = {
+        "hierarchical": _count_hierarchical.__func__,
+        "in_context": _count_in_context.__func__,
+        "middle_layer": _count_middle_layer.__func__,
+    }
+
+    @pytest.mark.parametrize(
+        ("tier_spec", "paradigm"),
+        [
+            (tier, paradigm)
+            for tier in (TIER_1, TIER_2, TIER_3)
+            for paradigm in ("hierarchical", "in_context", "middle_layer")
+        ],
+        ids=lambda v: v.name if hasattr(v, "name") else v,
+    )
+    def test_materialized_db_matches_target_count(self, tier_spec, paradigm: str):
+        """Each shipped tier DB file must enumerate exactly target_count channels.
+
+        Catches: stale regen (one paradigm forgotten), hand-edits, template/
+        TierSpec changes without rerunning generate_tier_databases.py.
+        """
+        path = self.TIERS_ROOT / tier_spec.name / f"{paradigm}.json"
+        assert path.exists(), f"Missing materialized DB: {path}"
+        counter = self._COUNTERS[paradigm]
+        n = counter(path)
+        assert n == tier_spec.target_count, (
+            f"{tier_spec.name}/{paradigm}.json has {n} channels, "
+            f"expected {tier_spec.target_count}. Re-run "
+            f"scripts/generate_tier_databases.py to regenerate."
+        )

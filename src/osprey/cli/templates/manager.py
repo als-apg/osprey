@@ -117,6 +117,7 @@ class TemplateManager:
         context: dict[str, Any] | None = None,
         force: bool = False,
         artifacts: dict[str, list[str]] | None = None,
+        tier: int = 1,
     ) -> Path:
         """Create complete project from template.
 
@@ -297,6 +298,14 @@ class TemplateManager:
 
         # 6b. Rebase demo logbook timestamps to current date
         scaffolding.rebase_logbook_timestamps(project_dir)
+
+        # 6c. Flatten the preset's tier-routed channel DBs into the canonical
+        # data/channel_databases/<paradigm>.json locations. Must run before the
+        # Claude Code hierarchy probe below, which reads the flat path. No-op
+        # for bundles without a tiers/ subtree (e.g. hello_world).
+        scaffolding.materialize_tier_dbs(
+            project_dir, tier, ctx.get("channel_finder_mode")
+        )
 
         # 7. Create _agent_data directory structure
         scaffolding.create_agent_data_structure(self.template_root, project_dir, ctx)

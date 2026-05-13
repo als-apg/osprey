@@ -282,9 +282,6 @@ def build(
             context["default_model"] = build_profile.model
         if build_profile.channel_finder_mode:
             context["channel_finder_mode"] = build_profile.channel_finder_mode
-        # Always thread tier — the rendered config's database paths reference
-        # `tiers/tier{tier}/`, so an unset value would render `tiers/tier/`.
-        context["tier"] = build_profile.tier
 
         # 6b. Create project directory early (venv creation needs it)
         project_path.mkdir(parents=True, exist_ok=True)
@@ -319,7 +316,10 @@ def build(
         if runtime_root:
             context["project_root"] = str(runtime_root)
 
-        # 7. Create project from template
+        # 7. Create project from template (also materializes tier-specific
+        # channel DBs from the preset's tiers/ subtree, before the Claude Code
+        # hierarchy probe reads the flat data/channel_databases/<name>.json
+        # path).
         manager = TemplateManager()
         project_path = manager.create_project(
             project_name=project_name,
@@ -328,6 +328,7 @@ def build(
             context=context,
             force=True,  # Directory already exists from step 6b (venv created there)
             artifacts=artifacts or None,
+            tier=build_profile.tier,
         )
         logger.info("  ✓ Base template rendered")
 

@@ -1287,3 +1287,208 @@ class TestWebPanelsRendering:
         tuning = config["web"]["panels"]["tuning"]
         assert tuning["enabled"] is True
         assert tuning["label"] == "TUNING"
+
+
+# ---------------------------------------------------------------------------
+# Tier Flattening (materialize_tier_dbs)
+# ---------------------------------------------------------------------------
+
+
+def _preset_tier_source(tier: int, paradigm: str) -> Path:
+    """Path to the bundled preset's tier-routed source DB."""
+    import osprey
+
+    osprey_root = Path(osprey.__file__).parent
+    return (
+        osprey_root
+        / "templates"
+        / "apps"
+        / "control_assistant"
+        / "data"
+        / "channel_databases"
+        / "tiers"
+        / f"tier{tier}"
+        / f"{paradigm}.json"
+    )
+
+
+def _write_tier_profile(profile_dir: Path, tier: int | None = None) -> Path:
+    """Write a minimal control_assistant profile that enables all three
+    paradigms and (optionally) pins a tier."""
+    profile_data: dict = {
+        "name": "Tier Test",
+        "data_bundle": "control_assistant",
+        "provider": "cborg",
+        "model": "haiku",
+        "channel_finder_mode": "all",
+    }
+    if tier is not None:
+        profile_data["tier"] = tier
+    path = profile_dir / "tier-profile.yml"
+    path.write_text(yaml.dump(profile_data, default_flow_style=False))
+    return path
+
+
+@pytest.mark.parametrize("tier", [1, 2, 3])
+def test_build_tier_flatten(tmp_path: Path, tier: int) -> None:
+    """`osprey build --tier N` materializes flat DBs and removes tiers/ subtree.
+
+    For each paradigm:
+      - rendered config.yml emits ``data/channel_databases/<paradigm>.json``
+        (no ``tiers/`` segment).
+      - the file exists at that flat path and byte-equals the preset's
+        ``tiers/tier{N}/<paradigm>.json`` source.
+      - the ``tiers/`` subdirectory has been removed.
+    """
+    from click.testing import CliRunner
+
+    from osprey.cli.main import cli
+
+    profile_path = _write_tier_profile(tmp_path)
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "build",
+            "tier-proj",
+            str(profile_path),
+            "--output-dir",
+            str(output_dir),
+            "--tier",
+            str(tier),
+            "--skip-deps",
+            "--skip-lifecycle",
+        ],
+    )
+    assert result.exit_code == 0, (
+        f"build failed (exit={result.exit_code})\n"
+        f"--- output ---\n{result.output}\n"
+        f"--- exception ---\n{result.exception}"
+    )
+
+    project_dir = output_dir / "tier-proj"
+    config = yaml.safe_load((project_dir / "config.yml").read_text())
+    pipelines = config["channel_finder"]["pipelines"]
+
+    for paradigm in ("in_context", "hierarchical", "middle_layer"):
+        # (a) Rendered config points to the FLAT path — no tiers/ segment.
+        assert (
+            pipelines[paradigm]["database"]["path"]
+            == f"data/channel_databases/{paradigm}.json"
+        ), f"paradigm={paradigm} got {pipelines[paradigm]['database']['path']!r}"
+
+        # (b) The flat DB exists and byte-equals the preset tier source.
+        flat_path = project_dir / "data" / "channel_databases" / f"{paradigm}.json"
+        assert flat_path.exists(), f"flat DB missing: {flat_path}"
+
+        src = _preset_tier_source(tier, paradigm)
+        assert src.exists(), f"preset source missing: {src}"
+        assert flat_path.read_bytes() == src.read_bytes(), (
+            f"flat DB does not byte-equal preset tier{tier}/{paradigm}.json"
+        )
+
+    # (c) The tiers/ subtree has been pruned.
+    assert not (project_dir / "data" / "channel_databases" / "tiers").exists(), (
+        "tiers/ subtree was not pruned after materialization"
+    )
+
+
+def test_build_force_retier(tmp_path: Path) -> None:
+    """Rebuilding with --force --tier 3 over a tier-1 project re-materializes
+    to the new tier (byte-equals preset tier3 source)."""
+    from click.testing import CliRunner
+
+    from osprey.cli.main import cli
+
+    profile_path = _write_tier_profile(tmp_path)
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    runner = CliRunner()
+
+    # First build: tier 1
+    result1 = runner.invoke(
+        cli,
+        [
+            "build",
+            "retier-proj",
+            str(profile_path),
+            "--output-dir",
+            str(output_dir),
+            "--tier",
+            "1",
+            "--skip-deps",
+            "--skip-lifecycle",
+        ],
+    )
+    assert result1.exit_code == 0, (
+        f"tier-1 build failed: {result1.output}\n{result1.exception}"
+    )
+
+    # Second build: tier 3, --force overwrites the same path.
+    result2 = runner.invoke(
+        cli,
+        [
+            "build",
+            "retier-proj",
+            str(profile_path),
+            "--output-dir",
+            str(output_dir),
+            "--tier",
+            "3",
+            "--force",
+            "--skip-deps",
+            "--skip-lifecycle",
+        ],
+    )
+    assert result2.exit_code == 0, (
+        f"tier-3 rebuild failed: {result2.output}\n{result2.exception}"
+    )
+
+    project_dir = output_dir / "retier-proj"
+    for paradigm in ("in_context", "hierarchical", "middle_layer"):
+        flat_path = project_dir / "data" / "channel_databases" / f"{paradigm}.json"
+        src = _preset_tier_source(3, paradigm)
+        assert flat_path.read_bytes() == src.read_bytes(), (
+            f"after --force --tier 3, {paradigm}.json does not byte-equal preset tier3 source"
+        )
+
+
+def test_build_profile_only_tier(tmp_path: Path) -> None:
+    """When the profile sets ``tier: 2`` and no --tier is passed on the CLI,
+    the profile value drives materialization."""
+    from click.testing import CliRunner
+
+    from osprey.cli.main import cli
+
+    profile_path = _write_tier_profile(tmp_path, tier=2)
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "build",
+            "profile-tier-proj",
+            str(profile_path),
+            "--output-dir",
+            str(output_dir),
+            "--skip-deps",
+            "--skip-lifecycle",
+        ],
+    )
+    assert result.exit_code == 0, (
+        f"profile-only-tier build failed: {result.output}\n{result.exception}"
+    )
+
+    project_dir = output_dir / "profile-tier-proj"
+    for paradigm in ("in_context", "hierarchical", "middle_layer"):
+        flat_path = project_dir / "data" / "channel_databases" / f"{paradigm}.json"
+        src = _preset_tier_source(2, paradigm)
+        assert flat_path.read_bytes() == src.read_bytes(), (
+            f"profile tier=2 not honored for {paradigm}.json"
+        )

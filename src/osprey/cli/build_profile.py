@@ -171,10 +171,11 @@ class BuildProfile:
     model: str | None = None
     channel_finder_mode: str | None = None
     tier: int = 1
-    """Channel-database tier (1|2|3) controlling which `tiers/tier{N}` DB the
-    rendered config points at. Tier 1 is the smallest slice and the default
-    for benchmarks; tier 3 is the full preset. Same value gates query and
-    DB scope so per-paradigm benchmarks stay coherent.
+    """Channel-database tier (1|2|3) selecting which preset `tiers/tier{N}` DB
+    is materialized at build time to the flat `data/channel_databases/<name>.json`
+    location. This is build-time only and is NOT rendered into `config.yml`;
+    the runtime config carries no tier knob. Facility profiles can ignore it
+    because the DB they overlay overwrites whatever the preset put there.
     """
     config: dict[str, Any] = field(default_factory=dict)
     overlay: dict[str, str] = field(default_factory=dict)

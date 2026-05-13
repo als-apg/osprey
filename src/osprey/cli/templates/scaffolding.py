@@ -1,4 +1,10 @@
-"""Project creation helpers: directory structure, services, data files."""
+"""Project creation helpers: directory structure, services, data files.
+
+Includes :func:`materialize_tier_dbs`, the build-time step that picks the
+tier-routed channel-database file(s) for the selected paradigm(s), copies
+them into the flat ``data/channel_databases/<paradigm>.json`` locations,
+and prunes the now-redundant ``tiers/`` subtree.
+"""
 
 import json
 import logging
@@ -318,6 +324,89 @@ def copy_template_data(
                 f"  [success]✓[/success] Copied template data files to [path]{dst_data}[/path]"
             )
             return
+
+
+_ALL_PARADIGMS: tuple[str, ...] = ("in_context", "hierarchical", "middle_layer")
+
+
+def materialize_tier_dbs(
+    project_dir: Path, tier: int, channel_finder_mode: str | None
+) -> None:
+    """Materialize tier-routed channel databases into flat destinations.
+
+    The preset ships channel databases under
+    ``data/channel_databases/tiers/tier{1,2,3}/<paradigm>.json``.  After
+    ``osprey build``, this helper picks the requested ``tier`` and copies
+    the relevant paradigm DB(s) up to the flat
+    ``data/channel_databases/<paradigm>.json`` location, then removes the
+    ``tiers/`` subtree so only the active DBs remain.
+    Facility profiles overlaying their own DB files don't care which tier
+    was selected — their overlay overwrites the preset DB after this step.
+    Tier itself is build-time only and is NOT written into ``config.yml``.
+    Paradigm mapping (matches the rest of the codebase, see
+    :mod:`osprey.cli.templates.manager`):
+
+    * ``"in_context"`` → ``{"in_context"}``
+    * ``"hierarchical"`` → ``{"hierarchical"}``
+    * ``"middle_layer"`` → ``{"middle_layer"}``
+    * ``"all"`` or ``None`` → all three paradigms
+
+    Args:
+        project_dir: Root directory of the rendered project.
+        tier: Tier number (1, 2, or 3) selecting the source subdirectory.
+        channel_finder_mode: Paradigm selector from the build profile.
+
+    Raises:
+        FileNotFoundError: If a required tier source DB is missing. Raised
+            BEFORE any destination file is overwritten or any directory is
+            removed, so the project tree is left untouched on failure.
+
+    No-ops (returns silently) when the rendered project carries no
+    ``data/channel_databases/tiers/`` subtree — bundles that don't ship
+    channel-finder DBs (e.g. ``hello_world``) have nothing to materialize.
+    """
+    tiers_root = project_dir / "data" / "channel_databases" / "tiers"
+    if not tiers_root.exists():
+        return
+
+    if channel_finder_mode in (None, "all"):
+        paradigms: set[str] = set(_ALL_PARADIGMS)
+    elif channel_finder_mode in _ALL_PARADIGMS:
+        paradigms = {channel_finder_mode}
+    else:
+        # Unknown mode — be strict; the build profile validator should have
+        # already caught this, but don't silently materialize the wrong DBs.
+        raise ValueError(
+            f"Unknown channel_finder_mode {channel_finder_mode!r}; "
+            f"expected one of {sorted(_ALL_PARADIGMS)!r}, 'all', or None"
+        )
+
+    tier_dir = tiers_root / f"tier{tier}"
+    flat_root = project_dir / "data" / "channel_databases"
+
+    # Resolve every (src, dst) pair up front, validate existence, then copy.
+    # This keeps the destination tree consistent on FileNotFoundError.
+    pairs: list[tuple[Path, Path]] = []
+    for paradigm in sorted(paradigms):
+        src = tier_dir / f"{paradigm}.json"
+        dst = flat_root / f"{paradigm}.json"
+        if not src.exists():
+            raise FileNotFoundError(
+                f"Tier-routed channel database not found: {src} "
+                f"(tier={tier}, paradigm={paradigm!r})"
+            )
+        pairs.append((src, dst))
+
+    for src, dst in pairs:
+        shutil.copy2(src, dst)
+
+    # All copies succeeded — safe to prune the tiers/ subtree now.
+    shutil.rmtree(tiers_root)
+
+    console.print(
+        f"  [success]✓[/success] Materialized tier{tier} channel database(s) "
+        f"for {sorted(paradigms)!r} to [path]{flat_root}[/path]"
+    )
 
 
 def rebase_logbook_timestamps(project_dir: Path) -> None:
