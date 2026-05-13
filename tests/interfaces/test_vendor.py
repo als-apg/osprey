@@ -92,8 +92,7 @@ class TestVendorUrl:
 
 
 class TestWebTerminalRendering:
-    """End-to-end: GET the web_terminal index route in both modes and
-    assert the rendered HTML contains the expected src values."""
+    """End-to-end: GET the web_terminal index route and assert bundled assets."""
 
     @pytest.fixture
     def client(self, tmp_path):
@@ -111,14 +110,14 @@ class TestWebTerminalRendering:
             with TestClient(app) as c:
                 yield c
 
-    def test_cdn_mode_uses_jsdelivr(self, client, monkeypatch):
+    def test_default_mode_uses_bundled_assets(self, client, monkeypatch):
         monkeypatch.delenv("OSPREY_OFFLINE", raising=False)
         with patch("osprey.utils.workspace.load_osprey_config", return_value={}):
             resp = client.get("/")
         assert resp.status_code == 200
         body = resp.text
-        assert "cdn.jsdelivr.net" in body
-        assert 'src="/static/vendor/xterm.min.js"' not in body
+        assert "/static/vendor/xterm.min.js" in body
+        assert "cdn.jsdelivr.net" not in body
 
     def test_offline_mode_uses_local_paths(self, client, monkeypatch):
         monkeypatch.setenv("OSPREY_OFFLINE", "1")
