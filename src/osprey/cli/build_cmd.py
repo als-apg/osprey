@@ -280,7 +280,7 @@ def build(
             context["default_provider"] = build_profile.provider
         if build_profile.model:
             context["default_model"] = build_profile.model
-        if build_profile.channel_finder_mode:
+        if build_profile.channel_finder_mode is not None:
             context["channel_finder_mode"] = build_profile.channel_finder_mode
 
         # 6b. Create project directory early (venv creation needs it)
@@ -385,7 +385,7 @@ def build(
             "default_provider": build_profile.provider,
             "default_model": build_profile.model,
         }
-        if build_profile.channel_finder_mode:
+        if build_profile.channel_finder_mode is not None:
             manifest_context["channel_finder_mode"] = build_profile.channel_finder_mode
         # Carry the invocation source forward so build_reproducible_command
         # renders the matching --preset or positional form (C12).

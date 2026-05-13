@@ -25,6 +25,7 @@ class TestBuildClaudeCodeContext:
             project_name="ctx-basic",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -45,6 +46,7 @@ class TestBuildClaudeCodeContext:
             project_name="ctx-override",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -68,6 +70,7 @@ class TestBuildClaudeCodeContext:
             project_name="ctx-control",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
         # Generate manifest so build_claude_code_context can discover template_name
         manager.generate_manifest(project_dir, "ctx-control", "control_assistant", {})
@@ -88,6 +91,7 @@ class TestBuildClaudeCodeContext:
             project_name="ctx-manifest",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
         # Generate manifest
         manager.generate_manifest(project_dir, "ctx-manifest", "control_assistant", {})
@@ -110,6 +114,7 @@ class TestRegenerationCorrectness:
             project_name="regen-idempotent",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         # Capture checksums
@@ -136,6 +141,7 @@ class TestRegenerationCorrectness:
             project_name="regen-tz",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         # Set timezone to an env-var pattern in config.yml
@@ -159,6 +165,7 @@ class TestRegenerationCorrectness:
             project_name="regen-tz-env",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -184,6 +191,7 @@ class TestSafetyPreservation:
             project_name="safety-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
         manager.regenerate_claude_code(project_dir)
         return project_dir
@@ -245,6 +253,7 @@ class TestUserFilePreservation:
             project_name="backup-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         result = manager.regenerate_claude_code(project_dir)
@@ -263,6 +272,7 @@ class TestUserFilePreservation:
             project_name="header-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -287,6 +297,7 @@ class TestErrorHandling:
             project_name="dry-run-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         # Record file mtimes
@@ -305,6 +316,7 @@ class TestErrorHandling:
             project_name="dry-detect",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         # Disable a core server in config (will cause .mcp.json to change)
@@ -327,6 +339,7 @@ class TestGitignore:
             project_name="gitignore-gen-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         gitignore = (project_dir / ".gitignore").read_text()
@@ -356,6 +369,7 @@ class TestDisableServers:
             project_name="disable-test",
             output_dir=tmp_path,
             data_bundle=template,
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -488,6 +502,7 @@ class TestDisableServers:
             project_name="override-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
         manager.generate_manifest(project_dir, "override-test", "control_assistant", {})
 
@@ -545,6 +560,7 @@ class TestDisableServers:
             project_name="ctx-overrides",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -570,6 +586,7 @@ class TestDisableServers:
             project_name="ctx-defaults",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -590,6 +607,7 @@ class TestFacilityMd:
             project_name="facility-init",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         facility_file = project_dir / ".claude" / "rules" / "facility.md"
@@ -605,6 +623,7 @@ class TestFacilityMd:
             project_name="facility-owned",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -621,6 +640,7 @@ class TestFacilityMd:
             project_name="facility-preserve",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         # Customize facility.md in-place
@@ -641,6 +661,7 @@ class TestFacilityMd:
             project_name="facility-regen-create",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         # Delete facility.md and remove from user_owned
@@ -674,6 +695,7 @@ class TestUserOwned:
             project_name="owned-defaults",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -694,6 +716,7 @@ class TestUserOwned:
             project_name="owned-regen",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         # Customize safety.md
@@ -723,6 +746,7 @@ class TestUserOwned:
             project_name="owned-agents",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         # Regen with some user_owned entries
@@ -758,6 +782,7 @@ class TestSettingsJsonValidity:
             project_name=f"json-valid-{data_bundle}",
             output_dir=tmp_path,
             data_bundle=data_bundle,
+            context={"channel_finder_mode": "hierarchical"},
         )
         settings_path = project_dir / ".claude" / "settings.json"
         data = json.loads(settings_path.read_text())
@@ -785,6 +810,7 @@ class TestSettingsJsonValidity:
             project_name=f"json-{label}",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -808,6 +834,7 @@ class TestSettingsJsonValidity:
             data_bundle="control_assistant",
             context={
                 "channel_finder_pipeline": "hierarchical",
+                "channel_finder_mode": "hierarchical",
             },
         )
         settings_path = project_dir / ".claude" / "settings.json"
@@ -822,6 +849,7 @@ class TestSettingsJsonValidity:
             project_name="json-custom-servers",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -845,6 +873,7 @@ class TestSettingsJsonValidity:
                 project_name=f"mcp-valid-{data_bundle}",
                 output_dir=tmp_path,
                 data_bundle=data_bundle,
+                context={"channel_finder_mode": "hierarchical"},
             )
             mcp_path = project_dir / ".mcp.json"
             data = json.loads(mcp_path.read_text())

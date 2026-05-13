@@ -50,6 +50,7 @@ Compatibility is documented in release notes, not encoded in the version string.
   correctors). Channel aliases (the human-readable names) are unchanged.
 
 ### Changed
+- **Removed `channel_finder_mode="all"`.** Build-time materialization shim that ran identically to `"hierarchical"` at runtime. `control-assistant` preset now pins `channel_finder_mode: hierarchical`; override with `--set channel_finder_mode=in_context|middle_layer`. `BuildProfile.validate()` rejects unknown modes early.
 - **Channel-finder benchmark CLI: drop vestigial `--tier` flag.** The `--tier` option on `osprey channel-finder benchmark` and the corresponding `tier: int = 0` parameter on `BenchmarkRunner` were a label-only pass-through left over from cross-paradigm matrix orchestration (now in the companion paper repo). Neither filtered queries nor switched databases — a project's tier is decided when the channel DB is generated/configured, not at run time. The `BenchmarkRun.tier` data-model field is preserved (still consumed by the companion repo's matrix aggregation) and now defaults to `None`. No migration needed for OSPREY users; companion-repo callers that construct `BenchmarkRun` directly with `tier=…` are unaffected.
 - **Branch strategy: adopt GitHub Flow.** The short-lived `next` integration
   branch is retired in favour of trunk-based development on `main`. CI now

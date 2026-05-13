@@ -330,34 +330,31 @@ _ALL_PARADIGMS: tuple[str, ...] = ("in_context", "hierarchical", "middle_layer")
 
 
 def materialize_tier_dbs(
-    project_dir: Path, tier: int, channel_finder_mode: str | None
+    project_dir: Path, tier: int, channel_finder_mode: str
 ) -> None:
     """Materialize tier-routed channel databases into flat destinations.
 
     The preset ships channel databases under
     ``data/channel_databases/tiers/tier{1,2,3}/<paradigm>.json``.  After
     ``osprey build``, this helper picks the requested ``tier`` and copies
-    the relevant paradigm DB(s) up to the flat
+    the active paradigm's DB up to the flat
     ``data/channel_databases/<paradigm>.json`` location, then removes the
-    ``tiers/`` subtree so only the active DBs remain.
+    ``tiers/`` subtree so only the active DB remains.
     Facility profiles overlaying their own DB files don't care which tier
     was selected — their overlay overwrites the preset DB after this step.
     Tier itself is build-time only and is NOT written into ``config.yml``.
-    Paradigm mapping (matches the rest of the codebase, see
-    :mod:`osprey.cli.templates.manager`):
-
-    * ``"in_context"`` → ``{"in_context"}``
-    * ``"hierarchical"`` → ``{"hierarchical"}``
-    * ``"middle_layer"`` → ``{"middle_layer"}``
-    * ``"all"`` or ``None`` → all three paradigms
 
     Args:
         project_dir: Root directory of the rendered project.
         tier: Tier number (1, 2, or 3) selecting the source subdirectory.
-        channel_finder_mode: Paradigm selector from the build profile.
+        channel_finder_mode: Paradigm selector from the build profile. Must
+            be one of ``"in_context"``, ``"hierarchical"``, ``"middle_layer"``.
 
     Raises:
-        FileNotFoundError: If a required tier source DB is missing. Raised
+        ValueError: If ``channel_finder_mode`` is not one of the three valid
+            paradigms (the build-profile validator and ``manager.py`` should
+            catch this earlier, but this is a defensive guard).
+        FileNotFoundError: If the required tier source DB is missing. Raised
             BEFORE any destination file is overwritten or any directory is
             removed, so the project tree is left untouched on failure.
 
@@ -369,17 +366,12 @@ def materialize_tier_dbs(
     if not tiers_root.exists():
         return
 
-    if channel_finder_mode in (None, "all"):
-        paradigms: set[str] = set(_ALL_PARADIGMS)
-    elif channel_finder_mode in _ALL_PARADIGMS:
-        paradigms = {channel_finder_mode}
-    else:
-        # Unknown mode — be strict; the build profile validator should have
-        # already caught this, but don't silently materialize the wrong DBs.
+    if channel_finder_mode not in _ALL_PARADIGMS:
         raise ValueError(
             f"Unknown channel_finder_mode {channel_finder_mode!r}; "
-            f"expected one of {sorted(_ALL_PARADIGMS)!r}, 'all', or None"
+            f"expected one of {sorted(_ALL_PARADIGMS)!r}"
         )
+    paradigms: set[str] = {channel_finder_mode}
 
     tier_dir = tiers_root / f"tier{tier}"
     flat_root = project_dir / "data" / "channel_databases"

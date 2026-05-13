@@ -48,6 +48,7 @@ class TestTemplateManager:
             project_name="test-project",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         # Verify structure (Claude Code mode — no src/ or pyproject.toml)
@@ -66,9 +67,15 @@ class TestTemplateManager:
         manager = TemplateManager()
 
         # Create first project
-        manager.create_project("test-project", tmp_path, "control_assistant")
+        manager.create_project(
+            "test-project",
+            tmp_path,
+            "control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
 
-        # Try to create again
+        # Try to create again — directory-exists check fires before
+        # channel-finder validation, so no context needed here.
         with pytest.raises(ValueError, match="already exists"):
             manager.create_project("test-project", tmp_path, "control_assistant")
 
@@ -489,7 +496,7 @@ class TestTemplateManifest:
             project_name="init-panels-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
-            context={},
+            context={"channel_finder_mode": "hierarchical"},
         )
         config = _yaml.safe_load((project_dir / "config.yml").read_text())
         panels = config["web"]["panels"]
@@ -528,6 +535,7 @@ class TestTemplateManifest:
             project_name="ctrl-hooks-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         expected_hooks = [

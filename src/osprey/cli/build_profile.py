@@ -17,6 +17,12 @@ import yaml
 
 from osprey.errors import BuildProfileError
 
+VALID_CHANNEL_FINDER_MODES: tuple[str, ...] = (
+    "in_context",
+    "hierarchical",
+    "middle_layer",
+)
+
 
 @dataclass
 class McpServerDef:
@@ -206,6 +212,15 @@ class BuildProfile:
 
         if self.tier not in (1, 2, 3):
             errors.append(f"tier must be 1, 2, or 3 (got {self.tier!r})")
+
+        if (
+            self.channel_finder_mode is not None
+            and self.channel_finder_mode not in VALID_CHANNEL_FINDER_MODES
+        ):
+            errors.append(
+                f"channel_finder_mode must be one of {VALID_CHANNEL_FINDER_MODES} "
+                f"(got {self.channel_finder_mode!r})"
+            )
 
         # Validate overlay source paths exist
         for src, _dst in self.overlay.items():

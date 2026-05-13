@@ -128,7 +128,7 @@ def cborg_project(tmp_path):
         project_name="isolation-test",
         output_dir=tmp_path,
         data_bundle="control_assistant",
-        context={"default_provider": "cborg"},
+        context={"default_provider": "cborg", "channel_finder_mode": "hierarchical"},
     )
     return project_dir
 

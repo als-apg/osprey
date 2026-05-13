@@ -106,7 +106,7 @@ Profile YAML Schema
    * - ``channel_finder_mode``
      - string
      - ``None``
-     - Channel finder pipeline (``hierarchical``, ``middle_layer``, ``in_context``, ``all``).
+     - Channel finder pipeline (``hierarchical``, ``middle_layer``, ``in_context``).
    * - ``config``
      - mapping
      - ``{}``
