@@ -488,7 +488,7 @@ class TestReadDbPathFromConfig:
                 "pipelines": {
                     "in_context": {
                         "database": {
-                            "path": "data/channel_databases/tiers/tier1/in_context.json",
+                            "path": "data/channel_databases/in_context.json",
                         }
                     }
                 }
@@ -501,8 +501,6 @@ class TestReadDbPathFromConfig:
             project_dir
             / "data"
             / "channel_databases"
-            / "tiers"
-            / "tier1"
             / "in_context.json"
         ).resolve()
         assert result == expected
