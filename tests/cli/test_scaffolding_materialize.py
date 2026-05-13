@@ -2,16 +2,15 @@
 
 Covers the build-time step that flattens tier-routed channel databases:
 
-* happy path with every paradigm (``channel_finder_mode='all'`` / ``None``)
 * single-paradigm modes (``in_context`` / ``hierarchical`` / ``middle_layer``)
 * tier 3 selection materializes the right source DB (byte-exact)
 * missing source DB raises :class:`FileNotFoundError`
 * ``tiers/`` subtree is pruned after a successful run
+* invalid/legacy modes (``"all"``, ``None``, ``"bogus"``) are rejected
 """
 
 from __future__ import annotations
 
-import json
 import shutil
 from pathlib import Path
 
@@ -53,27 +52,6 @@ def _make_rendered_project(tmp_path: Path) -> Path:
 def rendered_project(tmp_path: Path) -> Path:
     """Tmp-path project with the preset channel_databases tree copied in."""
     return _make_rendered_project(tmp_path)
-
-
-class TestMaterializeAllParadigms:
-    """`channel_finder_mode='all'` / `None` materialize every paradigm."""
-
-    @pytest.mark.parametrize("mode", ["all", None])
-    def test_happy_path_tier1_all_paradigms(self, rendered_project: Path, mode):
-        materialize_tier_dbs(rendered_project, tier=1, channel_finder_mode=mode)
-
-        cdb = rendered_project / "data" / "channel_databases"
-        for paradigm in _PARADIGMS:
-            flat = cdb / f"{paradigm}.json"
-            assert flat.is_file(), f"{paradigm}.json should be at flat root"
-            # Content matches the preset tier1 source.
-            expected = (_PRESET_CDB_DIR / "tiers" / "tier1" / f"{paradigm}.json").read_bytes()
-            assert flat.read_bytes() == expected
-            # Content is still valid JSON.
-            json.loads(flat.read_text())
-
-        # tiers/ subtree is pruned.
-        assert not (cdb / "tiers").exists()
 
 
 class TestSingleParadigmModes:
@@ -122,18 +100,6 @@ class TestTier3Selection:
         expected = (_PRESET_CDB_DIR / "tiers" / "tier3" / f"{paradigm}.json").read_bytes()
         assert flat.read_bytes() == expected
 
-    def test_tier3_all_paradigms(self, rendered_project: Path):
-        materialize_tier_dbs(rendered_project, tier=3, channel_finder_mode="all")
-
-        cdb = rendered_project / "data" / "channel_databases"
-        for paradigm in _PARADIGMS:
-            flat = cdb / f"{paradigm}.json"
-            expected = (
-                _PRESET_CDB_DIR / "tiers" / "tier3" / f"{paradigm}.json"
-            ).read_bytes()
-            assert flat.read_bytes() == expected
-        assert not (cdb / "tiers").exists()
-
 
 class TestMissingSourceDb:
     """Missing source DB raises FileNotFoundError and leaves the tree intact."""
@@ -142,18 +108,18 @@ class TestMissingSourceDb:
         project_dir = tmp_path / "proj"
         tier_dir = project_dir / "data" / "channel_databases" / "tiers" / "tier1"
         tier_dir.mkdir(parents=True)
-        # Only put two of three paradigm files in place.
+        # Put two of three paradigm files in place; middle_layer.json is missing.
         (tier_dir / "in_context.json").write_text("{}")
         (tier_dir / "hierarchical.json").write_text("{}")
-        # middle_layer.json is intentionally missing.
 
         with pytest.raises(FileNotFoundError, match="middle_layer"):
-            materialize_tier_dbs(project_dir, tier=1, channel_finder_mode="all")
+            materialize_tier_dbs(
+                project_dir, tier=1, channel_finder_mode="middle_layer"
+            )
 
         # On failure the tiers/ tree must still be present (no partial rmtree).
         assert tier_dir.exists()
-        # And no flat files should have been created (failure happens before
-        # any copy because we resolve all pairs first).
+        # No flat files should have been created (failure happens before any copy).
         cdb = project_dir / "data" / "channel_databases"
         for paradigm in _PARADIGMS:
             assert not (cdb / f"{paradigm}.json").exists()
@@ -180,18 +146,21 @@ class TestTiersDirectoryRemoval:
         assert (cdb / "tiers").is_dir()
         assert (cdb / "tiers" / "tier1").is_dir()
 
-        materialize_tier_dbs(rendered_project, tier=1, channel_finder_mode="all")
+        materialize_tier_dbs(
+            rendered_project, tier=1, channel_finder_mode="hierarchical"
+        )
 
         assert not (cdb / "tiers").exists()
 
 
 class TestUnknownMode:
-    """An unrecognized channel_finder_mode is a hard error, not silent."""
+    """Unrecognized/legacy channel_finder_mode values are hard errors."""
 
-    def test_unknown_mode_raises_value_error(self, rendered_project: Path):
+    @pytest.mark.parametrize("mode", ["bogus", "all", None])
+    def test_unknown_mode_raises_value_error(self, rendered_project: Path, mode):
         with pytest.raises(ValueError, match="Unknown channel_finder_mode"):
             materialize_tier_dbs(
-                rendered_project, tier=1, channel_finder_mode="bogus"
+                rendered_project, tier=1, channel_finder_mode=mode
             )
 
 
@@ -203,6 +172,8 @@ class TestNoOpOnMissingTiersSubtree:
         project_dir = tmp_path / "proj"
         (project_dir / "data").mkdir(parents=True)
         # Must NOT raise, even with a fully-valid tier/mode combination.
-        materialize_tier_dbs(project_dir, tier=1, channel_finder_mode="all")
+        materialize_tier_dbs(
+            project_dir, tier=1, channel_finder_mode="hierarchical"
+        )
         # Nothing got created — flat root doesn't exist either.
         assert not (project_dir / "data" / "channel_databases").exists()

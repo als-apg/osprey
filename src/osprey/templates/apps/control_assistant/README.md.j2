@@ -29,10 +29,10 @@ This application demonstrates production-validated patterns for building AI assi
 - Best for: Large control systems (>1,000 channels)
 - Method: Structured navigation through system hierarchy
 - Latency: 5-7 seconds
-{% else %}
-**Channel Finder Mode:** Both Pipelines Enabled
-- Switch between modes via `config.yml`
-- Compare performance for your control system
+{% elif channel_finder_mode == 'middle_layer' %}
+**Channel Finder Mode:** Middle Layer (Functional Navigation)
+- Best for: MML-organized facilities (System / Family / Field / Subfield)
+- Method: Functional hierarchy navigation via the channel-finder MCP server
 {% endif %}
 
 ---

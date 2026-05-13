@@ -913,3 +913,38 @@ def test_preset_yaml_must_be_mapping(tmp_path: Path) -> None:
     # Keep _load_preset_raw imported so the symbol is referenced and a future
     # rename surfaces this test.
     assert callable(_load_preset_raw)
+
+
+class TestBuildProfileChannelFinderModeValidation:
+    """`BuildProfile.validate()` rejects unknown channel_finder_mode values."""
+
+    def test_validate_rejects_channel_finder_mode_all(self, tmp_path: Path) -> None:
+        from osprey.cli.build_profile import BuildProfile
+        from osprey.errors import BuildProfileError
+
+        profile = BuildProfile(name="t", channel_finder_mode="all")
+        with pytest.raises(BuildProfileError) as exc:
+            profile.validate(tmp_path)
+        assert "channel_finder_mode" in str(exc.value)
+        assert "in_context" in str(exc.value)
+
+    def test_validate_rejects_unknown_channel_finder_mode(self, tmp_path: Path) -> None:
+        from osprey.cli.build_profile import BuildProfile
+        from osprey.errors import BuildProfileError
+
+        profile = BuildProfile(name="t", channel_finder_mode="bogus")
+        with pytest.raises(BuildProfileError):
+            profile.validate(tmp_path)
+
+    def test_validate_accepts_valid_channel_finder_modes(self, tmp_path: Path) -> None:
+        from osprey.cli.build_profile import BuildProfile
+
+        for mode in ("in_context", "hierarchical", "middle_layer"):
+            BuildProfile(name="t", channel_finder_mode=mode).validate(tmp_path)
+
+    def test_validate_accepts_none_channel_finder_mode(self, tmp_path: Path) -> None:
+        """None is valid at the profile level — manager.py raises only if
+        channel-finder is actually selected and no mode is pinned."""
+        from osprey.cli.build_profile import BuildProfile
+
+        BuildProfile(name="t", channel_finder_mode=None).validate(tmp_path)
