@@ -13,7 +13,6 @@ from __future__ import annotations
 import fcntl
 import json
 import logging
-import os
 from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -99,11 +98,7 @@ class BaseStore(Generic[T]):
         races on the shared index file.
         """
         self._ensure_dirs()
-        # O_RDONLY: flock works on read-only fds; the file is never written to.
-        # O_CREAT ensures the file exists on first use. Mode 0o664 makes it
-        # group-writable so a future UID split degrades to a warning, not EACCES.
-        fd_num = os.open(self._lock_file, os.O_RDONLY | os.O_CREAT, 0o664)
-        fd = os.fdopen(fd_num, "rb")
+        fd = open(self._lock_file, "w")
         try:
             fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
             self._load_index()  # Always reload under lock
