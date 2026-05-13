@@ -9,14 +9,12 @@ Extracted from test_claude_code_sdk_e2e.py to avoid circular imports.
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
-from click.testing import CliRunner
-
-from osprey.cli.build_cmd import build
 
 # SDK imports — skip entire module if not installed
 try:
@@ -48,8 +46,6 @@ except ImportError:
 
 def is_claude_code_available() -> bool:
     """Check if Claude Code CLI is installed and functional."""
-    import subprocess
-
     try:
         env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
         result = subprocess.run(
@@ -99,8 +95,16 @@ def init_project(
     provider's auth and produces the local-passes-CI-fails asymmetry. Pick
     ``"als-apg"`` for GitHub Actions runners, ``"cborg"`` from LBLnet, or
     ``"anthropic"`` when you have an ``ANTHROPIC_API_KEY`` available.
+
+    Invoked via ``subprocess`` rather than Click's ``CliRunner`` because
+    ``osprey build`` instantiates ``rich.Console(force_terminal=True)``,
+    which performs terminal-aware lifecycle management on the captured
+    ``BytesIO`` stream that ``CliRunner`` substitutes for stdout. On
+    Python ≥3.11 that closes the wrapper before Click reads it back,
+    raising ``ValueError: I/O operation on closed file`` at fixture
+    setup. ``CliRunner`` is also a unit-test harness; an e2e fixture
+    should exercise the same entry point real users invoke.
     """
-    runner = CliRunner()
     args = [
         name,
         "--preset",
@@ -118,8 +122,17 @@ def init_project(
     ]
     if channel_finder_mode is not None:
         args.extend(["--set", f"channel_finder_mode={channel_finder_mode}"])
-    result = runner.invoke(build, args)
-    assert result.exit_code == 0, f"osprey build failed: {result.output}"
+    result = subprocess.run(
+        [sys.executable, "-m", "osprey.cli.main", "build", *args],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, (
+        f"osprey build failed (exit {result.returncode}):\n"
+        f"--- stdout ---\n{result.stdout}\n"
+        f"--- stderr ---\n{result.stderr}"
+    )
     project_dir = tmp_path / name
     assert project_dir.exists(), f"Project directory not created: {project_dir}"
     return project_dir
