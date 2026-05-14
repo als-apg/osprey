@@ -98,7 +98,16 @@ def main():
         log_hook("writes-check", hook_input, status="allow")
         sys.exit(0)
 
-    # Deny — writes are disabled
+    # Deny — writes are disabled. Emit a JSON `permissionDecision: deny`. This
+    # is the canonical PreToolUse deny mechanism. Empirically: in the 2-hook
+    # chain (`mcp__python__execute`: writes_check + approval), the deny here
+    # combined with approval's defer (see osprey_approval.py) is enough to
+    # suppress Claude Code's `permissions.ask` → `can_use_tool` callback. In
+    # the 3-hook chain (`mcp__controls__channel_write`: writes_check + limits
+    # + approval), this deny is NOT sufficient — the channel_write kill switch
+    # is enforced by the renderer's `permissions.deny` augmentation in
+    # `src/osprey/cli/templates/claude_code.py`. The deny emitted here is
+    # defense-in-depth for that case (and primary for the execute case).
     log_hook("writes-check", hook_input, status="deny")
     output = {
         "hookSpecificOutput": {

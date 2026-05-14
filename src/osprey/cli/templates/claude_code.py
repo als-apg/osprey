@@ -167,6 +167,22 @@ def build_claude_code_context(
     # Control system type for protocol-aware safety rules
     ctx["control_system_type"] = config.get("control_system", {}).get("type", "mock")
 
+    # Kill-switch hard-block: when control-system writes are disabled, render
+    # pure-write tools into permissions.deny so Claude Code's permissions layer
+    # blocks the call before can_use_tool ever fires. The osprey_writes_check
+    # PreToolUse hook is defense-in-depth but cannot suppress the permissions.ask
+    # → can_use_tool path when sibling hooks (limits, approval) participate in
+    # decision aggregation for the same tool. mcp__python__execute is NOT added
+    # here because it has a legitimate readonly path; its kill switch lives in
+    # the writes_check hook (which works in its 2-hook chain).
+    if not config.get("control_system", {}).get("writes_enabled", False):
+        facility_perms = dict(ctx["facility_permissions"])
+        deny = list(facility_perms.get("deny", []))
+        if "mcp__controls__channel_write" not in deny:
+            deny.append("mcp__controls__channel_write")
+        facility_perms["deny"] = deny
+        ctx["facility_permissions"] = facility_perms
+
     return ctx
 
 
