@@ -206,6 +206,10 @@ async def test_python_execute_readwrite_mode(tmp_path, monkeypatch):
 
     mock_exec = _mock_execute_code(success=True, stdout="write mode\n")
 
+    # Deployment-level writes gate (Fix 1b) is independent of execution_mode;
+    # this test asserts the readwrite path, so the gate must be allow-through.
+    from osprey.services.python_executor.execution.control import ExecutionControlConfig
+
     with (
         patch(
             "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
@@ -218,6 +222,10 @@ async def test_python_execute_readwrite_mode(tmp_path, monkeypatch):
         patch(
             "osprey.mcp_server.python_executor.executor.execute_code",
             mock_exec,
+        ),
+        patch(
+            "osprey.services.python_executor.execution.control.get_execution_control_config",
+            return_value=ExecutionControlConfig(control_system_writes_enabled=True),
         ),
     ):
         fn = _get_python_execute()

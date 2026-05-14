@@ -254,6 +254,35 @@ def main():
     config = load_osprey_config(hook_input)
     approval_config = config.get("approval", {})
 
+    # Deterministic short-circuit when writes are EXPLICITLY disabled at the
+    # deployment level. Empirically (Claude Code SDK 2.x, not source-verified):
+    # PreToolUse hook-decision aggregation does NOT honour writes_check's JSON
+    # deny if this hook ALSO emits an "ask" decision — aggregation appears to
+    # be any-ask-wins, not deny-dominates, when multiple hooks return decisions
+    # for the same tool call. Without the short-circuit `can_use_tool` fires
+    # and the deployment-disabled invariant is violated.
+    #
+    # For `mcp__controls__channel_write` the renderer's `permissions.deny`
+    # augmentation in `src/osprey/cli/templates/claude_code.py` is the PRIMARY
+    # mechanism — it hard-blocks before any PreToolUse hook fires. The defer
+    # below is intentional belt-and-braces against renderer drift (e.g., a
+    # stale `settings.json` after a `writes_enabled` flip without regen).
+    #
+    # Gate on `is False` (not falsy) so unit tests that omit the
+    # `control_system` block from their config see normal approval behaviour.
+    control_system_cfg = config.get("control_system") or {}
+    if control_system_cfg.get("writes_enabled") is False:
+        if tool_name == "mcp__python__execute" and \
+                tool_input.get("execution_mode", "readonly") != "readonly":
+            log_hook("approval", hook_input, status="defer", detail="writes_disabled")
+            sys.exit(0)
+        elif tool_name == "mcp__controls__channel_write":
+            log_hook(
+                "approval", hook_input,
+                status="defer", detail="writes_disabled_belt_and_braces",
+            )
+            sys.exit(0)
+
     # Global toggle — disabled means allow everything
     if not approval_config.get("enabled", True):
         log_hook("approval", hook_input, status="allow", detail="enabled=false")

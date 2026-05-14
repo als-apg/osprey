@@ -49,13 +49,33 @@ def safety_project_writes_off(tmp_path_factory):
 
     Used by kill-switch tests to verify that the writes_check hook
     blocks all write operations when the master kill switch is off.
+
+    Calls ``osprey claude regen`` after flipping ``writes_enabled`` so the
+    rendered ``settings.json`` reflects the new flag. Without regen, the
+    renderer's writes-aware permissions.deny augmentation (which moves
+    pure-write tools out of permissions.ask when writes are off) is bypassed,
+    and Claude Code's permissions.ask layer fires ``can_use_tool`` for
+    channel_write even though the writes_check hook denies it in parallel.
     """
+    import subprocess
+    import sys
+
     tmp = tmp_path_factory.mktemp("safety-writes-off")
     project_dir = init_project(tmp, "safety-writes-off", provider="als-apg")
     config_path = project_dir / "config.yml"
     config = yaml.safe_load(config_path.read_text())
     config["control_system"]["writes_enabled"] = False
     config_path.write_text(yaml.dump(config, default_flow_style=False))
+
+    regen = subprocess.run(
+        [sys.executable, "-m", "osprey.cli.main", "claude", "regen",
+         "--project", str(project_dir)],
+        capture_output=True, text=True, timeout=60,
+    )
+    assert regen.returncode == 0, (
+        f"osprey claude regen failed:\n--- stdout ---\n{regen.stdout}\n"
+        f"--- stderr ---\n{regen.stderr}"
+    )
     return project_dir
 
 

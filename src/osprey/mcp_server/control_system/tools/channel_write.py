@@ -171,6 +171,14 @@ async def channel_write(
         }
         access_details = {"verification_level": verification_level}
 
+        if results_serialised and successful == 0:
+            errors = sorted(
+                {r["error_message"] for r in results_serialised if r.get("error_message")}
+            )
+            raise RuntimeError(
+                f"All {len(results_serialised)} write(s) rejected: {'; '.join(errors)}"
+            )
+
         # Return ephemeral result (no persistent storage for channel writes)
         return json.dumps(
             {
