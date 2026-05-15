@@ -148,7 +148,13 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         hooks_post=[_post_error("mcp__python__.*")],
     ),
     "workspace": ServerDefinition(
-        name="workspace",
+        # Claude Code 2.1.140+ treats "workspace" as a reserved MCP server
+        # name and refuses to load it (the warning is silent in `/mcp` but
+        # explicit in `/doctor`). Rename the wire-level name to avoid the
+        # conflict. The dict key stays "workspace" so existing osprey
+        # config overrides (`claude_code.servers.workspace.enabled`) and
+        # internal lookups keep working unchanged.
+        name="osprey_workspace",
         module="osprey.mcp_server.workspace",
         env={
             "OSPREY_CONFIG": "{project_root}/config.yml",

@@ -14,7 +14,8 @@ logger = logging.getLogger("osprey.mcp_server.workspace.transcript_reader")
 OSPREY_MCP_PREFIXES = (
     "mcp__controls__",
     "mcp__python__",
-    "mcp__workspace__",
+    "mcp__workspace__",          # historical name (older sessions)
+    "mcp__osprey_workspace__",   # post-rename (Claude Code 2.1.140+ reserves "workspace")
     "mcp__ariel__",
     "mcp__channel-finder__",
 )
