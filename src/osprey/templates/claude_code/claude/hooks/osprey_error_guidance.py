@@ -60,11 +60,15 @@ from osprey_hook_log import get_hook_input, load_hook_config, log_hook
 ERROR_CLASS_MAP = {
     "connection_error": "Connection",
     "timeout_error": "Connection",
+    "service_unavailable": "Connection",
     "validation_error": "Validation",
     "limits_violation": "Validation",
     "not_found": "Data",
     "no_results": "Data",
+    "file_not_found": "Data",
     "execution_error": "Execution",
+    "lattice_error": "Execution",
+    "safety_error": "Safety",
     "internal_error": "Internal",
     "platform_error": "Internal",
 }

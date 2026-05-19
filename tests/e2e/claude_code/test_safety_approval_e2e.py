@@ -158,6 +158,19 @@ async def test_default_policy_always_asks_for_reads(safety_project_default_polic
     triggers the approval hook.
 
     Cost budget: $0.50
+
+    Why this test pattern is intentional (NOT a redundant tautology):
+        This test guards a fail-closed backstop. Production scenario: an
+        operator misconfigures ``approval.tools`` (omits an entry) or a
+        new tool ships before its ``approval.tools`` entry is added. In
+        both cases, ``default_policy: always`` is what catches the
+        unknown tool and routes it through approval rather than letting
+        it pass silently. The fixture ``safety_project_default_policy_always``
+        removes ``approval.tools`` entirely to force every tool — including
+        the otherwise-permissive ``channel_read`` — down the default-policy
+        path. The fixture-creates / assertion-verifies shape mirrors the
+        real fail-closed invariant; without this test, a regression that
+        broke the default path could land silently.
     """
     prompt = "Use the channel_read tool to read the channel 'SR:BEAM:CURRENT'. Report the value."
 

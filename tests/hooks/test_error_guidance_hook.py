@@ -136,6 +136,91 @@ def test_internal_error_injects_guidance(hook_runner, make_config):
 
 
 @pytest.mark.unit
+def test_safety_error_injects_guidance(hook_runner, make_config):
+    """safety_error is classified as Safety class (sandbox guard tripped)."""
+    config = make_config({})
+    result = hook_runner(
+        "osprey_error_guidance.py",
+        "mcp__python__execute",
+        {"code": "x = [0] * 10**12"},
+        config_path=config,
+        tool_response=_make_error_response(
+            "safety_error",
+            "Container refused to run: memory cap exceeded",
+        ),
+        hook_config=DEFAULT_ERROR_CONFIG,
+    )
+
+    assert result is not None
+    ctx = result["hookSpecificOutput"]["additionalContext"]
+    assert "Safety" in ctx
+    assert "error-handling" in ctx.lower() or "error-handling.md" in ctx
+
+
+@pytest.mark.unit
+def test_lattice_error_injects_guidance(hook_runner, make_config):
+    """lattice_error is classified as Execution class."""
+    config = make_config({})
+    result = hook_runner(
+        "osprey_error_guidance.py",
+        "mcp__workspace__lattice_load",
+        {"path": "broken.lat"},
+        config_path=config,
+        tool_response=_make_error_response(
+            "lattice_error",
+            "Lattice load failed: element MQUAD1 missing required field",
+        ),
+        hook_config=DEFAULT_ERROR_CONFIG,
+    )
+
+    assert result is not None
+    ctx = result["hookSpecificOutput"]["additionalContext"]
+    assert "Execution" in ctx
+
+
+@pytest.mark.unit
+def test_service_unavailable_injects_guidance(hook_runner, make_config):
+    """service_unavailable is classified as Connection class."""
+    config = make_config({})
+    result = hook_runner(
+        "osprey_error_guidance.py",
+        "mcp__workspace__lattice_load",
+        {"path": "ring.lat"},
+        config_path=config,
+        tool_response=_make_error_response(
+            "service_unavailable",
+            "pyAT service not reachable",
+        ),
+        hook_config=DEFAULT_ERROR_CONFIG,
+    )
+
+    assert result is not None
+    ctx = result["hookSpecificOutput"]["additionalContext"]
+    assert "Connection" in ctx
+
+
+@pytest.mark.unit
+def test_file_not_found_injects_guidance(hook_runner, make_config):
+    """file_not_found is classified as Data class."""
+    config = make_config({})
+    result = hook_runner(
+        "osprey_error_guidance.py",
+        "mcp__workspace__artifact_save",
+        {"path": "missing.h5"},
+        config_path=config,
+        tool_response=_make_error_response(
+            "file_not_found",
+            "Artifact not found: missing.h5",
+        ),
+        hook_config=DEFAULT_ERROR_CONFIG,
+    )
+
+    assert result is not None
+    ctx = result["hookSpecificOutput"]["additionalContext"]
+    assert "Data" in ctx
+
+
+@pytest.mark.unit
 def test_ariel_error_detected(hook_runner, make_config):
     """ARIEL MCP tool errors are also detected."""
     config = make_config({})
