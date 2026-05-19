@@ -5,7 +5,8 @@ description: "Finds and verifies control system channel/PV addresses by explorin
 summary: Finds control system channel/PV addresses by exploring the channel database
 model: {{ claude_code_model_spec.agent_tier("channel-finder") if claude_code_model_spec is defined and claude_code_model_spec else "haiku" }}
 maxTurns: 30
-disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task
+tools: mcp__channel-finder__*, mcp__workspace__submit_response
+disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task, Skill, Agent
 ---
 
 # Channel Finder Agent

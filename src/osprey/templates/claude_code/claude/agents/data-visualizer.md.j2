@@ -4,7 +4,8 @@ description: "Creates data visualizations (plots, charts, dashboards), compiles 
 summary: Creates plots, charts, dashboards, and compiles LaTeX reports
 model: {{ claude_code_model_spec.agent_tier("data-visualizer") if claude_code_model_spec is defined and claude_code_model_spec else "sonnet" }}
 maxTurns: 30
-disallowedTools: Bash, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task
+tools: mcp__workspace__create_static_plot, mcp__workspace__create_interactive_plot, mcp__workspace__create_dashboard, mcp__workspace__create_document, mcp__workspace__artifact_save, mcp__workspace__artifact_get, mcp__workspace__data_list, mcp__workspace__data_read, mcp__workspace__facility_description, Read
+disallowedTools: Bash, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task, Skill, Agent
 ---
 
 # Data Visualizer Agent
