@@ -495,6 +495,75 @@ class TestDisableServers:
         settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
         assert "mcp__remote-api__search" in settings["permissions"]["allow"]
 
+    def test_custom_server_env_preserves_var_placeholders(self, tmp_path, monkeypatch):
+        """`${VAR}` placeholders in custom stdio server env survive into .mcp.json.
+
+        Claude Code expands `${VAR}` / `${VAR:-default}` in `.mcp.json` env blocks
+        at MCP server launch time. OSPREY must preserve the literal so the
+        expansion happens at runtime — never bake an expanded (possibly empty)
+        value into the generated artifact at build/regen time.
+        """
+        # Var is unset at build time — common in CI image builds where
+        # secrets aren't passed to image builds for safety.
+        monkeypatch.delenv("EXAMPLE_SECRET", raising=False)
+
+        project_dir, _ = self._create_and_regen(
+            tmp_path,
+            custom_servers={
+                "example-stdio": {
+                    "command": "node",
+                    "args": ["server.js"],
+                    "env": {
+                        "EXAMPLE_TOKEN": "${EXAMPLE_SECRET:-}",
+                        "EXAMPLE_URL": "https://example.invalid",
+                    },
+                    "permissions": {"allow": ["do_stuff"]},
+                }
+            },
+        )
+
+        mcp_data = json.loads((project_dir / ".mcp.json").read_text())
+        env = mcp_data["mcpServers"]["example-stdio"]["env"]
+        assert env["EXAMPLE_TOKEN"] == "${EXAMPLE_SECRET:-}", (
+            f"Expected ${{EXAMPLE_SECRET:-}} to survive into .mcp.json verbatim, "
+            f"got {env['EXAMPLE_TOKEN']!r}. Build-time expansion bakes empty secrets "
+            f"into the artifact, blanking the inherited env at MCP launch time."
+        )
+        # Non-var values should pass through unchanged
+        assert env["EXAMPLE_URL"] == "https://example.invalid"
+
+    def test_custom_server_env_preserves_placeholder_when_var_set(
+        self, tmp_path, monkeypatch
+    ):
+        """`${VAR}` placeholders survive even when VAR is set at build time.
+
+        Build-time expansion is wrong even when the var IS set: secrets get
+        baked into a build artifact that may be cached, distributed, or
+        committed. Claude Code reads env at MCP launch — that's where
+        expansion belongs.
+        """
+        monkeypatch.setenv("EXAMPLE_SECRET", "shhh-not-supposed-to-be-baked-in")
+
+        project_dir, _ = self._create_and_regen(
+            tmp_path,
+            custom_servers={
+                "example-stdio": {
+                    "command": "node",
+                    "args": ["server.js"],
+                    "env": {"EXAMPLE_TOKEN": "${EXAMPLE_SECRET}"},
+                    "permissions": {"allow": ["do_stuff"]},
+                }
+            },
+        )
+
+        mcp_data = json.loads((project_dir / ".mcp.json").read_text())
+        env = mcp_data["mcpServers"]["example-stdio"]["env"]
+        assert env["EXAMPLE_TOKEN"] == "${EXAMPLE_SECRET}"
+        assert "shhh" not in json.dumps(mcp_data), (
+            "Secret leaked into build artifact — env-var expansion happened at "
+            "build time instead of being deferred to MCP server launch."
+        )
+
     def test_regen_with_project_root_override(self, tmp_path):
         """project_root_override changes paths in rendered output."""
         manager = TemplateManager()
