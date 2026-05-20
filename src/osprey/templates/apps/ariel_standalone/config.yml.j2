@@ -115,9 +115,8 @@ hooks:
 # ARIEL CONFIGURATION
 # ============================================================
 # Logbook search service: keyword + semantic search + entry retrieval.
-# RAG and ReAct agent pipelines are explicitly DISABLED in this bundle —
-# both default to True in services.ariel_search.config so omission would
-# silently enable them. Re-enable when you have an LLM endpoint wired up.
+# Higher-level reasoning is owned by the Osprey agent layer; ARIEL itself
+# exposes raw search and entry lookup over MCP/HTTP.
 
 ariel:
   database:
@@ -142,16 +141,6 @@ ariel:
       provider: ollama   # References api.providers.ollama
       model: nomic-embed-text
 
-  # Pipelines (compose search modules into higher-level strategies)
-  # Both pipelines are DISABLED by default in this preset.
-  # Enable when you have an LLM endpoint configured for synthesis/reasoning.
-  pipelines:
-    rag:
-      enabled: false                          # Set true to enable RAG (needs an LLM)
-      retrieval_modules: [keyword, semantic]
-    agent:
-      enabled: false                          # Set true to enable ReAct agent (needs an LLM)
-
   # Enhancement modules — run during ingestion
   enhancement_modules:
     # Semantic processor: LLM-based keyword extraction and summarization
@@ -174,14 +163,6 @@ ariel:
   # Default embedding provider (fallback for modules without explicit provider)
   embedding:
     provider: ollama
-
-  # ReAct agent configuration (used only when pipelines.agent.enabled = true)
-  reasoning:
-    provider: {{ default_provider }}
-    model_id: haiku
-    max_iterations: 5
-    temperature: 0.1
-    total_timeout_seconds: 120
 
 # ============================================================
 # LOGBOOK COMPOSITION

@@ -8,7 +8,7 @@ service. Postgres+pgvector is provisioned; the control-system runtime is not.
 ```bash
 osprey deploy up          # Bring up Postgres+pgvector
 osprey ariel quickstart   # Run migrations and ingest the bundled demo logbook
-osprey web                # Open the web terminal — ARIEL panel + Claude Code chat
+osprey web                # Open the web terminal — ARIEL panel + agent chat
 ```
 
 ## What's Enabled
@@ -24,12 +24,9 @@ osprey web                # Open the web terminal — ARIEL panel + Claude Code 
 
 ## What's Off by Default
 
-- **RAG pipeline** (`ariel.pipelines.rag.enabled: false` in `config.yml`)
-- **ReAct agent pipeline** (`ariel.pipelines.agent.enabled: false`)
 - **Semantic processor enhancement** (`ariel.enhancement_modules.semantic_processor.enabled: false`)
-
-Each requires an LLM endpoint. Re-enable by editing the corresponding line in
-`config.yml` once your provider is configured.
+  — requires an LLM endpoint; re-enable by editing the corresponding line in
+  `config.yml` once your provider is configured.
 
 ## First-Use Checklist
 
@@ -65,7 +62,7 @@ details.
 
 ## Configuration Files
 
-- `config.yml` — project settings (DB URI, search modules, pipelines, providers)
-- `.claude/` — Claude Code rules, hooks, MCP server configuration
+- `config.yml` — project settings (DB URI, search modules, providers)
+- `.claude/` — agent rules, hooks, MCP server configuration
 - `CLAUDE.md` — agent persona (logbook research assistant; do not edit unless
   customizing — regen overwrites unless you claim it as user-owned)

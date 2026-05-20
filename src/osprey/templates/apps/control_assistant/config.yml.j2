@@ -447,18 +447,11 @@ ariel:
       provider: ollama    # References api.providers.ollama
       model: nomic-embed-text
 
-  # Pipelines (compose search modules into higher-level strategies)
-  # retrieval_modules: which search modules each pipeline uses
-  pipelines:
-    rag:
-      enabled: true
-      retrieval_modules: [keyword, semantic]  # Semantic auto-disabled if unavailable
-
   # Enhancement modules
   # provider: references api.providers for credentials
   enhancement_modules:
     # Semantic processor: LLM-based keyword extraction and summarization
-    # Enables better keyword search and RAG context
+    # Enables better keyword search quality
     semantic_processor:
       enabled: false  # Requires LLM API calls. Enable for better search quality.
       provider: {{ default_provider }}  # References api.providers
@@ -479,15 +472,6 @@ ariel:
   # Default embedding provider (fallback for modules without explicit provider)
   embedding:
     provider: ollama
-
-  # ReAct agent configuration
-  # provider: references api.providers for credentials (api_key, base_url)
-  reasoning:
-    provider: cborg  # References api.providers.cborg for credentials
-    model_id: haiku
-    max_iterations: 5
-    temperature: 0.1
-    total_timeout_seconds: 120
 
 # ============================================================
 # LOGBOOK COMPOSITION
