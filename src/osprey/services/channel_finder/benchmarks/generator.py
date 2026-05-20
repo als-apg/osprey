@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 # Path to the canonical hierarchical template database — tier3 is the full
-# 4353-channel superset; tier1/tier2 are filtered subsets derived from it.
+# 1210-channel superset; tier1/tier2 are filtered subsets derived from it.
 TEMPLATE_DB_PATH = (
     Path(__file__).resolve().parents[3]
     / "templates"
@@ -230,7 +230,7 @@ TIER_1 = TierSpec(
         "DCCT": frozenset({"CURRENT"}),
         "CAVITY": frozenset({"VOLTAGE"}),
     },
-    target_count=677,
+    target_count=205,
 )
 
 TIER_2 = TierSpec(
@@ -238,7 +238,7 @@ TIER_2 = TierSpec(
     rings=frozenset({"SR"}),
     families=None,  # all SR families
     allowed_subfields=frozenset({"SP", "RB", "GOLDEN", "X", "Y", "FWD", "REV", "NET", "INST"}),
-    target_count=2290,
+    target_count=547,
 )
 
 TIER_3 = TierSpec(
@@ -246,7 +246,7 @@ TIER_3 = TierSpec(
     rings=frozenset({"SR", "BR", "BTS"}),
     families=None,  # all families
     allowed_subfields=None,  # all subfields
-    target_count=4353,
+    target_count=1210,
 )
 
 

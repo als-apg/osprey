@@ -1627,7 +1627,7 @@ class TestWebPanelsRendering:
 
 
 # ---------------------------------------------------------------------------
-# Tier Flattening (materialize_tier_dbs)
+# Tier Flattening (materialize_tier_artifacts)
 # ---------------------------------------------------------------------------
 
 

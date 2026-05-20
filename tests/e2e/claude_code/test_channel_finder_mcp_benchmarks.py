@@ -2,8 +2,9 @@
 
 Thin pytest wrapper over ``BenchmarkRunner`` that exercises each of the three
 channel-finder paradigms (hierarchical, middle_layer, in_context) against the
-preset's full channel database, using a tier-1 query slice from the shipped
-benchmark datasets.
+preset's channel database. Each project ships the tier-resolved unified query
+set (one source of truth, paradigm-resolved at build time), so this test reads
+the full materialized queries file and slices the first ``SLICE_SIZE`` queries.
 
 The runner, queries, and evaluator all live in
 ``osprey.services.channel_finder.benchmarks``; this file only wires them into
@@ -42,7 +43,6 @@ pytestmark = [
 ]
 
 PARADIGMS = ("hierarchical", "middle_layer", "in_context")
-TIER = 1
 SLICE_SIZE = 10
 F1_THRESHOLD = 0.75
 PERFECT_THRESHOLD = 0.80
@@ -54,16 +54,16 @@ def perfect_match_rate(run: BenchmarkRun) -> float:
     return sum(1 for r in run.query_results if r.f1 == 1.0) / len(run.query_results)
 
 
-def _resolve_dataset_path(project_dir: Path, paradigm: str) -> Path:
+def _resolve_dataset_path(project_dir: Path) -> Path:
     config = yaml.safe_load((project_dir / "config.yml").read_text(encoding="utf-8"))
-    rel = config["channel_finder"]["pipelines"][paradigm]["benchmark"]["dataset_path"]
+    rel = config["channel_finder"]["benchmark"]["dataset_path"]
     path = Path(rel)
     return path if path.is_absolute() else project_dir / path
 
 
-def _tier_slice_indices(dataset_path: Path) -> list[int]:
+def _slice_indices(dataset_path: Path) -> list[int]:
     queries = json.loads(dataset_path.read_text(encoding="utf-8"))
-    return [i for i, q in enumerate(queries) if q.get("tier") == TIER][:SLICE_SIZE]
+    return list(range(min(SLICE_SIZE, len(queries))))
 
 
 def _run_paradigm_benchmark(tmp_path_factory, paradigm: str) -> BenchmarkRun:
@@ -79,7 +79,7 @@ def _run_paradigm_benchmark(tmp_path_factory, paradigm: str) -> BenchmarkRun:
         channel_finder_mode=paradigm,
     )
 
-    indices = _tier_slice_indices(_resolve_dataset_path(project_dir, paradigm))
+    indices = _slice_indices(_resolve_dataset_path(project_dir))
     runner = BenchmarkRunner(
         project_dir,
         model="als-apg/claude-haiku-4-5-20251001",

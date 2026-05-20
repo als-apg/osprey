@@ -448,9 +448,9 @@ class TestBenchmarkSubcommand:
                 "pipelines": {
                     "in_context": {
                         "database": {"path": "db.json"},
-                        "benchmark": {"dataset_path": "queries.json"},
                     },
                 },
+                "benchmark": {"dataset_path": "queries.json"},
             },
         }
         (tmp_path / "config.yml").write_text(yaml.dump(config))

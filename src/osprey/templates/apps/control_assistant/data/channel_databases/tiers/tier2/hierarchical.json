@@ -35,7 +35,7 @@
       "MAG": {
         "_description": "Magnet System (MAG): Controls beam trajectory and focusing in the storage ring. Includes dipole bending magnets, quadrupole focusing magnets, sextupole magnets for chromaticity correction, and corrector magnets for precise beam steering. All magnets are powered by regulated power supplies and are critical for maintaining stable beam orbit and beam quality.",
         "DIPOLE": {
-          "_description": "Dipole Bending Magnets: Main bending magnets that deflect the beam in a circular path to form the storage ring. Create uniform magnetic field perpendicular to beam. Numbered sequentially around the ring (e.g., 01, 02, ...). Critical for maintaining correct beam trajectory and energy.",
+          "_description": "Dipole Bending Magnets: Main bending magnets that deflect the beam in a circular path to form the storage ring. Create uniform magnetic field perpendicular to beam. Numbered sequentially around the ring (e.g., B01, B02, ...). Critical for maintaining correct beam trajectory and energy.",
           "DEVICE": {
             "_expansion": {
               "_type": "range",
@@ -67,7 +67,7 @@
               "_pattern": "{:02d}",
               "_range": [
                 1,
-                72
+                16
               ]
             },
             "CURRENT": {
@@ -92,7 +92,7 @@
               "_pattern": "{:02d}",
               "_range": [
                 1,
-                72
+                16
               ]
             },
             "CURRENT": {
@@ -117,7 +117,7 @@
               "_pattern": "{:02d}",
               "_range": [
                 1,
-                72
+                20
               ]
             },
             "CURRENT": {
@@ -142,7 +142,7 @@
               "_pattern": "{:02d}",
               "_range": [
                 1,
-                72
+                20
               ]
             },
             "CURRENT": {
@@ -167,7 +167,7 @@
               "_pattern": "{:02d}",
               "_range": [
                 1,
-                72
+                12
               ]
             },
             "CURRENT": {
@@ -192,7 +192,7 @@
               "_pattern": "{:02d}",
               "_range": [
                 1,
-                72
+                12
               ]
             },
             "CURRENT": {
@@ -220,7 +220,7 @@
               "_pattern": "{:02d}",
               "_range": [
                 1,
-                72
+                6
               ]
             },
             "PRESSURE": {
@@ -250,11 +250,14 @@
           "_description": "Vacuum Pressure Gauges: Monitor vacuum pressure at critical locations. Independent measurement from ion pumps. Cold cathode or hot cathode ionization gauges.",
           "DEVICE": {
             "_expansion": {
-              "_type": "range",
-              "_pattern": "{:02d}",
-              "_range": [
-                1,
-                12
+              "_type": "list",
+              "_instances": [
+                "01",
+                "02",
+                "03",
+                "04",
+                "05",
+                "06"
               ]
             },
             "PRESSURE": {
@@ -366,7 +369,7 @@
               "_pattern": "{:02d}",
               "_range": [
                 1,
-                96
+                20
               ]
             },
             "POSITION": {
@@ -412,12 +415,6 @@
               "RB": {
                 "_description": "Current Readback (read-only): Standard beam current measurement."
               }
-            },
-            "LIFETIME": {
-              "_description": "Beam Lifetime (Hours): Time constant for beam current decay due to scattering and dynamic-aperture limits. Critical performance metric for storage-ring operation.",
-              "RB": {
-                "_description": "Lifetime Readback (read-only): Calculated beam lifetime from current decay rate."
-              }
             }
           }
         },
@@ -429,7 +426,7 @@
               "_pattern": "{:02d}",
               "_range": [
                 1,
-                8
+                4
               ]
             },
             "DOSE_RATE": {
@@ -448,7 +445,7 @@
               "_pattern": "{:02d}",
               "_range": [
                 1,
-                8
+                4
               ]
             },
             "DOSE_RATE": {

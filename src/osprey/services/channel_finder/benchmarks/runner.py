@@ -202,15 +202,14 @@ class BenchmarkRunner:
         """Resolve the benchmark queries file path.
 
         Uses ``queries_override`` if set; otherwise reads the path from
-        ``channel_finder.pipelines.<mode>.benchmark.dataset_path`` in config.
+        ``channel_finder.benchmark.dataset_path`` in config (single source of
+        truth — all paradigms share one query set, tier-resolved at build time).
         """
         if self.queries_override is not None:
             return Path(self.queries_override)
 
         config = self._read_config()
-        mode = config["channel_finder"]["pipeline_mode"]
-        pipeline_cfg = config["channel_finder"]["pipelines"][mode]
-        dataset_path = pipeline_cfg["benchmark"]["dataset_path"]
+        dataset_path = config["channel_finder"]["benchmark"]["dataset_path"]
 
         path = Path(dataset_path)
         if not path.is_absolute():

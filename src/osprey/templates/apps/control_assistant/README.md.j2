@@ -252,26 +252,25 @@ Results are saved to `data/benchmarks/results/` with detailed metrics:
 
 ### Adding Custom Benchmarks
 
-Create a new dataset in `data/benchmarks/datasets/`:
+The default benchmark uses the tier-resolved unified query set at
+`data/benchmarks/queries.json` (one source of truth, all paradigms read the
+same file). To run a custom query set, write a new file alongside it and
+point `channel_finder.benchmark.dataset_path` at it:
 
 ```json
 [
   {
     "user_query": "beam current channel",
-    "targeted_channels": ["SR:CURRENT:RB"],
-    "details": "Basic beam current query"
+    "targeted_pv": ["SR:DIAG:DCCT:01:CURRENT:RB"],
+    "category": "single"
   }
 ]
 ```
 
-Enable it in `config.yml`:
-
 ```yaml
-benchmark:
-  datasets:
-    my_custom_dataset:
-      path: data/benchmarks/datasets/my_custom.json
-      enabled: true
+channel_finder:
+  benchmark:
+    dataset_path: data/benchmarks/my_custom.json
 ```
 
 ---

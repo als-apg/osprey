@@ -1,9 +1,11 @@
 """Project creation helpers: directory structure, services, data files.
 
-Includes :func:`materialize_tier_dbs`, the build-time step that picks the
-tier-routed channel-database file(s) for the selected paradigm(s), copies
-them into the flat ``data/channel_databases/<paradigm>.json`` locations,
-and prunes the now-redundant ``tiers/`` subtree.
+Includes :func:`materialize_tier_artifacts`, the build-time step that picks
+the tier-routed channel-database file(s) and the matching tier-routed
+benchmark query file for the selected paradigm, copies them into the canonical
+flat locations (``data/channel_databases/<paradigm>.json`` and
+``data/benchmarks/queries.json``), and prunes the now-redundant ``tiers/`` and
+``benchmarks/cross_paradigm/`` subtrees.
 """
 
 import json
@@ -329,24 +331,32 @@ def copy_template_data(
 _ALL_PARADIGMS: tuple[str, ...] = ("in_context", "hierarchical", "middle_layer")
 
 
-def materialize_tier_dbs(
+def materialize_tier_artifacts(
     project_dir: Path, tier: int, channel_finder_mode: str
 ) -> None:
-    """Materialize tier-routed channel databases into flat destinations.
+    """Materialize tier-routed channel databases AND benchmark queries.
 
-    The preset ships channel databases under
-    ``data/channel_databases/tiers/tier{1,2,3}/<paradigm>.json``.  After
-    ``osprey build``, this helper picks the requested ``tier`` and copies
-    the active paradigm's DB up to the flat
-    ``data/channel_databases/<paradigm>.json`` location, then removes the
-    ``tiers/`` subtree so only the active DB remains.
+    The preset ships:
+    - channel databases under
+      ``data/channel_databases/tiers/tier{1,2,3}/<paradigm>.json``
+    - benchmark query files under
+      ``data/benchmarks/cross_paradigm/queries/tier{1,2,3}_queries.json``
+
+    After ``osprey build``, this helper picks the requested ``tier`` and:
+    - copies the active paradigm's DB to the flat
+      ``data/channel_databases/<paradigm>.json``
+    - copies the tier-matching query file to the flat
+      ``data/benchmarks/queries.json``
+    - prunes both the ``tiers/`` and ``benchmarks/cross_paradigm/`` subtrees
+      so only the active artifacts remain.
+
     Facility profiles overlaying their own DB files don't care which tier
     was selected — their overlay overwrites the preset DB after this step.
     Tier itself is build-time only and is NOT written into ``config.yml``.
 
     Args:
         project_dir: Root directory of the rendered project.
-        tier: Tier number (1, 2, or 3) selecting the source subdirectory.
+        tier: Tier number (1, 2, or 3) selecting the source subdirectories.
         channel_finder_mode: Paradigm selector from the build profile. Must
             be one of ``"in_context"``, ``"hierarchical"``, ``"middle_layer"``.
 
@@ -354,7 +364,7 @@ def materialize_tier_dbs(
         ValueError: If ``channel_finder_mode`` is not one of the three valid
             paradigms (the build-profile validator and ``manager.py`` should
             catch this earlier, but this is a defensive guard).
-        FileNotFoundError: If the required tier source DB is missing. Raised
+        FileNotFoundError: If a required source artifact is missing. Raised
             BEFORE any destination file is overwritten or any directory is
             removed, so the project tree is left untouched on failure.
 
@@ -375,6 +385,7 @@ def materialize_tier_dbs(
 
     tier_dir = tiers_root / f"tier{tier}"
     flat_root = project_dir / "data" / "channel_databases"
+    queries_src_root = project_dir / "data" / "benchmarks" / "cross_paradigm"
 
     # Resolve every (src, dst) pair up front, validate existence, then copy.
     # This keeps the destination tree consistent on FileNotFoundError.
@@ -389,15 +400,31 @@ def materialize_tier_dbs(
             )
         pairs.append((src, dst))
 
+    # The unified query file lives under the preset's
+    # data/benchmarks/cross_paradigm/queries/ subtree, which copy_template_data
+    # wholesale-copies into the project. Pick the tier-matching file and
+    # materialize it as the canonical data/benchmarks/queries.json.
+    queries_src = queries_src_root / "queries" / f"tier{tier}_queries.json"
+    queries_dst = project_dir / "data" / "benchmarks" / "queries.json"
+    if not queries_src.exists():
+        raise FileNotFoundError(
+            f"Tier-routed benchmark queries file not found: {queries_src} "
+            f"(tier={tier})"
+        )
+    pairs.append((queries_src, queries_dst))
+
     for src, dst in pairs:
         shutil.copy2(src, dst)
 
-    # All copies succeeded — safe to prune the tiers/ subtree now.
+    # All copies succeeded — safe to prune the preset's staging subtrees.
     shutil.rmtree(tiers_root)
+    if queries_src_root.exists():
+        shutil.rmtree(queries_src_root)
 
     console.print(
-        f"  [success]✓[/success] Materialized tier{tier} channel database(s) "
-        f"for {sorted(paradigms)!r} to [path]{flat_root}[/path]"
+        f"  [success]✓[/success] Materialized tier{tier} artifacts "
+        f"(channel DB + queries) for {sorted(paradigms)!r} to "
+        f"[path]{project_dir / 'data'}[/path]"
     )
 
 

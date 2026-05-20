@@ -105,10 +105,10 @@ def _make_project_dir(
                     "database": {
                         "path": "data/channel_databases/channels.json",
                     },
-                    "benchmark": {
-                        "dataset_path": "data/benchmark_queries.json",
-                    },
                 }
+            },
+            "benchmark": {
+                "dataset_path": "data/benchmark_queries.json",
             },
         },
     }

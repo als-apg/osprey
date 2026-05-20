@@ -289,8 +289,8 @@ channel_finder:
         type: template                # Database type: "template" (with device family expansion) or "flat" (simple list)
         path: data/channel_databases/in_context.json
         presentation_mode: template    # How to present device families to LLM:
-                                      # "explicit" - list all expanded channel names (BPM01XPosition, BPM02XPosition, ...)
-                                      # "template" - use pattern notation (BPM{01-10}{XPosition,YPosition})
+                                      # "explicit" - list all expanded channel names (StorageRing_BPM_01_Position_X, StorageRing_BPM_02_Position_X, ...)
+                                      # "template" - use pattern notation (StorageRing_BPM_{01-10}_Position_{X,Y})
 
       processing:
         chunk_dictionary: false       # Whether to chunk the database for large channel lists
@@ -298,11 +298,6 @@ channel_finder:
                                       # true - split database into chunks and search each independently
         chunk_size: 50                # Number of channels per chunk when chunk_dictionary=true
         max_correction_iterations: 2  # Maximum LLM correction attempts when invalid channels are found (0-3 recommended)
-
-      # Benchmark dataset for this pipeline
-      benchmark:
-        dataset_path: data/benchmarks/datasets/in_context_benchmark.json
-        # In-context pipeline benchmark using UCSB FEL channels (30 queries)
 
       # Inner LLM model for the query_channels subagent tool (set per benchmark cell at runtime)
       subagent_model: null
@@ -328,11 +323,6 @@ channel_finder:
       feedback:
         enabled: true
         store_path: data/feedback/hierarchical_feedback.json
-
-      # Benchmark dataset for this pipeline
-      benchmark:
-        dataset_path: data/benchmarks/datasets/hierarchical_benchmark.json
-        # Hierarchical pipeline benchmark with multi-level channel structure (47 queries)
 {% endif %}
 {% if enable_middle_layer %}
     # Middle Layer Pipeline (React Agent with MML Database)
@@ -343,18 +333,17 @@ channel_finder:
         path: data/channel_databases/middle_layer.json
                                       # Database must follow MML structure: System → Family → Field → ChannelNames
                                       # Supports optional _description fields and device/sector filtering via DeviceList
-
-      # Benchmark dataset for this pipeline
-      benchmark:
-        dataset_path: data/benchmarks/datasets/middle_layer_benchmark.json
-        # Middle layer pipeline benchmark with functional hierarchy (35 queries, 174 channels)
 {% endif %}
 
   # Benchmarking configuration
-  # The active dataset is automatically determined by the selected pipeline_mode
-  # Each pipeline defines its own benchmark dataset in channel_finder.pipelines.<mode>.benchmark
-  # You can override the dataset via CLI: python scripts/run_benchmarks.py --dataset custom_dataset
+  # All paradigms share a single benchmark query set, tier-resolved at build
+  # time per channel_finder_mode (in_context → tier 1, hierarchical/middle_layer
+  # → tier 3; override with `osprey build --tier N`).  Query file is
+  # materialized to data/benchmarks/queries.json by the scaffolder.
   benchmark:
+    # Single source of truth — all paradigms read the same query set.
+    dataset_path: data/benchmarks/queries.json
+
     # Execution settings
     execution:
       runs_per_query: 1                 # Number of times to run each query
