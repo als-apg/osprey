@@ -68,7 +68,6 @@ def build_merged_configuration(
                 connectors=framework_config.connectors.copy(),
                 ariel_search_modules=framework_config.ariel_search_modules.copy(),
                 ariel_enhancement_modules=framework_config.ariel_enhancement_modules.copy(),
-                ariel_pipelines=framework_config.ariel_pipelines.copy(),
                 ariel_ingestion_adapters=framework_config.ariel_ingestion_adapters.copy(),
                 initialization_order=framework_config.initialization_order.copy(),
             )
@@ -423,12 +422,6 @@ def merge_application_with_override(
         merged.ariel_enhancement_modules,
         getattr(app_config, "ariel_enhancement_modules", []),
         "ARIEL enhancement module",
-        app_name,
-    )
-    merge_named_registrations(
-        merged.ariel_pipelines,
-        getattr(app_config, "ariel_pipelines", []),
-        "ARIEL pipeline",
         app_name,
     )
     merge_named_registrations(

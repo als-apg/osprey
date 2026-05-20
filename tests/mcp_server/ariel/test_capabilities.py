@@ -24,10 +24,6 @@ def _setup_registry(tmp_path, monkeypatch):
                     "keyword": {"enabled": True},
                     "semantic": {"enabled": True, "model": "nomic-embed-text"},
                 },
-                "pipelines": {
-                    "rag": {"enabled": True},
-                    "agent": {"enabled": True},
-                },
                 "reasoning": {
                     "provider": "openai",
                     "model_id": "gpt-4o-mini",
@@ -44,7 +40,7 @@ def _setup_registry(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 async def test_capabilities_returns_modules(tmp_path, monkeypatch):
-    """Capabilities returns enabled modules and pipelines."""
+    """Capabilities returns enabled search modules."""
     _setup_registry(tmp_path, monkeypatch)
 
     fn = _get_capabilities()
@@ -54,8 +50,6 @@ async def test_capabilities_returns_modules(tmp_path, monkeypatch):
     assert not data.get("error", False)
     assert "keyword" in data["enabled_search_modules"]
     assert "semantic" in data["enabled_search_modules"]
-    assert "rag" in data["enabled_pipelines"]
-    assert "agent" in data["enabled_pipelines"]
     assert data["default_max_results"] == 15
 
 
@@ -70,8 +64,6 @@ async def test_capabilities_includes_search_modes(tmp_path, monkeypatch):
     data = json.loads(result)
     assert "keyword" in data["search_modes"]
     assert "semantic" in data["search_modes"]
-    assert "rag" in data["search_modes"]
-    assert "agent" in data["search_modes"]
 
 
 @pytest.mark.unit

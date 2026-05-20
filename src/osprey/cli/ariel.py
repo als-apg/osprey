@@ -315,7 +315,7 @@ def models_command() -> None:
 
 @ariel_group.command("search")
 @click.argument("query")
-@click.option("--mode", type=click.Choice(["keyword", "semantic", "rag", "auto"]), default="auto")
+@click.option("--mode", type=click.Choice(["keyword", "semantic"]), default="keyword")
 @click.option("--limit", type=int, default=10, help="Maximum results")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON")
 def search_command(query: str, mode: str, limit: int, output_json: bool) -> None:

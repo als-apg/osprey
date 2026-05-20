@@ -1,7 +1,6 @@
 """Tests for ARIEL search diagnostics.
 
-Tests for SearchDiagnostic, DiagnosticLevel, RAG pipeline diagnostics,
-service-level diagnostics, and API schema diagnostics.
+Tests for SearchDiagnostic, DiagnosticLevel, and service-level diagnostics.
 """
 
 from datetime import UTC, datetime
@@ -15,7 +14,6 @@ from osprey.services.ariel_search.models import (
     DiagnosticLevel,
     SearchDiagnostic,
 )
-from osprey.services.ariel_search.rag import RAGPipeline, RAGResult
 
 
 def _make_entry(entry_id: str, text: str = "Test content") -> dict:
@@ -111,225 +109,6 @@ class TestARIELSearchResultDiagnostics:
         assert result.diagnostics[0].level == DiagnosticLevel.ERROR
 
 
-class TestRAGResultDiagnostics:
-    """Tests for diagnostics field on RAGResult."""
-
-    def test_default_empty(self) -> None:
-        result = RAGResult(answer="test")
-        assert result.diagnostics == ()
-
-    def test_with_diagnostics(self) -> None:
-        diag = SearchDiagnostic(
-            level=DiagnosticLevel.INFO,
-            source="rag.assemble",
-            message="Context was truncated",
-        )
-        result = RAGResult(answer="test", diagnostics=(diag,))
-        assert len(result.diagnostics) == 1
-
-
-class TestRAGPipelineDiagnostics:
-    """Tests for diagnostics accumulation in RAGPipeline.execute()."""
-
-    @pytest.mark.asyncio
-    async def test_retrieval_failure_emits_error_diagnostic(self) -> None:
-        """When keyword search raises, an ERROR diagnostic is emitted."""
-        config = _make_config(keyword_enabled=True, semantic_enabled=False)
-        pipeline = RAGPipeline(
-            repository=MagicMock(),
-            config=config,
-            embedder_loader=MagicMock(),
-        )
-
-        with patch(
-            "osprey.services.ariel_search.search.keyword.keyword_search",
-            new_callable=AsyncMock,
-            side_effect=RuntimeError("similarity() function missing"),
-        ):
-            result = await pipeline.execute("test query")
-
-        # Should have retrieval error diagnostic
-        error_diags = [d for d in result.diagnostics if d.level == DiagnosticLevel.ERROR]
-        assert len(error_diags) >= 1
-        assert any("rag.retrieve.keyword" in d.source for d in error_diags)
-        assert any("similarity()" in d.message for d in error_diags)
-
-    @pytest.mark.asyncio
-    async def test_both_retrievals_fail_emits_all_failed_diagnostic(self) -> None:
-        """When both retrievals fail, an 'all failed' diagnostic is emitted."""
-        config = _make_config(keyword_enabled=True, semantic_enabled=True)
-        pipeline = RAGPipeline(
-            repository=MagicMock(),
-            config=config,
-            embedder_loader=MagicMock(),
-        )
-
-        with (
-            patch(
-                "osprey.services.ariel_search.search.keyword.keyword_search",
-                new_callable=AsyncMock,
-                side_effect=RuntimeError("keyword error"),
-            ),
-            patch(
-                "osprey.services.ariel_search.search.semantic.semantic_search",
-                new_callable=AsyncMock,
-                side_effect=RuntimeError("semantic error"),
-            ),
-        ):
-            result = await pipeline.execute("test query")
-
-        sources = [d.source for d in result.diagnostics]
-        assert "rag.retrieve" in sources  # the "all failed" diagnostic
-
-    @pytest.mark.asyncio
-    async def test_embedder_load_failure_emits_warning(self) -> None:
-        """When embedder fails to load, a WARNING diagnostic is emitted."""
-        config = _make_config(keyword_enabled=True, semantic_enabled=True)
-        pipeline = RAGPipeline(
-            repository=MagicMock(),
-            config=config,
-            embedder_loader=MagicMock(side_effect=RuntimeError("No Ollama")),
-        )
-
-        kw_results = [(_make_entry("001", "Found"), 0.9, [])]
-
-        with (
-            patch(
-                "osprey.services.ariel_search.search.keyword.keyword_search",
-                new_callable=AsyncMock,
-                return_value=kw_results,
-            ),
-            patch(
-                "osprey.models.completion.get_chat_completion",
-                return_value="Answer [#001].",
-            ),
-        ):
-            result = await pipeline.execute("test query")
-
-        warning_diags = [d for d in result.diagnostics if d.level == DiagnosticLevel.WARNING]
-        assert len(warning_diags) >= 1
-        assert any("rag.retrieve.semantic" in d.source for d in warning_diags)
-        assert any(d.category == "embedding" for d in warning_diags)
-
-    @pytest.mark.asyncio
-    async def test_context_truncation_emits_info_diagnostic(self) -> None:
-        """When context is truncated, an INFO diagnostic is emitted."""
-        config = _make_config(keyword_enabled=True, semantic_enabled=False)
-        pipeline = RAGPipeline(
-            repository=MagicMock(),
-            config=config,
-            embedder_loader=MagicMock(),
-            max_context_chars=100,
-        )
-
-        kw_results = [
-            (_make_entry("001", "A" * 200), 0.9, []),
-            (_make_entry("002", "B" * 200), 0.8, []),
-        ]
-
-        with (
-            patch(
-                "osprey.services.ariel_search.search.keyword.keyword_search",
-                new_callable=AsyncMock,
-                return_value=kw_results,
-            ),
-            patch(
-                "osprey.models.completion.get_chat_completion",
-                return_value="Answer.",
-            ),
-        ):
-            result = await pipeline.execute("test query")
-
-        info_diags = [d for d in result.diagnostics if d.level == DiagnosticLevel.INFO]
-        assert any("rag.assemble" in d.source for d in info_diags)
-        assert result.context_truncated is True
-
-    @pytest.mark.asyncio
-    async def test_llm_failure_emits_error_diagnostic(self) -> None:
-        """When LLM call fails, an ERROR diagnostic is emitted."""
-        config = _make_config(keyword_enabled=True, semantic_enabled=False)
-        pipeline = RAGPipeline(
-            repository=MagicMock(),
-            config=config,
-            embedder_loader=MagicMock(),
-        )
-
-        kw_results = [(_make_entry("001", "Some entry"), 0.9, [])]
-
-        with (
-            patch(
-                "osprey.services.ariel_search.search.keyword.keyword_search",
-                new_callable=AsyncMock,
-                return_value=kw_results,
-            ),
-            patch(
-                "osprey.models.completion.get_chat_completion",
-                side_effect=RuntimeError("API connection failed"),
-            ),
-        ):
-            result = await pipeline.execute("test query")
-
-        error_diags = [d for d in result.diagnostics if d.level == DiagnosticLevel.ERROR]
-        assert any("rag.generate" in d.source for d in error_diags)
-
-    @pytest.mark.asyncio
-    async def test_llm_import_error_emits_warning_diagnostic(self) -> None:
-        """When LLM module is not available, a WARNING diagnostic is emitted."""
-        config = _make_config(keyword_enabled=True, semantic_enabled=False)
-        pipeline = RAGPipeline(
-            repository=MagicMock(),
-            config=config,
-            embedder_loader=MagicMock(),
-        )
-
-        kw_results = [(_make_entry("001", "Some entry"), 0.9, [])]
-
-        with (
-            patch(
-                "osprey.services.ariel_search.search.keyword.keyword_search",
-                new_callable=AsyncMock,
-                return_value=kw_results,
-            ),
-            patch(
-                "osprey.services.ariel_search.rag.get_chat_completion",
-                side_effect=ImportError("No module"),
-                create=True,
-            ),
-            patch.dict("sys.modules", {"osprey.models.completion": None}),
-        ):
-            result = await pipeline.execute("test query")
-
-        warning_diags = [d for d in result.diagnostics if d.level == DiagnosticLevel.WARNING]
-        assert any("rag.generate" in d.source for d in warning_diags)
-
-    @pytest.mark.asyncio
-    async def test_successful_pipeline_no_diagnostics(self) -> None:
-        """Successful pipeline run produces no diagnostics."""
-        config = _make_config(keyword_enabled=True, semantic_enabled=False)
-        pipeline = RAGPipeline(
-            repository=MagicMock(),
-            config=config,
-            embedder_loader=MagicMock(),
-        )
-
-        kw_results = [(_make_entry("001", "Good result"), 0.9, [])]
-
-        with (
-            patch(
-                "osprey.services.ariel_search.search.keyword.keyword_search",
-                new_callable=AsyncMock,
-                return_value=kw_results,
-            ),
-            patch(
-                "osprey.models.completion.get_chat_completion",
-                return_value="Clean answer [#001].",
-            ),
-        ):
-            result = await pipeline.execute("test query")
-
-        assert result.diagnostics == ()
-
-
 class TestServiceDiagnostics:
     """Tests for service-level diagnostic emission."""
 
@@ -412,12 +191,12 @@ class TestServiceDiagnostics:
 
         with patch.object(
             service,
-            "_run_rag",
+            "_run_keyword",
             new_callable=AsyncMock,
             side_effect=SearchTimeoutError(
                 message="timed out",
                 timeout_seconds=30,
-                operation="RAG pipeline",
+                operation="keyword search",
             ),
         ):
             result = await service.ainvoke(request)

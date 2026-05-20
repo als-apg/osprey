@@ -628,13 +628,6 @@ class TestSearchModulesInit:
 
         assert callable(semantic_search)
 
-    def test_agent_executor_import(self) -> None:
-        """AgentExecutor can be imported from agent module."""
-        from osprey.services.ariel_search.agent import AgentExecutor
-
-        assert AgentExecutor is not None
-
-
 class TestEnhancementFactory:
     """Tests for enhancement factory function."""
 

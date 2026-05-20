@@ -15,7 +15,7 @@ logger = logging.getLogger("osprey.mcp_server.ariel.tools.capabilities")
 async def capabilities() -> str:
     """Report available ARIEL search capabilities.
 
-    Returns enabled search modules, pipelines, search modes,
+    Returns enabled search modules, search modes,
     default settings, and reasoning configuration.
     Does NOT require database connectivity.
 
@@ -30,7 +30,6 @@ async def capabilities() -> str:
             {
                 "search_modes": [m.value for m in SearchMode],
                 "enabled_search_modules": config.get_enabled_search_modules(),
-                "enabled_pipelines": config.get_enabled_pipelines(),
                 "default_max_results": config.default_max_results,
                 "reasoning": {
                     "provider": config.reasoning.provider,

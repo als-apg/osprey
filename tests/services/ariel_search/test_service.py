@@ -1,6 +1,6 @@
-"""Tests for ARIEL search service and agent.
+"""Tests for ARIEL search service.
 
-Tests for service, agent executor, and routing functionality.
+Tests for service routing and formatting functionality.
 """
 
 from datetime import UTC, datetime
@@ -8,11 +8,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from osprey.services.ariel_search.agent.executor import (
-    AGENT_SYSTEM_PROMPT,
-    AgentExecutor,
-    AgentResult,
-)
 from osprey.services.ariel_search.config import ARIELConfig
 from osprey.services.ariel_search.models import ARIELSearchResult, SearchMode
 from osprey.services.ariel_search.search.keyword import (
@@ -24,24 +19,6 @@ from osprey.services.ariel_search.search.semantic import (
     format_semantic_result,
 )
 from osprey.services.ariel_search.service import ARIELSearchService
-
-
-class TestAgentSystemPrompt:
-    """Tests for agent system prompt."""
-
-    def test_agent_prompt_not_empty(self):
-        """Agent system prompt is not empty."""
-        assert AGENT_SYSTEM_PROMPT
-        assert len(AGENT_SYSTEM_PROMPT) > 100
-
-    def test_agent_prompt_describes_role(self):
-        """Agent prompt describes role and guidelines without hardcoding tool names."""
-        assert "ARIEL" in AGENT_SYSTEM_PROMPT
-        assert "logbook" in AGENT_SYSTEM_PROMPT.lower()
-        assert "search tools" in AGENT_SYSTEM_PROMPT.lower()
-        # Tool names should NOT be hardcoded in the system prompt
-        assert "keyword_search" not in AGENT_SYSTEM_PROMPT
-        assert "semantic_search" not in AGENT_SYSTEM_PROMPT
 
 
 class TestToolInputSchemas:
@@ -169,18 +146,6 @@ class TestServiceExports:
         from osprey.services.ariel_search import create_ariel_service
 
         assert callable(create_ariel_service)
-
-    def test_agent_executor_exported(self):
-        """AgentExecutor is exported from package."""
-        from osprey.services.ariel_search import AgentExecutor
-
-        assert AgentExecutor is not None
-
-    def test_agent_result_exported(self):
-        """AgentResult is exported from package."""
-        from osprey.services.ariel_search import AgentResult
-
-        assert AgentResult is not None
 
 
 class TestARIELSearchService:
@@ -317,62 +282,22 @@ class TestServiceRouting:
         assert result.search_modes_used == (SearchMode.SEMANTIC,)
 
     @pytest.mark.asyncio
-    async def test_search_routes_to_rag(self):
-        """Search routes to _run_rag for RAG mode."""
+    async def test_search_defaults_to_keyword_mode(self):
+        """Search defaults to KEYWORD mode when no mode specified."""
         service = self._create_mock_service(search_modules={"keyword": {"enabled": True}})
 
         mock_result = ARIELSearchResult(
             entries=(),
-            answer="RAG answer",
+            answer=None,
             sources=(),
-            search_modes_used=(SearchMode.RAG,),
-            reasoning="RAG pipeline",
+            search_modes_used=(SearchMode.KEYWORD,),
+            reasoning="Keyword search: 0 results",
         )
-        service._run_rag = AsyncMock(return_value=mock_result)
-
-        result = await service.search("test query", mode=SearchMode.RAG)
-
-        service._run_rag.assert_called_once()
-        assert result.answer == "RAG answer"
-
-    @pytest.mark.asyncio
-    async def test_search_routes_to_agent(self):
-        """Search routes to _run_agent for AGENT mode."""
-        service = self._create_mock_service(
-            search_modules={"keyword": {"enabled": True}, "semantic": {"enabled": True}}
-        )
-
-        mock_result = ARIELSearchResult(
-            entries=(),
-            answer="Agent answer",
-            sources=(),
-            search_modes_used=(SearchMode.KEYWORD, SearchMode.SEMANTIC),
-            reasoning="Agent execution",
-        )
-        service._run_agent = AsyncMock(return_value=mock_result)
-
-        result = await service.search("test query", mode=SearchMode.AGENT)
-
-        service._run_agent.assert_called_once()
-        assert result.answer == "Agent answer"
-
-    @pytest.mark.asyncio
-    async def test_search_defaults_to_rag_mode(self):
-        """Search defaults to RAG mode when no mode specified."""
-        service = self._create_mock_service(search_modules={"keyword": {"enabled": True}})
-
-        mock_result = ARIELSearchResult(
-            entries=(),
-            answer="RAG answer",
-            sources=(),
-            search_modes_used=(SearchMode.RAG,),
-            reasoning="RAG pipeline",
-        )
-        service._run_rag = AsyncMock(return_value=mock_result)
+        service._run_keyword = AsyncMock(return_value=mock_result)
 
         await service.search("test query")
 
-        service._run_rag.assert_called_once()
+        service._run_keyword.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_keyword_preserves_highlights(self):
@@ -432,101 +357,6 @@ class TestServiceRouting:
 
         with pytest.raises(ConfigurationError):
             await service.search("test query", mode=SearchMode.SEMANTIC)
-
-
-class TestAgentExecutor:
-    """Tests for AgentExecutor class."""
-
-    def _create_mock_executor(self) -> AgentExecutor:
-        """Create a mock executor for testing."""
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-                "search_modules": {
-                    "keyword": {"enabled": True},
-                    "semantic": {"enabled": True, "model": "test-model"},
-                },
-            }
-        )
-        mock_repository = MagicMock()
-        mock_embedder_loader = MagicMock()
-
-        return AgentExecutor(
-            repository=mock_repository,
-            config=config,
-            embedder_loader=mock_embedder_loader,
-        )
-
-    def test_executor_creates_keyword_tool(self):
-        """Executor discovers keyword_search descriptor when enabled."""
-        executor = self._create_mock_executor()
-        descriptors = executor._load_descriptors()
-
-        names = [d.name for d in descriptors]
-        assert "keyword_search" in names
-
-    def test_executor_creates_semantic_tool(self):
-        """Executor discovers semantic_search descriptor when enabled."""
-        executor = self._create_mock_executor()
-        descriptors = executor._load_descriptors()
-
-        names = [d.name for d in descriptors]
-        assert "semantic_search" in names
-
-    def test_executor_build_result_extracts_answer(self):
-        """_build_result extracts answer from raw loop output."""
-        executor = self._create_mock_executor()
-        descriptors = executor._load_descriptors()
-
-        raw = {
-            "answer": "This is the answer from the agent.",
-            "tool_invocations": [],
-            "steps": [],
-            "search_modes_used": [],
-            "step_summary": "No tool calls",
-        }
-
-        result = executor._build_result(raw, descriptors)
-
-        assert result.answer == "This is the answer from the agent."
-
-    def test_executor_build_result_extracts_citations(self):
-        """_build_result detects entry IDs mentioned in the answer."""
-        executor = self._create_mock_executor()
-        descriptors = executor._load_descriptors()
-
-        raw = {
-            "answer": "Found in entry 001 and entry 002 and also 003.",
-            "tool_invocations": [],
-            "steps": [],
-            "search_modes_used": [],
-            "step_summary": "No tool calls",
-        }
-        entries = [{"entry_id": "001"}, {"entry_id": "002"}, {"entry_id": "003"}]
-
-        result = executor._build_result(raw, descriptors, entries=entries)
-
-        assert "001" in result.sources
-        assert "002" in result.sources
-        assert "003" in result.sources
-
-    def test_executor_build_result_identifies_search_modes(self):
-        """_build_result carries through search modes from raw output."""
-        executor = self._create_mock_executor()
-        descriptors = executor._load_descriptors()
-
-        raw = {
-            "answer": "Answer",
-            "tool_invocations": [],
-            "steps": [],
-            "search_modes_used": [SearchMode.KEYWORD, SearchMode.SEMANTIC],
-            "step_summary": "2 tool call(s): keyword_search, semantic_search",
-        }
-
-        result = executor._build_result(raw, descriptors)
-
-        assert SearchMode.KEYWORD in result.search_modes_used
-        assert SearchMode.SEMANTIC in result.search_modes_used
 
 
 class TestCreateArielService:
@@ -745,34 +575,6 @@ class TestServiceGetStatus:
         assert isinstance(result.errors, list)
 
 
-class TestAgentResult:
-    """Tests for AgentResult dataclass."""
-
-    def test_agent_result_immutable(self):
-        """AgentResult is frozen (immutable)."""
-        result = AgentResult(
-            answer="Test answer",
-            entries=(),
-            sources=("001", "002"),
-            search_modes_used=(SearchMode.KEYWORD,),
-            reasoning="Test reasoning",
-        )
-
-        assert result.answer == "Test answer"
-        assert result.sources == ("001", "002")
-        assert result.search_modes_used == (SearchMode.KEYWORD,)
-
-    def test_agent_result_defaults(self):
-        """AgentResult has correct defaults."""
-        result = AgentResult()
-
-        assert result.answer is None
-        assert result.entries == ()
-        assert result.sources == ()
-        assert result.search_modes_used == ()
-        assert result.reasoning == ""
-
-
 class TestARIELSearchResultModel:
     """Tests for ARIELSearchResult model."""
 
@@ -907,44 +709,20 @@ class TestAdvancedParamsWiring:
         assert request.advanced_params == {"include_highlights": False, "fuzzy_fallback": False}
 
     @pytest.mark.asyncio
-    async def test_advanced_params_reach_rag(self):
-        """Advanced params are forwarded to _run_rag."""
-        service = self._create_mock_service(search_modules={"keyword": {"enabled": True}})
-
-        mock_result = ARIELSearchResult(
-            entries=(),
-            answer="test",
-            search_modes_used=(SearchMode.RAG,),
-            reasoning="RAG pipeline",
-        )
-        service._run_rag = AsyncMock(return_value=mock_result)
-
-        await service.search(
-            "test",
-            mode=SearchMode.RAG,
-            advanced_params={"temperature": 0.5, "max_context_chars": 8000},
-        )
-
-        call_args = service._run_rag.call_args[0]
-        request = call_args[0]
-        assert request.advanced_params["temperature"] == 0.5
-        assert request.advanced_params["max_context_chars"] == 8000
-
-    @pytest.mark.asyncio
     async def test_advanced_params_default_empty(self):
         """advanced_params defaults to empty dict when not provided."""
         service = self._create_mock_service(search_modules={"keyword": {"enabled": True}})
 
         mock_result = ARIELSearchResult(
             entries=(),
-            search_modes_used=(SearchMode.RAG,),
-            reasoning="RAG pipeline",
+            search_modes_used=(SearchMode.KEYWORD,),
+            reasoning="Keyword search",
         )
-        service._run_rag = AsyncMock(return_value=mock_result)
+        service._run_keyword = AsyncMock(return_value=mock_result)
 
         await service.search("test")
 
-        call_args = service._run_rag.call_args[0]
+        call_args = service._run_keyword.call_args[0]
         request = call_args[0]
         assert request.advanced_params == {}
 
@@ -971,67 +749,6 @@ class TestServiceState:
         assert service._embedder is None
 
 
-class TestToolInstanceTypes:
-    """Quality assertions for OpenAI-format tool definitions."""
-
-    def test_executor_creates_openai_tool_defs(self):
-        """Verify executor descriptors convert to OpenAI tool format."""
-        from osprey.services.ariel_search.agent.executor import _descriptor_to_openai_tool
-
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-                "search_modules": {
-                    "keyword": {"enabled": True},
-                    "semantic": {"enabled": True, "model": "test-model"},
-                },
-            }
-        )
-
-        mock_repository = MagicMock()
-        mock_embedder_loader = MagicMock()
-
-        executor = AgentExecutor(
-            repository=mock_repository,
-            config=config,
-            embedder_loader=mock_embedder_loader,
-        )
-
-        descriptors = executor._load_descriptors()
-        tools = [_descriptor_to_openai_tool(d) for d in descriptors]
-
-        assert len(tools) == 2
-        for tool in tools:
-            assert tool["type"] == "function"
-            assert "name" in tool["function"]
-            assert "description" in tool["function"]
-            assert "parameters" in tool["function"]
-
-    def test_tools_have_required_attributes(self):
-        """All descriptors have required SearchToolDescriptor attributes."""
-        config = ARIELConfig.from_dict(
-            {
-                "database": {"uri": "postgresql://localhost:5432/test"},
-                "search_modules": {"keyword": {"enabled": True}},
-            }
-        )
-
-        mock_repository = MagicMock()
-        mock_embedder_loader = MagicMock()
-
-        executor = AgentExecutor(
-            repository=mock_repository,
-            config=config,
-            embedder_loader=mock_embedder_loader,
-        )
-
-        descriptors = executor._load_descriptors()
-
-        for desc in descriptors:
-            assert hasattr(desc, "name")
-            assert hasattr(desc, "description")
-            assert hasattr(desc, "args_schema")
-            assert hasattr(desc, "execute")
 
 
 class TestToolInputSchemaDefaults:
@@ -1048,13 +765,3 @@ class TestToolInputSchemaDefaults:
         assert input_schema.similarity_threshold == 0.5
 
 
-class TestCitationInstruction:
-    """Quality assertions for citation instructions."""
-
-    def test_agent_prompt_contains_citation_instruction(self):
-        """Verify agent prompt contains citation instruction."""
-        # System prompt should instruct about citations
-        assert any(
-            word in AGENT_SYSTEM_PROMPT.lower()
-            for word in ["cite", "citation", "reference", "source"]
-        )

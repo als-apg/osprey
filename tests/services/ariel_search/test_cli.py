@@ -105,8 +105,6 @@ class TestARIELCLIGroup:
         result = runner.invoke(ariel_group, ["search", "--help"])
         assert "keyword" in result.output
         assert "semantic" in result.output
-        assert "rag" in result.output
-        assert "auto" in result.output
 
     def test_reembed_command_exists(self, runner):
         """reembed subcommand exists."""

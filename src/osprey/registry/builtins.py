@@ -11,7 +11,6 @@ from osprey.connectors.types import EPICS, EPICS_ARCHIVER, MOCK, MOCK_ARCHIVER
 from .base import (
     ArielEnhancementModuleRegistration,
     ArielIngestionAdapterRegistration,
-    ArielPipelineRegistration,
     ArielSearchModuleRegistration,
     ConnectorRegistration,
     RegistryConfig,
@@ -110,14 +109,6 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     execution_order=20,
                 ),
             ],
-            # ARIEL pipelines
-            ariel_pipelines=[
-                ArielPipelineRegistration(
-                    name="rag",
-                    module_path="osprey.services.ariel_search.pipelines",
-                    description="Retrieval-augmented generation with text embeddings, keyword search, and LLM summarization",
-                ),
-            ],
             # ARIEL ingestion adapters
             ariel_ingestion_adapters=[
                 ArielIngestionAdapterRegistration(
@@ -150,7 +141,6 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                 "connectors",
                 "ariel_search_modules",
                 "ariel_enhancement_modules",
-                "ariel_pipelines",
                 "ariel_ingestion_adapters",
             ],
         )

@@ -11,7 +11,6 @@ and the global registry singleton.
 from .base import (
     ArielEnhancementModuleRegistration,
     ArielIngestionAdapterRegistration,
-    ArielPipelineRegistration,
     ArielSearchModuleRegistration,
     ConnectorRegistration,
     ExtendedRegistryConfig,
@@ -45,7 +44,6 @@ __all__ = [
     # ARIEL module registration types
     "ArielSearchModuleRegistration",
     "ArielEnhancementModuleRegistration",
-    "ArielPipelineRegistration",
     "ArielIngestionAdapterRegistration",
     # Helper functions
     "extend_framework_registry",

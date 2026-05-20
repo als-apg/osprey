@@ -6,11 +6,6 @@ import pytest
 
 from osprey.services.ariel_search.capabilities import get_capabilities
 from osprey.services.ariel_search.config import ARIELConfig
-from osprey.services.ariel_search.pipelines import (
-    AGENT_PIPELINE,
-    RAG_PIPELINE,
-    get_pipeline_descriptors,
-)
 from osprey.services.ariel_search.search.base import ParameterDescriptor
 from osprey.services.ariel_search.search.keyword import (
     get_parameter_descriptors as keyword_params,
@@ -221,46 +216,12 @@ class TestSemanticParameterDescriptors:
         assert p.section == "Retrieval"
 
 
-class TestPipelineDescriptors:
-    """Tests for pipeline descriptors."""
-
-    def test_get_pipeline_descriptors_returns_list(self):
-        """get_pipeline_descriptors returns a list."""
-        pipelines = get_pipeline_descriptors()
-        assert isinstance(pipelines, list)
-        assert len(pipelines) >= 2
-
-    def test_rag_pipeline_descriptor(self):
-        """RAG pipeline descriptor has correct attributes."""
-        assert RAG_PIPELINE.name == "rag"
-        assert RAG_PIPELINE.category == "llm"
-        assert len(RAG_PIPELINE.parameters) == 4
-        param_names = {p.name for p in RAG_PIPELINE.parameters}
-        assert "similarity_threshold" in param_names
-        assert "max_context_chars" in param_names
-        assert "max_chars_per_entry" in param_names
-        assert "temperature" in param_names
-
-    def test_agent_pipeline_descriptor(self):
-        """Agent pipeline descriptor has correct attributes."""
-        assert AGENT_PIPELINE.name == "agent"
-        assert AGENT_PIPELINE.category == "llm"
-        assert len(AGENT_PIPELINE.parameters) == 1
-        assert AGENT_PIPELINE.parameters[0].name == "temperature"
-
-    def test_pipeline_descriptor_frozen(self):
-        """PipelineDescriptor is frozen."""
-        with pytest.raises(AttributeError):
-            RAG_PIPELINE.name = "other"  # type: ignore[misc]
-
-
 class TestGetCapabilities:
     """Tests for get_capabilities() function."""
 
     def _make_config(
         self,
         search_modules: dict | None = None,
-        pipelines: dict | None = None,
     ) -> ARIELConfig:
         """Create an ARIELConfig for testing."""
         config_dict: dict = {
@@ -268,8 +229,6 @@ class TestGetCapabilities:
         }
         if search_modules:
             config_dict["search_modules"] = search_modules
-        if pipelines:
-            config_dict["pipelines"] = pipelines
         return ARIELConfig.from_dict(config_dict)
 
     def test_returns_correct_structure(self):
@@ -284,7 +243,6 @@ class TestGetCapabilities:
 
         assert "categories" in result
         assert "shared_parameters" in result
-        assert "llm" in result["categories"]
         assert "direct" in result["categories"]
 
     def test_includes_enabled_search_modules(self):
@@ -316,16 +274,6 @@ class TestGetCapabilities:
 
         assert "keyword" in mode_names
         assert "semantic" not in mode_names
-
-    def test_includes_pipelines(self):
-        """Pipeline modes appear under llm category."""
-        config = self._make_config()
-        result = get_capabilities(config)
-        llm_modes = result["categories"]["llm"]["modes"]
-        mode_names = [m["name"] for m in llm_modes]
-
-        assert "rag" in mode_names
-        assert "agent" in mode_names
 
     def test_modes_have_parameters(self):
         """Each mode includes its parameter descriptors."""
@@ -390,33 +338,3 @@ class TestGetCapabilities:
         result = get_capabilities(config)
         direct_modes = result["categories"]["direct"]["modes"]
         assert direct_modes == []
-
-    def test_excludes_disabled_pipelines(self):
-        """Disabled pipelines do not appear in llm modes."""
-        config = self._make_config(
-            pipelines={
-                "rag": {"enabled": False},
-                "agent": {"enabled": True},
-            }
-        )
-        result = get_capabilities(config)
-        llm_modes = result["categories"]["llm"]["modes"]
-        mode_names = [m["name"] for m in llm_modes]
-
-        assert "rag" not in mode_names
-        assert "agent" in mode_names
-
-    def test_pipeline_respects_config(self):
-        """Only enabled pipelines appear in capabilities."""
-        config = self._make_config(
-            pipelines={
-                "rag": {"enabled": True},
-                "agent": {"enabled": False},
-            }
-        )
-        result = get_capabilities(config)
-        llm_modes = result["categories"]["llm"]["modes"]
-        mode_names = [m["name"] for m in llm_modes]
-
-        assert "rag" in mode_names
-        assert "agent" not in mode_names

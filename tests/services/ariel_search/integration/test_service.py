@@ -101,25 +101,6 @@ class TestAgentIntegration:
 
         await pool.close()
 
-    async def test_tools_are_bound_correctly(self, integration_ariel_config, repository):
-        """Descriptors are properly discovered by AgentExecutor."""
-        from osprey.services.ariel_search.agent import AgentExecutor
-
-        executor = AgentExecutor(
-            config=integration_ariel_config,
-            repository=repository,
-            embedder_loader=MagicMock(),
-        )
-
-        descriptors = executor._load_descriptors()
-
-        assert len(descriptors) >= 1
-
-        for desc in descriptors:
-            assert hasattr(desc, "name")
-            assert hasattr(desc, "description")
-            assert callable(desc.execute)
-
     async def test_cleanup(self, migrated_pool):
         """Clean up agent test data."""
         async with migrated_pool.connection() as conn:

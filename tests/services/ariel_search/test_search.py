@@ -844,24 +844,6 @@ class TestUnknownFieldPrefix:
         assert "author:smith" not in search_text
 
 
-# === RAG Tests moved to Pipeline Tests ===
-
-
-class TestRAGCitationValidation:
-    """Tests for RAG citation validation (TEST-M001).
-
-    RAG is now implemented via Pipeline (SemanticRetriever + SingleLLMProcessor).
-    These tests verify the RAG prompt template.
-    """
-
-    def test_citation_format_in_prompt(self):
-        """RAG prompt template includes citation instructions."""
-        from osprey.services.ariel_search.prompts import RAG_PROMPT_TEMPLATE
-
-        assert "[#12345]" in RAG_PROMPT_TEMPLATE
-        assert "cite" in RAG_PROMPT_TEMPLATE.lower()
-
-
 # === Validation Tests (TEST-H007, TEST-H008) ===
 
 
@@ -1112,35 +1094,6 @@ class TestEmbeddingGenerationFailure:
         result = await semantic_search("test", mock_repo, config, mock_embedder)
 
         assert result == []
-
-
-class TestPromptExtraction:
-    """Tests verifying prompt extraction to separate files (STRUCT-003, STRUCT-004).
-
-    Note: Agent system prompt is now in agent/executor.py
-    """
-
-    def test_agent_system_prompt_in_executor(self):
-        """Agent system prompt is in agent/executor.py."""
-        from osprey.services.ariel_search.agent.executor import AGENT_SYSTEM_PROMPT
-
-        assert AGENT_SYSTEM_PROMPT
-        assert "ARIEL" in AGENT_SYSTEM_PROMPT
-        assert "logbook" in AGENT_SYSTEM_PROMPT.lower()
-
-    def test_rag_prompt_in_separate_file(self):
-        """RAG prompt template is in dedicated file."""
-        from osprey.services.ariel_search.prompts.rag_answer import RAG_PROMPT_TEMPLATE
-
-        assert RAG_PROMPT_TEMPLATE
-        assert "{context}" in RAG_PROMPT_TEMPLATE
-        assert "{question}" in RAG_PROMPT_TEMPLATE
-
-    def test_prompts_module_exports_rag_template(self):
-        """Prompts module exports RAG prompt template."""
-        from osprey.services.ariel_search.prompts import RAG_PROMPT_TEMPLATE
-
-        assert RAG_PROMPT_TEMPLATE
 
 
 # ==============================================================================

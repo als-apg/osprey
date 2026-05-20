@@ -15,8 +15,6 @@ class SearchMode(StrEnum):
 
     KEYWORD = "keyword"
     SEMANTIC = "semantic"
-    RAG = "rag"
-    AGENT = "agent"
 
 
 class AttachmentResponse(BaseModel):
@@ -51,7 +49,7 @@ class SearchRequest(BaseModel):
     """Search request payload."""
 
     query: str = Field(..., min_length=1, description="Search query text")
-    mode: SearchMode = Field(SearchMode.RAG, description="Search mode")
+    mode: SearchMode = Field(SearchMode.KEYWORD, description="Search mode")
     max_results: int = Field(10, ge=1, le=100, description="Maximum results")
     start_date: datetime | None = Field(None, description="Filter start date")
     end_date: datetime | None = Field(None, description="Filter end date")
@@ -71,44 +69,6 @@ class DiagnosticResponse(BaseModel):
     category: str | None = None
 
 
-class RAGStageStatsResponse(BaseModel):
-    """RAG pipeline stage counts."""
-
-    keyword_retrieved: int = 0
-    semantic_retrieved: int = 0
-    fused_count: int = 0
-    context_included: int = 0
-    context_truncated: bool = False
-
-
-class AgentToolInvocationResponse(BaseModel):
-    """Record of a tool call by the agent."""
-
-    tool_name: str
-    tool_args: dict = {}
-    result_summary: str = ""
-    order: int = 0
-
-
-class AgentStepResponse(BaseModel):
-    """A step in the agent's ReAct trace."""
-
-    step_type: str
-    content: str = ""
-    tool_name: str | None = None
-    order: int = 0
-
-
-class PipelineDetailsResponse(BaseModel):
-    """Intermediate pipeline data for developer visibility."""
-
-    pipeline_type: str
-    rag_stats: RAGStageStatsResponse | None = None
-    agent_tool_invocations: list[AgentToolInvocationResponse] = []
-    agent_steps: list[AgentStepResponse] = []
-    step_summary: str = ""
-
-
 class SearchResponse(BaseModel):
     """Search response payload."""
 
@@ -120,7 +80,6 @@ class SearchResponse(BaseModel):
     total_results: int = 0
     execution_time_ms: int = 0
     diagnostics: list[DiagnosticResponse] = []
-    pipeline_details: PipelineDetailsResponse | None = None
 
 
 class EntriesListResponse(BaseModel):
@@ -177,7 +136,6 @@ class StatusResponse(BaseModel):
     embedding_tables: list[EmbeddingTableStatus] = []
     active_embedding_model: str | None = None
     enabled_search_modules: list[str] = []
-    enabled_pipelines: list[str] = []
     enabled_enhancement_modules: list[str] = []
     last_ingestion: datetime | None = None
     errors: list[str] = []

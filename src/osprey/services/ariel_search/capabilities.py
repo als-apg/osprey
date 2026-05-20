@@ -66,9 +66,8 @@ SHARED_PARAMETERS = [
 def get_capabilities(config: ARIELConfig) -> dict[str, Any]:
     """Build the capabilities response for the frontend.
 
-    Iterates enabled search modules (keyword, semantic) as "direct" modes
-    and pipeline descriptors (RAG, Agent) as "llm" modes. Collects parameter
-    descriptors from each.
+    Iterates enabled search modules (keyword, semantic) as "direct" modes.
+    Collects parameter descriptors from each.
 
     Args:
         config: ARIEL configuration
@@ -77,19 +76,16 @@ def get_capabilities(config: ARIELConfig) -> dict[str, Any]:
         Dict matching the capabilities response schema:
         {
             "categories": {
-                "llm": {"label": "LLM", "modes": [...]},
                 "direct": {"label": "Direct", "modes": [...]},
             },
             "shared_parameters": [...],
         }
     """
     categories: dict[str, dict[str, Any]] = {
-        "llm": {"label": "LLM", "modes": []},
         "direct": {"label": "Direct", "modes": []},
     }
 
     _add_search_modules(config, categories)
-    _add_pipelines(config, categories)
 
     return {
         "categories": categories,
@@ -122,31 +118,6 @@ def _add_search_modules(
                 "label": name.replace("_", " ").title(),
                 "description": descriptor.description,
                 "parameters": parameters,
-            }
-        )
-
-
-def _add_pipelines(
-    config: ARIELConfig,
-    categories: dict[str, dict[str, Any]],
-) -> None:
-    """Add enabled pipeline descriptors to the capabilities via the registry."""
-    from osprey.registry import get_registry
-
-    registry = get_registry()
-    for name in registry.list_ariel_pipelines():
-        if not config.is_pipeline_enabled(name):
-            continue
-        module = registry.get_ariel_pipeline(name)
-        if module is None:
-            continue
-        descriptor = module.get_pipeline_descriptor(name)
-        categories[descriptor.category]["modes"].append(
-            {
-                "name": descriptor.name,
-                "label": descriptor.label,
-                "description": descriptor.description,
-                "parameters": [p.to_dict() for p in descriptor.parameters],
             }
         )
 

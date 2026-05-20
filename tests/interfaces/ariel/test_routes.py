@@ -50,21 +50,6 @@ def _build_mock_registry():
         "semantic": semantic_mod,
     }.get(n)
 
-    # Build mock pipelines using the real pipeline descriptors
-    from osprey.services.ariel_search.pipelines import get_pipeline_descriptor
-
-    rag_mod = types.ModuleType("rag")
-    rag_mod.get_pipeline_descriptor = get_pipeline_descriptor  # type: ignore[attr-defined]
-
-    agent_mod = types.ModuleType("agent")
-    agent_mod.get_pipeline_descriptor = get_pipeline_descriptor  # type: ignore[attr-defined]
-
-    registry.list_ariel_pipelines.return_value = ["rag", "agent"]
-    registry.get_ariel_pipeline.side_effect = lambda n: {
-        "rag": rag_mod,
-        "agent": agent_mod,
-    }.get(n)
-
     return registry
 
 
@@ -104,7 +89,6 @@ def mock_ariel_service():
     mock_result.sources = []
     mock_result.search_modes_used = []
     mock_result.reasoning = ""
-    mock_result.pipeline_details = None
     service.search = AsyncMock(return_value=mock_result)
 
     # Mock status
@@ -150,7 +134,7 @@ def test_search_endpoint_basic(client, mock_ariel_service):
         "/api/search",
         json={
             "query": "test query",
-            "mode": "rag",
+            "mode": "keyword",
             "max_results": 10,
         },
     )
@@ -352,8 +336,6 @@ def test_search_mode_mapping(client, mock_ariel_service):
     modes = {
         "keyword": ServiceSearchMode.KEYWORD,
         "semantic": ServiceSearchMode.SEMANTIC,
-        "rag": ServiceSearchMode.RAG,
-        "agent": ServiceSearchMode.AGENT,
     }
 
     for api_mode, expected_service_mode in modes.items():
@@ -379,22 +361,12 @@ def test_capabilities_endpoint(client):
     data = response.json()
     assert "categories" in data
     assert "shared_parameters" in data
-    assert "llm" in data["categories"]
     assert "direct" in data["categories"]
-
-    # Should have RAG and Agent in LLM category
-    llm_names = [m["name"] for m in data["categories"]["llm"]["modes"]]
-    assert "rag" in llm_names
-    assert "agent" in llm_names
 
     # Should have keyword and semantic in direct category
     direct_names = [m["name"] for m in data["categories"]["direct"]["modes"]]
     assert "keyword" in direct_names
     assert "semantic" in direct_names
-
-    # Each mode should have parameters list
-    for mode in data["categories"]["llm"]["modes"]:
-        assert "parameters" in mode
 
     # Shared parameters should include max_results
     param_names = [p["name"] for p in data["shared_parameters"]]
@@ -407,7 +379,7 @@ def test_search_with_advanced_params(client, mock_ariel_service):
         "/api/search",
         json={
             "query": "test",
-            "mode": "rag",
+            "mode": "keyword",
             "max_results": 10,
             "advanced_params": {"temperature": 0.5, "similarity_threshold": 0.8},
         },
@@ -423,8 +395,8 @@ def test_search_with_advanced_params(client, mock_ariel_service):
     }
 
 
-def test_search_defaults_to_rag_mode(client, mock_ariel_service):
-    """Test that omitting mode defaults to RAG."""
+def test_search_defaults_to_keyword_mode(client, mock_ariel_service):
+    """Test that omitting mode defaults to KEYWORD."""
     response = client.post(
         "/api/search",
         json={
@@ -437,101 +409,4 @@ def test_search_defaults_to_rag_mode(client, mock_ariel_service):
     from osprey.services.ariel_search.models import SearchMode as ServiceSearchMode
 
     call_kwargs = mock_ariel_service.search.call_args.kwargs
-    assert call_kwargs["mode"] == ServiceSearchMode.RAG
-
-
-def test_search_pipeline_details_null(client, mock_ariel_service):
-    """Test that pipeline_details is null when not set."""
-    # Default mock doesn't set pipeline_details explicitly;
-    # MagicMock auto-creates it, so set it to None explicitly
-    mock_ariel_service.search.return_value.pipeline_details = None
-
-    response = client.post(
-        "/api/search",
-        json={"query": "test", "mode": "keyword"},
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["pipeline_details"] is None
-
-
-def test_search_pipeline_details_rag(client, mock_ariel_service):
-    """Test that RAG pipeline_details are serialized correctly."""
-    from osprey.services.ariel_search.models import PipelineDetails, RAGStageStats
-
-    pd = PipelineDetails(
-        pipeline_type="rag",
-        rag_stats=RAGStageStats(
-            keyword_retrieved=5,
-            semantic_retrieved=3,
-            fused_count=6,
-            context_included=4,
-            context_truncated=True,
-        ),
-        step_summary="5 keyword + 3 semantic, 6 fused, 4 in context",
-    )
-    mock_ariel_service.search.return_value.pipeline_details = pd
-
-    response = client.post(
-        "/api/search",
-        json={"query": "test", "mode": "rag"},
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["pipeline_details"] is not None
-    assert data["pipeline_details"]["pipeline_type"] == "rag"
-    stats = data["pipeline_details"]["rag_stats"]
-    assert stats["keyword_retrieved"] == 5
-    assert stats["semantic_retrieved"] == 3
-    assert stats["fused_count"] == 6
-    assert stats["context_included"] == 4
-    assert stats["context_truncated"] is True
-    assert (
-        data["pipeline_details"]["step_summary"] == "5 keyword + 3 semantic, 6 fused, 4 in context"
-    )
-
-
-def test_search_pipeline_details_agent(client, mock_ariel_service):
-    """Test that agent pipeline_details are serialized correctly."""
-    from osprey.services.ariel_search.models import (
-        AgentStep,
-        AgentToolInvocation,
-        PipelineDetails,
-    )
-
-    pd = PipelineDetails(
-        pipeline_type="agent",
-        agent_tool_invocations=(
-            AgentToolInvocation(
-                tool_name="keyword_search",
-                tool_args={"query": "beam loss"},
-                result_summary="Found 3 entries",
-                order=0,
-            ),
-        ),
-        agent_steps=(
-            AgentStep(step_type="user_query", content="beam loss", order=0),
-            AgentStep(step_type="tool_call", tool_name="keyword_search", order=1),
-            AgentStep(step_type="tool_result", tool_name="keyword_search", order=2),
-            AgentStep(step_type="final_answer", content="Here are the results", order=3),
-        ),
-        step_summary="1 tool call(s): keyword_search",
-    )
-    mock_ariel_service.search.return_value.pipeline_details = pd
-
-    response = client.post(
-        "/api/search",
-        json={"query": "beam loss", "mode": "agent"},
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["pipeline_details"] is not None
-    assert data["pipeline_details"]["pipeline_type"] == "agent"
-    assert len(data["pipeline_details"]["agent_tool_invocations"]) == 1
-    assert data["pipeline_details"]["agent_tool_invocations"][0]["tool_name"] == "keyword_search"
-    assert len(data["pipeline_details"]["agent_steps"]) == 4
-    assert data["pipeline_details"]["agent_steps"][0]["step_type"] == "user_query"
-    assert data["pipeline_details"]["step_summary"] == "1 tool call(s): keyword_search"
+    assert call_kwargs["mode"] == ServiceSearchMode.KEYWORD

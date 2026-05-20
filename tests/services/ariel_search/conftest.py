@@ -82,19 +82,6 @@ def _build_ariel_mock_registry():
     ]
     registry.get_ariel_enhancement_module.side_effect = _enhancement_modules.get
 
-    # --- Pipelines ---
-    from osprey.services.ariel_search.pipelines import get_pipeline_descriptor
-
-    rag_mod = types.ModuleType("rag")
-    rag_mod.get_pipeline_descriptor = get_pipeline_descriptor  # type: ignore[attr-defined]
-
-    agent_mod = types.ModuleType("agent")
-    agent_mod.get_pipeline_descriptor = get_pipeline_descriptor  # type: ignore[attr-defined]
-
-    _pipelines = {"rag": rag_mod, "agent": agent_mod}
-    registry.list_ariel_pipelines.return_value = list(_pipelines)
-    registry.get_ariel_pipeline.side_effect = _pipelines.get
-
     # --- Ingestion adapters ---
     from osprey.services.ariel_search.ingestion.adapters.als import ALSLogbookAdapter
     from osprey.services.ariel_search.ingestion.adapters.generic import GenericJSONAdapter

@@ -9,6 +9,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
+from .exceptions import ConfigurationError
+
 
 @dataclass
 class ModelConfig:
@@ -34,32 +36,6 @@ class ModelConfig:
             name=data["name"],
             dimension=data["dimension"],
             max_input_tokens=data.get("max_input_tokens"),
-        )
-
-
-@dataclass
-class PipelineModuleConfig:
-    """Configuration for a pipeline (rag, agent).
-
-    Pipelines compose search modules into higher-level execution strategies.
-
-    Attributes:
-        enabled: Whether pipeline is active
-        retrieval_modules: Which search modules this pipeline uses
-        settings: Pipeline-specific settings
-    """
-
-    enabled: bool = True
-    retrieval_modules: list[str] = field(default_factory=lambda: ["keyword", "semantic"])
-    settings: dict[str, Any] = field(default_factory=dict)
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "PipelineModuleConfig":
-        """Create PipelineModuleConfig from dictionary."""
-        return cls(
-            enabled=data.get("enabled", True),
-            retrieval_modules=data.get("retrieval_modules", ["keyword", "semantic"]),
-            settings=data.get("settings", {}),
         )
 
 
@@ -329,7 +305,6 @@ class ARIELConfig:
 
     database: DatabaseConfig
     search_modules: dict[str, SearchModuleConfig] = field(default_factory=dict)
-    pipelines: dict[str, PipelineModuleConfig] = field(default_factory=dict)
     enhancement_modules: dict[str, EnhancementModuleConfig] = field(default_factory=dict)
     ingestion: IngestionConfig | None = None
     reasoning: ReasoningConfig = field(default_factory=ReasoningConfig)
@@ -346,16 +321,24 @@ class ARIELConfig:
 
         Returns:
             ARIELConfig instance
+
+        Raises:
+            ConfigurationError: If the deprecated 'pipelines' section is present.
         """
+        if "pipelines" in config_dict:
+            raise ConfigurationError(
+                "The ariel.pipelines section is no longer supported. "
+                "Remove 'pipelines:' from your config — the RAG and ReAct "
+                "pipelines have been removed in favor of the Osprey agent layer. "
+                "See CHANGELOG for migration details.",
+                config_key="pipelines",
+            )
+
         database = DatabaseConfig.from_dict(config_dict["database"])
 
         search_modules: dict[str, SearchModuleConfig] = {}
         for name, data in config_dict.get("search_modules", {}).items():
             search_modules[name] = SearchModuleConfig.from_dict(data)
-
-        pipelines: dict[str, PipelineModuleConfig] = {}
-        for name, data in config_dict.get("pipelines", {}).items():
-            pipelines[name] = PipelineModuleConfig.from_dict(data)
 
         enhancement_modules: dict[str, EnhancementModuleConfig] = {}
         for name, data in config_dict.get("enhancement_modules", {}).items():
@@ -376,7 +359,6 @@ class ARIELConfig:
         return cls(
             database=database,
             search_modules=search_modules,
-            pipelines=pipelines,
             enhancement_modules=enhancement_modules,
             ingestion=ingestion,
             reasoning=reasoning,
@@ -404,65 +386,6 @@ class ARIELConfig:
             List of enabled module names
         """
         return [name for name, config in self.search_modules.items() if config.enabled]
-
-    def is_pipeline_enabled(self, name: str) -> bool:
-        """Check if a pipeline is enabled.
-
-        If no pipeline config exists for the name, defaults to True
-        (pipelines are always-on unless explicitly disabled).
-
-        Args:
-            name: Pipeline name (rag, agent)
-
-        Returns:
-            True if the pipeline is enabled
-        """
-        pipeline = self.pipelines.get(name)
-        if pipeline is None:
-            return True  # Pipelines default to enabled
-        return pipeline.enabled
-
-    def get_enabled_pipelines(self) -> list[str]:
-        """Get list of enabled pipeline names.
-
-        Returns configured pipelines that are enabled, plus default
-        pipelines (rag, agent) if not explicitly configured.
-
-        Returns:
-            List of enabled pipeline names
-        """
-        # Start with defaults
-        defaults = {"rag", "agent"}
-        result: list[str] = []
-
-        # Add explicitly configured pipelines that are enabled
-        for name, config in self.pipelines.items():
-            if config.enabled:
-                result.append(name)
-            defaults.discard(name)
-
-        # Add defaults that weren't explicitly configured
-        result.extend(sorted(defaults))
-
-        return result
-
-    def get_pipeline_retrieval_modules(self, name: str) -> list[str]:
-        """Get retrieval modules configured for a pipeline.
-
-        If the pipeline has no explicit config, falls back to
-        the list of enabled search modules.
-
-        Args:
-            name: Pipeline name (rag, agent)
-
-        Returns:
-            List of search module names to use for retrieval
-        """
-        pipeline = self.pipelines.get(name)
-        if pipeline is not None:
-            return list(pipeline.retrieval_modules)
-        # Fall back to enabled search modules
-        return self.get_enabled_search_modules()
 
     def is_enhancement_module_enabled(self, name: str) -> bool:
         """Check if an enhancement module is enabled.
@@ -524,8 +447,7 @@ class ARIELConfig:
     def get_search_model(self) -> str | None:
         """Get the configured search model name.
 
-        Returns the model configured for semantic search, which is also
-        used for RAG search when enabled.
+        Returns the model configured for semantic search.
 
         Returns:
             Model name or None if semantic search is not enabled
