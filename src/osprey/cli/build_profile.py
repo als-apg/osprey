@@ -179,7 +179,10 @@ class BuildProfile:
     dependencies: list[str] = field(default_factory=list)
     requires_osprey_version: str | None = None  # PEP 440 specifier, e.g. ">=0.12.0"
     osprey_install: str = (
-        "local"  # "local" | "pip" | PEP 508 spec (e.g. "osprey-framework==2026.5.0")
+        # "local" (auto-detect from importlib.metadata: editable → source tree,
+        # otherwise pin to running version) | "pip" | PEP 508 spec
+        # (e.g. "osprey-framework==2026.5.0")
+        "local"
     )
     python_env: str = "project"  # "project" | "build" | absolute path to Python executable
     hooks: list[str] = field(default_factory=list)

@@ -14,14 +14,17 @@ Usage:
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import shutil
 import subprocess
 import threading
 import time
+from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlparse
 
 import click
 
@@ -718,6 +721,56 @@ def _generate_env_template(project_path: Path, env_config: Any) -> None:
         logger.info("  Hint: Copy .env.template to .env and fill in required values")
 
 
+def _resolve_osprey_spec(osprey_install: str) -> tuple[str, str]:
+    """Resolve the osprey install spec for the project venv.
+
+    Returns ``(spec, label)`` where ``spec`` is the pip/uv install argument
+    and ``label`` is a human-readable identifier used in logs and the
+    generated requirements.txt comment.
+
+    The ``osprey_install`` value drives the resolution:
+      - ``"local"`` (default): consult ``importlib.metadata``. Editable
+        installs (``pip install -e .``, ``uv sync``) install from the source
+        tree; non-editable installs (``uv tool install``, wheels from PyPI)
+        pin to the running version (``osprey-framework==<version>``).
+      - ``"pip"``: install ``osprey-framework`` from PyPI, unpinned.
+      - anything else: treated as a PEP 508 spec, passed through verbatim.
+    """
+    if osprey_install == "local":
+        try:
+            dist = distribution("osprey-framework")
+        except PackageNotFoundError:
+            dist = None
+
+        direct_url_text = dist.read_text("direct_url.json") if dist else None
+        info = json.loads(direct_url_text) if direct_url_text else {}
+        if info.get("dir_info", {}).get("editable"):
+            src_path = unquote(urlparse(info["url"]).path)
+            return src_path, f"editable: {src_path}"
+
+        if dist is not None:
+            spec = f"osprey-framework=={dist.version}"
+            return spec, spec
+
+        # Metadata unavailable (rare: e.g. running osprey directly from a
+        # source tree without installing it). Fall back to the source root
+        # one final time so dev workflows that bypass install still work.
+        osprey_root = Path(__file__).resolve().parents[3]
+        if (osprey_root / "pyproject.toml").exists():
+            return str(osprey_root), f"local: {osprey_root}"
+        raise BuildProfileError(
+            "Cannot resolve osprey install location: package metadata is "
+            f"missing and no source tree is present at {osprey_root}. "
+            "Install osprey-framework with `uv tool install osprey-framework` "
+            "or set `osprey_install` explicitly in your profile."
+        )
+
+    if osprey_install == "pip":
+        return "osprey-framework", "osprey-framework"
+
+    return osprey_install, osprey_install
+
+
 def _create_project_venv(project_path: Path, profile: Any) -> None:
     """Create the project venv and install osprey + profile deps.
 
@@ -725,10 +778,8 @@ def _create_project_venv(project_path: Path, profile: Any) -> None:
     One venv, one install command, one resolver pass. The resolver sees all
     dependencies together (osprey + profile deps) and either succeeds or fails.
 
-    The ``osprey_install`` profile field controls where osprey comes from:
-      - ``"local"`` (default): install from the source tree running this build
-      - ``"pip"``: install ``osprey-framework`` from PyPI
-      - anything else: treated as a PEP 508 spec (e.g. ``"osprey-framework==2026.5.0"``)
+    See :func:`_resolve_osprey_spec` for how ``profile.osprey_install`` is
+    interpreted.
     """
     import sys
 
@@ -757,18 +808,7 @@ def _create_project_venv(project_path: Path, profile: Any) -> None:
 
     # --- Resolve osprey install spec ---
     osprey_install = profile.osprey_install or "local"
-    if osprey_install == "local":
-        # build_cmd.py is at src/osprey/cli/build_cmd.py → repo root is parents[3]
-        osprey_root = Path(__file__).resolve().parents[3]
-        if not (osprey_root / "pyproject.toml").exists():
-            raise BuildProfileError(
-                f"osprey_install: local — but no pyproject.toml at {osprey_root}"
-            )
-        osprey_spec = str(osprey_root)
-    elif osprey_install == "pip":
-        osprey_spec = "osprey-framework"
-    else:
-        osprey_spec = osprey_install
+    osprey_spec, osprey_label = _resolve_osprey_spec(osprey_install)
 
     # --- Install osprey + profile deps ---
     all_deps = [osprey_spec] + list(profile.dependencies or [])
@@ -791,7 +831,7 @@ def _create_project_venv(project_path: Path, profile: Any) -> None:
     from rich.live import Live
     from rich.spinner import Spinner
 
-    spinner = Spinner("dots", text=f"  Installing osprey ({osprey_install}) + {dep_count} deps...")
+    spinner = Spinner("dots", text=f"  Installing osprey ({osprey_label}) + {dep_count} deps...")
     with Live(spinner, transient=True):
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
 
@@ -906,7 +946,7 @@ def _create_project_venv(project_path: Path, profile: Any) -> None:
 
     # --- Record deps in requirements.txt for documentation ---
     req_path = project_path / "requirements.txt"
-    lines = ["\n", f"# osprey ({osprey_install})\n", f"{osprey_spec}\n"]
+    lines = ["\n", f"# osprey ({osprey_label})\n", f"{osprey_spec}\n"]
     if profile.dependencies:
         lines.append("\n# Profile dependencies\n")
         for dep in profile.dependencies:

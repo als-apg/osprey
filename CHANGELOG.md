@@ -30,6 +30,13 @@ Compatibility is documented in release notes, not encoded in the version string.
   check tiers (`quick_check.sh`, `ci_check.sh`, `premerge_check.sh main`).
 
 ### Fixed
+- **`osprey build` now works after `uv tool install osprey-framework`** (#216).
+  The `osprey_install: local` resolver walked `Path(__file__).parents[3]` to
+  find the source tree, which lands inside `<tool>/lib/python3.11` for
+  non-editable installs and tripped a "no pyproject.toml" error on the
+  recommended quickstart. Resolution now consults `importlib.metadata`:
+  editable installs use the source path; wheel/uv-tool installs pin to
+  `osprey-framework==<running version>`. Existing profiles need no changes.
 - **Channel-finder template renderer honors `suffix_map`.** Templates in
   `in_context.json` (and any project DB using the same schema) declare
   `suffix_map` to translate display-name sub-channels (e.g.
