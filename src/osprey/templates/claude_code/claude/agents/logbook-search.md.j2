@@ -4,7 +4,7 @@ description: "Searches the facility logbook for operational history, shift logs,
 summary: Searches the electronic logbook for operational entries
 model: {{ claude_code_model_spec.agent_tier("logbook-search") if claude_code_model_spec is defined and claude_code_model_spec else "sonnet" }}
 maxTurns: 30
-tools: mcp__ariel__keyword_search, mcp__ariel__semantic_search, mcp__ariel__browse, mcp__ariel__filter_options, mcp__ariel__entry_get, mcp__ariel__capabilities, mcp__workspace__submit_response
+tools: mcp__ariel__keyword_search, mcp__ariel__semantic_search, mcp__ariel__browse, mcp__ariel__filter_options, mcp__ariel__entry_get, mcp__ariel__capabilities, mcp__osprey_workspace__submit_response
 disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, Task, Skill, Agent
 ---
 

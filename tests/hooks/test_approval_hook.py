@@ -17,11 +17,11 @@ import pytest
 
 # Default hook_config matching the original hard-coded OSPREY_PREFIXES
 DEFAULT_APPROVAL_CONFIG = {
-    "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__", "mcp__ariel__"],
+    "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__osprey_workspace__", "mcp__ariel__"],
     "approval_prefixes": [
         "mcp__controls__",
         "mcp__python__",
-        "mcp__workspace__",
+        "mcp__osprey_workspace__",
         "mcp__ariel__",
     ],
 }
@@ -868,7 +868,7 @@ def test_setup_patch_always_asks(tmp_path, hook_runner, make_config):
 
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__workspace__setup_patch",
+        "mcp__osprey_workspace__setup_patch",
         {"path": "control_system.writes_enabled", "value": True},
         config_path=config,
         cwd=tmp_path,

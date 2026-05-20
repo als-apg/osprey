@@ -16,7 +16,7 @@ logger = logging.getLogger("osprey.mcp_server.workspace.transcript_reader")
 OSPREY_MCP_PREFIXES = (
     "mcp__controls__",
     "mcp__python__",
-    "mcp__workspace__",
+    "mcp__osprey_workspace__",
     "mcp__ariel__",
     "mcp__channel-finder__",
 )

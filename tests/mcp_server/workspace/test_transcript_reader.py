@@ -264,7 +264,7 @@ class TestReadSession:
                     },
                     {
                         "id": "tu-2",
-                        "name": "mcp__workspace__session_log",
+                        "name": "mcp__osprey_workspace__session_log",
                         "input": {"last_n": 10},
                     },
                 ],
@@ -338,7 +338,7 @@ class TestReadSession:
                 [
                     {
                         "id": "tu-1",
-                        "name": "mcp__workspace__memory_save",
+                        "name": "mcp__osprey_workspace__memory_save",
                         "input": {"key": "test"},
                     },
                 ],
@@ -502,7 +502,7 @@ class TestReadSession:
                 [
                     {
                         "id": "tu-1",
-                        "name": "mcp__workspace__session_log",
+                        "name": "mcp__osprey_workspace__session_log",
                         "input": {},
                     },
                 ],
@@ -650,7 +650,7 @@ class TestSubagentReading:
                 [
                     {
                         "id": "tu-sub",
-                        "name": "mcp__workspace__create_static_plot",
+                        "name": "mcp__osprey_workspace__create_static_plot",
                         "input": {"title": "Plot"},
                     },
                 ],
@@ -896,7 +896,7 @@ class TestAllPrefixes:
         [
             ("mcp__controls__", "channel_read", "controls"),
             ("mcp__python__", "execute", "python"),
-            ("mcp__workspace__", "session_log", "workspace"),
+            ("mcp__osprey_workspace__", "session_log", "osprey_workspace"),
             ("mcp__ariel__", "keyword_search", "ariel"),
             ("mcp__channel-finder__", "channel_find", "channel-finder"),
         ],

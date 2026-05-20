@@ -13,7 +13,7 @@ from fastmcp import FastMCP
 logger = logging.getLogger("osprey.mcp_server.workspace")
 
 mcp = FastMCP(
-    "workspace",
+    "osprey_workspace",
     instructions="Manage artifacts, capture screens, and run data visualizations",
 )
 

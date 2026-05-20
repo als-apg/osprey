@@ -77,7 +77,7 @@ class TestClaudeCodeFileContents:
         assert "mcpServers" in data
         # Core OSPREY servers
         assert "controls" in data["mcpServers"]
-        assert "workspace" in data["mcpServers"]
+        assert "osprey_workspace" in data["mcpServers"]
 
         import sys
 
@@ -89,7 +89,7 @@ class TestClaudeCodeFileContents:
         assert cs["env"]["OSPREY_CONFIG"] == expected_config
 
         # Workspace server
-        ws = data["mcpServers"]["workspace"]
+        ws = data["mcpServers"]["osprey_workspace"]
         assert ws["args"] == ["-m", "osprey.mcp_server.workspace"]
 
     def test_settings_json_has_hooks_and_permissions(self, project_dir):
@@ -106,7 +106,7 @@ class TestClaudeCodeFileContents:
         # channel_read has a PreToolUse matcher for dynamic approval
         pre_matchers = [h["matcher"] for h in data["hooks"]["PreToolUse"]]
         assert "mcp__controls__channel_read" in pre_matchers
-        assert "mcp__workspace__submit_response" in data["permissions"]["allow"]
+        assert "mcp__osprey_workspace__submit_response" in data["permissions"]["allow"]
 
         assert "hooks" in data
         assert "PreToolUse" in data["hooks"]

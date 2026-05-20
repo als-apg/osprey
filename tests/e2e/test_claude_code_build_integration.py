@@ -341,7 +341,7 @@ class TestBuildProjectClaudeCodeFilesSmoke:
         # Core servers must be present
         assert "controls" in mcp_data["mcpServers"]
         assert "python" in mcp_data["mcpServers"]
-        assert "workspace" in mcp_data["mcpServers"]
+        assert "osprey_workspace" in mcp_data["mcpServers"]
         assert "ariel" in mcp_data["mcpServers"]
         # Control system server has correct config env
         server = mcp_data["mcpServers"]["controls"]

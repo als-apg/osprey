@@ -14,7 +14,7 @@ DEFAULT_ERROR_CONFIG = {
     "server_prefixes": [
         "mcp__controls__",
         "mcp__python__",
-        "mcp__workspace__",
+        "mcp__osprey_workspace__",
         "mcp__ariel__",
         "mcp__channel-finder__",
     ],
@@ -99,7 +99,7 @@ def test_validation_error_injects_guidance(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__workspace__artifact_save",
+        "mcp__osprey_workspace__artifact_save",
         {"content": "test"},
         config_path=config,
         tool_response=_make_error_response(
@@ -163,7 +163,7 @@ def test_lattice_error_injects_guidance(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__workspace__lattice_load",
+        "mcp__osprey_workspace__lattice_load",
         {"path": "broken.lat"},
         config_path=config,
         tool_response=_make_error_response(
@@ -184,7 +184,7 @@ def test_service_unavailable_injects_guidance(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__workspace__lattice_load",
+        "mcp__osprey_workspace__lattice_load",
         {"path": "ring.lat"},
         config_path=config,
         tool_response=_make_error_response(
@@ -205,7 +205,7 @@ def test_file_not_found_injects_guidance(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__workspace__artifact_save",
+        "mcp__osprey_workspace__artifact_save",
         {"path": "missing.h5"},
         config_path=config,
         tool_response=_make_error_response(
@@ -491,7 +491,7 @@ def test_data_no_results_injects_guidance(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__workspace__artifact_save",
+        "mcp__osprey_workspace__artifact_save",
         {"query": "nonexistent artifact"},
         config_path=config,
         tool_response=_make_error_response(

@@ -26,11 +26,11 @@ WRITE_HOOK_CHAIN = [
 
 # Default hook_config for chain tests (approval hook needs approval_prefixes)
 DEFAULT_CHAIN_CONFIG = {
-    "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__", "mcp__ariel__"],
+    "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__osprey_workspace__", "mcp__ariel__"],
     "approval_prefixes": [
         "mcp__controls__",
         "mcp__python__",
-        "mcp__workspace__",
+        "mcp__osprey_workspace__",
         "mcp__ariel__",
     ],
 }
@@ -40,7 +40,7 @@ DEFAULT_ERROR_CONFIG = {
     "server_prefixes": [
         "mcp__controls__",
         "mcp__python__",
-        "mcp__workspace__",
+        "mcp__osprey_workspace__",
         "mcp__ariel__",
         "mcp__channel-finder__",
     ],

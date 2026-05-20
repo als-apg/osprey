@@ -594,7 +594,7 @@ class TestDisableServers:
             manager.template_root, manager.jinja_env, project_dir, config
         )
         # Core servers should all be enabled
-        assert {"controls", "workspace", "ariel"} <= ctx["enabled_servers"]
+        assert {"controls", "osprey_workspace", "ariel"} <= ctx["enabled_servers"]
 
 
 class TestFacilityMd:
@@ -794,10 +794,10 @@ class TestSettingsJsonValidity:
         [
             (["controls"], "controls-disabled"),
             (["ariel"], "ariel-disabled"),
-            (["workspace"], "workspace-disabled"),
-            (["controls", "workspace"], "controls-and-workspace-disabled"),
+            (["osprey_workspace"], "workspace-disabled"),
+            (["controls", "osprey_workspace"], "controls-and-workspace-disabled"),
             (
-                ["controls", "workspace", "ariel"],
+                ["controls", "osprey_workspace", "ariel"],
                 "all-core-disabled",
             ),
         ],

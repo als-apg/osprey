@@ -413,10 +413,10 @@ class TestAgentDelegation:
         )
 
         viz_tool_names = [
-            "mcp__workspace__create_static_plot",
-            "mcp__workspace__create_interactive_plot",
-            "mcp__workspace__create_dashboard",
-            "mcp__workspace__create_document",
+            "mcp__osprey_workspace__create_static_plot",
+            "mcp__osprey_workspace__create_interactive_plot",
+            "mcp__osprey_workspace__create_dashboard",
+            "mcp__osprey_workspace__create_document",
         ]
 
         result = await run_sdk_query(

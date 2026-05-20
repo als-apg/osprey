@@ -148,8 +148,8 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         ],
         hooks_post=[_post_error("mcp__python__.*")],
     ),
-    "workspace": ServerDefinition(
-        name="workspace",
+    "osprey_workspace": ServerDefinition(
+        name="osprey_workspace",
         module="osprey.mcp_server.workspace",
         env={
             "OSPREY_CONFIG": "{project_root}/config.yml",
@@ -185,11 +185,11 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         permissions_ask=["setup_patch"],
         hooks_pre=[
             HookRule(
-                matcher="mcp__workspace__setup_patch",
+                matcher="mcp__osprey_workspace__setup_patch",
                 hooks=[_APPROVAL],
             ),
         ],
-        hooks_post=[_post_error("mcp__workspace__.*")],
+        hooks_post=[_post_error("mcp__osprey_workspace__.*")],
     ),
     "ariel": ServerDefinition(
         name="ariel",

@@ -38,7 +38,7 @@ class TestResolveServers:
         disabled = {s["name"] for s in servers if not s["enabled"]}
 
         # Core servers always on
-        assert {"controls", "workspace", "ariel"} <= enabled
+        assert {"controls", "osprey_workspace", "ariel"} <= enabled
         # Conditional servers off (conditions not in ctx)
         assert {"channel-finder"} <= disabled
 
@@ -412,7 +412,7 @@ class TestTemplateRendering:
         data = json.loads(rendered)
         assert "mcpServers" in data
         assert "controls" in data["mcpServers"]
-        assert "workspace" in data["mcpServers"]
+        assert "osprey_workspace" in data["mcpServers"]
         # Conditional servers not present
         assert "channel-finder" not in data["mcpServers"]
 
@@ -459,7 +459,7 @@ class TestTemplateRendering:
         allow = data["permissions"]["allow"]
         assert '"Read(_agent_data/**)"' not in allow  # Not double-quoted
         assert "Read(_agent_data/**)" in allow
-        assert "mcp__workspace__data_read" in allow
+        assert "mcp__osprey_workspace__data_read" in allow
         # Check ask entries
         ask = data["permissions"]["ask"]
         assert "mcp__controls__channel_write" in ask
@@ -507,10 +507,10 @@ class TestTemplateRendering:
         assert "approval_prefixes" in data
         # Core servers should be in server_prefixes
         assert "mcp__controls__" in data["server_prefixes"]
-        assert "mcp__workspace__" in data["server_prefixes"]
+        assert "mcp__osprey_workspace__" in data["server_prefixes"]
         # Controls, workspace, and ariel all have approval hooks
         assert "mcp__controls__" in data["approval_prefixes"]
-        assert "mcp__workspace__" in data["approval_prefixes"]
+        assert "mcp__osprey_workspace__" in data["approval_prefixes"]
         assert "mcp__ariel__" in data["approval_prefixes"]
 
     def test_render_hook_config_json_with_custom_server(self, template_manager):

@@ -148,8 +148,8 @@ def test_mcp_permissions_round_trip_control_assistant(built_control_assistant_pr
     by_server = _framework_allow_snapshot(allow)
 
     # Workspace tools (a representative subset) round-trip.
-    assert "submit_response" in by_server.get("workspace", set())
-    assert "create_static_plot" in by_server.get("workspace", set())
+    assert "submit_response" in by_server.get("osprey_workspace", set())
+    assert "create_static_plot" in by_server.get("osprey_workspace", set())
 
     # Ariel tools round-trip.
     assert "keyword_search" in by_server.get("ariel", set())
@@ -194,7 +194,7 @@ def test_mcp_permissions_ask_round_trip(built_control_assistant_project):
     # Framework-known ask entries: controls.channel_write, workspace.setup_patch,
     # ariel.entry_create.
     assert "mcp__controls__channel_write" in ask
-    assert "mcp__workspace__setup_patch" in ask
+    assert "mcp__osprey_workspace__setup_patch" in ask
     assert "mcp__ariel__entry_create" in ask
 
 
@@ -206,13 +206,13 @@ def test_mcp_permissions_ask_round_trip(built_control_assistant_project):
 _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
     "channel-finder": {
         # tools: rendered from CHANNEL_FINDER_TOOLS_BY_PIPELINE['hierarchical']
-        #        + mcp__workspace__submit_response
+        #        + mcp__osprey_workspace__submit_response
         "tools": [
             *(
                 f"mcp__channel-finder__{t}"
                 for t in CHANNEL_FINDER_TOOLS_BY_PIPELINE["hierarchical"]
             ),
-            "mcp__workspace__submit_response",
+            "mcp__osprey_workspace__submit_response",
         ],
         "disallowedTools": [
             "Bash", "Read", "Write", "Edit", "Glob", "Grep",
@@ -224,7 +224,7 @@ _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
             "mcp__ariel__keyword_search", "mcp__ariel__semantic_search",
             "mcp__ariel__browse", "mcp__ariel__filter_options",
             "mcp__ariel__entry_get", "mcp__ariel__capabilities",
-            "mcp__workspace__submit_response",
+            "mcp__osprey_workspace__submit_response",
         ],
         "disallowedTools": [
             "Bash", "Read", "Write", "Edit", "Glob", "Grep",
@@ -237,7 +237,7 @@ _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
             "mcp__ariel__browse", "mcp__ariel__filter_options",
             "mcp__ariel__entry_get", "mcp__ariel__capabilities",
             "mcp__ariel__sql_query", "mcp__ariel__entries_by_ids",
-            "mcp__workspace__submit_response",
+            "mcp__osprey_workspace__submit_response",
         ],
         "disallowedTools": [
             "Bash", "Read", "Write", "Edit", "Glob", "Grep",
@@ -247,15 +247,15 @@ _FRAMEWORK_AGENT_EXPECTED: dict[str, dict[str, list[str]]] = {
     },
     "data-visualizer": {
         "tools": [
-            "mcp__workspace__create_static_plot",
-            "mcp__workspace__create_interactive_plot",
-            "mcp__workspace__create_dashboard",
-            "mcp__workspace__create_document",
-            "mcp__workspace__artifact_save",
-            "mcp__workspace__artifact_get",
-            "mcp__workspace__data_list",
-            "mcp__workspace__data_read",
-            "mcp__workspace__facility_description",
+            "mcp__osprey_workspace__create_static_plot",
+            "mcp__osprey_workspace__create_interactive_plot",
+            "mcp__osprey_workspace__create_dashboard",
+            "mcp__osprey_workspace__create_document",
+            "mcp__osprey_workspace__artifact_save",
+            "mcp__osprey_workspace__artifact_get",
+            "mcp__osprey_workspace__data_list",
+            "mcp__osprey_workspace__data_read",
+            "mcp__osprey_workspace__facility_description",
             "Read",
         ],
         "disallowedTools": [
@@ -320,7 +320,7 @@ def test_overlay_agent_frontmatter_preserved(tmp_path):
             ---
             name: my-overlay
             description: A custom facility agent for contract testing.
-            tools: mcp__workspace__submit_response, Read
+            tools: mcp__osprey_workspace__submit_response, Read
             disallowedTools: Bash, Edit, Skill, Agent
             ---
 
@@ -338,7 +338,7 @@ def test_overlay_agent_frontmatter_preserved(tmp_path):
     fm = _parse_frontmatter(custom)
     assert fm["name"] == "my-overlay"
     assert _split_csv(fm["tools"]) == [
-        "mcp__workspace__submit_response", "Read"
+        "mcp__osprey_workspace__submit_response", "Read"
     ]
     assert _split_csv(fm["disallowedTools"]) == [
         "Bash", "Edit", "Skill", "Agent"
@@ -405,7 +405,7 @@ def test_crown_jewel_invariant_rejects_wildcards(tmp_path):
             ---
             name: wild
             description: Test agent using a wildcard tool entry.
-            tools: mcp__workspace__*, Read
+            tools: mcp__osprey_workspace__*, Read
             ---
 
             # Wild
@@ -424,7 +424,7 @@ def test_crown_jewel_invariant_accepts_prefix_match_on_existing_allow(
     built_control_assistant_project,
 ):
     """Sanity: an exact-literal tool that IS in permissions.allow passes."""
-    # data-visualizer declares mcp__workspace__create_static_plot,
+    # data-visualizer declares mcp__osprey_workspace__create_static_plot,
     # which IS in workspace.permissions_allow → must pass.
     errors = validate_agent_tools_against_permissions(built_control_assistant_project)
     # Filter to errors mentioning data-visualizer specifically — there should be none.

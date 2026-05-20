@@ -190,7 +190,7 @@ def test_mcp_tool_passes_through(tmp_path, hook_runner):
     """MCP tools are not affected by this hook."""
     result = hook_runner(
         "osprey_memory_guard.py",
-        "mcp__workspace__some_tool",
+        "mcp__osprey_workspace__some_tool",
         {"content": "some memory"},
         cwd=tmp_path,
     )

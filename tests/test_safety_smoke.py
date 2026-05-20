@@ -159,11 +159,11 @@ def smoke_env(tmp_path):
 
 # Default hook_config for smoke tests (approval + error guidance prefixes)
 _SMOKE_HOOK_CONFIG = {
-    "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__", "mcp__ariel__"],
+    "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__osprey_workspace__", "mcp__ariel__"],
     "approval_prefixes": [
         "mcp__controls__",
         "mcp__python__",
-        "mcp__workspace__",
+        "mcp__osprey_workspace__",
         "mcp__ariel__",
     ],
     "write_tools": ["mcp__controls__channel_write", "mcp__python__execute"],
