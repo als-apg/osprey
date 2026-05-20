@@ -8,6 +8,7 @@ Extracted from test_claude_code_sdk_e2e.py to avoid circular imports.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -146,19 +147,34 @@ def enable_writes_in_project(project_dir: Path) -> None:
     ``osprey_approval.py`` gets to return ``ask``, so the SDK's
     ``can_use_tool`` callback never fires when writes are disabled.
 
+    Also drops ``mcp__controls__channel_write`` from ``.claude/settings.json``'s
+    ``permissions.deny`` list. The kill-switch hard-block in
+    ``cli/templates/claude_code.py`` bakes that deny entry into ``settings.json``
+    at build time when ``writes_enabled`` is false (so Claude Code's permissions
+    layer short-circuits before the PreToolUse hook chain runs). Flipping
+    ``config.yml`` alone leaves the rendered ``settings.json`` stale, so the
+    settings layer still denies and no hook ever fires.
+
     Idempotent: presets like ``control_assistant`` already ship with
     ``writes_enabled: true``; only ``hello_world`` defaults to false.
     """
     config_path = project_dir / "config.yml"
     text = config_path.read_text(encoding="utf-8")
-    if "writes_enabled: true" in text:
-        return
-    updated = text.replace("writes_enabled: false", "writes_enabled: true", 1)
-    if updated == text:
-        raise RuntimeError(
-            f"Could not enable writes in {config_path}: no writes_enabled key found."
-        )
-    config_path.write_text(updated, encoding="utf-8")
+    if "writes_enabled: true" not in text:
+        updated = text.replace("writes_enabled: false", "writes_enabled: true", 1)
+        if updated == text:
+            raise RuntimeError(
+                f"Could not enable writes in {config_path}: no writes_enabled key found."
+            )
+        config_path.write_text(updated, encoding="utf-8")
+
+    settings_path = project_dir / ".claude" / "settings.json"
+    if settings_path.exists():
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        deny = data.get("permissions", {}).get("deny", [])
+        if "mcp__controls__channel_write" in deny:
+            deny.remove("mcp__controls__channel_write")
+            settings_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
 def _resolve_project_spec(project_dir: Path):

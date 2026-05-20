@@ -21,7 +21,7 @@ def _make_client(workspace_dir, custom_panels):
         ),
         patch(
             "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=(enabled, custom_panels),
+            return_value=(enabled, custom_panels, None),
         ),
     ):
         app = create_app(shell_command="echo")
