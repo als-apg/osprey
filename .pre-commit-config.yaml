@@ -20,8 +20,21 @@ repos:
     hooks:
       # Remove trailing whitespace
       - id: trailing-whitespace
+        # Vendored minified JS bundles (plotly) and generated channel-database
+        # tier artifacts are produced by external tooling — formatting them
+        # creates spurious diffs on the next re-vendor / regeneration.
+        exclude: |
+          (?x)^(
+            .*\.min\.(js|css)|
+            src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/.*\.json
+          )$
       # Ensure files end with a newline
       - id: end-of-file-fixer
+        exclude: |
+          (?x)^(
+            .*\.min\.(js|css)|
+            src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/.*\.json
+          )$
       # Check for merge conflict markers
       - id: check-merge-conflict
       # Check YAML syntax
