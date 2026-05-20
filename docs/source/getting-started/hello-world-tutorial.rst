@@ -4,7 +4,7 @@ Hello World Tutorial
 
 Build your first OSPREY agent. One MCP server, one mock control system, zero
 complexity. By the end of this tutorial, you'll have an agent that reads
-control system channels using Claude Code.
+control system channels using the Osprey agent.
 
 .. dropdown:: **Prerequisites**
    :color: info
@@ -79,19 +79,19 @@ read freely.
      }
    }
 
-This is how Claude Code discovers the control system MCP server. When Claude
-starts, it launches this server and gains access to tools like
+This is how the Osprey agent discovers the control system MCP server. When the
+agent starts, it launches this server and gains access to tools like
 ``channel_read`` and ``channel_write``.
 
 **CLAUDE.md** --- Agent Behavior Instructions
 
-This file contains instructions that Claude reads on startup. It defines how
+This file contains instructions that the Osprey agent reads on startup. It defines how
 the agent should behave, what safety rules to follow, and how to format
 responses. Edit this file to customize your agent's personality and behavior.
 
 .. note::
 
-   The ``hello_world`` template also installs Claude Code **hooks** for
+   The ``hello_world`` template also installs agent **hooks** for
    safety enforcement. These hooks run automatically before each tool call to
    check limits and require human approval for writes. You don't need to
    configure them manually.
@@ -107,10 +107,10 @@ From your project directory:
 
 .. note::
 
-   On first run, Claude Code will ask you to trust the MCP servers in this
-   project. Accept to allow Claude to use the control system tools.
+   On first run, the Osprey agent will ask you to trust the MCP servers in this
+   project. Accept to allow the agent to use the control system tools.
 
-   Claude connects to the ``control_system`` MCP server and is ready to accept
+   The Osprey agent connects to the ``control_system`` MCP server and is ready to accept
    queries.
 
 Step 4: Try It Out
@@ -150,7 +150,7 @@ all PV names without needing a real control system.
 
    You: Read SR:VAC:PRESSURE:01 and SR:MAG:QF:01:CURRENT:RB
 
-Claude calls the ``channel_read`` tool for each channel and presents the
+The Osprey agent calls the ``channel_read`` tool for each channel and presents the
 results together --- vacuum pressure and magnet readback values.
 
 Step 5: Safety & Limits
@@ -219,17 +219,17 @@ Here's what happens when you ask "Read channel SR:BEAM:CURRENT":
 
 .. code-block:: text
 
-   You ──→ Claude Code ──→ channel_read MCP tool
+   You ──→ Osprey agent ──→ channel_read MCP tool
                                     │
                               Mock Connector
                                     │
-                           Synthetic data ──→ Claude formats response ──→ You
+                           Synthetic data ──→ Osprey agent formats response ──→ You
 
 1. You type a natural language query
-2. Claude decides to call the ``channel_read`` MCP tool
+2. The Osprey agent decides to call the ``channel_read`` MCP tool
 3. The MCP server receives the call and routes it to the **mock connector**
 4. The mock connector generates synthetic data (realistic noise, naming-based values)
-5. Claude formats the response and presents it to you
+5. The Osprey agent formats the response and presents it to you
 
 **This is the same flow in production** --- just with ``type: epics`` instead of
 ``type: mock``. The connector handles the difference; your agent and queries
@@ -241,7 +241,7 @@ Step 7: Customize
 **Change agent behavior** by editing ``CLAUDE.md``:
 
 Add a line like "Always report values with 4 decimal places" or "When reading
-magnet channels, also explain what the magnet does." Restart Claude to see
+magnet channels, also explain what the magnet does." Restart the Osprey agent to see
 the effect.
 
 **Add new channels to the limits database** by editing

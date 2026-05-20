@@ -51,7 +51,7 @@ To set permissions and hooks on a custom server:
          hooks:
            pre_tool_use: [approval]
 
-After editing, regenerate the Claude Code configuration:
+After editing, regenerate the Osprey agent configuration:
 
 .. code-block:: bash
 
@@ -230,8 +230,8 @@ Important ``ServerDefinition`` fields:
     Use ``_APPROVAL`` for human-in-the-loop on safety-critical tools and
     ``_post_error()`` for standard error guidance.
 
-After adding the entry, run ``osprey claude regen`` to regenerate the Claude
-Code configuration.  The server will appear in ``.mcp.json``.
+After adding the entry, run ``osprey claude regen`` to regenerate the Osprey
+agent configuration.  The server will appear in ``.mcp.json``.
 
 
 Testing

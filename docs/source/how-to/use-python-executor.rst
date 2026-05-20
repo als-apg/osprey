@@ -6,7 +6,7 @@ Python Execution Service
 
 The Python Execution Service runs user-provided code in an isolated
 environment with safety checks, process isolation, and timeout enforcement.
-Claude uses it via the ``execute`` MCP tool to perform data analysis,
+The Osprey agent uses it via the ``execute`` MCP tool to perform data analysis,
 plotting, and control-system interactions on behalf of the operator.
 
 What It Does
@@ -19,7 +19,7 @@ figures, and saved artifacts---are returned as structured JSON.
 
 .. code-block:: text
 
-   Claude → execute MCP tool → safety checks → container / subprocess → result JSON
+   Osprey agent → execute MCP tool → safety checks → container / subprocess → result JSON
 
 All packages installed in the deployment environment are available to
 executed code (numpy, pandas, scipy, matplotlib, plotly, etc.).
@@ -159,12 +159,12 @@ Five safety layers are applied in sequence:
 
 .. note::
 
-   There is no in-framework code-generation pipeline. Claude Code generates
+   There is no in-framework code-generation pipeline. The Osprey agent generates
    Python code itself and invokes the ``execute`` MCP tool directly.
 
 .. note::
 
-   Write approval is handled by the ``execution_mode`` parameter. Claude Code
+   Write approval is handled by the ``execution_mode`` parameter. The Osprey agent
    requests user confirmation before calling ``execute`` with
    ``execution_mode="readwrite"``---there is no separate approval API.
 

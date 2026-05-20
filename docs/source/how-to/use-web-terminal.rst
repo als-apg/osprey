@@ -1,7 +1,7 @@
 Use the Web Terminal
 ====================
 
-The OSPREY Web Terminal is a browser-based interface that wraps Claude Code in a
+The OSPREY Web Terminal is a browser-based interface that wraps the Osprey agent in a
 split-pane layout: a real terminal (PTY) on the left and a live workspace file
 viewer on the right. It is built with FastAPI and communicates with the terminal
 session over WebSocket, so every keystroke and resize event is forwarded in real
@@ -68,7 +68,7 @@ output travel over the ``/ws/terminal`` WebSocket. The terminal supports:
 - **Resize**: the client sends ``{"type": "resize", "cols": N, "rows": N}``
   and the PTY window is adjusted immediately.
 - **Session resume**: pass ``?session_id=UUID&mode=resume`` to reconnect to an
-  existing Claude Code conversation.
+  existing Osprey agent conversation.
 - **Session switching**: send ``{"type": "switch_session", "session_id": UUID}``
   to hop between background sessions without losing state.
 - **Background pool**: up to ``max_background_sessions`` (default 5) detached
@@ -77,7 +77,7 @@ output travel over the ``/ws/terminal`` WebSocket. The terminal supports:
 Operator Mode
 ^^^^^^^^^^^^^
 
-An alternative WebSocket endpoint (``/ws/operator``) drives Claude through the
+An alternative WebSocket endpoint (``/ws/operator``) drives the Osprey agent through the
 Agent SDK instead of a PTY. The client sends structured JSON prompts and
 receives typed events (text, thinking, tool use, errors).
 
@@ -110,13 +110,13 @@ The settings drawer exposes the project ``config.yml`` through a REST API:
 After saving, the UI prompts you to restart the terminal so the agent picks up
 the new settings.
 
-Claude Code Setup Editor
-^^^^^^^^^^^^^^^^^^^^^^^^
+Osprey Agent Setup Editor
+^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Read and edit the Claude Code integration files (``.claude/`` directory) without
+Read and edit the Osprey agent integration files (``.claude/`` directory) without
 leaving the browser:
 
-- ``GET /api/claude-setup`` -- list all Claude Code files in the project.
+- ``GET /api/claude-setup`` -- list all Osprey agent files in the project.
 - ``PUT /api/claude-setup`` -- save changes to an existing file.
 - ``POST /api/claude-setup`` -- create a new file in an allowed subdirectory.
 
@@ -125,7 +125,7 @@ Session Diagnostics
 
 A dedicated session panel lets you inspect the running conversation:
 
-- **Session list** (``GET /api/sessions``) -- all Claude Code sessions
+- **Session list** (``GET /api/sessions``) -- all Osprey agent sessions
   registered for the project.
 - **Agent hierarchy** (``GET /api/session-agents``) -- subagent tree with tool
   call breakdowns.
@@ -155,7 +155,7 @@ Browse, edit, and override the prompt artifacts that shape the agent:
 Memory Gallery
 ^^^^^^^^^^^^^^
 
-Manage Claude memory files (Markdown notes persisted across sessions):
+Manage Osprey agent memory files (Markdown notes persisted across sessions):
 
 - ``GET /api/claude-memory`` -- list memory files.
 - ``POST /api/claude-memory`` -- create a new memory file.

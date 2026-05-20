@@ -1,9 +1,9 @@
 Use the CLI Chat Interface
 ==========================
 
-The CLI chat interface launches Claude Code in your native terminal while
+The CLI chat interface launches the Osprey agent in your native terminal while
 running OSPREY's companion services in the background. This gives you the full
-Claude Code TUI experience — keyboard shortcuts, slash commands, native
+agent TUI experience — keyboard shortcuts, slash commands, native
 scrollback — with access to companion services (artifact gallery, session
 analytics, etc.) via their URLs in a browser.
 
@@ -18,13 +18,13 @@ From any OSPREY project directory:
 
 This command:
 
-1. Regenerates Claude Code integration files (``.mcp.json``, ``CLAUDE.md``,
+1. Regenerates Osprey agent integration files (``.mcp.json``, ``CLAUDE.md``,
    ``.claude/settings.json``) from ``config.yml``.
 2. Resolves the configured LLM provider and injects authentication.
 3. Starts the translation proxy if the provider needs it (see
    :doc:`configure-providers`).
 4. Launches companion web servers in the background.
-5. Opens the Claude Code TUI in your terminal.
+5. Opens the Osprey agent TUI in your terminal.
 
 Options
 ^^^^^^^
@@ -42,7 +42,7 @@ Companion Services
 ------------------
 
 On startup, ``osprey claude chat`` launches the same companion servers as
-``osprey web``. Each server's URL is printed before Claude Code starts:
+``osprey web``. Each server's URL is printed before the Osprey agent starts:
 
 .. code-block:: text
 
@@ -50,12 +50,12 @@ On startup, ``osprey claude chat`` launches the same companion servers as
      * Artifact gallery  http://127.0.0.1:8086
      * ARIEL server      http://127.0.0.1:8085
 
-Open any of these URLs in a browser to access the service while Claude Code
+Open any of these URLs in a browser to access the service while the Osprey agent
 runs in your terminal. Which servers start depends on your ``config.yml`` —
 each server respects its own ``auto_launch`` setting.
 
 The servers run as background threads and stop automatically when you exit
-Claude Code.
+the Osprey agent.
 
 When to Use CLI vs. Web Terminal
 --------------------------------
@@ -68,7 +68,7 @@ When to Use CLI vs. Web Terminal
      - Web terminal (``osprey web``)
    * - Native terminal experience
      - Browser-based split-pane UI
-   * - Full Claude Code TUI with keyboard shortcuts
+   * - Full Osprey agent TUI with keyboard shortcuts
      - Embedded terminal emulator
    * - Companion services in separate browser tabs
      - Companion services as side panels

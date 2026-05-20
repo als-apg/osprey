@@ -32,9 +32,9 @@ system and the operator decide whether they happen.
 How the Agent Works
 ===================
 
-The agent is built on two components: **Claude Code** and **MCP tools**.
+The agent is built on two components: **a coding-agent harness** and **MCP tools**.
 
-**Claude Code** is an AI assistant that runs in your terminal (or behind
+**The Osprey agent** is an AI assistant that runs in your terminal (or behind
 a web interface). It reads natural language, reasons about what to do,
 and calls tools to carry out actions. It does not connect to your
 control system directly --- it has no knowledge of PV names, channel
@@ -44,11 +44,11 @@ addresses, or hardware protocols until you give it tools.
 infrastructure. OSPREY ships tools for reading and writing control
 system channels, querying archivers, searching logbooks, and finding
 channel addresses. When the agent starts, it discovers which tools are
-available and what each tool can do. When you ask a question, Claude
+available and what each tool can do. When you ask a question, the Osprey agent
 decides which tools to call, calls them, and uses the results to form
 a response.
 
-This separation matters: Claude is the reasoning layer, and the tools
+This separation matters: the Osprey agent is the reasoning layer, and the tools
 are the execution layer. You control what the agent can do by choosing
 which tools to enable. If you only enable ``channel_read``, the agent
 can read channels but has no way to write to them --- regardless of

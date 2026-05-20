@@ -21,7 +21,7 @@ without arguments launches an interactive TUI menu.
    osprey deploy COMMAND     # Manage services
    osprey health             # Check system health
    osprey channel-finder     # Channel finder CLI
-   osprey claude             # Manage Claude Code integration
+   osprey claude             # Manage Osprey agent integration
    osprey eject              # Copy framework components for customization
    osprey ariel              # ARIEL logbook search service
    osprey artifacts          # Artifact gallery
@@ -152,12 +152,12 @@ Run comprehensive system health check.
 osprey claude
 =============
 
-Manage Claude Code integration — regenerate artifacts, launch chat, and check
+Manage Osprey agent integration — regenerate artifacts, launch chat, and check
 status.
 
 ``osprey claude chat [OPTIONS]``
    Regenerate artifacts from ``config.yml``, launch companion servers, and
-   start Claude Code in the terminal. See :doc:`/how-to/use-cli-chat`.
+   start the Osprey agent in the terminal. See :doc:`/how-to/use-cli-chat`.
 
    ``-p, --project DIRECTORY`` — Project directory (default: current directory).
 
@@ -168,7 +168,7 @@ status.
    ``--effort [low|medium|high|max]`` — Set effort level.
 
 ``osprey claude regen [OPTIONS]``
-   Re-render all Claude Code integration files (``.mcp.json``,
+   Re-render all Osprey agent integration files (``.mcp.json``,
    ``.claude/settings.json``, ``CLAUDE.md``, agents) from ``config.yml``.
    Existing files are backed up to ``_agent_data/backup/``.
 
@@ -272,8 +272,8 @@ osprey artifacts
 ================
 
 Manage the OSPREY Artifact Gallery -- a local web gallery that displays
-interactive plots, tables, and other outputs produced by Claude during
-analysis sessions. Artifacts are written by Claude via ``save_artifact()`` in
+interactive plots, tables, and other outputs produced by the Osprey agent during
+analysis sessions. Artifacts are written by the Osprey agent via ``save_artifact()`` in
 ``osprey execute`` or the ``artifact_save`` MCP tool.
 
 ``osprey artifacts web [OPTIONS]``
@@ -390,7 +390,7 @@ All subcommands accept a common flag:
 osprey skills
 =============
 
-Manage bundled Osprey skills — Claude Code skills shipped with OSPREY that
+Manage bundled Osprey skills — agent skills shipped with OSPREY that
 can be installed either globally or into a specific project's
 ``.claude/skills/`` directory.
 
@@ -409,7 +409,7 @@ can be installed either globally or into a specific project's
 
    * ``osprey-build-interview`` — guided project-profile generation (see
      :doc:`/getting-started/osprey-build-interview`). Typically installed globally
-     so it is available in any Claude Code session.
+     so it is available in any Osprey agent session.
    * ``osprey-build-deploy`` — CI/CD setup, deploy-server operations, and
      release workflow for a facility profile repo. Typically installed
      project-locally (into the profile repo's ``.claude/skills/``) by the
