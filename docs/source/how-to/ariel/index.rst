@@ -6,18 +6,19 @@ ARIEL (Agentic Retrieval Interface for Electronic Logbooks) provides intelligent
 search over facility electronic logbooks. It is built around a **modular
 architecture** with three main layers: a :doc:`data ingestion pipeline
 <data-ingestion>` that normalizes logbook entries from any facility into a common
-PostgreSQL schema, composable :doc:`search modules <search-modes>` such as keyword
-matching, semantic similarity, and RAG-powered question answering, and a
-:doc:`web interface <web-interface>` for interactive exploration. These components
-connect to the rest of Osprey through the :doc:`integration layer
-<osprey-integration>`.
+PostgreSQL schema, composable :doc:`search modules <search-modes>` such as
+keyword and semantic similarity matching, and a :doc:`web interface
+<web-interface>` for interactive exploration. These components connect to the
+rest of Osprey through the :doc:`integration layer <osprey-integration>`, where
+the agent invokes ARIEL's MCP tools as part of broader workflows.
 
 Every layer is designed to be **facility-agnostic and extensible**. Ingestion
 adapters, search modules, and enhancement stages are all registerable --- you can
 implement your own and plug them into the full pipeline without modifying ARIEL's
 source code. Out of the box, adapters are included for facilities such as ALS,
-JLab, and ORNL, and search strategies range from keyword lookup to a multi-step
-ReAct agent that chains searches autonomously.
+JLab, and ORNL, and search strategies range from fast keyword lookup to
+embedding-based semantic similarity, with multi-step reasoning over results
+delegated to the Osprey agent layer.
 
 .. figure:: /_static/resources/ariel_overview.svg
    :alt: ARIEL Logbook Search Architecture
@@ -26,7 +27,7 @@ ReAct agent that chains searches autonomously.
 
    ARIEL data flow: facility logbooks are normalized through pluggable adapters
    into a shared PostgreSQL database, enhanced by modular processing stages, and
-   queried through composable search modules and pipelines.
+   queried through composable search modules.
 
 .. dropdown:: Prerequisites
    :color: info
@@ -122,11 +123,11 @@ ReAct agent that chains searches autonomously.
 
                   osprey ariel search "What happened with the RF cavity?"
 
-            .. tab-item:: Claude Chat
+            .. tab-item:: Agent Chat
 
-               Ask the Osprey agent. The logbook search MCP tool connects
-               Claude Code with the ARIEL search service, so it can combine
-               logbook results with other context.
+               Ask the Osprey agent. The logbook-search MCP tools connect the
+               agent to the ARIEL search service, so it can combine logbook
+               results with other context.
 
                .. code-block:: bash
 
@@ -153,7 +154,7 @@ Learn More
       :class-header: bg-info text-white
       :shadow: md
 
-      Keyword, semantic, RAG pipeline, and agent execution strategies.
+      Keyword and semantic search modules and how to add your own.
 
    .. grid-item-card:: Osprey Integration
       :link: osprey-integration
@@ -196,7 +197,7 @@ All ARIEL functionality is available through the ``osprey ariel`` command group:
    * - ``status``
      - Show ARIEL service status
    * - ``search``
-     - Search the logbook (``--mode keyword|semantic|rag|auto``)
+     - Search the logbook (``--mode keyword|semantic|auto``)
    * - ``ingest``
      - Ingest logbook entries from a source file or URL
    * - ``migrate``
@@ -221,10 +222,10 @@ All ARIEL functionality is available through the ``osprey ariel`` command group:
    :maxdepth: 2
    :hidden:
 
+   osprey-integration
    data-ingestion
    search-modes
    web-interface
-   osprey-integration
    standalone-deployment
 
 

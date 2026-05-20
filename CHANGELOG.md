@@ -173,6 +173,22 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Pre-CalVer SemVer markers: `versionchanged:: 0.10.7` directive in `deploy-project.rst` (now baseline); `(v0.9.x+)` qualifiers in `use-channel-finder.rst`, `tests/e2e/README.md`, and the `osprey-build-interview.rst` page-title parenthetical; two `>=0.12.0` examples in `build-profiles.rst` bumped to `>=2026.5.0`.
 
 ### Removed (BREAKING)
+- **ARIEL internal RAG and Agent pipelines removed.** ARIEL no longer ships
+  the in-process `RAGPipeline` (deterministic 4-stage retrieve/fuse/assemble/
+  generate) or the `AgentExecutor` (LiteLLM-backed ReAct loop). The
+  `pipelines.rag` and `pipelines.agent` config blocks, the
+  `SearchMode.RAG`/`SearchMode.AGENT` enum values, the `--mode rag`/`--mode
+  agent` CLI flags, the RAG/Agent tabs in the ARIEL web UI, and the
+  `ArielPipelineRegistration` registry entry are all gone. Multi-step
+  reasoning, answer synthesis, and custom prompting now live exclusively in
+  the Osprey agent layer, which calls ARIEL's MCP tools. `ARIELConfig.from_dict`
+  raises `ConfigurationError` for any `pipelines.*` block to fail builds
+  loudly. **Why**: every shipped preset bundles an Osprey agent; an agent
+  calling ARIEL search tools *is* RAG by definition — the in-service pipelines
+  duplicated that surface and forced facility owners to maintain two LLM
+  configurations. **Upgrade**: delete `pipelines.rag` / `pipelines.agent`
+  from `config.yml`; route synthesis through a skill in your build profile
+  (see :doc:`how-to/build-profiles`).
 - **`build-interview` renamed to `osprey-build-interview`.** Skill name,
   directory (`templates/skills/osprey-build-interview/`), slash command
   (`/osprey-build-interview`), and install command (`osprey skills install

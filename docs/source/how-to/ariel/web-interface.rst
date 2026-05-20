@@ -7,7 +7,7 @@ Web Interface
 
    The ARIEL web interface is experimental and under active development. Its API endpoints, frontend architecture, and configuration options may change in future releases.
 
-ARIEL ships with a browser-based search interface that provides the same search capabilities as the CLI in a more approachable form. The interface is a FastAPI application serving a JavaScript single-page application (SPA). It connects to the same ``ARIELSearchService`` as the CLI and the ARIEL MCP tools, so any search module or pipeline you register is automatically available in the UI.
+ARIEL ships with a browser-based search interface that provides the same search capabilities as the CLI in a more approachable form. The interface is a FastAPI application serving a JavaScript single-page application (SPA). It connects to the same ``ARIELSearchService`` as the CLI and the ARIEL MCP tools, so any search module you register is automatically available in the UI.
 
 .. code-block:: text
 
@@ -31,14 +31,14 @@ The interface has four views, accessible via the navigation bar. All views are r
 
    .. tab-item:: Search
 
-      The primary view. A search bar with mode tabs (Keyword, Semantic, RAG, Agent --- only enabled modes are shown) and an expandable advanced options panel. Results display as entry cards with relevance scores and highlights. RAG and Agent modes show a generated answer above the entry list. Press ``Enter`` to submit a query; ``Ctrl+Enter`` submits with the current advanced options.
+      The primary view. A search bar with mode tabs (Keyword, Semantic --- only enabled modes are shown) and an expandable advanced options panel. Results display as entry cards with relevance scores and highlights. Press ``Enter`` to submit a query; ``Ctrl+Enter`` submits with the current advanced options.
 
       .. figure:: /_static/screenshots/ariel_search.png
          :alt: ARIEL Search View
          :align: center
          :width: 90%
 
-         Search view with RAG mode selected, showing LLM and Direct mode tabs.
+         Search view with Keyword mode selected.
 
    .. tab-item:: Browse
 
@@ -144,9 +144,7 @@ The web interface discovers its search modes and tunable parameters dynamically 
                   "highlights": ["<b>RF cavity</b> trip at 08:15"]
                 }
               ],
-              "answer": "The RF cavity tripped at 08:15 due to...",
-              "sources": ["12345"],
-              "search_modes_used": ["keyword", "rag"],
+              "search_modes_used": ["keyword", "semantic"],
               "total_results": 1,
               "execution_time_ms": 340
             }
@@ -165,7 +163,6 @@ The web interface discovers its search modes and tunable parameters dynamically 
               ],
               "active_embedding_model": "nomic-embed-text",
               "enabled_search_modules": ["keyword", "semantic"],
-              "enabled_pipelines": ["rag", "agent"],
               "enabled_enhancement_modules": ["text_embedding", "semantic_processor"],
               "last_ingestion": "2025-01-15T06:00:00Z",
               "errors": []
@@ -175,43 +172,33 @@ The web interface discovers its search modes and tunable parameters dynamically 
 
       .. tab-item:: Capabilities
 
-         The ``/api/capabilities`` endpoint returns a JSON structure describing every enabled search module and pipeline, along with their parameters:
+         The ``/api/capabilities`` endpoint returns a JSON structure describing every enabled search module, along with its parameters:
 
          .. code-block:: json
 
             {
-              "categories": {
-                "direct": {
-                  "label": "Direct",
-                  "modes": [
+              "modes": [
+                {
+                  "name": "keyword",
+                  "label": "Keyword",
+                  "description": "Full-text PostgreSQL search...",
+                  "parameters": [
                     {
-                      "name": "keyword",
-                      "label": "Keyword",
-                      "description": "Full-text PostgreSQL search...",
-                      "parameters": [
-                        {
-                          "name": "fuzzy_fallback",
-                          "label": "Fuzzy Fallback",
-                          "param_type": "bool",
-                          "default": true,
-                          "section": "Search"
-                        }
-                      ]
+                      "name": "fuzzy_fallback",
+                      "label": "Fuzzy Fallback",
+                      "param_type": "bool",
+                      "default": true,
+                      "section": "Search"
                     }
                   ]
                 },
-                "llm": {
-                  "label": "LLM",
-                  "modes": [
-                    {
-                      "name": "rag",
-                      "label": "RAG Pipeline",
-                      "description": "Retrieve, fuse, and generate...",
-                      "parameters": []
-                    }
-                  ]
+                {
+                  "name": "semantic",
+                  "label": "Semantic",
+                  "description": "Embedding-based similarity search...",
+                  "parameters": []
                 }
-              },
+              ],
               "shared_parameters": [
                 {"name": "max_results", "param_type": "int", "default": 10},
                 {"name": "start_date", "param_type": "date"},
@@ -221,7 +208,7 @@ The web interface discovers its search modes and tunable parameters dynamically 
               ]
             }
 
-         **How it works:** The ``get_capabilities()`` function in :mod:`osprey.services.ariel_search.capabilities` iterates over enabled search modules and pipelines from the registry. Each module provides a ``get_tool_descriptor()`` (for its description) and optionally ``get_parameter_descriptors()`` (for its tunable parameters). Pipelines provide a ``get_pipeline_descriptor()`` with a ``category`` field (``"direct"`` or ``"llm"``) that determines which tab group the mode appears in.
+         **How it works:** The ``get_capabilities()`` function in :mod:`osprey.services.ariel_search.capabilities` iterates over enabled search modules from the registry. Each module provides a ``get_tool_descriptor()`` (for its description) and optionally ``get_parameter_descriptors()`` (for its tunable parameters).
 
       .. tab-item:: App Internals
 
@@ -229,7 +216,7 @@ The web interface discovers its search modes and tunable parameters dynamically 
 
          **Lifespan management:** The app uses FastAPI's ``lifespan`` context manager to initialize the ``ARIELSearchService`` on startup and clean it up on shutdown. During initialization:
 
-         1. **Registry bootstrap** --- pre-creates the framework registry singleton (without an application registry path) so that ARIEL's search module and pipeline discovery works even when running outside a full Osprey application.
+         1. **Registry bootstrap** --- pre-creates the framework registry singleton (without an application registry path) so that ARIEL's search module discovery works even when running outside a full Osprey application.
 
          2. **Config loading** --- searches for ``config.yml`` in four locations: the provided ``config_path``, ``/app/config.yml`` (Docker mount), the ``CONFIG_FILE`` environment variable, and the current directory. Applies the ``ARIEL_DATABASE_HOST`` environment variable override for Docker networking.
 
@@ -348,7 +335,7 @@ See Also
 ========
 
 :doc:`search-modes`
-    Search module and pipeline architecture
+    Search module architecture
 
 :doc:`osprey-integration`
     Capability, context flow, and prompt builder

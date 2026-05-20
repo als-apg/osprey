@@ -68,7 +68,7 @@ See [tests/e2e/README.md](tests/e2e/README.md) and the [Contributing Guide](http
 
 ## Key Features
 
-- **Dual-Mode Orchestration** - Plan-first (complete upfront plans) and reactive (ReAct, step-by-step) execution with explicit dependencies and operator oversight
+- **Agent-Driven Orchestration** - Skills, MCP tools, and explicit dependency declarations let the Osprey agent decompose operator requests into auditable steps with mandatory approval gates
 - **Control-System Safety** - Pattern detection, PV boundary checking, and mandatory approval for hardware writes
 - **Protocol-Agnostic Integration** - Seamless connection to EPICS, LabVIEW, Tango, and mock environments
 - **Scalable Capability Management** - Dynamic classification prevents prompt explosion as toolsets grow

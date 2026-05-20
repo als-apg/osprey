@@ -70,8 +70,10 @@ on their corpus before committing to the full deployment.
             cd my-logbook
 
          The generated ``config.yml`` enables keyword and semantic search
-         out of the box and leaves the RAG and ReAct pipelines off until
-         you opt in (see :doc:`search-modes`).
+         out of the box. Higher-level reasoning over results — multi-step
+         retrieval, answer synthesis, custom prompting — runs in the
+         sandboxed agent on top of these search modes (see
+         :doc:`search-modes`).
 
       .. tab-item:: 2. Deploy
 
