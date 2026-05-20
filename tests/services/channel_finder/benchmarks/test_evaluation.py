@@ -3,8 +3,8 @@
 Tests cover:
   - programmatic_recall_check: substring matching (full, partial, case-insensitive)
   - compute_f1: edge cases (perfect, both empty, one empty, partial, case-insensitive)
-  - evaluate_response: stage 1 failure path and stage 2 with mocked LLM
-  - llm_extract_channels: mocked LLM structured output
+  - evaluate_response: stage 1 default, stage 2 always-on when opted in
+  - llm_judge_coverage: mocked LLM structured output
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from osprey.services.channel_finder.benchmarks.evaluation import (
     ChannelExtractionResult,
     compute_f1,
     evaluate_response,
-    llm_extract_channels,
+    llm_judge_coverage,
     programmatic_recall_check,
 )
 
@@ -146,30 +146,47 @@ class TestComputeF1:
 
 
 # ---------------------------------------------------------------------------
-# llm_extract_channels (mocked)
+# llm_judge_coverage (mocked)
 # ---------------------------------------------------------------------------
 
 
-class TestLlmExtractChannels:
-    """Tests for LLM-based channel extraction with mocked completions."""
+class TestLlmJudgeCoverage:
+    """Tests for LLM-based coverage judging with mocked completions."""
 
     @patch("osprey.models.providers.litellm_adapter.execute_litellm_completion")
-    def test_returns_extracted_channels(self, mock_completion):
-        """Structured output returns recommended channels."""
+    def test_returns_covered_and_extras(self, mock_completion):
+        """Indices resolve back to expected strings; extras pass through."""
         mock_completion.return_value = ChannelExtractionResult(
-            recommended_channels=["CH:A", "CH:B"],
-            reasoning="These are the final channels.",
+            covered_expected_indices=[0, 1],
+            extra_recommended=["CH:Z"],
+            reasoning="Agent enumerated A and B; also recommended Z.",
         )
-        result = llm_extract_channels("some response text", ["CH:A", "CH:B"])
-        assert result == ["CH:A", "CH:B"]
+        covered, extras = llm_judge_coverage(
+            "some response text", ["CH:A", "CH:B"]
+        )
+        assert covered == ["CH:A", "CH:B"]
+        assert extras == ["CH:Z"]
         mock_completion.assert_called_once()
 
     @patch("osprey.models.providers.litellm_adapter.execute_litellm_completion")
+    def test_out_of_range_indices_dropped(self, mock_completion):
+        """Hallucinated indices (negative or beyond length) are filtered out."""
+        mock_completion.return_value = ChannelExtractionResult(
+            covered_expected_indices=[0, 5, -1, 99],
+            extra_recommended=[],
+            reasoning="Mix of valid and invalid indices.",
+        )
+        covered, extras = llm_judge_coverage("response", ["CH:A", "CH:B"])
+        assert covered == ["CH:A"]
+        assert extras == []
+
+    @patch("osprey.models.providers.litellm_adapter.execute_litellm_completion")
     def test_non_pydantic_returns_empty(self, mock_completion):
-        """Non-Pydantic return value falls back to empty list."""
+        """Non-Pydantic return value falls back to empty lists."""
         mock_completion.return_value = "raw string response"
-        result = llm_extract_channels("some response", ["CH:A"])
-        assert result == []
+        covered, extras = llm_judge_coverage("some response", ["CH:A"])
+        assert covered == []
+        assert extras == []
 
 
 # ---------------------------------------------------------------------------
@@ -180,8 +197,8 @@ class TestLlmExtractChannels:
 class TestEvaluateResponse:
     """Tests for the combined two-stage evaluation pipeline."""
 
-    def test_missing_channels_skips_llm(self):
-        """Stage 1 failure path: missing channels, no LLM call."""
+    def test_missing_channels_no_judge(self):
+        """Without opt-in, missing channels just return Stage 1 found list."""
         text = "Found channel CH:A in the response."
         expected = ["CH:A", "CH:B"]
 
@@ -199,10 +216,10 @@ class TestEvaluateResponse:
         assert precision == 1.0
         assert recall < 1.0
 
-    @patch("osprey.services.channel_finder.benchmarks.evaluation.llm_extract_channels")
-    def test_all_found_invokes_llm_judge(self, mock_llm):
-        """Stage 2 path: all expected found AND opt-in flag set → LLM judge invoked."""
-        mock_llm.return_value = ["CH:A", "CH:B"]
+    @patch("osprey.services.channel_finder.benchmarks.evaluation.llm_judge_coverage")
+    def test_all_found_invokes_judge(self, mock_judge):
+        """Opt-in path: judge runs even when Stage 1 found everything."""
+        mock_judge.return_value = (["CH:A", "CH:B"], [])
         text = "The channels are CH:A and CH:B in the final answer."
         expected = ["CH:A", "CH:B"]
 
@@ -211,13 +228,49 @@ class TestEvaluateResponse:
         assert predicted == ["CH:A", "CH:B"]
         assert meta["stage"] == 2
         assert meta["evaluation"] == "llm_judge"
-        assert meta["llm_extracted"] == ["CH:A", "CH:B"]
-        mock_llm.assert_called_once_with(text, expected)
+        assert meta["llm_covered"] == ["CH:A", "CH:B"]
+        assert meta["llm_extras"] == []
+        mock_judge.assert_called_once_with(text, expected)
 
-    @patch("osprey.services.channel_finder.benchmarks.evaluation.llm_extract_channels")
-    def test_llm_error_falls_back_to_found(self, mock_llm):
-        """LLM judge failure falls back to programmatic found list (opt-in path)."""
-        mock_llm.side_effect = RuntimeError("API error")
+    @patch("osprey.services.channel_finder.benchmarks.evaluation.llm_judge_coverage")
+    def test_missing_channels_runs_judge_when_opted_in(self, mock_judge):
+        """Shorthand recovery: judge runs even when Stage 1 has missing channels."""
+        # Agent used shorthand — Stage 1 sees zero literal hits, but the
+        # judge interprets the prose and credits both channels as covered.
+        mock_judge.return_value = (["CH:A", "CH:B"], [])
+        text = "Use the full set of CH channels (both A and B)."
+        expected = ["CH:A", "CH:B"]
+
+        predicted, meta = evaluate_response(text, expected, use_llm_judge=True)
+
+        assert predicted == ["CH:A", "CH:B"]
+        assert meta["stage"] == 2
+        assert meta["evaluation"] == "llm_judge"
+        # Stage 1 still reported the literal-only view in meta for debuggability.
+        assert meta["found"] == []
+        assert meta["missing"] == ["CH:A", "CH:B"]
+        mock_judge.assert_called_once_with(text, expected)
+
+    @patch("osprey.services.channel_finder.benchmarks.evaluation.llm_judge_coverage")
+    def test_judge_reports_extras(self, mock_judge):
+        """Over-recommended extras are folded into predicted so precision dings."""
+        mock_judge.return_value = (["CH:A"], ["CH:Z", "CH:Y"])
+        text = "I recommend CH:A, plus CH:Z and CH:Y as bonus monitors."
+        expected = ["CH:A", "CH:B"]
+
+        predicted, meta = evaluate_response(text, expected, use_llm_judge=True)
+
+        assert predicted == ["CH:A", "CH:Z", "CH:Y"]
+        precision, recall, f1 = compute_f1(predicted, expected)
+        # 1 hit / 3 predicted, 1 hit / 2 expected
+        assert precision == pytest.approx(1 / 3)
+        assert recall == pytest.approx(1 / 2)
+        assert meta["llm_extras"] == ["CH:Z", "CH:Y"]
+
+    @patch("osprey.services.channel_finder.benchmarks.evaluation.llm_judge_coverage")
+    def test_judge_error_falls_back_to_found(self, mock_judge):
+        """Judge failure falls back to Stage 1 found list."""
+        mock_judge.side_effect = RuntimeError("API error")
         text = "Channels CH:A and CH:B are recommended."
         expected = ["CH:A", "CH:B"]
 
@@ -228,8 +281,20 @@ class TestEvaluateResponse:
         assert meta["evaluation"] == "llm_judge_error"
         assert "API error" in meta["llm_error"]
 
+    def test_empty_expected_skips_judge(self):
+        """Empty expected list short-circuits — no LLM call."""
+        with patch(
+            "osprey.services.channel_finder.benchmarks.evaluation.llm_judge_coverage"
+        ) as mock_judge:
+            predicted, meta = evaluate_response("some text", [], use_llm_judge=True)
+
+        assert predicted == []
+        assert meta["stage"] == 1
+        assert meta["evaluation"] == "programmatic_recall_only"
+        mock_judge.assert_not_called()
+
     def test_no_channels_found(self):
-        """No expected channels found in text at all."""
+        """No expected channels found in text at all (no judge opt-in)."""
         text = "I could not find any relevant channels."
         expected = ["CH:A", "CH:B"]
 

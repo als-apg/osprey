@@ -100,7 +100,7 @@
       "SR:DIAG:BPM:96:POSITION:X"
     ],
     "tier": 1,
-    "details": "Family-level aggregate: all horizontal BPM readbacks in first 2 sectors (24 of 96)"
+    "details": "Family-level aggregate: all horizontal BPM readbacks (96)"
   },
   {
     "user_query": "Show all vertical BPM positions",
@@ -203,7 +203,7 @@
       "SR:DIAG:BPM:96:POSITION:Y"
     ],
     "tier": 1,
-    "details": "Family-level aggregate: all vertical BPM readbacks in first 2 sectors"
+    "details": "Family-level aggregate: all vertical BPM readbacks (96)"
   },
   {
     "user_query": "What are all the horizontal corrector readbacks?",
@@ -282,7 +282,7 @@
       "SR:MAG:HCM:72:CURRENT:RB"
     ],
     "tier": 1,
-    "details": "Family-level aggregate: all HCM current readbacks in first sector (12 of 72)"
+    "details": "Family-level aggregate: all HCM current readbacks (72)"
   },
   {
     "user_query": "Show all vertical corrector setpoints",
@@ -361,7 +361,7 @@
       "SR:MAG:VCM:72:CURRENT:SP"
     ],
     "tier": 1,
-    "details": "Family-level aggregate: all VCM current setpoints in first sector"
+    "details": "Family-level aggregate: all VCM current setpoints (72)"
   },
   {
     "user_query": "Read all the gauge pressures",
@@ -390,10 +390,76 @@
       "SR:MAG:QF:03:CURRENT:RB",
       "SR:MAG:QF:04:CURRENT:RB",
       "SR:MAG:QF:05:CURRENT:RB",
-      "SR:MAG:QF:06:CURRENT:RB"
+      "SR:MAG:QF:06:CURRENT:RB",
+      "SR:MAG:QF:07:CURRENT:RB",
+      "SR:MAG:QF:08:CURRENT:RB",
+      "SR:MAG:QF:09:CURRENT:RB",
+      "SR:MAG:QF:10:CURRENT:RB",
+      "SR:MAG:QF:11:CURRENT:RB",
+      "SR:MAG:QF:12:CURRENT:RB",
+      "SR:MAG:QF:13:CURRENT:RB",
+      "SR:MAG:QF:14:CURRENT:RB",
+      "SR:MAG:QF:15:CURRENT:RB",
+      "SR:MAG:QF:16:CURRENT:RB",
+      "SR:MAG:QF:17:CURRENT:RB",
+      "SR:MAG:QF:18:CURRENT:RB",
+      "SR:MAG:QF:19:CURRENT:RB",
+      "SR:MAG:QF:20:CURRENT:RB",
+      "SR:MAG:QF:21:CURRENT:RB",
+      "SR:MAG:QF:22:CURRENT:RB",
+      "SR:MAG:QF:23:CURRENT:RB",
+      "SR:MAG:QF:24:CURRENT:RB",
+      "SR:MAG:QF:25:CURRENT:RB",
+      "SR:MAG:QF:26:CURRENT:RB",
+      "SR:MAG:QF:27:CURRENT:RB",
+      "SR:MAG:QF:28:CURRENT:RB",
+      "SR:MAG:QF:29:CURRENT:RB",
+      "SR:MAG:QF:30:CURRENT:RB",
+      "SR:MAG:QF:31:CURRENT:RB",
+      "SR:MAG:QF:32:CURRENT:RB",
+      "SR:MAG:QF:33:CURRENT:RB",
+      "SR:MAG:QF:34:CURRENT:RB",
+      "SR:MAG:QF:35:CURRENT:RB",
+      "SR:MAG:QF:36:CURRENT:RB",
+      "SR:MAG:QF:37:CURRENT:RB",
+      "SR:MAG:QF:38:CURRENT:RB",
+      "SR:MAG:QF:39:CURRENT:RB",
+      "SR:MAG:QF:40:CURRENT:RB",
+      "SR:MAG:QF:41:CURRENT:RB",
+      "SR:MAG:QF:42:CURRENT:RB",
+      "SR:MAG:QF:43:CURRENT:RB",
+      "SR:MAG:QF:44:CURRENT:RB",
+      "SR:MAG:QF:45:CURRENT:RB",
+      "SR:MAG:QF:46:CURRENT:RB",
+      "SR:MAG:QF:47:CURRENT:RB",
+      "SR:MAG:QF:48:CURRENT:RB",
+      "SR:MAG:QF:49:CURRENT:RB",
+      "SR:MAG:QF:50:CURRENT:RB",
+      "SR:MAG:QF:51:CURRENT:RB",
+      "SR:MAG:QF:52:CURRENT:RB",
+      "SR:MAG:QF:53:CURRENT:RB",
+      "SR:MAG:QF:54:CURRENT:RB",
+      "SR:MAG:QF:55:CURRENT:RB",
+      "SR:MAG:QF:56:CURRENT:RB",
+      "SR:MAG:QF:57:CURRENT:RB",
+      "SR:MAG:QF:58:CURRENT:RB",
+      "SR:MAG:QF:59:CURRENT:RB",
+      "SR:MAG:QF:60:CURRENT:RB",
+      "SR:MAG:QF:61:CURRENT:RB",
+      "SR:MAG:QF:62:CURRENT:RB",
+      "SR:MAG:QF:63:CURRENT:RB",
+      "SR:MAG:QF:64:CURRENT:RB",
+      "SR:MAG:QF:65:CURRENT:RB",
+      "SR:MAG:QF:66:CURRENT:RB",
+      "SR:MAG:QF:67:CURRENT:RB",
+      "SR:MAG:QF:68:CURRENT:RB",
+      "SR:MAG:QF:69:CURRENT:RB",
+      "SR:MAG:QF:70:CURRENT:RB",
+      "SR:MAG:QF:71:CURRENT:RB",
+      "SR:MAG:QF:72:CURRENT:RB"
     ],
     "tier": 1,
-    "details": "Family-level aggregate: QF readbacks for first 6 quads"
+    "details": "Family-level aggregate: all QF current readbacks (72)"
   },
   {
     "user_query": "What is the current of dipole 5?",
@@ -603,27 +669,44 @@
     "details": "Range query: defocusing quad current readbacks for devices 1-6"
   },
   {
-    "user_query": "How do I steer the beam horizontally?",
+    "user_query": "Show me both the horizontal and vertical positions of BPM 18",
     "targeted_pv": [
-      "SR:MAG:HCM:01:CURRENT:SP",
-      "SR:MAG:HCM:02:CURRENT:SP",
-      "SR:MAG:HCM:03:CURRENT:SP",
-      "SR:MAG:HCM:04:CURRENT:SP",
-      "SR:MAG:HCM:05:CURRENT:SP",
-      "SR:MAG:HCM:06:CURRENT:SP"
+      "SR:DIAG:BPM:18:POSITION:X",
+      "SR:DIAG:BPM:18:POSITION:Y"
     ],
     "tier": 1,
-    "details": "Semantic/synonym: 'steer beam' maps to horizontal corrector setpoints"
+    "details": "Specific device: both position fields (X, Y) for a single BPM"
   },
   {
-    "user_query": "What controls the beam energy?",
+    "user_query": "Show me all dipole current readbacks",
     "targeted_pv": [
-      "SR:MAG:DIPOLE:01:CURRENT:SP",
-      "SR:MAG:DIPOLE:02:CURRENT:SP",
-      "SR:MAG:DIPOLE:03:CURRENT:SP"
+      "SR:MAG:DIPOLE:01:CURRENT:RB",
+      "SR:MAG:DIPOLE:02:CURRENT:RB",
+      "SR:MAG:DIPOLE:03:CURRENT:RB",
+      "SR:MAG:DIPOLE:04:CURRENT:RB",
+      "SR:MAG:DIPOLE:05:CURRENT:RB",
+      "SR:MAG:DIPOLE:06:CURRENT:RB",
+      "SR:MAG:DIPOLE:07:CURRENT:RB",
+      "SR:MAG:DIPOLE:08:CURRENT:RB",
+      "SR:MAG:DIPOLE:09:CURRENT:RB",
+      "SR:MAG:DIPOLE:10:CURRENT:RB",
+      "SR:MAG:DIPOLE:11:CURRENT:RB",
+      "SR:MAG:DIPOLE:12:CURRENT:RB",
+      "SR:MAG:DIPOLE:13:CURRENT:RB",
+      "SR:MAG:DIPOLE:14:CURRENT:RB",
+      "SR:MAG:DIPOLE:15:CURRENT:RB",
+      "SR:MAG:DIPOLE:16:CURRENT:RB",
+      "SR:MAG:DIPOLE:17:CURRENT:RB",
+      "SR:MAG:DIPOLE:18:CURRENT:RB",
+      "SR:MAG:DIPOLE:19:CURRENT:RB",
+      "SR:MAG:DIPOLE:20:CURRENT:RB",
+      "SR:MAG:DIPOLE:21:CURRENT:RB",
+      "SR:MAG:DIPOLE:22:CURRENT:RB",
+      "SR:MAG:DIPOLE:23:CURRENT:RB",
+      "SR:MAG:DIPOLE:24:CURRENT:RB"
     ],
     "tier": 1,
-    "details": "Semantic/synonym: beam energy controlled by dipole magnets"
+    "details": "Family-level aggregate: all dipole current readbacks (24)"
   },
   {
     "user_query": "How do I adjust the tune?",

@@ -85,6 +85,7 @@ def _run_paradigm_benchmark(tmp_path_factory, paradigm: str) -> BenchmarkRun:
         model="als-apg/claude-haiku-4-5-20251001",
         max_concurrent=3,
         max_budget_per_query=0.20,
+        use_llm_judge=True,
     )
     return asyncio.run(
         runner.run_queries(
