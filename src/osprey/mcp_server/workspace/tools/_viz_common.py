@@ -82,7 +82,14 @@ elif _data_path.endswith('.json'):
         data = data['dataframe']
     # Handle split-orient format: {columns, index, data}
     if isinstance(data, dict) and 'columns' in data and 'index' in data and 'data' in data:
-        data = pd.DataFrame(data['data'], columns=data['columns'], index=data['index'])
+        _idx = data['index']
+        # Only str: pd.to_datetime on ints would silently coerce row IDs to epoch-1970 timestamps.
+        if _idx and isinstance(_idx[0], str):
+            try:
+                _idx = pd.to_datetime(_idx)
+            except (ValueError, TypeError):
+                pass
+        data = pd.DataFrame(data['data'], columns=data['columns'], index=_idx)
     elif isinstance(data, dict):
         data = pd.DataFrame(data)
     elif isinstance(data, list):
