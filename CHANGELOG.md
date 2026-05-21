@@ -11,196 +11,36 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
-### Changed
-- **Renamed `prompts` → `scaffold` (user-facing) / `build_artifacts` (internal Python).** The framework's registry of Claude Code build artifacts (CLAUDE.md, hooks, skills, agents, settings.json, .mcp.json, statusline.py, output styles) was historically called "prompts" — a name that became misleading once the registry materialized everything in `.claude/`, not just prompt text. Renames: CLI `osprey prompts …` → `osprey scaffold …`; web routes `/api/prompts/*` → `/api/scaffold/*` (verb `/scaffold` → `/claim`); Python package `osprey.services.prompts` → `osprey.services.build_artifacts` (classes `PromptArtifact` → `BuildArtifact`, `PromptCatalog` → `BuildArtifactCatalog`); config key `prompts.user_owned` → `scaffold.user_owned`. Manifest JSON `user_owned` key unchanged. Hard rename, no compatibility shim — projects with the old `prompts.user_owned:` key in `config.yml` must rename the key by hand.
-
 ### Added
-- **Channel-finder preset ships tier-segmented channel DBs.** All 9 tier databases (3 tiers × 3 paradigms) now live inside the `control_assistant` preset under `data/channel_databases/tiers/{tier1,tier2,tier3}/{hierarchical,in_context,middle_layer}.json` and are copied to user projects by `osprey build`. Users can pick a tier per-run rather than re-initializing. `scripts/generate_benchmark_suite.py` writes into the preset path by default.
-- **Channel Finder**: `osprey channel-finder generate` subcommand produces 3 template databases from the canonical hierarchical source — `in_context.json` (Tier 1, 205 channels with aliases), `hierarchical.json` (Tier 3, 1210 channels), `middle_layer.json` (Tier 3, 1210 channels with setup blocks).
-- **Cross-paradigm benchmark unified.** All three paradigms read a single tier-resolved query set (`tier1/2/3_queries.json`, 20/36/52 queries); paradigm is resolved at build time (`in_context` → tier 1, `hierarchical`/`middle_layer` → tier 3, override with `osprey build --tier N`). Config schema collapsed from per-pipeline `pipelines.<mode>.benchmark` blocks to a single top-level `channel_finder.benchmark.dataset_path: data/benchmarks/queries.json`.
-- **`osprey-contribute` skill.** A new installable skill that walks
-  contributors through the GitHub Flow contribution journey end-to-end:
-  orient → branch → commit → push → PR → watch CI → merge. Auto-detects
-  internal vs fork mode from `git remote -v`. Four hard blocks codify the
-  protected-branch reality (no commits to `main`, `quick_check.sh` before
-  commit, `ci_check.sh` before push, `premerge_check.sh main` before PR);
-  soft prompts handle branch-prefix and conventional-commit conventions.
-  Composes with `osprey-pre-commit`, `commit-organize`, and `osprey-release`.
-  Install with `osprey skills install osprey-contribute`.
-- **`osprey-pre-commit` skill promoted to dual-distribution.** Previously a
-  local-only skill at `.claude/skills/pre-commit/` (gitignored), now lives
-  under `src/osprey/templates/skills/osprey-pre-commit/` and is installable
-  via `osprey skills install osprey-pre-commit`. The original SKILL.md +
-  separate `instructions.md` (with a broken relative path link) has been
-  collapsed into a single self-contained SKILL.md focused on the three
-  check tiers (`quick_check.sh`, `ci_check.sh`, `premerge_check.sh main`).
-
-### Fixed
-- **`osprey build` now works after `uv tool install osprey-framework`** (#216).
-  The `osprey_install: local` resolver walked `Path(__file__).parents[3]` to
-  find the source tree, which lands inside `<tool>/lib/python3.11` for
-  non-editable installs and tripped a "no pyproject.toml" error on the
-  recommended quickstart. Resolution now consults `importlib.metadata`:
-  editable installs use the source path; wheel/uv-tool installs pin to
-  `osprey-framework==<running version>`. Existing profiles need no changes.
-- **Channel-finder schema: drop redundant family prefixes from device segments.** `hierarchical.json` expansion patterns embedded the family-letter inside the device id (e.g. `BPM{:02d}` produced `SR:DIAG:BPM:BPM01:POSITION:X`). Patterns are now bare `{:02d}` across all 20 device families, producing `SR:DIAG:BPM:01:POSITION:X` and matching aliases `StorageRing_BPM_01_Position_X`. Range/instance counts expanded to realistic facility sizes (96 BPMs, 72 quads/correctors/sextupoles, 12 ion pumps). Schema extended for benchmark consistency: numeric DCCT/GAUGE devices, `DCCT.LIFETIME`, `BPM.SIGNAL.SUM`, `HCM.CONTROL.ON` fields. All 9 tier databases, 3 default channel DBs, and `hierarchical_benchmark.json` regenerated against the corrected schema; `TestMiddleLayerBenchmarkPVs::test_all_pvs_valid` now passes.
-- **Channel-finder benchmarks: `in_context_benchmark.json` aligned with current alias scheme.** All 30 entries rewritten from the orphaned legacy aliases (`BPM_Position01X`, `RF_Cavity1_ForwardPower_ReadBack`, …) to the active `StorageRing_<Family>_<NN>_<Field>_<Subfield>` scheme produced by the generator. Every `targeted_pv` now resolves against the regenerated `in_context.json`.
-- **Channel-finder template renderer honors `suffix_map`.** Templates in
-  `in_context.json` (and any project DB using the same schema) declare
-  `suffix_map` to translate display-name sub-channels (e.g.
-  `CurrentSetPoint`) into EPICS address suffixes (e.g. `SP`). The renderer
-  was ignoring this field and using the raw sub-channel name as the
-  address suffix, producing addresses like
-  `SR:MAG:DIPOLE:05:CURRENT:CurrentSetPoint` instead of
-  `SR:MAG:DIPOLE:05:CURRENT:SP`. Affects every project scaffolded with
-  `osprey init --channel-finder-mode=in_context` whose templates declare
-  `suffix_map` (the four magnet templates in the shipped
-  `control_assistant` app: dipoles, focusing quads, horizontal/vertical
-  correctors). Channel aliases (the human-readable names) are unchanged.
 
 ### Changed
-- **Removed `channel_finder_mode="all"`.** Build-time materialization shim that ran identically to `"hierarchical"` at runtime. `control-assistant` preset now pins `channel_finder_mode: hierarchical`; override with `--set channel_finder_mode=in_context|middle_layer`. `BuildProfile.validate()` rejects unknown modes early.
-- **Channel-finder benchmark CLI: drop vestigial `--tier` flag.** The `--tier` option on `osprey channel-finder benchmark` and the corresponding `tier: int = 0` parameter on `BenchmarkRunner` were a label-only pass-through left over from cross-paradigm matrix orchestration (now in the companion paper repo). Neither filtered queries nor switched databases — a project's tier is decided when the channel DB is generated/configured, not at run time. The `BenchmarkRun.tier` data-model field is preserved (still consumed by the companion repo's matrix aggregation) and now defaults to `None`. No migration needed for OSPREY users; companion-repo callers that construct `BenchmarkRun` directly with `tier=…` are unaffected.
-- **Branch strategy: adopt GitHub Flow.** The short-lived `next` integration
-  branch is retired in favour of trunk-based development on `main`. CI now
-  triggers only on `main` push/PR (the legacy GitFlow-era patterns
-  `develop`, `release-*`, `feature/**` were dead refs). Contributing docs
-  and `scripts/README.md` updated; `CONTRIBUTING.md` gains a brief Branch
-  Strategy section. Hotfixes follow the same flow: branch from the tag or
-  `main`, PR back, tag again.
-- **`osprey-release` skill rewritten for the new flow.** Collapsed from a
-  ~96-line SKILL.md plus a stale 412-line `instructions.md` into a single
-  ~230-line SKILL.md. The version-bump is now a PR (direct push to `main`
-  is rejected by branch protection); examples switched from SemVer to
-  CalVer; the version-file table tracks Hatch's dynamic-version setup
-  (`pyproject.toml` reads from `src/osprey/__init__.py`, no manual edit
-  needed). Now installable via `osprey skills install osprey-release`.
-
-### Changed
-- **E2E claude_code/ skip-gate flipped from `ANTHROPIC_API_KEY` to
-  `ALS_APG_API_KEY`.** Until now the entire `tests/e2e/claude_code/`
-  subdir was silently skipped in CI because the gate checked for an
-  Anthropic key the runner doesn't have, while `init_project()` actually
-  defaults to `provider="als-apg"` since 8c541cc9. New
-  `has_als_apg_api_key()` helper added to `tests/e2e/sdk_helpers.py`
-  alongside the legacy `has_anthropic_api_key()`. Same flip applied in
-  `tests/e2e/test_claude_code_build_integration.py`, whose local
-  `init_project()` was still defaulting to anthropic and gating on the
-  same wrong key.
-- **Safety E2E tests converted from LLM-phrasing keyword checks to
-  tool-trace assertions.** Four hook-chain tests
-  (`test_safety_error_guidance_e2e`, `test_safety_kill_switch`,
-  `test_safety_writes`, `test_safety_approval_e2e`) used to assert on
-  brittle keyword constants (`RETRY_KEYWORDS`,
-  `WRITES_DISABLED_KEYWORDS`, `DENY_KEYWORDS`) checking whether Claude's
-  text response happened to mention "denied" / "let me retry" / etc. —
-  the assertion failed any time the LLM picked a synonym. The actual
-  safety invariant is "no successful write tool result reached the
-  control system" (or for retry: "no second invocation of the failed
-  tool"), which the SDK's `ToolTrace` records exactly. All four
-  conversions preserve the safety contract while removing the brittle
-  surface.
-- **`als-apg` added to E2E provider matrices.**
-  `test_llm_providers.MODEL_MATRIX` and
-  `test_llm_channel_namer.providers_to_check` now exercise the
-  als-apg/Bedrock proxy alongside cborg/amsc/anthropic. The
-  `test_llm_channel_namer` skip message previously said "Requires
-  CBORG_API_KEY or ANTHROPIC_API_KEY" but the code accepts AMSC too
-  (and now ALS-APG); message corrected to list all four.
 
 ### Fixed
-- **`osprey deploy up` regression on `hello-world` preset (and any preset
-  with no `deployed_services`).** Failed identically every CI run since
-  2026-04-26 with `'services/docker-compose.yml.j2' not found in search
-  path`. Two coordinated changes restore it: `_copy_service_templates` now
-  always copies the root compose template (was gated behind a `not deployed`
-  early-return that ran *before* the copy), and `deploy_up` exits cleanly
-  with a "no services configured" notice when `deployed_services` is empty
-  instead of letting `prepare_compose_files` recursively crash on
-  `TemplateNotFound`. The dead parallel `get_templates()` function in
-  `compose_generator.py` (exported but never called) was deleted to remove
-  a misleading code path. The CI `deploy-e2e` job's OpenWebUI Pipelines
-  curl-POST steps were also dropped — port 9099 is not referenced anywhere
-  in the source tree and no Claude-Code-era preset spawns it; the job now
-  asserts on the `osprey deploy up` / `osprey deploy down` lifecycle
-  itself, which is the actual smoke surface.
-- **Release-blocking E2E suite (`tests/e2e/claude_code/`) green for the first
-  time since it landed in Feb 2026.** Two stacked invisible failures: first,
-  `init_project()` in `tests/e2e/sdk_helpers.py` defaulted to
-  `provider="anthropic"` while CI exposes neither `ANTHROPIC_API_KEY` nor
-  stored `~/.claude` credentials, so the bundled Claude CLI died with
-  `Invalid API key · Please run /login`. Switching the default to
-  `provider="cborg"` revealed the deeper problem — CBORG enforces an IP
-  allowlist that does not cover GitHub Actions egress ranges, so every
-  CI-routed cborg call returned `403 ip_not_authorized`. **Resolution:**
-  default switched again to `provider="als-apg"` (LBL ALS Accelerator
-  Physics Group's AWS Bedrock proxy at `llm.gianlucamartino.com`), which
-  serves Claude models via Bedrock and is reachable from any IP.
-  `CBORG_API_KEY` removed from CI; `ALS_APG_API_KEY` added. Local
-  development with cborg continues to work (pass `provider="cborg"` from an
-  allowlisted IP). The failure mode was double-invisible because (a) CI
-  gates E2E to same-repo PRs, so pushes to `main` skip it, and (b) any
-  developer with Claude Code logged in locally got the green path via
-  stored `~/.claude` credentials — classic "works on my machine". A
-  pre-flight reachability probe was added to the `agentic-per-preset` and
-  `e2e-tests` jobs so any future endpoint regression surfaces in 5 seconds
-  with a clear diagnostic, instead of buried under 200+ confusing 4xx
-  errors after a 5-minute test run.
-- **`tests/fixtures/ariel/test_config.yml` and ARIEL e2e tests migrated
-  from cborg to als-apg** for consistency with the CI auth path. The
-  `requires_cborg` pytest marker is retained (still useful for
-  IP-allowlisted local runs) and a new `requires_als_apg` marker added;
-  `test_preset_agentic.py` and `test_ariel_e2e_pipeline.py` now use the
-  latter. The LLM judge default also flipped (`als-apg` /
-  `claude-haiku-4-5-20251001`), so judge calls in CI hit a working endpoint.
-- **Brittle sed-based provider switch in the `deploy-e2e` job replaced with
-  `osprey build --set provider=als-apg --set model=haiku`.** The sed
-  pattern depended on the exact whitespace and key order in the generated
-  `config.yml`; it would silently no-op if the template touched those
-  formatting details. The `--set` form makes the contract explicit and
-  survives template re-formatting.
-- **Release-blocking workflow drift after the `build-interview` rename.**
-  Four references to the old skill name in `.github/workflows/ci.yml` and
-  `.github/workflows/validate-install-docs.yml` would have caused the
-  next CalVer tag push to hard-fail at the `validate-install-docs` step
-  (a `needs:` dep of `publish-to-pypi` in `release.yml`). Stale SemVer
-  examples in workflow comments (`v0.9.8`, `v0.11.4`) updated to CalVer.
-- `README.md`: broken `TESTING_GUIDE.md` link repointed to `tests/e2e/README.md` and the Contributing Guide.
-- **InContext channel-finder benchmark scoring (`tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py`).** The 10 InContext queries asserted on descriptive names (`StorageRing_BeamCurrent_ReadBack`), but the MCP pipeline now returns control-system addresses (`SR:DIAG:DCCT:MAIN:CURRENT:RB`) — every query was scoring 0.0 regardless of agent quality. Each `expected` entry is now an alias group (descriptive name + rendered address); a hit on either form counts. `compute_f1` walks groups instead of doing flat set intersection, so an agent that legitimately surfaces both forms scores perfectly instead of being penalized 0.5 precision. Hierarchical and middle-layer queries continue to use plain-string expected entries unchanged.
-- Channel-finder benchmark now writes a per-run JSON artifact (gitignored under `tests/e2e/claude_code/benchmark_results/`) at session end. New `format_benchmark_results.py` renders aggregate + per-query markdown tables and supports `--diff old.json new.json` for run-over-run comparison.
 
 ### Removed
-- `scripts/start_typesense.sh` — dev helper with zero callers; live Typesense lives in `als-profiles/services/typesense/`.
-- `tests/cassettes/` — only contained a README; no cassettes were ever recorded. Also dropped `pytest-vcr`, `vcrpy`, the `vcr` pytest marker, and three pre-commit excludes for the directory.
-- `.github/pull_request_template.md` — predates GitHub Flow; PR descriptions are drafted by the `osprey-contribute` skill now.
-- Pre-CalVer SemVer markers: `versionchanged:: 0.10.7` directive in `deploy-project.rst` (now baseline); `(v0.9.x+)` qualifiers in `use-channel-finder.rst`, `tests/e2e/README.md`, and the `osprey-build-interview.rst` page-title parenthetical; two `>=0.12.0` examples in `build-profiles.rst` bumped to `>=2026.5.0`.
 
-### Removed (BREAKING)
-- **ARIEL internal RAG and Agent pipelines removed.** ARIEL no longer ships
-  the in-process `RAGPipeline` (deterministic 4-stage retrieve/fuse/assemble/
-  generate) or the `AgentExecutor` (LiteLLM-backed ReAct loop). The
-  `pipelines.rag` and `pipelines.agent` config blocks, the
-  `SearchMode.RAG`/`SearchMode.AGENT` enum values, the `--mode rag`/`--mode
-  agent` CLI flags, the RAG/Agent tabs in the ARIEL web UI, and the
-  `ArielPipelineRegistration` registry entry are all gone. Multi-step
-  reasoning, answer synthesis, and custom prompting now live exclusively in
-  the Osprey agent layer, which calls ARIEL's MCP tools. `ARIELConfig.from_dict`
-  raises `ConfigurationError` for any `pipelines.*` block to fail builds
-  loudly. **Why**: every shipped preset bundles an Osprey agent; an agent
-  calling ARIEL search tools *is* RAG by definition — the in-service pipelines
-  duplicated that surface and forced facility owners to maintain two LLM
-  configurations. **Upgrade**: delete `pipelines.rag` / `pipelines.agent`
-  from `config.yml`; route synthesis through a skill in your build profile
-  (see :doc:`how-to/build-profiles`).
-- **`build-interview` renamed to `osprey-build-interview`.** Skill name,
-  directory (`templates/skills/osprey-build-interview/`), slash command
-  (`/osprey-build-interview`), and install command (`osprey skills install
-  osprey-build-interview`) all use the new name for consistency with the
-  other `osprey-*` skills. No deprecation alias — the old name fails fast.
-  **Upgrade**: replace `osprey skills install build-interview` with
-  `osprey skills install osprey-build-interview` and re-install if you
-  previously had `~/.claude/skills/build-interview/` (the new install lands
-  in `~/.claude/skills/osprey-build-interview/`).
+## [2026.5.1] - 2026-05-21
+
+### Added
+- **Paradigm-agnostic channel finder.** `in_context` / `hierarchical` / `middle_layer` share one tier-resolved query set; `control_assistant` ships all 9 tier DBs so you switch tier per run instead of re-initialising.
+- **ARIEL standalone preset.** Logbook deployment without the control-system stack (no channel finder, no archiver, no Python executor). See `docs/source/how-to/ariel/standalone-deployment.rst`.
+- **Virtual-accelerator scenarios.** Mock archiver emits seeded correlated events (Sector-7 vacuum burst, RF-cavity-C1 thermal runaway) for operator-style investigation tests.
+- **Profile-mode builds.** `osprey build --emit-profile DIR --preset X` scaffolds an editable profile; `extends:` accepts bundled preset names.
+
+### Changed
+- **GitHub Flow.** Trunk-based on `main`; `next` retired.
+- **BREAKING.** `prompts` → `scaffold` (CLI, web, Python, config). No shim.
+- **BREAKING.** ARIEL internal RAG / Agent pipelines removed; drop `pipelines.rag` / `pipelines.agent` from configs.
+- **BREAKING.** Channel-finder hierarchical schema: bare-numeric device IDs (`SR:DIAG:BPM:01:…` instead of `SR:DIAG:BPM:BPM01:…`), realistic facility sizes.
+- **BREAKING.** `build-interview` skill renamed to `osprey-build-interview`.
+- **BREAKING.** `channel_finder_mode="all"` removed.
+- `query_channels` MCP tool replaces the `list/get/search_channels` triplet.
+
+### Fixed
+- Cleanup batch that should have been in v2026.5.0: `osprey build` after `uv tool install` (#216), `osprey deploy up` on presets with no services, `suffix_map` honoured in channel addresses, ARGO base URL (#214), E2E suite green again on CI, and various polish.
+
+### Removed
+- Legacy hierarchical "container" schema, vestigial benchmark CLI flags (`--tier`, `--judge-provider`), `start_typesense.sh`, `tests/cassettes/`, `pull_request_template.md`.
 
 ## [2026.5.0] - 2026-04-29
 
