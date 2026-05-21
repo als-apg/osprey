@@ -101,10 +101,15 @@ class TestClaudeCodeSDKIntegration:
     @pytest.mark.requires_als_apg
     @pytest.mark.asyncio
     async def test_archiver_and_plot_via_sdk(self, tmp_path):
-        """Verify archiver_read -> execute pipeline with tool ordering.
+        """Verify archiver_read -> plot pipeline with tool ordering.
 
         Uses hardcoded channel names to bypass the channel-finder and
         reduce LLM non-determinism and cost.
+
+        The plotting step may be performed by either ``execute`` (raw
+        python) or ``create_static_plot`` (the dedicated visualizer
+        tool) — both are valid solutions to "retrieve data then plot it"
+        and produce a PNG. We only assert the data → plot ordering.
         """
         project_dir = init_project(tmp_path, "sdk-archiver-plot", provider="als-apg")
 
@@ -112,8 +117,8 @@ class TestClaudeCodeSDKIntegration:
             "Use the archiver_read tool to retrieve data for channels "
             "'DIAG:BPM01:POSITION:X', 'DIAG:BPM02:POSITION:X', "
             "'DIAG:BPM03:POSITION:X' over the last 24 hours. "
-            "Then use the execute tool to create a timeseries plot of "
-            "the data and save it as a PNG file in the current directory."
+            "Then create a timeseries plot of the data and save it as a "
+            "PNG file."
         )
 
         result = await run_sdk_query(
@@ -141,17 +146,24 @@ class TestClaudeCodeSDKIntegration:
         archiver_calls = result.tools_matching("archiver_read")
         assert len(archiver_calls) > 0, f"archiver_read not called. Tools used: {result.tool_names}"
 
-        # execute was called
-        python_calls = result.tools_matching("execute")
-        assert len(python_calls) > 0, f"execute not called. Tools used: {result.tool_names}"
+        # A plotting tool was called — either execute (raw python) or
+        # create_static_plot (dedicated visualizer). Both satisfy the prompt.
+        plot_tool_names = ("execute", "create_static_plot")
+        plot_calls = [t for t in result.tool_traces if any(n in t.name for n in plot_tool_names)]
+        assert len(plot_calls) > 0, (
+            f"No plotting tool called (expected one of {plot_tool_names}). "
+            f"Tools used: {result.tool_names}"
+        )
 
-        # archiver_read was called BEFORE execute
+        # archiver_read was called BEFORE the first plotting tool
         archiver_idx = next(
             i for i, t in enumerate(result.tool_traces) if "archiver_read" in t.name
         )
-        python_idx = next(i for i, t in enumerate(result.tool_traces) if "execute" in t.name)
-        assert archiver_idx < python_idx, (
-            f"archiver_read (idx={archiver_idx}) should come before execute (idx={python_idx})"
+        plot_idx = next(
+            i for i, t in enumerate(result.tool_traces) if any(n in t.name for n in plot_tool_names)
+        )
+        assert archiver_idx < plot_idx, (
+            f"archiver_read (idx={archiver_idx}) should come before plot tool (idx={plot_idx})"
         )
 
         # PNG artifact exists in the project tree
