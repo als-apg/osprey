@@ -289,6 +289,56 @@ class TestDeleteEntry:
         assert len(store.list_entries()) == 1
         assert store.get_entry(e1.id) is not None
 
+    def test_delete_entry_fires_delete_listener(self, tmp_path):
+        from osprey.stores.artifact_store import (
+            ArtifactStore,
+            register_artifact_delete_listener,
+            unregister_artifact_delete_listener,
+        )
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        entry = store.save_object("payload", title="Listener Target")
+
+        received: list = []
+        register_artifact_delete_listener(received.append)
+        try:
+            store.delete_entry(entry.id)
+            assert len(received) == 1
+            assert received[0].id == entry.id
+
+            # Non-existent id must not fire the listener.
+            store.delete_entry("nonexistent")
+            assert len(received) == 1
+        finally:
+            unregister_artifact_delete_listener(received.append)
+
+    def test_delete_all_empties_store_and_fires_listeners(self, tmp_path):
+        from osprey.stores.artifact_store import (
+            ArtifactStore,
+            register_artifact_delete_listener,
+            unregister_artifact_delete_listener,
+        )
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        entries = [store.save_object(f"data{i}", title=f"Artifact {i}") for i in range(3)]
+
+        received: list = []
+        register_artifact_delete_listener(received.append)
+        try:
+            deleted = store.delete_all()
+        finally:
+            unregister_artifact_delete_listener(received.append)
+
+        assert {e.id for e in deleted} == {e.id for e in entries}
+        assert store.list_entries() == []
+        for e in entries:
+            assert not (tmp_path / "artifacts" / e.filename).exists()
+
+        index = json.loads((tmp_path / "artifacts" / "artifacts.json").read_text())
+        assert index["entries"] == []
+
+        assert {e.id for e in received} == {e.id for e in entries}
+
 
 class TestUpdateEntryMetadata:
     """Tests for BaseStore.update_entry_metadata()."""
@@ -564,13 +614,18 @@ class TestArtifactGalleryApp:
 
     @pytest.fixture
     def app_client(self, tmp_path):
-        """Create a test client for the gallery app."""
+        """Create a test client for the gallery app.
+
+        Uses the context-manager form of TestClient so FastAPI's lifespan
+        runs — required for the store-listener wiring (save + delete).
+        """
         from fastapi.testclient import TestClient
 
         from osprey.interfaces.artifacts.app import create_app
 
         app = create_app(workspace_root=tmp_path)
-        return TestClient(app), tmp_path
+        with TestClient(app) as client:
+            yield client, tmp_path
 
     def test_health(self, app_client):
         client, _ = app_client
@@ -732,6 +787,119 @@ class TestArtifactGalleryApp:
         resp = client.delete(f"/api/artifacts/{entry.id}")
         assert resp.status_code == 200
         assert client.app.state.focused_artifact_id is None
+
+    def test_delete_pinned_unfocused_refreshes_focus_state(self, app_client):
+        """Deleting a pinned-but-unfocused artifact refreshes focus_state.txt.
+
+        Regression test for the secondary bug where ``_write_focus_file()`` was
+        only called when the focused artifact was deleted — leaving stale
+        ``pinned:`` lines when an unfocused pin was removed.
+        """
+        client, tmp_path = app_client
+        store = client.app.state.artifact_store
+
+        pinned_a = store.save_object("# Pinned A", title="Pinned A")
+        pinned_b = store.save_object("# Pinned B", title="Pinned B")
+        store.set_pinned(pinned_a.id, True)
+        store.set_pinned(pinned_b.id, True)
+
+        focused = store.save_object("# Focused", title="Focused")
+
+        # Setting focus via the HTTP endpoint also writes focus_state.txt
+        # (the listener path doesn't run on save, only on delete).
+        resp = client.post("/api/focus", json={"artifact_id": focused.id})
+        assert resp.status_code == 200
+
+        focus_file = tmp_path / "focus_state.txt"
+        baseline = focus_file.read_text() if focus_file.exists() else ""
+        assert f"id={pinned_a.id}" in baseline
+        assert f"id={pinned_b.id}" in baseline
+
+        # Delete a pinned but UNFOCUSED artifact via HTTP.
+        resp = client.delete(f"/api/artifacts/{pinned_a.id}")
+        assert resp.status_code == 200
+
+        # focus_state.txt should no longer mention the deleted pin.
+        contents = focus_file.read_text() if focus_file.exists() else ""
+        assert f"id={pinned_a.id}" not in contents
+        assert f"id={pinned_b.id}" in contents
+        assert f"id={focused.id}" in contents
+
+    @pytest.mark.asyncio
+    async def test_mcp_artifact_delete_clears_focus(self, app_client, monkeypatch):
+        """MCP artifact_delete tool drives the listener path → clears focus."""
+        from osprey.mcp_server.workspace.tools.artifact_save import artifact_delete
+        from osprey.stores.artifact_store import initialize_artifact_store
+
+        client, tmp_path = app_client
+        # Align the module-level singleton with the app's workspace so the MCP
+        # tool's ``get_artifact_store()`` resolves the same on-disk index.
+        monkeypatch.chdir(tmp_path)
+        initialize_artifact_store(workspace_root=tmp_path)
+
+        store = client.app.state.artifact_store
+        entry = store.save_object("# Focused via MCP", title="MCP Focus Target")
+        client.app.state.focused_artifact_id = entry.id
+
+        result = await get_tool_fn(artifact_delete)(entry.id)
+        payload = extract_response_dict(result)
+        assert payload["status"] == "success"
+        assert client.app.state.focused_artifact_id is None
+
+        focus_file = tmp_path / "focus_state.txt"
+        contents = focus_file.read_text() if focus_file.exists() else ""
+        assert f"id={entry.id}" not in contents
+
+    @pytest.mark.asyncio
+    async def test_mcp_data_delete_clears_focus(self, app_client, monkeypatch):
+        """MCP data_delete (the sibling delete tool) shares the listener path."""
+        from osprey.mcp_server.workspace.tools.data_context_tools import data_delete
+        from osprey.stores.artifact_store import initialize_artifact_store
+
+        client, tmp_path = app_client
+        monkeypatch.chdir(tmp_path)
+        initialize_artifact_store(workspace_root=tmp_path)
+
+        store = client.app.state.artifact_store
+        entry = store.save_data(
+            tool="data_test",
+            data={"value": 42},
+            title="MCP Data Target",
+        )
+        client.app.state.focused_artifact_id = entry.id
+
+        result = await get_tool_fn(data_delete)(entry.id)
+        payload = extract_response_dict(result)
+        assert payload["status"] == "success"
+        assert client.app.state.focused_artifact_id is None
+
+    @pytest.mark.asyncio
+    async def test_mcp_artifact_delete_all(self, app_client, monkeypatch):
+        """artifact_delete_all clears every artifact and empties focus_state."""
+        from osprey.mcp_server.workspace.tools.artifact_save import artifact_delete_all
+        from osprey.stores.artifact_store import initialize_artifact_store
+
+        client, tmp_path = app_client
+        monkeypatch.chdir(tmp_path)
+        initialize_artifact_store(workspace_root=tmp_path)
+
+        store = client.app.state.artifact_store
+        entries = [store.save_object(f"data{i}", title=f"Bulk {i}") for i in range(3)]
+        store.set_pinned(entries[0].id, True)
+        client.app.state.focused_artifact_id = entries[1].id
+
+        result = await get_tool_fn(artifact_delete_all)()
+        payload = extract_response_dict(result)
+        assert payload["status"] == "success"
+        assert payload["deleted_count"] == 3
+        assert set(payload["artifact_ids"]) == {e.id for e in entries}
+
+        assert store.list_entries() == []
+        assert client.app.state.focused_artifact_id is None
+
+        focus_file = tmp_path / "focus_state.txt"
+        if focus_file.exists():
+            assert focus_file.read_text() == ""
 
 
 # ---------------------------------------------------------------------------

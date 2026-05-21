@@ -192,6 +192,45 @@ async def artifact_delete(artifact_id: str) -> str:
 
 
 @mcp.tool()
+async def artifact_delete_all() -> str:
+    """Delete every artifact in the OSPREY gallery in a single atomic call.
+
+    Removes all artifact files and clears the index. Prefer this over many
+    sequential ``artifact_delete`` calls when the user asks to delete all
+    artifacts — it acquires the index lock once and fires consistent listener
+    notifications for every removed entry.
+
+    Returns:
+        JSON confirmation including the number of deleted artifacts and
+        their IDs.
+    """
+    try:
+        from osprey.stores.artifact_store import get_artifact_store
+
+        store = get_artifact_store()
+        deleted = store.delete_all()
+
+        return json.dumps(
+            {
+                "status": "success",
+                "deleted_count": len(deleted),
+                "artifact_ids": [e.id for e in deleted],
+                "message": f"Deleted {len(deleted)} artifact(s).",
+            }
+        )
+
+    except ToolError:
+        raise
+    except Exception as exc:
+        logger.exception("artifact_delete_all failed")
+        return make_error(
+            "internal_error",
+            f"Failed to delete all artifacts: {exc}",
+            ["Check MCP server logs for details."],
+        )
+
+
+@mcp.tool()
 async def artifact_get(artifact_id: str) -> str:
     """Look up an artifact by ID to get its file path and metadata.
 

@@ -413,7 +413,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     from osprey.stores.artifact_store import (
         ArtifactEntry,
         ArtifactStore,
+        register_artifact_delete_listener,
         register_artifact_listener,
+        unregister_artifact_delete_listener,
         unregister_artifact_listener,
     )
 
@@ -443,12 +445,20 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     def _on_artifact_saved(entry: ArtifactEntry) -> None:
         broadcaster.broadcast({"type": "artifact", **entry.to_dict()})
 
+    def _on_artifact_deleted(entry: ArtifactEntry) -> None:
+        if app.state.focused_artifact_id == entry.id:
+            app.state.focused_artifact_id = None
+        _write_focus_file()
+        broadcaster.broadcast({"type": "artifact_deleted", "id": entry.id})
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         register_artifact_listener(_on_artifact_saved)
+        register_artifact_delete_listener(_on_artifact_deleted)
         index_watcher.start()
         yield
         index_watcher.stop()
+        unregister_artifact_delete_listener(_on_artifact_deleted)
         unregister_artifact_listener(_on_artifact_saved)
 
     app = FastAPI(
@@ -734,10 +744,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         deleted = store.delete_entry(artifact_id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
-        if app.state.focused_artifact_id == artifact_id:
-            app.state.focused_artifact_id = None
-            _write_focus_file()
-        broadcaster.broadcast({"type": "artifact_deleted", "id": artifact_id})
         return {"status": "ok", "artifact_id": artifact_id}
 
     @app.get("/api/notebooks/{artifact_id}/rendered")

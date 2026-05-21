@@ -62,10 +62,12 @@ class BaseStore(Generic[T]):
 
     # Each subclass gets its own listener list via __init_subclass__
     _listeners: list[Callable[[Any], None]]
+    _delete_listeners: list[Callable[[Any], None]]
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         cls._listeners = []
+        cls._delete_listeners = []
 
     def __init__(self, workspace_root: Path | None = None) -> None:
         self._workspace = workspace_root or (Path.cwd() / "_agent_data")
@@ -183,6 +185,24 @@ class BaseStore(Generic[T]):
                 fn(entry)
             except Exception:
                 logger.debug("%s listener failed", self._store_name, exc_info=True)
+
+    @classmethod
+    def register_delete_listener(cls, fn: Callable[[Any], None]) -> None:
+        """Register a callback invoked after every entry delete."""
+        cls._delete_listeners.append(fn)
+
+    @classmethod
+    def unregister_delete_listener(cls, fn: Callable[[Any], None]) -> None:
+        """Remove a previously registered delete listener."""
+        cls._delete_listeners.remove(fn)
+
+    def _notify_delete_listeners(self, entry: T) -> None:
+        """Notify all registered delete listeners of a removed entry."""
+        for fn in self.__class__._delete_listeners:
+            try:
+                fn(entry)
+            except Exception:
+                logger.debug("%s delete listener failed", self._store_name, exc_info=True)
 
     def update_entry_metadata(self, entry_id: str, **kwargs: Any) -> T | None:
         """Set metadata attributes on an entry and persist the index.

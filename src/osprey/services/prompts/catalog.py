@@ -202,6 +202,12 @@ def _get_default_artifacts() -> list[PromptArtifact]:
             output_path=".claude/hooks/osprey_memory_guard.py",
             description="Write tool gate for Claude memory files",
         ),
+        PromptArtifact(
+            canonical_name="hooks/focus-validate",
+            template_path="claude/hooks/osprey_focus_validate.py",
+            output_path=".claude/hooks/osprey_focus_validate.py",
+            description="UserPromptSubmit hook that strips stale artifact IDs from focus_state.txt",
+        ),
         # ── Skills ──────────────────────────────────────────────────
         PromptArtifact(
             canonical_name="skills/session-report",
