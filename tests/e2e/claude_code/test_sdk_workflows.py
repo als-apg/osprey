@@ -21,11 +21,13 @@ from __future__ import annotations
 
 import pytest
 
+from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
     find_png_files,
     init_project,
     run_sdk_query,
 )
+from tests.e2e.test_preset_agentic import _to_workflow_result
 
 
 class TestClaudeCodeSDKIntegration:
@@ -101,15 +103,20 @@ class TestClaudeCodeSDKIntegration:
     @pytest.mark.requires_als_apg
     @pytest.mark.asyncio
     async def test_archiver_and_plot_via_sdk(self, tmp_path):
-        """Verify archiver_read -> plot pipeline with tool ordering.
+        """Verify archiver_read → plot pipeline with semantic judging.
 
         Uses hardcoded channel names to bypass the channel-finder and
         reduce LLM non-determinism and cost.
 
-        The plotting step may be performed by either ``execute`` (raw
-        python) or ``create_static_plot`` (the dedicated visualizer
-        tool) — both are valid solutions to "retrieve data then plot it"
-        and produce a PNG. We only assert the data → plot ordering.
+        Three layers of contract:
+          1. Deterministic: ``archiver_read`` was called and a PNG
+             artifact exists in the project tree.
+          2. Semantic (LLM judge): the agent fetched the requested
+             channel data and produced a plot from it — the judge
+             decides whether ``execute``, ``create_static_plot``, or
+             any other plotting path was used correctly, without the
+             test prescribing a specific tool.
+          3. Cost: under $1.00 budget.
         """
         project_dir = init_project(tmp_path, "sdk-archiver-plot", provider="als-apg")
 
@@ -138,47 +145,52 @@ class TestClaudeCodeSDKIntegration:
             print(f"    input keys: {list(trace.input.keys())}")
             print(f"    is_error: {trace.is_error}")
 
-        # -- Assertions --
+        # -- Deterministic assertions (cheap, catch gross regressions) --
         assert result.result is not None, "No ResultMessage received"
         assert not result.result.is_error, f"SDK query ended in error: {result.result.result}"
 
-        # archiver_read was called
         archiver_calls = result.tools_matching("archiver_read")
         assert len(archiver_calls) > 0, f"archiver_read not called. Tools used: {result.tool_names}"
 
-        # A plotting tool was called — either execute (raw python) or
-        # create_static_plot (dedicated visualizer). Both satisfy the prompt.
-        plot_tool_names = ("execute", "create_static_plot")
-        plot_calls = [t for t in result.tool_traces if any(n in t.name for n in plot_tool_names)]
-        assert len(plot_calls) > 0, (
-            f"No plotting tool called (expected one of {plot_tool_names}). "
-            f"Tools used: {result.tool_names}"
-        )
-
-        # archiver_read was called BEFORE the first plotting tool
-        archiver_idx = next(
-            i for i, t in enumerate(result.tool_traces) if "archiver_read" in t.name
-        )
-        plot_idx = next(
-            i for i, t in enumerate(result.tool_traces) if any(n in t.name for n in plot_tool_names)
-        )
-        assert archiver_idx < plot_idx, (
-            f"archiver_read (idx={archiver_idx}) should come before plot tool (idx={plot_idx})"
-        )
-
-        # PNG artifact exists in the project tree
         png_files = find_png_files(project_dir)
         assert len(png_files) > 0, (
-            "No PNG files found in the project -- execute may not have created a plot."
+            "No PNG files found in the project — agent did not produce a plot."
+        )
+        print(f"  PNG files: {[p.name for p in png_files]}")
+
+        # -- Semantic assertion via LLM judge --
+        # The agent may legitimately solve this via ``execute`` (raw python),
+        # ``create_static_plot`` (dedicated visualizer), or another path. The
+        # judge evaluates the workflow against the contract, not the tools.
+        judge = LLMJudge(provider="als-apg")
+        evaluation = await judge.evaluate(
+            _to_workflow_result(prompt, result),
+            expectations=(
+                "The agent must (a) retrieve time-series data for the three "
+                "named BPM channels via the archiver, and then (b) plot that "
+                "data and save it as a PNG. The retrieval step must occur "
+                "before the plotting step. The specific plotting mechanism "
+                "(direct python execution vs. a dedicated plotting MCP tool) "
+                "is acceptable in any form — do not penalize the choice of "
+                "tool. Fail only if data was not actually fetched for the "
+                "requested channels, if no plot was produced, or if the "
+                "ordering is wrong (e.g., the agent invented data instead of "
+                "calling the archiver)."
+            ),
+        )
+        assert evaluation.passed, (
+            f"LLM judge failed the workflow.\n"
+            f"  reasoning: {evaluation.reasoning}\n"
+            f"  confidence: {evaluation.confidence}\n"
+            f"  warnings: {evaluation.warnings}\n"
+            f"  tools used: {result.tool_names}"
         )
 
-        # Cost should be under budget
+        # -- Cost ceiling --
         if result.cost_usd is not None:
             assert result.cost_usd < 1.0, (
                 f"Test cost ${result.cost_usd:.4f} — exceeded $1.00 budget"
             )
-
-        print(f"  PNG files: {[p.name for p in png_files]}")
 
     # -------------------------------------------------------------------
     # Test 3 — Full BPM correlation pipeline (channel-finder -> archiver -> plot)

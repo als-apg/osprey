@@ -47,7 +47,6 @@ from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
     init_project,
-    is_claude_code_available,
     run_sdk_query,
 )
 from tests.e2e.test_preset_agentic import (
@@ -55,11 +54,14 @@ from tests.e2e.test_preset_agentic import (
     _to_workflow_result,
 )
 
+# We only gate on HAS_SDK — the Claude Agent SDK ships a bundled ``claude``
+# binary inside its package, so a system-PATH ``claude --version`` check
+# (which is_claude_code_available() runs) would spuriously skip this test
+# on CI runners where the SDK is installed but no system ``claude`` is.
 pytestmark = [
     pytest.mark.e2e,
     pytest.mark.requires_als_apg,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
-    pytest.mark.skipif(not is_claude_code_available(), reason="claude CLI not available"),
 ]
 
 
