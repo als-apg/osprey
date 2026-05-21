@@ -41,7 +41,11 @@ project_name: "my-test-project"
 
 # Approval workflow for sensitive operations
 approval:
-  global_mode: "selective"   # Options: disabled | selective | all_capabilities
+  enabled: true
+  default_policy: "always"   # Options: skip | selective | always
+  tools:
+    channel_write: "always"
+    channel_read: "skip"
 
 # ============================================================
 # CONTROL SYSTEM
@@ -107,16 +111,16 @@ class TestCommentPreservation:
 
     def test_add_to_list_preserves_comments(self, config_file):
         original_comments = self._comment_lines(config_file.read_text())
-        config_add_to_list(config_file, ["prompts", "user_owned"], "rules/facility")
+        config_add_to_list(config_file, ["scaffold", "user_owned"], "rules/facility")
         after_comments = self._comment_lines(config_file.read_text())
         # New section may not have comments, but existing ones must survive
         for c in original_comments:
             assert c in after_comments
 
     def test_remove_from_list_preserves_comments(self, config_file):
-        config_add_to_list(config_file, ["prompts", "user_owned"], "rules/facility")
+        config_add_to_list(config_file, ["scaffold", "user_owned"], "rules/facility")
         original_comments = self._comment_lines(config_file.read_text())
-        config_remove_from_list(config_file, ["prompts", "user_owned"], "rules/facility")
+        config_remove_from_list(config_file, ["scaffold", "user_owned"], "rules/facility")
         after_comments = self._comment_lines(config_file.read_text())
         for c in original_comments:
             assert c in after_comments
@@ -127,7 +131,7 @@ class TestCommentPreservation:
             config_file,
             {
                 "control_system.writes_enabled": True,
-                "approval.global_mode": "all_capabilities",
+                "approval.default_policy": "always",
                 "artifact_server.port": 9999,
             },
         )
@@ -222,9 +226,9 @@ class TestNumericUpdates:
 
 class TestStringUpdates:
     def test_enum_string(self, config_file):
-        config_update_fields(config_file, {"approval.global_mode": "all_capabilities"})
+        config_update_fields(config_file, {"approval.default_policy": "selective"})
         data = config_read(config_file)
-        assert data["approval"]["global_mode"] == "all_capabilities"
+        assert data["approval"]["default_policy"] == "selective"
 
     def test_string_with_special_chars(self, config_file):
         config_update_fields(config_file, {"artifact_server.host": "0.0.0.0"})
@@ -298,7 +302,7 @@ class TestBatchUpdates:
                 "control_system.writes_enabled": True,
                 "control_system.type": "epics",
                 "artifact_server.port": 7777,
-                "approval.global_mode": "disabled",
+                "approval.enabled": False,
                 "control_system.write_verification.timeout": 15.0,
             },
         )
@@ -306,7 +310,7 @@ class TestBatchUpdates:
         assert data["control_system"]["writes_enabled"] is True
         assert data["control_system"]["type"] == "epics"
         assert data["artifact_server"]["port"] == 7777
-        assert data["approval"]["global_mode"] == "disabled"
+        assert data["approval"]["enabled"] is False
         assert data["control_system"]["write_verification"]["timeout"] == 15.0
 
     def test_batch_preserves_comments(self, config_file):
@@ -318,7 +322,7 @@ class TestBatchUpdates:
             {
                 "control_system.writes_enabled": True,
                 "artifact_server.port": 9999,
-                "approval.global_mode": "disabled",
+                "approval.enabled": False,
             },
         )
 
@@ -345,61 +349,61 @@ class TestNewSections:
 
 
 # ---------------------------------------------------------------------------
-# List Operations (prompts.user_owned management)
+# List Operations (scaffold.user_owned management)
 # ---------------------------------------------------------------------------
 
 
 class TestListOperations:
     def test_add_to_nonexistent_list(self, config_file):
-        added = config_add_to_list(config_file, ["prompts", "user_owned"], "rules/facility")
+        added = config_add_to_list(config_file, ["scaffold", "user_owned"], "rules/facility")
         assert added is True
         data = config_read(config_file)
-        assert data["prompts"]["user_owned"] == ["rules/facility"]
+        assert data["scaffold"]["user_owned"] == ["rules/facility"]
 
     def test_add_duplicate_is_noop(self, config_file):
-        config_add_to_list(config_file, ["prompts", "user_owned"], "rules/facility")
-        added = config_add_to_list(config_file, ["prompts", "user_owned"], "rules/facility")
+        config_add_to_list(config_file, ["scaffold", "user_owned"], "rules/facility")
+        added = config_add_to_list(config_file, ["scaffold", "user_owned"], "rules/facility")
         assert added is False
         data = config_read(config_file)
-        assert data["prompts"]["user_owned"] == ["rules/facility"]
+        assert data["scaffold"]["user_owned"] == ["rules/facility"]
 
     def test_add_multiple_items(self, config_file):
-        config_add_to_list(config_file, ["prompts", "user_owned"], "rules/facility")
-        config_add_to_list(config_file, ["prompts", "user_owned"], "rules/safety")
+        config_add_to_list(config_file, ["scaffold", "user_owned"], "rules/facility")
+        config_add_to_list(config_file, ["scaffold", "user_owned"], "rules/safety")
         data = config_read(config_file)
-        assert data["prompts"]["user_owned"] == ["rules/facility", "rules/safety"]
+        assert data["scaffold"]["user_owned"] == ["rules/facility", "rules/safety"]
 
     def test_remove_existing_item(self, config_file):
-        config_add_to_list(config_file, ["prompts", "user_owned"], "rules/facility")
-        config_add_to_list(config_file, ["prompts", "user_owned"], "rules/safety")
-        removed = config_remove_from_list(config_file, ["prompts", "user_owned"], "rules/facility")
+        config_add_to_list(config_file, ["scaffold", "user_owned"], "rules/facility")
+        config_add_to_list(config_file, ["scaffold", "user_owned"], "rules/safety")
+        removed = config_remove_from_list(config_file, ["scaffold", "user_owned"], "rules/facility")
         assert removed is True
         data = config_read(config_file)
-        assert data["prompts"]["user_owned"] == ["rules/safety"]
+        assert data["scaffold"]["user_owned"] == ["rules/safety"]
 
     def test_remove_nonexistent_item(self, config_file):
-        config_add_to_list(config_file, ["prompts", "user_owned"], "rules/facility")
+        config_add_to_list(config_file, ["scaffold", "user_owned"], "rules/facility")
         removed = config_remove_from_list(
-            config_file, ["prompts", "user_owned"], "rules/nonexistent"
+            config_file, ["scaffold", "user_owned"], "rules/nonexistent"
         )
         assert removed is False
 
     def test_remove_last_item_prunes_parents(self, config_file):
-        config_add_to_list(config_file, ["prompts", "user_owned"], "rules/facility")
-        config_remove_from_list(config_file, ["prompts", "user_owned"], "rules/facility")
+        config_add_to_list(config_file, ["scaffold", "user_owned"], "rules/facility")
+        config_remove_from_list(config_file, ["scaffold", "user_owned"], "rules/facility")
         data = config_read(config_file)
-        assert "prompts" not in data
+        assert "scaffold" not in data
 
     def test_remove_last_item_no_prune(self, config_file):
-        config_add_to_list(config_file, ["prompts", "user_owned"], "rules/facility")
+        config_add_to_list(config_file, ["scaffold", "user_owned"], "rules/facility")
         config_remove_from_list(
             config_file,
-            ["prompts", "user_owned"],
+            ["scaffold", "user_owned"],
             "rules/facility",
             prune_empty=False,
         )
         data = config_read(config_file)
-        assert data["prompts"]["user_owned"] == []
+        assert data["scaffold"]["user_owned"] == []
 
     def test_remove_from_nonexistent_path(self, config_file):
         removed = config_remove_from_list(config_file, ["nonexistent", "path"], "value")

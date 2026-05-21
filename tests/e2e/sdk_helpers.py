@@ -8,15 +8,14 @@ Extracted from test_claude_code_sdk_e2e.py to avoid circular imports.
 
 from __future__ import annotations
 
+import json
 import os
+import subprocess
+import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
-from click.testing import CliRunner
-
-from osprey.cli.build_cmd import build
 
 # SDK imports — skip entire module if not installed
 try:
@@ -32,6 +31,7 @@ try:
         ToolPermissionContext,
         ToolResultBlock,
         ToolUseBlock,
+        UserMessage,
         query,
     )
 
@@ -47,8 +47,6 @@ except ImportError:
 
 def is_claude_code_available() -> bool:
     """Check if Claude Code CLI is installed and functional."""
-    import subprocess
-
     try:
         env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
         result = subprocess.run(
@@ -83,23 +81,31 @@ def init_project(
     tmp_path: Path,
     name: str,
     template: str = "control_assistant",
-    provider: str = "als-apg",
+    *,
+    provider: str,
     model: str = "haiku",
     channel_finder_mode: str | None = None,
+    tier: int = 1,
 ) -> Path:
     """Create a project via ``osprey build --preset <template>``, return project_dir.
 
-    Defaults to ``provider="als-apg"`` because the ALS-APG AWS Bedrock proxy
-    is the only Anthropic-compatible endpoint reachable from GitHub Actions
-    runners. CBORG enforces an IP allowlist that does not cover the GitHub
-    Actions egress range, so any cborg-routed CI test 403s with
-    ``ip_not_authorized``. With ``provider="anthropic"``, the bundled Claude
-    CLI silently falls back to whatever credentials happen to live in
-    ``~/.claude`` on the developer machine — making tests pass locally and
-    fail in CI's clean HOME. Local development with cborg still works:
-    pass ``provider="cborg"`` explicitly when running from an allowlisted IP.
+    ``provider`` is required (keyword-only) — every test callsite must name
+    it explicitly. Each provider gates on different credentials (CBORG needs
+    LBLnet/VPN; als-apg needs ``ALS_APG_API_KEY``; anthropic-direct needs
+    ``ANTHROPIC_API_KEY``), so a kwarg default silently couples tests to one
+    provider's auth and produces the local-passes-CI-fails asymmetry. Pick
+    ``"als-apg"`` for GitHub Actions runners, ``"cborg"`` from LBLnet, or
+    ``"anthropic"`` when you have an ``ANTHROPIC_API_KEY`` available.
+
+    Invoked via ``subprocess`` rather than Click's ``CliRunner`` because
+    ``osprey build`` instantiates ``rich.Console(force_terminal=True)``,
+    which performs terminal-aware lifecycle management on the captured
+    ``BytesIO`` stream that ``CliRunner`` substitutes for stdout. On
+    Python ≥3.11 that closes the wrapper before Click reads it back,
+    raising ``ValueError: I/O operation on closed file`` at fixture
+    setup. ``CliRunner`` is also a unit-test harness; an e2e fixture
+    should exercise the same entry point real users invoke.
     """
-    runner = CliRunner()
     args = [
         name,
         "--preset",
@@ -108,6 +114,8 @@ def init_project(
         "--skip-lifecycle",
         "--output-dir",
         str(tmp_path),
+        "--tier",
+        str(tier),
         "--set",
         f"provider={provider}",
         "--set",
@@ -115,31 +123,79 @@ def init_project(
     ]
     if channel_finder_mode is not None:
         args.extend(["--set", f"channel_finder_mode={channel_finder_mode}"])
-    result = runner.invoke(build, args)
-    assert result.exit_code == 0, f"osprey build failed: {result.output}"
+    result = subprocess.run(
+        [sys.executable, "-m", "osprey.cli.main", "build", *args],
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, (
+        f"osprey build failed (exit {result.returncode}):\n"
+        f"--- stdout ---\n{result.stdout}\n"
+        f"--- stderr ---\n{result.stderr}"
+    )
     project_dir = tmp_path / name
     assert project_dir.exists(), f"Project directory not created: {project_dir}"
     return project_dir
 
 
+def enable_writes_in_project(project_dir: Path) -> None:
+    """Ensure ``control_system.writes_enabled`` is true in the project's config.yml.
+
+    Required for tests that exercise the approval-hook path: the
+    ``osprey_writes_check.py`` PreToolUse hook denies before
+    ``osprey_approval.py`` gets to return ``ask``, so the SDK's
+    ``can_use_tool`` callback never fires when writes are disabled.
+
+    Also drops ``mcp__controls__channel_write`` from ``.claude/settings.json``'s
+    ``permissions.deny`` list. The kill-switch hard-block in
+    ``cli/templates/claude_code.py`` bakes that deny entry into ``settings.json``
+    at build time when ``writes_enabled`` is false (so Claude Code's permissions
+    layer short-circuits before the PreToolUse hook chain runs). Flipping
+    ``config.yml`` alone leaves the rendered ``settings.json`` stale, so the
+    settings layer still denies and no hook ever fires.
+
+    Idempotent: presets like ``control_assistant`` already ship with
+    ``writes_enabled: true``; only ``hello_world`` defaults to false.
+    """
+    config_path = project_dir / "config.yml"
+    text = config_path.read_text(encoding="utf-8")
+    if "writes_enabled: true" not in text:
+        updated = text.replace("writes_enabled: false", "writes_enabled: true", 1)
+        if updated == text:
+            raise RuntimeError(
+                f"Could not enable writes in {config_path}: no writes_enabled key found."
+            )
+        config_path.write_text(updated, encoding="utf-8")
+
+    settings_path = project_dir / ".claude" / "settings.json"
+    if settings_path.exists():
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+        deny = data.get("permissions", {}).get("deny", [])
+        if "mcp__controls__channel_write" in deny:
+            deny.remove("mcp__controls__channel_write")
+            settings_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+
+
 def _resolve_project_spec(project_dir: Path):
-    """Return the project's ``ClaudeCodeModelSpec`` or None on any failure.
+    """Return the project's ``ClaudeCodeModelSpec`` or ``None`` when the
+    project's ``config.yml`` has no ``claude_code`` block.
 
     Reads ``config.yml`` and runs the same resolver ``osprey claude chat``
-    uses, so test routing matches production exactly.
+    uses, so test routing matches production exactly. Unlike the earlier
+    bare-``except`` version, this surfaces any unexpected error (missing
+    ``config.yml``, YAML parse failure, resolver import failure) rather
+    than masking it as ``None``.
     """
-    try:
-        import yaml
+    import yaml
 
-        from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
+    from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
 
-        cfg = yaml.safe_load((project_dir / "config.yml").read_text()) or {}
-        return ClaudeCodeModelResolver.resolve(
-            cfg.get("claude_code", {}),
-            cfg.get("api", {}).get("providers", {}),
-        )
-    except Exception:
-        return None
+    cfg = yaml.safe_load((project_dir / "config.yml").read_text()) or {}
+    return ClaudeCodeModelResolver.resolve(
+        cfg.get("claude_code", {}),
+        cfg.get("api", {}).get("providers", {}),
+    )
 
 
 def provider_env_for_project(project_dir: Path) -> dict[str, str]:
@@ -152,12 +208,18 @@ def provider_env_for_project(project_dir: Path) -> dict[str, str]:
 
     Returns the spec's ``env_block`` (``ANTHROPIC_BASE_URL``,
     ``ANTHROPIC_DEFAULT_*_MODEL``, ...) plus the auth var populated from
-    the configured shell secret. Returns ``{}`` if the project has no
-    resolvable provider config or the auth secret is unset.
+    the configured shell secret. Raises ``RuntimeError`` if the project
+    has no resolvable provider — silently falling back to ``{}`` would
+    let the test subprocess inherit ambient env, which is the exact
+    local-vs-CI divergence we are trying to eliminate.
     """
     spec = _resolve_project_spec(project_dir)
     if spec is None:
-        return {}
+        raise RuntimeError(
+            f"Project at {project_dir} has no resolvable provider in "
+            "config.yml — pass provider=<als-apg|cborg|anthropic|amsc|argo> "
+            "to init_project()."
+        )
     env: dict[str, str] = dict(spec.env_block)
     if spec.auth_secret_env and spec.auth_env_var:
         secret = os.environ.get(spec.auth_secret_env)
@@ -172,6 +234,19 @@ def _default_haiku_model(project_dir: Path) -> str:
     if spec is not None:
         return spec.tier_to_model.get("haiku", "claude-haiku-4-5-20251001")
     return "claude-haiku-4-5-20251001"
+
+
+def _default_opus_model(project_dir: Path) -> str:
+    """Resolve the project's opus-tier model name.
+
+    Use for tests that benchmark agent reasoning (diagnostic-style
+    challenges) — Opus is required for the planner to converge on a
+    committed conclusion instead of hedging on a data dump.
+    """
+    spec = _resolve_project_spec(project_dir)
+    if spec is not None:
+        return spec.tier_to_model.get("opus", "claude-opus-4-7")
+    return "claude-opus-4-7"
 
 
 def sdk_env(project_dir: Path | None = None) -> dict[str, str]:
@@ -274,6 +349,27 @@ class SDKWorkflowResult:
 # ---------------------------------------------------------------------------
 
 
+def _ingest_tool_result(block: ToolResultBlock, pending_tools: dict[str, ToolTrace]) -> None:
+    """Match a ToolResultBlock to its pending ToolTrace and populate result/is_error.
+
+    ToolResultBlocks arrive in ``UserMessage.content`` (per Anthropic API contract:
+    tool_use is assistant output, tool_result is user input back to the model).
+    They may also appear in ``AssistantMessage`` when the SDK forwards them.
+    """
+    matched = pending_tools.get(block.tool_use_id)
+    if matched is None:
+        return
+    if isinstance(block.content, str):
+        matched.result = block.content
+    elif isinstance(block.content, list):
+        texts = []
+        for item in block.content:
+            if isinstance(item, dict) and item.get("type") == "text":
+                texts.append(item.get("text", ""))
+        matched.result = "\n".join(texts) if texts else str(block.content)
+    matched.is_error = bool(block.is_error)
+
+
 async def run_sdk_query(
     project_dir: Path,
     prompt: str,
@@ -281,6 +377,7 @@ async def run_sdk_query(
     max_turns: int = 25,
     max_budget_usd: float = 2.0,
     model: str | None = None,
+    disallowed_tools: list[str] | None = None,
 ) -> SDKWorkflowResult:
     """Run a query via the Claude Agent SDK and collect full tool traces.
 
@@ -292,6 +389,12 @@ async def run_sdk_query(
         model: Model to use. Defaults to the project's haiku-tier model
             resolved from ``config.yml`` (e.g. ``claude-haiku-4-5`` for
             cborg, ``claude-haiku-4-5-20251001`` for direct anthropic).
+        disallowed_tools: Optional list of tool names to forbid at the SDK
+            level. Forwarded to the Claude Code CLI as ``--disallowedTools``,
+            which takes precedence over ``permission_mode=bypassPermissions``
+            and over per-tool ``permissions_allow`` in ``.mcp.json``. Use this
+            to architecturally force delegation to subagents (the main agent
+            cannot call a disallowed tool even when settings would permit it).
 
     Returns:
         SDKWorkflowResult with all collected tool traces, text, and metadata.
@@ -308,6 +411,7 @@ async def run_sdk_query(
         env=sdk_env(project_dir),
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
+        disallowed_tools=disallowed_tools or [],
     )
 
     workflow = SDKWorkflowResult()
@@ -331,19 +435,14 @@ async def run_sdk_query(
                         workflow.tool_traces.append(trace)
                         pending_tools[block.id] = trace
                     elif isinstance(block, ToolResultBlock):
-                        # Match result to its tool call
-                        matched = pending_tools.get(block.tool_use_id)
-                        if matched:
-                            if isinstance(block.content, str):
-                                matched.result = block.content
-                            elif isinstance(block.content, list):
-                                # Extract text from content list
-                                texts = []
-                                for item in block.content:
-                                    if isinstance(item, dict) and item.get("type") == "text":
-                                        texts.append(item.get("text", ""))
-                                matched.result = "\n".join(texts) if texts else str(block.content)
-                            matched.is_error = bool(block.is_error)
+                        _ingest_tool_result(block, pending_tools)
+
+            elif isinstance(message, UserMessage):
+                # Tool results land here per the Anthropic API contract.
+                if isinstance(message.content, list):
+                    for block in message.content:
+                        if isinstance(block, ToolResultBlock):
+                            _ingest_tool_result(block, pending_tools)
 
             elif isinstance(message, SystemMessage):
                 workflow.system_messages.append(message)
@@ -485,19 +584,13 @@ async def run_sdk_query_with_hooks(
                             workflow.tool_traces.append(trace)
                             pending_tools[block.id] = trace
                         elif isinstance(block, ToolResultBlock):
-                            matched = pending_tools.get(block.tool_use_id)
-                            if matched:
-                                if isinstance(block.content, str):
-                                    matched.result = block.content
-                                elif isinstance(block.content, list):
-                                    texts = []
-                                    for item in block.content:
-                                        if isinstance(item, dict) and item.get("type") == "text":
-                                            texts.append(item.get("text", ""))
-                                    matched.result = (
-                                        "\n".join(texts) if texts else str(block.content)
-                                    )
-                                matched.is_error = bool(block.is_error)
+                            _ingest_tool_result(block, pending_tools)
+
+                elif isinstance(message, UserMessage):
+                    if isinstance(message.content, list):
+                        for block in message.content:
+                            if isinstance(block, ToolResultBlock):
+                                _ingest_tool_result(block, pending_tools)
 
                 elif isinstance(message, SystemMessage):
                     workflow.system_messages.append(message)

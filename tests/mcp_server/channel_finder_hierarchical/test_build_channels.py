@@ -1,6 +1,5 @@
 """Tests for build_channels tool."""
 
-import json
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
@@ -9,6 +8,7 @@ from osprey.mcp_server.channel_finder_hierarchical.server_context import (
     initialize_cf_hier_context,
 )
 from tests.mcp_server.channel_finder_hierarchical.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 
 def _setup(tmp_path, monkeypatch):
@@ -40,7 +40,7 @@ def test_build_channels_happy_path(tmp_path, monkeypatch):
         fn = get_tool_fn(build_channels)
         selections = {"system": "SR", "family": "BPM", "device": ["01", "02"]}
         result = fn(selections=selections)
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["total"] == 3
     assert "SR:BPM:01:X" in data["channels"]
     assert "SR:BPM:02:X" in data["channels"]
@@ -73,7 +73,7 @@ def test_build_channels_with_invalid_channels(tmp_path, monkeypatch):
 
         fn = get_tool_fn(build_channels)
         result = fn(selections={"system": "SR", "family": "BPM"})
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["total"] == 3
     assert data["valid_count"] == 2
     assert data["invalid_count"] == 1
@@ -99,10 +99,9 @@ def test_build_channels_value_error(tmp_path, monkeypatch):
         )
 
         fn = get_tool_fn(build_channels)
-        result = fn(selections={})
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            fn(selections={})
+    data = _exc_ctx["envelope"]
     assert "Missing required level" in data["error_message"]
 
 
@@ -120,8 +119,7 @@ def test_build_channels_internal_error(tmp_path, monkeypatch):
         )
 
         fn = get_tool_fn(build_channels)
-        result = fn(selections={"system": "SR"})
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            fn(selections={"system": "SR"})
+    data = _exc_ctx["envelope"]
     assert "db crashed" in data["error_message"]

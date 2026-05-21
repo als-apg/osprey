@@ -3,6 +3,8 @@
 import json
 import logging
 
+from fastmcp.exceptions import ToolError
+
 from osprey.mcp_server.ariel.server import make_error, mcp
 from osprey.mcp_server.ariel.server_context import get_ariel_context
 
@@ -28,12 +30,10 @@ async def entry_publish(
         JSON with the facility-assigned entry_id, source_system, sync_status, and message.
     """
     if not entry_id or not entry_id.strip():
-        return json.dumps(
-            make_error(
-                "validation_error",
-                "entry_id is required.",
-                ["Provide a valid entry ID."],
-            )
+        return make_error(
+            "validation_error",
+            "entry_id is required.",
+            ["Provide a valid entry ID."],
         )
 
     try:
@@ -53,27 +53,23 @@ async def entry_publish(
         )
 
     except KeyError:
-        return json.dumps(
-            make_error(
-                "not_found",
-                f"Entry {entry_id} not found.",
-                ["Check the entry_id is correct."],
-            )
+        return make_error(
+            "not_found",
+            f"Entry {entry_id} not found.",
+            ["Check the entry_id is correct."],
         )
     except NotImplementedError as exc:
-        return json.dumps(
-            make_error(
-                "not_supported",
-                str(exc),
-                ["The configured adapter does not support writing entries."],
-            )
+        return make_error(
+            "not_supported",
+            str(exc),
+            ["The configured adapter does not support writing entries."],
         )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("entry_publish failed for %s", entry_id)
-        return json.dumps(
-            make_error(
-                "internal_error",
-                f"Failed to publish entry: {exc}",
-                ["Check the ARIEL service logs for details."],
-            )
+        return make_error(
+            "internal_error",
+            f"Failed to publish entry: {exc}",
+            ["Check the ARIEL service logs for details."],
         )

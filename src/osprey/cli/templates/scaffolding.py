@@ -1,4 +1,12 @@
-"""Project creation helpers: directory structure, services, data files."""
+"""Project creation helpers: directory structure, services, data files.
+
+Includes :func:`materialize_tier_artifacts`, the build-time step that picks
+the tier-routed channel-database file(s) and the matching tier-routed
+benchmark query file for the selected paradigm, copies them into the canonical
+flat locations (``data/channel_databases/<paradigm>.json`` and
+``data/benchmarks/queries.json``), and prunes the now-redundant ``tiers/`` and
+``benchmarks/cross_paradigm/`` subtrees.
+"""
 
 import json
 import logging
@@ -318,6 +326,140 @@ def copy_template_data(
                 f"  [success]✓[/success] Copied template data files to [path]{dst_data}[/path]"
             )
             return
+
+
+_ALL_PARADIGMS: tuple[str, ...] = ("in_context", "hierarchical", "middle_layer")
+
+
+def materialize_tier_artifacts(project_dir: Path, tier: int, channel_finder_mode: str) -> None:
+    """Materialize tier-routed channel databases AND benchmark queries.
+
+    The preset ships:
+    - channel databases under
+      ``data/channel_databases/tiers/tier{1,2,3}/<paradigm>.json``
+    - benchmark query files under
+      ``data/benchmarks/cross_paradigm/queries/tier{1,2,3}_queries.json``
+
+    After ``osprey build``, this helper picks the requested ``tier`` and:
+    - copies the active paradigm's DB to the flat
+      ``data/channel_databases/<paradigm>.json``
+    - copies the tier-matching query file to the flat
+      ``data/benchmarks/queries.json``
+    - prunes both the ``tiers/`` and ``benchmarks/cross_paradigm/`` subtrees
+      so only the active artifacts remain.
+
+    Facility profiles overlaying their own DB files don't care which tier
+    was selected — their overlay overwrites the preset DB after this step.
+    Tier itself is build-time only and is NOT written into ``config.yml``.
+
+    Args:
+        project_dir: Root directory of the rendered project.
+        tier: Tier number (1, 2, or 3) selecting the source subdirectories.
+        channel_finder_mode: Paradigm selector from the build profile. Must
+            be one of ``"in_context"``, ``"hierarchical"``, ``"middle_layer"``.
+
+    Raises:
+        ValueError: If ``channel_finder_mode`` is not one of the three valid
+            paradigms (the build-profile validator and ``manager.py`` should
+            catch this earlier, but this is a defensive guard).
+        FileNotFoundError: If a required source artifact is missing. Raised
+            BEFORE any destination file is overwritten or any directory is
+            removed, so the project tree is left untouched on failure.
+
+    No-ops (returns silently) when the rendered project carries no
+    ``data/channel_databases/tiers/`` subtree — bundles that don't ship
+    channel-finder DBs (e.g. ``hello_world``) have nothing to materialize.
+    """
+    tiers_root = project_dir / "data" / "channel_databases" / "tiers"
+    if not tiers_root.exists():
+        return
+
+    if channel_finder_mode not in _ALL_PARADIGMS:
+        raise ValueError(
+            f"Unknown channel_finder_mode {channel_finder_mode!r}; "
+            f"expected one of {sorted(_ALL_PARADIGMS)!r}"
+        )
+    paradigms: set[str] = {channel_finder_mode}
+
+    tier_dir = tiers_root / f"tier{tier}"
+    flat_root = project_dir / "data" / "channel_databases"
+    queries_src_root = project_dir / "data" / "benchmarks" / "cross_paradigm"
+
+    # Resolve every (src, dst) pair up front, validate existence, then copy.
+    # This keeps the destination tree consistent on FileNotFoundError.
+    pairs: list[tuple[Path, Path]] = []
+    for paradigm in sorted(paradigms):
+        src = tier_dir / f"{paradigm}.json"
+        dst = flat_root / f"{paradigm}.json"
+        if not src.exists():
+            raise FileNotFoundError(
+                f"Tier-routed channel database not found: {src} "
+                f"(tier={tier}, paradigm={paradigm!r})"
+            )
+        pairs.append((src, dst))
+
+    # The unified query file lives under the preset's
+    # data/benchmarks/cross_paradigm/queries/ subtree, which copy_template_data
+    # wholesale-copies into the project. Pick the tier-matching file and
+    # materialize it as the canonical data/benchmarks/queries.json.
+    queries_src = queries_src_root / "queries" / f"tier{tier}_queries.json"
+    queries_dst = project_dir / "data" / "benchmarks" / "queries.json"
+    if not queries_src.exists():
+        raise FileNotFoundError(
+            f"Tier-routed benchmark queries file not found: {queries_src} (tier={tier})"
+        )
+    pairs.append((queries_src, queries_dst))
+
+    # The preset ships the canonical hierarchical.json at flat_root as the
+    # generator's source-of-truth. End users only need the tier-filtered
+    # active paradigm file — drop the canonical before materialization.
+    canonical_source = flat_root / "hierarchical.json"
+    if canonical_source.exists():
+        canonical_source.unlink()
+
+    for src, dst in pairs:
+        shutil.copy2(src, dst)
+
+    # All copies succeeded — safe to prune the preset's staging subtrees.
+    shutil.rmtree(tiers_root)
+    if queries_src_root.exists():
+        shutil.rmtree(queries_src_root)
+
+    console.print(
+        f"  [success]✓[/success] Materialized tier{tier} artifacts "
+        f"(channel DB + queries) for {sorted(paradigms)!r} to "
+        f"[path]{project_dir / 'data'}[/path]"
+    )
+
+
+def prune_csv_build_artifacts(project_dir: Path, channel_finder_mode: str) -> None:
+    """Remove ``data/raw/`` for paradigms that have no CSV → DB build path.
+
+    The bundled ``osprey channel-finder build-database`` tool consumes a flat
+    CSV (``data/raw/address_list.csv``) and emits a flat in_context-format
+    JSON. Hierarchical and middle_layer databases have a nested structure
+    that the CSV format cannot express, so the ``raw/`` directory is dead
+    weight in those projects.
+
+    Args:
+        project_dir: Root directory of the rendered project.
+        channel_finder_mode: Paradigm selector from the build profile.
+
+    No-op when ``channel_finder_mode == "in_context"`` or when the rendered
+    project carries no ``data/raw/`` subtree.
+    """
+    if channel_finder_mode == "in_context":
+        return
+
+    raw_dir = project_dir / "data" / "raw"
+    if not raw_dir.exists():
+        return
+
+    shutil.rmtree(raw_dir)
+    console.print(
+        f"  [success]✓[/success] Removed [path]{raw_dir}[/path] "
+        f"(no CSV build path for {channel_finder_mode!r} paradigm)"
+    )
 
 
 def rebase_logbook_timestamps(project_dir: Path) -> None:

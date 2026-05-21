@@ -2,7 +2,7 @@
 
 Provides CRUD operations on ``~/.claude/projects/<encoded>/memory/*.md``
 files. Stateless service class instantiated per-request with a project
-directory, following the same pattern as :class:`PromptGalleryService`.
+directory, following the same pattern as :class:`ScaffoldGalleryService`.
 """
 
 from __future__ import annotations
@@ -10,6 +10,8 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
+
+from osprey.cli.project_utils import encode_claude_project_path
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +49,11 @@ class ClaudeMemoryService:
         """Return the Claude Code memory directory for this project.
 
         Claude Code stores memory files in
-        ``~/.claude/projects/<encoded>/memory/``
-        where ``<encoded>`` is the absolute project path with ``/``
-        replaced by ``-``.
+        ``~/.claude/projects/<encoded>/memory/``;
+        see :func:`osprey.cli.project_utils.encode_claude_project_path`
+        for the encoding rule.
         """
-        encoded = str(self._project_dir).replace("/", "-")
+        encoded = encode_claude_project_path(self._project_dir)
         return Path.home() / ".claude" / "projects" / encoded / "memory"
 
     # ── List ──────────────────────────────────────────────────────────

@@ -58,6 +58,9 @@ class ServerDefinition:
     external_command: str | None = None
     external_args: list[str] = field(default_factory=list)
     url: str | None = None  # HTTP/SSE transport URL (mutually exclusive with command)
+    port: int | None = (
+        None  # Host/container port for HTTP servers; informational for non-Claude consumers
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -147,8 +150,8 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         ],
         hooks_post=[_post_error("mcp__python__.*")],
     ),
-    "workspace": ServerDefinition(
-        name="workspace",
+    "osprey_workspace": ServerDefinition(
+        name="osprey_workspace",
         module="osprey.mcp_server.workspace",
         env={
             "OSPREY_CONFIG": "{project_root}/config.yml",
@@ -161,6 +164,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "submit_response",
             "data_list",
             "data_read",
+            "data_delete",
             "artifact_get",
             "artifact_focus",
             "artifact_export",
@@ -169,6 +173,8 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "create_dashboard",
             "create_document",
             "artifact_save",
+            "artifact_delete",
+            "artifact_delete_all",
             "session_log",
             "session_summary",
             "archiver_downsample",
@@ -184,11 +190,11 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         permissions_ask=["setup_patch"],
         hooks_pre=[
             HookRule(
-                matcher="mcp__workspace__setup_patch",
+                matcher="mcp__osprey_workspace__setup_patch",
                 hooks=[_APPROVAL],
             ),
         ],
-        hooks_post=[_post_error("mcp__workspace__.*")],
+        hooks_post=[_post_error("mcp__osprey_workspace__.*")],
     ),
     "ariel": ServerDefinition(
         name="ariel",
@@ -224,7 +230,9 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "OSPREY_CONFIG": "{project_root}/config.yml",
         },
         condition="channel_finder_pipeline",
-        fixed_allow=["mcp__channel-finder"],
+        # permissions_allow is populated dynamically from
+        # CHANNEL_FINDER_TOOLS_BY_PIPELINE in resolve_servers() because the tool
+        # set varies by pipeline.
         hooks_post=[
             HookRule(
                 matcher="mcp__channel-finder__.*",
@@ -232,6 +240,25 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             ),
         ],
     ),
+}
+
+
+# Tools exposed by each channel-finder pipeline (one MCP server module per pipeline).
+# The agent template and the server's permissions.allow are both rendered from
+# this single source of truth at build time.
+CHANNEL_FINDER_TOOLS_BY_PIPELINE: dict[str, list[str]] = {
+    "hierarchical": ["build_channels", "get_options", "view_examples"],
+    "middle_layer": [
+        "get_common_names",
+        "inspect_fields",
+        "list_channels",
+        "list_families",
+        "list_systems",
+        "query_channels",
+        "statistics",
+        "validate",
+    ],
+    "in_context": ["query_channels"],
 }
 
 
@@ -299,6 +326,16 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
         k: copy.deepcopy(v) for k, v in FRAMEWORK_SERVERS.items()
     }
 
+    # ── Channel-finder pipeline tools ─────────────────────────
+    # The channel-finder server's tool set is pipeline-specific. Render the
+    # active pipeline's tools into permissions_allow so settings.json and the
+    # agent frontmatter share one source of truth (no wildcard).
+    cf_pipeline = ctx.get("channel_finder_pipeline")
+    if cf_pipeline and "channel-finder" in servers:
+        servers["channel-finder"].permissions_allow = list(
+            CHANNEL_FINDER_TOOLS_BY_PIPELINE.get(cf_pipeline, [])
+        )
+
     # ── Evaluate conditions ────────────────────────────────────
     for sdef in servers.values():
         if sdef.condition and not ctx.get(sdef.condition):
@@ -351,6 +388,7 @@ def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition:
         external_command=spec.get("command", ""),
         external_args=spec.get("args", []),
         url=spec.get("url"),
+        port=spec.get("port"),
         permissions_allow=perms.get("allow", []),
         permissions_ask=perms.get("ask", []),
         hooks_pre=hooks_pre,

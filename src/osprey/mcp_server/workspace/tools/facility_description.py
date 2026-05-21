@@ -8,6 +8,8 @@ and operational details.
 import json
 import logging
 
+from fastmcp.exceptions import ToolError
+
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.workspace.server import mcp
 from osprey.utils.workspace import resolve_config_path
@@ -34,17 +36,15 @@ async def facility_description() -> str:
         facility_file = project_root / ".claude" / "rules" / "facility.md"
 
         if not facility_file.exists():
-            return json.dumps(
-                make_error(
-                    "not_found",
-                    "Facility description file not found at .claude/rules/facility.md",
-                    [
-                        "Run `osprey claude regen` to create the file.",
-                        "Or create .claude/rules/facility.md manually.",
-                        "The file should describe your facility's identity, "
-                        "systems, terminology, and operational context.",
-                    ],
-                )
+            return make_error(
+                "not_found",
+                "Facility description file not found at .claude/rules/facility.md",
+                [
+                    "Run `osprey claude regen` to create the file.",
+                    "Or create .claude/rules/facility.md manually.",
+                    "The file should describe your facility's identity, "
+                    "systems, terminology, and operational context.",
+                ],
             )
 
         content = facility_file.read_text(encoding="utf-8")
@@ -56,12 +56,12 @@ async def facility_description() -> str:
             }
         )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("facility_description failed")
-        return json.dumps(
-            make_error(
-                "internal_error",
-                f"Failed to read facility description: {exc}",
-                ["Check that .claude/rules/facility.md is readable."],
-            )
+        return make_error(
+            "internal_error",
+            f"Failed to read facility description: {exc}",
+            ["Check that .claude/rules/facility.md is readable."],
         )

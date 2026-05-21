@@ -1,0 +1,248 @@
+# ============================================================
+# {{ project_name }} Configuration — ARIEL Standalone
+# ============================================================
+# Logbook search and research deployment. No control-system runtime;
+# no channel finding, no archiver, no Python executor.
+# This bundle ships Postgres+pgvector and the ARIEL web/MCP/search stack.
+# ============================================================
+
+# Project identity
+project_name: "{{ project_name }}"
+
+# Facility identity — substituted into agent prompts (CLAUDE.md, subagents).
+# Keep this in sync with .claude/rules/facility.md.
+facility_name: "Example Research Facility"
+
+build_dir: ./build
+
+# Root directory (absolute path)
+project_root: {{ project_root }}
+
+# ============================================================
+# API CONFIGURATION
+# ============================================================
+# API keys and endpoints for LLM providers. ARIEL references providers
+# by name (e.g. "ollama" for embeddings, "{{ default_provider }}" for
+# enhancement / composition).
+
+api:
+  providers:
+    cborg:
+      api_key: ${CBORG_API_KEY}
+      base_url: https://api.cborg.lbl.gov/v1
+      models:
+        haiku: claude-haiku-4-5
+        sonnet: claude-sonnet-4-6
+        opus: claude-opus-4-7
+    openai:
+      api_key: ${OPENAI_API_KEY}
+      base_url: https://api.openai.com/v1
+    anthropic:
+      api_key: ${ANTHROPIC_API_KEY}
+      base_url: https://api.anthropic.com
+      models:
+        haiku: claude-haiku-4-5-20251001
+        sonnet: claude-sonnet-4-5-20250929
+        opus: claude-opus-4-6
+    google:
+      api_key: ${GOOGLE_API_KEY}
+      base_url: https://generativelanguage.googleapis.com/v1beta
+    ollama:
+      api_key: ollama
+      base_url: ${OLLAMA_HOST:-http://localhost:11434}
+      host: localhost
+      port: 11434
+    als-apg:
+      api_key: ${ALS_APG_API_KEY}
+      base_url: https://llm.gianlucamartino.com/v1
+      models:
+        haiku: claude-haiku-4-5-20251001
+        sonnet: claude-sonnet-4-6
+        opus: claude-opus-4-6
+
+# ============================================================
+# ENVIRONMENT VARIABLES
+# ============================================================
+# Set these in your .env file:
+#
+#   ANTHROPIC_API_KEY=sk-ant-...    # or CBORG_API_KEY for the LBL proxy
+#   OLLAMA_HOST=http://localhost:11434  # optional: semantic search embeddings
+#   TZ=UTC
+#
+
+# ============================================================
+# CONTAINER RUNTIME
+# ============================================================
+# Container runtime selection for deployment
+# Options: auto (default), docker, podman
+container_runtime: auto
+
+# ============================================================
+# SERVICE CONFIGURATION
+# ============================================================
+# Only PostgreSQL is needed for ARIEL logbook search
+
+services:
+  postgresql:
+    path: ./services/postgresql
+    database_name: ariel
+    username: ariel
+    password: ariel
+    port_host: 5432
+
+# Services to deploy with `osprey deploy up`
+deployed_services:
+  - postgresql
+
+# ============================================================
+# SAFETY CONTROLS
+# ============================================================
+
+# Approval workflow for sensitive operations
+# Policies: always (prompt every time), selective (content-aware), skip (no approval)
+approval:
+  enabled: true
+  default_policy: "always"        # Fail-closed: unknown tools require approval
+  tools:
+    entry_create: always           # ARIEL logbook entry creation requires approval
+
+# ── Hook observability ──────────────────────────────────────────────
+# Set debug: true to enable hook activity logging to stderr.
+hooks:
+  debug: true
+
+# ============================================================
+# ARIEL CONFIGURATION
+# ============================================================
+# Logbook search service: keyword + semantic search + entry retrieval.
+# Higher-level reasoning is owned by the Osprey agent layer; ARIEL itself
+# exposes raw search and entry lookup over MCP/HTTP.
+
+ariel:
+  database:
+    uri: postgresql://ariel:ariel@localhost:5432/ariel
+
+  default_max_results: 10
+
+  # Ingestion - demo logbook data (bundled with template)
+  # For production: change adapter and source_url to your logbook system
+  ingestion:
+    adapter: generic_json
+    source_url: data/logbook_seed/demo_logbook.json
+
+  # Search modules (leaf-level search functions)
+  # Both keyword and semantic are enabled out of the box.
+  # If Ollama/pgvector are unavailable, ARIEL degrades gracefully to keyword-only.
+  search_modules:
+    keyword:
+      enabled: true
+    semantic:
+      enabled: true      # Degrades gracefully if Ollama/pgvector unavailable
+      provider: ollama   # References api.providers.ollama
+      model: nomic-embed-text
+
+  # Enhancement modules — run during ingestion
+  enhancement_modules:
+    # Semantic processor: LLM-based keyword extraction and summarization
+    semantic_processor:
+      enabled: false                          # Requires LLM API calls
+      provider: {{ default_provider }}
+      model:
+        provider: {{ default_provider }}
+        model_id: {{ default_model }}
+        max_tokens: 256
+
+    # Text embedding: Vector embeddings for semantic search
+    text_embedding:
+      enabled: true                           # Degrades gracefully if Ollama/pgvector unavailable
+      provider: ollama
+      models:
+        - name: nomic-embed-text
+          dimension: 768
+
+  # Default embedding provider (fallback for modules without explicit provider)
+  embedding:
+    provider: ollama
+
+# ============================================================
+# LOGBOOK COMPOSITION
+# ============================================================
+# LLM settings for the logbook compose panel in the artifact gallery.
+
+logbook:
+  composition:
+    provider: {{ default_provider }}
+    model_id: {{ default_model | default("haiku") }}
+    default_tier: haiku   # Options: haiku | sonnet | opus
+
+# ============================================================
+# AGENT DATA & ARTIFACT GALLERY
+# ============================================================
+
+agent_data:
+  base_dir: "./_agent_data"
+
+artifact_server:
+  host: "127.0.0.1"
+  port: 8086
+  auto_launch: true
+
+# ============================================================
+# CLAUDE CODE INTEGRATION
+# ============================================================
+# In this preset, Claude Code is configured as the logbook-research
+# assistant: ARIEL MCP server + workspace MCP server + the
+# logbook-deep-research subagent. No control-system MCP servers.
+
+claude_code:
+  # Disable the control-system and python-executor MCP servers — this is an
+  # ARIEL-only deployment, no hardware writes, no in-process Python sandbox.
+  # osprey_workspace and ariel stay enabled (osprey_workspace is required
+  # by the logbook-deep-research subagent for artifact handoff).
+  servers:
+    controls:
+      enabled: false
+    python:
+      enabled: false
+
+  provider: {{ default_provider }}
+  default_model: {{ default_model | default("haiku") }}   # Options: haiku, sonnet, opus
+  #
+  # Override model IDs per tier (optional):
+  # models:
+  #   haiku: anthropic/claude-haiku-alt
+  #
+  # Override model tier per agent (optional):
+  # agent_models:
+  #   logbook-deep-research: sonnet
+
+# ============================================================
+# WEB PANEL CONFIGURATION
+# ============================================================
+# Controls which panel tabs appear in the web terminal (osprey web).
+# Universal panels (Workspace, Activity, Session Analytics) are always shown.
+
+web:
+{%- set _BUILTIN_PANELS = ["ariel", "channel-finder", "tuning"] %}
+{%- set _enabled_builtin_panels = selected_web_panels | select("in", _BUILTIN_PANELS) | list %}
+{%- if default_panel is defined and default_panel %}
+  # Tab focused on cold load. Falls back to "artifacts" (Workspace) when unset.
+  default_panel: {{ default_panel }}
+{%- endif %}
+{%- if _enabled_builtin_panels %}
+  panels:
+{%- for panel in _enabled_builtin_panels %}
+    {{ panel }}:
+      enabled: true
+{%- endfor %}
+{%- else %}
+  panels: {}
+{%- endif %}
+
+# ──────────────────────────────────────────────────────────────────────
+# User-Owned Prompt Artifacts
+# ──────────────────────────────────────────────────────────────────────
+# Claim framework-managed prompt artifacts for in-place editing.
+# Regen skips user-owned files, preserving your customizations.
+# `rules/facility` is auto-claimed on init — edit .claude/rules/facility.md
+# to describe your facility before first use.

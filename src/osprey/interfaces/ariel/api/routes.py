@@ -19,15 +19,11 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 
 from osprey.interfaces.ariel.api.schemas import (
-    AgentStepResponse,
-    AgentToolInvocationResponse,
     DiagnosticResponse,
     EntriesListResponse,
     EntryCreateRequest,
     EntryCreateResponse,
     EntryResponse,
-    PipelineDetailsResponse,
-    RAGStageStatsResponse,
     SearchMode,
     SearchRequest,
     SearchResponse,
@@ -94,46 +90,6 @@ def _entry_to_response(
     )
 
 
-def _pipeline_details_to_response(pd: Any) -> PipelineDetailsResponse | None:
-    """Convert a PipelineDetails dataclass to its API response model."""
-    if pd is None:
-        return None
-
-    rag_stats = None
-    if pd.rag_stats is not None:
-        rag_stats = RAGStageStatsResponse(
-            keyword_retrieved=pd.rag_stats.keyword_retrieved,
-            semantic_retrieved=pd.rag_stats.semantic_retrieved,
-            fused_count=pd.rag_stats.fused_count,
-            context_included=pd.rag_stats.context_included,
-            context_truncated=pd.rag_stats.context_truncated,
-        )
-
-    return PipelineDetailsResponse(
-        pipeline_type=pd.pipeline_type,
-        rag_stats=rag_stats,
-        agent_tool_invocations=[
-            AgentToolInvocationResponse(
-                tool_name=inv.tool_name,
-                tool_args=inv.tool_args,
-                result_summary=inv.result_summary,
-                order=inv.order,
-            )
-            for inv in pd.agent_tool_invocations
-        ],
-        agent_steps=[
-            AgentStepResponse(
-                step_type=s.step_type,
-                content=s.content,
-                tool_name=s.tool_name,
-                order=s.order,
-            )
-            for s in pd.agent_steps
-        ],
-        step_summary=pd.step_summary,
-    )
-
-
 @router.get("/capabilities")
 async def get_capabilities(request: Request) -> dict:
     """Return available search modes and their tunable parameters.
@@ -182,7 +138,7 @@ async def get_filter_options(request: Request, field_name: str) -> dict:
 async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
     """Execute search query.
 
-    Supports keyword, semantic, RAG, and agent modes.
+    Supports keyword and semantic modes.
     """
     service = _require_service(request)
     start_time = time.time()
@@ -194,8 +150,6 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
         mode_map = {
             SearchMode.KEYWORD: ServiceSearchMode.KEYWORD,
             SearchMode.SEMANTIC: ServiceSearchMode.SEMANTIC,
-            SearchMode.RAG: ServiceSearchMode.RAG,
-            SearchMode.AGENT: ServiceSearchMode.AGENT,
         }
         service_mode = mode_map.get(search_req.mode)
 
@@ -253,9 +207,6 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
                 )
                 for d in result.diagnostics
             ],
-            pipeline_details=_pipeline_details_to_response(
-                getattr(result, "pipeline_details", None)
-            ),
         )
 
     except Exception as e:
@@ -547,7 +498,6 @@ async def get_status(request: Request) -> StatusResponse:
             ],
             active_embedding_model=status.active_embedding_model,
             enabled_search_modules=status.enabled_search_modules,
-            enabled_pipelines=status.enabled_pipelines,
             enabled_enhancement_modules=status.enabled_enhancement_modules,
             last_ingestion=status.last_ingestion,
             errors=status.errors,

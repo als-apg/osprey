@@ -337,6 +337,32 @@ class TestValidation:
         # Should not raise
         profile.validate(profile_dir)
 
+    def test_default_panel_typo_rejected(self, tmp_path: Path):
+        """A `default_panel` value that doesn't match any known panel is rejected.
+
+        Without this check the frontend silently falls back to the framework
+        default — a typo never surfaces. Validation catches it at build time.
+        """
+        profile = BuildProfile(name="Test", default_panel="areil")
+        with pytest.raises(BuildProfileError, match="Unknown default_panel 'areil'"):
+            profile.validate(tmp_path)
+
+    def test_default_panel_builtin_accepted(self, tmp_path: Path):
+        """A built-in panel id is accepted as default_panel without needing
+        a matching web_panels entry."""
+        profile = BuildProfile(name="Test", default_panel="ariel")
+        profile.validate(tmp_path)  # must not raise
+
+    def test_default_panel_custom_via_config_accepted(self, tmp_path: Path):
+        """A custom panel backed by a `web.panels.<id>.url` config override
+        is accepted as default_panel."""
+        profile = BuildProfile(
+            name="Test",
+            default_panel="grafana",
+            config={"web.panels.grafana.url": "http://localhost:3000"},
+        )
+        profile.validate(tmp_path)  # must not raise
+
 
 # ---------------------------------------------------------------------------
 # Build Command Helpers
@@ -515,6 +541,183 @@ class TestBuildHelpers:
         assert config["claude_code"]["permissions"]["allow"] == ["existing"]
         # Server added
         assert config["claude_code"]["servers"]["my_server"]["url"] == "http://host:8001/sse"
+
+    def test_load_profile_mcp_server_port_derives_url(self, tmp_path: Path):
+        """A bare `port:` should yield url=http://localhost:<port>/mcp."""
+        p = tmp_path / "profile.yml"
+        p.write_text(
+            yaml.dump(
+                {
+                    "name": "PortTest",
+                    "mcp_servers": {
+                        "matlab": {
+                            "port": 8008,
+                            "permissions": {"allow": ["mml_search"]},
+                        }
+                    },
+                }
+            )
+        )
+        profile = load_profile(p)
+        server = profile.mcp_servers["matlab"]
+        assert server.port == 8008
+        assert server.url == "http://localhost:8008/mcp"
+        assert server.command == ""
+
+    def test_load_profile_mcp_server_port_with_explicit_url(self, tmp_path: Path):
+        """An explicit `url:` plus `port:` should keep the explicit url verbatim."""
+        p = tmp_path / "profile.yml"
+        p.write_text(
+            yaml.dump(
+                {
+                    "name": "ExternalClient",
+                    "mcp_servers": {
+                        "matlab": {
+                            "port": 8008,
+                            "url": "http://appsdev2:8008/mcp",
+                        }
+                    },
+                }
+            )
+        )
+        profile = load_profile(p)
+        server = profile.mcp_servers["matlab"]
+        assert server.port == 8008
+        assert server.url == "http://appsdev2:8008/mcp"  # explicit wins, no derivation
+
+    def test_load_profile_mcp_server_port_with_command_rejected(self, tmp_path: Path):
+        """A stdio server (`command:`) cannot also declare a port."""
+        p = tmp_path / "profile.yml"
+        p.write_text(
+            yaml.dump(
+                {
+                    "name": "Bad",
+                    "mcp_servers": {
+                        "confluence": {
+                            "command": "uvx",
+                            "port": 8001,
+                        }
+                    },
+                }
+            )
+        )
+        with pytest.raises(BuildProfileError, match="both 'command' and 'port'"):
+            load_profile(p)
+
+    @pytest.mark.parametrize(
+        "bad_port",
+        [0, -1, 65536, 80080, 100000],
+        ids=["zero", "negative", "just-above-max", "typo-extra-digit", "way-too-big"],
+    )
+    def test_load_profile_mcp_server_port_out_of_range_rejected(
+        self,
+        tmp_path: Path,
+        bad_port: int,
+    ):
+        """A `port:` outside 1..65535 must raise BuildProfileError at parse
+        time, so a typo like `port: 80080` cannot silently flow into the
+        derived url and the persisted network block."""
+        p = tmp_path / "profile.yml"
+        p.write_text(
+            yaml.dump(
+                {
+                    "name": "OutOfRange",
+                    "mcp_servers": {
+                        "matlab": {
+                            "port": bad_port,
+                            "permissions": {"allow": ["mml_search"]},
+                        }
+                    },
+                }
+            )
+        )
+        with pytest.raises(BuildProfileError, match="port"):
+            load_profile(p)
+
+    def test_load_profile_mcp_server_port_non_integer_rejected(self, tmp_path: Path):
+        """A string `port:` (YAML quoting accident) must be rejected at parse time."""
+        p = tmp_path / "profile.yml"
+        p.write_text(
+            yaml.dump(
+                {
+                    "name": "Stringy",
+                    "mcp_servers": {
+                        "matlab": {
+                            "port": "8008",
+                            "permissions": {"allow": ["mml_search"]},
+                        }
+                    },
+                }
+            )
+        )
+        with pytest.raises(BuildProfileError, match="port"):
+            load_profile(p)
+
+    def test_persist_mcp_servers_port_emits_network_block(self, tmp_path: Path):
+        """_persist_mcp_servers emits transport=http + network block when port is set."""
+        from osprey.cli.build_cmd import _persist_mcp_servers
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        (project_path / "config.yml").write_text("facility_name: test\n")
+
+        servers = {
+            "matlab": McpServerDef(
+                url="http://localhost:8008/mcp",
+                port=8008,
+                permissions={"allow": ["mml_search"], "ask": []},
+            ),
+        }
+        _persist_mcp_servers(project_path, servers)
+
+        config = yaml.safe_load((project_path / "config.yml").read_text())
+        entry = config["claude_code"]["servers"]["matlab"]
+        assert entry["transport"] == "http"
+        assert entry["url"] == "http://localhost:8008/mcp"
+        assert entry["network"]["port"] == 8008
+        assert entry["network"]["host_url"] == "http://localhost:8008/mcp"
+        assert entry["network"]["docker_url"] == "http://matlab:8008/mcp"
+
+    def test_persist_mcp_servers_stdio_emits_transport_stdio(self, tmp_path: Path):
+        """Stdio servers get transport=stdio and no network block."""
+        from osprey.cli.build_cmd import _persist_mcp_servers
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        (project_path / "config.yml").write_text("facility_name: test\n")
+
+        servers = {
+            "confluence": McpServerDef(
+                command="uvx",
+                args=["--python=3.12", "mcp-atlassian"],
+            ),
+        }
+        _persist_mcp_servers(project_path, servers)
+
+        config = yaml.safe_load((project_path / "config.yml").read_text())
+        entry = config["claude_code"]["servers"]["confluence"]
+        assert entry["transport"] == "stdio"
+        assert entry["command"] == "uvx"
+        assert "network" not in entry
+
+    def test_persist_mcp_servers_url_without_port_no_network_block(self, tmp_path: Path):
+        """A url-only server (no port hint) gets transport=http but no network block."""
+        from osprey.cli.build_cmd import _persist_mcp_servers
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        (project_path / "config.yml").write_text("facility_name: test\n")
+
+        servers = {
+            "remote": McpServerDef(url="http://appsdev2:8008/mcp"),
+        }
+        _persist_mcp_servers(project_path, servers)
+
+        config = yaml.safe_load((project_path / "config.yml").read_text())
+        entry = config["claude_code"]["servers"]["remote"]
+        assert entry["transport"] == "http"
+        assert entry["url"] == "http://appsdev2:8008/mcp"
+        assert "network" not in entry
 
     def test_apply_config_overrides(self, tmp_path: Path):
         """_apply_config_overrides should update config.yml fields."""
@@ -1158,14 +1361,23 @@ class TestProfileExtends:
             load_profile(tmp_path / "a.yml")
 
     def test_missing_base_file(self, tmp_path: Path):
-        """Extends referencing a nonexistent file raises a clear error."""
+        """Extends referencing a nonexistent file raises a clear, debuggable error.
+
+        The diagnostic surfaces BOTH the preset list (so typos against bundled
+        names are obvious) and the resolved filesystem path (so path-shaped
+        values are debuggable).
+        """
         child_path = _write_yaml(
             tmp_path / "child.yml",
             {"extends": "nonexistent.yml", "name": "Child"},
         )
 
-        with pytest.raises(BuildProfileError, match="Extended profile not found"):
+        with pytest.raises(BuildProfileError) as exc:
             load_profile(child_path)
+        msg = str(exc.value)
+        assert "nonexistent.yml" in msg
+        assert "no bundled preset" in msg.lower()
+        assert "no file at" in msg.lower()
 
     def test_multi_level_extends(self, tmp_path: Path):
         """A extends B extends C resolves correctly."""
@@ -1270,10 +1482,14 @@ class TestProfileExtends:
 
 
 def _build_for_web_panels(
-    tmp_path: Path, web_panels: list[str] | None, overrides: dict | None = None
+    tmp_path: Path,
+    web_panels: list[str] | None,
+    overrides: dict | None = None,
+    default_panel: str | None = None,
 ) -> Path:
-    """Build a minimal control_assistant project, optionally with web_panels
-    and config overrides, and return the rendered config.yml path.
+    """Build a minimal control_assistant project, optionally with web_panels,
+    a default_panel pin, and config overrides, and return the rendered
+    config.yml path.
 
     Mirrors build_cmd.py steps 1b, 6, and 8 without running the full CLI.
     """
@@ -1295,6 +1511,8 @@ def _build_for_web_panels(
     }
     if web_panels is not None:
         profile_data["web_panels"] = web_panels
+    if default_panel is not None:
+        profile_data["default_panel"] = default_panel
     if overrides:
         profile_data["config"] = overrides
 
@@ -1312,12 +1530,16 @@ def _build_for_web_panels(
     if build_profile.web_panels:
         artifacts["web_panels"] = list(build_profile.web_panels)
 
+    template_context: dict = {}
+    if build_profile.default_panel:
+        template_context["default_panel"] = build_profile.default_panel
+
     manager = TemplateManager()
     project_dir = manager.create_project(
         project_name="panels-test",
         output_dir=tmp_path / "out",
         data_bundle=build_profile.data_bundle,
-        context={},
+        context=template_context,
         force=False,
         artifacts=artifacts,
     )
@@ -1385,3 +1607,272 @@ class TestWebPanelsRendering:
         tuning = config["web"]["panels"]["tuning"]
         assert tuning["enabled"] is True
         assert tuning["label"] == "TUNING"
+
+    def test_default_panel_rendered_when_set(self, tmp_path: Path):
+        """Profile default_panel: ariel ends up as web.default_panel in config.yml.
+
+        The web terminal reads this key on startup; the frontend pins the
+        cold-load tab to it.
+        """
+        config_path = _build_for_web_panels(tmp_path, web_panels=["ariel"], default_panel="ariel")
+        config = yaml.safe_load(config_path.read_text())
+        assert config["web"]["default_panel"] == "ariel"
+
+    def test_default_panel_omitted_when_unset(self, tmp_path: Path):
+        """Without a profile default_panel, the rendered config.yml omits
+        the key entirely so the frontend falls back to DEFAULT_PANEL_FALLBACK."""
+        config_path = _build_for_web_panels(tmp_path, web_panels=["ariel"])
+        config = yaml.safe_load(config_path.read_text())
+        assert "default_panel" not in config["web"]
+
+
+# ---------------------------------------------------------------------------
+# Tier Flattening (materialize_tier_artifacts)
+# ---------------------------------------------------------------------------
+
+
+def _preset_tier_source(tier: int, paradigm: str) -> Path:
+    """Path to the bundled preset's tier-routed source DB."""
+    import osprey
+
+    osprey_root = Path(osprey.__file__).parent
+    return (
+        osprey_root
+        / "templates"
+        / "apps"
+        / "control_assistant"
+        / "data"
+        / "channel_databases"
+        / "tiers"
+        / f"tier{tier}"
+        / f"{paradigm}.json"
+    )
+
+
+def _write_tier_profile(profile_dir: Path, paradigm: str, tier: int | None = None) -> Path:
+    """Write a minimal control_assistant profile pinned to a single paradigm
+    and (optionally) a tier."""
+    profile_data: dict = {
+        "name": "Tier Test",
+        "data_bundle": "control_assistant",
+        "provider": "cborg",
+        "model": "haiku",
+        "channel_finder_mode": paradigm,
+    }
+    if tier is not None:
+        profile_data["tier"] = tier
+    path = profile_dir / "tier-profile.yml"
+    path.write_text(yaml.dump(profile_data, default_flow_style=False))
+    return path
+
+
+_PARADIGMS_FOR_BUILD: tuple[str, ...] = ("in_context", "hierarchical", "middle_layer")
+
+
+@pytest.mark.parametrize("paradigm", _PARADIGMS_FOR_BUILD)
+@pytest.mark.parametrize("tier", [1, 2, 3])
+def test_build_tier_flatten(tmp_path: Path, tier: int, paradigm: str) -> None:
+    """`osprey build --tier N` materializes the active paradigm's DB at the
+    flat path and removes the ``tiers/`` subtree.
+
+    - rendered config.yml emits ``data/channel_databases/<paradigm>.json``
+      (no ``tiers/`` segment).
+    - the file exists at that flat path and byte-equals the preset's
+      ``tiers/tier{N}/<paradigm>.json`` source.
+    - the other paradigms' flat files are NOT created.
+    - the ``tiers/`` subdirectory has been removed.
+    """
+    from click.testing import CliRunner
+
+    from osprey.cli.main import cli
+
+    profile_path = _write_tier_profile(tmp_path, paradigm)
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "build",
+            "tier-proj",
+            str(profile_path),
+            "--output-dir",
+            str(output_dir),
+            "--tier",
+            str(tier),
+            "--skip-deps",
+            "--skip-lifecycle",
+        ],
+    )
+    assert result.exit_code == 0, (
+        f"build failed (exit={result.exit_code})\n"
+        f"--- output ---\n{result.output}\n"
+        f"--- exception ---\n{result.exception}"
+    )
+
+    project_dir = output_dir / "tier-proj"
+    config = yaml.safe_load((project_dir / "config.yml").read_text())
+    pipelines = config["channel_finder"]["pipelines"]
+
+    # (a) Rendered config points to the FLAT path — no tiers/ segment.
+    assert pipelines[paradigm]["database"]["path"] == f"data/channel_databases/{paradigm}.json", (
+        f"paradigm={paradigm} got {pipelines[paradigm]['database']['path']!r}"
+    )
+
+    # (b) The flat DB exists and byte-equals the preset tier source.
+    flat_path = project_dir / "data" / "channel_databases" / f"{paradigm}.json"
+    assert flat_path.exists(), f"flat DB missing: {flat_path}"
+
+    src = _preset_tier_source(tier, paradigm)
+    assert src.exists(), f"preset source missing: {src}"
+    assert flat_path.read_bytes() == src.read_bytes(), (
+        f"flat DB does not byte-equal preset tier{tier}/{paradigm}.json"
+    )
+
+    # (c) Other paradigms are NOT materialized to the flat root.
+    for other in _PARADIGMS_FOR_BUILD:
+        if other == paradigm:
+            continue
+        other_flat = project_dir / "data" / "channel_databases" / f"{other}.json"
+        assert not other_flat.exists(), (
+            f"{other}.json should not have been materialized for mode={paradigm!r}"
+        )
+
+    # (d) The tiers/ subtree has been pruned.
+    assert not (project_dir / "data" / "channel_databases" / "tiers").exists(), (
+        "tiers/ subtree was not pruned after materialization"
+    )
+
+
+@pytest.mark.parametrize("paradigm", _PARADIGMS_FOR_BUILD)
+def test_build_force_retier(tmp_path: Path, paradigm: str) -> None:
+    """Rebuilding with --force --tier 3 over a tier-1 project re-materializes
+    the active paradigm's DB (byte-equals preset tier3 source)."""
+    from click.testing import CliRunner
+
+    from osprey.cli.main import cli
+
+    profile_path = _write_tier_profile(tmp_path, paradigm)
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    runner = CliRunner()
+
+    # First build: tier 1
+    result1 = runner.invoke(
+        cli,
+        [
+            "build",
+            "retier-proj",
+            str(profile_path),
+            "--output-dir",
+            str(output_dir),
+            "--tier",
+            "1",
+            "--skip-deps",
+            "--skip-lifecycle",
+        ],
+    )
+    assert result1.exit_code == 0, f"tier-1 build failed: {result1.output}\n{result1.exception}"
+
+    # Second build: tier 3, --force overwrites the same path.
+    result2 = runner.invoke(
+        cli,
+        [
+            "build",
+            "retier-proj",
+            str(profile_path),
+            "--output-dir",
+            str(output_dir),
+            "--tier",
+            "3",
+            "--force",
+            "--skip-deps",
+            "--skip-lifecycle",
+        ],
+    )
+    assert result2.exit_code == 0, f"tier-3 rebuild failed: {result2.output}\n{result2.exception}"
+
+    project_dir = output_dir / "retier-proj"
+    flat_path = project_dir / "data" / "channel_databases" / f"{paradigm}.json"
+    src = _preset_tier_source(3, paradigm)
+    assert flat_path.read_bytes() == src.read_bytes(), (
+        f"after --force --tier 3, {paradigm}.json does not byte-equal preset tier3 source"
+    )
+
+
+@pytest.mark.parametrize("paradigm", _PARADIGMS_FOR_BUILD)
+def test_build_profile_only_tier(tmp_path: Path, paradigm: str) -> None:
+    """When the profile sets ``tier: 2`` and no --tier is passed on the CLI,
+    the profile value drives materialization."""
+    from click.testing import CliRunner
+
+    from osprey.cli.main import cli
+
+    profile_path = _write_tier_profile(tmp_path, paradigm, tier=2)
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "build",
+            "profile-tier-proj",
+            str(profile_path),
+            "--output-dir",
+            str(output_dir),
+            "--skip-deps",
+            "--skip-lifecycle",
+        ],
+    )
+    assert result.exit_code == 0, (
+        f"profile-only-tier build failed: {result.output}\n{result.exception}"
+    )
+
+    project_dir = output_dir / "profile-tier-proj"
+    flat_path = project_dir / "data" / "channel_databases" / f"{paradigm}.json"
+    src = _preset_tier_source(2, paradigm)
+    assert flat_path.read_bytes() == src.read_bytes(), (
+        f"profile tier=2 not honored for {paradigm}.json"
+    )
+
+
+def test_build_channel_finder_agent_requires_mode(tmp_path: Path) -> None:
+    """A profile that selects the channel-finder agent but omits
+    channel_finder_mode must fail with a clear BuildProfileError."""
+    from click.testing import CliRunner
+
+    from osprey.cli.main import cli
+
+    profile_data = {
+        "name": "no-mode",
+        "data_bundle": "control_assistant",
+        "provider": "cborg",
+        "model": "haiku",
+        "agents": ["channel-finder"],
+        # NOTE: channel_finder_mode intentionally omitted.
+    }
+    profile_path = tmp_path / "no-mode.yml"
+    profile_path.write_text(yaml.dump(profile_data, default_flow_style=False))
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    runner = CliRunner()
+    result = runner.invoke(
+        cli,
+        [
+            "build",
+            "no-mode-proj",
+            str(profile_path),
+            "--output-dir",
+            str(output_dir),
+            "--skip-deps",
+            "--skip-lifecycle",
+        ],
+    )
+    assert result.exit_code != 0, f"build should have failed; output:\n{result.output}"
+    combined = result.output + (str(result.exception) if result.exception else "")
+    assert "channel_finder_mode" in combined
+    assert "required" in combined.lower()

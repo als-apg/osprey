@@ -8,6 +8,8 @@ PROMPT-PROVIDER: Tool docstrings are static prompts visible to Claude Code.
 import json
 import logging
 
+from fastmcp.exceptions import ToolError
+
 from osprey.mcp_server.ariel.server import make_error, mcp, parse_date_filters, serialize_entry
 from osprey.mcp_server.ariel.server_context import get_ariel_context
 
@@ -73,14 +75,14 @@ async def browse(
             default=str,
         )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("browse failed")
-        return json.dumps(
-            make_error(
-                "internal_error",
-                f"Browse failed: {exc}",
-                ["Check ARIEL database connectivity."],
-            )
+        return make_error(
+            "internal_error",
+            f"Browse failed: {exc}",
+            ["Check ARIEL database connectivity."],
         )
 
 
@@ -110,12 +112,10 @@ async def filter_options(
 
         method_name = field_methods.get(field)
         if not method_name:
-            return json.dumps(
-                make_error(
-                    "validation_error",
-                    f"Unknown filter field: {field}",
-                    [f"Available fields: {', '.join(field_methods)}"],
-                )
+            return make_error(
+                "validation_error",
+                f"Unknown filter field: {field}",
+                [f"Available fields: {', '.join(field_methods)}"],
             )
 
         method = getattr(service.repository, method_name)
@@ -129,12 +129,12 @@ async def filter_options(
             default=str,
         )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("filter_options failed")
-        return json.dumps(
-            make_error(
-                "internal_error",
-                f"Filter options failed: {exc}",
-                ["Check ARIEL database connectivity."],
-            )
+        return make_error(
+            "internal_error",
+            f"Filter options failed: {exc}",
+            ["Check ARIEL database connectivity."],
         )

@@ -68,7 +68,6 @@ class RegistryManager:
             "connectors": {},
             "ariel_search_modules": {},
             "ariel_enhancement_modules": {},
-            "ariel_pipelines": {},
             "ariel_ingestion_adapters": {},
         }
 
@@ -240,21 +239,6 @@ class RegistryManager:
             entries.append((reg.execution_order, name))
         entries.sort()
         return [name for _, name in entries]
-
-    def get_ariel_pipeline(self, name: str) -> Any | None:
-        """Retrieve an ARIEL pipeline module by registry name.
-
-        :param name: Registry name, e.g., ``"rag"``
-        :return: Imported module if registered, None otherwise
-        """
-        return self._registries["ariel_pipelines"].get(name)
-
-    def list_ariel_pipelines(self) -> list[str]:
-        """List registered ARIEL pipeline names.
-
-        :return: List of pipeline names
-        """
-        return list(self._registries["ariel_pipelines"].keys())
 
     def get_ariel_ingestion_adapter(self, name: str) -> tuple[type, Any] | None:
         """Retrieve an ARIEL ingestion adapter class and registration.

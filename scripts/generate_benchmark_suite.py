@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
-"""Generate the complete benchmark suite: 9 databases + 3 query sets.
+"""Regenerate the 9 tier channel databases from the hierarchical template.
 
-Produces:
-  data/benchmarks/cross_paradigm/
-    tier1/  (in_context.json, hierarchical.json, middle_layer.json)
-    tier2/  (in_context.json, hierarchical.json, middle_layer.json)
-    tier3/  (in_context.json, hierarchical.json, middle_layer.json)
-    queries/
-      tier1_queries.json
-      tier2_queries.json
-      tier3_queries.json
+Produces (under ``--output-dir``, defaulting to the in-tree preset location
+``src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/``):
+
+  tier1/  (in_context.json, hierarchical.json, middle_layer.json)
+  tier2/  (in_context.json, hierarchical.json, middle_layer.json)
+  tier3/  (in_context.json, hierarchical.json, middle_layer.json)
+
+Tier query sets are NOT regenerated — they live alongside the preset at
+``src/osprey/templates/apps/control_assistant/data/benchmarks/cross_paradigm/queries/``
+and are the canonical source-of-truth for ``--validate``.
 
 Usage:
     python scripts/generate_benchmark_suite.py
@@ -21,7 +22,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import shutil
 import sys
 from pathlib import Path
 
@@ -42,7 +42,16 @@ from osprey.services.channel_finder.benchmarks.generator import (
 
 TIERS = [(1, TIER_1), (2, TIER_2), (3, TIER_3)]
 QUERY_SOURCE_DIR = (
-    Path(__file__).resolve().parent.parent / "data" / "benchmarks" / "cross_paradigm" / "queries"
+    Path(__file__).resolve().parent.parent
+    / "src"
+    / "osprey"
+    / "templates"
+    / "apps"
+    / "control_assistant"
+    / "data"
+    / "benchmarks"
+    / "cross_paradigm"
+    / "queries"
 )
 
 
@@ -75,32 +84,22 @@ def generate_suite(output_dir: Path) -> None:
         count = len(ic_data["channels"])
         print(f"  Tier {tier_num}: {count} channels (3 databases)")
 
-    # Copy query files
-    queries_dir = output_dir / "queries"
-    queries_dir.mkdir(parents=True, exist_ok=True)
-
-    for tier_num in (1, 2, 3):
-        src = QUERY_SOURCE_DIR / f"tier{tier_num}_queries.json"
-        dst = queries_dir / f"tier{tier_num}_queries.json"
-        if src.exists():
-            shutil.copy2(src, dst)
-            queries = json.loads(src.read_text(encoding="utf-8"))
-            print(f"  Copied {src.name} ({len(queries)} queries)")
-        else:
-            print(f"  WARNING: {src} not found, skipping")
-
     print(f"\nSuite generated in {output_dir}/")
 
 
 def run_validation(output_dir: Path) -> bool:
-    """Run per-tier validation against generated databases."""
+    """Run per-tier validation against generated databases.
+
+    Reads queries from the canonical in-tree location (``QUERY_SOURCE_DIR``)
+    rather than from a subdir of ``output_dir``.  ``output_dir`` is the
+    tier-DB tree being validated.
+    """
     print("\nValidating query sets against databases...")
 
-    queries_dir = output_dir / "queries"
     tier_queries: dict[int, Path] = {}
 
     for tier_num in (1, 2, 3):
-        path = queries_dir / f"tier{tier_num}_queries.json"
+        path = QUERY_SOURCE_DIR / f"tier{tier_num}_queries.json"
         if path.exists():
             tier_queries[tier_num] = path
 
@@ -138,8 +137,11 @@ def main() -> None:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("data/benchmarks/cross_paradigm"),
-        help="Output directory (default: data/benchmarks/cross_paradigm/)",
+        default=Path("src/osprey/templates/apps/control_assistant/data/channel_databases/tiers"),
+        help=(
+            "Output directory for the 9 tier DBs "
+            "(default: src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/)"
+        ),
     )
     parser.add_argument(
         "--validate",

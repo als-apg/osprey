@@ -35,7 +35,7 @@ def _make_client(workspace_dir, enabled_panels=None, custom_panels=None):
         ),
         patch(
             "osprey.interfaces.web_terminal.app._load_panel_config",
-            return_value=(enabled_panels, custom_panels),
+            return_value=(enabled_panels, custom_panels, None),
         ),
     ):
         app = create_app(shell_command="echo")
@@ -76,7 +76,7 @@ class TestLoadPanelConfig:
             "osprey.utils.workspace.load_osprey_config",
             return_value={},
         ):
-            enabled, custom = _load_panel_config()
+            enabled, custom, _default = _load_panel_config()
         assert enabled == UNIVERSAL_PANELS
         assert custom == []
 
@@ -86,7 +86,7 @@ class TestLoadPanelConfig:
             "osprey.utils.workspace.load_osprey_config",
             return_value={"web": {"panels": {}}},
         ):
-            enabled, custom = _load_panel_config()
+            enabled, custom, _default = _load_panel_config()
         assert enabled == UNIVERSAL_PANELS
         assert custom == []
 
@@ -103,7 +103,7 @@ class TestLoadPanelConfig:
                 }
             },
         ):
-            enabled, custom = _load_panel_config()
+            enabled, custom, _default = _load_panel_config()
         assert "ariel" in enabled
         assert "tuning" in enabled
         assert "channel-finder" not in enabled
@@ -123,7 +123,7 @@ class TestLoadPanelConfig:
                 }
             },
         ):
-            enabled, custom = _load_panel_config()
+            enabled, custom, _default = _load_panel_config()
         assert "ariel" not in enabled
         assert "tuning" in enabled
 
@@ -133,7 +133,7 @@ class TestLoadPanelConfig:
             "osprey.utils.workspace.load_osprey_config",
             return_value={"web": {"panels": {"ariel": True}}},
         ):
-            enabled, custom = _load_panel_config()
+            enabled, custom, _default = _load_panel_config()
         assert "ariel" in enabled
 
     def test_domain_panel_dict_defaults_enabled(self):
@@ -142,7 +142,7 @@ class TestLoadPanelConfig:
             "osprey.utils.workspace.load_osprey_config",
             return_value={"web": {"panels": {"ariel": {}}}},
         ):
-            enabled, custom = _load_panel_config()
+            enabled, custom, _default = _load_panel_config()
         assert "ariel" in enabled
 
     def test_custom_panel_extracted(self):
@@ -161,7 +161,7 @@ class TestLoadPanelConfig:
                 }
             },
         ):
-            enabled, custom = _load_panel_config()
+            enabled, custom, _default = _load_panel_config()
         assert len(custom) == 1
         assert custom[0]["id"] == "my-grafana"
         assert custom[0]["label"] == "GRAFANA"
@@ -182,7 +182,7 @@ class TestLoadPanelConfig:
                 }
             },
         ):
-            enabled, custom = _load_panel_config()
+            enabled, custom, _default = _load_panel_config()
         assert "ariel" in enabled
         assert "channel-finder" not in enabled
         assert len(custom) == 1
@@ -194,7 +194,7 @@ class TestLoadPanelConfig:
             "osprey.utils.workspace.load_osprey_config",
             side_effect=RuntimeError("no config"),
         ):
-            enabled, custom = _load_panel_config()
+            enabled, custom, _default = _load_panel_config()
         assert enabled == UNIVERSAL_PANELS
         assert custom == []
 

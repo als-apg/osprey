@@ -8,6 +8,8 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
 import json
 import logging
 
+from fastmcp.exceptions import ToolError
+
 from osprey.mcp_server.channel_finder_middle_layer.server import make_error, mcp
 from osprey.mcp_server.channel_finder_middle_layer.server_context import get_cf_ml_context
 
@@ -45,12 +47,12 @@ def get_common_names(system: str, family: str) -> str:
                 }
             )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("get_common_names failed")
-        return json.dumps(
-            make_error(
-                "internal_error",
-                f"Failed to get common names: {exc}",
-                ["Check that the channel finder database is configured."],
-            )
+        return make_error(
+            "internal_error",
+            f"Failed to get common names: {exc}",
+            ["Check that the channel finder database is configured."],
         )

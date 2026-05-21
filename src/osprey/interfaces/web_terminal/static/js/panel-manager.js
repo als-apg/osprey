@@ -57,8 +57,13 @@ let userSelectedTab = false;
 // Per-panel state: { url, healthy, iframe, pollTimer, configLoaded }
 const panelState = {};
 
-// Default panel to activate first (must match an id in PANELS)
-const DEFAULT_PANEL = 'artifacts';
+// Default panel to activate first. The hardcoded value is the fallback used
+// when /api/panels doesn't pin one (kept in sync with
+// osprey.profiles.web_panels.DEFAULT_PANEL_FALLBACK on the backend).
+// Profile-pinned values arrive via panelConfig.default in initPanelManager
+// and replace this at startup.
+const DEFAULT_PANEL_FALLBACK = 'artifacts';
+let DEFAULT_PANEL = DEFAULT_PANEL_FALLBACK;
 
 // ---- Public API ----
 
@@ -81,6 +86,22 @@ export async function initPanelManager(panelId) {
 
     // Filter built-in panels to only enabled ones
     const activePanels = PANELS.filter(p => enabledSet.has(p.id));
+
+    // Honor a profile-pinned default panel when it resolves to a real tab.
+    // Unknown id (typo, dropped panel) silently falls back so the user
+    // doesn't end up on a blank tabset.
+    if (panelConfig.default) {
+      const knownIds = new Set(activePanels.map(p => p.id));
+      for (const cp of (panelConfig.custom || [])) knownIds.add(cp.id);
+      if (knownIds.has(panelConfig.default)) {
+        DEFAULT_PANEL = panelConfig.default;
+      } else {
+        console.warn(
+          `Panel config 'default': ${panelConfig.default} is not an enabled panel; ` +
+          `falling back to ${DEFAULT_PANEL_FALLBACK}.`,
+        );
+      }
+    }
 
     // Add custom panels
     for (const cp of (panelConfig.custom || [])) {

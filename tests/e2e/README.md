@@ -54,7 +54,6 @@ pytest tests/  # Runs both unit AND e2e - will fail
 E2E tests create full framework instances with:
 - Complete registry initialization
 - Service registration (Python executor, code generators, etc.)
-- LangGraph state management
 - File system operations
 
 Running e2e tests together with unit tests can cause:

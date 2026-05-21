@@ -289,8 +289,8 @@ channel_finder:
         type: template                # Database type: "template" (with device family expansion) or "flat" (simple list)
         path: data/channel_databases/in_context.json
         presentation_mode: template    # How to present device families to LLM:
-                                      # "explicit" - list all expanded channel names (BPM01XPosition, BPM02XPosition, ...)
-                                      # "template" - use pattern notation (BPM{01-10}{XPosition,YPosition})
+                                      # "explicit" - list all expanded channel names (StorageRing_BPM_01_Position_X, StorageRing_BPM_02_Position_X, ...)
+                                      # "template" - use pattern notation (StorageRing_BPM_{01-10}_Position_{X,Y})
 
       processing:
         chunk_dictionary: false       # Whether to chunk the database for large channel lists
@@ -299,10 +299,8 @@ channel_finder:
         chunk_size: 50                # Number of channels per chunk when chunk_dictionary=true
         max_correction_iterations: 2  # Maximum LLM correction attempts when invalid channels are found (0-3 recommended)
 
-      # Benchmark dataset for this pipeline
-      benchmark:
-        dataset_path: data/benchmarks/datasets/in_context_benchmark.json
-        # In-context pipeline benchmark using UCSB FEL channels (30 queries)
+      # Inner LLM model for the query_channels subagent tool (set per benchmark cell at runtime)
+      subagent_model: null
 {% endif %}
 {% if enable_hierarchical %}
     # Hierarchical Pipeline (Structured Navigation)
@@ -325,11 +323,6 @@ channel_finder:
       feedback:
         enabled: true
         store_path: data/feedback/hierarchical_feedback.json
-
-      # Benchmark dataset for this pipeline
-      benchmark:
-        dataset_path: data/benchmarks/datasets/hierarchical_benchmark.json
-        # Hierarchical pipeline benchmark with multi-level channel structure (47 queries)
 {% endif %}
 {% if enable_middle_layer %}
     # Middle Layer Pipeline (React Agent with MML Database)
@@ -340,18 +333,17 @@ channel_finder:
         path: data/channel_databases/middle_layer.json
                                       # Database must follow MML structure: System → Family → Field → ChannelNames
                                       # Supports optional _description fields and device/sector filtering via DeviceList
-
-      # Benchmark dataset for this pipeline
-      benchmark:
-        dataset_path: data/benchmarks/datasets/middle_layer_benchmark.json
-        # Middle layer pipeline benchmark with functional hierarchy (35 queries, 174 channels)
 {% endif %}
 
   # Benchmarking configuration
-  # The active dataset is automatically determined by the selected pipeline_mode
-  # Each pipeline defines its own benchmark dataset in channel_finder.pipelines.<mode>.benchmark
-  # You can override the dataset via CLI: python scripts/run_benchmarks.py --dataset custom_dataset
+  # All paradigms share a single benchmark query set, tier-resolved at build
+  # time per channel_finder_mode (in_context → tier 1, hierarchical/middle_layer
+  # → tier 3; override with `osprey build --tier N`).  Query file is
+  # materialized to data/benchmarks/queries.json by the scaffolder.
   benchmark:
+    # Single source of truth — all paradigms read the same query set.
+    dataset_path: data/benchmarks/queries.json
+
     # Execution settings
     execution:
       runs_per_query: 1                 # Number of times to run each query
@@ -455,18 +447,11 @@ ariel:
       provider: ollama    # References api.providers.ollama
       model: nomic-embed-text
 
-  # Pipelines (compose search modules into higher-level strategies)
-  # retrieval_modules: which search modules each pipeline uses
-  pipelines:
-    rag:
-      enabled: true
-      retrieval_modules: [keyword, semantic]  # Semantic auto-disabled if unavailable
-
   # Enhancement modules
   # provider: references api.providers for credentials
   enhancement_modules:
     # Semantic processor: LLM-based keyword extraction and summarization
-    # Enables better keyword search and RAG context
+    # Enables better keyword search quality
     semantic_processor:
       enabled: false  # Requires LLM API calls. Enable for better search quality.
       provider: {{ default_provider }}  # References api.providers
@@ -488,15 +473,6 @@ ariel:
   embedding:
     provider: ollama
 
-  # ReAct agent configuration
-  # provider: references api.providers for credentials (api_key, base_url)
-  reasoning:
-    provider: cborg  # References api.providers.cborg for credentials
-    model_id: haiku
-    max_iterations: 5
-    temperature: 0.1
-    total_timeout_seconds: 120
-
 # ============================================================
 # LOGBOOK COMPOSITION
 # ============================================================
@@ -508,7 +484,7 @@ ariel:
 
 logbook:
   composition:
-    provider: {{ default_provider | default("anthropic") }}
+    provider: {{ default_provider }}
     model_id: {{ default_model | default("haiku") }}
     default_tier: haiku   # Options: haiku | sonnet | opus
 
@@ -567,7 +543,7 @@ claude_code:
   #   ask: []                 # Additional tools requiring human approval
   #   remove_deny:            # Remove tools from default deny list
   #     - Bash                # Example: allow Bash for trusted facility
-  provider: {{ default_provider | default("anthropic") }}
+  provider: {{ default_provider }}
   default_model: {{ default_model | default("haiku") }}   # Options: haiku, sonnet, opus
   #
   # Override model IDs per tier (optional):
@@ -589,6 +565,10 @@ claude_code:
 web:
 {%- set _BUILTIN_PANELS = ["ariel", "channel-finder", "tuning"] %}
 {%- set _enabled_builtin_panels = selected_web_panels | select("in", _BUILTIN_PANELS) | list %}
+{%- if default_panel is defined and default_panel %}
+  # Tab focused on cold load. Falls back to "artifacts" (Workspace) when unset.
+  default_panel: {{ default_panel }}
+{%- endif %}
 {%- if _enabled_builtin_panels %}
   panels:
 {%- for panel in _enabled_builtin_panels %}
@@ -606,13 +586,13 @@ web:
 {%- endif %}
 
 # ──────────────────────────────────────────────────────────────────────
-# User-Owned Prompt Artifacts
+# User-Owned Build Artifacts
 # ──────────────────────────────────────────────────────────────────────
-# Claim framework-managed prompt artifacts for in-place editing.
+# Claim framework-managed build artifacts for in-place editing.
 # Regen skips user-owned files, preserving your customizations.
-# Run `osprey prompts list` to see all available artifacts.
-# Run `osprey prompts claim <name>` to claim an artifact for editing.
+# Run `osprey scaffold list` to see all available artifacts.
+# Run `osprey scaffold claim <name>` to claim an artifact for editing.
 #
-# prompts:
+# scaffold:
 #   user_owned:
 #     - rules/facility    # Auto-claimed on init — edit .claude/rules/facility.md

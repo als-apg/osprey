@@ -17,6 +17,9 @@ data_bundle: control_assistant
 provider: anthropic
 model: claude-haiku-4-5
 
+# Channel-finder pipeline. Override via --set channel_finder_mode=in_context|middle_layer.
+channel_finder_mode: hierarchical
+
 # ── Artifact selection ───────────────────────────────────────────────────────
 # Each list entry is a short name resolved from the osprey artifact library.
 # Remove entries you do not need; add facility-specific artifacts via overlay.

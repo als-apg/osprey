@@ -1,0 +1,198 @@
+[
+  {
+    "user_query": "What are all the dipole current readbacks in the storage ring?",
+    "targeted_pv": [
+      "SR:MAG:DIPOLE:01:CURRENT:RB",
+      "SR:MAG:DIPOLE:02:CURRENT:RB",
+      "SR:MAG:DIPOLE:03:CURRENT:RB",
+      "SR:MAG:DIPOLE:04:CURRENT:RB",
+      "SR:MAG:DIPOLE:05:CURRENT:RB",
+      "SR:MAG:DIPOLE:06:CURRENT:RB",
+      "SR:MAG:DIPOLE:07:CURRENT:RB",
+      "SR:MAG:DIPOLE:08:CURRENT:RB",
+      "SR:MAG:DIPOLE:09:CURRENT:RB",
+      "SR:MAG:DIPOLE:10:CURRENT:RB",
+      "SR:MAG:DIPOLE:11:CURRENT:RB",
+      "SR:MAG:DIPOLE:12:CURRENT:RB",
+      "SR:MAG:DIPOLE:13:CURRENT:RB",
+      "SR:MAG:DIPOLE:14:CURRENT:RB",
+      "SR:MAG:DIPOLE:15:CURRENT:RB",
+      "SR:MAG:DIPOLE:16:CURRENT:RB",
+      "SR:MAG:DIPOLE:17:CURRENT:RB",
+      "SR:MAG:DIPOLE:18:CURRENT:RB",
+      "SR:MAG:DIPOLE:19:CURRENT:RB",
+      "SR:MAG:DIPOLE:20:CURRENT:RB",
+      "SR:MAG:DIPOLE:21:CURRENT:RB",
+      "SR:MAG:DIPOLE:22:CURRENT:RB",
+      "SR:MAG:DIPOLE:23:CURRENT:RB",
+      "SR:MAG:DIPOLE:24:CURRENT:RB"
+    ],
+    "category": "aggregate"
+  },
+  {
+    "user_query": "What are the last three horizontal corrector current setpoints?",
+    "targeted_pv": [
+      "SR:MAG:HCM:18:CURRENT:SP",
+      "SR:MAG:HCM:19:CURRENT:SP",
+      "SR:MAG:HCM:20:CURRENT:SP"
+    ],
+    "category": "aggregate"
+  },
+  {
+    "user_query": "Show all signals for the third focusing quadrupole",
+    "targeted_pv": [
+      "SR:MAG:QF:03:CURRENT:SP",
+      "SR:MAG:QF:03:CURRENT:RB"
+    ],
+    "category": "device-specific"
+  },
+  {
+    "user_query": "What are both corrector current values for the fifteenth horizontal corrector?",
+    "targeted_pv": [
+      "SR:MAG:HCM:15:CURRENT:SP",
+      "SR:MAG:HCM:15:CURRENT:RB"
+    ],
+    "category": "device-specific"
+  },
+  {
+    "user_query": "What are the current setpoint and readback for the fifth dipole?",
+    "targeted_pv": [
+      "SR:MAG:DIPOLE:05:CURRENT:SP",
+      "SR:MAG:DIPOLE:05:CURRENT:RB"
+    ],
+    "category": "device-specific"
+  },
+  {
+    "user_query": "What are the horizontal and vertical positions at the tenth BPM?",
+    "targeted_pv": [
+      "SR:DIAG:BPM:10:POSITION:X",
+      "SR:DIAG:BPM:10:POSITION:Y"
+    ],
+    "category": "device-specific"
+  },
+  {
+    "user_query": "List the beam current, first RF cavity voltage readback, and first BPM horizontal position",
+    "targeted_pv": [
+      "SR:DIAG:DCCT:01:CURRENT:RB",
+      "SR:RF:CAVITY:01:VOLTAGE:RB",
+      "SR:DIAG:BPM:01:POSITION:X"
+    ],
+    "category": "multi-target"
+  },
+  {
+    "user_query": "Show the current setpoints for the first dipole, first focusing quadrupole, and first horizontal corrector",
+    "targeted_pv": [
+      "SR:MAG:DIPOLE:01:CURRENT:SP",
+      "SR:MAG:QF:01:CURRENT:SP",
+      "SR:MAG:HCM:01:CURRENT:SP"
+    ],
+    "category": "multi-target"
+  },
+  {
+    "user_query": "What are the horizontal and vertical positions at the fifth BPM and the beam current?",
+    "targeted_pv": [
+      "SR:DIAG:BPM:05:POSITION:X",
+      "SR:DIAG:BPM:05:POSITION:Y",
+      "SR:DIAG:DCCT:01:CURRENT:RB"
+    ],
+    "category": "multi-target"
+  },
+  {
+    "user_query": "Give me the readback for the third vertical corrector and the first BPM vertical position",
+    "targeted_pv": [
+      "SR:MAG:VCM:03:CURRENT:RB",
+      "SR:DIAG:BPM:01:POSITION:Y"
+    ],
+    "category": "near-miss"
+  },
+  {
+    "user_query": "What is the setpoint for the seventh horizontal corrector?",
+    "targeted_pv": [
+      "SR:MAG:HCM:07:CURRENT:SP"
+    ],
+    "category": "near-miss"
+  },
+  {
+    "user_query": "List the current setpoints for the first six SR dipoles",
+    "targeted_pv": [
+      "SR:MAG:DIPOLE:01:CURRENT:SP",
+      "SR:MAG:DIPOLE:02:CURRENT:SP",
+      "SR:MAG:DIPOLE:03:CURRENT:SP",
+      "SR:MAG:DIPOLE:04:CURRENT:SP",
+      "SR:MAG:DIPOLE:05:CURRENT:SP",
+      "SR:MAG:DIPOLE:06:CURRENT:SP"
+    ],
+    "category": "range"
+  },
+  {
+    "user_query": "Show the last six SR BPM positions in both planes",
+    "targeted_pv": [
+      "SR:DIAG:BPM:15:POSITION:X",
+      "SR:DIAG:BPM:15:POSITION:Y",
+      "SR:DIAG:BPM:16:POSITION:X",
+      "SR:DIAG:BPM:16:POSITION:Y",
+      "SR:DIAG:BPM:17:POSITION:X",
+      "SR:DIAG:BPM:17:POSITION:Y",
+      "SR:DIAG:BPM:18:POSITION:X",
+      "SR:DIAG:BPM:18:POSITION:Y",
+      "SR:DIAG:BPM:19:POSITION:X",
+      "SR:DIAG:BPM:19:POSITION:Y",
+      "SR:DIAG:BPM:20:POSITION:X",
+      "SR:DIAG:BPM:20:POSITION:Y"
+    ],
+    "category": "range"
+  },
+  {
+    "user_query": "What are the first five vertical corrector current readbacks?",
+    "targeted_pv": [
+      "SR:MAG:VCM:01:CURRENT:RB",
+      "SR:MAG:VCM:02:CURRENT:RB",
+      "SR:MAG:VCM:03:CURRENT:RB",
+      "SR:MAG:VCM:04:CURRENT:RB",
+      "SR:MAG:VCM:05:CURRENT:RB"
+    ],
+    "category": "range"
+  },
+  {
+    "user_query": "Show me the horizontal beam position at the fifth BPM",
+    "targeted_pv": [
+      "SR:DIAG:BPM:05:POSITION:X"
+    ],
+    "category": "single-target"
+  },
+  {
+    "user_query": "What is the twelfth dipole readback?",
+    "targeted_pv": [
+      "SR:MAG:DIPOLE:12:CURRENT:RB"
+    ],
+    "category": "single-target"
+  },
+  {
+    "user_query": "What is the stored beam current?",
+    "targeted_pv": [
+      "SR:DIAG:DCCT:01:CURRENT:RB"
+    ],
+    "category": "single-target"
+  },
+  {
+    "user_query": "What is the tenth vertical corrector current setpoint?",
+    "targeted_pv": [
+      "SR:MAG:VCM:10:CURRENT:SP"
+    ],
+    "category": "single-target"
+  },
+  {
+    "user_query": "What is the voltage setpoint for the first RF cavity?",
+    "targeted_pv": [
+      "SR:RF:CAVITY:01:VOLTAGE:SP"
+    ],
+    "category": "single-target"
+  },
+  {
+    "user_query": "What's the ninth focusing quadrupole readback?",
+    "targeted_pv": [
+      "SR:MAG:QF:09:CURRENT:RB"
+    ],
+    "category": "single-target"
+  }
+]

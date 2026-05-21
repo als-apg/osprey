@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from osprey.services.prompts.catalog import PromptCatalog
+from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
 
 TEMPLATE_ROOT = Path(__file__).parent.parent.parent / "src" / "osprey" / "templates" / "claude_code"
 
@@ -14,7 +14,7 @@ class TestSessionReportRegistry:
 
     @pytest.fixture()
     def registry(self):
-        return PromptCatalog.default()
+        return BuildArtifactCatalog.default()
 
     def test_session_report_registered(self, registry):
         art = registry.get("skills/session-report")

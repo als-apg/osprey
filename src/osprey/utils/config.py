@@ -4,6 +4,7 @@ Loads a single YAML config file, resolves environment variables,
 and provides dot-path access to values.
 """
 
+import copy
 import logging
 import os
 import re
@@ -22,16 +23,31 @@ def resolve_env_vars(data: Any) -> Any:
     """Recursively resolve environment variables in configuration data.
 
     Supports both simple and bash-style default value syntax:
-    - ${VAR_NAME} - simple substitution
-    - ${VAR_NAME:-default_value} - with default value
-    - $VAR_NAME - simple substitution without braces
+    - ``${VAR_NAME}`` — simple substitution
+    - ``${VAR_NAME:-default_value}`` — with default value
+    - ``$VAR_NAME`` — simple substitution without braces
+
+    Placeholders inside ``claude_code.servers.*.env`` blocks are preserved
+    verbatim: Claude Code expands ``${VAR}`` in ``.mcp.json`` env at MCP
+    server *launch* time, so expanding here would bake either secrets or
+    empty strings (when vars are unset, e.g. in CI image builds) into build
+    artifacts.
 
     This is the public, standalone version of ConfigBuilder._resolve_env_vars.
-    Use it when you need env-var resolution without a full ConfigBuilder instance
-    (e.g., after a raw yaml.safe_load).
+    Use it when you need env-var resolution without a full ConfigBuilder
+    instance (e.g., after a raw ``yaml.safe_load``).
     """
+    raw_server_envs: dict[str, dict] = {}
     if isinstance(data, dict):
-        return {key: resolve_env_vars(value) for key, value in data.items()}
+        cc = data.get("claude_code")
+        servers = cc.get("servers") if isinstance(cc, dict) else None
+        if isinstance(servers, dict):
+            for name, spec in servers.items():
+                if isinstance(spec, dict) and isinstance(spec.get("env"), dict):
+                    raw_server_envs[name] = copy.deepcopy(spec["env"])
+
+    if isinstance(data, dict):
+        resolved: Any = {key: resolve_env_vars(value) for key, value in data.items()}
     elif isinstance(data, list):
         return [resolve_env_vars(item) for item in data]
     elif isinstance(data, str):
@@ -61,6 +77,19 @@ def resolve_env_vars(data: Any) -> Any:
         return re.sub(pattern, replace_env_var, data)
     else:
         return data
+
+    # Restore preserved MCP server env blocks (only meaningful at the top of a
+    # config dict; sub-recursions never hit this path because they have no
+    # ``claude_code`` key and therefore no snapshot to restore).
+    if raw_server_envs:
+        cc = resolved.setdefault("claude_code", {})
+        servers = cc.setdefault("servers", {}) if isinstance(cc, dict) else None
+        if isinstance(servers, dict):
+            for name, env in raw_server_envs.items():
+                spec = servers.get(name)
+                if isinstance(spec, dict):
+                    spec["env"] = env
+    return resolved
 
 
 class ConfigBuilder:

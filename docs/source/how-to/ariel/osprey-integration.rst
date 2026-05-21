@@ -3,10 +3,11 @@ Osprey Integration
 ===================
 
 ARIEL is integrated into Osprey as a dedicated MCP server
-(``osprey.mcp_server.ariel``) with 11 specialized tools. When a user asks a
-question like "What happened with the RF cavity last week?", Claude Code
-selects the appropriate ARIEL MCP tool based on the query type, which invokes
-the ``ARIELSearchService`` and returns structured results that Claude uses to
+(``osprey.mcp_server.ariel``) that exposes the logbook search service to the
+agent layer through a set of specialized tools. When a user asks a question
+like "What happened with the RF cavity last week?", the Osprey agent selects
+the appropriate ARIEL MCP tool based on the query type, which invokes the
+``ARIELSearchService`` and returns structured results that the agent uses to
 produce a cited answer. This page documents how that integration works: the
 MCP tools, the service factory, and the search result structure.
 
@@ -17,28 +18,28 @@ Integration Architecture
 
    User Query
        ↓
-   Claude Code (via osprey claude chat)
+   Osprey agent (via osprey claude chat)
        ↓  selects from ARIEL MCP tools
    ARIEL MCP Server → ARIELSearchService
        ↓
-   Structured search results (entries + RAG answer)
+   Structured search results (entries + metadata)
        ↓
-   Claude Code → User Response
+   Osprey agent → User Response
 
-The flow begins when Claude determines that a user query involves historical
-logbook data. Claude selects from ARIEL's specialized MCP tools based on the
-query type --- for example, ``keyword_search`` for exact-match lookups,
+The flow begins when the Osprey agent determines that a user query involves
+historical logbook data. It selects from ARIEL's specialized MCP tools based
+on the query type --- for example, ``keyword_search`` for exact-match lookups,
 ``semantic_search`` for conceptual queries, or ``browse`` for exploring recent
 entries. Each tool builds the appropriate request and routes it through the
-``ARIELSearchService``. Results are returned directly to Claude, which uses
-them to generate a cited response.
+``ARIELSearchService``. Results are returned directly to the agent, which
+uses them to generate a cited response.
 
 
 ARIEL MCP Tools
 ===============
 
-ARIEL exposes 11 tools through its dedicated MCP server. Claude selects the
-appropriate tool based on the user's query.
+ARIEL exposes the following tools through its dedicated MCP server. The
+Osprey agent selects the appropriate tool based on the user's query.
 
 .. list-table::
    :header-rows: 1
@@ -87,15 +88,9 @@ The MCP tool returns a structured result containing:
    * - ``entries``
      - ``list[dict]``
      - Matching entries, ranked by relevance
-   * - ``answer``
-     - ``str | None``
-     - RAG-generated answer (if RAG was used)
-   * - ``sources``
-     - ``list[str]``
-     - Entry IDs cited in the answer
    * - ``search_modes_used``
      - ``list[str]``
-     - Search modes invoked (e.g., ``["keyword", "rag"]``)
+     - Search modes invoked (e.g., ``["keyword", "semantic"]``)
    * - ``query``
      - ``str``
      - Original query text
@@ -128,6 +123,19 @@ through the FastAPI lifespan. For cleanup in tests, use
 **Source:** :file:`src/osprey/services/ariel_search/capability.py`
 
 
+Extending the integration
+=========================
+
+ARIEL is the interface to logbook data. A facility adapter ingests entries,
+data enhancement enriches them, and pluggable search modules expose them.
+Multi-step reasoning, answer synthesis, and any custom workflow over ARIEL's
+results live in the agent layer, not in ARIEL itself.
+
+The recommended way to build such a workflow is to write a skill. Skills run
+inside the Osprey agent, can call ARIEL's MCP tools directly, and ship inside
+your build profile under ``skills/`` --- see :doc:`/how-to/build-profiles`.
+
+
 See Also
 ========
 
@@ -135,7 +143,7 @@ See Also
     How data gets into the system --- facility adapters, enhancement modules, and database schema
 
 :doc:`search-modes`
-    Search module and pipeline architecture
+    Search module architecture
 
 :doc:`web-interface`
     Web interface architecture and REST API

@@ -9,6 +9,8 @@ import json
 import pytest
 import yaml
 
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
+
 
 @pytest.fixture
 def facility_config(tmp_path):
@@ -50,7 +52,7 @@ class TestFacilityDescription:
         from tests.mcp_server.conftest import get_tool_fn
 
         fn = get_tool_fn(facility_description)
-        result = json.loads(await fn())
+        result = extract_response_dict(await fn())
 
         assert "error" not in result
         assert "facility_description" in result
@@ -67,10 +69,9 @@ class TestFacilityDescription:
         from tests.mcp_server.conftest import get_tool_fn
 
         fn = get_tool_fn(facility_description)
-        result = json.loads(await fn())
-
-        assert result["error"] is True
-        assert result["error_type"] == "not_found"
+        with assert_raises_error(error_type="not_found") as _exc_ctx:
+            await fn()
+        result = _exc_ctx["envelope"]
         assert "facility.md" in result["error_message"]
         assert len(result["suggestions"]) > 0
 

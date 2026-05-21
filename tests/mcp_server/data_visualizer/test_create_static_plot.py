@@ -1,11 +1,11 @@
 """Tests for the create_static_plot MCP tool."""
 
-import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from osprey.mcp_server.workspace.execution.sandbox_executor import SandboxExecutionResult
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 # Mock target for the sandbox executor used by create_static_plot
 _SANDBOX_EXEC_TARGET = "osprey.mcp_server.workspace.execution.sandbox_executor.execute_sandbox_code"
@@ -32,14 +32,14 @@ class TestCreateStaticPlot:
         return folder
 
     async def test_empty_code_returns_error(self, tool_fn):
-        result = json.loads(await tool_fn(code="", title="test"))
-        assert result["error"] is True
-        assert result["error_type"] == "validation_error"
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await tool_fn(code="", title="test")
+        result = _exc_ctx["envelope"]
         assert "No plotting code" in result["error_message"]
 
     async def test_whitespace_code_returns_error(self, tool_fn):
-        result = json.loads(await tool_fn(code="   ", title="test"))
-        assert result["error"] is True
+        with assert_raises_error():
+            await tool_fn(code="   ", title="test")
 
     async def test_execution_failure(self, tool_fn, mock_execution_folder):
         mock_result = SandboxExecutionResult(
@@ -52,11 +52,9 @@ class TestCreateStaticPlot:
         with (
             patch(_SANDBOX_EXEC_TARGET, new_callable=AsyncMock, return_value=mock_result),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
+            assert_raises_error(error_type="execution_error"),
         ):
-            result = json.loads(await tool_fn(code="plt.plot(undefined_var)", title="Bad Plot"))
-
-        assert result["error"] is True
-        assert result["error_type"] == "execution_error"
+            await tool_fn(code="plt.plot(undefined_var)", title="Bad Plot")
 
     async def test_successful_plot_no_artifacts(self, tool_fn, mock_execution_folder):
         mock_result = SandboxExecutionResult(
@@ -70,7 +68,7 @@ class TestCreateStaticPlot:
             patch(_SANDBOX_EXEC_TARGET, new_callable=AsyncMock, return_value=mock_result),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
         ):
-            result = json.loads(await tool_fn(code="x = 1", title="No-op Plot"))
+            result = extract_response_dict(await tool_fn(code="x = 1", title="No-op Plot"))
 
         assert result["status"] == "success"
         assert result["artifact_ids"] == []
@@ -99,7 +97,7 @@ class TestCreateStaticPlot:
             patch(_SANDBOX_EXEC_TARGET, new_callable=AsyncMock, return_value=mock_result),
             patch(_SANDBOX_FOLDER_TARGET, return_value=mock_execution_folder),
         ):
-            result = json.loads(
+            result = extract_response_dict(
                 await tool_fn(
                     code="fig, ax = plt.subplots()\nax.plot([1,2,3])\nsave_artifact(fig, 'Sine Wave')",
                     title="Sine Wave",

@@ -9,12 +9,14 @@ import json
 import logging
 from pathlib import Path
 
+from osprey.cli.project_utils import encode_claude_project_path
+
 logger = logging.getLogger("osprey.mcp_server.workspace.transcript_reader")
 
 OSPREY_MCP_PREFIXES = (
     "mcp__controls__",
     "mcp__python__",
-    "mcp__workspace__",
+    "mcp__osprey_workspace__",
     "mcp__ariel__",
     "mcp__channel-finder__",
 )
@@ -76,10 +78,11 @@ class TranscriptReader:
     def find_transcript_dir(self) -> Path | None:
         """Locate the Claude Code transcript directory for this project.
 
-        Claude Code encodes the project path as: ``str(path).replace("/", "-")``
-        and stores transcripts in ``~/.claude/projects/<encoded>/``.
+        Claude Code stores transcripts in ``~/.claude/projects/<encoded>/``;
+        see :func:`osprey.cli.project_utils.encode_claude_project_path` for
+        the encoding rule.
         """
-        encoded = str(self.project_dir).replace("/", "-")
+        encoded = encode_claude_project_path(self.project_dir)
         transcript_dir = Path.home() / ".claude" / "projects" / encoded
         if transcript_dir.is_dir():
             return transcript_dir

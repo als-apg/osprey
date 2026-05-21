@@ -39,6 +39,16 @@ def unregister_artifact_listener(fn: Callable[[ArtifactEntry], None]) -> None:
     ArtifactStore.unregister_listener(fn)
 
 
+def register_artifact_delete_listener(fn: Callable[[ArtifactEntry], None]) -> None:
+    """Register a callback invoked after every artifact delete."""
+    ArtifactStore.register_delete_listener(fn)
+
+
+def unregister_artifact_delete_listener(fn: Callable[[ArtifactEntry], None]) -> None:
+    """Remove a previously registered delete listener."""
+    ArtifactStore.unregister_delete_listener(fn)
+
+
 @dataclass
 class ArtifactEntry:
     """Metadata for a single artifact stored on disk."""
@@ -364,6 +374,16 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             filepath = self._store_dir / safe_filename
             filepath.write_bytes(content)
 
+            # data_file is the agent-facing pointer: a path relative to the
+            # project CWD (one level above the workspace dir), so the agent
+            # can pass it directly to ``open()`` from its working directory.
+            # Falls back to a bare filename if the workspace layout doesn't
+            # support a clean relative path (defensive — should not happen).
+            try:
+                agent_path = str(filepath.relative_to(self._workspace.parent))
+            except ValueError:
+                agent_path = safe_filename
+
             entry = ArtifactEntry(
                 id=art_id,
                 artifact_type=artifact_type,
@@ -378,7 +398,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 category=category,
                 summary=summary or {},
                 access_details=access_details or {},
-                data_file=safe_filename,
+                data_file=agent_path,
                 source_agent=source_agent,
                 session_id=os.environ.get("OSPREY_SESSION_ID", ""),
             )
@@ -452,17 +472,44 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         Returns:
             ``True`` if the entry was found and deleted, ``False`` otherwise.
         """
+        deleted: ArtifactEntry | None = None
         with self._with_index_lock():
             for i, e in enumerate(self._entries):
                 if e.id == artifact_id:
-                    # Delete physical file
                     filepath = self._store_dir / e.filename
                     if filepath.exists():
                         filepath.unlink()
+                    deleted = e
                     del self._entries[i]
                     self._save_index()
-                    return True
-        return False
+                    break
+
+        if deleted is None:
+            return False
+
+        self._notify_delete_listeners(deleted)
+        return True
+
+    def delete_all(self) -> list[ArtifactEntry]:
+        """Delete every artifact in one atomic operation.
+
+        Removes all physical files and clears the index in a single locked
+        block, then fires the delete listener once per removed entry outside
+        the lock. Returns the list of deleted entries.
+        """
+        with self._with_index_lock():
+            snapshot = list(self._entries)
+            for e in snapshot:
+                filepath = self._store_dir / e.filename
+                if filepath.exists():
+                    filepath.unlink()
+            self._entries.clear()
+            self._save_index()
+
+        for entry in snapshot:
+            self._notify_delete_listeners(entry)
+
+        return snapshot
 
     def get_file_path(self, artifact_id: str) -> Path | None:
         entry = self.get_entry(artifact_id)

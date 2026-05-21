@@ -52,7 +52,7 @@ class LazyGroup(click.Group):
             "ariel": "osprey.cli.ariel",  # ARIEL search service
             "artifacts": "osprey.cli.artifacts_cmd",  # Artifact Gallery
             "web": "osprey.cli.web_cmd",  # Web Terminal
-            "prompts": "osprey.cli.prompts_cmd",  # Prompt artifact overrides
+            "scaffold": "osprey.cli.scaffold_cmd",  # Build artifact overrides
             "audit": "osprey.cli.audit_cmd",  # Safety auditor
             "skills": "osprey.cli.skills_cmd",  # Bundled skill management
             "vendor": "osprey.cli.vendor_cmd",  # Vendor asset management
@@ -75,8 +75,8 @@ class LazyGroup(click.Group):
             cmd_func = mod.artifacts
         elif cmd_name == "web":
             cmd_func = mod.web
-        elif cmd_name == "prompts":
-            cmd_func = mod.prompts
+        elif cmd_name == "scaffold":
+            cmd_func = mod.scaffold
         else:
             cmd_func = getattr(mod, cmd_name)
 
@@ -95,7 +95,7 @@ class LazyGroup(click.Group):
             "ariel",
             "artifacts",
             "web",
-            "prompts",
+            "scaffold",
             "audit",
             "skills",
             "vendor",

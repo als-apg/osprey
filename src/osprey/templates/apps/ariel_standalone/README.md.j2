@@ -1,0 +1,68 @@
+# {{ project_name }}
+
+An OSPREY deployment scoped to **ARIEL** — the logbook search and research
+service. Postgres+pgvector is provisioned; the control-system runtime is not.
+
+## Quick Start
+
+```bash
+osprey deploy up          # Bring up Postgres+pgvector
+osprey ariel quickstart   # Run migrations and ingest the bundled demo logbook
+osprey web                # Open the web terminal — ARIEL panel + agent chat
+```
+
+## What's Enabled
+
+- **Keyword search** and **semantic search** (the latter degrades gracefully
+  to keyword-only if Ollama/pgvector embeddings aren't available)
+- **Entry retrieval** (`entry_get`, `entries_by_ids`, `browse`)
+- **Entry authoring** (`entry_create`, `entry_publish`) — both gated by the
+  approval hook so the user is prompted before any write to the logbook
+- **`logbook-deep-research` skill** that walks the main agent through a
+  plan → search → analyze → synthesize workflow for exhaustive multi-step
+  investigations
+
+## What's Off by Default
+
+- **Semantic processor enhancement** (`ariel.enhancement_modules.semantic_processor.enabled: false`)
+  — requires an LLM endpoint; re-enable by editing the corresponding line in
+  `config.yml` once your provider is configured.
+
+## First-Use Checklist
+
+1. **Edit `.claude/rules/facility.md`** to describe your facility. The default
+   ships with placeholder content ("Example Research Facility"). The file is
+   auto-claimed as user-owned, so `osprey claude regen` will preserve your
+   edits.
+2. Set `ANTHROPIC_API_KEY` (or `CBORG_API_KEY` for the LBL proxy) in `.env`.
+3. Replace `data/logbook_seed/demo_logbook.json` with a dump from your real
+   logbook, or change `ariel.ingestion.adapter` and `source_url` to point at
+   your facility's logbook system.
+
+For deeper customization — adding custom skills/rules/agents, overriding
+config, wiring real ingestion — scaffold an editable build profile that
+extends this preset and rebuild from it:
+
+```
+osprey build --emit-profile my-ariel-profile --preset ariel-standalone
+# edit my-ariel-profile/profile.yml + drop files under overlays/
+osprey build my-ariel ./my-ariel-profile/profile.yml
+```
+
+The profile directory is your facility's source of truth; this rendered
+project is a regenerable artifact. See the `build-profiles` how-to for the
+full schema.
+
+## REST API
+
+ARIEL exposes a REST API at `http://localhost:<ariel-port>/api/...`. A
+facility-specific UI can hit these endpoints directly without using the
+bundled web terminal. See the `standalone-deployment` how-to for endpoint
+details.
+
+## Configuration Files
+
+- `config.yml` — project settings (DB URI, search modules, providers)
+- `.claude/` — agent rules, hooks, MCP server configuration
+- `CLAUDE.md` — agent persona (logbook research assistant; do not edit unless
+  customizing — regen overwrites unless you claim it as user-owned)

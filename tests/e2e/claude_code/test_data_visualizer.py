@@ -31,25 +31,22 @@ class TestDataVisualizerAgent:
 
     @pytest.mark.slow
     @pytest.mark.requires_api
-    @pytest.mark.requires_anthropic
+    @pytest.mark.requires_als_apg
     @pytest.mark.asyncio
     async def test_interactive_plot_with_data_source(self, tmp_path):
         """Regression: data-visualizer should use data_source without errors.
 
-        Reproduces a real failure where the agent:
-        1. Passed a context entry ID ("2") as data_source → FileNotFoundError
-           (only artifact IDs and file paths are supported)
-        2. Passed a file path but wrote code assuming raw dict structure →
-           KeyError because build_data_reader() auto-unwraps the JSON
-           envelope before the agent's code runs
+        Reproduces a real failure where the agent passed a file path but wrote
+        code assuming the raw dict structure — KeyError because
+        build_data_reader() auto-unwraps the JSON envelope before the agent's
+        code runs.
 
-        The agent should be able to pass data_source (file path or context
-        entry ID) and have create_interactive_plot load the data correctly
-        on the FIRST attempt.
+        The agent should pass data_source (artifact ID or file path) and have
+        create_interactive_plot load the data correctly on the FIRST attempt.
 
         Pipeline: archiver_read → data-visualizer → create_interactive_plot
         """
-        project_dir = init_project(tmp_path, "e2e-viz-data-source")
+        project_dir = init_project(tmp_path, "e2e-viz-data-source", provider="als-apg")
 
         prompt = (
             "Use archiver_read to retrieve data for channels "
@@ -98,6 +95,17 @@ class TestDataVisualizerAgent:
             f"create_interactive_plot not called. Tools used: {result.tool_names}"
         )
 
+        # Delegation contract: every viz call must originate from a subagent
+        # context. A direct orchestrator call would mean the CLAUDE.md
+        # delegation directive regressed — caught here even though this
+        # test's primary purpose is data_source-resolver correctness.
+        direct_viz_calls = [t for t in viz_calls if t.parent_tool_use_id is None]
+        assert not direct_viz_calls, (
+            f"Orchestrator called {len(direct_viz_calls)} viz tool(s) directly "
+            "instead of delegating to data-visualizer. "
+            f"Names: {[t.name for t in direct_viz_calls]}"
+        )
+
         # REGRESSION CRITERION: The first create_interactive_plot call should
         # succeed. If data_source handling is broken, the agent will fail on
         # the first attempt and retry with workarounds.
@@ -139,36 +147,33 @@ class TestDataVisualizerAgent:
         print(f"  HTML files: {[p.name for p in html_files]}")
 
     # -------------------------------------------------------------------
-    # Test 2 — Interactive plot with context entry ID as data_source
+    # Test 2 — Archiver → data-visualizer → interactive HTML artifact
     # -------------------------------------------------------------------
 
     @pytest.mark.slow
     @pytest.mark.requires_api
-    @pytest.mark.requires_anthropic
+    @pytest.mark.requires_als_apg
     @pytest.mark.asyncio
-    async def test_interactive_plot_context_entry_id(self, tmp_path):
-        """Regression: data_source should accept context entry IDs.
+    async def test_archiver_read_to_interactive_plot(self, tmp_path):
+        """End-to-end: archiver_read → data-visualizer → HTML artifact.
 
-        The archiver_read tool returns a context_entry_id (e.g., 2) in its
-        response. The agent naturally passes this as data_source, but
-        build_data_reader() only recognizes 12-char hex artifact IDs and
-        file paths — integer IDs cause FileNotFoundError.
+        Verifies the orchestrator can fetch archiver data, delegate to the
+        data-visualizer subagent, and produce an interactive Plotly chart as
+        an HTML artifact — the canonical workflow operators use for time-series
+        exploration.
 
-        This test verifies the agent can reference archiver data by its
-        context entry ID.
-
-        Pipeline: archiver_read → data-visualizer → create_interactive_plot
+        This is an emergent-behavior test. The narrower invariants of the
+        data_source resolver (artifact-ID round-trip, file-path passthrough)
+        are pinned by unit tests in tests/mcp_server/data_visualizer/.
         """
-        project_dir = init_project(tmp_path, "e2e-viz-context-id")
+        project_dir = init_project(tmp_path, "e2e-viz-archiver-to-plot", provider="als-apg")
 
         prompt = (
             "Use archiver_read to retrieve data for channels "
             "'DIAG:BPM[BPM18]:POSITION:X' and 'DIAG:BPM[BPM19]:POSITION:X' "
             "over the last 4 hours with processing 'mean' and bin_size 300. "
             "Then delegate to the data-visualizer agent to create an "
-            "interactive Plotly line chart of both BPMs over time. "
-            "Tell the data-visualizer to reference the archiver data by its "
-            "context entry ID when calling create_interactive_plot."
+            "interactive Plotly line chart of both BPMs over time."
         )
 
         result = await run_sdk_query(
@@ -179,7 +184,7 @@ class TestDataVisualizerAgent:
         )
 
         # -- Debug output --
-        print("\n--- data-visualizer context entry ID test ---")
+        print("\n--- archiver_read → interactive plot test ---")
         print(f"  tools called ({len(result.tool_traces)}): {result.tool_names}")
         print(f"  num_turns: {result.num_turns}")
         print(f"  cost: ${result.cost_usd:.4f}" if result.cost_usd else "  cost: N/A")
@@ -203,19 +208,21 @@ class TestDataVisualizerAgent:
             f"create_interactive_plot not called. Tools used: {result.tool_names}"
         )
 
-        # No viz errors — if context entry ID resolution works, first try succeeds
+        # Delegation contract: every viz call must come from a subagent
+        # context (CLAUDE.md directive enforcement).
+        direct_viz_calls = [t for t in viz_calls if t.parent_tool_use_id is None]
+        assert not direct_viz_calls, (
+            f"Orchestrator called {len(direct_viz_calls)} viz tool(s) directly "
+            "instead of delegating to data-visualizer. "
+            f"Names: {[t.name for t in direct_viz_calls]}"
+        )
+
+        # No viz errors
         viz_errors = [t for t in viz_calls if t.is_error]
         assert len(viz_errors) == 0, (
             f"{len(viz_errors)} create_interactive_plot error(s): "
             f"{[t.result[:200] for t in viz_errors if t.result]}"
         )
-
-        # Verify data_source was passed
-        for call in viz_calls:
-            ds = call.input.get("data_source")
-            if ds is not None:
-                print(f"  data_source value: {ds!r}")
-                break
 
         # HTML artifact produced
         html_files = find_html_files(project_dir / "_agent_data")

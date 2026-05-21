@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from osprey.cli.project_utils import encode_claude_project_path
 from osprey.mcp_server.workspace.transcript_reader import (
     MAX_CHAT_MESSAGE_LENGTH,
     MAX_ERROR_RESULT_LENGTH,
@@ -70,11 +71,14 @@ def _write_transcript(path: Path, entries: list[dict]) -> None:
 
 @pytest.fixture
 def transcript_dir(tmp_path):
-    """Create a project dir with Claude Code transcript directory structure."""
-    project_dir = tmp_path / "my-project"
+    """Create a project dir with Claude Code transcript directory structure.
+
+    Uses an underscored project name so the fixture exercises the full
+    encoding rule (non-alphanumerics → ``-``), not just ``/`` → ``-``.
+    """
+    project_dir = tmp_path / "my_project_dir"
     project_dir.mkdir()
-    # Claude Code encodes path: /tmp/xxx/my-project → -tmp-xxx-my-project
-    encoded = str(project_dir).replace("/", "-")
+    encoded = encode_claude_project_path(project_dir)
     claude_dir = tmp_path / ".claude" / "projects" / encoded
     claude_dir.mkdir(parents=True)
     return project_dir, claude_dir
@@ -131,8 +135,7 @@ class TestFindTranscriptDir:
         """
         project_dir = tmp_path / "my-project"
         project_dir.mkdir()
-        # The encoded name MUST start with '-' for absolute paths
-        encoded = str(project_dir).replace("/", "-")
+        encoded = encode_claude_project_path(project_dir)
         assert encoded.startswith("-"), "Absolute path encoding must start with '-'"
         claude_dir = tmp_path / ".claude" / "projects" / encoded
         claude_dir.mkdir(parents=True)
@@ -142,6 +145,29 @@ class TestFindTranscriptDir:
             mp.setattr(Path, "home", lambda: tmp_path)
             result = reader.find_transcript_dir()
         assert result is not None
+        assert result == claude_dir
+
+    def test_underscores_in_path_are_normalized(self, tmp_path):
+        """Underscores in the cwd must be normalized to dashes.
+
+        Regression: pytest tmpdir paths and macOS tmp dirs commonly contain
+        underscores (e.g. ``8558q21d28scmm_6ssh_wxwc0000gn``,
+        ``test_channel_read_archiver_plot``). Claude Code writes its
+        transcript under a dash-normalized name; if the reader only
+        substitutes ``/``, the lookup silently misses the directory and
+        every downstream caller sees an empty transcript.
+        """
+        project_dir = tmp_path / "my_test_project"
+        project_dir.mkdir()
+        encoded = encode_claude_project_path(project_dir)
+        assert "_" not in encoded, f"Encoded name must not contain '_': {encoded!r}"
+        claude_dir = tmp_path / ".claude" / "projects" / encoded
+        claude_dir.mkdir(parents=True)
+
+        reader = TranscriptReader(project_dir)
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(Path, "home", lambda: tmp_path)
+            result = reader.find_transcript_dir()
         assert result == claude_dir
 
 
@@ -238,7 +264,7 @@ class TestReadSession:
                     },
                     {
                         "id": "tu-2",
-                        "name": "mcp__workspace__session_log",
+                        "name": "mcp__osprey_workspace__session_log",
                         "input": {"last_n": 10},
                     },
                 ],
@@ -312,7 +338,7 @@ class TestReadSession:
                 [
                     {
                         "id": "tu-1",
-                        "name": "mcp__workspace__memory_save",
+                        "name": "mcp__osprey_workspace__memory_save",
                         "input": {"key": "test"},
                     },
                 ],
@@ -476,7 +502,7 @@ class TestReadSession:
                 [
                     {
                         "id": "tu-1",
-                        "name": "mcp__workspace__session_log",
+                        "name": "mcp__osprey_workspace__session_log",
                         "input": {},
                     },
                 ],
@@ -624,7 +650,7 @@ class TestSubagentReading:
                 [
                     {
                         "id": "tu-sub",
-                        "name": "mcp__workspace__create_static_plot",
+                        "name": "mcp__osprey_workspace__create_static_plot",
                         "input": {"title": "Plot"},
                     },
                 ],
@@ -870,7 +896,7 @@ class TestAllPrefixes:
         [
             ("mcp__controls__", "channel_read", "controls"),
             ("mcp__python__", "execute", "python"),
-            ("mcp__workspace__", "session_log", "workspace"),
+            ("mcp__osprey_workspace__", "session_log", "osprey_workspace"),
             ("mcp__ariel__", "keyword_search", "ariel"),
             ("mcp__channel-finder__", "channel_find", "channel-finder"),
         ],

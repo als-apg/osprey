@@ -413,7 +413,9 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     from osprey.stores.artifact_store import (
         ArtifactEntry,
         ArtifactStore,
+        register_artifact_delete_listener,
         register_artifact_listener,
+        unregister_artifact_delete_listener,
         unregister_artifact_listener,
     )
 
@@ -443,12 +445,20 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     def _on_artifact_saved(entry: ArtifactEntry) -> None:
         broadcaster.broadcast({"type": "artifact", **entry.to_dict()})
 
+    def _on_artifact_deleted(entry: ArtifactEntry) -> None:
+        if app.state.focused_artifact_id == entry.id:
+            app.state.focused_artifact_id = None
+        _write_focus_file()
+        broadcaster.broadcast({"type": "artifact_deleted", "id": entry.id})
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         register_artifact_listener(_on_artifact_saved)
+        register_artifact_delete_listener(_on_artifact_deleted)
         index_watcher.start()
         yield
         index_watcher.stop()
+        unregister_artifact_delete_listener(_on_artifact_deleted)
         unregister_artifact_listener(_on_artifact_saved)
 
     app = FastAPI(
@@ -577,13 +587,21 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
         filepath = Path(data_file)
         if not filepath.is_absolute():
-            # New unified artifacts store files in the artifacts/ subdirectory;
-            # legacy DataContext entries used absolute paths.
-            candidate = store._store_dir / filepath
-            if candidate.exists():
-                filepath = candidate
-            else:
-                filepath = store._workspace / filepath
+            # data_file may be (a) a project-CWD-relative path like
+            # "_agent_data/artifacts/foo.json" (current ArtifactStore format),
+            # (b) a bare filename (legacy entries written before the format
+            # change), or (c) some other workspace-relative path. Try each
+            # candidate; the legacy DataContext path used absolute strings
+            # which are handled by the is_absolute() branch above.
+            candidates = [
+                store._workspace.parent / filepath,
+                store._store_dir / filepath,
+                store._workspace / filepath,
+            ]
+            for candidate in candidates:
+                if candidate.exists():
+                    filepath = candidate
+                    break
         if not filepath.exists():
             raise HTTPException(status_code=404, detail="Data file not found on disk")
 
@@ -726,10 +744,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         deleted = store.delete_entry(artifact_id)
         if not deleted:
             raise HTTPException(status_code=404, detail=f"Artifact {artifact_id} not found")
-        if app.state.focused_artifact_id == artifact_id:
-            app.state.focused_artifact_id = None
-            _write_focus_file()
-        broadcaster.broadcast({"type": "artifact_deleted", "id": artifact_id})
         return {"status": "ok", "artifact_id": artifact_id}
 
     @app.get("/api/notebooks/{artifact_id}/rendered")

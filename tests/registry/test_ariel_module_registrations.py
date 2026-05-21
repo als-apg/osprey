@@ -1,14 +1,13 @@
 """Tests for ARIEL module registration dataclasses and RegistryConfig fields.
 
 Validates:
-- ArielSearchModuleRegistration, ArielEnhancementModuleRegistration, ArielPipelineRegistration
-- New RegistryConfig fields (ariel_search_modules, ariel_enhancement_modules, ariel_pipelines)
+- ArielSearchModuleRegistration, ArielEnhancementModuleRegistration
+- New RegistryConfig fields (ariel_search_modules, ariel_enhancement_modules)
 - initialization_order includes the new types
 """
 
 from osprey.registry.base import (
     ArielEnhancementModuleRegistration,
-    ArielPipelineRegistration,
     ArielSearchModuleRegistration,
     RegistryConfig,
 )
@@ -71,28 +70,6 @@ class TestArielEnhancementModuleRegistration:
         assert reg.execution_order == 5
 
 
-class TestArielPipelineRegistration:
-    """Test ArielPipelineRegistration dataclass."""
-
-    def test_basic_creation(self):
-        reg = ArielPipelineRegistration(
-            name="rag",
-            module_path="osprey.services.ariel_search.pipelines",
-            description="RAG pipeline",
-        )
-        assert reg.name == "rag"
-        assert reg.category == "llm"  # default
-
-    def test_custom_category(self):
-        reg = ArielPipelineRegistration(
-            name="direct_pipeline",
-            module_path="my_app.pipelines",
-            description="Direct pipeline",
-            category="direct",
-        )
-        assert reg.category == "direct"
-
-
 class TestRegistryConfigArielFields:
     """Test RegistryConfig with new ARIEL fields."""
 
@@ -100,7 +77,6 @@ class TestRegistryConfigArielFields:
         config = RegistryConfig()
         assert config.ariel_search_modules == []
         assert config.ariel_enhancement_modules == []
-        assert config.ariel_pipelines == []
 
     def test_ariel_fields_in_config(self):
         config = RegistryConfig(
@@ -120,23 +96,14 @@ class TestRegistryConfigArielFields:
                     execution_order=10,
                 ),
             ],
-            ariel_pipelines=[
-                ArielPipelineRegistration(
-                    name="rag",
-                    module_path="test.pipelines",
-                    description="RAG",
-                ),
-            ],
         )
         assert len(config.ariel_search_modules) == 1
         assert len(config.ariel_enhancement_modules) == 1
-        assert len(config.ariel_pipelines) == 1
 
     def test_initialization_order_includes_ariel_types(self):
         config = RegistryConfig()
         assert "ariel_search_modules" in config.initialization_order
         assert "ariel_enhancement_modules" in config.initialization_order
-        assert "ariel_pipelines" in config.initialization_order
 
     def test_ariel_types_before_services_in_init_order(self):
         config = RegistryConfig()
@@ -144,7 +111,6 @@ class TestRegistryConfigArielFields:
         svc_idx = order.index("services")
         assert order.index("ariel_search_modules") < svc_idx
         assert order.index("ariel_enhancement_modules") < svc_idx
-        assert order.index("ariel_pipelines") < svc_idx
 
 
 class TestArielRegistrationImports:
@@ -153,10 +119,8 @@ class TestArielRegistrationImports:
     def test_import_from_registry_package(self):
         from osprey.registry import (
             ArielEnhancementModuleRegistration,
-            ArielPipelineRegistration,
             ArielSearchModuleRegistration,
         )
 
         assert ArielSearchModuleRegistration is not None
         assert ArielEnhancementModuleRegistration is not None
-        assert ArielPipelineRegistration is not None

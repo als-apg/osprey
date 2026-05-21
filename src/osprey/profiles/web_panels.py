@@ -17,3 +17,7 @@ BUILTIN_PANELS: set[str] = {
     "channel-finder",
     "lattice",
 }
+
+# Frontend fallback when a profile/config doesn't pin a default tab.
+# The web terminal opens this tab first on cold load.
+DEFAULT_PANEL_FALLBACK: str = "artifacts"

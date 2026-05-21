@@ -9,6 +9,8 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
 import json
 import logging
 
+from fastmcp.exceptions import ToolError
+
 from osprey.mcp_server.channel_finder_middle_layer.server import make_error, mcp
 from osprey.mcp_server.channel_finder_middle_layer.server_context import get_cf_ml_context
 
@@ -41,22 +43,20 @@ def inspect_fields(
         return json.dumps({"fields": fields})
 
     except ValueError as exc:
-        return json.dumps(
-            make_error(
-                "validation_error",
-                str(exc),
-                [
-                    "Use list_systems to see available systems.",
-                    "Use list_families to see families in a system.",
-                ],
-            )
+        return make_error(
+            "validation_error",
+            str(exc),
+            [
+                "Use list_systems to see available systems.",
+                "Use list_families to see families in a system.",
+            ],
         )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("inspect_fields failed")
-        return json.dumps(
-            make_error(
-                "internal_error",
-                f"Failed to inspect fields: {exc}",
-                ["Check that the channel finder database is configured."],
-            )
+        return make_error(
+            "internal_error",
+            f"Failed to inspect fields: {exc}",
+            ["Check that the channel finder database is configured."],
         )

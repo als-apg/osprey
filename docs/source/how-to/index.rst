@@ -36,27 +36,27 @@ Framework & Infrastructure
       :link-type: doc
 
       Build and register a new FastMCP server to expose domain-specific tools that
-      Claude Code can discover and call.
+      the Osprey agent can discover and call.
 
    .. grid-item-card:: Use the Web Terminal
       :link: use-web-terminal
       :link-type: doc
 
-      Launch and operate the Web Terminal interface for interactive Claude Code
+      Launch and operate the Web Terminal interface for interactive Osprey agent
       sessions with your control system.
 
    .. grid-item-card:: Use the CLI Chat Interface
       :link: use-cli-chat
       :link-type: doc
 
-      Run Claude Code in your native terminal with companion services accessible
+      Run the Osprey agent in your native terminal with companion services accessible
       in a browser.
 
    .. grid-item-card:: Use the Python Executor
       :link: use-python-executor
       :link-type: doc
 
-      Run Claude-generated Python scripts safely in a containerized environment with
+      Run agent-generated Python scripts safely in a containerized environment with
       access to the OSPREY runtime API.
 
    .. grid-item-card:: CLI Reference

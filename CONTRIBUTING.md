@@ -20,6 +20,19 @@ cd osprey
 uv sync --extra dev --extra docs
 ```
 
+**Optional — enable local pre-commit checks.** If you'd like formatting and
+whitespace issues caught *before* you push (rather than auto-fixed by the bot
+on your PR), run this once per machine:
+
+```bash
+uv run pre-commit install
+```
+
+After that, `git commit` will automatically run ruff and basic file-hygiene
+checks on your staged files. You can skip this step entirely — `pre-commit.ci`
+will auto-fix common issues on your PR either way. Recommended for frequent
+contributors; safe to ignore otherwise.
+
 ### 3. Create a Feature Branch
 
 ```bash

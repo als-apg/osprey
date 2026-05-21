@@ -1,6 +1,5 @@
 """Tests for inspect_fields tool."""
 
-import json
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
@@ -9,6 +8,7 @@ from osprey.mcp_server.channel_finder_middle_layer.server_context import (
     initialize_cf_ml_context,
 )
 from tests.mcp_server.channel_finder_middle_layer.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 
 def _setup(tmp_path, monkeypatch):
@@ -38,7 +38,7 @@ def test_inspect_fields_returns_fields(tmp_path, monkeypatch):
         fn = get_tool_fn(inspect_fields)
         result = fn(system="SR", family="BPM")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert "Monitor" in data["fields"]
     assert "Setpoint" in data["fields"]
     mock_db.inspect_fields.assert_called_once_with("SR", "BPM", None)
@@ -65,7 +65,7 @@ def test_inspect_fields_with_field_drilldown(tmp_path, monkeypatch):
         fn = get_tool_fn(inspect_fields)
         result = fn(system="SR", family="BPM", field="Monitor")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert "X" in data["fields"]
     assert "Y" in data["fields"]
     mock_db.inspect_fields.assert_called_once_with("SR", "BPM", "Monitor")
@@ -87,11 +87,10 @@ def test_inspect_fields_validation_error(tmp_path, monkeypatch):
         )
 
         fn = get_tool_fn(inspect_fields)
-        result = fn(system="SR", family="XYZ")
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            fn(system="SR", family="XYZ")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = _exc_ctx["envelope"]
     assert "Unknown family" in data["error_message"]
 
 
@@ -111,9 +110,8 @@ def test_inspect_fields_internal_error(tmp_path, monkeypatch):
         )
 
         fn = get_tool_fn(inspect_fields)
-        result = fn(system="SR", family="BPM")
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            fn(system="SR", family="BPM")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    data = _exc_ctx["envelope"]
     assert "Unexpected failure" in data["error_message"]

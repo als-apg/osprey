@@ -203,29 +203,6 @@ class ArielIngestionAdapterRegistration:
 
 
 @dataclass
-class ArielPipelineRegistration:
-    """Registration metadata for ARIEL pipeline descriptors.
-
-    Defines the metadata required for lazy loading of pipeline descriptor modules
-    that declare RAG or Agent execution strategies.
-
-    :param name: Config key, e.g., "ariel_rag"
-    :type name: str
-    :param module_path: Module exporting get_pipeline_descriptor()
-    :type module_path: str
-    :param description: Human-readable description
-    :type description: str
-    :param category: Pipeline category ("llm" or "direct")
-    :type category: str
-    """
-
-    name: str
-    module_path: str
-    description: str
-    category: str = "llm"
-
-
-@dataclass
 class RegistryConfig:
     """Complete registry configuration with all component metadata.
 
@@ -262,7 +239,6 @@ class RegistryConfig:
     ariel_enhancement_modules: list[ArielEnhancementModuleRegistration] = field(
         default_factory=list
     )
-    ariel_pipelines: list[ArielPipelineRegistration] = field(default_factory=list)
     ariel_ingestion_adapters: list[ArielIngestionAdapterRegistration] = field(default_factory=list)
     framework_exclusions: dict[str, list[str]] = field(default_factory=dict)
     initialization_order: list[str] = field(
@@ -271,7 +247,6 @@ class RegistryConfig:
             "connectors",
             "ariel_search_modules",
             "ariel_enhancement_modules",
-            "ariel_pipelines",
             "ariel_ingestion_adapters",
             "services",
         ]

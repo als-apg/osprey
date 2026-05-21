@@ -7,6 +7,7 @@ import pytest
 
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 
 def _get_entry_get():
@@ -70,22 +71,20 @@ async def test_entry_get_nonexistent(tmp_path, monkeypatch):
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_entry_get()
-        result = await fn(entry_id="nonexistent")
+        with assert_raises_error(error_type="not_found") as _exc_ctx:
+            await fn(entry_id="nonexistent")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "not_found"
+    _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
 async def test_entry_get_empty_id():
     """Empty entry_id returns validation error."""
     fn = _get_entry_get()
-    result = await fn(entry_id="")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(entry_id="")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    _exc_ctx["envelope"]
 
 
 # ---------------------------------------------------------------------------
@@ -146,7 +145,7 @@ async def test_entry_create_minimal_fields(tmp_path, monkeypatch):
         fn = _get_entry_create()
         result = await fn(subject="Quick note", details="Something happened", draft=False)
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["entry_id"].startswith("ariel-")
 
     call_args = mock_service.repository.upsert_entry.call_args[0][0]
@@ -157,22 +156,20 @@ async def test_entry_create_minimal_fields(tmp_path, monkeypatch):
 async def test_entry_create_empty_subject():
     """Empty subject returns validation error."""
     fn = _get_entry_create()
-    result = await fn(subject="", details="some details")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(subject="", details="some details")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
 async def test_entry_create_empty_details():
     """Empty details returns validation error."""
     fn = _get_entry_create()
-    result = await fn(subject="A subject", details="")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(subject="A subject", details="")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -200,7 +197,7 @@ async def test_entry_create_with_file_paths(tmp_path, monkeypatch):
             draft=False,
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["entry_id"].startswith("ariel-")
     assert data["attachment_count"] == 1
 
@@ -220,16 +217,14 @@ async def test_entry_create_with_invalid_file_path(tmp_path, monkeypatch):
     _setup_registry(tmp_path, monkeypatch)
 
     fn = _get_entry_create()
-    result = await fn(
-        subject="Test",
-        details="Bad file",
-        file_paths=["/nonexistent/file.png"],
-        draft=False,
-    )
-
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(
+            subject="Test",
+            details="Bad file",
+            file_paths=["/nonexistent/file.png"],
+            draft=False,
+        )
+    data = _exc_ctx["envelope"]
     assert "not found" in data["error_message"]
 
 
@@ -242,16 +237,14 @@ async def test_entry_create_with_oversized_file(tmp_path, monkeypatch):
     big_file.write_bytes(b"\x00" * (10 * 1024 * 1024 + 1))
 
     fn = _get_entry_create()
-    result = await fn(
-        subject="Test",
-        details="Big file",
-        file_paths=[str(big_file)],
-        draft=False,
-    )
-
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(
+            subject="Test",
+            details="Big file",
+            file_paths=[str(big_file)],
+            draft=False,
+        )
+    data = _exc_ctx["envelope"]
     assert "exceeds" in data["error_message"]
 
 
@@ -509,7 +502,7 @@ async def test_entry_create_with_markdown_artifact(tmp_path, monkeypatch):
             draft=False,
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["entry_id"].startswith("ariel-")
     assert data["attachment_count"] == 1
 
@@ -563,7 +556,7 @@ async def test_entry_create_with_unknown_mime_type_artifact(tmp_path, monkeypatc
             draft=False,
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["entry_id"].startswith("ariel-")
     assert data["attachment_count"] == 1
 
@@ -585,15 +578,14 @@ async def test_entry_create_with_invalid_artifact_id(tmp_path, monkeypatch):
         return_value=store,
     ):
         fn = _get_entry_create()
-        result = await fn(
-            subject="Test",
-            details="Bad artifact",
-            artifact_ids=["nonexistent-id"],
-        )
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await fn(
+                subject="Test",
+                details="Bad artifact",
+                artifact_ids=["nonexistent-id"],
+            )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = _exc_ctx["envelope"]
     assert "not found" in data["error_message"]
 
 
@@ -659,7 +651,7 @@ async def test_entry_create_draft_with_file_paths(tmp_path, monkeypatch):
         draft=True,
     )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert "draft_id" in data
 
     # Check draft JSON file includes attachment_paths
@@ -695,7 +687,7 @@ async def test_entry_create_draft_with_relative_file_path(tmp_path, monkeypatch)
         draft=True,
     )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert "draft_id" in data
 
     filepath = drafts_dir / f"{data['draft_id']}.json"
@@ -718,16 +710,14 @@ async def test_entry_create_draft_with_invalid_file_path(tmp_path, monkeypatch):
     monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
 
     fn = _get_entry_create()
-    result = await fn(
-        subject="Bad file",
-        details="File does not exist",
-        file_paths=["/nonexistent/screenshot.png"],
-        draft=True,
-    )
-
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(
+            subject="Bad file",
+            details="File does not exist",
+            file_paths=["/nonexistent/screenshot.png"],
+            draft=True,
+        )
+    data = _exc_ctx["envelope"]
     assert "not found" in data["error_message"]
 
 
@@ -762,7 +752,7 @@ async def test_entries_by_ids_batch_retrieval(tmp_path, monkeypatch):
         fn = _get_entries_by_ids()
         result = await fn(entry_ids=["e1", "e2", "e3"])
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["requested"] == 3
     assert data["found"] == 2
     assert len(data["entries"]) == 2
@@ -773,22 +763,20 @@ async def test_entries_by_ids_batch_retrieval(tmp_path, monkeypatch):
 async def test_entries_by_ids_empty_list():
     """Empty list returns validation error."""
     fn = _get_entries_by_ids()
-    result = await fn(entry_ids=[])
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(entry_ids=[])
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
 async def test_entries_by_ids_max_limit_exceeded():
     """More than 50 IDs returns validation error."""
     fn = _get_entries_by_ids()
-    result = await fn(entry_ids=[f"e{i}" for i in range(51)])
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(entry_ids=[f"e{i}" for i in range(51)])
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = _exc_ctx["envelope"]
     assert "50" in data["error_message"]
 
 
@@ -805,8 +793,7 @@ async def test_entries_by_ids_service_error(tmp_path, monkeypatch):
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_entries_by_ids()
-        result = await fn(entry_ids=["e1"])
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            await fn(entry_ids=["e1"])
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    _exc_ctx["envelope"]

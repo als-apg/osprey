@@ -139,20 +139,27 @@ def _launch_lattice_dashboard_server(app: FastAPI) -> None:
         app.state.lattice_dashboard_server_url = None
 
 
-def _load_panel_config() -> tuple[set[str], list[dict]]:
-    """Read web.panels from config.yml.
+def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
+    """Read web.panels and web.default_panel from config.yml.
 
     Returns:
-        (enabled_builtin_ids, custom_panel_defs)
+        (enabled_builtin_ids, custom_panel_defs, default_panel_id_or_None)
+
+        The default panel id is returned as declared by the profile/config;
+        it is **not** validated here — the frontend treats an unknown id as
+        a request to fall back to DEFAULT_PANEL_FALLBACK so a typo doesn't
+        leave the user staring at a blank tabset.
     """
     try:
         from osprey.utils.workspace import load_osprey_config
 
         config = load_osprey_config()
     except Exception:
-        return set(UNIVERSAL_PANELS), []
+        return set(UNIVERSAL_PANELS), [], None
 
-    panels_config = config.get("web", {}).get("panels", {})
+    web_config = config.get("web", {})
+    panels_config = web_config.get("panels", {})
+    default_panel = web_config.get("default_panel")
 
     enabled = set(UNIVERSAL_PANELS)  # Always on
     custom = []
@@ -172,7 +179,7 @@ def _load_panel_config() -> tuple[set[str], list[dict]]:
                 }
             )
 
-    return enabled, custom
+    return enabled, custom, default_panel
 
 
 def _load_web_config(config_path: str | Path | None = None) -> dict:
@@ -274,9 +281,10 @@ def _create_lifespan(
         app.state.watcher.start()
 
         # Load panel config and conditionally launch servers
-        enabled_panels, custom_panels = _load_panel_config()
+        enabled_panels, custom_panels, default_panel = _load_panel_config()
         app.state.enabled_panels = enabled_panels
         app.state.custom_panels = custom_panels
+        app.state.default_panel = default_panel
 
         # Universal servers — always launched
         _launch_artifact_server(app)

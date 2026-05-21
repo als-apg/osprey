@@ -8,6 +8,8 @@ import json
 import logging
 from pathlib import Path
 
+from fastmcp.exceptions import ToolError
+
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import gallery_url
 from osprey.mcp_server.workspace.server import mcp
@@ -54,27 +56,23 @@ async def artifact_save(
         JSON with artifact ID and gallery URL.
     """
     if file_path and content:
-        return json.dumps(
-            make_error(
-                "validation_error",
-                "Provide exactly one of file_path or content, not both.",
-                [
-                    "Use file_path to register an existing file.",
-                    "Use content for inline markdown/HTML/text/JSON.",
-                ],
-            )
+        return make_error(
+            "validation_error",
+            "Provide exactly one of file_path or content, not both.",
+            [
+                "Use file_path to register an existing file.",
+                "Use content for inline markdown/HTML/text/JSON.",
+            ],
         )
 
     if not file_path and not content:
-        return json.dumps(
-            make_error(
-                "validation_error",
-                "Provide either file_path or content.",
-                [
-                    "Use file_path to register an existing file.",
-                    "Use content for inline markdown/HTML/text/JSON.",
-                ],
-            )
+        return make_error(
+            "validation_error",
+            "Provide either file_path or content.",
+            [
+                "Use file_path to register an existing file.",
+                "Use content for inline markdown/HTML/text/JSON.",
+            ],
         )
 
     from osprey.stores.artifact_store import get_artifact_store
@@ -96,12 +94,10 @@ async def artifact_save(
         else:
             # Inline content
             if content_type not in _CONTENT_TYPE_MAP:
-                return json.dumps(
-                    make_error(
-                        "validation_error",
-                        f"Unknown content_type '{content_type}'.",
-                        [f"Valid types: {', '.join(_CONTENT_TYPE_MAP)}"],
-                    )
+                return make_error(
+                    "validation_error",
+                    f"Unknown content_type '{content_type}'.",
+                    [f"Valid types: {', '.join(_CONTENT_TYPE_MAP)}"],
                 )
 
             a_type, mime, ext = _CONTENT_TYPE_MAP[content_type]
@@ -124,34 +120,30 @@ async def artifact_save(
         return json.dumps(entry.to_tool_response(gallery_url=url), default=str)
 
     except FileNotFoundError as exc:
-        return json.dumps(
-            make_error(
-                "file_not_found",
-                str(exc),
-                ["Check the file path exists.", "Use an absolute path or path relative to CWD."],
-            )
+        return make_error(
+            "file_not_found",
+            str(exc),
+            ["Check the file path exists.", "Use an absolute path or path relative to CWD."],
         )
     except PermissionError as exc:
         logger.exception("artifact_save permission denied")
-        return json.dumps(
-            make_error(
-                "permission_denied",
-                f"Cannot write artifact: {exc}",
-                [
-                    "The process does not have write access to the artifact directory.",
-                    "Check ownership of _agent_data/artifacts/ — all writers must share a UID or be in a group with write permission.",
-                    "If running via dispatch sidecar, confirm supervisord.conf and the interactive web process run as the same user.",
-                ],
-            )
+        return make_error(
+            "permission_denied",
+            f"Cannot write artifact: {exc}",
+            [
+                "The process does not have write access to the artifact directory.",
+                "Check ownership of _agent_data/artifacts/ — all writers must share a UID or be in a group with write permission.",
+                "If running via dispatch sidecar, confirm supervisord.conf and the interactive web process run as the same user.",
+            ],
         )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("artifact_save failed")
-        return json.dumps(
-            make_error(
-                "internal_error",
-                f"Artifact save failed: {exc}",
-                ["Check MCP server logs for details."],
-            )
+        return make_error(
+            "internal_error",
+            f"Artifact save failed: {exc}",
+            ["Check MCP server logs for details."],
         )
 
 
@@ -174,12 +166,10 @@ async def artifact_delete(artifact_id: str) -> str:
         deleted = store.delete_entry(artifact_id)
 
         if not deleted:
-            return json.dumps(
-                make_error(
-                    "not_found",
-                    f"Artifact {artifact_id} not found.",
-                    ["Check the artifact_id from a previous artifact_save response."],
-                )
+            return make_error(
+                "not_found",
+                f"Artifact {artifact_id} not found.",
+                ["Check the artifact_id from a previous artifact_save response."],
             )
 
         return json.dumps(
@@ -190,14 +180,53 @@ async def artifact_delete(artifact_id: str) -> str:
             }
         )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("artifact_delete failed")
+        return make_error(
+            "internal_error",
+            f"Failed to delete artifact: {exc}",
+            ["Check MCP server logs for details."],
+        )
+
+
+@mcp.tool()
+async def artifact_delete_all() -> str:
+    """Delete every artifact in the OSPREY gallery in a single atomic call.
+
+    Removes all artifact files and clears the index. Prefer this over many
+    sequential ``artifact_delete`` calls when the user asks to delete all
+    artifacts — it acquires the index lock once and fires consistent listener
+    notifications for every removed entry.
+
+    Returns:
+        JSON confirmation including the number of deleted artifacts and
+        their IDs.
+    """
+    try:
+        from osprey.stores.artifact_store import get_artifact_store
+
+        store = get_artifact_store()
+        deleted = store.delete_all()
+
         return json.dumps(
-            make_error(
-                "internal_error",
-                f"Failed to delete artifact: {exc}",
-                ["Check MCP server logs for details."],
-            )
+            {
+                "status": "success",
+                "deleted_count": len(deleted),
+                "artifact_ids": [e.id for e in deleted],
+                "message": f"Deleted {len(deleted)} artifact(s).",
+            }
+        )
+
+    except ToolError:
+        raise
+    except Exception as exc:
+        logger.exception("artifact_delete_all failed")
+        return make_error(
+            "internal_error",
+            f"Failed to delete all artifacts: {exc}",
+            ["Check MCP server logs for details."],
         )
 
 
@@ -222,12 +251,10 @@ async def artifact_get(artifact_id: str) -> str:
         entry = store.get_entry(artifact_id)
 
         if entry is None:
-            return json.dumps(
-                make_error(
-                    "not_found",
-                    f"Artifact {artifact_id} not found.",
-                    ["Use data_list or check a previous artifact_save response."],
-                )
+            return make_error(
+                "not_found",
+                f"Artifact {artifact_id} not found.",
+                ["Use data_list or check a previous artifact_save response."],
             )
 
         file_path = store.get_file_path(artifact_id)
@@ -246,12 +273,12 @@ async def artifact_get(artifact_id: str) -> str:
         }
         return json.dumps(result, default=str)
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("artifact_get failed")
-        return json.dumps(
-            make_error(
-                "internal_error",
-                f"Failed to get artifact: {exc}",
-                ["Check MCP server logs for details."],
-            )
+        return make_error(
+            "internal_error",
+            f"Failed to get artifact: {exc}",
+            ["Check MCP server logs for details."],
         )

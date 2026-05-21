@@ -8,6 +8,7 @@ import pytest
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.services.ariel_search.models import FacilityEntryCreateResult, SyncStatus
 from tests.mcp_server.ariel.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_raises_error
 
 
 def _get_entry_publish():
@@ -56,11 +57,10 @@ async def test_entry_publish_success(tmp_path, monkeypatch):
 async def test_entry_publish_empty_id():
     """Empty entry_id returns validation error."""
     fn = _get_entry_publish()
-    result = await fn(entry_id="")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(entry_id="")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -76,11 +76,10 @@ async def test_entry_publish_not_found(tmp_path, monkeypatch):
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_entry_publish()
-        result = await fn(entry_id="e99")
+        with assert_raises_error(error_type="not_found") as _exc_ctx:
+            await fn(entry_id="e99")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "not_found"
+    _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -98,8 +97,7 @@ async def test_entry_publish_writes_not_supported(tmp_path, monkeypatch):
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_entry_publish()
-        result = await fn(entry_id="e1")
+        with assert_raises_error(error_type="not_supported") as _exc_ctx:
+            await fn(entry_id="e1")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "not_supported"
+    _exc_ctx["envelope"]

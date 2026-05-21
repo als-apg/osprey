@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>OSPREY E2E Scenarios</title>
+<style>
+  body { font: 14.5px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; max-width: 860px; margin: 32px auto; padding: 0 24px; color: #1a1a1a; }
+  h1 { margin: 0 0 4px; font-size: 1.6rem; }
+  h2 { margin: 32px 0 8px; font-size: 1.15rem; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
+  h3 { margin: 16px 0 4px; font-size: 0.92rem; text-transform: uppercase; letter-spacing: 0.04em; color: #666; }
+  code { font: 0.88em "SF Mono", Menlo, monospace; background: #f4f1ea; padding: 1px 4px; border-radius: 3px; }
+  blockquote { margin: 4px 0 8px; padding: 6px 12px; background: #fff3e0; border-left: 3px solid #b85c00; font-style: italic; }
+  table { border-collapse: collapse; margin: 6px 0 8px; font-size: 0.9rem; }
+  td, th { padding: 3px 8px; border-bottom: 1px solid #eee; text-align: left; vertical-align: top; }
+  th { color: #666; font-weight: 600; }
+  ul { margin: 4px 0 8px; padding-left: 22px; }
+  li { margin-bottom: 2px; }
+  .meta { color: #666; font-size: 0.85rem; }
+  .warn { background: #fef2f0; border-left: 3px solid #9c4221; padding: 6px 12px; margin: 8px 0; font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<h1>OSPREY E2E Scenarios</h1>
+<p class="meta">Two cross-paradigm scenarios. Tier ≥ 2 required (tier 1 lacks vacuum gauges and most cavity PVs in every paradigm).</p>
+
+<h2>A &mdash; SR07 vacuum burst</h2>
+<p class="meta">File: <code>tests/e2e/test_vacuum_burst_scenario.py</code> &middot; pure telemetry, no logbook.</p>
+
+<h3>Operator prompt</h3>
+<blockquote>"We lost about 5 mA of beam yesterday around 14:32. Did the vacuum do anything weird around then?"</blockquote>
+
+<h3>Required PVs</h3>
+<ul>
+  <li><code>SR:DIAG:DCCT:01:CURRENT:RB</code></li>
+  <li><code>SR:VAC:GAUGE:SR{01..12}:PRESSURE:RB</code> (12 sectors)</li>
+</ul>
+
+<h3>Seeded event</h3>
+<table>
+  <tr><th>When</th><td>Wall-clock anchor <code>14:32:08</code> on the day before today (re-fires each day inside the window)</td></tr>
+  <tr><th>SR07 gauge</th><td>baseline 5&times;10<sup>&minus;8</sup>&nbsp;Torr + Gaussian spike, width 0.025, amplitude 1.5&times;10<sup>&minus;7</sup></td></tr>
+  <tr><th>SR01&ndash;06,08&ndash;12</th><td>flat baseline + small noise (max |r| vs DCCT ≤ 0.08)</td></tr>
+  <tr><th>DCCT</th><td>500&nbsp;mA baseline &minus; 5&nbsp;mA Gaussian dip (width 0.05) at same instant + 0.3&nbsp;mA step residual</td></tr>
+  <tr><th>Target r</th><td>SR07 vs DCCT &asymp; &minus;0.88 over a 10-min window</td></tr>
+</table>
+<p class="meta">Source: <code>src/osprey/connectors/archiver/mock_archiver_connector.py:332&ndash;356</code></p>
+
+<h3>Pass criteria</h3>
+<ul>
+  <li><strong>Tool-routing:</strong> ≥1 <code>mcp__channel-finder__*</code>, ≥1 <code>mcp__controls__archiver_read</code>, archiver inputs reference both <code>dcct</code>/<code>current</code> AND <code>gauge</code>/<code>vac</code>.</li>
+  <li><strong>Judge:</strong> names "Sector 7" or "SR07" explicitly. Vague "a vacuum gauge somewhere" / "no anomaly" / a different sector = fail.</li>
+</ul>
+
+<h2>B &mdash; RF cavity C1 thermal excursion</h2>
+<p class="meta">File: <code>tests/e2e/test_rf_cavity_correlation_scenario.py</code> &middot; logbook + telemetry must converge.</p>
+
+<h3>Operator prompt</h3>
+<blockquote>"The beam dumped this morning. Figure out what happened and plot the data."</blockquote>
+
+<h3>Required PVs</h3>
+<ul>
+  <li><code>SR:RF:CAVITY:01:{TEMPERATURE,POWER:FWD,POWER:REV,VOLTAGE,FREQUENCY}:RB</code></li>
+  <li><code>SR:RF:CAVITY:02:*</code> (same fields &mdash; needed for C1-vs-C2 contrast)</li>
+</ul>
+
+<h3>Seeded telemetry (window-relative positions)</h3>
+<table>
+  <tr><th>C1 events</th><td>(0.20, 1.0), (0.55, 0.7), <strong>(0.85, 1.2)</strong> &mdash; three excursions, last worst</td></tr>
+  <tr><th>C1 temperature</th><td>27.0&nbsp;&deg;C baseline + daily oscillation + envelope &times; 7 &rarr; peaks ~34&nbsp;&deg;C</td></tr>
+  <tr><th>C1 reflected power</th><td>5&nbsp;kW baseline + envelope &times; 80 &rarr; peaks ~85&nbsp;kW</td></tr>
+  <tr><th>C1 forward power</th><td>450&nbsp;kW baseline &minus; envelope &times; 440 &rarr; trips to ~0</td></tr>
+  <tr><th>C1 voltage</th><td>2.5&nbsp;MV baseline &minus; envelope &times; 2.4</td></tr>
+  <tr><th>C1 frequency</th><td>499.654&nbsp;MHz &minus; envelope &times; 0.001 (thermal detuning)</td></tr>
+  <tr><th>C2 (stable ref)</th><td>single minor blip (0.55, 0.25) on all fields, baseline ~26.5&nbsp;&deg;C</td></tr>
+</table>
+<p class="meta">Source: <code>src/osprey/connectors/archiver/mock_archiver_connector.py:230&ndash;233</code>. Primary detection: PV contains <code>c1</code>, <code>k1</code>, or <code>:01:</code>.</p>
+
+<h3>Seeded logbook (rebased to "now")</h3>
+<table>
+  <tr><th><code>DEMO-026</code></th><td>today&minus;4 &middot; 03:20 &mdash; beam dump, C1 reflected-power trip, names C2 unaffected</td></tr>
+  <tr><th><code>DEMO-027</code></th><td>today&minus;3 &middot; 10:00 &mdash; investigation, three thermal excursions, cooling-manifold blockage</td></tr>
+  <tr><th><code>DEMO-028</code></th><td>today&minus;2 &middot; 14:00 &mdash; repair, calcium-carbonate deposits, flow restored (rebase pivot)</td></tr>
+</table>
+
+<h3>Pass criteria</h3>
+<ul>
+  <li><strong>Tool-routing:</strong> ≥1 <code>mcp__ariel__*</code>, ≥1 <code>mcp__channel-finder__*</code>, ≥1 <code>mcp__controls__archiver_read</code>, archiver inputs reference <code>cavity</code> or <code>rf</code>, ≥1 plot tool (<code>create_static_plot</code>/<code>create_interactive_plot</code>/<code>create_dashboard</code>).</li>
+  <li><strong>Judge (all three required):</strong>
+    <ul>
+      <li>(a) commits to cavity C1 / cavity 01 / first cavity</li>
+      <li>(b) names the mechanism (thermal/cooling &rarr; reflected-power rise &rarr; forward-power trip)</li>
+      <li>(c) contrasts with C2 (stable)</li>
+    </ul>
+  </li>
+</ul>
+
+<h2>Cross-scenario invariants</h2>
+<ul>
+  <li><strong>Temporal separation:</strong> A's event lives at "yesterday 14:32"; B's logbook arc spans today&minus;4 to today&minus;2 morning &mdash; no window overlap.</li>
+  <li><strong>Decoy in logbook:</strong> <code>DEMO-001</code> mentions a Sector 4 vacuum spike (same magnitude as A) but rebases to ~17 days back &mdash; outside any "yesterday" window. <code>DEMO-002</code> uses "Sector 7" in a magnet-temperature context, also 17 days back.</li>
+  <li><strong>C1 &harr; "01" bridge is natural-language only.</strong> No alias table; channel description says "cavity 01", logbook says "C1".</li>
+</ul>
+
+<div class="warn"><strong>Tier setting (critical).</strong> <code>tests/e2e/sdk_helpers.py:88</code> defaults <code>tier=1</code>. Tier 1 contains no <code>SR:VAC:GAUGE</code> channels and no C1/C2 temperature/power/frequency channels in <strong>any</strong> paradigm (in_context, hierarchical, middle_layer) &mdash; the generator produces identical PV sets across paradigms at every tier. Both scenarios require tier ≥ 2. Bump the default or override per-test.</div>
+
+</body>
+</html>

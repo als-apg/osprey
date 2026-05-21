@@ -5,13 +5,12 @@ pattern detection, script args, encoding errors, and delegation to the
 shared response builder.
 """
 
-import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from osprey.mcp_server.python_executor.executor import ExecutionResult
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 
 def _get_python_execute_file():
@@ -82,7 +81,7 @@ async def test_execute_file_basic(tmp_path, monkeypatch):
     assert f"__file__ = {str(script.resolve())!r}" in executed_code
     assert "print('hello world')" in executed_code
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["summary"]["status"] == "Success"
     assert "hello world" in data["summary"]["output"]
 
@@ -121,7 +120,7 @@ async def test_execute_file_relative_path(tmp_path, monkeypatch):
 
     # Should have been called (path resolved successfully)
     mock_exec.assert_called_once()
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["summary"]["status"] == "Success"
 
 
@@ -135,14 +134,13 @@ async def test_execute_file_not_found(tmp_path, monkeypatch):
         return_value=tmp_path,
     ):
         fn = _get_python_execute_file()
-        result = await fn(
-            file_path=str(tmp_path / "missing.py"),
-            description="missing file test",
-        )
+        with assert_raises_error(error_type="file_not_found") as _exc_ctx:
+            await fn(
+                file_path=str(tmp_path / "missing.py"),
+                description="missing file test",
+            )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "file_not_found"
+    _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -158,14 +156,13 @@ async def test_execute_file_not_python(tmp_path, monkeypatch):
         return_value=tmp_path,
     ):
         fn = _get_python_execute_file()
-        result = await fn(
-            file_path=str(txt_file),
-            description="not python test",
-        )
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await fn(
+                file_path=str(txt_file),
+                description="not python test",
+            )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = _exc_ctx["envelope"]
     assert "not a python file" in data["error_message"].lower()
 
 
@@ -184,14 +181,13 @@ async def test_execute_file_outside_project_root(tmp_path, monkeypatch):
         return_value=project_root,
     ):
         fn = _get_python_execute_file()
-        result = await fn(
-            file_path=str(outside_file),
-            description="containment test",
-        )
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await fn(
+                file_path=str(outside_file),
+                description="containment test",
+            )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = _exc_ctx["envelope"]
     assert "outside" in data["error_message"].lower()
 
 
@@ -221,15 +217,14 @@ async def test_execute_file_safety_check_blocks(tmp_path, monkeypatch):
         ),
     ):
         fn = _get_python_execute_file()
-        result = await fn(
-            file_path=str(script),
-            description="safety check test",
-        )
+        with assert_raises_error(error_type="safety_error") as _exc_ctx:
+            await fn(
+                file_path=str(script),
+                description="safety check test",
+            )
 
     mock_exec.assert_not_called()
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "safety_error"
+    _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -261,16 +256,15 @@ async def test_execute_file_readonly_blocks_writes(tmp_path, monkeypatch):
         ),
     ):
         fn = _get_python_execute_file()
-        result = await fn(
-            file_path=str(script),
-            description="write pattern test",
-            execution_mode="readonly",
-        )
+        with assert_raises_error(error_type="safety_error") as _exc_ctx:
+            await fn(
+                file_path=str(script),
+                description="write pattern test",
+                execution_mode="readonly",
+            )
 
     mock_exec.assert_not_called()
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "safety_error"
+    _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -309,7 +303,7 @@ async def test_execute_file_readwrite_allows_writes(tmp_path, monkeypatch):
         )
 
     mock_exec.assert_called_once()
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["summary"]["status"] == "Success"
 
 
@@ -365,14 +359,13 @@ async def test_execute_file_empty(tmp_path, monkeypatch):
         return_value=tmp_path,
     ):
         fn = _get_python_execute_file()
-        result = await fn(
-            file_path=str(script),
-            description="empty file test",
-        )
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await fn(
+                file_path=str(script),
+                description="empty file test",
+            )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = _exc_ctx["envelope"]
     assert "empty" in data["error_message"].lower()
 
 
@@ -389,14 +382,13 @@ async def test_execute_file_encoding_error(tmp_path, monkeypatch):
         return_value=tmp_path,
     ):
         fn = _get_python_execute_file()
-        result = await fn(
-            file_path=str(script),
-            description="encoding error test",
-        )
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await fn(
+                file_path=str(script),
+                description="encoding error test",
+            )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = _exc_ctx["envelope"]
     assert "utf-8" in data["error_message"].lower()
 
 
@@ -404,12 +396,11 @@ async def test_execute_file_encoding_error(tmp_path, monkeypatch):
 async def test_execute_file_empty_path():
     """Empty file_path returns validation_error."""
     fn = _get_python_execute_file()
-    result = await fn(
-        file_path="",
-        description="empty path test",
-    )
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(
+            file_path="",
+            description="empty path test",
+        )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = _exc_ctx["envelope"]
     assert "no file path" in data["error_message"].lower()

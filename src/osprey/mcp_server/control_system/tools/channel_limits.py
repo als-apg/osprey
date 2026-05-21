@@ -149,21 +149,17 @@ async def channel_limits(
     """
     # Validate parameter combinations
     if channels is not None and pattern is not None:
-        return json.dumps(
-            make_error(
-                "validation_error",
-                "Cannot combine 'channels' (exact lookup) with 'pattern' (regex search).",
-                ["Use 'channels' for exact addresses or 'pattern' for regex matching, not both."],
-            )
+        return make_error(
+            "validation_error",
+            "Cannot combine 'channels' (exact lookup) with 'pattern' (regex search).",
+            ["Use 'channels' for exact addresses or 'pattern' for regex matching, not both."],
         )
 
     if filter_by is not None and filter_by not in VALID_FILTERS:
-        return json.dumps(
-            make_error(
-                "validation_error",
-                f"Invalid filter_by value: {filter_by!r}",
-                [f"Valid values: {', '.join(sorted(VALID_FILTERS))}"],
-            )
+        return make_error(
+            "validation_error",
+            f"Invalid filter_by value: {filter_by!r}",
+            [f"Valid values: {', '.join(sorted(VALID_FILTERS))}"],
         )
 
     # Validate regex before loading validator
@@ -171,12 +167,10 @@ async def channel_limits(
         try:
             re.compile(pattern)
         except re.error as exc:
-            return json.dumps(
-                make_error(
-                    "validation_error",
-                    f"Invalid regex pattern: {exc}",
-                    ["Provide a valid Python regular expression."],
-                )
+            return make_error(
+                "validation_error",
+                f"Invalid regex pattern: {exc}",
+                ["Provide a valid Python regular expression."],
             )
 
     # Load validator

@@ -15,7 +15,7 @@ def draft_client(tmp_path, monkeypatch):
     """Create a test client with drafts_dir pointing to tmp_path."""
     drafts_dir = tmp_path / "drafts"
     drafts_dir.mkdir()
-    monkeypatch.setattr(drafts_mod, "DRAFTS_DIR", drafts_dir)
+    monkeypatch.setattr(drafts_mod, "_drafts_dir", lambda: drafts_dir)
 
     app = FastAPI()
     app.include_router(draft_router)

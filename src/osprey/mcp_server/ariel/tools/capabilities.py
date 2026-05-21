@@ -3,6 +3,8 @@
 import json
 import logging
 
+from fastmcp.exceptions import ToolError
+
 from osprey.mcp_server.ariel.server import make_error, mcp
 from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.services.ariel_search.models import SearchMode
@@ -14,7 +16,7 @@ logger = logging.getLogger("osprey.mcp_server.ariel.tools.capabilities")
 async def capabilities() -> str:
     """Report available ARIEL search capabilities.
 
-    Returns enabled search modules, pipelines, search modes,
+    Returns enabled search modules, search modes,
     default settings, and reasoning configuration.
     Does NOT require database connectivity.
 
@@ -29,7 +31,6 @@ async def capabilities() -> str:
             {
                 "search_modes": [m.value for m in SearchMode],
                 "enabled_search_modules": config.get_enabled_search_modules(),
-                "enabled_pipelines": config.get_enabled_pipelines(),
                 "default_max_results": config.default_max_results,
                 "reasoning": {
                     "provider": config.reasoning.provider,
@@ -44,12 +45,12 @@ async def capabilities() -> str:
             default=str,
         )
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("capabilities failed")
-        return json.dumps(
-            make_error(
-                "internal_error",
-                f"Failed to get capabilities: {exc}",
-                ["Check ARIEL configuration in config.yml."],
-            )
+        return make_error(
+            "internal_error",
+            f"Failed to get capabilities: {exc}",
+            ["Check ARIEL configuration in config.yml."],
         )

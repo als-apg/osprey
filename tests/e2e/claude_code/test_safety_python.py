@@ -32,7 +32,7 @@ def _combined_text(result) -> str:
 
 
 @pytest.mark.requires_api
-@pytest.mark.requires_anthropic
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_safe_python_execution_succeeds(safety_project):
     """Scenario 8: Safe math code should execute without safety errors.

@@ -69,7 +69,7 @@ class TestLazyGroup:
             "ariel",
             "artifacts",
             "web",
-            "prompts",
+            "scaffold",
         ]
         assert isinstance(commands, list)
         assert len(commands) > 0

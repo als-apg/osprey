@@ -5,7 +5,7 @@ Production Control Systems Tutorial
 .. admonition:: Coming soon
    :class: note
 
-   The production control systems tutorial is being rewritten to match the current Claude Code + MCP architecture. The previous version, written for the legacy orchestration layer, has been taken offline while the new walkthrough is prepared.
+   The production control systems tutorial is being rewritten to match the current Osprey agent + MCP architecture. The previous version, written for the legacy orchestration layer, has been taken offline while the new walkthrough is prepared.
 
    In the meantime:
 

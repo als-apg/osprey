@@ -32,18 +32,34 @@ import yaml
 from click.testing import CliRunner
 
 from osprey.cli.build_cmd import build
+from tests.e2e.sdk_helpers import provider_env_for_project
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def is_claude_code_available() -> bool:
-    """Check if Claude Code CLI is installed and functional."""
+def _bundled_claude_path() -> Path | None:
+    """Return the SDK's bundled ``claude`` binary, or None if absent.
+
+    The Claude Agent SDK ships a vendored CLI at
+    ``claude_agent_sdk/_bundled/claude`` and the SDK's own transport falls
+    back to it when no system ``claude`` is on PATH. We mirror that lookup
+    here so this file's subprocess-based tests work on CI runners that
+    have the SDK installed but not the standalone CLI.
+    """
     try:
-        # Must unset CLAUDECODE to avoid nested-session guard when
-        # this test file is collected from within a Claude Code session.
-        env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+        import claude_agent_sdk
+    except ImportError:
+        return None
+    candidate = Path(claude_agent_sdk.__file__).parent / "_bundled" / "claude"
+    return candidate if candidate.is_file() else None
+
+
+def _resolve_claude_binary() -> str | None:
+    """Locate a runnable ``claude`` binary — system PATH first, then bundled."""
+    env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+    try:
         result = subprocess.run(
             ["claude", "--version"],
             capture_output=True,
@@ -51,26 +67,32 @@ def is_claude_code_available() -> bool:
             timeout=10,
             env=env,
         )
-        return result.returncode == 0
+        if result.returncode == 0:
+            return "claude"
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+        pass
+    bundled = _bundled_claude_path()
+    return str(bundled) if bundled is not None else None
 
 
-def has_als_apg_api_key() -> bool:
-    """Check if ALS_APG_API_KEY is set (CI-default Bedrock proxy auth)."""
-    return bool(os.environ.get("ALS_APG_API_KEY"))
+def is_claude_code_available() -> bool:
+    """Check if a ``claude`` binary is reachable (PATH or SDK-bundled)."""
+    return _resolve_claude_binary() is not None
 
 
 def init_project(
     tmp_path: Path,
     name: str,
     template: str = "control_assistant",
-    provider: str = "als-apg",
+    *,
+    provider: str,
     model: str = "haiku",
 ) -> Path:
     """Create a project via ``osprey build --preset <template>``, return project_dir.
 
-    Uses the Click test runner so we don't need a real shell.
+    Uses the Click test runner so we don't need a real shell. ``provider`` is
+    keyword-only and required — see the helper in ``tests/e2e/sdk_helpers``
+    for rationale.
     """
     runner = CliRunner()
     args = [
@@ -108,10 +130,19 @@ def run_claude(
     On timeout, kills the process and returns a ``CompletedProcess`` with
     returncode=-1 so callers can inspect partial stdout/stderr and run
     diagnostics instead of crashing with an unhandled ``TimeoutExpired``.
+
+    Injects the project's resolved provider env block (``ANTHROPIC_BASE_URL``,
+    ``ANTHROPIC_DEFAULT_*_MODEL``, auth token) so the bundled Claude CLI
+    routes to the provider the project was built with. Without this, the
+    CLI would inherit whatever ambient ``ANTHROPIC_BASE_URL`` the developer
+    has set (e.g. CBORG, which 403s off LBLnet).
     """
     env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+    env.update(provider_env_for_project(project_dir))
+    binary = _resolve_claude_binary()
+    assert binary is not None, "no claude binary reachable — neither system PATH nor SDK-bundled"
     cmd = [
-        "claude",
+        binary,
         "--print",
         "--dangerously-skip-permissions",
         "--permission-mode",
@@ -142,7 +173,7 @@ def run_claude(
 
 
 def disable_approval(project_dir: Path) -> None:
-    """Set approval.global_mode to 'disabled' in the project's config.yml.
+    """Set ``approval.enabled: false`` in the project's config.yml.
 
     These E2E tests exercise the MCP tool pipeline, not the approval hooks.
     Disabling approval prevents the hooks from returning ``permissionDecision:
@@ -150,7 +181,7 @@ def disable_approval(project_dir: Path) -> None:
     """
     config_path = project_dir / "config.yml"
     config = yaml.safe_load(config_path.read_text())
-    config.setdefault("approval", {})["global_mode"] = "disabled"
+    config.setdefault("approval", {})["enabled"] = False
     config_path.write_text(yaml.dump(config, default_flow_style=False, sort_keys=False))
 
 
@@ -319,7 +350,7 @@ class TestBuildProjectClaudeCodeFilesSmoke:
     @pytest.mark.e2e_smoke
     def test_build_creates_valid_claude_code_files(self, tmp_path):
         """osprey build creates all 8 Claude Code files with valid content."""
-        project_dir = init_project(tmp_path, "smoke-test")
+        project_dir = init_project(tmp_path, "smoke-test", provider="als-apg")
 
         # -- All 8 files exist --
         assert (project_dir / ".mcp.json").exists()
@@ -335,7 +366,7 @@ class TestBuildProjectClaudeCodeFilesSmoke:
         # Core servers must be present
         assert "controls" in mcp_data["mcpServers"]
         assert "python" in mcp_data["mcpServers"]
-        assert "workspace" in mcp_data["mcpServers"]
+        assert "osprey_workspace" in mcp_data["mcpServers"]
         assert "ariel" in mcp_data["mcpServers"]
         # Control system server has correct config env
         server = mcp_data["mcpServers"]["controls"]
@@ -377,12 +408,8 @@ class TestClaudeExecutesArchiverAndPlots:
     @pytest.mark.slow
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg
-    @pytest.mark.skipif(
-        not has_als_apg_api_key(),
-        reason="ALS_APG_API_KEY not set",
-    )
     def test_claude_executes_archiver_and_plots(self, tmp_path):
-        project_dir = init_project(tmp_path, "archiver-plot-test")
+        project_dir = init_project(tmp_path, "archiver-plot-test", provider="als-apg")
         disable_approval(project_dir)
         allow_all_tools(project_dir)
 
@@ -390,10 +417,9 @@ class TestClaudeExecutesArchiverAndPlots:
             "Use the archiver_read tool to retrieve data for channels "
             "'DIAG:BPM01:POSITION:X', 'DIAG:BPM02:POSITION:X', "
             "'DIAG:BPM03:POSITION:X' over the last 24 hours. "
-            "Then use the execute tool with execution_mode='readonly' to create "
-            "a timeseries plot of the data and save it as a PNG file in the "
-            "current directory. All permissions are pre-approved; do not ask "
-            "for confirmation."
+            "Then create a timeseries plot of the data and save it as a PNG "
+            "file. All permissions are pre-approved; do not ask for "
+            "confirmation."
         )
 
         result = run_claude(project_dir, prompt, timeout=300)
@@ -416,7 +442,7 @@ class TestClaudeExecutesArchiverAndPlots:
             f"--- Execution diagnostics ---\n{diagnose_python_execute(project_dir)}"
         )
 
-        # Archiver data was produced (saved to _agent_data/data/ by DataContextStore)
+        # Archiver data was produced (saved to _agent_data/data/ by ArtifactStore)
         workspace_dir = project_dir / "_agent_data"
         data_dir = workspace_dir / "data"
         data_files = list(data_dir.rglob("*")) if data_dir.exists() else []
@@ -426,13 +452,16 @@ class TestClaudeExecutesArchiverAndPlots:
             f"Workspace contents: {list(workspace_dir.rglob('*')) if workspace_dir.exists() else 'N/A'}"
         )
 
-        # A plot PNG was created somewhere in the project tree
+        # A plot PNG was created somewhere in the project tree. The agent
+        # may produce it via either the execute tool (raw python) or the
+        # data-visualizer subagent's create_static_plot — both are valid
+        # routes; we only assert the artifact landed.
         png_files = find_png_files(project_dir)
         exec_diag = diagnose_python_execute(project_dir)
         workspace_tree = diagnose_workspace(project_dir)
         assert len(png_files) > 0, (
-            "No PNG files found anywhere in the project. "
-            "execute tool may not have created a plot.\n"
+            "No PNG files found anywhere in the project — the agent did "
+            "not produce a plot.\n"
             f"--- Execution diagnostics ---\n{exec_diag}\n"
             f"--- Workspace tree ---\n{workspace_tree}\n"
             f"--- stderr (first 1000) ---\n{result.stderr[:1000]}\n"
@@ -467,23 +496,23 @@ class TestClaudeExecutesArchiverAndPlots:
 
 
 class TestClaudeFullBpmAnalysisPipeline:
-    """Full multi-tool pipeline: channel_find -> archiver_read -> execute.
+    """Full multi-tool pipeline: channel_find → archiver_read → plot.
 
     This is the Claude Code equivalent of
     ``test_tutorials.py::test_bpm_timeseries_and_correlation_tutorial``.
     It exercises channel_find (which makes its own LLM call internally)
     to discover BPM channels, then retrieves archiver data and plots.
+
+    The plotting step may route through either the execute tool (raw
+    python) or the data-visualizer subagent (create_static_plot) — both
+    are valid solutions and the test does not prescribe one.
     """
 
     @pytest.mark.slow
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg
-    @pytest.mark.skipif(
-        not has_als_apg_api_key(),
-        reason="ALS_APG_API_KEY not set",
-    )
     def test_claude_full_bpm_analysis_pipeline(self, tmp_path):
-        project_dir = init_project(tmp_path, "bpm-pipeline-test")
+        project_dir = init_project(tmp_path, "bpm-pipeline-test", provider="als-apg")
         disable_approval(project_dir)
         allow_all_tools(project_dir)
 
@@ -491,9 +520,8 @@ class TestClaudeFullBpmAnalysisPipeline:
             "Give me a timeseries and a correlation plot of all horizontal "
             "BPM positions over the last 24 hours. Use the channel_find tool "
             "to discover BPM channels, then archiver_read to get historical "
-            "data, then the execute tool with execution_mode='readonly' to create "
-            "the plots. Save the plots as PNG files. All permissions are "
-            "pre-approved; do not ask for confirmation."
+            "data, then create the plots. Save the plots as PNG files. All "
+            "permissions are pre-approved; do not ask for confirmation."
         )
 
         result = run_claude(project_dir, prompt, timeout=360, max_budget="1.50")
@@ -516,7 +544,7 @@ class TestClaudeFullBpmAnalysisPipeline:
             f"--- Execution diagnostics ---\n{diagnose_python_execute(project_dir)}"
         )
 
-        # Archiver data was retrieved (saved to _agent_data/data/ by DataContextStore)
+        # Archiver data was retrieved (saved to _agent_data/data/ by ArtifactStore)
         workspace_dir = project_dir / "_agent_data"
         data_dir = workspace_dir / "data"
         data_files = list(data_dir.rglob("*")) if data_dir.exists() else []
@@ -526,13 +554,15 @@ class TestClaudeFullBpmAnalysisPipeline:
             f"Workspace contents: {list(workspace_dir.rglob('*')) if workspace_dir.exists() else 'N/A'}"
         )
 
-        # At least one PNG plot was created
+        # At least one PNG plot was created. The agent may produce it via
+        # either the execute tool (raw python) or the data-visualizer
+        # subagent's create_static_plot — both are valid routes.
         png_files = find_png_files(project_dir)
         exec_diag = diagnose_python_execute(project_dir)
         workspace_tree = diagnose_workspace(project_dir)
         assert len(png_files) > 0, (
-            "No PNG files found in the project. "
-            "execute tool may not have created plots.\n"
+            "No PNG files found in the project — the agent did not produce "
+            "plots.\n"
             f"--- Execution diagnostics ---\n{exec_diag}\n"
             f"--- Workspace tree ---\n{workspace_tree}\n"
             f"--- stderr (first 1000) ---\n{result.stderr[:1000]}\n"

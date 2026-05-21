@@ -219,9 +219,6 @@ class TestCapabilityConfig:
                 "keyword": {"enabled": True},
                 "semantic": {"enabled": True, "model": "nomic-embed-text"},
             },
-            "pipelines": {
-                "rag": {"enabled": True, "retrieval_modules": ["keyword", "semantic"]},
-            },
             "enhancement_modules": {
                 "text_embedding": {
                     "enabled": True,
@@ -238,8 +235,6 @@ class TestCapabilityConfig:
         # Should have search modules enabled
         assert service.config.is_search_module_enabled("keyword")
         assert service.config.is_search_module_enabled("semantic")
-        # RAG is a pipeline, not a search module
-        assert service.config.is_pipeline_enabled("rag")
 
     async def test_capability_with_minimal_config(
         self, database_url, migrated_pool, reset_capability_singleton

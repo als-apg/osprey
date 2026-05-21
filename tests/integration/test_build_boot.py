@@ -49,7 +49,7 @@ PRESETS = ["hello-world", "control-assistant"]
 EXPECTED_TOOLS: dict[str, set[str]] = {
     "controls": {"channel_read", "channel_write", "channel_limits", "archiver_read"},
     "python": {"execute", "execute_file"},
-    "workspace": {
+    "osprey_workspace": {
         "archiver_downsample",
         "create_static_plot",
         "screenshot_capture",

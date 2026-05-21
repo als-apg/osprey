@@ -194,8 +194,12 @@ channel_finder:
         chunk_dictionary: false
         chunk_size: 50
         max_correction_iterations: 2
-      benchmark:
-        dataset_path: data/benchmarks/datasets/in_context_benchmark.json
+
+  # Single benchmark dataset shared by all paradigms — tier-resolved at build
+  # time per channel_finder_mode (in_context → tier 1, hierarchical/
+  # middle_layer → tier 3). Override with `osprey build --tier N`.
+  benchmark:
+    dataset_path: data/benchmarks/queries.json
 
 # ============================================================
 # EXECUTION

@@ -1,6 +1,5 @@
 """Tests for list_families tool."""
 
-import json
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
@@ -9,6 +8,7 @@ from osprey.mcp_server.channel_finder_middle_layer.server_context import (
     initialize_cf_ml_context,
 )
 from tests.mcp_server.channel_finder_middle_layer.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 
 def _setup(tmp_path, monkeypatch):
@@ -38,7 +38,7 @@ def test_list_families_returns_families(tmp_path, monkeypatch):
         fn = get_tool_fn(list_families)
         result = fn(system="SR")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["total"] == 2
     assert data["families"][0]["name"] == "BPM"
     assert data["families"][1]["name"] == "QF"
@@ -61,11 +61,10 @@ def test_list_families_validation_error(tmp_path, monkeypatch):
         )
 
         fn = get_tool_fn(list_families)
-        result = fn(system="XX")
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            fn(system="XX")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = _exc_ctx["envelope"]
     assert "Unknown system" in data["error_message"]
 
 
@@ -85,9 +84,8 @@ def test_list_families_internal_error(tmp_path, monkeypatch):
         )
 
         fn = get_tool_fn(list_families)
-        result = fn(system="SR")
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            fn(system="SR")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    data = _exc_ctx["envelope"]
     assert "DB broke" in data["error_message"]

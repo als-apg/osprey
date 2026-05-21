@@ -21,12 +21,12 @@ without arguments launches an interactive TUI menu.
    osprey deploy COMMAND     # Manage services
    osprey health             # Check system health
    osprey channel-finder     # Channel finder CLI
-   osprey claude             # Manage Claude Code integration
+   osprey claude             # Manage Osprey agent integration
    osprey eject              # Copy framework components for customization
    osprey ariel              # ARIEL logbook search service
    osprey artifacts          # Artifact gallery
    osprey web                # Launch web terminal
-   osprey prompts            # Prompt artifact overrides
+   osprey scaffold           # Build artifact overrides
    osprey audit              # Audit project or profile safety
    osprey skills             # Manage bundled Osprey skills
    osprey vendor             # Manage locally bundled vendor assets
@@ -152,12 +152,12 @@ Run comprehensive system health check.
 osprey claude
 =============
 
-Manage Claude Code integration — regenerate artifacts, launch chat, and check
+Manage Osprey agent integration — regenerate artifacts, launch chat, and check
 status.
 
 ``osprey claude chat [OPTIONS]``
    Regenerate artifacts from ``config.yml``, launch companion servers, and
-   start Claude Code in the terminal. See :doc:`/how-to/use-cli-chat`.
+   start the Osprey agent in the terminal. See :doc:`/how-to/use-cli-chat`.
 
    ``-p, --project DIRECTORY`` — Project directory (default: current directory).
 
@@ -168,7 +168,7 @@ status.
    ``--effort [low|medium|high|max]`` — Set effort level.
 
 ``osprey claude regen [OPTIONS]``
-   Re-render all Claude Code integration files (``.mcp.json``,
+   Re-render all Osprey agent integration files (``.mcp.json``,
    ``.claude/settings.json``, ``CLAUDE.md``, agents) from ``config.yml``.
    Existing files are backed up to ``_agent_data/backup/``.
 
@@ -272,8 +272,8 @@ osprey artifacts
 ================
 
 Manage the OSPREY Artifact Gallery -- a local web gallery that displays
-interactive plots, tables, and other outputs produced by Claude during
-analysis sessions. Artifacts are written by Claude via ``save_artifact()`` in
+interactive plots, tables, and other outputs produced by the Osprey agent during
+analysis sessions. Artifacts are written by the Osprey agent via ``save_artifact()`` in
 ``osprey execute`` or the ``artifact_save`` MCP tool.
 
 ``osprey artifacts web [OPTIONS]``
@@ -351,10 +351,10 @@ and lifecycle scripts.
    osprey audit profile.yml --build
    osprey audit project/ --json
 
-osprey prompts
-==============
+osprey scaffold
+===============
 
-Manage prompt artifact ownership. Framework-managed prompt artifacts (agents,
+Manage build artifact ownership. Framework-managed build artifacts (agents,
 rules, etc.) can be claimed per-facility for in-place editing. Claimed files
 are marked user-owned in ``config.yml`` and ``.osprey-manifest.json``, and
 subsequent ``osprey claude regen`` runs skip them.
@@ -363,34 +363,34 @@ All subcommands accept a common flag:
 
 ``-p, --project DIRECTORY`` — Project directory (default: current directory).
 
-``osprey prompts list``
-   List all prompt artifacts and their ownership status (framework vs.
+``osprey scaffold list``
+   List all build artifacts and their ownership status (framework vs.
    user-owned).
 
-``osprey prompts claim NAME``
+``osprey scaffold claim NAME``
    Claim ownership of a framework artifact for in-place editing. If the file
    doesn't exist yet, the framework template is rendered in place at the
    canonical output path. If it already exists, it is marked user-owned.
 
-``osprey prompts diff NAME``
+``osprey scaffold diff NAME``
    Show a unified diff between the current framework template (re-rendered)
    and your file at the canonical output path.
 
-``osprey prompts unclaim NAME``
+``osprey scaffold unclaim NAME``
    Release ownership and restore framework management. The next
    ``osprey claude regen`` will overwrite the file with the framework template.
 
 .. code-block:: bash
 
-   osprey prompts list                           # Show all artifacts
-   osprey prompts claim agents/channel-finder    # Claim for editing
-   osprey prompts diff agents/channel-finder     # Compare yours vs framework
-   osprey prompts unclaim rules/safety           # Restore framework management
+   osprey scaffold list                           # Show all artifacts
+   osprey scaffold claim agents/channel-finder    # Claim for editing
+   osprey scaffold diff agents/channel-finder     # Compare yours vs framework
+   osprey scaffold unclaim rules/safety           # Restore framework management
 
 osprey skills
 =============
 
-Manage bundled Osprey skills — Claude Code skills shipped with OSPREY that
+Manage bundled Osprey skills — agent skills shipped with OSPREY that
 can be installed either globally or into a specific project's
 ``.claude/skills/`` directory.
 
@@ -409,7 +409,7 @@ can be installed either globally or into a specific project's
 
    * ``osprey-build-interview`` — guided project-profile generation (see
      :doc:`/getting-started/osprey-build-interview`). Typically installed globally
-     so it is available in any Claude Code session.
+     so it is available in any Osprey agent session.
    * ``osprey-build-deploy`` — CI/CD setup, deploy-server operations, and
      release workflow for a facility profile repo. Typically installed
      project-locally (into the profile repo's ``.claude/skills/``) by the

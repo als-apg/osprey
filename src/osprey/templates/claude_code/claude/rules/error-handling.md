@@ -23,6 +23,7 @@ or work around failures.
 | **Validation** | Limits violation, invalid channel name, bad parameter | Show the specific violation. Explain what the valid range or format is, if the error says. |
 | **Data** | Channel not found, archiver has no data for range, empty results | Report what was searched and that no data was found. Suggest refining the query. |
 | **Execution** | Python code error, runtime exception in execute | Show the traceback. Help the user fix *their* code (not OSPREY's). |
+| **Safety** | Sandbox safety limit tripped (resource cap, write-mode guard), python_executor refused to run | Explain which guard tripped. Help the user understand the constraint. Suggest code that respects the limit. Do NOT modify safety configuration. |
 | **Internal** | Unexpected server error, malformed response, stack trace from MCP server | Report the error verbatim. Suggest the operator check server logs. |
 
 ## Response Protocol
@@ -38,6 +39,7 @@ When a tool returns an error:
    - Validation → "The value/parameter is outside the allowed range. [Show constraints if available.]"
    - Data → "No results found for [query]. You could try [alternative search terms/time range]."
    - Execution → "The code raised an error. Here's what went wrong: [explain]. Here's a fix: [suggest]."
+   - Safety → "The execution sandbox refused this code because [explain guard]. To proceed, [rewrite suggestion respecting the constraint]."
 
 ## Anti-Patterns — NEVER Do These
 

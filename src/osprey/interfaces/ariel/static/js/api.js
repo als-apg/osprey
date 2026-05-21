@@ -102,7 +102,7 @@ export const searchApi = {
   async search(params) {
     const request = {
       query: params.query,
-      mode: params.mode || 'rag',
+      mode: params.mode || 'keyword',
       max_results: params.maxResults || 10,
       advanced_params: params.advancedParams || {},
     };

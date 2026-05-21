@@ -12,29 +12,14 @@ import logging
 
 from fastmcp import FastMCP
 
+from osprey.mcp_server.errors import make_error  # noqa: F401  (re-exported for tools)
+
 logger = logging.getLogger("osprey.mcp_server.channel_finder_middle_layer")
 
 # ---------------------------------------------------------------------------
 # FastMCP server instance -- imported by every tool module
 # ---------------------------------------------------------------------------
 mcp = FastMCP("channel-finder-mml")
-
-
-# ---------------------------------------------------------------------------
-# Structured error helper (same contract as osprey.mcp_server.server)
-# ---------------------------------------------------------------------------
-def make_error(
-    error_type: str,
-    error_message: str,
-    suggestions: list[str] | None = None,
-) -> dict:
-    """Build the cross-team standard error envelope."""
-    return {
-        "error": True,
-        "error_type": error_type,
-        "error_message": error_message,
-        "suggestions": suggestions or [],
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -63,10 +48,15 @@ def create_server() -> FastMCP:
         list_channels,
         list_families,
         list_systems,
-        query_channels,
         statistics,
         validate,
     )
+
+    # query_channels requires duckdb (optional dependency)
+    try:
+        from osprey.mcp_server.channel_finder_middle_layer.tools import query_channels  # noqa: F401
+    except ImportError:
+        logger.info("query_channels tool unavailable (duckdb not installed)")
 
     logger.info("Channel Finder MML MCP server initialised with all tools registered")
     return mcp

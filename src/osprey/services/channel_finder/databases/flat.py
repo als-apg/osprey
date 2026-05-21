@@ -28,12 +28,24 @@ class ChannelDatabase(BaseDatabase):
         # in its __init__ (it cannot call super().__init__). Keep in sync.
         self.channels: list[dict] = []
         self.channel_map: dict[str, dict] = {}
+        self._envelope_metadata: dict = {}
         super().__init__(db_path)
 
     def load_database(self):
-        """Load channel database from JSON file."""
+        """Load channel database from JSON file.
+
+        Handles both legacy plain-list format and envelope format
+        (``{"_metadata": ..., "channels": [...]}``).
+        """
         with open(self.db_path) as f:
-            self.channels = json.load(f)
+            data = json.load(f)
+
+        if isinstance(data, dict) and "channels" in data:
+            self._envelope_metadata = {k: v for k, v in data.items() if k != "channels"}
+            self.channels = data["channels"]
+        else:
+            self._envelope_metadata = {}
+            self.channels = data
 
         # Create lookup map for O(1) access
         self.channel_map = {ch["channel"]: ch for ch in self.channels}
@@ -140,8 +152,10 @@ class ChannelDatabase(BaseDatabase):
 
     # === Persistence ===
 
-    def _serialize(self) -> list:
-        """Serialize channels to JSON-compatible list."""
+    def _serialize(self) -> dict | list:
+        """Serialize channels, preserving envelope metadata if present."""
+        if self._envelope_metadata:
+            return {**self._envelope_metadata, "channels": self.channels}
         return self.channels
 
     # === Write methods ===

@@ -8,6 +8,8 @@ UI can all reference it.
 import json
 import logging
 
+from fastmcp.exceptions import ToolError
+
 from osprey.mcp_server.errors import make_error
 from osprey.mcp_server.http import gallery_url
 from osprey.mcp_server.workspace.server import mcp
@@ -58,33 +60,27 @@ async def submit_response(
         JSON with artifact_id, gallery_url, and summary.
     """
     if not title or not title.strip():
-        return json.dumps(
-            make_error(
-                "validation_error",
-                "title is required and must not be empty.",
-                ["Provide a short descriptive title for your response."],
-            )
+        return make_error(
+            "validation_error",
+            "title is required and must not be empty.",
+            ["Provide a short descriptive title for your response."],
         )
 
     if not content or not content.strip():
-        return json.dumps(
-            make_error(
-                "validation_error",
-                "content is required and must not be empty.",
-                ["Provide the full synthesized response text."],
-            )
+        return make_error(
+            "validation_error",
+            "content is required and must not be empty.",
+            ["Provide the full synthesized response text."],
         )
 
     from osprey.stores.type_registry import valid_category_keys
 
     valid = valid_category_keys()
     if data_type not in valid:
-        return json.dumps(
-            make_error(
-                "validation_error",
-                f"Unknown data_type '{data_type}'. Valid: {sorted(valid)}",
-                ["Use one of the registered data_type or category values."],
-            )
+        return make_error(
+            "validation_error",
+            f"Unknown data_type '{data_type}'. Valid: {sorted(valid)}",
+            ["Use one of the registered data_type or category values."],
         )
 
     try:
@@ -141,12 +137,12 @@ async def submit_response(
         response["gallery_url"] = gallery_url()
         return json.dumps(response, default=str)
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("submit_response failed")
-        return json.dumps(
-            make_error(
-                "internal_error",
-                f"Failed to save response: {exc}",
-                ["Check that the _agent_data directory is accessible."],
-            )
+        return make_error(
+            "internal_error",
+            f"Failed to save response: {exc}",
+            ["Check that the _agent_data directory is accessible."],
         )

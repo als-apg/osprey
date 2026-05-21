@@ -1,0 +1,41 @@
+# {{ profile_name }}
+
+OSPREY build profile extending the bundled `{{ preset_name }}` preset.
+
+## Layout
+
+```
+{{ profile_dirname }}/
+  profile.yml          # extends `{{ preset_name }}`; override sections commented
+  overlays/
+    rules/             # drop facility-specific rule .md files here
+    skills/            # drop custom skill directories here (each with SKILL.md)
+    agents/            # drop custom subagent .md files here
+  README.md            # this file
+```
+
+## Building a project from this profile
+
+```
+osprey build <PROJECT_NAME> {{ profile_filename }}
+```
+
+The rendered project is regenerable — treat it as a build artifact. Make
+durable changes by editing `profile.yml` or files under `overlays/`, then
+rebuild.
+
+## Adding an overlay artifact
+
+1. Drop the file under `overlays/rules/`, `overlays/skills/<name>/`, or
+   `overlays/agents/`.
+2. Add an entry under `overlay:` in `profile.yml` mapping its
+   profile-relative source path to its destination in the rendered project
+   (typically under `.claude/`).
+3. If the artifact's canonical name needs to appear in the artifact list,
+   also add it under `skills:`, `rules:`, or `agents:`.
+
+## Inheritance model
+
+- **Preset** (`{{ preset_name }}`): bundled upstream, edited by PR'ing OSPREY.
+- **Profile** (this directory): your facility's source of truth.
+- **Project** (output of `osprey build`): derived, regenerable.

@@ -112,7 +112,7 @@ Once registered, you can use your adapter by setting ``ariel.ingestion.adapter: 
 Enhancement Pipeline
 ====================
 
-Enhancement modules run after ingestion to add computed fields to stored entries. While the base ingestion captures the raw logbook text and metadata, enhancement modules derive additional structure from that text --- generating vector embeddings that enable semantic similarity search, using an LLM to extract keywords and summaries that improve search recall and RAG context quality, or performing any other analysis that produces useful derived data. Each module inherits from ``BaseEnhancementModule`` and is discovered through the Osprey registry. Because enhancement is decoupled from ingestion, you can ingest a large dataset first and enhance it later, swap out models without re-ingesting, or run only the modules you need. Run them with ``osprey ariel enhance``.
+Enhancement modules run after ingestion to add computed fields to stored entries. While the base ingestion captures the raw logbook text and metadata, enhancement modules derive additional structure from that text --- generating vector embeddings that enable semantic similarity search, using an LLM to extract keywords and summaries that improve search recall and the quality of the context the agent layer surfaces, or performing any other analysis that produces useful derived data. Each module inherits from ``BaseEnhancementModule`` and is discovered through the Osprey registry. Because enhancement is decoupled from ingestion, you can ingest a large dataset first and enhance it later, swap out models without re-ingesting, or run only the modules you need. Run them with ``osprey ariel enhance``.
 
 The built-in enhancement modules:
 
@@ -142,7 +142,7 @@ The built-in enhancement modules:
 
       **Module:** ``enhancement/semantic_processor.py``
 
-      Uses an LLM to extract keywords and generate summaries for each entry. These fields improve keyword search recall and RAG context quality.
+      Uses an LLM to extract keywords and generate summaries for each entry. These fields improve keyword search recall and the quality of context the agent layer surfaces over results.
 
       **Configuration:**
 

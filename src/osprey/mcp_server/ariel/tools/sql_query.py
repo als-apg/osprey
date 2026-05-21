@@ -7,6 +7,8 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
 import json
 import logging
 
+from fastmcp.exceptions import ToolError
+
 from osprey.mcp_server.ariel.server import make_error, mcp
 from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.services.ariel_search.search.sql_query import (
@@ -50,12 +52,10 @@ async def sql_query(
         JSON with query results as a list of row objects.
     """
     if not query or not query.strip():
-        return json.dumps(
-            make_error(
-                "validation_error",
-                "Empty SQL query.",
-                ["Provide a SELECT query against the enhanced_entries table."],
-            )
+        return make_error(
+            "validation_error",
+            "Empty SQL query.",
+            ["Provide a SELECT query against the enhanced_entries table."],
         )
 
     try:
@@ -81,25 +81,23 @@ async def sql_query(
 
     except ValueError as exc:
         # Validation errors from validate_sql_query
-        return json.dumps(
-            make_error(
-                "validation_error",
-                str(exc),
-                [
-                    "Only SELECT/WITH queries on enhanced_entries and "
-                    "text_embeddings_* tables are allowed.",
-                ],
-            )
+        return make_error(
+            "validation_error",
+            str(exc),
+            [
+                "Only SELECT/WITH queries on enhanced_entries and "
+                "text_embeddings_* tables are allowed.",
+            ],
         )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("sql_query failed")
-        return json.dumps(
-            make_error(
-                "internal_error",
-                f"ARIEL SQL query failed: {exc}",
-                [
-                    "Check ARIEL database connectivity.",
-                    "Verify your SQL syntax is correct.",
-                ],
-            )
+        return make_error(
+            "internal_error",
+            f"ARIEL SQL query failed: {exc}",
+            [
+                "Check ARIEL database connectivity.",
+                "Verify your SQL syntax is correct.",
+            ],
         )

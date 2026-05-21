@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
 _MODULE = "osprey.mcp_server.workspace.tools.panel_tools"
 
@@ -54,7 +54,7 @@ class TestListPanels:
         mock_resp.__exit__ = MagicMock(return_value=False)
 
         with patch("urllib.request.urlopen", return_value=mock_resp):
-            result = json.loads(await fn())
+            result = extract_response_dict(await fn())
 
         assert result["status"] == "success"
         ids = [p["id"] for p in result["panels"]]
@@ -83,7 +83,7 @@ class TestListPanels:
         mock_resp.__exit__ = MagicMock(return_value=False)
 
         with patch("urllib.request.urlopen", return_value=mock_resp):
-            result = json.loads(await fn())
+            result = extract_response_dict(await fn())
 
         assert result["status"] == "success"
         assert len(result["panels"]) == 2
@@ -110,7 +110,7 @@ class TestListPanels:
         mock_resp.__exit__ = MagicMock(return_value=False)
 
         with patch("urllib.request.urlopen", return_value=mock_resp):
-            result = json.loads(await fn())
+            result = extract_response_dict(await fn())
 
         assert result["status"] == "success"
         custom = result["panels"][1]
@@ -124,7 +124,7 @@ class TestListPanels:
         fn = _get_list_panels()
 
         with patch("urllib.request.urlopen", side_effect=ConnectionRefusedError("refused")):
-            result = json.loads(await fn())
+            result = extract_response_dict(await fn())
 
         assert result["status"] == "error"
         assert "not running" in result["message"]
@@ -138,7 +138,7 @@ class TestSwitchPanel:
         fn = _get_switch_panel()
 
         with patch(f"{_MODULE}.notify_panel_focus") as mock_focus:
-            result = json.loads(await fn("ariel"))
+            result = extract_response_dict(await fn("ariel"))
 
         assert result["status"] == "success"
         assert result["panel"] == "ariel"
@@ -151,7 +151,7 @@ class TestSwitchPanel:
         fn = _get_switch_panel()
 
         with patch(f"{_MODULE}.notify_panel_focus") as mock_focus:
-            result = json.loads(await fn("ariel", url="http://127.0.0.1:8085/#draft"))
+            result = extract_response_dict(await fn("ariel", url="http://127.0.0.1:8085/#draft"))
 
         assert result["status"] == "success"
         mock_focus.assert_called_once_with("ariel", url="http://127.0.0.1:8085/#draft")
@@ -163,7 +163,7 @@ class TestSwitchPanel:
         fn = _get_switch_panel()
 
         with patch(f"{_MODULE}.notify_panel_focus") as mock_focus:
-            result = json.loads(await fn("my-grafana"))
+            result = extract_response_dict(await fn("my-grafana"))
 
         assert result["status"] == "success"
         assert result["panel"] == "my-grafana"

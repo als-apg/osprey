@@ -4,13 +4,16 @@ Covers: single read, multiple reads, metadata on/off, connection errors,
 unknown channels, and error format compliance.
 """
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from osprey.mcp_server.control_system.server_context import initialize_server_context
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import (
+    assert_raises_error,
+    extract_response_dict,
+    get_tool_fn,
+)
 
 
 def _make_channel_value(
@@ -54,7 +57,7 @@ async def test_channel_read_single(tmp_path, monkeypatch):
         fn = _get_channel_read()
         result = await fn(channels=["SR:CURRENT:RB"])
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["summary"]["channels_read"] == 1
     assert "SR:CURRENT:RB" in data["summary"]["readings"]
@@ -84,7 +87,7 @@ async def test_channel_read_multiple(tmp_path, monkeypatch):
         fn = _get_channel_read()
         result = await fn(channels=["SR:CURRENT:RB", "SR:ENERGY:RB"])
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["summary"]["channels_read"] == 2
     assert "SR:CURRENT:RB" in data["summary"]["readings"]
@@ -110,7 +113,7 @@ async def test_channel_read_metadata_disabled(tmp_path, monkeypatch):
         fn = _get_channel_read()
         result = await fn(channels=["SR:CURRENT:RB"], include_metadata=False)
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     channel = data["summary"]["readings"]["SR:CURRENT:RB"]
     assert "value" in channel
@@ -136,7 +139,7 @@ async def test_channel_read_with_metadata(tmp_path, monkeypatch):
         fn = _get_channel_read()
         result = await fn(channels=["SR:CURRENT:RB"], include_metadata=True)
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     channel = data["summary"]["readings"]["SR:CURRENT:RB"]
     assert channel["units"] == "mA"
     assert channel["value"] == 500.2
@@ -158,11 +161,10 @@ async def test_channel_read_connection_error(tmp_path, monkeypatch):
         return_value=mock_connector,
     ):
         fn = _get_channel_read()
-        result = await fn(channels=["BAD:PV"])
+        with assert_raises_error(error_type="connection_error") as _exc_ctx:
+            await fn(channels=["BAD:PV"])
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "connection_error"
+    data = _exc_ctx["envelope"]
     assert "error_message" in data
     assert "suggestions" in data
 
@@ -173,8 +175,7 @@ async def test_channel_read_empty_list(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     fn = _get_channel_read()
-    result = await fn(channels=[])
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(channels=[])
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    _exc_ctx["envelope"]

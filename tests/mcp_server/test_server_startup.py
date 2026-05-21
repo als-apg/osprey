@@ -1,7 +1,7 @@
-"""Tests for MCP server shared utilities and DataContext.
+"""Tests for MCP server shared utilities and startup wiring.
 
-Covers: config loading, make_error format, DataContext
-save/list/get operations, config bridge (create_server primes ConfigBuilder).
+Covers: config loading, make_error format, and the config bridge
+(create_server primes ConfigBuilder).
 """
 
 import pytest
@@ -92,31 +92,45 @@ async def test_load_osprey_config_resolves_env_vars(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 async def test_make_error_format():
-    """make_error produces standard error JSON format."""
+    """make_error raises fastmcp ToolError with the standard envelope as message."""
+    import json
+
+    import pytest as _pytest
+    from fastmcp.exceptions import ToolError
+
     from osprey.mcp_server.errors import make_error
 
-    error = make_error(
-        error_type="test_error",
-        error_message="something went wrong",
-        suggestions=["try again", "check logs"],
-    )
-    assert error["error"] is True
-    assert error["error_type"] == "test_error"
-    assert error["error_message"] == "something went wrong"
-    assert len(error["suggestions"]) == 2
+    with _pytest.raises(ToolError) as exc_info:
+        make_error(
+            error_type="test_error",
+            error_message="something went wrong",
+            suggestions=["try again", "check logs"],
+        )
+    envelope = json.loads(str(exc_info.value))
+    assert envelope["error"] is True
+    assert envelope["error_type"] == "test_error"
+    assert envelope["error_message"] == "something went wrong"
+    assert len(envelope["suggestions"]) == 2
 
 
 @pytest.mark.unit
 async def test_make_error_no_suggestions():
-    """make_error with no suggestions returns empty list."""
+    """make_error with no suggestions raises with empty suggestions list."""
+    import json
+
+    import pytest as _pytest
+    from fastmcp.exceptions import ToolError
+
     from osprey.mcp_server.errors import make_error
 
-    error = make_error(
-        error_type="simple_error",
-        error_message="oops",
-    )
-    assert error["error"] is True
-    assert error["suggestions"] == []
+    with _pytest.raises(ToolError) as exc_info:
+        make_error(
+            error_type="simple_error",
+            error_message="oops",
+        )
+    envelope = json.loads(str(exc_info.value))
+    assert envelope["error"] is True
+    assert envelope["suggestions"] == []
 
 
 # ---------------------------------------------------------------------------

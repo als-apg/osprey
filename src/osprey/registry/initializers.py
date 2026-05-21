@@ -256,54 +256,6 @@ def initialize_ariel_enhancement_modules(
     )
 
 
-def initialize_ariel_pipelines(
-    *,
-    config: RegistryConfig,
-    registries: dict[str, dict[str, Any]],
-    excluded_provider_names: list[str],
-) -> None:
-    """Initialize ARIEL pipelines from registry configuration.
-
-    Imports each pipeline module and validates it exports a
-    ``get_pipeline_descriptor`` callable.
-    """
-    if not config.ariel_pipelines:
-        return
-
-    logger.info(f"Initializing {len(config.ariel_pipelines)} ARIEL pipeline(s)...")
-
-    for registration in config.ariel_pipelines:
-        try:
-            module = importlib.import_module(registration.module_path)
-
-            if not hasattr(module, "get_pipeline_descriptor") or not callable(
-                module.get_pipeline_descriptor
-            ):
-                raise RegistryError(
-                    f"ARIEL pipeline '{registration.name}' at "
-                    f"{registration.module_path} "
-                    f"must export a callable get_pipeline_descriptor()"
-                )
-
-            registries["ariel_pipelines"][registration.name] = module
-            logger.debug(f"  ✓ Registered ARIEL pipeline: {registration.name}")
-
-        except ImportError as e:
-            logger.warning(
-                f"  ⊘ Skipping ARIEL pipeline '{registration.name}' (import failed): {e}"
-            )
-        except Exception as e:
-            logger.error(f"  ✗ Failed to register ARIEL pipeline '{registration.name}': {e}")
-            raise RegistryError(
-                f"ARIEL pipeline registration failed for {registration.name}"
-            ) from e
-
-    logger.info(
-        f"ARIEL pipeline initialization complete: "
-        f"{len(registries['ariel_pipelines'])} pipelines loaded"
-    )
-
-
 def initialize_ariel_ingestion_adapters(
     *,
     config: RegistryConfig,
@@ -387,7 +339,6 @@ INITIALIZER_DISPATCH: dict[str, Any] = {
     "connectors": initialize_connectors,
     "ariel_search_modules": initialize_ariel_search_modules,
     "ariel_enhancement_modules": initialize_ariel_enhancement_modules,
-    "ariel_pipelines": initialize_ariel_pipelines,
     "ariel_ingestion_adapters": initialize_ariel_ingestion_adapters,
     "services": initialize_services,
 }

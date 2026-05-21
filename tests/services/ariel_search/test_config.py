@@ -9,11 +9,11 @@ from osprey.services.ariel_search.config import (
     EnhancementModuleConfig,
     IngestionConfig,
     ModelConfig,
-    PipelineModuleConfig,
     ReasoningConfig,
     SearchModuleConfig,
     WatchConfig,
 )
+from osprey.services.ariel_search.exceptions import ConfigurationError
 
 
 class TestModelConfig:
@@ -279,16 +279,6 @@ class TestARIELConfig:
                 "keyword": {"enabled": True},
                 "semantic": {"enabled": True, "model": "nomic-embed-text"},
             },
-            "pipelines": {
-                "rag": {
-                    "enabled": True,
-                    "retrieval_modules": ["keyword", "semantic"],
-                },
-                "agent": {
-                    "enabled": True,
-                    "retrieval_modules": ["keyword"],
-                },
-            },
             "enhancement_modules": {
                 "text_embedding": {
                     "enabled": True,
@@ -317,7 +307,6 @@ class TestARIELConfig:
         config = ARIELConfig.from_dict(full_config_dict)
         assert config.database.uri == "postgresql://localhost:5432/ariel"
         assert len(config.search_modules) == 2
-        assert len(config.pipelines) == 2
         assert len(config.enhancement_modules) == 2
         assert config.ingestion is not None
         assert config.ingestion.adapter == "als_logbook"
@@ -325,12 +314,21 @@ class TestARIELConfig:
         assert config.default_max_results == 20
         assert config.cache_embeddings is False
 
+    def test_from_dict_raises_on_legacy_pipelines_key(self) -> None:
+        """ARIELConfig.from_dict() rejects the deprecated pipelines section."""
+        with pytest.raises(ConfigurationError, match="no longer supported"):
+            ARIELConfig.from_dict(
+                {
+                    "database": {"uri": "postgresql://localhost:5432/ariel"},
+                    "pipelines": {"rag": {"enabled": True}},
+                }
+            )
+
     def test_is_search_module_enabled(self, full_config_dict: dict) -> None:
         """Test is_search_module_enabled()."""
         config = ARIELConfig.from_dict(full_config_dict)
         assert config.is_search_module_enabled("keyword") is True
         assert config.is_search_module_enabled("semantic") is True
-        assert config.is_search_module_enabled("rag") is False  # rag is a pipeline, not a module
         assert config.is_search_module_enabled("vision") is False
         assert config.is_search_module_enabled("nonexistent") is False
 
@@ -407,107 +405,3 @@ class TestARIELConfig:
         config = ARIELConfig.from_dict(minimal_config_dict)
         model = config.get_search_model()
         assert model is None
-
-    def test_from_dict_with_pipelines(self, minimal_config_dict: dict) -> None:
-        """Test ARIELConfig.from_dict() with pipelines section."""
-        minimal_config_dict["pipelines"] = {
-            "rag": {"enabled": True, "retrieval_modules": ["keyword"]},
-            "agent": {"enabled": False},
-        }
-        config = ARIELConfig.from_dict(minimal_config_dict)
-        assert len(config.pipelines) == 2
-        assert config.pipelines["rag"].enabled is True
-        assert config.pipelines["rag"].retrieval_modules == ["keyword"]
-        assert config.pipelines["agent"].enabled is False
-
-    def test_is_pipeline_enabled(self, full_config_dict: dict) -> None:
-        """Test is_pipeline_enabled() for configured pipelines."""
-        config = ARIELConfig.from_dict(full_config_dict)
-        assert config.is_pipeline_enabled("rag") is True
-        assert config.is_pipeline_enabled("agent") is True
-
-    def test_is_pipeline_enabled_default(self, minimal_config_dict: dict) -> None:
-        """Test is_pipeline_enabled() defaults to True for unconfigured pipelines."""
-        config = ARIELConfig.from_dict(minimal_config_dict)
-        assert config.is_pipeline_enabled("rag") is True
-        assert config.is_pipeline_enabled("agent") is True
-
-    def test_is_pipeline_disabled(self, minimal_config_dict: dict) -> None:
-        """Test is_pipeline_enabled() returns False for disabled pipeline."""
-        minimal_config_dict["pipelines"] = {"rag": {"enabled": False}}
-        config = ARIELConfig.from_dict(minimal_config_dict)
-        assert config.is_pipeline_enabled("rag") is False
-        assert config.is_pipeline_enabled("agent") is True  # Not configured = default True
-
-    def test_get_enabled_pipelines(self, full_config_dict: dict) -> None:
-        """Test get_enabled_pipelines() returns correct list."""
-        config = ARIELConfig.from_dict(full_config_dict)
-        enabled = config.get_enabled_pipelines()
-        assert "rag" in enabled
-        assert "agent" in enabled
-
-    def test_get_enabled_pipelines_with_disabled(self, minimal_config_dict: dict) -> None:
-        """Test get_enabled_pipelines() excludes disabled pipelines."""
-        minimal_config_dict["pipelines"] = {
-            "rag": {"enabled": True},
-            "agent": {"enabled": False},
-        }
-        config = ARIELConfig.from_dict(minimal_config_dict)
-        enabled = config.get_enabled_pipelines()
-        assert "rag" in enabled
-        assert "agent" not in enabled
-
-    def test_get_pipeline_retrieval_modules(self, full_config_dict: dict) -> None:
-        """Test get_pipeline_retrieval_modules() returns configured list."""
-        config = ARIELConfig.from_dict(full_config_dict)
-        modules = config.get_pipeline_retrieval_modules("rag")
-        assert modules == ["keyword", "semantic"]
-        modules = config.get_pipeline_retrieval_modules("agent")
-        assert modules == ["keyword"]
-
-    def test_get_pipeline_retrieval_modules_default(self, minimal_config_dict: dict) -> None:
-        """Test get_pipeline_retrieval_modules() falls back to enabled search modules."""
-        minimal_config_dict["search_modules"] = {
-            "keyword": {"enabled": True},
-            "semantic": {"enabled": True, "model": "test"},
-        }
-        config = ARIELConfig.from_dict(minimal_config_dict)
-        modules = config.get_pipeline_retrieval_modules("rag")
-        assert "keyword" in modules
-        assert "semantic" in modules
-
-
-class TestPipelineModuleConfig:
-    """Tests for PipelineModuleConfig."""
-
-    def test_basic_creation(self) -> None:
-        """Test PipelineModuleConfig default creation."""
-        config = PipelineModuleConfig()
-        assert config.enabled is True
-        assert config.retrieval_modules == ["keyword", "semantic"]
-        assert config.settings == {}
-
-    def test_from_dict(self) -> None:
-        """Test PipelineModuleConfig.from_dict() with full config."""
-        data = {
-            "enabled": True,
-            "retrieval_modules": ["keyword", "semantic"],
-            "settings": {"max_context_chars": 8000},
-        }
-        config = PipelineModuleConfig.from_dict(data)
-        assert config.enabled is True
-        assert config.retrieval_modules == ["keyword", "semantic"]
-        assert config.settings == {"max_context_chars": 8000}
-
-    def test_from_dict_defaults(self) -> None:
-        """Test PipelineModuleConfig.from_dict() with empty dict gives defaults."""
-        config = PipelineModuleConfig.from_dict({})
-        assert config.enabled is True
-        assert config.retrieval_modules == ["keyword", "semantic"]
-        assert config.settings == {}
-
-    def test_from_dict_minimal(self) -> None:
-        """Test PipelineModuleConfig.from_dict() with only enabled flag."""
-        config = PipelineModuleConfig.from_dict({"enabled": False})
-        assert config.enabled is False
-        assert config.retrieval_modules == ["keyword", "semantic"]

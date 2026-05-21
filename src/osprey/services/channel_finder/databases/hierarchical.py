@@ -170,10 +170,10 @@ class HierarchicalChannelDatabase(BaseDatabase):
                     f"  - instances: Numbered/patterned instances that share structure"
                 )
 
-            if config["type"] not in ["tree", "instances", "container"]:
+            if config["type"] not in ["tree", "instances"]:
                 raise ValueError(
                     f"Level '{level}' has invalid type: '{config['type']}'.\n"
-                    f"Must be 'tree', 'instances', or 'container' (legacy).\n"
+                    f"Must be 'tree' or 'instances'.\n"
                     f"Did you mean 'tree' or 'instances'?"
                 )
 
@@ -810,12 +810,6 @@ class HierarchicalChannelDatabase(BaseDatabase):
             # Find expansion definition for this level
             return self._get_expansion_options(current_node, level)
 
-        elif level_type == "container":
-            # Legacy container mode (backward compatibility)
-            return self._get_container_options(
-                current_node, level, level_config, previous_selections
-            )
-
         return []
 
     def _navigate_to_node(
@@ -850,10 +844,6 @@ class HierarchicalChannelDatabase(BaseDatabase):
                     if key.upper() == prev_level.upper() and isinstance(value, dict):
                         current_node = value
                         break
-                continue
-
-            # Container levels (legacy) also don't change position
-            if level_config["type"] == "container":
                 continue
 
             # Tree levels - navigate down using selection
@@ -964,40 +954,6 @@ class HierarchicalChannelDatabase(BaseDatabase):
                 options.append({"name": instance, "description": ""})
 
         return options
-
-    def _get_container_options(
-        self, node: dict, level: str, level_config: dict, previous_selections: dict
-    ) -> list[dict[str, str]]:
-        """
-        Get options from legacy container structure.
-
-        For backward compatibility with existing databases.
-        """
-        container_key = level_config.get("container_key")
-
-        if not container_key or container_key not in node:
-            return []
-
-        container = node[container_key]
-
-        # Check if it's an instance definition or direct dictionary
-        if "_type" in container:
-            # Instance expansion (range or list)
-            return self._expand_instances(container)
-        else:
-            # Direct dictionary - need special handling for subfield
-            if level == "subfield" and "field" in previous_selections:
-                # Navigate to specific field first
-                field_selection = self._get_single_value(previous_selections["field"])
-                if field_selection and field_selection in container:
-                    field_node = container[field_selection]
-                    if "subfields" in field_node:
-                        return self._extract_tree_options(field_node["subfields"])
-            else:
-                # Regular container
-                return self._extract_tree_options(container)
-
-        return []
 
     def build_channels_from_selections(self, selections: dict[str, Any]) -> list[str]:
         """
@@ -1266,39 +1222,6 @@ class HierarchicalChannelDatabase(BaseDatabase):
                             level_idx + 1,
                             local_overrides,
                         )
-
-            elif level_config["type"] == "container":
-                # Legacy container mode
-                container_key = level_config.get("container_key")
-
-                if container_key and container_key in node:
-                    container = node[container_key]
-
-                    if "_type" in container:
-                        # Instance expansion
-                        instances = self._get_instance_names(container)
-                        for instance_name in instances:
-                            expand_tree(
-                                {**path, current_level: instance_name},
-                                node,
-                                level_idx + 1,
-                                local_overrides,
-                            )
-                    else:
-                        # Container with direct children
-                        children = {
-                            k: v
-                            for k, v in container.items()
-                            if not k.startswith("_") and isinstance(v, dict)
-                        }
-
-                        for child_name, child_node in children.items():
-                            expand_tree(
-                                {**path, current_level: child_name},
-                                child_node,
-                                level_idx + 1,
-                                local_overrides,
-                            )
 
         expand_tree({}, self.tree, 0, {})
         return channels

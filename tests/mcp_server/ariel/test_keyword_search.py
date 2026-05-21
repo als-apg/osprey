@@ -8,6 +8,7 @@ import pytest
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.services.ariel_search.models import SearchMode
 from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 
 def _make_search_result(entries, reasoning="", sources=()):
@@ -132,7 +133,7 @@ async def test_keyword_search_exclude_entry_ids(tmp_path, monkeypatch):
         fn = _get_keyword_search()
         result = await fn(query="entry", exclude_entry_ids=["e1", "e3"])
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["results_found"] == 1
     assert data["entries"][0]["entry_id"] == "e2"
 
@@ -145,11 +146,10 @@ async def test_keyword_search_exclude_entry_ids(tmp_path, monkeypatch):
 async def test_keyword_search_empty_query():
     """Empty query returns validation error."""
     fn = _get_keyword_search()
-    result = await fn(query="")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(query="")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -165,9 +165,8 @@ async def test_keyword_search_service_error(tmp_path, monkeypatch):
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_keyword_search()
-        result = await fn(query="test")
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            await fn(query="test")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    data = _exc_ctx["envelope"]
     assert "DB connection failed" in data["error_message"]

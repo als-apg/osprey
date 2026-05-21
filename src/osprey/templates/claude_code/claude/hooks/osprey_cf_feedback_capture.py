@@ -5,7 +5,7 @@ name: Channel Finder Feedback Capture
 description: Silently captures channel finder search results into pending review store
 summary: Captures CF tool results for operator review
 event: PostToolUse
-tools: mcp__channel-finder__build_channels, mcp__channel-finder__get_channels
+tools: mcp__channel-finder__build_channels, mcp__channel-finder__query_channels
 ---
 
 ## Flow
@@ -71,7 +71,7 @@ try:
     tool_name = hook_input.get("tool_name", "")
     CAPTURE_TOOLS = {
         "mcp__channel-finder__build_channels",
-        "mcp__channel-finder__get_channels",
+        "mcp__channel-finder__query_channels",
     }
     if tool_name not in CAPTURE_TOOLS:
         log_hook("cf-feedback-capture", hook_input, status="skip-tool", detail=tool_name)

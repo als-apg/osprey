@@ -127,6 +127,44 @@ def test_set_with_list_value_extends(runner: CliRunner, tmp_path: Path) -> None:
     assert {"hook-log", "hook-config", "approval"} <= hooks
 
 
+def test_preset_ariel_standalone_renders_logbook_persona(runner: CliRunner, tmp_path: Path) -> None:
+    """The ariel-standalone preset's ``claude_md_template`` must travel from
+    the preset YAML, through the build-profile parser, into the render
+    context, into the rendered ``CLAUDE.md``, and into the manifest creation
+    block so that ``osprey claude regen`` round-trips the persona choice.
+
+    Drift-guard: if any layer of that wiring (BuildProfile field,
+    _KNOWN_PROFILE_KEYS, _parse_profile, build_cmd's context/manifest_context
+    propagation, or the renderer's template-selection branch) breaks, the
+    preset silently falls back to the control-system persona — exactly the
+    regression this test pins down.
+    """
+    import json
+
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "ariel-standalone",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    project_dir = tmp_path / "smoke"
+
+    claude_md = (project_dir / "CLAUDE.md").read_text(encoding="utf-8")
+    assert "Logbook Research Assistant" in claude_md, claude_md[:200]
+    assert "Control System Assistant" not in claude_md
+
+    manifest = json.loads((project_dir / ".osprey-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["creation"]["claude_md_template"] == "CLAUDE.ariel.md.j2"
+
+
 def test_positional_profile_still_works(runner: CliRunner, tmp_path: Path) -> None:
     """Backward-compat: existing osprey build PROJECT PROFILE.yml flow."""
     profile = tmp_path / "p.yml"
@@ -247,6 +285,7 @@ def test_unknown_profile_key_warns(runner: CliRunner, tmp_path: Path, caplog) ->
     profile.write_text(
         "name: TypoTest\n"
         "data_bundle: hello_world\n"
+        "provider: anthropic\n"
         "mcp_server: {}\n"  # typo of mcp_servers
         "permission: []\n"  # typo of permissions
     )
@@ -708,6 +747,7 @@ def test_profile_mcp_servers_persisted_to_config(runner: CliRunner, tmp_path: Pa
     profile.write_text(
         "name: McpTest\n"
         "data_bundle: hello_world\n"
+        "provider: anthropic\n"
         "mcp_servers:\n"
         "  echo:\n"
         "    command: echo\n"
@@ -742,6 +782,7 @@ def test_profile_categories_persisted_to_config(runner: CliRunner, tmp_path: Pat
     profile.write_text(
         "name: CatTest\n"
         "data_bundle: hello_world\n"
+        "provider: anthropic\n"
         "categories:\n"
         "  diagnostics:\n"
         "    label: Diagnostics\n"
@@ -776,6 +817,7 @@ def test_overlay_md_files_registered_as_user_owned(runner: CliRunner, tmp_path: 
     profile.write_text(
         "name: OverlayTest\n"
         "data_bundle: hello_world\n"
+        "provider: anthropic\n"
         "overlay:\n"
         "  extra.md: .claude/rules/extra.md\n"
     )
@@ -909,3 +951,38 @@ def test_preset_yaml_must_be_mapping(tmp_path: Path) -> None:
     # Keep _load_preset_raw imported so the symbol is referenced and a future
     # rename surfaces this test.
     assert callable(_load_preset_raw)
+
+
+class TestBuildProfileChannelFinderModeValidation:
+    """`BuildProfile.validate()` rejects unknown channel_finder_mode values."""
+
+    def test_validate_rejects_channel_finder_mode_all(self, tmp_path: Path) -> None:
+        from osprey.cli.build_profile import BuildProfile
+        from osprey.errors import BuildProfileError
+
+        profile = BuildProfile(name="t", channel_finder_mode="all")
+        with pytest.raises(BuildProfileError) as exc:
+            profile.validate(tmp_path)
+        assert "channel_finder_mode" in str(exc.value)
+        assert "in_context" in str(exc.value)
+
+    def test_validate_rejects_unknown_channel_finder_mode(self, tmp_path: Path) -> None:
+        from osprey.cli.build_profile import BuildProfile
+        from osprey.errors import BuildProfileError
+
+        profile = BuildProfile(name="t", channel_finder_mode="bogus")
+        with pytest.raises(BuildProfileError):
+            profile.validate(tmp_path)
+
+    def test_validate_accepts_valid_channel_finder_modes(self, tmp_path: Path) -> None:
+        from osprey.cli.build_profile import BuildProfile
+
+        for mode in ("in_context", "hierarchical", "middle_layer"):
+            BuildProfile(name="t", channel_finder_mode=mode).validate(tmp_path)
+
+    def test_validate_accepts_none_channel_finder_mode(self, tmp_path: Path) -> None:
+        """None is valid at the profile level — manager.py raises only if
+        channel-finder is actually selected and no mode is pinned."""
+        from osprey.cli.build_profile import BuildProfile
+
+        BuildProfile(name="t", channel_finder_mode=None).validate(tmp_path)

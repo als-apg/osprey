@@ -1,6 +1,5 @@
 """Tests for get_options tool."""
 
-import json
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
@@ -9,6 +8,7 @@ from osprey.mcp_server.channel_finder_hierarchical.server_context import (
     initialize_cf_hier_context,
 )
 from tests.mcp_server.channel_finder_hierarchical.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 
 def _setup(tmp_path, monkeypatch):
@@ -37,7 +37,7 @@ def test_get_options_happy_path(tmp_path, monkeypatch):
 
         fn = get_tool_fn(get_options)
         result = fn(level="system", selections=None)
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["level"] == "system"
     assert len(data["options"]) == 2
     assert data["total"] == 2
@@ -64,7 +64,7 @@ def test_get_options_with_selections(tmp_path, monkeypatch):
 
         fn = get_tool_fn(get_options)
         result = fn(level="family", selections={"system": "SR"})
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["level"] == "family"
     assert data["total"] == 1
     mock_db.get_options_at_level.assert_called_once_with("family", {"system": "SR"})
@@ -86,10 +86,9 @@ def test_get_options_value_error(tmp_path, monkeypatch):
         )
 
         fn = get_tool_fn(get_options)
-        result = fn(level="bogus", selections=None)
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            fn(level="bogus", selections=None)
+    data = _exc_ctx["envelope"]
     assert "bogus" in data["error_message"]
 
 
@@ -107,8 +106,7 @@ def test_get_options_internal_error(tmp_path, monkeypatch):
         )
 
         fn = get_tool_fn(get_options)
-        result = fn(level="system", selections=None)
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            fn(level="system", selections=None)
+    data = _exc_ctx["envelope"]
     assert "db exploded" in data["error_message"]

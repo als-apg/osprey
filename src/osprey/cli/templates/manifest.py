@@ -10,7 +10,7 @@ from typing import Any
 import yaml
 
 from osprey.profiles.web_panels import BUILTIN_PANELS
-from osprey.services.prompts.catalog import PromptCatalog
+from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
 
 logger = logging.getLogger("osprey.cli.templates")
 
@@ -25,7 +25,7 @@ MANIFEST_SCHEMA_VERSION = "1.2.0"
 # File used to store project manifest
 MANIFEST_FILENAME = ".osprey-manifest.json"
 
-# Maps manifest YAML category keys to PromptCatalog canonical-name prefixes.
+# Maps manifest YAML category keys to BuildArtifactCatalog canonical-name prefixes.
 # Needed because YAML convention uses underscores while registry uses hyphens.
 _MANIFEST_CATEGORY_PREFIX = {
     "hooks": "hooks/",
@@ -55,6 +55,7 @@ REGEN_TRACKED_FILES = [
     ".claude/hooks/osprey_hook_log.py",
     ".claude/hooks/hook_config.json",
     ".claude/hooks/osprey_memory_guard.py",
+    ".claude/hooks/osprey_focus_validate.py",
     ".claude/rules/python-execution.md",
     ".claude/rules/data-visualization.md",
     ".claude/rules/control-system-safety.md",
@@ -126,7 +127,7 @@ def load_template_manifest(
         manifest = yaml.safe_load(f) or {}
 
     # Validate entries against the prompt registry
-    registry = PromptCatalog.default()
+    registry = BuildArtifactCatalog.default()
     artifacts = manifest.get("artifacts", {})
     for category, entries in artifacts.items():
         prefix = _MANIFEST_CATEGORY_PREFIX.get(category)
@@ -180,7 +181,7 @@ def resolve_manifest_outputs(manifest: dict) -> set[str]:
     """
     result = {"CLAUDE.md", ".mcp.json", ".claude/settings.json", ".claude/statusline.py"}
 
-    registry = PromptCatalog.default()
+    registry = BuildArtifactCatalog.default()
     all_artifacts = registry.all_artifacts()
 
     for category, entries in manifest.get("artifacts", {}).items():
@@ -449,7 +450,7 @@ def build_user_owned_manifest(
 
     import tempfile
 
-    registry = PromptCatalog.default()
+    registry = BuildArtifactCatalog.default()
     result: dict[str, Any] = {}
     claude_code_dir = template_root / "claude_code"
 
@@ -541,6 +542,12 @@ def generate_manifest(
         "data_bundle": template_name,
         "claude_code_only": True,
     }
+    # Preserve the CLAUDE.md template choice so `osprey claude regen` can
+    # re-render against the same persona (e.g. CLAUDE.ariel.md.j2 for the
+    # ARIEL standalone preset). Default is the control-system persona.
+    claude_md_template = context.get("claude_md_template")
+    if claude_md_template and claude_md_template != "CLAUDE.md.j2":
+        creation_block["claude_md_template"] = claude_md_template
 
     manifest_data: dict[str, Any] = {
         "schema_version": MANIFEST_SCHEMA_VERSION,

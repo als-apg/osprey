@@ -1,6 +1,5 @@
 """Tests for the sql_query MCP tool and sql_query validation."""
 
-import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -8,6 +7,7 @@ import pytest
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.services.ariel_search.search.sql_query import validate_sql_query
 from tests.mcp_server.ariel.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 # ---------------------------------------------------------------------------
 # validate_sql_query unit tests
@@ -144,7 +144,7 @@ async def test_sql_query_valid(tmp_path, monkeypatch):
         fn = _get_sql_query()
         result = await fn(query="SELECT entry_id, author FROM enhanced_entries LIMIT 2")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert not data.get("error", False)
     assert data["row_count"] == 2
     assert data["rows"][0]["entry_id"] == "e1"
@@ -154,11 +154,10 @@ async def test_sql_query_valid(tmp_path, monkeypatch):
 async def test_sql_query_rejected_dml():
     """DML queries return validation error without touching the database."""
     fn = _get_sql_query()
-    result = await fn(query="INSERT INTO enhanced_entries VALUES ('x')")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(query="INSERT INTO enhanced_entries VALUES ('x')")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = _exc_ctx["envelope"]
     assert "INSERT" in data["error_message"]
 
 
@@ -166,11 +165,10 @@ async def test_sql_query_rejected_dml():
 async def test_sql_query_empty():
     """Empty query returns validation error."""
     fn = _get_sql_query()
-    result = await fn(query="")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(query="")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -219,9 +217,8 @@ async def test_sql_query_service_error(tmp_path, monkeypatch):
         ),
     ):
         fn = _get_sql_query()
-        result = await fn(query="SELECT * FROM enhanced_entries")
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            await fn(query="SELECT * FROM enhanced_entries")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    data = _exc_ctx["envelope"]
     assert "Connection refused" in data["error_message"]

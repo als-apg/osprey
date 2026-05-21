@@ -159,11 +159,16 @@ def smoke_env(tmp_path):
 
 # Default hook_config for smoke tests (approval + error guidance prefixes)
 _SMOKE_HOOK_CONFIG = {
-    "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__", "mcp__ariel__"],
+    "server_prefixes": [
+        "mcp__controls__",
+        "mcp__python__",
+        "mcp__osprey_workspace__",
+        "mcp__ariel__",
+    ],
     "approval_prefixes": [
         "mcp__controls__",
         "mcp__python__",
-        "mcp__workspace__",
+        "mcp__osprey_workspace__",
         "mcp__ariel__",
     ],
     "write_tools": ["mcp__controls__channel_write", "mcp__python__execute"],
@@ -351,12 +356,11 @@ async def test_3_over_limit_write_tool_rejects(smoke_env, monkeypatch):
     monkeypatch.setenv("OSPREY_CONFIG", str(smoke_env["config_path"]))
     initialize_server_context()
 
-    fn = _get_channel_write()
-    result = await fn(operations=[{"channel": "MAG:HCM01:CURRENT:SP", "value": 999.0}])
+    from tests.mcp_server.conftest import assert_raises_error
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "limits_violation"
+    fn = _get_channel_write()
+    with assert_raises_error(error_type="limits_violation"):
+        await fn(operations=[{"channel": "MAG:HCM01:CURRENT:SP", "value": 999.0}])
 
 
 # ===========================================================================

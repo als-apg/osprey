@@ -106,6 +106,25 @@ def _list_presets_callback(ctx: click.Context, param: click.Parameter, value: bo
     help="Override project_root in rendered config (for container builds where the "
     "build path differs from the runtime path, e.g. --runtime-root /app/als-assistant)",
 )
+@click.option(
+    "--tier",
+    type=click.IntRange(1, 3),
+    default=None,
+    help="Channel-database tier (1|2|3). Selects which "
+    "data/channel_databases/tiers/tier{N}/ DB the rendered config points at. "
+    "Advanced: override the paradigm-derived default "
+    "(in_context → tier 1, hierarchical/middle_layer → tier 3).",
+)
+@click.option(
+    "--emit-profile",
+    "emit_profile",
+    type=click.Path(path_type=Path),
+    default=None,
+    metavar="DIR",
+    help="Scaffold an editable profile directory at DIR that extends --preset, "
+    "then exit without rendering a project. Build the project from it with "
+    "`osprey build <PROJECT_NAME> DIR/profile.yml`.",
+)
 def build(
     project_name: str | None,
     profile: str | None,
@@ -118,6 +137,8 @@ def build(
     skip_lifecycle: bool,
     skip_deps: bool,
     runtime_root: str | None,
+    tier: int | None,
+    emit_profile: Path | None,
 ) -> None:
     """Build a facility-specific assistant from a profile or bundled preset.
 
@@ -147,6 +168,50 @@ def build(
     from .build_profile import resolve_build_profile
     from .project_utils import _clear_claude_code_project_state
 
+    # --emit-profile is a project-less scaffold mode. Validate its constraints
+    # and dispatch before the normal "PROJECT_NAME is required" check fires.
+    if emit_profile is not None:
+        if not preset:
+            raise click.UsageError("--emit-profile requires --preset.")
+        # Reject every flag that only makes sense for rendering a project.
+        _incompatible: list[str] = []
+        if project_name:
+            _incompatible.append("PROJECT_NAME")
+        if profile:
+            _incompatible.append("PROFILE")
+        if overrides:
+            _incompatible.append("--override")
+        if set_pairs:
+            _incompatible.append("--set")
+        if output_dir != ".":
+            _incompatible.append("--output-dir")
+        if force:
+            _incompatible.append("--force")
+        if stream:
+            _incompatible.append("--stream")
+        if skip_lifecycle:
+            _incompatible.append("--skip-lifecycle")
+        if skip_deps:
+            _incompatible.append("--skip-deps")
+        if runtime_root:
+            _incompatible.append("--runtime-root")
+        if tier is not None:
+            _incompatible.append("--tier")
+        if _incompatible:
+            raise click.UsageError(
+                "--emit-profile cannot be combined with project-rendering flags: "
+                + ", ".join(_incompatible)
+            )
+        try:
+            _emit_profile_directory(emit_profile, preset)
+        except BuildProfileError as e:
+            # Unknown-preset is a user error; promote to UsageError so the
+            # exit code is 2 (same convention as the project-render path).
+            if str(e).lower().startswith("unknown preset"):
+                raise click.UsageError(str(e)) from e
+            raise
+        return
+
     if not project_name:
         raise click.UsageError("PROJECT_NAME is required. Run 'osprey build --help' for usage.")
 
@@ -171,8 +236,25 @@ def build(
                 raise click.UsageError(msg) from e
             raise
 
+        # CLI --tier overrides any value coming from the profile/preset/overrides.
+        # Equivalent to --set tier=N but more discoverable in --help.
+        if tier is not None:
+            build_profile.tier = tier
+
+        # Provider is required — no implicit fallback. Each provider has
+        # different auth gating (CBORG: LBLnet; als-apg: ALS_APG_API_KEY;
+        # anthropic: ANTHROPIC_API_KEY), so silently defaulting masks
+        # misconfiguration as a credential failure at runtime.
+        if not build_profile.provider:
+            raise click.UsageError(
+                "Profile does not specify a provider. Add `provider: "
+                "<als-apg|cborg|anthropic|amsc|argo>` to your profile or "
+                "pass `--set provider=<...>` on the build command."
+            )
+
         logger.info("  Profile: %s", build_profile.name)
         logger.info("  Data bundle: %s", build_profile.data_bundle)
+        logger.info("  Tier: %d", build_profile.resolved_tier())
 
         # 1b. Collect and validate profile artifact selections
         artifacts: dict[str, list[str]] = {}
@@ -257,8 +339,12 @@ def build(
             context["default_provider"] = build_profile.provider
         if build_profile.model:
             context["default_model"] = build_profile.model
-        if build_profile.channel_finder_mode:
+        if build_profile.channel_finder_mode is not None:
             context["channel_finder_mode"] = build_profile.channel_finder_mode
+        if build_profile.default_panel:
+            context["default_panel"] = build_profile.default_panel
+        if build_profile.claude_md_template:
+            context["claude_md_template"] = build_profile.claude_md_template
 
         # 6b. Create project directory early (venv creation needs it)
         project_path.mkdir(parents=True, exist_ok=True)
@@ -293,7 +379,10 @@ def build(
         if runtime_root:
             context["project_root"] = str(runtime_root)
 
-        # 7. Create project from template
+        # 7. Create project from template (also materializes tier-specific
+        # channel DBs from the preset's tiers/ subtree, before the Claude Code
+        # hierarchy probe reads the flat data/channel_databases/<name>.json
+        # path).
         manager = TemplateManager()
         project_path = manager.create_project(
             project_name=project_name,
@@ -302,6 +391,7 @@ def build(
             context=context,
             force=True,  # Directory already exists from step 6b (venv created there)
             artifacts=artifacts or None,
+            tier=build_profile.resolved_tier(),
         )
         logger.info("  ✓ Base template rendered")
 
@@ -355,11 +445,13 @@ def build(
 
         # 16. Generate manifest
         manifest_context = {
-            "default_provider": build_profile.provider or "anthropic",
-            "default_model": build_profile.model or "haiku",
+            "default_provider": build_profile.provider,
+            "default_model": build_profile.model,
         }
-        if build_profile.channel_finder_mode:
+        if build_profile.channel_finder_mode is not None:
             manifest_context["channel_finder_mode"] = build_profile.channel_finder_mode
+        if build_profile.claude_md_template:
+            manifest_context["claude_md_template"] = build_profile.claude_md_template
         # Carry the invocation source forward so build_reproducible_command
         # renders the matching --preset or positional form (C12).
         if preset:
@@ -389,6 +481,18 @@ def build(
             project_root_override=runtime_root,
         )
         logger.info("  ✓ Re-rendered Claude Code artifacts")
+
+        # 16c. Validate agent tools are backed by permissions.allow.
+        # Catches wildcards in agent frontmatter and bug-class where a
+        # facility author adds a tool to an agent's tools: allowlist but
+        # forgets to add it to the MCP server's permissions.allow.
+        from .validate_claude_artifacts import validate_agent_tools_against_permissions
+
+        validation_errors = validate_agent_tools_against_permissions(project_path)
+        if validation_errors:
+            raise BuildProfileError(
+                "Agent tool/permission drift detected:\n  " + "\n  ".join(validation_errors)
+            )
 
         # 17. Git init + commit
         _git_init_and_commit(project_path)
@@ -1153,19 +1257,19 @@ def _copy_overlay_files(
 def _register_overlay_artifacts(project_path: Path, overlay_dict: dict[str, str]) -> int:
     """Register overlay files landing in .claude/ as user_owned in config.yml.
 
-    The Prompts Gallery flags .claude/ files that aren't in the PromptCatalog
-    or config.yml's prompts.user_owned as "untracked."  Profile overlay files
+    The Scaffold Gallery flags .claude/ files that aren't in the BuildArtifactCatalog
+    or config.yml's scaffold.user_owned as "untracked."  Profile overlay files
     (agents, skills, rules) aren't framework artifacts, so they must be
     registered as user_owned to avoid the untracked warning.
     """
-    from osprey.services.prompts.ownership import update_config_add_user_owned
+    from osprey.services.build_artifacts.ownership import update_config_add_user_owned
 
     config_path = project_path / "config.yml"
     if not config_path.exists():
         return 0
 
-    # Subdirectories the Prompts Gallery scans for untracked files
-    # (mirrors PromptGalleryService._scan_dirs)
+    # Subdirectories the Scaffold Gallery scans for untracked files
+    # (mirrors ScaffoldGalleryService._scan_dirs)
     scan_prefixes = tuple(
         f".claude/{d}/" for d in ("agents", "commands", "output-styles", "rules", "skills")
     )
@@ -1228,14 +1332,30 @@ def _persist_mcp_servers(project_path: Path, mcp_servers: dict[str, Any]) -> Non
 
         spec: dict[str, Any] = {}
         if server.url:
+            spec["transport"] = "http"
             spec["url"] = server.url
         else:
+            spec["transport"] = "stdio"
             if server.command:
                 spec["command"] = server.command
             if server.args:
                 spec["args"] = list(server.args)
             if server.env:
                 spec["env"] = dict(server.env)
+        if server.port is not None and server.url:
+            # Emit a derived network block so non-Claude consumers
+            # (compose-port checkers, integration-tests probes) can read
+            # host/docker URLs without re-deriving them.
+            # NOTE: docker_url uses the MCP server's YAML key (`name`) as the
+            # container hostname. This assumes the operator names the
+            # docker-compose service identically to the mcp_servers entry
+            # (e.g. mcp_servers.matlab → service: matlab). If they diverge,
+            # docker_url will point at a non-existent host.
+            spec["network"] = {
+                "port": int(server.port),
+                "host_url": f"http://localhost:{server.port}/mcp",
+                "docker_url": f"http://{name}:{server.port}/mcp",
+            }
         if server.permissions:
             spec["permissions"] = dict(server.permissions)
 
@@ -1325,3 +1445,59 @@ def _git_init_and_commit(project_path: Path) -> None:
             "  git init succeeded but initial commit failed.\n"
             "     Run 'git add . && git commit' manually."
         )
+
+
+def _emit_profile_directory(target_dir: Path, preset_name: str) -> None:
+    """Scaffold an editable profile directory that extends ``preset_name``.
+
+    Writes ``profile.yml`` (with ``extends: <preset>`` + commented override
+    sections), an explanatory ``README.md``, and the ``overlays/{rules,skills,
+    agents}/`` tree (with ``.gitkeep`` sentinels). The user then drops overlay
+    artifacts in, edits ``profile.yml``, and builds the project with
+    ``osprey build <PROJECT_NAME> <target_dir>/profile.yml``.
+    """
+    from .build_profile import _load_preset_raw, _normalize_preset_name
+    from .templates.scaffolding import _copy_data_tree
+
+    # Resolve and validate the preset name up-front so the error is clean
+    # (raises BuildProfileError → caught by the outer except chain).
+    preset_raw, _preset_path = _load_preset_raw(preset_name)
+
+    target = target_dir.resolve()
+    if target.exists():
+        raise click.UsageError(
+            f"Target directory already exists: {target}. Remove it or choose a different path."
+        )
+
+    normalized_preset = _normalize_preset_name(preset_name)
+    # `target.name` is the user-chosen directory name (e.g. "my-profile").
+    # Derive a human display name only when the preset itself has no `name:`.
+    profile_name_default = target.name.replace("-", " ").replace("_", " ").title()
+    preset_display_name = preset_raw.get("name") or profile_name_default
+
+    manager = TemplateManager()
+    seed_root = manager.template_root / "profile_seed"
+    if not seed_root.is_dir():
+        # Defensive: catch packaging regressions early with an actionable error
+        # rather than letting Jinja raise TemplateNotFound deep in the loader.
+        raise BuildProfileError(
+            f"Profile seed templates missing at {seed_root}. "
+            f"This is a packaging bug — reinstall osprey-framework."
+        )
+
+    target.mkdir(parents=True)
+    ctx = {
+        "preset_name": normalized_preset,
+        "preset_display_name": preset_display_name,
+        "profile_name": profile_name_default,
+        "profile_dirname": target.name,
+        "profile_filename": f"{target.name}/profile.yml",
+    }
+    _copy_data_tree(seed_root, target, manager.template_root, manager.jinja_env, ctx)
+
+    logger.info("✓ Scaffolded profile at: %s", target)
+    logger.info(
+        "  Next: edit %s/profile.yml, then run `osprey build <PROJECT_NAME> %s/profile.yml`",
+        target,
+        target,
+    )

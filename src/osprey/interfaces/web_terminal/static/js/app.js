@@ -6,7 +6,7 @@ import { initPanelManager } from './panel-manager.js';
 import { initDrawers } from './drawer.js';
 import { initSettings } from './settings.js';
 import { initMemoryGallery } from './memory-gallery.js';
-import { initPromptsGallery } from './prompts-gallery.js';
+import { initScaffoldGallery } from './scaffold-gallery.js';
 import { initHookDebug } from './hook-debug.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
 import { initTheme } from './theme.js';
@@ -23,7 +23,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initDrawers();
   initSettings();
   initMemoryGallery();
-  initPromptsGallery();
+  initScaffoldGallery();
   initHookDebug();
   // Listen for paste requests from embedded iframes (gallery, ARIEL)
   initIframePasteBridge();

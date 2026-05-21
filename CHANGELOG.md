@@ -11,7 +11,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Changed
+- **Renamed `prompts` → `scaffold` (user-facing) / `build_artifacts` (internal Python).** The framework's registry of Claude Code build artifacts (CLAUDE.md, hooks, skills, agents, settings.json, .mcp.json, statusline.py, output styles) was historically called "prompts" — a name that became misleading once the registry materialized everything in `.claude/`, not just prompt text. Renames: CLI `osprey prompts …` → `osprey scaffold …`; web routes `/api/prompts/*` → `/api/scaffold/*` (verb `/scaffold` → `/claim`); Python package `osprey.services.prompts` → `osprey.services.build_artifacts` (classes `PromptArtifact` → `BuildArtifact`, `PromptCatalog` → `BuildArtifactCatalog`); config key `prompts.user_owned` → `scaffold.user_owned`. Manifest JSON `user_owned` key unchanged. Hard rename, no compatibility shim — projects with the old `prompts.user_owned:` key in `config.yml` must rename the key by hand.
+
 ### Added
+- **Channel-finder preset ships tier-segmented channel DBs.** All 9 tier databases (3 tiers × 3 paradigms) now live inside the `control_assistant` preset under `data/channel_databases/tiers/{tier1,tier2,tier3}/{hierarchical,in_context,middle_layer}.json` and are copied to user projects by `osprey build`. Users can pick a tier per-run rather than re-initializing. `scripts/generate_benchmark_suite.py` writes into the preset path by default.
+- **Channel Finder**: `osprey channel-finder generate` subcommand produces 3 template databases from the canonical hierarchical source — `in_context.json` (Tier 1, 205 channels with aliases), `hierarchical.json` (Tier 3, 1210 channels), `middle_layer.json` (Tier 3, 1210 channels with setup blocks).
+- **Cross-paradigm benchmark unified.** All three paradigms read a single tier-resolved query set (`tier1/2/3_queries.json`, 20/36/52 queries); paradigm is resolved at build time (`in_context` → tier 1, `hierarchical`/`middle_layer` → tier 3, override with `osprey build --tier N`). Config schema collapsed from per-pipeline `pipelines.<mode>.benchmark` blocks to a single top-level `channel_finder.benchmark.dataset_path: data/benchmarks/queries.json`.
 - **`osprey-contribute` skill.** A new installable skill that walks
   contributors through the GitHub Flow contribution journey end-to-end:
   orient → branch → commit → push → PR → watch CI → merge. Auto-detects
@@ -37,20 +43,24 @@ Compatibility is documented in release notes, not encoded in the version string.
   recommended quickstart. Resolution now consults `importlib.metadata`:
   editable installs use the source path; wheel/uv-tool installs pin to
   `osprey-framework==<running version>`. Existing profiles need no changes.
+- **Channel-finder schema: drop redundant family prefixes from device segments.** `hierarchical.json` expansion patterns embedded the family-letter inside the device id (e.g. `BPM{:02d}` produced `SR:DIAG:BPM:BPM01:POSITION:X`). Patterns are now bare `{:02d}` across all 20 device families, producing `SR:DIAG:BPM:01:POSITION:X` and matching aliases `StorageRing_BPM_01_Position_X`. Range/instance counts expanded to realistic facility sizes (96 BPMs, 72 quads/correctors/sextupoles, 12 ion pumps). Schema extended for benchmark consistency: numeric DCCT/GAUGE devices, `DCCT.LIFETIME`, `BPM.SIGNAL.SUM`, `HCM.CONTROL.ON` fields. All 9 tier databases, 3 default channel DBs, and `hierarchical_benchmark.json` regenerated against the corrected schema; `TestMiddleLayerBenchmarkPVs::test_all_pvs_valid` now passes.
+- **Channel-finder benchmarks: `in_context_benchmark.json` aligned with current alias scheme.** All 30 entries rewritten from the orphaned legacy aliases (`BPM_Position01X`, `RF_Cavity1_ForwardPower_ReadBack`, …) to the active `StorageRing_<Family>_<NN>_<Field>_<Subfield>` scheme produced by the generator. Every `targeted_pv` now resolves against the regenerated `in_context.json`.
 - **Channel-finder template renderer honors `suffix_map`.** Templates in
   `in_context.json` (and any project DB using the same schema) declare
   `suffix_map` to translate display-name sub-channels (e.g.
   `CurrentSetPoint`) into EPICS address suffixes (e.g. `SP`). The renderer
   was ignoring this field and using the raw sub-channel name as the
   address suffix, producing addresses like
-  `SR:MAG:DIPOLE:B05:CURRENT:CurrentSetPoint` instead of
-  `SR:MAG:DIPOLE:B05:CURRENT:SP`. Affects every project scaffolded with
+  `SR:MAG:DIPOLE:05:CURRENT:CurrentSetPoint` instead of
+  `SR:MAG:DIPOLE:05:CURRENT:SP`. Affects every project scaffolded with
   `osprey init --channel-finder-mode=in_context` whose templates declare
   `suffix_map` (the four magnet templates in the shipped
   `control_assistant` app: dipoles, focusing quads, horizontal/vertical
   correctors). Channel aliases (the human-readable names) are unchanged.
 
 ### Changed
+- **Removed `channel_finder_mode="all"`.** Build-time materialization shim that ran identically to `"hierarchical"` at runtime. `control-assistant` preset now pins `channel_finder_mode: hierarchical`; override with `--set channel_finder_mode=in_context|middle_layer`. `BuildProfile.validate()` rejects unknown modes early.
+- **Channel-finder benchmark CLI: drop vestigial `--tier` flag.** The `--tier` option on `osprey channel-finder benchmark` and the corresponding `tier: int = 0` parameter on `BenchmarkRunner` were a label-only pass-through left over from cross-paradigm matrix orchestration (now in the companion paper repo). Neither filtered queries nor switched databases — a project's tier is decided when the channel DB is generated/configured, not at run time. The `BenchmarkRun.tier` data-model field is preserved (still consumed by the companion repo's matrix aggregation) and now defaults to `None`. No migration needed for OSPREY users; companion-repo callers that construct `BenchmarkRun` directly with `tier=…` are unaffected.
 - **Branch strategy: adopt GitHub Flow.** The short-lived `next` integration
   branch is retired in favour of trunk-based development on `main`. CI now
   triggers only on `main` push/PR (the legacy GitFlow-era patterns
@@ -166,6 +176,22 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Pre-CalVer SemVer markers: `versionchanged:: 0.10.7` directive in `deploy-project.rst` (now baseline); `(v0.9.x+)` qualifiers in `use-channel-finder.rst`, `tests/e2e/README.md`, and the `osprey-build-interview.rst` page-title parenthetical; two `>=0.12.0` examples in `build-profiles.rst` bumped to `>=2026.5.0`.
 
 ### Removed (BREAKING)
+- **ARIEL internal RAG and Agent pipelines removed.** ARIEL no longer ships
+  the in-process `RAGPipeline` (deterministic 4-stage retrieve/fuse/assemble/
+  generate) or the `AgentExecutor` (LiteLLM-backed ReAct loop). The
+  `pipelines.rag` and `pipelines.agent` config blocks, the
+  `SearchMode.RAG`/`SearchMode.AGENT` enum values, the `--mode rag`/`--mode
+  agent` CLI flags, the RAG/Agent tabs in the ARIEL web UI, and the
+  `ArielPipelineRegistration` registry entry are all gone. Multi-step
+  reasoning, answer synthesis, and custom prompting now live exclusively in
+  the Osprey agent layer, which calls ARIEL's MCP tools. `ARIELConfig.from_dict`
+  raises `ConfigurationError` for any `pipelines.*` block to fail builds
+  loudly. **Why**: every shipped preset bundles an Osprey agent; an agent
+  calling ARIEL search tools *is* RAG by definition — the in-service pipelines
+  duplicated that surface and forced facility owners to maintain two LLM
+  configurations. **Upgrade**: delete `pipelines.rag` / `pipelines.agent`
+  from `config.yml`; route synthesis through a skill in your build profile
+  (see :doc:`how-to/build-profiles`).
 - **`build-interview` renamed to `osprey-build-interview`.** Skill name,
   directory (`templates/skills/osprey-build-interview/`), slash command
   (`/osprey-build-interview`), and install command (`osprey skills install
@@ -332,6 +358,19 @@ assume `MAJOR.MINOR.PATCH` semantics need updating.
   WebSocket forwarding, and corporate-proxy bypass.
 - `osprey build` now exits with status 2 (usage error) for unknown
   presets, matching the documented contract.
+
+### Changed (Benchmarks)
+- **Benchmarks**: `format_in_context()` now returns `{_metadata, channels}` envelope with auto-generated aliases (`channel`) and PV addresses (`address`) instead of a plain list — **breaking change** for code that directly parses the in-context JSON as a list
+- **Benchmarks**: `format_middle_layer()` now generates `_setup` blocks (`CommonNames`, `DeviceList`, `ElementList`) for every family, enabling sector filtering
+- **Benchmarks**: `validate_queries()` supports per-tier validation via `tier_queries` parameter; backward-compatible with single-file mode
+- **Benchmarks**: `BenchmarkRun.paradigm` / `tier` now `Optional` (defaults `None`) — single-backend consumers no longer need synthetic labels
+- **Benchmarks**: `BenchmarkSuite` slimmed to bundle role; `AggregatedCell` and matrix-aggregation helpers (`aggregate_by_cell`, `to_table`, `MODEL_PRICES_PER_MTOK`, `infer_cost_usd`) moved to companion paper repo
+- **Benchmarks**: `evaluate_response()` and `BenchmarkRunner` gain `use_llm_judge` flag (default `False`) — Stage 2 LLM precision judge is now true opt-in
+
+### Removed (Benchmarks paper-split)
+- **Benchmarks**: Cross-paradigm orchestration scripts, tier datasets, and archived result artifacts moved to companion paper repo (`~/LBL/ML/osprey-cf-paper`)
+- **Benchmarks**: 9 dev-residue benchmark/debug scripts (`bench_test*`, `bench_matrix`, `bench_warmth`, `debug_benchmark_scaffold`, `trace_single_query`, `migrate_benchmark_filenames`, `analyze_test_coverage`, `backfill_in_context_tokens`)
+- **Tooling**: `scripts/capture_ariel_screenshots.py` → `docs/tooling/` (documentation utility, not a runtime script)
 
 ## [0.11.5] - 2026-03-13
 
@@ -1176,14 +1215,6 @@ assume `MAJOR.MINOR.PATCH` semantics need updating.
   - Backward compatible: explicit `_is_leaf` markers still work (take precedence)
   - Updated all examples and documentation to reflect cleaner syntax
   - Test coverage: 2 new tests for automatic leaf detection functionality
-- **Channel Finder: Comprehensive Parameterized Test Suite**: Automated testing coverage for all example databases
-  - New `test_all_example_databases.py` with 80 tests covering all 6 example databases
-  - Parameterized tests automatically run on any new example database added
-  - Core functionality tests: loading, navigation, channel generation, validation, statistics
-  - Database-specific feature tests for unique characteristics (optional levels, legacy format, etc.)
-  - Expected channel count validation for all databases (total: 30,908 channels)
-  - Now testing previously uncovered databases: `hierarchical_legacy.json` and `optional_levels.json`
-  - Suppresses expected deprecation warnings for intentional legacy format testing
 - **Channel Finder: Pluggable Pipeline and Database System**: Registration pattern for custom implementations
   - `register_pipeline()` and `register_database()` methods for extending channel finder
   - Discovery API: `list_available_pipelines()` and `list_available_databases()`

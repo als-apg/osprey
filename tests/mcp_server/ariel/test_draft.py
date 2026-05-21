@@ -25,7 +25,7 @@ def test_create_and_read_draft(tmp_path, monkeypatch):
     """Write a draft file and read it back."""
     import osprey.interfaces.ariel.api.drafts as drafts_mod
 
-    monkeypatch.setattr(drafts_mod, "DRAFTS_DIR", tmp_path / "drafts")
+    monkeypatch.setattr(drafts_mod, "_drafts_dir", lambda: tmp_path / "drafts")
 
     draft_id = "draft-abc123"
     data = {
@@ -51,7 +51,7 @@ def test_get_nonexistent_returns_none(tmp_path, monkeypatch):
     """Reading a nonexistent draft returns None."""
     import osprey.interfaces.ariel.api.drafts as drafts_mod
 
-    monkeypatch.setattr(drafts_mod, "DRAFTS_DIR", tmp_path / "drafts")
+    monkeypatch.setattr(drafts_mod, "_drafts_dir", lambda: tmp_path / "drafts")
 
     result = read_draft("draft-nonexistent")
     assert result is None
@@ -64,7 +64,7 @@ def test_expired_drafts_cleaned_up(tmp_path, monkeypatch):
 
     drafts_dir = tmp_path / "drafts"
     drafts_dir.mkdir()
-    monkeypatch.setattr(drafts_mod, "DRAFTS_DIR", drafts_dir)
+    monkeypatch.setattr(drafts_mod, "_drafts_dir", lambda: drafts_dir)
 
     # Write a draft file and backdate its mtime
     draft_id = "draft-expired1"
@@ -95,7 +95,7 @@ def draft_app(tmp_path, monkeypatch):
     """Create a minimal FastAPI app with the draft router."""
     import osprey.interfaces.ariel.api.drafts as drafts_mod
 
-    monkeypatch.setattr(drafts_mod, "DRAFTS_DIR", tmp_path / "drafts")
+    monkeypatch.setattr(drafts_mod, "_drafts_dir", lambda: tmp_path / "drafts")
 
     app = FastAPI()
     app.include_router(draft_router)
@@ -132,3 +132,24 @@ async def test_api_get_nonexistent_returns_404(draft_app):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/api/drafts/draft-doesnotexist")
         assert resp.status_code == 404
+
+
+@pytest.mark.unit
+def test_read_draft_resolves_dir_without_dict_injection(tmp_path, monkeypatch):
+    """Regression: production has no `DRAFTS_DIR` in module.__dict__.
+
+    Earlier code relied on a module-level `__getattr__` to lazily resolve
+    `DRAFTS_DIR`, but PEP-562 `__getattr__` does NOT intercept bare-name
+    global references inside the module — only external attribute access.
+    Tests previously hid this by writing to `module.__dict__` via
+    `monkeypatch.setattr(drafts_mod, "DRAFTS_DIR", ...)`, which made the
+    bare-name lookup succeed *only under test*. This test patches the
+    underlying resolver instead, exercising the exact code path production
+    runs through.
+    """
+    import osprey.utils.workspace as ws_mod
+
+    monkeypatch.setattr(ws_mod, "resolve_shared_data_root", lambda: tmp_path)
+
+    # No NameError, no crash — just a clean "not found".
+    assert read_draft("draft-missing") is None

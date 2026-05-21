@@ -1,7 +1,7 @@
 /* OSPREY Web Terminal — Word-Level Diff Utilities
  *
  * Provides word-by-word inline highlighting for unified diffs.
- * Used by prompts-gallery.js to enhance the diff view with
+ * Used by scaffold-gallery.js to enhance the diff view with
  * GitHub-style changed-word highlighting within changed lines.
  *
  * Exports:

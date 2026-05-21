@@ -1,0 +1,2164 @@
+{
+  "SR": {
+    "_description": "storage ring",
+    "BPM": {
+      "_description": "beam position monitor",
+      "GOLDEN": {
+        "_description": "golden orbit",
+        "X": {
+          "_description": "horizontal",
+          "ChannelNames": [
+            "SR:DIAG:BPM:01:GOLDEN:X",
+            "SR:DIAG:BPM:02:GOLDEN:X",
+            "SR:DIAG:BPM:03:GOLDEN:X",
+            "SR:DIAG:BPM:04:GOLDEN:X",
+            "SR:DIAG:BPM:05:GOLDEN:X",
+            "SR:DIAG:BPM:06:GOLDEN:X",
+            "SR:DIAG:BPM:07:GOLDEN:X",
+            "SR:DIAG:BPM:08:GOLDEN:X",
+            "SR:DIAG:BPM:09:GOLDEN:X",
+            "SR:DIAG:BPM:10:GOLDEN:X",
+            "SR:DIAG:BPM:11:GOLDEN:X",
+            "SR:DIAG:BPM:12:GOLDEN:X",
+            "SR:DIAG:BPM:13:GOLDEN:X",
+            "SR:DIAG:BPM:14:GOLDEN:X",
+            "SR:DIAG:BPM:15:GOLDEN:X",
+            "SR:DIAG:BPM:16:GOLDEN:X",
+            "SR:DIAG:BPM:17:GOLDEN:X",
+            "SR:DIAG:BPM:18:GOLDEN:X",
+            "SR:DIAG:BPM:19:GOLDEN:X",
+            "SR:DIAG:BPM:20:GOLDEN:X"
+          ],
+          "DataType": "double",
+          "HWUnits": "mm"
+        },
+        "Y": {
+          "_description": "vertical",
+          "ChannelNames": [
+            "SR:DIAG:BPM:01:GOLDEN:Y",
+            "SR:DIAG:BPM:02:GOLDEN:Y",
+            "SR:DIAG:BPM:03:GOLDEN:Y",
+            "SR:DIAG:BPM:04:GOLDEN:Y",
+            "SR:DIAG:BPM:05:GOLDEN:Y",
+            "SR:DIAG:BPM:06:GOLDEN:Y",
+            "SR:DIAG:BPM:07:GOLDEN:Y",
+            "SR:DIAG:BPM:08:GOLDEN:Y",
+            "SR:DIAG:BPM:09:GOLDEN:Y",
+            "SR:DIAG:BPM:10:GOLDEN:Y",
+            "SR:DIAG:BPM:11:GOLDEN:Y",
+            "SR:DIAG:BPM:12:GOLDEN:Y",
+            "SR:DIAG:BPM:13:GOLDEN:Y",
+            "SR:DIAG:BPM:14:GOLDEN:Y",
+            "SR:DIAG:BPM:15:GOLDEN:Y",
+            "SR:DIAG:BPM:16:GOLDEN:Y",
+            "SR:DIAG:BPM:17:GOLDEN:Y",
+            "SR:DIAG:BPM:18:GOLDEN:Y",
+            "SR:DIAG:BPM:19:GOLDEN:Y",
+            "SR:DIAG:BPM:20:GOLDEN:Y"
+          ],
+          "DataType": "double",
+          "HWUnits": "mm"
+        }
+      },
+      "OFFSET": {
+        "_description": "offset",
+        "X": {
+          "_description": "horizontal",
+          "ChannelNames": [
+            "SR:DIAG:BPM:01:OFFSET:X",
+            "SR:DIAG:BPM:02:OFFSET:X",
+            "SR:DIAG:BPM:03:OFFSET:X",
+            "SR:DIAG:BPM:04:OFFSET:X",
+            "SR:DIAG:BPM:05:OFFSET:X",
+            "SR:DIAG:BPM:06:OFFSET:X",
+            "SR:DIAG:BPM:07:OFFSET:X",
+            "SR:DIAG:BPM:08:OFFSET:X",
+            "SR:DIAG:BPM:09:OFFSET:X",
+            "SR:DIAG:BPM:10:OFFSET:X",
+            "SR:DIAG:BPM:11:OFFSET:X",
+            "SR:DIAG:BPM:12:OFFSET:X",
+            "SR:DIAG:BPM:13:OFFSET:X",
+            "SR:DIAG:BPM:14:OFFSET:X",
+            "SR:DIAG:BPM:15:OFFSET:X",
+            "SR:DIAG:BPM:16:OFFSET:X",
+            "SR:DIAG:BPM:17:OFFSET:X",
+            "SR:DIAG:BPM:18:OFFSET:X",
+            "SR:DIAG:BPM:19:OFFSET:X",
+            "SR:DIAG:BPM:20:OFFSET:X"
+          ],
+          "DataType": "double",
+          "HWUnits": "mm"
+        },
+        "Y": {
+          "_description": "vertical",
+          "ChannelNames": [
+            "SR:DIAG:BPM:01:OFFSET:Y",
+            "SR:DIAG:BPM:02:OFFSET:Y",
+            "SR:DIAG:BPM:03:OFFSET:Y",
+            "SR:DIAG:BPM:04:OFFSET:Y",
+            "SR:DIAG:BPM:05:OFFSET:Y",
+            "SR:DIAG:BPM:06:OFFSET:Y",
+            "SR:DIAG:BPM:07:OFFSET:Y",
+            "SR:DIAG:BPM:08:OFFSET:Y",
+            "SR:DIAG:BPM:09:OFFSET:Y",
+            "SR:DIAG:BPM:10:OFFSET:Y",
+            "SR:DIAG:BPM:11:OFFSET:Y",
+            "SR:DIAG:BPM:12:OFFSET:Y",
+            "SR:DIAG:BPM:13:OFFSET:Y",
+            "SR:DIAG:BPM:14:OFFSET:Y",
+            "SR:DIAG:BPM:15:OFFSET:Y",
+            "SR:DIAG:BPM:16:OFFSET:Y",
+            "SR:DIAG:BPM:17:OFFSET:Y",
+            "SR:DIAG:BPM:18:OFFSET:Y",
+            "SR:DIAG:BPM:19:OFFSET:Y",
+            "SR:DIAG:BPM:20:OFFSET:Y"
+          ],
+          "DataType": "double",
+          "HWUnits": "mm"
+        }
+      },
+      "POSITION": {
+        "_description": "position",
+        "X": {
+          "_description": "horizontal",
+          "ChannelNames": [
+            "SR:DIAG:BPM:01:POSITION:X",
+            "SR:DIAG:BPM:02:POSITION:X",
+            "SR:DIAG:BPM:03:POSITION:X",
+            "SR:DIAG:BPM:04:POSITION:X",
+            "SR:DIAG:BPM:05:POSITION:X",
+            "SR:DIAG:BPM:06:POSITION:X",
+            "SR:DIAG:BPM:07:POSITION:X",
+            "SR:DIAG:BPM:08:POSITION:X",
+            "SR:DIAG:BPM:09:POSITION:X",
+            "SR:DIAG:BPM:10:POSITION:X",
+            "SR:DIAG:BPM:11:POSITION:X",
+            "SR:DIAG:BPM:12:POSITION:X",
+            "SR:DIAG:BPM:13:POSITION:X",
+            "SR:DIAG:BPM:14:POSITION:X",
+            "SR:DIAG:BPM:15:POSITION:X",
+            "SR:DIAG:BPM:16:POSITION:X",
+            "SR:DIAG:BPM:17:POSITION:X",
+            "SR:DIAG:BPM:18:POSITION:X",
+            "SR:DIAG:BPM:19:POSITION:X",
+            "SR:DIAG:BPM:20:POSITION:X"
+          ],
+          "DataType": "double",
+          "HWUnits": "mm"
+        },
+        "Y": {
+          "_description": "vertical",
+          "ChannelNames": [
+            "SR:DIAG:BPM:01:POSITION:Y",
+            "SR:DIAG:BPM:02:POSITION:Y",
+            "SR:DIAG:BPM:03:POSITION:Y",
+            "SR:DIAG:BPM:04:POSITION:Y",
+            "SR:DIAG:BPM:05:POSITION:Y",
+            "SR:DIAG:BPM:06:POSITION:Y",
+            "SR:DIAG:BPM:07:POSITION:Y",
+            "SR:DIAG:BPM:08:POSITION:Y",
+            "SR:DIAG:BPM:09:POSITION:Y",
+            "SR:DIAG:BPM:10:POSITION:Y",
+            "SR:DIAG:BPM:11:POSITION:Y",
+            "SR:DIAG:BPM:12:POSITION:Y",
+            "SR:DIAG:BPM:13:POSITION:Y",
+            "SR:DIAG:BPM:14:POSITION:Y",
+            "SR:DIAG:BPM:15:POSITION:Y",
+            "SR:DIAG:BPM:16:POSITION:Y",
+            "SR:DIAG:BPM:17:POSITION:Y",
+            "SR:DIAG:BPM:18:POSITION:Y",
+            "SR:DIAG:BPM:19:POSITION:Y",
+            "SR:DIAG:BPM:20:POSITION:Y"
+          ],
+          "DataType": "double",
+          "HWUnits": "mm"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "BPM 01",
+          "BPM 02",
+          "BPM 03",
+          "BPM 04",
+          "BPM 05",
+          "BPM 06",
+          "BPM 07",
+          "BPM 08",
+          "BPM 09",
+          "BPM 10",
+          "BPM 11",
+          "BPM 12",
+          "BPM 13",
+          "BPM 14",
+          "BPM 15",
+          "BPM 16",
+          "BPM 17",
+          "BPM 18",
+          "BPM 19",
+          "BPM 20"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            3,
+            2
+          ],
+          [
+            4,
+            1
+          ],
+          [
+            4,
+            2
+          ],
+          [
+            5,
+            1
+          ],
+          [
+            5,
+            2
+          ],
+          [
+            6,
+            1
+          ],
+          [
+            6,
+            2
+          ],
+          [
+            7,
+            1
+          ],
+          [
+            7,
+            2
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            2
+          ],
+          [
+            9,
+            1
+          ],
+          [
+            9,
+            2
+          ],
+          [
+            10,
+            1
+          ],
+          [
+            10,
+            2
+          ]
+        ],
+        "ElementList": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20
+        ]
+      }
+    },
+    "DCCT": {
+      "_description": "DC current transformer",
+      "CURRENT": {
+        "_description": "current",
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:DIAG:DCCT:01:CURRENT:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "DCCT 01"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ]
+        ],
+        "ElementList": [
+          1
+        ]
+      }
+    },
+    "GAMMA": {
+      "_description": "gamma detector",
+      "DOSE_RATE": {
+        "_description": "dose rate",
+        "INST": {
+          "_description": "instantaneous",
+          "ChannelNames": [
+            "SR:DIAG:GAMMA:01:DOSE_RATE:INST",
+            "SR:DIAG:GAMMA:02:DOSE_RATE:INST",
+            "SR:DIAG:GAMMA:03:DOSE_RATE:INST",
+            "SR:DIAG:GAMMA:04:DOSE_RATE:INST"
+          ],
+          "DataType": "double",
+          "HWUnits": "mrem/hr"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "GAMMA 01",
+          "GAMMA 02",
+          "GAMMA 03",
+          "GAMMA 04"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            4,
+            1
+          ]
+        ],
+        "ElementList": [
+          1,
+          2,
+          3,
+          4
+        ]
+      }
+    },
+    "NEUTRON": {
+      "_description": "neutron detector",
+      "DOSE_RATE": {
+        "_description": "dose rate",
+        "INST": {
+          "_description": "instantaneous",
+          "ChannelNames": [
+            "SR:DIAG:NEUTRON:01:DOSE_RATE:INST",
+            "SR:DIAG:NEUTRON:02:DOSE_RATE:INST",
+            "SR:DIAG:NEUTRON:03:DOSE_RATE:INST",
+            "SR:DIAG:NEUTRON:04:DOSE_RATE:INST"
+          ],
+          "DataType": "double",
+          "HWUnits": "mrem/hr"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "NEUTRON 01",
+          "NEUTRON 02",
+          "NEUTRON 03",
+          "NEUTRON 04"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            4,
+            1
+          ]
+        ],
+        "ElementList": [
+          1,
+          2,
+          3,
+          4
+        ]
+      }
+    },
+    "DIPOLE": {
+      "_description": "dipole bending magnet",
+      "CURRENT": {
+        "_description": "current",
+        "GOLDEN": {
+          "_description": "golden setpoint",
+          "ChannelNames": [
+            "SR:MAG:DIPOLE:01:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:02:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:03:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:04:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:05:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:06:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:07:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:08:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:09:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:10:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:11:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:12:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:13:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:14:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:15:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:16:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:17:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:18:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:19:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:20:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:21:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:22:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:23:CURRENT:GOLDEN",
+            "SR:MAG:DIPOLE:24:CURRENT:GOLDEN"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        },
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:MAG:DIPOLE:01:CURRENT:RB",
+            "SR:MAG:DIPOLE:02:CURRENT:RB",
+            "SR:MAG:DIPOLE:03:CURRENT:RB",
+            "SR:MAG:DIPOLE:04:CURRENT:RB",
+            "SR:MAG:DIPOLE:05:CURRENT:RB",
+            "SR:MAG:DIPOLE:06:CURRENT:RB",
+            "SR:MAG:DIPOLE:07:CURRENT:RB",
+            "SR:MAG:DIPOLE:08:CURRENT:RB",
+            "SR:MAG:DIPOLE:09:CURRENT:RB",
+            "SR:MAG:DIPOLE:10:CURRENT:RB",
+            "SR:MAG:DIPOLE:11:CURRENT:RB",
+            "SR:MAG:DIPOLE:12:CURRENT:RB",
+            "SR:MAG:DIPOLE:13:CURRENT:RB",
+            "SR:MAG:DIPOLE:14:CURRENT:RB",
+            "SR:MAG:DIPOLE:15:CURRENT:RB",
+            "SR:MAG:DIPOLE:16:CURRENT:RB",
+            "SR:MAG:DIPOLE:17:CURRENT:RB",
+            "SR:MAG:DIPOLE:18:CURRENT:RB",
+            "SR:MAG:DIPOLE:19:CURRENT:RB",
+            "SR:MAG:DIPOLE:20:CURRENT:RB",
+            "SR:MAG:DIPOLE:21:CURRENT:RB",
+            "SR:MAG:DIPOLE:22:CURRENT:RB",
+            "SR:MAG:DIPOLE:23:CURRENT:RB",
+            "SR:MAG:DIPOLE:24:CURRENT:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        },
+        "SP": {
+          "_description": "setpoint",
+          "ChannelNames": [
+            "SR:MAG:DIPOLE:01:CURRENT:SP",
+            "SR:MAG:DIPOLE:02:CURRENT:SP",
+            "SR:MAG:DIPOLE:03:CURRENT:SP",
+            "SR:MAG:DIPOLE:04:CURRENT:SP",
+            "SR:MAG:DIPOLE:05:CURRENT:SP",
+            "SR:MAG:DIPOLE:06:CURRENT:SP",
+            "SR:MAG:DIPOLE:07:CURRENT:SP",
+            "SR:MAG:DIPOLE:08:CURRENT:SP",
+            "SR:MAG:DIPOLE:09:CURRENT:SP",
+            "SR:MAG:DIPOLE:10:CURRENT:SP",
+            "SR:MAG:DIPOLE:11:CURRENT:SP",
+            "SR:MAG:DIPOLE:12:CURRENT:SP",
+            "SR:MAG:DIPOLE:13:CURRENT:SP",
+            "SR:MAG:DIPOLE:14:CURRENT:SP",
+            "SR:MAG:DIPOLE:15:CURRENT:SP",
+            "SR:MAG:DIPOLE:16:CURRENT:SP",
+            "SR:MAG:DIPOLE:17:CURRENT:SP",
+            "SR:MAG:DIPOLE:18:CURRENT:SP",
+            "SR:MAG:DIPOLE:19:CURRENT:SP",
+            "SR:MAG:DIPOLE:20:CURRENT:SP",
+            "SR:MAG:DIPOLE:21:CURRENT:SP",
+            "SR:MAG:DIPOLE:22:CURRENT:SP",
+            "SR:MAG:DIPOLE:23:CURRENT:SP",
+            "SR:MAG:DIPOLE:24:CURRENT:SP"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "DIPOLE 01",
+          "DIPOLE 02",
+          "DIPOLE 03",
+          "DIPOLE 04",
+          "DIPOLE 05",
+          "DIPOLE 06",
+          "DIPOLE 07",
+          "DIPOLE 08",
+          "DIPOLE 09",
+          "DIPOLE 10",
+          "DIPOLE 11",
+          "DIPOLE 12",
+          "DIPOLE 13",
+          "DIPOLE 14",
+          "DIPOLE 15",
+          "DIPOLE 16",
+          "DIPOLE 17",
+          "DIPOLE 18",
+          "DIPOLE 19",
+          "DIPOLE 20",
+          "DIPOLE 21",
+          "DIPOLE 22",
+          "DIPOLE 23",
+          "DIPOLE 24"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            3,
+            2
+          ],
+          [
+            4,
+            1
+          ],
+          [
+            4,
+            2
+          ],
+          [
+            5,
+            1
+          ],
+          [
+            5,
+            2
+          ],
+          [
+            6,
+            1
+          ],
+          [
+            6,
+            2
+          ],
+          [
+            7,
+            1
+          ],
+          [
+            7,
+            2
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            2
+          ],
+          [
+            9,
+            1
+          ],
+          [
+            9,
+            2
+          ],
+          [
+            10,
+            1
+          ],
+          [
+            10,
+            2
+          ],
+          [
+            11,
+            1
+          ],
+          [
+            11,
+            2
+          ],
+          [
+            12,
+            1
+          ],
+          [
+            12,
+            2
+          ]
+        ],
+        "ElementList": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24
+        ]
+      }
+    },
+    "HCM": {
+      "_description": "horizontal corrector",
+      "CURRENT": {
+        "_description": "current",
+        "GOLDEN": {
+          "_description": "golden setpoint",
+          "ChannelNames": [
+            "SR:MAG:HCM:01:CURRENT:GOLDEN",
+            "SR:MAG:HCM:02:CURRENT:GOLDEN",
+            "SR:MAG:HCM:03:CURRENT:GOLDEN",
+            "SR:MAG:HCM:04:CURRENT:GOLDEN",
+            "SR:MAG:HCM:05:CURRENT:GOLDEN",
+            "SR:MAG:HCM:06:CURRENT:GOLDEN",
+            "SR:MAG:HCM:07:CURRENT:GOLDEN",
+            "SR:MAG:HCM:08:CURRENT:GOLDEN",
+            "SR:MAG:HCM:09:CURRENT:GOLDEN",
+            "SR:MAG:HCM:10:CURRENT:GOLDEN",
+            "SR:MAG:HCM:11:CURRENT:GOLDEN",
+            "SR:MAG:HCM:12:CURRENT:GOLDEN",
+            "SR:MAG:HCM:13:CURRENT:GOLDEN",
+            "SR:MAG:HCM:14:CURRENT:GOLDEN",
+            "SR:MAG:HCM:15:CURRENT:GOLDEN",
+            "SR:MAG:HCM:16:CURRENT:GOLDEN",
+            "SR:MAG:HCM:17:CURRENT:GOLDEN",
+            "SR:MAG:HCM:18:CURRENT:GOLDEN",
+            "SR:MAG:HCM:19:CURRENT:GOLDEN",
+            "SR:MAG:HCM:20:CURRENT:GOLDEN"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        },
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:MAG:HCM:01:CURRENT:RB",
+            "SR:MAG:HCM:02:CURRENT:RB",
+            "SR:MAG:HCM:03:CURRENT:RB",
+            "SR:MAG:HCM:04:CURRENT:RB",
+            "SR:MAG:HCM:05:CURRENT:RB",
+            "SR:MAG:HCM:06:CURRENT:RB",
+            "SR:MAG:HCM:07:CURRENT:RB",
+            "SR:MAG:HCM:08:CURRENT:RB",
+            "SR:MAG:HCM:09:CURRENT:RB",
+            "SR:MAG:HCM:10:CURRENT:RB",
+            "SR:MAG:HCM:11:CURRENT:RB",
+            "SR:MAG:HCM:12:CURRENT:RB",
+            "SR:MAG:HCM:13:CURRENT:RB",
+            "SR:MAG:HCM:14:CURRENT:RB",
+            "SR:MAG:HCM:15:CURRENT:RB",
+            "SR:MAG:HCM:16:CURRENT:RB",
+            "SR:MAG:HCM:17:CURRENT:RB",
+            "SR:MAG:HCM:18:CURRENT:RB",
+            "SR:MAG:HCM:19:CURRENT:RB",
+            "SR:MAG:HCM:20:CURRENT:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        },
+        "SP": {
+          "_description": "setpoint",
+          "ChannelNames": [
+            "SR:MAG:HCM:01:CURRENT:SP",
+            "SR:MAG:HCM:02:CURRENT:SP",
+            "SR:MAG:HCM:03:CURRENT:SP",
+            "SR:MAG:HCM:04:CURRENT:SP",
+            "SR:MAG:HCM:05:CURRENT:SP",
+            "SR:MAG:HCM:06:CURRENT:SP",
+            "SR:MAG:HCM:07:CURRENT:SP",
+            "SR:MAG:HCM:08:CURRENT:SP",
+            "SR:MAG:HCM:09:CURRENT:SP",
+            "SR:MAG:HCM:10:CURRENT:SP",
+            "SR:MAG:HCM:11:CURRENT:SP",
+            "SR:MAG:HCM:12:CURRENT:SP",
+            "SR:MAG:HCM:13:CURRENT:SP",
+            "SR:MAG:HCM:14:CURRENT:SP",
+            "SR:MAG:HCM:15:CURRENT:SP",
+            "SR:MAG:HCM:16:CURRENT:SP",
+            "SR:MAG:HCM:17:CURRENT:SP",
+            "SR:MAG:HCM:18:CURRENT:SP",
+            "SR:MAG:HCM:19:CURRENT:SP",
+            "SR:MAG:HCM:20:CURRENT:SP"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "HCM 01",
+          "HCM 02",
+          "HCM 03",
+          "HCM 04",
+          "HCM 05",
+          "HCM 06",
+          "HCM 07",
+          "HCM 08",
+          "HCM 09",
+          "HCM 10",
+          "HCM 11",
+          "HCM 12",
+          "HCM 13",
+          "HCM 14",
+          "HCM 15",
+          "HCM 16",
+          "HCM 17",
+          "HCM 18",
+          "HCM 19",
+          "HCM 20"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            3,
+            2
+          ],
+          [
+            4,
+            1
+          ],
+          [
+            4,
+            2
+          ],
+          [
+            5,
+            1
+          ],
+          [
+            5,
+            2
+          ],
+          [
+            6,
+            1
+          ],
+          [
+            6,
+            2
+          ],
+          [
+            7,
+            1
+          ],
+          [
+            7,
+            2
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            2
+          ],
+          [
+            9,
+            1
+          ],
+          [
+            9,
+            2
+          ],
+          [
+            10,
+            1
+          ],
+          [
+            10,
+            2
+          ]
+        ],
+        "ElementList": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20
+        ]
+      }
+    },
+    "QD": {
+      "_description": "defocusing quadrupole",
+      "CURRENT": {
+        "_description": "current",
+        "GOLDEN": {
+          "_description": "golden setpoint",
+          "ChannelNames": [
+            "SR:MAG:QD:01:CURRENT:GOLDEN",
+            "SR:MAG:QD:02:CURRENT:GOLDEN",
+            "SR:MAG:QD:03:CURRENT:GOLDEN",
+            "SR:MAG:QD:04:CURRENT:GOLDEN",
+            "SR:MAG:QD:05:CURRENT:GOLDEN",
+            "SR:MAG:QD:06:CURRENT:GOLDEN",
+            "SR:MAG:QD:07:CURRENT:GOLDEN",
+            "SR:MAG:QD:08:CURRENT:GOLDEN",
+            "SR:MAG:QD:09:CURRENT:GOLDEN",
+            "SR:MAG:QD:10:CURRENT:GOLDEN",
+            "SR:MAG:QD:11:CURRENT:GOLDEN",
+            "SR:MAG:QD:12:CURRENT:GOLDEN",
+            "SR:MAG:QD:13:CURRENT:GOLDEN",
+            "SR:MAG:QD:14:CURRENT:GOLDEN",
+            "SR:MAG:QD:15:CURRENT:GOLDEN",
+            "SR:MAG:QD:16:CURRENT:GOLDEN"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        },
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:MAG:QD:01:CURRENT:RB",
+            "SR:MAG:QD:02:CURRENT:RB",
+            "SR:MAG:QD:03:CURRENT:RB",
+            "SR:MAG:QD:04:CURRENT:RB",
+            "SR:MAG:QD:05:CURRENT:RB",
+            "SR:MAG:QD:06:CURRENT:RB",
+            "SR:MAG:QD:07:CURRENT:RB",
+            "SR:MAG:QD:08:CURRENT:RB",
+            "SR:MAG:QD:09:CURRENT:RB",
+            "SR:MAG:QD:10:CURRENT:RB",
+            "SR:MAG:QD:11:CURRENT:RB",
+            "SR:MAG:QD:12:CURRENT:RB",
+            "SR:MAG:QD:13:CURRENT:RB",
+            "SR:MAG:QD:14:CURRENT:RB",
+            "SR:MAG:QD:15:CURRENT:RB",
+            "SR:MAG:QD:16:CURRENT:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        },
+        "SP": {
+          "_description": "setpoint",
+          "ChannelNames": [
+            "SR:MAG:QD:01:CURRENT:SP",
+            "SR:MAG:QD:02:CURRENT:SP",
+            "SR:MAG:QD:03:CURRENT:SP",
+            "SR:MAG:QD:04:CURRENT:SP",
+            "SR:MAG:QD:05:CURRENT:SP",
+            "SR:MAG:QD:06:CURRENT:SP",
+            "SR:MAG:QD:07:CURRENT:SP",
+            "SR:MAG:QD:08:CURRENT:SP",
+            "SR:MAG:QD:09:CURRENT:SP",
+            "SR:MAG:QD:10:CURRENT:SP",
+            "SR:MAG:QD:11:CURRENT:SP",
+            "SR:MAG:QD:12:CURRENT:SP",
+            "SR:MAG:QD:13:CURRENT:SP",
+            "SR:MAG:QD:14:CURRENT:SP",
+            "SR:MAG:QD:15:CURRENT:SP",
+            "SR:MAG:QD:16:CURRENT:SP"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "QD 01",
+          "QD 02",
+          "QD 03",
+          "QD 04",
+          "QD 05",
+          "QD 06",
+          "QD 07",
+          "QD 08",
+          "QD 09",
+          "QD 10",
+          "QD 11",
+          "QD 12",
+          "QD 13",
+          "QD 14",
+          "QD 15",
+          "QD 16"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            3,
+            2
+          ],
+          [
+            4,
+            1
+          ],
+          [
+            4,
+            2
+          ],
+          [
+            5,
+            1
+          ],
+          [
+            5,
+            2
+          ],
+          [
+            6,
+            1
+          ],
+          [
+            6,
+            2
+          ],
+          [
+            7,
+            1
+          ],
+          [
+            7,
+            2
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            2
+          ]
+        ],
+        "ElementList": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16
+        ]
+      }
+    },
+    "QF": {
+      "_description": "focusing quadrupole",
+      "CURRENT": {
+        "_description": "current",
+        "GOLDEN": {
+          "_description": "golden setpoint",
+          "ChannelNames": [
+            "SR:MAG:QF:01:CURRENT:GOLDEN",
+            "SR:MAG:QF:02:CURRENT:GOLDEN",
+            "SR:MAG:QF:03:CURRENT:GOLDEN",
+            "SR:MAG:QF:04:CURRENT:GOLDEN",
+            "SR:MAG:QF:05:CURRENT:GOLDEN",
+            "SR:MAG:QF:06:CURRENT:GOLDEN",
+            "SR:MAG:QF:07:CURRENT:GOLDEN",
+            "SR:MAG:QF:08:CURRENT:GOLDEN",
+            "SR:MAG:QF:09:CURRENT:GOLDEN",
+            "SR:MAG:QF:10:CURRENT:GOLDEN",
+            "SR:MAG:QF:11:CURRENT:GOLDEN",
+            "SR:MAG:QF:12:CURRENT:GOLDEN",
+            "SR:MAG:QF:13:CURRENT:GOLDEN",
+            "SR:MAG:QF:14:CURRENT:GOLDEN",
+            "SR:MAG:QF:15:CURRENT:GOLDEN",
+            "SR:MAG:QF:16:CURRENT:GOLDEN"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        },
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:MAG:QF:01:CURRENT:RB",
+            "SR:MAG:QF:02:CURRENT:RB",
+            "SR:MAG:QF:03:CURRENT:RB",
+            "SR:MAG:QF:04:CURRENT:RB",
+            "SR:MAG:QF:05:CURRENT:RB",
+            "SR:MAG:QF:06:CURRENT:RB",
+            "SR:MAG:QF:07:CURRENT:RB",
+            "SR:MAG:QF:08:CURRENT:RB",
+            "SR:MAG:QF:09:CURRENT:RB",
+            "SR:MAG:QF:10:CURRENT:RB",
+            "SR:MAG:QF:11:CURRENT:RB",
+            "SR:MAG:QF:12:CURRENT:RB",
+            "SR:MAG:QF:13:CURRENT:RB",
+            "SR:MAG:QF:14:CURRENT:RB",
+            "SR:MAG:QF:15:CURRENT:RB",
+            "SR:MAG:QF:16:CURRENT:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        },
+        "SP": {
+          "_description": "setpoint",
+          "ChannelNames": [
+            "SR:MAG:QF:01:CURRENT:SP",
+            "SR:MAG:QF:02:CURRENT:SP",
+            "SR:MAG:QF:03:CURRENT:SP",
+            "SR:MAG:QF:04:CURRENT:SP",
+            "SR:MAG:QF:05:CURRENT:SP",
+            "SR:MAG:QF:06:CURRENT:SP",
+            "SR:MAG:QF:07:CURRENT:SP",
+            "SR:MAG:QF:08:CURRENT:SP",
+            "SR:MAG:QF:09:CURRENT:SP",
+            "SR:MAG:QF:10:CURRENT:SP",
+            "SR:MAG:QF:11:CURRENT:SP",
+            "SR:MAG:QF:12:CURRENT:SP",
+            "SR:MAG:QF:13:CURRENT:SP",
+            "SR:MAG:QF:14:CURRENT:SP",
+            "SR:MAG:QF:15:CURRENT:SP",
+            "SR:MAG:QF:16:CURRENT:SP"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "QF 01",
+          "QF 02",
+          "QF 03",
+          "QF 04",
+          "QF 05",
+          "QF 06",
+          "QF 07",
+          "QF 08",
+          "QF 09",
+          "QF 10",
+          "QF 11",
+          "QF 12",
+          "QF 13",
+          "QF 14",
+          "QF 15",
+          "QF 16"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            3,
+            2
+          ],
+          [
+            4,
+            1
+          ],
+          [
+            4,
+            2
+          ],
+          [
+            5,
+            1
+          ],
+          [
+            5,
+            2
+          ],
+          [
+            6,
+            1
+          ],
+          [
+            6,
+            2
+          ],
+          [
+            7,
+            1
+          ],
+          [
+            7,
+            2
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            2
+          ]
+        ],
+        "ElementList": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16
+        ]
+      }
+    },
+    "SD": {
+      "_description": "sextupole (defocusing)",
+      "CURRENT": {
+        "_description": "current",
+        "GOLDEN": {
+          "_description": "golden setpoint",
+          "ChannelNames": [
+            "SR:MAG:SD:01:CURRENT:GOLDEN",
+            "SR:MAG:SD:02:CURRENT:GOLDEN",
+            "SR:MAG:SD:03:CURRENT:GOLDEN",
+            "SR:MAG:SD:04:CURRENT:GOLDEN",
+            "SR:MAG:SD:05:CURRENT:GOLDEN",
+            "SR:MAG:SD:06:CURRENT:GOLDEN",
+            "SR:MAG:SD:07:CURRENT:GOLDEN",
+            "SR:MAG:SD:08:CURRENT:GOLDEN",
+            "SR:MAG:SD:09:CURRENT:GOLDEN",
+            "SR:MAG:SD:10:CURRENT:GOLDEN",
+            "SR:MAG:SD:11:CURRENT:GOLDEN",
+            "SR:MAG:SD:12:CURRENT:GOLDEN"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        },
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:MAG:SD:01:CURRENT:RB",
+            "SR:MAG:SD:02:CURRENT:RB",
+            "SR:MAG:SD:03:CURRENT:RB",
+            "SR:MAG:SD:04:CURRENT:RB",
+            "SR:MAG:SD:05:CURRENT:RB",
+            "SR:MAG:SD:06:CURRENT:RB",
+            "SR:MAG:SD:07:CURRENT:RB",
+            "SR:MAG:SD:08:CURRENT:RB",
+            "SR:MAG:SD:09:CURRENT:RB",
+            "SR:MAG:SD:10:CURRENT:RB",
+            "SR:MAG:SD:11:CURRENT:RB",
+            "SR:MAG:SD:12:CURRENT:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        },
+        "SP": {
+          "_description": "setpoint",
+          "ChannelNames": [
+            "SR:MAG:SD:01:CURRENT:SP",
+            "SR:MAG:SD:02:CURRENT:SP",
+            "SR:MAG:SD:03:CURRENT:SP",
+            "SR:MAG:SD:04:CURRENT:SP",
+            "SR:MAG:SD:05:CURRENT:SP",
+            "SR:MAG:SD:06:CURRENT:SP",
+            "SR:MAG:SD:07:CURRENT:SP",
+            "SR:MAG:SD:08:CURRENT:SP",
+            "SR:MAG:SD:09:CURRENT:SP",
+            "SR:MAG:SD:10:CURRENT:SP",
+            "SR:MAG:SD:11:CURRENT:SP",
+            "SR:MAG:SD:12:CURRENT:SP"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "SD 01",
+          "SD 02",
+          "SD 03",
+          "SD 04",
+          "SD 05",
+          "SD 06",
+          "SD 07",
+          "SD 08",
+          "SD 09",
+          "SD 10",
+          "SD 11",
+          "SD 12"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            4,
+            1
+          ],
+          [
+            5,
+            1
+          ],
+          [
+            6,
+            1
+          ],
+          [
+            7,
+            1
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            9,
+            1
+          ],
+          [
+            10,
+            1
+          ],
+          [
+            11,
+            1
+          ],
+          [
+            12,
+            1
+          ]
+        ],
+        "ElementList": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12
+        ]
+      }
+    },
+    "SF": {
+      "_description": "sextupole (focusing)",
+      "CURRENT": {
+        "_description": "current",
+        "GOLDEN": {
+          "_description": "golden setpoint",
+          "ChannelNames": [
+            "SR:MAG:SF:01:CURRENT:GOLDEN",
+            "SR:MAG:SF:02:CURRENT:GOLDEN",
+            "SR:MAG:SF:03:CURRENT:GOLDEN",
+            "SR:MAG:SF:04:CURRENT:GOLDEN",
+            "SR:MAG:SF:05:CURRENT:GOLDEN",
+            "SR:MAG:SF:06:CURRENT:GOLDEN",
+            "SR:MAG:SF:07:CURRENT:GOLDEN",
+            "SR:MAG:SF:08:CURRENT:GOLDEN",
+            "SR:MAG:SF:09:CURRENT:GOLDEN",
+            "SR:MAG:SF:10:CURRENT:GOLDEN",
+            "SR:MAG:SF:11:CURRENT:GOLDEN",
+            "SR:MAG:SF:12:CURRENT:GOLDEN"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        },
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:MAG:SF:01:CURRENT:RB",
+            "SR:MAG:SF:02:CURRENT:RB",
+            "SR:MAG:SF:03:CURRENT:RB",
+            "SR:MAG:SF:04:CURRENT:RB",
+            "SR:MAG:SF:05:CURRENT:RB",
+            "SR:MAG:SF:06:CURRENT:RB",
+            "SR:MAG:SF:07:CURRENT:RB",
+            "SR:MAG:SF:08:CURRENT:RB",
+            "SR:MAG:SF:09:CURRENT:RB",
+            "SR:MAG:SF:10:CURRENT:RB",
+            "SR:MAG:SF:11:CURRENT:RB",
+            "SR:MAG:SF:12:CURRENT:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        },
+        "SP": {
+          "_description": "setpoint",
+          "ChannelNames": [
+            "SR:MAG:SF:01:CURRENT:SP",
+            "SR:MAG:SF:02:CURRENT:SP",
+            "SR:MAG:SF:03:CURRENT:SP",
+            "SR:MAG:SF:04:CURRENT:SP",
+            "SR:MAG:SF:05:CURRENT:SP",
+            "SR:MAG:SF:06:CURRENT:SP",
+            "SR:MAG:SF:07:CURRENT:SP",
+            "SR:MAG:SF:08:CURRENT:SP",
+            "SR:MAG:SF:09:CURRENT:SP",
+            "SR:MAG:SF:10:CURRENT:SP",
+            "SR:MAG:SF:11:CURRENT:SP",
+            "SR:MAG:SF:12:CURRENT:SP"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "SF 01",
+          "SF 02",
+          "SF 03",
+          "SF 04",
+          "SF 05",
+          "SF 06",
+          "SF 07",
+          "SF 08",
+          "SF 09",
+          "SF 10",
+          "SF 11",
+          "SF 12"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            4,
+            1
+          ],
+          [
+            5,
+            1
+          ],
+          [
+            6,
+            1
+          ],
+          [
+            7,
+            1
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            9,
+            1
+          ],
+          [
+            10,
+            1
+          ],
+          [
+            11,
+            1
+          ],
+          [
+            12,
+            1
+          ]
+        ],
+        "ElementList": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12
+        ]
+      }
+    },
+    "VCM": {
+      "_description": "vertical corrector",
+      "CURRENT": {
+        "_description": "current",
+        "GOLDEN": {
+          "_description": "golden setpoint",
+          "ChannelNames": [
+            "SR:MAG:VCM:01:CURRENT:GOLDEN",
+            "SR:MAG:VCM:02:CURRENT:GOLDEN",
+            "SR:MAG:VCM:03:CURRENT:GOLDEN",
+            "SR:MAG:VCM:04:CURRENT:GOLDEN",
+            "SR:MAG:VCM:05:CURRENT:GOLDEN",
+            "SR:MAG:VCM:06:CURRENT:GOLDEN",
+            "SR:MAG:VCM:07:CURRENT:GOLDEN",
+            "SR:MAG:VCM:08:CURRENT:GOLDEN",
+            "SR:MAG:VCM:09:CURRENT:GOLDEN",
+            "SR:MAG:VCM:10:CURRENT:GOLDEN",
+            "SR:MAG:VCM:11:CURRENT:GOLDEN",
+            "SR:MAG:VCM:12:CURRENT:GOLDEN",
+            "SR:MAG:VCM:13:CURRENT:GOLDEN",
+            "SR:MAG:VCM:14:CURRENT:GOLDEN",
+            "SR:MAG:VCM:15:CURRENT:GOLDEN",
+            "SR:MAG:VCM:16:CURRENT:GOLDEN",
+            "SR:MAG:VCM:17:CURRENT:GOLDEN",
+            "SR:MAG:VCM:18:CURRENT:GOLDEN",
+            "SR:MAG:VCM:19:CURRENT:GOLDEN",
+            "SR:MAG:VCM:20:CURRENT:GOLDEN"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        },
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:MAG:VCM:01:CURRENT:RB",
+            "SR:MAG:VCM:02:CURRENT:RB",
+            "SR:MAG:VCM:03:CURRENT:RB",
+            "SR:MAG:VCM:04:CURRENT:RB",
+            "SR:MAG:VCM:05:CURRENT:RB",
+            "SR:MAG:VCM:06:CURRENT:RB",
+            "SR:MAG:VCM:07:CURRENT:RB",
+            "SR:MAG:VCM:08:CURRENT:RB",
+            "SR:MAG:VCM:09:CURRENT:RB",
+            "SR:MAG:VCM:10:CURRENT:RB",
+            "SR:MAG:VCM:11:CURRENT:RB",
+            "SR:MAG:VCM:12:CURRENT:RB",
+            "SR:MAG:VCM:13:CURRENT:RB",
+            "SR:MAG:VCM:14:CURRENT:RB",
+            "SR:MAG:VCM:15:CURRENT:RB",
+            "SR:MAG:VCM:16:CURRENT:RB",
+            "SR:MAG:VCM:17:CURRENT:RB",
+            "SR:MAG:VCM:18:CURRENT:RB",
+            "SR:MAG:VCM:19:CURRENT:RB",
+            "SR:MAG:VCM:20:CURRENT:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        },
+        "SP": {
+          "_description": "setpoint",
+          "ChannelNames": [
+            "SR:MAG:VCM:01:CURRENT:SP",
+            "SR:MAG:VCM:02:CURRENT:SP",
+            "SR:MAG:VCM:03:CURRENT:SP",
+            "SR:MAG:VCM:04:CURRENT:SP",
+            "SR:MAG:VCM:05:CURRENT:SP",
+            "SR:MAG:VCM:06:CURRENT:SP",
+            "SR:MAG:VCM:07:CURRENT:SP",
+            "SR:MAG:VCM:08:CURRENT:SP",
+            "SR:MAG:VCM:09:CURRENT:SP",
+            "SR:MAG:VCM:10:CURRENT:SP",
+            "SR:MAG:VCM:11:CURRENT:SP",
+            "SR:MAG:VCM:12:CURRENT:SP",
+            "SR:MAG:VCM:13:CURRENT:SP",
+            "SR:MAG:VCM:14:CURRENT:SP",
+            "SR:MAG:VCM:15:CURRENT:SP",
+            "SR:MAG:VCM:16:CURRENT:SP",
+            "SR:MAG:VCM:17:CURRENT:SP",
+            "SR:MAG:VCM:18:CURRENT:SP",
+            "SR:MAG:VCM:19:CURRENT:SP",
+            "SR:MAG:VCM:20:CURRENT:SP"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "VCM 01",
+          "VCM 02",
+          "VCM 03",
+          "VCM 04",
+          "VCM 05",
+          "VCM 06",
+          "VCM 07",
+          "VCM 08",
+          "VCM 09",
+          "VCM 10",
+          "VCM 11",
+          "VCM 12",
+          "VCM 13",
+          "VCM 14",
+          "VCM 15",
+          "VCM 16",
+          "VCM 17",
+          "VCM 18",
+          "VCM 19",
+          "VCM 20"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            1,
+            2
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            2,
+            2
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            3,
+            2
+          ],
+          [
+            4,
+            1
+          ],
+          [
+            4,
+            2
+          ],
+          [
+            5,
+            1
+          ],
+          [
+            5,
+            2
+          ],
+          [
+            6,
+            1
+          ],
+          [
+            6,
+            2
+          ],
+          [
+            7,
+            1
+          ],
+          [
+            7,
+            2
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            8,
+            2
+          ],
+          [
+            9,
+            1
+          ],
+          [
+            9,
+            2
+          ],
+          [
+            10,
+            1
+          ],
+          [
+            10,
+            2
+          ]
+        ],
+        "ElementList": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20
+        ]
+      }
+    },
+    "CAVITY": {
+      "_description": "RF cavity",
+      "FREQUENCY": {
+        "_description": "frequency",
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:RF:CAVITY:01:FREQUENCY:RB",
+            "SR:RF:CAVITY:02:FREQUENCY:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "MHz"
+        },
+        "SP": {
+          "_description": "setpoint",
+          "ChannelNames": [
+            "SR:RF:CAVITY:01:FREQUENCY:SP",
+            "SR:RF:CAVITY:02:FREQUENCY:SP"
+          ],
+          "DataType": "double",
+          "HWUnits": "MHz"
+        }
+      },
+      "POWER": {
+        "_description": "power",
+        "FWD": {
+          "_description": "forward",
+          "ChannelNames": [
+            "SR:RF:CAVITY:01:POWER:FWD",
+            "SR:RF:CAVITY:02:POWER:FWD"
+          ],
+          "DataType": "double",
+          "HWUnits": "W"
+        },
+        "NET": {
+          "_description": "net",
+          "ChannelNames": [
+            "SR:RF:CAVITY:01:POWER:NET",
+            "SR:RF:CAVITY:02:POWER:NET"
+          ],
+          "DataType": "double",
+          "HWUnits": "W"
+        },
+        "REV": {
+          "_description": "reverse",
+          "ChannelNames": [
+            "SR:RF:CAVITY:01:POWER:REV",
+            "SR:RF:CAVITY:02:POWER:REV"
+          ],
+          "DataType": "double",
+          "HWUnits": "W"
+        }
+      },
+      "TEMPERATURE": {
+        "_description": "temperature",
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:RF:CAVITY:01:TEMPERATURE:RB",
+            "SR:RF:CAVITY:02:TEMPERATURE:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "C"
+        }
+      },
+      "TUNER": {
+        "_description": "tuner",
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:RF:CAVITY:01:TUNER:RB",
+            "SR:RF:CAVITY:02:TUNER:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "cm"
+        },
+        "SP": {
+          "_description": "setpoint",
+          "ChannelNames": [
+            "SR:RF:CAVITY:01:TUNER:SP",
+            "SR:RF:CAVITY:02:TUNER:SP"
+          ],
+          "DataType": "double",
+          "HWUnits": "cm"
+        }
+      },
+      "VOLTAGE": {
+        "_description": "voltage",
+        "GOLDEN": {
+          "_description": "golden setpoint",
+          "ChannelNames": [
+            "SR:RF:CAVITY:01:VOLTAGE:GOLDEN",
+            "SR:RF:CAVITY:02:VOLTAGE:GOLDEN"
+          ],
+          "DataType": "double",
+          "HWUnits": "V"
+        },
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:RF:CAVITY:01:VOLTAGE:RB",
+            "SR:RF:CAVITY:02:VOLTAGE:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "V"
+        },
+        "SP": {
+          "_description": "setpoint",
+          "ChannelNames": [
+            "SR:RF:CAVITY:01:VOLTAGE:SP",
+            "SR:RF:CAVITY:02:VOLTAGE:SP"
+          ],
+          "DataType": "double",
+          "HWUnits": "V"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "CAVITY 01",
+          "CAVITY 02"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ]
+        ],
+        "ElementList": [
+          1,
+          2
+        ]
+      }
+    },
+    "KLYSTRON": {
+      "_description": "klystron",
+      "POWER": {
+        "_description": "power",
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:RF:KLYSTRON:01:POWER:RB",
+            "SR:RF:KLYSTRON:02:POWER:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "W"
+        }
+      },
+      "VOLTAGE": {
+        "_description": "voltage",
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:RF:KLYSTRON:01:VOLTAGE:RB",
+            "SR:RF:KLYSTRON:02:VOLTAGE:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "V"
+        },
+        "SP": {
+          "_description": "setpoint",
+          "ChannelNames": [
+            "SR:RF:KLYSTRON:01:VOLTAGE:SP",
+            "SR:RF:KLYSTRON:02:VOLTAGE:SP"
+          ],
+          "DataType": "double",
+          "HWUnits": "V"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "KLYSTRON 01",
+          "KLYSTRON 02"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ]
+        ],
+        "ElementList": [
+          1,
+          2
+        ]
+      }
+    },
+    "GAUGE": {
+      "_description": "vacuum gauge",
+      "PRESSURE": {
+        "_description": "pressure",
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:VAC:GAUGE:SR01:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR02:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR03:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR04:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR05:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR06:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR07:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR08:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR09:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR10:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR11:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR12:PRESSURE:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "Pa"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "GAUGE SR01",
+          "GAUGE SR02",
+          "GAUGE SR03",
+          "GAUGE SR04",
+          "GAUGE SR05",
+          "GAUGE SR06",
+          "GAUGE SR07",
+          "GAUGE SR08",
+          "GAUGE SR09",
+          "GAUGE SR10",
+          "GAUGE SR11",
+          "GAUGE SR12"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            4,
+            1
+          ],
+          [
+            5,
+            1
+          ],
+          [
+            6,
+            1
+          ],
+          [
+            7,
+            1
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            9,
+            1
+          ],
+          [
+            10,
+            1
+          ],
+          [
+            11,
+            1
+          ],
+          [
+            12,
+            1
+          ]
+        ],
+        "ElementList": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12
+        ]
+      }
+    },
+    "ION-PUMP": {
+      "_description": "ion pump",
+      "CURRENT": {
+        "_description": "current",
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:VAC:ION-PUMP:01:CURRENT:RB",
+            "SR:VAC:ION-PUMP:02:CURRENT:RB",
+            "SR:VAC:ION-PUMP:03:CURRENT:RB",
+            "SR:VAC:ION-PUMP:04:CURRENT:RB",
+            "SR:VAC:ION-PUMP:05:CURRENT:RB",
+            "SR:VAC:ION-PUMP:06:CURRENT:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "A"
+        }
+      },
+      "PRESSURE": {
+        "_description": "pressure",
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:VAC:ION-PUMP:01:PRESSURE:RB",
+            "SR:VAC:ION-PUMP:02:PRESSURE:RB",
+            "SR:VAC:ION-PUMP:03:PRESSURE:RB",
+            "SR:VAC:ION-PUMP:04:PRESSURE:RB",
+            "SR:VAC:ION-PUMP:05:PRESSURE:RB",
+            "SR:VAC:ION-PUMP:06:PRESSURE:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "Pa"
+        }
+      },
+      "VOLTAGE": {
+        "_description": "voltage",
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:VAC:ION-PUMP:01:VOLTAGE:RB",
+            "SR:VAC:ION-PUMP:02:VOLTAGE:RB",
+            "SR:VAC:ION-PUMP:03:VOLTAGE:RB",
+            "SR:VAC:ION-PUMP:04:VOLTAGE:RB",
+            "SR:VAC:ION-PUMP:05:VOLTAGE:RB",
+            "SR:VAC:ION-PUMP:06:VOLTAGE:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "V"
+        },
+        "SP": {
+          "_description": "setpoint",
+          "ChannelNames": [
+            "SR:VAC:ION-PUMP:01:VOLTAGE:SP",
+            "SR:VAC:ION-PUMP:02:VOLTAGE:SP",
+            "SR:VAC:ION-PUMP:03:VOLTAGE:SP",
+            "SR:VAC:ION-PUMP:04:VOLTAGE:SP",
+            "SR:VAC:ION-PUMP:05:VOLTAGE:SP",
+            "SR:VAC:ION-PUMP:06:VOLTAGE:SP"
+          ],
+          "DataType": "double",
+          "HWUnits": "V"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "ION-PUMP 01",
+          "ION-PUMP 02",
+          "ION-PUMP 03",
+          "ION-PUMP 04",
+          "ION-PUMP 05",
+          "ION-PUMP 06"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            4,
+            1
+          ],
+          [
+            5,
+            1
+          ],
+          [
+            6,
+            1
+          ]
+        ],
+        "ElementList": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6
+        ]
+      }
+    }
+  }
+}

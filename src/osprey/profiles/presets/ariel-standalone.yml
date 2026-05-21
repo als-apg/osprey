@@ -1,0 +1,62 @@
+# ariel-standalone.yml
+# ARIEL logbook research deployment — no control-system stack.
+#
+# Use this preset when you want OSPREY's logbook search service (ARIEL) but
+# no channel finder, no archiver, no Python executor, no hardware writes.
+# Everything stays in lockstep with the OSPREY codebase — same modules,
+# different config selection.
+
+name: ARIEL Standalone
+
+# Data bundle: ariel-only project skeleton (Postgres+pgvector services block,
+# ARIEL config, no channel/benchmark databases).
+data_bundle: ariel_standalone
+
+provider: anthropic
+model: claude-haiku-4-5
+
+# Selects an alternate CLAUDE.md persona — "logbook research assistant"
+# instead of the default control-system operator. See
+# src/osprey/templates/claude_code/CLAUDE.ariel.md.j2.
+claude_md_template: CLAUDE.ariel.md.j2
+
+# ── Artifact selection ───────────────────────────────────────────────────────
+# Each list entry is a short name resolved from the osprey artifact library.
+
+hooks:
+  - hook-log          # Append every tool call to a structured JSONL audit log
+  - hook-config       # Inject project config.yml path into every tool call env
+  - approval          # Gate logbook entry creation on user approval prompt
+  - error-guidance    # Post-error hook that surfaces remediation hints
+  - notebook-update   # Sync CLAUDE.md notebook after each session
+  - memory-guard      # Warn when context window approaches threshold
+
+rules:
+  - error-handling      # Standard error handling and retry guidance
+  - artifacts           # Rules for saving diagnostic artifacts
+  - facility            # Facility-level conventions (naming, terminology)
+  - workflows           # Approved workflow patterns (plan, delegate, parallelize)
+  - timezone            # Always localise timestamps to facility timezone
+
+skills:
+  - session-report          # Summarise session actions and outcomes to the logbook
+  - logbook-deep-research   # Multi-phase logbook investigation (invoked by skill)
+
+# No subagents: the deep-research workflow is invoked as a skill from the
+# main agent, not as a separate subagent.
+agents: []
+
+output_styles:
+  - control-operator  # Terse, actionable output style
+
+web_panels:
+  - ariel           # ARIEL search interface
+
+# Focus the ARIEL tab on cold load instead of the always-on Workspace tab.
+# The workspace tab stays present (for skill/agent artifact handoff); it's
+# just not the one the user sees first.
+default_panel: ariel
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+config:
+  approval.tools.entry_create: always

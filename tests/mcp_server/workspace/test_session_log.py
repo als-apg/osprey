@@ -14,7 +14,11 @@ from unittest.mock import patch
 
 import pytest
 
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import (
+    assert_raises_error,
+    extract_response_dict,
+    get_tool_fn,
+)
 
 
 def _get_session_log():
@@ -58,8 +62,8 @@ def basic_events():
             "type": "tool_call",
             "timestamp": _ts(1),
             "tool": "create_static_plot",
-            "full_tool_name": "mcp__workspace__create_static_plot",
-            "server": "workspace",
+            "full_tool_name": "mcp__osprey_workspace__create_static_plot",
+            "server": "osprey_workspace",
             "is_error": False,
             "session_id": None,
             "agent_id": "agent-1",
@@ -70,8 +74,8 @@ def basic_events():
             "type": "tool_call",
             "timestamp": _ts(2),
             "tool": "create_dashboard",
-            "full_tool_name": "mcp__workspace__create_dashboard",
-            "server": "workspace",
+            "full_tool_name": "mcp__osprey_workspace__create_dashboard",
+            "server": "osprey_workspace",
             "is_error": True,
             "session_id": None,
             "agent_id": "agent-1",
@@ -130,8 +134,8 @@ def concurrent_agent_events():
             "type": "tool_call",
             "timestamp": _ts(2),
             "tool": "create_static_plot",
-            "full_tool_name": "mcp__workspace__create_static_plot",
-            "server": "workspace",
+            "full_tool_name": "mcp__osprey_workspace__create_static_plot",
+            "server": "osprey_workspace",
             "is_error": False,
             "session_id": None,
             "agent_id": "agent-A",
@@ -142,8 +146,8 @@ def concurrent_agent_events():
             "type": "tool_call",
             "timestamp": _ts(3),
             "tool": "create_dashboard",
-            "full_tool_name": "mcp__workspace__create_dashboard",
-            "server": "workspace",
+            "full_tool_name": "mcp__osprey_workspace__create_dashboard",
+            "server": "osprey_workspace",
             "is_error": True,
             "session_id": None,
             "agent_id": "agent-B",
@@ -154,8 +158,8 @@ def concurrent_agent_events():
             "type": "tool_call",
             "timestamp": _ts(4),
             "tool": "create_interactive_plot",
-            "full_tool_name": "mcp__workspace__create_interactive_plot",
-            "server": "workspace",
+            "full_tool_name": "mcp__osprey_workspace__create_interactive_plot",
+            "server": "osprey_workspace",
             "is_error": False,
             "session_id": None,
             "agent_id": "agent-A",
@@ -509,7 +513,7 @@ async def test_agent_id_correlation(concurrent_agent_events, tmp_path):
         _patch_transcript_reader(concurrent_agent_events),
     ):
         # agent-B should get only create_dashboard (its agent_id)
-        result = json.loads(await fn(agent_id="agent-B"))
+        result = extract_response_dict(await fn(agent_id="agent-B"))
 
     tool_calls = [e for e in result["events"] if e["type"] == "tool_call"]
     assert len(tool_calls) == 1
@@ -532,8 +536,8 @@ async def test_time_window_fallback(tmp_path):
             "type": "tool_call",
             "timestamp": _ts(1),
             "tool": "create_static_plot",
-            "full_tool_name": "mcp__workspace__create_static_plot",
-            "server": "workspace",
+            "full_tool_name": "mcp__osprey_workspace__create_static_plot",
+            "server": "osprey_workspace",
             "is_error": False,
             "session_id": None,
             "arguments": {"title": "Old"},
@@ -555,7 +559,7 @@ async def test_time_window_fallback(tmp_path):
         ),
         _patch_transcript_reader(events),
     ):
-        result = json.loads(await fn(agent="data-visualizer"))
+        result = extract_response_dict(await fn(agent="data-visualizer"))
 
     # Should still match the tool_call via time-window fallback
     assert result["total_events"] == 3
@@ -576,11 +580,8 @@ async def test_since_invalid_format(tmp_path):
         ),
         _patch_transcript_reader([]),
     ):
-        result = await fn(since="not-a-timestamp")
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await fn(since="not-a-timestamp")
 
-    # make_error returns a dict, check it has error fields
-    if isinstance(result, str):
-        result = json.loads(result)
-    assert result["error"] is True
-    assert result["error_type"] == "validation_error"
-    assert "since" in result["error_message"]
+    envelope = _exc_ctx["envelope"]
+    assert "since" in envelope["error_message"]

@@ -7,9 +7,11 @@ from typing import Any
 import yaml
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from osprey.cli.build_profile import VALID_CHANNEL_FINDER_MODES
 from osprey.cli.styles import console
 from osprey.cli.templates import claude_code, manifest, scaffolding
 from osprey.cli.templates._rendering import render_template as _render_template
+from osprey.errors import BuildProfileError
 from osprey.utils.config import resolve_env_vars
 
 
@@ -117,6 +119,7 @@ class TemplateManager:
         context: dict[str, Any] | None = None,
         force: bool = False,
         artifacts: dict[str, list[str]] | None = None,
+        tier: int = 1,
     ) -> Path:
         """Create complete project from template.
 
@@ -139,7 +142,16 @@ class TemplateManager:
             Path to created project directory
 
         Raises:
-            ValueError: If data bundle doesn't exist or project directory exists
+            ValueError: If data bundle doesn't exist or the project directory
+                exists without ``force=True``.
+
+        Note:
+            ``default_provider`` is no longer defaulted here — callers must
+            inject it via ``context``. ``osprey build`` enforces this at the
+            CLI boundary (``click.UsageError``); internal callers that omit
+            it produce an empty ``provider:`` in the rendered ``config.yml``,
+            which the config loader rejects at project runtime. See
+            plan-remove-implicit-synchronous-narwhal.
         """
         # 1. Validate data bundle exists
         bundle_dir = self.template_root / "apps" / data_bundle
@@ -196,8 +208,6 @@ class TemplateManager:
             "project_root": str(project_dir.absolute()),
             "venv_path": "${LOCAL_PYTHON_VENV}",
             "current_python_env": current_python,  # Default; overridden by caller context
-            "default_provider": "anthropic",
-            "default_model": "haiku",
             "template_name": data_bundle,  # Make bundle name available in config.yml
             "data_bundle": data_bundle,
             "selected_hooks": selected_hooks,
@@ -207,40 +217,37 @@ class TemplateManager:
             **(context or {}),
         }
 
-        # Derive channel finder configuration:
-        # - When called from build (artifacts provided): check if channel-finder agent is selected
-        # - When artifacts is None (programmatic caller): check if bundle config template declares it
+        # Derive channel finder configuration when the channel-finder agent
+        # is selected (either explicitly via build profile artifacts, or via
+        # the preset-profile fallback above for programmatic callers).
         _profile_agents = (artifacts or {}).get("agents", [])
-        _bundle_has_channel_finder = (bundle_dir / "config.yml.j2").exists() and not artifacts
-        if "channel-finder" in _profile_agents or _bundle_has_channel_finder:
-            channel_finder_mode = ctx.get("channel_finder_mode", "all")
+        if "channel-finder" in _profile_agents:
+            channel_finder_mode = ctx.get("channel_finder_mode")
+            if channel_finder_mode is None:
+                raise BuildProfileError(
+                    "channel_finder_mode is required when the channel-finder agent "
+                    "is selected. Pin it in your profile "
+                    "(e.g. `channel_finder_mode: hierarchical`) or pass "
+                    "`--set channel_finder_mode=<paradigm>` to `osprey build`."
+                )
+            if channel_finder_mode not in VALID_CHANNEL_FINDER_MODES:
+                raise BuildProfileError(
+                    f"channel_finder_mode must be one of {VALID_CHANNEL_FINDER_MODES} "
+                    f"(got {channel_finder_mode!r})"
+                )
+            from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
 
-            # Derive boolean flags for conditional templates
-            enable_in_context = channel_finder_mode in ["in_context", "all"]
-            enable_hierarchical = channel_finder_mode in ["hierarchical", "all"]
-            enable_middle_layer = channel_finder_mode in ["middle_layer", "all"]
-
-            # Determine default pipeline (for config.yml)
-            if channel_finder_mode == "all":
-                default_pipeline = "hierarchical"  # Default to most scalable option
-            else:
-                default_pipeline = channel_finder_mode
-
-            # Determine which pipeline module to use for MCP server
-            if channel_finder_mode == "all":
-                channel_finder_pipeline = default_pipeline  # "hierarchical"
-            else:
-                channel_finder_pipeline = channel_finder_mode
-
-            # Add channel finder context variables
             ctx.update(
                 {
                     "channel_finder_mode": channel_finder_mode,
-                    "enable_in_context": enable_in_context,
-                    "enable_hierarchical": enable_hierarchical,
-                    "enable_middle_layer": enable_middle_layer,
-                    "default_pipeline": default_pipeline,
-                    "channel_finder_pipeline": channel_finder_pipeline,
+                    "enable_in_context": channel_finder_mode == "in_context",
+                    "enable_hierarchical": channel_finder_mode == "hierarchical",
+                    "enable_middle_layer": channel_finder_mode == "middle_layer",
+                    "default_pipeline": channel_finder_mode,
+                    "channel_finder_pipeline": channel_finder_mode,
+                    "channel_finder_tools": list(
+                        CHANNEL_FINDER_TOOLS_BY_PIPELINE.get(channel_finder_mode, [])
+                    ),
                     "facility_name": ctx.get("facility_name", project_name),
                 }
             )
@@ -291,6 +298,17 @@ class TemplateManager:
         # 6b. Rebase demo logbook timestamps to current date
         scaffolding.rebase_logbook_timestamps(project_dir)
 
+        # 6c. Flatten the preset's tier-routed channel DBs into the canonical
+        # data/channel_databases/<paradigm>.json locations. Must run before the
+        # Claude Code hierarchy probe below, which reads the flat path. Only
+        # relevant when channel-finder is selected — builds that skip the
+        # channel-finder agent have no use for the materialized DB. No-op for
+        # bundles without a tiers/ subtree (e.g. hello_world).
+        channel_finder_mode = ctx.get("channel_finder_mode")
+        if channel_finder_mode is not None:
+            scaffolding.materialize_tier_artifacts(project_dir, tier, channel_finder_mode)
+            scaffolding.prune_csv_build_artifacts(project_dir, channel_finder_mode)
+
         # 7. Create _agent_data directory structure
         scaffolding.create_agent_data_structure(self.template_root, project_dir, ctx)
 
@@ -326,14 +344,7 @@ class TemplateManager:
             # but setdefault handles other templates)
             ctx.setdefault("facility_name", rendered_config.get("facility_name", project_name))
 
-            # Override channel_finder_mode with the actual active pipeline from
-            # rendered config. During phase 1, channel_finder_mode may be "all"
-            # (meaning "render all pipeline configs"). But Claude Code agent templates
-            # need the actual active pipeline mode, which is deterministic from
-            # config.yml pipeline_mode.
             cf_config = rendered_config.get("channel_finder", {})
-            if cf_config.get("pipeline_mode"):
-                ctx["channel_finder_mode"] = cf_config["pipeline_mode"]
 
             # Embed hierarchy info for initial creation (mirrors _build_claude_code_context)
             if cf_config.get("pipeline_mode") == "hierarchical":

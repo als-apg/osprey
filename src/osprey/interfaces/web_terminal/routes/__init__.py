@@ -14,8 +14,8 @@ from osprey.interfaces.web_terminal.routes.config import router as config_router
 from osprey.interfaces.web_terminal.routes.files import router as files_router
 from osprey.interfaces.web_terminal.routes.memory import router as memory_router
 from osprey.interfaces.web_terminal.routes.panels import router as panels_router
-from osprey.interfaces.web_terminal.routes.prompts import router as prompts_router
 from osprey.interfaces.web_terminal.routes.proxy import router as proxy_router
+from osprey.interfaces.web_terminal.routes.scaffold import router as scaffold_router
 from osprey.interfaces.web_terminal.routes.session import router as session_router
 from osprey.interfaces.web_terminal.routes.websocket import router as websocket_router
 
@@ -25,7 +25,7 @@ router.include_router(session_router)
 router.include_router(config_router)
 router.include_router(files_router)
 router.include_router(memory_router)
-router.include_router(prompts_router)
+router.include_router(scaffold_router)
 router.include_router(websocket_router)
 router.include_router(chat_router)
 router.include_router(proxy_router)

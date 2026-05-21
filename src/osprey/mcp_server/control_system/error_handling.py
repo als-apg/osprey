@@ -7,10 +7,11 @@ channel_read, channel_write, and archiver_read.
 
 from __future__ import annotations
 
-import json
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+
+from fastmcp.exceptions import ToolError
 
 from osprey.errors import ChannelLimitsViolationError
 from osprey.mcp_server.errors import make_error
@@ -18,12 +19,7 @@ from osprey.mcp_server.errors import make_error
 logger = logging.getLogger("osprey.mcp_server.control_system.error_handling")
 
 
-class ToolError(Exception):
-    """Raised inside the context manager to short-circuit with an error response."""
-
-    def __init__(self, response: str) -> None:
-        self.response = response
-        super().__init__(response)
+__all__ = ["ToolError", "connector_error_handler"]
 
 
 @asynccontextmanager
@@ -35,46 +31,40 @@ async def connector_error_handler(
 
     Usage::
 
-        async with connector_error_handler("channel_read") as _:
+        async with connector_error_handler("channel_read"):
             registry = get_server_context()
             connector = await registry.control_system()
             # ... tool logic ...
-            return json.dumps(result)
+            return CallToolResult(...)
 
-    On ConnectionError, the connector is invalidated and a structured
-    error response is raised as a ``ToolError``.
+    On known errors (Connection / Timeout / limits violation / unhandled
+    exception), ``make_error()`` raises a ``fastmcp.ToolError`` carrying the
+    structured envelope. fastmcp converts that into a wire-level
+    ``CallToolResult(isError=True)``.
     """
     try:
         yield
     except ToolError:
-        raise  # Already a formatted response — re-raise as-is
+        raise  # Already a formatted envelope — propagate as-is
     except ConnectionError as exc:
         from osprey.mcp_server.control_system.server_context import get_server_context
 
         registry = get_server_context()
         await registry.invalidate_connector(connector_name)
-        raise ToolError(
-            json.dumps(
-                make_error(
-                    "connection_error",
-                    f"Failed to connect to the {connector_name.replace('_', ' ')}: {exc}",
-                    [
-                        f"Check that the {connector_name.replace('_', ' ')} is running.",
-                        f"Verify config.yml {connector_name} settings.",
-                    ],
-                )
-            )
-        ) from exc
+        make_error(
+            "connection_error",
+            f"Failed to connect to the {connector_name.replace('_', ' ')}: {exc}",
+            [
+                f"Check that the {connector_name.replace('_', ' ')} is running.",
+                f"Verify config.yml {connector_name} settings.",
+            ],
+        )
     except TimeoutError as exc:
-        raise ToolError(
-            json.dumps(
-                make_error(
-                    "timeout_error",
-                    f"{tool_name} timed out: {exc}",
-                    ["Check network connectivity.", "Try a smaller request."],
-                )
-            )
-        ) from exc
+        make_error(
+            "timeout_error",
+            f"{tool_name} timed out: {exc}",
+            ["Check network connectivity.", "Try a smaller request."],
+        )
     except ChannelLimitsViolationError as exc:
         violation = {
             "channel": exc.channel_address,
@@ -95,27 +85,19 @@ async def connector_error_handler(
         if exc.min_value is not None or exc.max_value is not None:
             msg += f" (allowed range: [{exc.min_value}, {exc.max_value}])"
 
-        raise ToolError(
-            json.dumps(
-                make_error(
-                    "limits_violation",
-                    msg,
-                    [
-                        "Do NOT attempt to work around this limit.",
-                        "Report the violation to the operator with the allowed range.",
-                    ],
-                    details=violation,
-                )
-            )
-        ) from exc
+        make_error(
+            "limits_violation",
+            msg,
+            [
+                "Do NOT attempt to work around this limit.",
+                "Report the violation to the operator with the allowed range.",
+            ],
+            details=violation,
+        )
     except Exception as exc:
         logger.exception("%s failed", tool_name)
-        raise ToolError(
-            json.dumps(
-                make_error(
-                    "internal_error",
-                    f"Unexpected error during {tool_name}: {exc}",
-                    ["Check the MCP server logs for details."],
-                )
-            )
-        ) from exc
+        make_error(
+            "internal_error",
+            f"Unexpected error during {tool_name}: {exc}",
+            ["Check the MCP server logs for details."],
+        )

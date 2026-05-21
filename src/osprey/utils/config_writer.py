@@ -13,12 +13,12 @@ Typical usage:
     from osprey.utils.config_writer import config_add_to_list, config_update_fields
 
     # Add entry to a YAML list
-    config_add_to_list(Path("config.yml"), ["prompts", "user_owned"], "rules/facility")
+    config_add_to_list(Path("config.yml"), ["scaffold", "user_owned"], "rules/facility")
 
     # Apply structured key-value updates
     config_update_fields(Path("config.yml"), {
         "control_system.writes_enabled": True,
-        "approval.global_mode": "selective",
+        "approval.tools.channel_write": "always",
     })
 """
 
@@ -70,7 +70,7 @@ def config_add_to_list(
 
     Args:
         config_path: Path to the YAML file.
-        key_path: List of nested keys, e.g. ``["prompts", "user_owned"]``.
+        key_path: List of nested keys, e.g. ``["scaffold", "user_owned"]``.
         value: The scalar value to append.
 
     Returns:

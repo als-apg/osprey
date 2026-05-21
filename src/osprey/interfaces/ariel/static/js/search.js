@@ -9,7 +9,6 @@ import {
   renderEntryCard,
   renderAnswerBox,
   renderDiagnosticsBar,
-  renderPipelineDetails,
   renderLoading,
   renderEmptyState,
   escapeHtml,
@@ -112,9 +111,9 @@ export async function performSearch(query = null) {
 /**
  * Render search results.
  * @param {Object} results - Search results from API
- * @param {string} pipeline - The pipeline selected by the user (e.g. 'rag', 'agent')
+ * @param {string} mode - The search mode selected by the user (e.g. 'keyword', 'semantic')
  */
-function renderSearchResults(results, pipeline = 'rag') {
+function renderSearchResults(results, mode = 'keyword') {
   const resultsContainer = document.getElementById('search-results');
   if (!resultsContainer) return;
 
@@ -124,20 +123,15 @@ function renderSearchResults(results, pipeline = 'rag') {
 
   let html = '';
 
-  // Answer box with pipeline label and tools used
+  // Answer box with mode label and tools used
   if (results.answer) {
     const toolsUsed = results.search_modes_used || [];
-    html += renderAnswerBox(results.answer, results.sources, pipeline, toolsUsed);
+    html += renderAnswerBox(results.answer, results.sources, mode, toolsUsed);
   }
 
   // Diagnostics bar if issues detected
   if (results.diagnostics?.length > 0) {
     html += renderDiagnosticsBar(results.diagnostics);
-  }
-
-  // Pipeline details (collapsible)
-  if (results.pipeline_details) {
-    html += renderPipelineDetails(results.pipeline_details);
   }
 
   // Results header

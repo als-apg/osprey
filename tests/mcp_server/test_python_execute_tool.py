@@ -15,7 +15,11 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from osprey.mcp_server.python_executor.executor import ExecutionResult
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import (
+    assert_raises_error,
+    extract_response_dict,
+    get_tool_fn,
+)
 
 
 def _get_python_execute():
@@ -67,7 +71,7 @@ async def test_python_execute_readonly(tmp_path, monkeypatch):
             execution_mode="readonly",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert "42" in data["summary"]["output"]
     assert data["summary"]["status"] == "Success"
@@ -87,21 +91,20 @@ async def test_python_execute_write_pattern_detection(tmp_path, monkeypatch):
         },
     ):
         fn = _get_python_execute()
-        result = await fn(
-            code="caput('TEST:PV', 42.0)",
-            description="write to PV",
-            execution_mode="readonly",
-        )
+        with assert_raises_error(error_type="safety_error") as _exc_ctx:
+            await fn(
+                code="caput('TEST:PV', 42.0)",
+                description="write to PV",
+                execution_mode="readonly",
+            )
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "safety_error"
+    data = _exc_ctx["envelope"]
     assert "suggestions" in data
 
 
 @pytest.mark.unit
 async def test_python_execute_execution_error(tmp_path, monkeypatch):
-    """Code execution error populates stderr and has_errors in summary."""
+    """Code execution error raises ToolError with execution_error envelope."""
     monkeypatch.chdir(tmp_path)
 
     mock_exec = _mock_execute_code(
@@ -118,17 +121,20 @@ async def test_python_execute_execution_error(tmp_path, monkeypatch):
             "osprey.mcp_server.python_executor.executor.execute_code",
             mock_exec,
         ),
+        assert_raises_error(error_type="execution_error") as ctx,
     ):
         fn = _get_python_execute()
-        result = await fn(
+        await fn(
             code="print(undefined_var)",
             description="error case",
             execution_mode="readonly",
         )
 
-    data = json.loads(result)
-    assert data["summary"]["status"] == "Failed"
-    assert "NameError" in data["summary"]["error"]
+    envelope = ctx["envelope"]
+    assert "NameError" in envelope["error_message"]
+    summary = envelope["details"]["summary"]
+    assert summary["status"] == "Failed"
+    assert summary["has_errors"] is True
 
 
 @pytest.mark.unit
@@ -136,9 +142,17 @@ async def test_python_execute_data_file_saving(tmp_path, monkeypatch):
     """Execution saves output to artifact store data file."""
     monkeypatch.chdir(tmp_path)
 
-    with patch(
-        "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
-        return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+    mock_exec = _mock_execute_code(success=True, stdout="42\n")
+
+    with (
+        patch(
+            "osprey.services.python_executor.analysis.pattern_detection.detect_control_system_operations",
+            return_value={"has_writes": False, "has_reads": False, "detected_patterns": {}},
+        ),
+        patch(
+            "osprey.mcp_server.python_executor.executor.execute_code",
+            mock_exec,
+        ),
     ):
         fn = _get_python_execute()
         result = await fn(
@@ -148,13 +162,13 @@ async def test_python_execute_data_file_saving(tmp_path, monkeypatch):
             save_output=True,
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert "artifact_id" in data
     assert "data_file" in data
-    # data_file is a relative filename within the artifacts/ directory
-    artifacts_dir = tmp_path / "_agent_data" / "artifacts"
-    assert (artifacts_dir / data["data_file"]).exists()
+    # data_file is a project-CWD-relative path the agent can open() directly
+    assert data["data_file"].startswith("_agent_data/artifacts/")
+    assert (tmp_path / data["data_file"]).exists()
 
 
 @pytest.mark.unit
@@ -182,7 +196,7 @@ async def test_python_execute_no_saving(tmp_path, monkeypatch):
             save_output=False,
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     # When save_output=False, returns inline (no context entry)
     assert "data_file" not in data
     assert "stdout" in data
@@ -195,6 +209,10 @@ async def test_python_execute_readwrite_mode(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     mock_exec = _mock_execute_code(success=True, stdout="write mode\n")
+
+    # Deployment-level writes gate (Fix 1b) is independent of execution_mode;
+    # this test asserts the readwrite path, so the gate must be allow-through.
+    from osprey.services.python_executor.execution.control import ExecutionControlConfig
 
     with (
         patch(
@@ -209,6 +227,10 @@ async def test_python_execute_readwrite_mode(tmp_path, monkeypatch):
             "osprey.mcp_server.python_executor.executor.execute_code",
             mock_exec,
         ),
+        patch(
+            "osprey.services.python_executor.execution.control.get_execution_control_config",
+            return_value=ExecutionControlConfig(control_system_writes_enabled=True),
+        ),
     ):
         fn = _get_python_execute()
         result = await fn(
@@ -217,7 +239,7 @@ async def test_python_execute_readwrite_mode(tmp_path, monkeypatch):
             execution_mode="readwrite",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["summary"]["status"] == "Success"
 
@@ -228,11 +250,10 @@ async def test_python_execute_empty_code(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     fn = _get_python_execute()
-    result = await fn(code="", description="empty")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(code="", description="empty")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -259,7 +280,7 @@ async def test_python_execute_pattern_detection_import_error(tmp_path, monkeypat
             execution_mode="readonly",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert "fallback" in data["summary"]["output"]
 
@@ -300,7 +321,7 @@ async def test_python_execute_uses_adapter(tmp_path, monkeypatch):
     assert call_kwargs["description"] == "adapter test"
     assert "save_artifact_fn" not in call_kwargs
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["summary"]["status"] == "Success"
     assert "adapter called" in data["summary"]["output"]
 
@@ -323,18 +344,17 @@ async def test_safety_checks_run_before_adapter(tmp_path, monkeypatch):
         ),
     ):
         fn = _get_python_execute()
-        result = await fn(
-            code="exec('bad')",
-            description="safety check test",
-            execution_mode="readonly",
-        )
+        with assert_raises_error(error_type="safety_error") as _exc_ctx:
+            await fn(
+                code="exec('bad')",
+                description="safety check test",
+                execution_mode="readonly",
+            )
 
     # Adapter should NOT have been called
     mock_exec.assert_not_called()
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "safety_error"
+    _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -359,17 +379,16 @@ async def test_pattern_detection_runs_before_adapter(tmp_path, monkeypatch):
         ),
     ):
         fn = _get_python_execute()
-        result = await fn(
-            code="caput('TEST:PV', 1.0)",
-            description="pattern detection test",
-            execution_mode="readonly",
-        )
+        with assert_raises_error(error_type="safety_error") as _exc_ctx:
+            await fn(
+                code="caput('TEST:PV', 1.0)",
+                description="pattern detection test",
+                execution_mode="readonly",
+            )
 
     mock_exec.assert_not_called()
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "safety_error"
+    _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -400,7 +419,7 @@ async def test_adapter_result_maps_to_tool_response(tmp_path, monkeypatch):
             execution_mode="readonly",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["summary"]["status"] == "Success"
     assert "output line 1" in data["summary"]["output"]
     assert data["summary"]["has_errors"] is False
@@ -408,7 +427,7 @@ async def test_adapter_result_maps_to_tool_response(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 async def test_adapter_error_returns_tool_error(tmp_path, monkeypatch):
-    """When adapter returns failed result, tool returns error status."""
+    """When adapter returns failed result, tool raises ToolError with envelope."""
     monkeypatch.chdir(tmp_path)
 
     mock_exec = _mock_execute_code(
@@ -425,18 +444,20 @@ async def test_adapter_error_returns_tool_error(tmp_path, monkeypatch):
             "osprey.mcp_server.python_executor.executor.execute_code",
             mock_exec,
         ),
+        assert_raises_error(error_type="execution_error") as ctx,
     ):
         fn = _get_python_execute()
-        result = await fn(
+        await fn(
             code="raise RuntimeError('something broke')",
             description="error test",
             execution_mode="readonly",
         )
 
-    data = json.loads(result)
-    assert data["summary"]["status"] == "Failed"
-    assert data["summary"]["has_errors"] is True
-    assert "RuntimeError" in data["summary"]["error"]
+    envelope = ctx["envelope"]
+    assert "RuntimeError" in envelope["error_message"]
+    summary = envelope["details"]["summary"]
+    assert summary["status"] == "Failed"
+    assert summary["has_errors"] is True
 
 
 @pytest.mark.unit
@@ -466,7 +487,7 @@ async def test_notebook_artifact_created_from_adapter_result(tmp_path, monkeypat
             execution_mode="readonly",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     # Notebook artifact should be created
     assert "notebook_artifact_id" in data or "artifact_ids" in data.get("summary", {})
 
@@ -505,7 +526,7 @@ async def test_figure_artifacts_created_post_execution(tmp_path, monkeypatch):
             execution_mode="readonly",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     # Figure should have been saved as an artifact
     artifact_ids = data.get("summary", {}).get("artifact_ids", [])
     # At least notebook artifact + figure artifact
@@ -576,14 +597,14 @@ async def test_data_context_saves_adapter_result(tmp_path, monkeypatch):
             save_output=True,
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert "artifact_id" in data
     assert "data_file" in data
 
-    # data_file is a relative filename within the artifacts/ directory
-    artifacts_dir = tmp_path / "_agent_data" / "artifacts"
-    data_file = artifacts_dir / data["data_file"]
+    # data_file is a project-CWD-relative path the agent can open() directly
+    assert data["data_file"].startswith("_agent_data/artifacts/")
+    data_file = tmp_path / data["data_file"]
     assert data_file.exists()
     # ArtifactStore writes raw JSON (no envelope)
     saved_data = json.loads(data_file.read_text())
@@ -672,7 +693,6 @@ def test_collect_artifacts_empty_when_no_manifest(tmp_path):
 @pytest.mark.unit
 async def test_save_artifact_registered_in_gallery(tmp_path, monkeypatch):
     """Artifacts from exec_result.artifacts are saved to the gallery."""
-    import json
 
     monkeypatch.chdir(tmp_path)
 
@@ -714,7 +734,7 @@ async def test_save_artifact_registered_in_gallery(tmp_path, monkeypatch):
             execution_mode="readonly",
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     # Should have: 1 subprocess artifact + 1 notebook artifact
     artifact_ids = data.get("summary", {}).get("artifact_ids", data.get("artifact_ids", []))
     assert len(artifact_ids) >= 2

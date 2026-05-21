@@ -29,7 +29,16 @@ def get_available_providers() -> dict[str, dict]:
 
     available = {}
 
+    # Provider preference: als-apg first (AWS Bedrock proxy — IP-unrestricted,
+    # works in CI and off-VPN). CBORG is LBLnet-gated and would 403 from GitHub
+    # Actions runners or off-VPN laptops.
     providers_to_check = [
+        (
+            "als-apg",
+            ["ALS_APG_API_KEY"],
+            "https://llm.gianlucamartino.com",
+            "claude-haiku-4-5-20251001",
+        ),
         ("cborg", ["CBORG_API_KEY"], "https://api.cborg.lbl.gov", "anthropic/claude-haiku"),
         (
             "amsc",
@@ -38,12 +47,6 @@ def get_available_providers() -> dict[str, dict]:
             "claude-haiku",
         ),
         ("anthropic", ["ANTHROPIC_API_KEY"], None, "claude-haiku-4-5-20251001"),
-        (
-            "als-apg",
-            ["ALS_APG_API_KEY"],
-            "https://llm.gianlucamartino.com",
-            "claude-haiku-4-5-20251001",
-        ),
     ]
 
     for provider_name, env_vars, default_base_url, default_model in providers_to_check:
@@ -67,13 +70,11 @@ def get_available_providers() -> dict[str, dict]:
 # Cache at import time
 _AVAILABLE_PROVIDERS = get_available_providers()
 
-# Skip all tests if no API key is available
+# Skip-gate via marker: auto-enforced by the root `tests/conftest.py` hook.
+# `_AVAILABLE_PROVIDERS` is still used by the test bodies to pick a provider.
 pytestmark = [
     pytest.mark.e2e,
-    pytest.mark.skipif(
-        len(_AVAILABLE_PROVIDERS) == 0,
-        reason="Requires CBORG_API_KEY, AMSC_I2_API_KEY, ANTHROPIC_API_KEY, or ALS_APG_API_KEY",
-    ),
+    pytest.mark.requires_api,
 ]
 
 

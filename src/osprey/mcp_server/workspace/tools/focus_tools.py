@@ -35,12 +35,10 @@ async def artifact_focus(artifact_id: str, fullscreen: bool = False) -> str:
     store = get_artifact_store()
     entry = store.get_entry(artifact_id)
     if not entry:
-        return json.dumps(
-            make_error(
-                "not_found",
-                f"Artifact '{artifact_id}' not found.",
-                ["Check the artifact_id from a previous artifact_save response."],
-            )
+        return make_error(
+            "not_found",
+            f"Artifact '{artifact_id}' not found.",
+            ["Check the artifact_id from a previous artifact_save response."],
         )
 
     base_url = gallery_url()
@@ -79,12 +77,10 @@ async def artifact_pin(artifact_id: str, pinned: bool = True) -> str:
     store = get_artifact_store()
     entry = store.set_pinned(artifact_id, pinned)
     if not entry:
-        return json.dumps(
-            make_error(
-                "not_found",
-                f"Artifact '{artifact_id}' not found.",
-                ["Check the artifact_id from a previous artifact_save response."],
-            )
+        return make_error(
+            "not_found",
+            f"Artifact '{artifact_id}' not found.",
+            ["Check the artifact_id from a previous artifact_save response."],
         )
 
     # Notify gallery of the update

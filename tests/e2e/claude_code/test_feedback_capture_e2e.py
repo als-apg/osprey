@@ -18,7 +18,9 @@ from tests.e2e.sdk_helpers import combined_text, init_project, run_sdk_query_wit
 def feedback_project(tmp_path_factory):
     """Module-scoped project with channel_finder_mode=hierarchical."""
     tmp = tmp_path_factory.mktemp("feedback-capture")
-    return init_project(tmp, "feedback-capture", channel_finder_mode="hierarchical")
+    return init_project(
+        tmp, "feedback-capture", provider="als-apg", channel_finder_mode="hierarchical"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -27,7 +29,7 @@ def feedback_project(tmp_path_factory):
 
 
 @pytest.mark.requires_api
-@pytest.mark.requires_anthropic
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_feedback_hook_captures_search_results(feedback_project):
     """The feedback capture hook should write results to pending_reviews.json.
@@ -84,7 +86,7 @@ async def test_feedback_hook_captures_search_results(feedback_project):
 
 
 @pytest.mark.requires_api
-@pytest.mark.requires_anthropic
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_feedback_hook_is_silent(feedback_project):
     """The feedback capture hook must not contaminate agent output.

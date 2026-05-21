@@ -7,7 +7,7 @@
 
 // --- State ---
 let capabilities = null;
-let currentMode = 'rag';
+let currentMode = 'keyword';
 let isPanelOpen = false;
 let paramValues = {};
 const dynamicOptionsCache = {};
@@ -15,13 +15,6 @@ const dynamicOptionsCache = {};
 // --- Fallback ---
 const FALLBACK_CAPABILITIES = {
   categories: {
-    llm: {
-      label: 'LLM',
-      modes: [
-        { name: 'rag', label: 'RAG', description: 'AI-powered search', parameters: [] },
-        { name: 'agent', label: 'Agent', description: 'Autonomous agent', parameters: [] },
-      ],
-    },
     direct: {
       label: 'Direct',
       modes: [
@@ -83,7 +76,7 @@ export function initAdvancedOptions(caps) {
 
 /**
  * Get the currently selected search mode.
- * @returns {string} Mode name (e.g. "rag", "keyword")
+ * @returns {string} Mode name (e.g. "keyword", "semantic")
  */
 export function getCurrentMode() {
   return currentMode;
@@ -152,8 +145,8 @@ function renderModeTabs() {
   let html = '';
   const categories = capabilities?.categories || {};
 
-  // Render LLM group first, then Direct
-  for (const catKey of ['llm', 'direct']) {
+  // Render category groups
+  for (const catKey of ['direct']) {
     const cat = categories[catKey];
     if (!cat || !cat.modes?.length) continue;
 

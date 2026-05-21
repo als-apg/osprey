@@ -14,7 +14,7 @@ DEFAULT_ERROR_CONFIG = {
     "server_prefixes": [
         "mcp__controls__",
         "mcp__python__",
-        "mcp__workspace__",
+        "mcp__osprey_workspace__",
         "mcp__ariel__",
         "mcp__channel-finder__",
     ],
@@ -25,15 +25,26 @@ DEFAULT_ERROR_CONFIG = {
 
 
 def _make_error_response(error_type, message, suggestions=None):
-    """Build the standard OSPREY error envelope as a JSON string."""
-    return json.dumps(
-        {
-            "error": True,
-            "error_type": error_type,
-            "error_message": message,
-            "suggestions": suggestions or [],
-        }
-    )
+    """Build the post-migration OSPREY error response: a CallToolResult-shaped
+    dict (``isError=True`` with the structured envelope inside the first
+    text content block) — mirrors what the SDK actually delivers to PostToolUse.
+    """
+    return {
+        "isError": True,
+        "content": [
+            {
+                "type": "text",
+                "text": json.dumps(
+                    {
+                        "error": True,
+                        "error_type": error_type,
+                        "error_message": message,
+                        "suggestions": suggestions or [],
+                    }
+                ),
+            }
+        ],
+    }
 
 
 # -- Positive detection tests --
@@ -88,7 +99,7 @@ def test_validation_error_injects_guidance(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__workspace__artifact_save",
+        "mcp__osprey_workspace__artifact_save",
         {"content": "test"},
         config_path=config,
         tool_response=_make_error_response(
@@ -122,6 +133,91 @@ def test_internal_error_injects_guidance(hook_runner, make_config):
     assert result is not None
     ctx = result["hookSpecificOutput"]["additionalContext"]
     assert "Internal" in ctx
+
+
+@pytest.mark.unit
+def test_safety_error_injects_guidance(hook_runner, make_config):
+    """safety_error is classified as Safety class (sandbox guard tripped)."""
+    config = make_config({})
+    result = hook_runner(
+        "osprey_error_guidance.py",
+        "mcp__python__execute",
+        {"code": "x = [0] * 10**12"},
+        config_path=config,
+        tool_response=_make_error_response(
+            "safety_error",
+            "Container refused to run: memory cap exceeded",
+        ),
+        hook_config=DEFAULT_ERROR_CONFIG,
+    )
+
+    assert result is not None
+    ctx = result["hookSpecificOutput"]["additionalContext"]
+    assert "Safety" in ctx
+    assert "error-handling" in ctx.lower() or "error-handling.md" in ctx
+
+
+@pytest.mark.unit
+def test_lattice_error_injects_guidance(hook_runner, make_config):
+    """lattice_error is classified as Execution class."""
+    config = make_config({})
+    result = hook_runner(
+        "osprey_error_guidance.py",
+        "mcp__osprey_workspace__lattice_load",
+        {"path": "broken.lat"},
+        config_path=config,
+        tool_response=_make_error_response(
+            "lattice_error",
+            "Lattice load failed: element MQUAD1 missing required field",
+        ),
+        hook_config=DEFAULT_ERROR_CONFIG,
+    )
+
+    assert result is not None
+    ctx = result["hookSpecificOutput"]["additionalContext"]
+    assert "Execution" in ctx
+
+
+@pytest.mark.unit
+def test_service_unavailable_injects_guidance(hook_runner, make_config):
+    """service_unavailable is classified as Connection class."""
+    config = make_config({})
+    result = hook_runner(
+        "osprey_error_guidance.py",
+        "mcp__osprey_workspace__lattice_load",
+        {"path": "ring.lat"},
+        config_path=config,
+        tool_response=_make_error_response(
+            "service_unavailable",
+            "pyAT service not reachable",
+        ),
+        hook_config=DEFAULT_ERROR_CONFIG,
+    )
+
+    assert result is not None
+    ctx = result["hookSpecificOutput"]["additionalContext"]
+    assert "Connection" in ctx
+
+
+@pytest.mark.unit
+def test_file_not_found_injects_guidance(hook_runner, make_config):
+    """file_not_found is classified as Data class."""
+    config = make_config({})
+    result = hook_runner(
+        "osprey_error_guidance.py",
+        "mcp__osprey_workspace__artifact_save",
+        {"path": "missing.h5"},
+        config_path=config,
+        tool_response=_make_error_response(
+            "file_not_found",
+            "Artifact not found: missing.h5",
+        ),
+        hook_config=DEFAULT_ERROR_CONFIG,
+    )
+
+    assert result is not None
+    ctx = result["hookSpecificOutput"]["additionalContext"]
+    assert "Data" in ctx
 
 
 @pytest.mark.unit
@@ -216,15 +312,19 @@ def test_non_json_success_no_output(hook_runner, make_config):
 
 
 @pytest.mark.unit
-def test_non_json_error_string_detected(hook_runner, make_config):
-    """Non-JSON strings containing error keywords trigger fallback detection."""
+def test_isError_without_envelope_falls_back_to_internal(hook_runner, make_config):
+    """A CallToolResult with isError=True but no parseable envelope still
+    triggers Internal-class guidance (defensive fallback in _detect_error)."""
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
         "mcp__controls__channel_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
-        tool_response="Error: Failed to connect to IOC at 192.168.1.100:5064",
+        tool_response={
+            "isError": True,
+            "content": [{"type": "text", "text": "raw connection failure: 192.168.1.100:5064"}],
+        },
         hook_config=DEFAULT_ERROR_CONFIG,
     )
 
@@ -280,19 +380,28 @@ def test_guidance_includes_anti_pattern_reminders(hook_runner, make_config):
 
 @pytest.mark.unit
 def test_dict_tool_response_detected(hook_runner, make_config):
-    """Error detection works when tool_response is already a dict (not JSON string)."""
+    """Error detection on a CallToolResult-shaped dict with isError=True."""
     config = make_config({})
-    # Pass dict directly -- the hook should handle both str and dict
     result = hook_runner(
         "osprey_error_guidance.py",
         "mcp__controls__channel_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
         tool_response={
-            "error": True,
-            "error_type": "connection_error",
-            "error_message": "IOC offline",
-            "suggestions": [],
+            "isError": True,
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        {
+                            "error": True,
+                            "error_type": "connection_error",
+                            "error_message": "IOC offline",
+                            "suggestions": [],
+                        }
+                    ),
+                }
+            ],
         },
         hook_config=DEFAULT_ERROR_CONFIG,
     )
@@ -382,7 +491,7 @@ def test_data_no_results_injects_guidance(hook_runner, make_config):
     config = make_config({})
     result = hook_runner(
         "osprey_error_guidance.py",
-        "mcp__workspace__artifact_save",
+        "mcp__osprey_workspace__artifact_save",
         {"query": "nonexistent artifact"},
         config_path=config,
         tool_response=_make_error_response(

@@ -153,7 +153,7 @@ Key ``config.yml`` settings:
        middle_layer:
          database: {type: middle_layer, path: data/channel_databases/middle_layer.json}
      benchmark:
-       dataset_path: data/benchmarks/datasets/benchmark.json
+       dataset_path: data/benchmarks/queries.json
    benchmark:
      execution: {max_concurrent_queries: 5}
      output: {results_dir: data/benchmarks/results}

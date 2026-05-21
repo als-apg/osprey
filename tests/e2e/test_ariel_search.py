@@ -5,9 +5,6 @@ Requires Ollama with nomic-embed-text (skips if unavailable).
 
 Run with:
     pytest tests/e2e/test_ariel_search.py -v
-
-With verbose LLM judge output:
-    pytest tests/e2e/test_ariel_search.py -v --judge-verbose
 """
 
 from __future__ import annotations
@@ -388,9 +385,9 @@ class TestKeywordSearchE2E:
         )
 
         # Should find E006 (Morning Shift Summary by oper_smith)
-        if results:
-            authors = {entry["author"] for entry, score, highlights in results}
-            assert "oper_smith" in authors, f"Expected oper_smith in authors, got: {authors}"
+        assert results, "Expected at least one result for 'author:oper_smith shift'"
+        authors = {entry["author"] for entry, score, highlights in results}
+        assert "oper_smith" in authors, f"Expected oper_smith in authors, got: {authors}"
 
     async def test_no_results_for_nonexistent_term(self, seeded_ariel_db):
         """Search for nonexistent term returns empty results."""
@@ -487,101 +484,6 @@ class TestSemanticSearchE2E:
         cryo_entries = {"E004", "E009", "E011"}
         found = cryo_entries & set(entry_ids)
         assert len(found) > 0, f"Expected cryogenic entries in results, got: {entry_ids}"
-
-
-class TestRAGSearchE2E:
-    """RAG search with deterministic grounding evaluation.
-
-    Note: These tests verify RAG retrieval and answer generation.
-    Requires ALS_APG_API_KEY environment variable for LLM calls.
-    """
-
-    async def test_factual_qa(self, seeded_ariel_db, rag_config_env):
-        """RAG answers 'What caused the RF trip in sector 3?' using E001."""
-        from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
-        from osprey.services.ariel_search.rag import RAGPipeline
-
-        pipeline = RAGPipeline(
-            repository=seeded_ariel_db["repository"],
-            config=seeded_ariel_db["config"],
-            embedder_loader=OllamaEmbeddingProvider,
-        )
-        result = await pipeline.execute(
-            query="What caused the RF trip in sector 3?",
-            max_results=5,
-            similarity_threshold=0.3,
-        )
-
-        # Deterministic: E001 should be in sources
-        source_ids = [e["entry_id"] for e in result.entries]
-        assert "E001" in source_ids, f"Expected E001 in sources, got: {source_ids}"
-
-        # Answer should mention key terms from E001
-        answer_lower = result.answer.lower()
-        # Should mention klystron, VSWR, RF, or cavity
-        key_terms = ["klystron", "vswr", "rf", "cavity", "reflected power"]
-        found_terms = [term for term in key_terms if term in answer_lower]
-        assert len(found_terms) > 0, (
-            f"Answer should mention RF trip details. Answer: {result.answer[:300]}"
-        )
-
-    async def test_multi_entry_synthesis(self, seeded_ariel_db, rag_config_env):
-        """RAG synthesizes answer from multiple incident entries."""
-        from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
-        from osprey.services.ariel_search.rag import RAGPipeline
-
-        pipeline = RAGPipeline(
-            repository=seeded_ariel_db["repository"],
-            config=seeded_ariel_db["config"],
-            embedder_loader=OllamaEmbeddingProvider,
-        )
-        result = await pipeline.execute(
-            query="What equipment problems occurred during operations?",
-            max_results=5,
-            similarity_threshold=0.3,
-        )
-
-        # Deterministic: should have multiple sources
-        assert len(result.entries) > 1, f"Expected multiple sources, got: {len(result.entries)}"
-
-        # Answer should synthesize information (mention multiple issues)
-        answer_lower = result.answer.lower()
-        # Count how many different issue types are mentioned
-        issue_indicators = [
-            "rf" in answer_lower or "cavity" in answer_lower,
-            "vacuum" in answer_lower or "leak" in answer_lower,
-            "beam" in answer_lower or "loss" in answer_lower,
-            "magnet" in answer_lower or "quench" in answer_lower,
-            "power" in answer_lower or "outage" in answer_lower,
-        ]
-        issues_mentioned = sum(issue_indicators)
-        assert issues_mentioned >= 2, (
-            f"Answer should mention multiple issues. Answer: {result.answer[:300]}"
-        )
-
-    async def test_no_answer_for_unrelated_query(self, seeded_ariel_db, rag_config_env):
-        """RAG gracefully handles queries with no relevant entries."""
-        from osprey.models.embeddings.ollama import OllamaEmbeddingProvider
-        from osprey.services.ariel_search.rag import RAGPipeline
-
-        pipeline = RAGPipeline(
-            repository=seeded_ariel_db["repository"],
-            config=seeded_ariel_db["config"],
-            embedder_loader=OllamaEmbeddingProvider,
-        )
-        result = await pipeline.execute(
-            query="What is the chemical composition of the moon?",
-            max_results=5,
-            similarity_threshold=0.7,  # High threshold to ensure no matches
-        )
-
-        # Should have no sources or acknowledge lack of information
-        if not result.entries:
-            assert (
-                "don't have enough information" in result.answer.lower() or len(result.entries) == 0
-            )
-        # If there are sources, they shouldn't be about moon composition
-        # (the model should still ground its answer appropriately)
 
 
 class TestSearchIntegration:

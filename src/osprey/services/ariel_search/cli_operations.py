@@ -131,10 +131,6 @@ async def get_status(config_dict: dict) -> dict:
                     "keyword": config.is_search_module_enabled("keyword"),
                     "semantic": config.is_search_module_enabled("semantic"),
                 },
-                "pipelines": {
-                    "rag": config.is_pipeline_enabled("rag"),
-                    "agent": config.is_pipeline_enabled("agent"),
-                },
             }
 
     except Exception as e:
@@ -533,9 +529,7 @@ async def run_search(config_dict: dict, query: str, mode: str, limit: int) -> di
 
     config = ARIELConfig.from_dict(config_dict)
 
-    search_mode = None
-    if mode != "auto":
-        search_mode = SearchMode[mode.upper()]
+    search_mode = SearchMode[mode.upper()]
 
     try:
         service = await create_ariel_service(config)

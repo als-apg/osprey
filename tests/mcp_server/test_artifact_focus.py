@@ -1,10 +1,12 @@
 """Tests for the artifact_focus MCP tool."""
 
-import json
-
 import pytest
 
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import (
+    assert_raises_error,
+    extract_response_dict,
+    get_tool_fn,
+)
 
 
 def _get_artifact_focus():
@@ -28,11 +30,10 @@ class TestArtifactFocusTool:
         monkeypatch.chdir(tmp_path)
 
         fn = _get_artifact_focus()
-        result = await fn(artifact_id="nonexistent-id")
+        with assert_raises_error(error_type="not_found") as _exc_ctx:
+            await fn(artifact_id="nonexistent-id")
 
-        data = json.loads(result)
-        assert data["error"] is True
-        assert data["error_type"] == "not_found"
+        _exc_ctx["envelope"]
 
     @pytest.mark.asyncio
     async def test_focus_valid_artifact(self, tmp_path, monkeypatch):
@@ -46,14 +47,14 @@ class TestArtifactFocusTool:
             content="# Hello",
             content_type="markdown",
         )
-        save_data = json.loads(save_result)
+        save_data = extract_response_dict(save_result)
         artifact_id = save_data["artifact_id"]
 
         # Now focus on it
         fn = _get_artifact_focus()
         result = await fn(artifact_id=artifact_id)
 
-        data = json.loads(result)
+        data = extract_response_dict(result)
         assert data["status"] == "success"
         assert data["artifact_id"] == artifact_id
         assert data["title"] == "Test Artifact"

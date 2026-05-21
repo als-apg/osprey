@@ -10,8 +10,6 @@ Covers:
   - skip_artifact mode
 """
 
-import json
-
 import pytest
 
 from osprey.mcp_server.workspace.tools.submit_response import submit_response
@@ -19,6 +17,10 @@ from osprey.stores.artifact_store import (
     get_artifact_store,
     initialize_artifact_store,
     reset_artifact_store,
+)
+from tests.mcp_server.conftest import (
+    assert_raises_error,
+    extract_response_dict,
 )
 
 # Extract the raw async function from the FastMCP FunctionTool wrapper
@@ -39,7 +41,7 @@ class TestSubmitResponse:
     @pytest.mark.asyncio
     async def test_submit_response_basic(self, workspace):
         raw = await _fn(title="Beam Loss Analysis", content="Found 3 beam loss events.")
-        data = json.loads(raw)
+        data = extract_response_dict(raw)
 
         assert data["status"] == "success"
         assert "artifact_id" in data
@@ -58,7 +60,7 @@ class TestSubmitResponse:
             content="Analysis of vacuum events.",
             entry_ids=["e101", "e102", "e103"],
         )
-        data = json.loads(raw)
+        data = extract_response_dict(raw)
 
         assert data["status"] == "success"
         assert data["summary"]["cited_entries"] == 3
@@ -71,28 +73,22 @@ class TestSubmitResponse:
 
     @pytest.mark.asyncio
     async def test_submit_response_empty_title(self, workspace):
-        raw = await _fn(title="", content="Some content.")
-        data = json.loads(raw)
-
-        assert data["error"] is True
-        assert data["error_type"] == "validation_error"
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await _fn(title="", content="Some content.")
+        data = _exc_ctx["envelope"]
         assert "title" in data["error_message"]
 
     @pytest.mark.asyncio
     async def test_submit_response_whitespace_title(self, workspace):
-        raw = await _fn(title="   ", content="Some content.")
-        data = json.loads(raw)
-
-        assert data["error"] is True
-        assert data["error_type"] == "validation_error"
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await _fn(title="   ", content="Some content.")
+        _exc_ctx["envelope"]
 
     @pytest.mark.asyncio
     async def test_submit_response_empty_content(self, workspace):
-        raw = await _fn(title="Valid Title", content="")
-        data = json.loads(raw)
-
-        assert data["error"] is True
-        assert data["error_type"] == "validation_error"
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await _fn(title="Valid Title", content="")
+        data = _exc_ctx["envelope"]
         assert "content" in data["error_message"]
 
     @pytest.mark.asyncio
@@ -102,7 +98,7 @@ class TestSubmitResponse:
             content="Found BPM channels.",
             data_type="channel_addresses",
         )
-        data = json.loads(raw)
+        data = extract_response_dict(raw)
 
         assert data["status"] == "success"
 
@@ -119,7 +115,7 @@ class TestSubmitResponse:
             content="Found 3 beam loss events.",
             source_agent="logbook-search",
         )
-        data = json.loads(raw)
+        data = extract_response_dict(raw)
 
         assert data["status"] == "success"
         assert data["summary"]["source_agent"] == "logbook-search"
@@ -134,7 +130,7 @@ class TestSubmitResponse:
     @pytest.mark.asyncio
     async def test_submit_response_without_source_agent(self, workspace):
         raw = await _fn(title="Basic Result", content="No agent specified.")
-        data = json.loads(raw)
+        data = extract_response_dict(raw)
 
         assert data["status"] == "success"
         assert data["summary"]["source_agent"] == ""
@@ -156,7 +152,7 @@ class TestSubmitResponse:
             data_type="logbook_research",
             entry_ids=["e1"],
         )
-        data = json.loads(raw)
+        data = extract_response_dict(raw)
 
         store = get_artifact_store()
         entry = store.get_entry(data["artifact_id"])
@@ -180,7 +176,7 @@ class TestSubmitResponse:
     async def test_submit_response_creates_artifact(self, workspace):
         """submit_response should automatically create a gallery artifact."""
         raw = await _fn(title="Beam Loss Analysis", content="Found 3 beam loss events.")
-        data = json.loads(raw)
+        data = extract_response_dict(raw)
 
         assert data["status"] == "success"
         assert "artifact_id" in data, "artifact_id missing from response"
@@ -196,7 +192,7 @@ class TestSubmitResponse:
             data_type="logbook_research",
             source_agent="logbook-search",
         )
-        data = json.loads(raw)
+        data = extract_response_dict(raw)
         artifact_id = data["artifact_id"]
 
         store = get_artifact_store()
@@ -222,7 +218,7 @@ class TestSubmitResponse:
             source_agent="channel-finder",
             entry_ids=["SR:BPM:01", "SR:BPM:02"],
         )
-        data = json.loads(raw)
+        data = extract_response_dict(raw)
 
         entry = get_artifact_store().get_entry(data["artifact_id"])
         assert entry is not None
@@ -235,9 +231,8 @@ class TestSubmitResponse:
     @pytest.mark.asyncio
     async def test_artifact_not_created_on_validation_error(self, workspace):
         """Validation errors should NOT create an artifact."""
-        raw = await _fn(title="", content="Some content.")
-        data = json.loads(raw)
-
-        assert data["error"] is True
+        with assert_raises_error() as _exc_ctx:
+            await _fn(title="", content="Some content.")
+        _exc_ctx["envelope"]
         store = get_artifact_store()
         assert len(store.list_entries()) == 0

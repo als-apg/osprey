@@ -9,6 +9,7 @@ import pytest
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from osprey.services.ariel_search.models import ARIELStatusResult, EmbeddingTableInfo
 from tests.mcp_server.ariel.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_raises_error
 
 
 def _get_status():
@@ -45,7 +46,6 @@ async def test_status_healthy(tmp_path, monkeypatch):
         ],
         active_embedding_model="nomic-embed-text",
         enabled_search_modules=["keyword", "semantic"],
-        enabled_pipelines=["rag", "agent"],
         enabled_enhancement_modules=["text_embedding"],
         last_ingestion=datetime(2024, 1, 15, 12, 0, 0),
         errors=[],
@@ -84,7 +84,6 @@ async def test_status_db_error(tmp_path, monkeypatch):
         embedding_tables=[],
         active_embedding_model=None,
         enabled_search_modules=[],
-        enabled_pipelines=[],
         enabled_enhancement_modules=[],
         last_ingestion=None,
         errors=["Database error: connection refused"],
@@ -119,8 +118,7 @@ async def test_status_service_exception(tmp_path, monkeypatch):
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_status()
-        result = await fn()
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            await fn()
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    _exc_ctx["envelope"]

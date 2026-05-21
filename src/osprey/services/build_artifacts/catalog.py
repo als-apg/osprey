@@ -1,0 +1,302 @@
+"""Build Artifact Catalog — declarative catalog of all Claude Code build artifacts.
+
+Each build artifact produced by ``osprey build`` / ``osprey claude regen``
+is cataloged here with a canonical name, template path, output path, and
+metadata.  The catalog enables:
+
+* ``osprey scaffold list`` — show all artifacts and their override status
+* ``osprey scaffold claim <name>`` — create an editable override copy
+* Override resolution during ``_create_claude_code_integration()``
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class BuildArtifact:
+    """A single build artifact managed by OSPREY.
+
+    Attributes:
+        canonical_name: Stable identifier, e.g. ``"agents/channel-finder"``.
+        template_path: Relative to ``templates/claude_code/``, e.g.
+            ``"claude/agents/channel-finder.md.j2"``.
+        output_path: Relative to project root, e.g.
+            ``".claude/agents/channel-finder.md"``.
+        description: Human-readable, shown in ``osprey scaffold list``.
+    """
+
+    canonical_name: str
+    template_path: str
+    output_path: str
+    description: str
+
+
+def _get_default_artifacts() -> list[BuildArtifact]:
+    """Return the declarative list of all known build artifacts."""
+    return [
+        # ── Top-level files ──────────────────────────────────────────
+        BuildArtifact(
+            canonical_name="claude-md",
+            template_path="CLAUDE.md.j2",
+            output_path="CLAUDE.md",
+            description="CLAUDE.md system prompt (control-system persona)",
+        ),
+        BuildArtifact(
+            canonical_name="claude-md-ariel",
+            template_path="CLAUDE.ariel.md.j2",
+            output_path="CLAUDE.md",
+            description="CLAUDE.md system prompt (ARIEL logbook research persona)",
+        ),
+        BuildArtifact(
+            canonical_name="mcp-json",
+            template_path="mcp.json.j2",
+            output_path=".mcp.json",
+            description="MCP server configuration",
+        ),
+        BuildArtifact(
+            canonical_name="settings-json",
+            template_path="claude/settings.json.j2",
+            output_path=".claude/settings.json",
+            description="Claude Code permissions & hooks",
+        ),
+        BuildArtifact(
+            canonical_name="statusline",
+            template_path="claude/statusline.py",
+            output_path=".claude/statusline.py",
+            description="OSPREY statusline script",
+        ),
+        # ── Agents ───────────────────────────────────────────────────
+        BuildArtifact(
+            canonical_name="agents/channel-finder",
+            template_path="claude/agents/channel-finder.md.j2",
+            output_path=".claude/agents/channel-finder.md",
+            description="Channel-finder sub-agent",
+        ),
+        BuildArtifact(
+            canonical_name="agents/data-visualizer",
+            template_path="claude/agents/data-visualizer.md.j2",
+            output_path=".claude/agents/data-visualizer.md",
+            description="Data visualization sub-agent",
+        ),
+        BuildArtifact(
+            canonical_name="agents/logbook-search",
+            template_path="claude/agents/logbook-search.md.j2",
+            output_path=".claude/agents/logbook-search.md",
+            description="Logbook search sub-agent",
+        ),
+        BuildArtifact(
+            canonical_name="agents/logbook-deep-research",
+            template_path="claude/agents/logbook-deep-research.md.j2",
+            output_path=".claude/agents/logbook-deep-research.md",
+            description="Logbook deep-research sub-agent",
+        ),
+        # ── Rules ────────────────────────────────────────────────────
+        BuildArtifact(
+            canonical_name="rules/safety",
+            template_path="claude/rules/safety.md",
+            output_path=".claude/rules/safety.md",
+            description="Safety & tool confinement rules",
+        ),
+        BuildArtifact(
+            canonical_name="rules/error-handling",
+            template_path="claude/rules/error-handling.md",
+            output_path=".claude/rules/error-handling.md",
+            description="Error taxonomy & response protocols",
+        ),
+        BuildArtifact(
+            canonical_name="rules/artifacts",
+            template_path="claude/rules/artifacts.md",
+            output_path=".claude/rules/artifacts.md",
+            description="Artifact-first reuse rule",
+        ),
+        BuildArtifact(
+            canonical_name="rules/facility",
+            template_path="claude/rules/facility.md.j2",
+            output_path=".claude/rules/facility.md",
+            description="Facility identity & context",
+        ),
+        BuildArtifact(
+            canonical_name="rules/workflows",
+            template_path="claude/rules/workflows.md",
+            output_path=".claude/rules/workflows.md",
+            description="Task planning, agent delegation, and parallel execution",
+        ),
+        BuildArtifact(
+            canonical_name="rules/python-execution",
+            template_path="claude/rules/python-execution.md",
+            output_path=".claude/rules/python-execution.md",
+            description="Python auto-execution workflow",
+        ),
+        BuildArtifact(
+            canonical_name="rules/data-visualization",
+            template_path="claude/rules/data-visualization.md",
+            output_path=".claude/rules/data-visualization.md",
+            description="Matplotlib and plot artifact conventions",
+        ),
+        BuildArtifact(
+            canonical_name="rules/control-system-safety",
+            template_path="claude/rules/control-system-safety.md.j2",
+            output_path=".claude/rules/control-system-safety.md",
+            description="Control system safety rules (protocol-aware)",
+        ),
+        BuildArtifact(
+            canonical_name="rules/timezone",
+            template_path="claude/rules/timezone.md.j2",
+            output_path=".claude/rules/timezone.md",
+            description="Facility timezone context for timestamp interpretation",
+        ),
+        # ── Hooks ────────────────────────────────────────────────────
+        BuildArtifact(
+            canonical_name="hooks/approval",
+            template_path="claude/hooks/osprey_approval.py",
+            output_path=".claude/hooks/osprey_approval.py",
+            description="Human-approval gate hook",
+        ),
+        BuildArtifact(
+            canonical_name="hooks/writes-check",
+            template_path="claude/hooks/osprey_writes_check.py",
+            output_path=".claude/hooks/osprey_writes_check.py",
+            description="Control-system write detection hook",
+        ),
+        BuildArtifact(
+            canonical_name="hooks/error-guidance",
+            template_path="claude/hooks/osprey_error_guidance.py",
+            output_path=".claude/hooks/osprey_error_guidance.py",
+            description="Error-guidance injection hook",
+        ),
+        BuildArtifact(
+            canonical_name="hooks/limits",
+            template_path="claude/hooks/osprey_limits.py",
+            output_path=".claude/hooks/osprey_limits.py",
+            description="Channel limits validation hook",
+        ),
+        BuildArtifact(
+            canonical_name="hooks/notebook-update",
+            template_path="claude/hooks/osprey_notebook_update.py",
+            output_path=".claude/hooks/osprey_notebook_update.py",
+            description="Notebook artifact update hook",
+        ),
+        BuildArtifact(
+            canonical_name="hooks/cf-feedback-capture",
+            template_path="claude/hooks/osprey_cf_feedback_capture.py",
+            output_path=".claude/hooks/osprey_cf_feedback_capture.py",
+            description="Channel finder feedback capture hook",
+        ),
+        BuildArtifact(
+            canonical_name="hooks/hook-log",
+            template_path="claude/hooks/osprey_hook_log.py",
+            output_path=".claude/hooks/osprey_hook_log.py",
+            description="Shared hook logging utility",
+        ),
+        BuildArtifact(
+            canonical_name="hooks/hook-config",
+            template_path="claude/hooks/hook_config.json.j2",
+            output_path=".claude/hooks/hook_config.json",
+            description="Dynamic server prefix configuration for hooks",
+        ),
+        BuildArtifact(
+            canonical_name="hooks/memory-guard",
+            template_path="claude/hooks/osprey_memory_guard.py",
+            output_path=".claude/hooks/osprey_memory_guard.py",
+            description="Write tool gate for Claude memory files",
+        ),
+        BuildArtifact(
+            canonical_name="hooks/focus-validate",
+            template_path="claude/hooks/osprey_focus_validate.py",
+            output_path=".claude/hooks/osprey_focus_validate.py",
+            description="UserPromptSubmit hook that strips stale artifact IDs from focus_state.txt",
+        ),
+        # ── Skills ──────────────────────────────────────────────────
+        BuildArtifact(
+            canonical_name="skills/session-report",
+            template_path="claude/skills/session-report/SKILL.md",
+            output_path=".claude/skills/session-report/SKILL.md",
+            description="Session report generation skill",
+        ),
+        BuildArtifact(
+            canonical_name="skills/session-report/reference",
+            template_path="claude/skills/session-report/reference.md",
+            output_path=".claude/skills/session-report/reference.md",
+            description="CSS/JS reference patterns for session reports",
+        ),
+        BuildArtifact(
+            canonical_name="skills/setup-mode",
+            template_path="claude/skills/setup-mode/SKILL.md.j2",
+            output_path=".claude/skills/setup-mode/SKILL.md",
+            description="Configuration diagnostic and troubleshooting skill",
+        ),
+        BuildArtifact(
+            canonical_name="skills/diagnose",
+            template_path="claude/skills/diagnose/SKILL.md",
+            output_path=".claude/skills/diagnose/SKILL.md",
+            description="OSPREY infrastructure failure diagnosis skill",
+        ),
+        BuildArtifact(
+            canonical_name="skills/demo-gallery",
+            template_path="claude/skills/demo-gallery/SKILL.md",
+            output_path=".claude/skills/demo-gallery/SKILL.md",
+            description="Artifact Gallery demo showcase skill",
+        ),
+        BuildArtifact(
+            canonical_name="skills/logbook-deep-research",
+            template_path="claude/skills/logbook-deep-research/SKILL.md.j2",
+            output_path=".claude/skills/logbook-deep-research/SKILL.md",
+            description="Multi-phase logbook investigation skill",
+        ),
+        # ── Output Styles ────────────────────────────────────────────
+        BuildArtifact(
+            canonical_name="output-styles/control-operator",
+            template_path="claude/output-styles/control-operator.md.j2",
+            output_path=".claude/output-styles/control-operator.md",
+            description="Communication style for the control assistant",
+        ),
+    ]
+
+
+class BuildArtifactCatalog:
+    """Catalog of all known Claude Code build artifacts.
+
+    Usage::
+
+        catalog = BuildArtifactCatalog.default()
+        artifact = catalog.get("agents/channel-finder")
+        for name in catalog.all_names():
+            print(name)
+    """
+
+    def __init__(self, artifacts: list[BuildArtifact]) -> None:
+        self._by_name: dict[str, BuildArtifact] = {a.canonical_name: a for a in artifacts}
+        # First registration wins when multiple templates emit the same output
+        # path (e.g. alternate CLAUDE.md personas). `_by_output` is used by
+        # consumers that want the canonical/default artifact for a given output.
+        self._by_output: dict[str, BuildArtifact] = {}
+        for a in artifacts:
+            self._by_output.setdefault(a.output_path, a)
+
+    @classmethod
+    def default(cls) -> BuildArtifactCatalog:
+        """Create a catalog populated with the default artifact list."""
+        return cls(_get_default_artifacts())
+
+    def get(self, name: str) -> BuildArtifact | None:
+        """Look up an artifact by canonical name."""
+        return self._by_name.get(name)
+
+    def get_by_output(self, output_path: str) -> BuildArtifact | None:
+        """Look up an artifact by its output path (relative to project root)."""
+        return self._by_output.get(output_path)
+
+    def all_artifacts(self) -> list[BuildArtifact]:
+        """Return all artifacts in registration order."""
+        return list(self._by_name.values())
+
+    def all_names(self) -> list[str]:
+        """Return all canonical names, sorted."""
+        return sorted(self._by_name.keys())
+
+    @property
+    def categories(self) -> set[str]:
+        """Return the set of all artifact categories (derived from canonical name prefixes)."""
+        return {name.split("/")[0] if "/" in name else "config" for name in self._by_name}

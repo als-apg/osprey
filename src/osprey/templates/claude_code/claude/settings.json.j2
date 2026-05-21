@@ -7,6 +7,7 @@
     "command": "python \"$CLAUDE_PROJECT_DIR/.claude/statusline.py\""
   },
   "_PROMPT_PROVIDER_NOTE": "Permissions policy: allow/deny/ask lists. Framework defaults merged with facility overrides from claude_code.permissions config.",
+  "enableAllProjectMcpServers": true,
   "permissions": {
     "allow": [
 {#- Build allow list from server registry -#}
@@ -73,8 +74,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cat \"$CLAUDE_PROJECT_DIR/_agent_data/focus_state.txt\" 2>/dev/null || true",
-            "timeout": 1
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_focus_validate.py\" 2>/dev/null || true",
+            "timeout": 2
           }
         ]
       }

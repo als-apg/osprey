@@ -8,6 +8,7 @@ import json
 import logging
 
 import duckdb
+from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.channel_finder_middle_layer.server import make_error, mcp
 from osprey.mcp_server.channel_finder_middle_layer.server_context import get_cf_ml_context
@@ -56,25 +57,21 @@ def query_channels(sql: str) -> str:
         ctx = get_cf_ml_context()
         duckdb_path = getattr(ctx, "duckdb_path", None)
         if not duckdb_path:
-            return json.dumps(
-                make_error(
-                    "not_configured",
-                    "DuckDB database is not configured for the channel finder.",
-                    [
-                        "Ensure channel_finder.pipelines.middle_layer.database.duckdb_path is set in config.yml."
-                    ],
-                )
+            return make_error(
+                "not_configured",
+                "DuckDB database is not configured for the channel finder.",
+                [
+                    "Ensure channel_finder.pipelines.middle_layer.database.duckdb_path is set in config.yml."
+                ],
             )
 
         # Safety: only allow SELECT
         stripped = sql.strip()
         if not stripped.upper().startswith("SELECT"):
-            return json.dumps(
-                make_error(
-                    "invalid_query",
-                    "Only SELECT queries are allowed.",
-                    ["Rewrite your query as a SELECT statement."],
-                )
+            return make_error(
+                "invalid_query",
+                "Only SELECT queries are allowed.",
+                ["Rewrite your query as a SELECT statement."],
             )
 
         con = duckdb.connect(duckdb_path, read_only=True)
@@ -102,22 +99,20 @@ def query_channels(sql: str) -> str:
 
     except duckdb.Error as exc:
         logger.warning("query_channels SQL error: %s", exc)
-        return json.dumps(
-            make_error(
-                "sql_error",
-                f"SQL error: {exc}",
-                [
-                    "Check your SQL syntax.",
-                    "Use 'SELECT * FROM channels LIMIT 10' to explore the schema.",
-                ],
-            )
+        return make_error(
+            "sql_error",
+            f"SQL error: {exc}",
+            [
+                "Check your SQL syntax.",
+                "Use 'SELECT * FROM channels LIMIT 10' to explore the schema.",
+            ],
         )
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("query_channels failed")
-        return json.dumps(
-            make_error(
-                "internal_error",
-                f"Query failed: {exc}",
-                ["Check that the DuckDB database exists and is accessible."],
-            )
+        return make_error(
+            "internal_error",
+            f"Query failed: {exc}",
+            ["Check that the DuckDB database exists and is accessible."],
         )

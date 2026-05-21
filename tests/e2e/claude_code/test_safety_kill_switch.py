@@ -27,6 +27,18 @@ async def test_channel_write_denied_when_writes_disabled(safety_project_writes_o
     or execute(write) when writes_enabled is false.
 
     Cost budget: $0.50
+
+    Why this test pattern is intentional (NOT a redundant tautology):
+        The fixture ``safety_project_writes_off`` simulates the canonical
+        production action — an operator edits ``config.yml``, flips
+        ``writes_enabled: false``, and runs ``osprey claude regen``. The
+        regen step is load-bearing: it triggers the renderer's writes-aware
+        ``permissions.deny`` augmentation that moves pure-write tools out
+        of ``permissions.ask``. The "fixture creates the condition;
+        assertion verifies the kill switch fires" shape mirrors the real
+        scenario one-to-one — that's the point, not a flaw. A future
+        tautology-heuristic sweep that classified this test as redundant
+        would delete a real fail-closed safety gate.
     """
     prompt = (
         "Use the channel_write tool to write the value 5.0 to the channel "
@@ -96,6 +108,16 @@ async def test_python_write_denied_when_writes_disabled(safety_project_writes_of
     is 'write' or 'readwrite' and writes_enabled is false.
 
     Cost budget: $0.50
+
+    Why this test pattern is intentional (NOT a redundant tautology):
+        Extends Scenario 9's kill-switch coverage to ``execute(write)`` —
+        the attack surface where an agent could try to bypass
+        ``channel_write`` by writing through a Python script. The fixture
+        is the same canonical operator action (edit ``config.yml`` → flip
+        ``writes_enabled: false`` → regen). The fixture-creates /
+        assertion-verifies shape mirrors the production scenario by
+        design. Without this test, a Python-routed write would breach
+        the kill switch silently.
     """
     prompt = (
         "Use the execute tool with execution_mode 'write' to run "

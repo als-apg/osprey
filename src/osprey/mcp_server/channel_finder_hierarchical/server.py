@@ -12,6 +12,8 @@ import logging
 
 from fastmcp import FastMCP
 
+from osprey.mcp_server.errors import make_error  # noqa: F401  (re-exported for tools)
+
 logger = logging.getLogger("osprey.mcp_server.channel_finder_hierarchical")
 
 # ---------------------------------------------------------------------------
@@ -21,23 +23,6 @@ mcp = FastMCP(
     "channel-finder-hier",
     instructions="Find control-system channel addresses using hierarchical search",
 )
-
-
-# ---------------------------------------------------------------------------
-# Structured error helper (same contract as osprey.mcp_server.server)
-# ---------------------------------------------------------------------------
-def make_error(
-    error_type: str,
-    error_message: str,
-    suggestions: list[str] | None = None,
-) -> dict:
-    """Build the cross-team standard error envelope."""
-    return {
-        "error": True,
-        "error_type": error_type,
-        "error_message": error_message,
-        "suggestions": suggestions or [],
-    }
 
 
 # ---------------------------------------------------------------------------

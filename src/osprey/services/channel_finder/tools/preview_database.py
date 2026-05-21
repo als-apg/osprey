@@ -680,30 +680,6 @@ def _get_children_at_level(data, current_level, hierarchy_levels, level_idx):
             instances = expansion.get("_instances", [])
             return dict.fromkeys(instances, data)
 
-    if current_level == "device" and "devices" in data:
-        device_config = data["devices"]
-        device_type = device_config.get("_type")
-
-        if device_type == "range":
-            pattern = device_config.get("_pattern", "{}")
-            start, end = device_config.get("_range", [1, 1])
-            return {pattern.format(i): data for i in range(start, end + 1)}
-        elif device_type == "list":
-            instances = device_config.get("_instances", [])
-            return dict.fromkeys(instances, data)
-
-    if current_level == "field" and "fields" in data:
-        return {
-            k: v for k, v in data["fields"].items() if not k.startswith("_") and isinstance(v, dict)
-        }
-
-    if current_level == "subfield" and "subfields" in data:
-        return {
-            k: v
-            for k, v in data["subfields"].items()
-            if not k.startswith("_") and isinstance(v, dict)
-        }
-
     return {k: v for k, v in data.items() if not k.startswith("_") and isinstance(v, dict)}
 
 

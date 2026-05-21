@@ -7,6 +7,8 @@ PROMPT-PROVIDER: This tool's docstring is a static prompt visible to Claude Code
 import json
 import logging
 
+from fastmcp.exceptions import ToolError
+
 from osprey.mcp_server.ariel.server import (
     make_error,
     mcp,
@@ -48,12 +50,10 @@ async def semantic_search(
         JSON with matching entries, similarity scores, and workspace file path.
     """
     if not query or not query.strip():
-        return json.dumps(
-            make_error(
-                "validation_error",
-                "Empty search query.",
-                ["Provide a natural language description of what you are looking for."],
-            )
+        return make_error(
+            "validation_error",
+            "Empty search query.",
+            ["Provide a natural language description of what you are looking for."],
         )
 
     try:
@@ -101,15 +101,15 @@ async def semantic_search(
 
         return json.dumps(response, default=str)
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("semantic_search failed")
-        return json.dumps(
-            make_error(
-                "internal_error",
-                f"ARIEL semantic search failed: {exc}",
-                [
-                    "Check ARIEL service configuration in config.yml.",
-                    "Verify the ARIEL database is reachable.",
-                ],
-            )
+        return make_error(
+            "internal_error",
+            f"ARIEL semantic search failed: {exc}",
+            [
+                "Check ARIEL service configuration in config.yml.",
+                "Verify the ARIEL database is reachable.",
+            ],
         )

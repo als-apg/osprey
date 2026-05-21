@@ -1,10 +1,10 @@
 """ARIEL Search Service.
 
 This module provides the main ARIELSearchService class that orchestrates
-search execution. The service routes queries to one of four execution modes:
+search execution. The service routes queries to:
 - KEYWORD / SEMANTIC: Direct calls to search functions
-- RAG: Deterministic pipeline (retrieve → fuse → assemble → generate)
-- AGENT: Non-deterministic ReAct agent
+
+Higher-level reasoning is handled by the Osprey agent layer.
 
 """
 
@@ -48,8 +48,8 @@ class ARIELSearchService:
     Routes queries based on SearchMode:
     - KEYWORD: Direct keyword_search() call
     - SEMANTIC: Direct semantic_search() call
-    - RAG: RAGPipeline (hybrid retrieval + RRF + LLM generation)
-    - AGENT: AgentExecutor (ReAct with search tools)
+
+    Higher-level reasoning is handled by the Osprey agent layer.
 
     Usage:
         config = ARIELConfig.from_dict(config_dict)
@@ -155,7 +155,7 @@ class ARIELSearchService:
             query: Natural language query
             max_results: Maximum results (default from config)
             time_range: Optional (start, end) datetime tuple
-            mode: Optional search mode (default: RAG)
+            mode: Optional search mode (default: KEYWORD)
             advanced_params: Mode-specific advanced parameters from the frontend
 
         Returns:
@@ -166,7 +166,7 @@ class ARIELSearchService:
             query=query,
             max_results=max_results or self.config.default_max_results,
             time_range=time_range,
-            modes=[mode] if mode else [SearchMode.RAG],
+            modes=[mode] if mode else [SearchMode.KEYWORD],
             advanced_params=advanced_params or {},
         )
 
@@ -190,23 +190,9 @@ class ARIELSearchService:
             if self.config.is_search_module_enabled("semantic"):
                 await self._validate_search_model()
 
-            mode = request.modes[0] if request.modes else SearchMode.RAG
+            mode = request.modes[0] if request.modes else SearchMode.KEYWORD
 
             match mode:
-                case SearchMode.AGENT:
-                    if not self.config.is_pipeline_enabled("agent"):
-                        raise ConfigurationError(
-                            "Agent pipeline not enabled",
-                            config_key="pipelines.agent.enabled",
-                        )
-                    return await self._run_agent(request)
-                case SearchMode.RAG:
-                    if not self.config.is_pipeline_enabled("rag"):
-                        raise ConfigurationError(
-                            "RAG pipeline not enabled",
-                            config_key="pipelines.rag.enabled",
-                        )
-                    return await self._run_rag(request)
                 case SearchMode.KEYWORD:
                     return await self._run_keyword(request)
                 case SearchMode.SEMANTIC:
@@ -243,7 +229,7 @@ class ARIELSearchService:
             raise
         except Exception as e:
             logger.exception(f"Search failed: {e}")
-            mode = request.modes[0] if request.modes else SearchMode.RAG
+            mode = request.modes[0] if request.modes else SearchMode.KEYWORD
             raise SearchExecutionError(
                 f"Search execution failed: {e}",
                 search_mode=mode.value,
@@ -352,55 +338,6 @@ class ARIELSearchService:
             sources=sources,
             search_modes_used=(SearchMode.SEMANTIC,),
             reasoning=f"Semantic search: {len(results)} results",
-        )
-
-    async def _run_rag(self, request: ARIELSearchRequest) -> ARIELSearchResult:
-        """Run the RAG pipeline.
-
-        Args:
-            request: Search request
-
-        Returns:
-            ARIELSearchResult with entries and LLM-generated answer
-        """
-        from osprey.services.ariel_search.rag import RAGPipeline
-
-        ap = request.advanced_params
-        max_context_chars = ap.get("max_context_chars", 12000)
-        max_chars_per_entry = ap.get("max_chars_per_entry", 2000)
-        similarity_threshold = ap.get("similarity_threshold")
-        temperature = ap.get("temperature")
-
-        pipeline = RAGPipeline(
-            repository=self.repository,
-            config=self.config,
-            embedder_loader=self._get_embedder,
-            max_context_chars=max_context_chars,
-            max_chars_per_entry=max_chars_per_entry,
-        )
-
-        start_date, end_date = request.time_range if request.time_range else (None, None)
-
-        rag_result = await pipeline.execute(
-            request.query,
-            max_results=request.max_results,
-            similarity_threshold=similarity_threshold,
-            start_date=start_date,
-            end_date=end_date,
-            author=ap.get("author"),
-            source_system=ap.get("source_system"),
-            temperature=temperature,
-        )
-
-        return ARIELSearchResult(
-            entries=rag_result.entries,
-            answer=rag_result.answer,
-            sources=rag_result.citations,
-            search_modes_used=(SearchMode.RAG,),
-            reasoning=f"RAG pipeline: {rag_result.retrieval_count} retrieved, "
-            f"{len(rag_result.entries)} in context",
-            diagnostics=rag_result.diagnostics,
-            pipeline_details=rag_result.pipeline_details,
         )
 
     async def create_entry(
@@ -528,39 +465,6 @@ class ARIELSearchService:
 
         return await self.create_entry(request)
 
-    async def _run_agent(self, request: ARIELSearchRequest) -> ARIELSearchResult:
-        """Run the AgentExecutor for agentic search.
-
-        Args:
-            request: Search request
-
-        Returns:
-            ARIELSearchResult
-        """
-        from osprey.services.ariel_search.agent import AgentExecutor
-
-        executor = AgentExecutor(
-            repository=self.repository,
-            config=self.config,
-            embedder_loader=self._get_embedder,
-        )
-
-        agent_result = await executor.execute(
-            query=request.query,
-            max_results=request.max_results,
-            time_range=request.time_range,
-        )
-
-        return ARIELSearchResult(
-            entries=agent_result.entries,
-            answer=agent_result.answer,
-            sources=agent_result.sources,
-            search_modes_used=agent_result.search_modes_used,
-            reasoning=agent_result.reasoning,
-            diagnostics=agent_result.diagnostics,
-            pipeline_details=agent_result.pipeline_details,
-        )
-
     async def health_check(self) -> tuple[bool, str]:
         """Check service health.
 
@@ -622,7 +526,6 @@ class ARIELSearchService:
             embedding_tables=embedding_tables,
             active_embedding_model=active_model,
             enabled_search_modules=self.config.get_enabled_search_modules(),
-            enabled_pipelines=self.config.get_enabled_pipelines(),
             enabled_enhancement_modules=self.config.get_enabled_enhancement_modules(),
             last_ingestion=last_ingestion,
             errors=errors,

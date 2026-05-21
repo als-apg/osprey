@@ -80,11 +80,16 @@ async def get_panels(request: Request):
     All custom panel URLs are rewritten to ``/panel/{id}`` so the browser
     routes through the reverse proxy.  The originals in ``app.state`` are
     left untouched — the proxy reads those for forwarding.
+
+    ``default`` carries the profile-pinned cold-load focus target (or
+    ``None`` when unset — the frontend then falls back to its built-in
+    default).
     """
     enabled = list(getattr(request.app.state, "enabled_panels", set()))
     custom_raw = getattr(request.app.state, "custom_panels", [])
     custom = [{**cp, "url": f"/panel/{cp['id']}"} for cp in custom_raw]
-    return {"enabled": enabled, "custom": custom}
+    default = getattr(request.app.state, "default_panel", None)
+    return {"enabled": enabled, "custom": custom, "default": default}
 
 
 class PanelFocusRequest(BaseModel):

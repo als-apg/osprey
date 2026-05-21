@@ -26,11 +26,16 @@ WRITE_HOOK_CHAIN = [
 
 # Default hook_config for chain tests (approval hook needs approval_prefixes)
 DEFAULT_CHAIN_CONFIG = {
-    "server_prefixes": ["mcp__controls__", "mcp__python__", "mcp__workspace__", "mcp__ariel__"],
+    "server_prefixes": [
+        "mcp__controls__",
+        "mcp__python__",
+        "mcp__osprey_workspace__",
+        "mcp__ariel__",
+    ],
     "approval_prefixes": [
         "mcp__controls__",
         "mcp__python__",
-        "mcp__workspace__",
+        "mcp__osprey_workspace__",
         "mcp__ariel__",
     ],
 }
@@ -40,7 +45,7 @@ DEFAULT_ERROR_CONFIG = {
     "server_prefixes": [
         "mcp__controls__",
         "mcp__python__",
-        "mcp__workspace__",
+        "mcp__osprey_workspace__",
         "mcp__ariel__",
         "mcp__channel-finder__",
     ],
@@ -52,11 +57,16 @@ def _make_chain_config(
     tmp_path,
     writes_enabled=True,
     limits_enabled=True,
-    approval_mode="selective",
+    approval_enabled=True,
+    approval_default_policy="selective",
+    approval_tools=None,
     channels_db=None,
     allow_unlisted=True,
 ):
     """Create config.yml + optional channel_limits.json for chain testing."""
+    approval = {"enabled": approval_enabled, "default_policy": approval_default_policy}
+    if approval_tools is not None:
+        approval["tools"] = approval_tools
     config_dict = {
         "control_system": {
             "type": "mock",
@@ -66,7 +76,7 @@ def _make_chain_config(
                 "allow_unlisted_channels": allow_unlisted,
             },
         },
-        "approval": {"global_mode": approval_mode},
+        "approval": approval,
     }
 
     if channels_db is not None and limits_enabled:
@@ -106,7 +116,7 @@ def test_writes_disabled_blocks_before_limits(tmp_path, hook_runner):
         tmp_path,
         writes_enabled=False,
         channels_db={"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
-        approval_mode="disabled",
+        approval_enabled=False,
     )
 
     result, blocked_by = run_hook_chain(
@@ -130,7 +140,7 @@ def test_limits_violation_blocks_before_approval(tmp_path, hook_runner):
         tmp_path,
         writes_enabled=True,
         channels_db={"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
-        approval_mode="selective",
+        approval_default_policy="selective",
         allow_unlisted=False,
     )
 
@@ -155,7 +165,7 @@ def test_valid_write_reaches_approval(tmp_path, hook_runner):
         tmp_path,
         writes_enabled=True,
         channels_db={"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
-        approval_mode="selective",
+        approval_default_policy="selective",
         allow_unlisted=True,
     )
 
@@ -180,7 +190,7 @@ def test_valid_write_disabled_approval_passes_all(tmp_path, hook_runner):
         tmp_path,
         writes_enabled=True,
         channels_db={"TEST:PV": {"min_value": 0.0, "max_value": 100.0, "writable": True}},
-        approval_mode="disabled",
+        approval_enabled=False,
         allow_unlisted=True,
     )
 
@@ -204,7 +214,7 @@ def test_read_tool_skips_write_checks(tmp_path, hook_runner):
         tmp_path,
         writes_enabled=False,
         limits_enabled=False,
-        approval_mode="disabled",
+        approval_enabled=False,
     )
 
     result, blocked_by = run_hook_chain(
@@ -228,7 +238,7 @@ def test_non_osprey_tool_passes_entire_chain(tmp_path, hook_runner):
         tmp_path,
         writes_enabled=False,
         limits_enabled=False,
-        approval_mode="all_capabilities",
+        approval_default_policy="always",
     )
 
     result, blocked_by = run_hook_chain(
@@ -250,7 +260,7 @@ def test_python_execute_chain_with_framework_patterns(tmp_path, hook_runner):
     config = _make_chain_config(
         tmp_path,
         writes_enabled=True,
-        approval_mode="selective",
+        approval_default_policy="selective",
     )
 
     result, blocked_by = run_hook_chain(
@@ -389,14 +399,22 @@ def test_error_guidance_fires_on_tool_error(hook_runner, make_config):
         "mcp__controls__channel_read",
         {"channels": ["SR:CURRENT:RB"]},
         config_path=config,
-        tool_response=json.dumps(
-            {
-                "error": True,
-                "error_type": "connection_error",
-                "error_message": "Control system unreachable",
-                "suggestions": [],
-            }
-        ),
+        tool_response={
+            "isError": True,
+            "content": [
+                {
+                    "type": "text",
+                    "text": json.dumps(
+                        {
+                            "error": True,
+                            "error_type": "connection_error",
+                            "error_message": "Control system unreachable",
+                            "suggestions": [],
+                        }
+                    ),
+                }
+            ],
+        },
         hook_config=DEFAULT_ERROR_CONFIG,
     )
 

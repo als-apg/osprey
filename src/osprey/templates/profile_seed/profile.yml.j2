@@ -1,0 +1,49 @@
+# {{ profile_name }} — OSPREY build profile
+#
+# This profile extends the bundled `{{ preset_name }}` preset and is the
+# source-of-truth for your facility's customizations. Edit this file (and
+# drop overlay artifacts into overlays/) rather than editing rendered
+# projects in place.
+#
+# Rebuild with:
+#   osprey build <PROJECT_NAME> {{ profile_filename }}
+
+extends: {{ preset_name }}
+
+name: "{{ profile_name }}"
+
+# --- Override or extend artifact selections (uncomment as needed) -----------
+# String lists are union-deduped against the preset (base order preserved),
+# so listing the preset's own entries is harmless and makes intent explicit.
+#
+# skills:
+#   - my-custom-skill         # references overlays/skills/my-custom-skill/
+# rules:
+#   - my-facility-rule        # references overlays/rules/my-facility-rule.md
+# agents:
+#   - my-custom-agent         # references overlays/agents/my-custom-agent.md
+
+# --- Config overrides --------------------------------------------------------
+# Dotted keys land at the matching nested path in the rendered config.yml.
+#
+# config:
+#   system.timezone: "America/Los_Angeles"
+
+# --- Environment variable wiring --------------------------------------------
+# `required` populates .env.template; `file` (profile-relative) is copied to
+# the project as `.env` at build time.
+#
+# env:
+#   file: .env.local
+#   required:
+#     - MY_API_KEY
+#   defaults:
+#     MY_TIMEOUT: "30"
+
+# --- Overlay files -----------------------------------------------------------
+# source (relative to this profile dir) → destination (relative to project).
+# Listed overlay sources must exist at build time (validated by build_profile).
+#
+# overlay:
+#   overlays/rules/my-facility-rule.md: .claude/rules/my-facility-rule.md
+#   overlays/skills/my-custom-skill: .claude/skills/my-custom-skill

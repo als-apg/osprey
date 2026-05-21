@@ -25,12 +25,16 @@ from tests.e2e.judge import LLMJudge, WorkflowResult
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
     SDKWorkflowResult,
+    enable_writes_in_project,
     init_project,
     is_claude_code_available,
     run_sdk_query,
     run_sdk_query_with_hooks,
 )
 
+# ALS_APG_API_KEY is enforced via `requires_als_apg` — the root
+# `tests/conftest.py` hook auto-skips when the key is missing. Every test
+# in this file passes `provider="als-apg"` to `init_project` and `LLMJudge`.
 pytestmark = [
     pytest.mark.e2e,
     pytest.mark.requires_als_apg,
@@ -117,7 +121,7 @@ async def _assert_approval_hook_fires(
 
 
 @pytest.mark.asyncio
-async def test_hello_world_canonical_flow(tmp_path: Path, llm_judge: LLMJudge) -> None:
+async def test_hello_world_canonical_flow(tmp_path: Path) -> None:
     """Hello-world preset: agent reads the example mock channel.
 
     Asserts the agent reached for ``mcp__controls__channel_read``. If the
@@ -125,14 +129,18 @@ async def test_hello_world_canonical_flow(tmp_path: Path, llm_judge: LLMJudge) -
     Claude Code session hanging on missing tools.
     """
     project = init_project(tmp_path, "hello_demo", template="hello_world", provider="als-apg")
-    query = "Read the example channel and tell me its current value."
+    judge = LLMJudge(provider="als-apg")
+    query = (
+        "Use the controls MCP server to read the channel named 'example' "
+        "and report its current value."
+    )
     result = await run_sdk_query(project, query, max_turns=4, max_budget_usd=0.25)
 
     assert any(t.name == "mcp__controls__channel_read" for t in result.tool_traces), (
         f"agent did not call mcp__controls__channel_read. Tools called: {result.tool_names}"
     )
 
-    eval = await llm_judge.evaluate(
+    eval = await judge.evaluate(
         _to_workflow_result(query, result),
         expectations=(
             "The agent reads a control-system channel using the controls MCP "
@@ -144,7 +152,7 @@ async def test_hello_world_canonical_flow(tmp_path: Path, llm_judge: LLMJudge) -
 
 
 @pytest.mark.asyncio
-async def test_control_assistant_channel_finder_flow(tmp_path: Path, llm_judge: LLMJudge) -> None:
+async def test_control_assistant_channel_finder_flow(tmp_path: Path) -> None:
     """Control-assistant preset: agent uses the channel-finder pipeline.
 
     Soft assertion (the channel-finder backend differs by preset config) —
@@ -155,6 +163,7 @@ async def test_control_assistant_channel_finder_flow(tmp_path: Path, llm_judge: 
     if cf_server is None:
         pytest.skip("control-assistant preset has no channel-finder server")
 
+    judge = LLMJudge(provider="als-apg")
     query = "Help me find the address of a beam-position-monitor channel for sector 5."
     result = await run_sdk_query(project, query, max_turns=4, max_budget_usd=0.25)
 
@@ -163,7 +172,7 @@ async def test_control_assistant_channel_finder_flow(tmp_path: Path, llm_judge: 
         f"agent did not call any mcp__channel-finder__* tool. Tools called: {result.tool_names}"
     )
 
-    eval = await llm_judge.evaluate(
+    eval = await judge.evaluate(
         _to_workflow_result(query, result),
         expectations=(
             "The agent uses the channel-finder MCP server to search for or "
@@ -177,11 +186,21 @@ async def test_control_assistant_channel_finder_flow(tmp_path: Path, llm_judge: 
 
 @pytest.mark.asyncio
 async def test_hello_world_write_triggers_approval_hook(tmp_path: Path) -> None:
-    """Hello-world write probe: agent sets a mock channel; approval hook fires."""
+    """Hello-world write probe: agent sets a mock channel; approval hook fires.
+
+    Flips ``writes_enabled: true`` so the writes-disabled kill switch
+    (``osprey_writes_check.py``, safety_layer 1) doesn't deny before the
+    approval hook (safety_layer 2) gets to return ``ask`` — which is what
+    triggers the SDK's ``can_use_tool`` callback.
+    """
     project = init_project(tmp_path, "hw_write", template="hello_world", provider="als-apg")
+    enable_writes_in_project(project)
     await _assert_approval_hook_fires(
         project,
-        "Set the example channel to 1.5.",
+        # Directive prompt: explicit tool name so the agent commits to the write
+        # path on its first turn instead of dithering with reads or refusals.
+        "Use the mcp__controls__channel_write tool to write the value 1.5 "
+        "to the channel 'example'.",
         expected_write_tool="mcp__controls__channel_write",
     )
 
@@ -190,8 +209,14 @@ async def test_hello_world_write_triggers_approval_hook(tmp_path: Path) -> None:
 async def test_control_assistant_write_triggers_approval_hook(tmp_path: Path) -> None:
     """Control-assistant write probe: same contract on the heavier preset."""
     project = init_project(tmp_path, "ca_write", template="control_assistant", provider="als-apg")
+    enable_writes_in_project(project)
     await _assert_approval_hook_fires(
         project,
-        "Set the BPM offset channel for sector 5 to 0.0.",
+        # Directive prompt: explicit tool name + concrete channel address so the
+        # agent doesn't burn turns on channel-finder navigation. The approval
+        # hook fires before the underlying write executes — whether the channel
+        # is writable or not is irrelevant to the hook contract.
+        "Use the mcp__controls__channel_write tool to write the value 0.0 to "
+        "the channel 'SR:DIAG:BPM:01:GOLDEN:X'.",
         expected_write_tool="mcp__controls__channel_write",
     )

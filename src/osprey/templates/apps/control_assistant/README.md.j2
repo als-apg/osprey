@@ -29,10 +29,10 @@ This application demonstrates production-validated patterns for building AI assi
 - Best for: Large control systems (>1,000 channels)
 - Method: Structured navigation through system hierarchy
 - Latency: 5-7 seconds
-{% else %}
-**Channel Finder Mode:** Both Pipelines Enabled
-- Switch between modes via `config.yml`
-- Compare performance for your control system
+{% elif channel_finder_mode == 'middle_layer' %}
+**Channel Finder Mode:** Middle Layer (Functional Navigation)
+- Best for: MML-organized facilities (System / Family / Field / Subfield)
+- Method: Functional hierarchy navigation via the channel-finder MCP server
 {% endif %}
 
 ---
@@ -114,22 +114,22 @@ python -m {{ package_name }}.services.channel_finder.cli --facility my_facility 
 
 ### Database Tools
 
-Build and manage channel databases:
+Manage channel databases via the `osprey channel-finder` CLI:
 
 ```bash
-# Build database from CSV
-python -m {{ package_name }}.data.tools.build_channel_database \
-  --csv src/{{ package_name }}/data/raw/address_list.csv \
-  --output src/{{ package_name }}/data/channel_databases/custom.json \
+{% if channel_finder_mode == 'in_context' %}# Build database from CSV
+osprey channel-finder build-database \
+  --csv data/raw/address_list.csv \
+  --output data/channel_databases/{{ channel_finder_mode }}.json \
   --use-llm  # Optional: generate descriptive names
 
-# Validate database format
-python -m {{ package_name }}.data.tools.validate_database \
-  --database src/{{ package_name }}/data/channel_databases/in_context.json
+{% endif %}# Validate database format
+osprey channel-finder validate \
+  --database data/channel_databases/{{ channel_finder_mode }}.json
 
 # Preview database contents
-python -m {{ package_name }}.data.tools.preview_database \
-  --database src/{{ package_name }}/data/channel_databases/in_context.json
+osprey channel-finder preview \
+  --database data/channel_databases/{{ channel_finder_mode }}.json
 ```
 
 ### Benchmark Runner
@@ -252,26 +252,25 @@ Results are saved to `data/benchmarks/results/` with detailed metrics:
 
 ### Adding Custom Benchmarks
 
-Create a new dataset in `data/benchmarks/datasets/`:
+The default benchmark uses the tier-resolved unified query set at
+`data/benchmarks/queries.json` (one source of truth, all paradigms read the
+same file). To run a custom query set, write a new file alongside it and
+point `channel_finder.benchmark.dataset_path` at it:
 
 ```json
 [
   {
     "user_query": "beam current channel",
-    "targeted_channels": ["SR:CURRENT:RB"],
-    "details": "Basic beam current query"
+    "targeted_pv": ["SR:DIAG:DCCT:01:CURRENT:RB"],
+    "category": "single"
   }
 ]
 ```
 
-Enable it in `config.yml`:
-
 ```yaml
-benchmark:
-  datasets:
-    my_custom_dataset:
-      path: data/benchmarks/datasets/my_custom.json
-      enabled: true
+channel_finder:
+  benchmark:
+    dataset_path: data/benchmarks/my_custom.json
 ```
 
 ---

@@ -167,7 +167,7 @@ claude_code:
   # Custom proxy: any name defined under api.providers below
   #   (must have base_url set; uses ANTHROPIC_AUTH_TOKEN + cborg-style model IDs)
   # When set, `osprey claude regen` injects env vars into .claude/settings.json.
-  provider: {{ default_provider | default("anthropic") }}
+  provider: {{ default_provider }}
   default_model: {{ default_model | default("haiku") }}   # Options: haiku, sonnet, opus
   #
   # Override model IDs per tier (optional):

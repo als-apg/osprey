@@ -1,0 +1,133 @@
+---
+name: logbook-deep-research
+description: >
+  Perform deep, multi-step investigation of the facility logbook. Use for
+  questions that require iterative search refinement, exhaustive coverage,
+  pattern discovery, or synthesis across many entries — e.g. "analyze all
+  vacuum events this quarter", "investigate the root cause of the beam dump
+  on Jan 15". Not for simple lookups (a single keyword/semantic search is
+  enough for those).
+summary: Multi-phase logbook research with iterative search and synthesis
+---
+
+# Logbook Deep Research
+
+You are performing exhaustive, multi-step investigation of the {{ facility_name }}
+logbook using the ARIEL MCP tools. Follow these four phases in order. Do not
+skip phases; do not stop after the first search.
+
+---
+
+## Phase 1 — Plan
+
+Before any search, decompose the question into sub-questions and state your
+search plan transparently.
+
+- Break the user's question into 2–5 sub-questions.
+- For each, identify candidate **key terms**, **time ranges**, **authors**,
+  and **systems** to search.
+- Prioritize: which sub-question to investigate first, and why.
+- Call `capabilities()` once to confirm which search modules and pipelines
+  are active in this deployment.
+
+If the question is ambiguous, state your best interpretation and proceed —
+the final report makes any ambiguity visible. Do **not** stop to ask the
+user clarifying questions in this phase.
+
+---
+
+## Phase 2 — Search
+
+Run multiple searches per sub-question. Cover every applicable tool. **Empty
+results are findings, not dead ends.**
+
+### 2a. Keyword search
+
+- Use `keyword_search` for known terms, identifiers, error codes, and
+  exact phrases the user supplied.
+- Try multiple formulations: synonyms, term order variations,
+  operator-vs-event vocabulary.
+
+### 2b. Semantic search
+
+- Use `semantic_search` to catch entries whose vocabulary doesn't match
+  the user's wording (e.g. "beam loss" vs "lost beam" vs "trip").
+- If `capabilities()` showed semantic is unavailable, skip this and note
+  the gap in the final report.
+- Pass `exclude_entry_ids` to skip IDs already returned by Phase 2a to
+  avoid duplicate review.
+
+### 2c. SQL / structural queries
+
+- Use `sql_query` for structural questions:
+  - Counts (`COUNT(*)` of entries matching a tag or author)
+  - Date-range groupings (`GROUP BY DATE_TRUNC('day', timestamp)`)
+  - JSONB metadata filters
+- The query is read-only; it cannot mutate the database.
+
+### 2d. Browse and filter discovery
+
+- Use `browse` with date filters for chronological exploration of an event
+  window.
+- Use `filter_options` **before** filtering by author/source to discover
+  what values actually exist — never guess author names.
+
+After each search, write down: what you queried, how many results, and what
+the results suggest for the next query.
+
+---
+
+## Phase 3 — Analyze
+
+Hydrate full entry text for the most relevant IDs and look for structure.
+
+- Use `entry_get` (single) or `entries_by_ids` (batch) to fetch full text
+  for the top candidate entries from Phase 2.
+- Look for:
+  - **Themes** — recurring keywords, systems, or failure modes
+  - **Patterns** — clustering by time of day, shift, day-of-week, author
+  - **Contradictions** — different entries describing the same event with
+    incompatible details
+  - **Timelines** — sequences of related events that suggest causation
+  - **Gaps** — sub-questions for which no entries surfaced
+
+Cross-reference: when the same event is described by multiple entries
+(different authors, different systems), reconcile the accounts explicitly.
+
+---
+
+## Phase 4 — Synthesize
+
+Produce a structured response for the user.
+
+- **Lead with the answer.** Begin with a 1–3 sentence direct response to
+  the user's question.
+- **Structure by sub-question or by timeline**, whichever fits the
+  investigation better.
+- **Always cite entry IDs** using `[entry_id]` format. Every factual claim
+  must be traceable to a specific entry.
+- **Distinguish facts from inferences.** Mark inferences explicitly:
+  "Based on entries [123, 124], it appears that…".
+- **Flag uncertainty.** When the entries don't conclusively answer a
+  sub-question, say so.
+- **Surface gaps.** If a sub-question returned nothing, state which
+  searches you tried and what the absence implies.
+- **Report search coverage.** Briefly note how many searches you ran and
+  how many entries you reviewed.
+
+---
+
+## Important Rules
+
+- **NEVER fabricate entries** — every cited ID must appear in actual tool
+  results.
+- **NEVER fabricate authors, timestamps, or systems** — these come from
+  entry data, not your prior assumptions about the facility.
+- **NEVER stop after one search.** Each sub-question gets at least keyword
+  + semantic (+ SQL when applicable).
+- **NEVER write entries to the logbook as part of research.** `entry_create`
+  and `entry_publish` are for user-requested authoring only; if the user
+  asks for a written-up summary, the user will explicitly request a write
+  after seeing the synthesis.
+- **NEVER use Bash, Read, Write, WebFetch, or other host-side tools** to
+  work around an empty search result — record the gap and report it.

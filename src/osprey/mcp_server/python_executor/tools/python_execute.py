@@ -44,12 +44,10 @@ async def execute(
         JSON with a compact summary (truncated stdout/stderr) and a data file path.
     """
     if not code or not code.strip():
-        return json.dumps(
-            make_error(
-                "validation_error",
-                "No code provided.",
-                ["Provide Python code to execute."],
-            )
+        return make_error(
+            "validation_error",
+            "No code provided.",
+            ["Provide Python code to execute."],
         )
 
     # Pre-execution safety checks (syntax, security, imports)
@@ -58,12 +56,10 @@ async def execute(
 
         passed, safety_issues = quick_safety_check(code)
         if not passed:
-            return json.dumps(
-                make_error(
-                    "safety_error",
-                    "Code failed pre-execution safety checks.",
-                    safety_issues,
-                )
+            return make_error(
+                "safety_error",
+                "Code failed pre-execution safety checks.",
+                safety_issues,
             )
     except ImportError:
         logger.warning("Safety check module unavailable — executing without pre-checks")
@@ -79,16 +75,44 @@ async def execute(
         logger.warning("Pattern detection module unavailable — skipping write detection")
         patterns = {"has_writes": False, "has_reads": False, "detected_patterns": {}}
 
-    if patterns.get("has_writes") and execution_mode == "readonly":
-        return json.dumps(
-            make_error(
+    # Deployment-level kill switch (independent of pattern detection accuracy).
+    # Fires whenever the caller asks for write mode, regardless of whether the
+    # pattern detector recognises specific write syntax in `code`.
+    if execution_mode == "readwrite":
+        try:
+            from osprey.services.python_executor.execution.control import (
+                get_execution_control_config,
+            )
+
+            exec_control_config = get_execution_control_config()
+        except ImportError:
+            logger.warning(
+                "Execution control config unavailable — skipping deployment-level writes check"
+            )
+            exec_control_config = None
+
+        if (
+            exec_control_config is not None
+            and exec_control_config.control_system_writes_enabled is False
+        ):
+            return make_error(
                 "safety_error",
-                "Control-system write patterns detected in readonly mode.",
+                "Control-system writes are disabled in this deployment "
+                "(control_system.writes_enabled=false in project config).",
                 [
-                    "Set execution_mode to 'readwrite' if writes are intentional.",
-                    "Detected patterns: " + json.dumps(patterns.get("detected_patterns", {})),
+                    "Set control_system.writes_enabled=true in the project config to enable writes.",
                 ],
             )
+
+    # Per-call execution-mode gate (uses pattern detection — readonly-mode safety).
+    if patterns.get("has_writes") and execution_mode == "readonly":
+        return make_error(
+            "safety_error",
+            "Control-system write patterns detected in readonly mode.",
+            [
+                "Set execution_mode to 'readwrite' if writes are intentional.",
+                "Detected patterns: " + json.dumps(patterns.get("detected_patterns", {})),
+            ],
         )
 
     # Execute code via adapter (container or subprocess)

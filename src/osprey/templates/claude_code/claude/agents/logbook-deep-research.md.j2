@@ -4,7 +4,8 @@ description: "Performs deep, multi-step investigation of the facility logbook. U
 summary: Deep multi-query research across logbook archives
 model: {{ claude_code_model_spec.agent_tier("logbook-deep-research") if claude_code_model_spec is defined and claude_code_model_spec else "opus" }}
 maxTurns: 100
-disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, NotebookRead, Task
+tools: mcp__ariel__keyword_search, mcp__ariel__semantic_search, mcp__ariel__browse, mcp__ariel__filter_options, mcp__ariel__entry_get, mcp__ariel__capabilities, mcp__ariel__sql_query, mcp__ariel__entries_by_ids, mcp__osprey_workspace__submit_response
+disallowedTools: Bash, Read, Write, Edit, Glob, Grep, WebFetch, WebSearch, NotebookEdit, NotebookRead, Task, Skill, Agent
 ---
 
 # Logbook Deep Research Agent

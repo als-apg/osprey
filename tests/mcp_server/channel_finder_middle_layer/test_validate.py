@@ -1,6 +1,5 @@
 """Tests for validate tool."""
 
-import json
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
@@ -9,6 +8,7 @@ from osprey.mcp_server.channel_finder_middle_layer.server_context import (
     initialize_cf_ml_context,
 )
 from tests.mcp_server.channel_finder_middle_layer.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 
 def _setup(tmp_path, monkeypatch):
@@ -35,7 +35,7 @@ def test_validate_returns_results(tmp_path, monkeypatch):
         fn = get_tool_fn(validate)
         result = fn(channels=["SR:BPM1:X", "INVALID:PV"])
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["total"] == 2
     assert data["results"][0]["channel"] == "SR:BPM1:X"
     assert data["results"][0]["valid"] is True
@@ -52,11 +52,10 @@ def test_validate_empty_list(tmp_path, monkeypatch):
     )
 
     fn = get_tool_fn(validate)
-    result = fn(channels=[])
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        fn(channels=[])
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = _exc_ctx["envelope"]
     assert "Empty channel list" in data["error_message"]
 
 
@@ -76,9 +75,8 @@ def test_validate_internal_error(tmp_path, monkeypatch):
         )
 
         fn = get_tool_fn(validate)
-        result = fn(channels=["SR:BPM1:X"])
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            fn(channels=["SR:BPM1:X"])
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    data = _exc_ctx["envelope"]
     assert "Corrupted index" in data["error_message"]

@@ -3,6 +3,8 @@
 import json
 import logging
 
+from fastmcp.exceptions import ToolError
+
 from osprey.mcp_server.channel_finder_middle_layer.server import make_error, mcp
 from osprey.mcp_server.channel_finder_middle_layer.server_context import get_cf_ml_context
 
@@ -23,12 +25,10 @@ def validate(channels: list[str]) -> str:
         JSON with validation results for each channel.
     """
     if not channels:
-        return json.dumps(
-            make_error(
-                "validation_error",
-                "Empty channel list provided.",
-                ["Provide one or more channel names to validate."],
-            )
+        return make_error(
+            "validation_error",
+            "Empty channel list provided.",
+            ["Provide one or more channel names to validate."],
         )
 
     try:
@@ -44,12 +44,12 @@ def validate(channels: list[str]) -> str:
 
         return json.dumps({"results": results, "total": len(results)})
 
+    except ToolError:
+        raise
     except Exception as exc:
         logger.exception("validate failed")
-        return json.dumps(
-            make_error(
-                "internal_error",
-                f"Failed to validate channels: {exc}",
-                ["Check that the channel finder database is configured."],
-            )
+        return make_error(
+            "internal_error",
+            f"Failed to validate channels: {exc}",
+            ["Check that the channel finder database is configured."],
         )

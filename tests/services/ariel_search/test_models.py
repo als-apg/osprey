@@ -26,8 +26,6 @@ class TestSearchMode:
         """Test that all expected modes exist."""
         assert SearchMode.KEYWORD.value == "keyword"
         assert SearchMode.SEMANTIC.value == "semantic"
-        assert SearchMode.RAG.value == "rag"
-        assert SearchMode.AGENT.value == "agent"
 
 
 class TestARIELSearchRequest:
@@ -37,7 +35,7 @@ class TestARIELSearchRequest:
         """Test basic request creation."""
         request = ARIELSearchRequest(query="test query")
         assert request.query == "test query"
-        assert request.modes == [SearchMode.RAG]
+        assert request.modes == [SearchMode.KEYWORD]
         assert request.time_range is None
         assert request.facility is None
         assert request.max_results == 10
@@ -140,7 +138,6 @@ class TestARIELStatusResult:
             embedding_tables=[],
             active_embedding_model="nomic-embed-text",
             enabled_search_modules=["keyword", "semantic"],
-            enabled_pipelines=["rag", "agent"],
             enabled_enhancement_modules=["text_embedding"],
             last_ingestion=None,
             errors=[],

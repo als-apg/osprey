@@ -7,6 +7,7 @@ import pytest
 
 from osprey.mcp_server.ariel.server_context import initialize_ariel_context
 from tests.mcp_server.ariel.conftest import get_tool_fn, make_mock_entry
+from tests.mcp_server.conftest import assert_raises_error
 
 
 def _get_browse():
@@ -156,8 +157,7 @@ async def test_filter_options_unknown_field(tmp_path, monkeypatch):
         new=AsyncMock(return_value=mock_service),
     ):
         fn = _get_filter_options()
-        result = await fn(field="unknown")
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await fn(field="unknown")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    _exc_ctx["envelope"]

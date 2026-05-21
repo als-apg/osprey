@@ -17,6 +17,14 @@ from osprey.utils.logger import get_logger
 
 logger = get_logger("mock_archiver_connector")
 
+# Wall-clock anchor for the "Sector-7 vacuum burst + beam-loss" scenario.
+# The mock archiver emits a correlated vacuum spike + DCCT step-down at this
+# time of day for every date that falls inside a requested window.
+VACUUM_EVENT_HOUR = 14
+VACUUM_EVENT_MINUTE = 32
+VACUUM_EVENT_SECOND = 8
+VACUUM_EVENT_SECTOR = 7  # SR07 is the "problematic" sector
+
 
 class MockArchiverConnector(ArchiverConnector):
     """
@@ -99,10 +107,15 @@ class MockArchiverConnector(ArchiverConnector):
         time_step = duration / (num_points - 1) if num_points > 1 else 0
         timestamps = [start_date + timedelta(seconds=i * time_step) for i in range(num_points)]
 
+        # Vacuum-event positions are window-aware: each 14:32:08 of every
+        # date in [start_date, end_date] becomes a normalized t ∈ [0, 1]
+        # event position shared by Sector-7 gauge and DCCT channels.
+        vacuum_event_positions = self._vacuum_event_positions(start_date, end_date)
+
         # Generate data for each PV
         data = {}
         for pv in pv_list:
-            data[pv] = self._generate_time_series(pv, num_points)
+            data[pv] = self._generate_time_series(pv, num_points, vacuum_event_positions)
 
         df = pd.DataFrame(data, index=pd.to_datetime(timestamps))
 
@@ -133,6 +146,47 @@ class MockArchiverConnector(ArchiverConnector):
         """Check if PV belongs to the RF system (cavity or klystron)."""
         return "rf" in pv_lower and ("cavity" in pv_lower or "klystron" in pv_lower)
 
+    def _is_cold_cathode_gauge(self, pv_lower: str) -> bool:
+        """Check if PV is a cold-cathode vacuum pressure gauge."""
+        return "gauge" in pv_lower and "pressure" in pv_lower
+
+    def _is_sector7_gauge(self, pv_lower: str) -> bool:
+        """Check if PV is the SR07 (problematic) cold-cathode gauge."""
+        sector_tag = f"sr{VACUUM_EVENT_SECTOR:02d}"
+        return self._is_cold_cathode_gauge(pv_lower) and sector_tag in pv_lower
+
+    def _is_dcct_channel(self, pv_lower: str) -> bool:
+        """Check if PV is a DC current transformer / beam-current monitor."""
+        return "dcct" in pv_lower or ("beam" in pv_lower and "current" in pv_lower)
+
+    def _vacuum_event_positions(self, start_date: datetime, end_date: datetime) -> list[float]:
+        """
+        Find every wall-clock occurrence of 14:32:08 within [start, end] and
+        return their fractional positions in [0, 1] across the window.
+
+        Returns an empty list when the requested window does not span any
+        scheduled event time — in which case downstream channels fall back to
+        their normal baseline behavior.
+        """
+        duration = (end_date - start_date).total_seconds()
+        if duration <= 0:
+            return []
+
+        positions: list[float] = []
+        cursor = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        # Walk every calendar date that the window touches.
+        while cursor <= end_date:
+            candidate = cursor.replace(
+                hour=VACUUM_EVENT_HOUR,
+                minute=VACUUM_EVENT_MINUTE,
+                second=VACUUM_EVENT_SECOND,
+                microsecond=0,
+            )
+            if start_date <= candidate <= end_date:
+                positions.append((candidate - start_date).total_seconds() / duration)
+            cursor += timedelta(days=1)
+        return positions
+
     def _rf_event_envelope(
         self, t: np.ndarray, events: list[tuple[float, float]], width: float = 0.024
     ) -> np.ndarray:
@@ -152,14 +206,20 @@ class MockArchiverConnector(ArchiverConnector):
         """
         Generate RF system data with correlated thermal excursion / trip patterns.
 
-        C1/K1 is the "problematic" cavity — three thermal excursion events where
-        body temperature rises, reflected power spikes, and forward power trips.
-        C2/K2 is the "stable" reference — one minor event for contrast.
+        C1/K1 (a.k.a. cavity/klystron device "01") is the "problematic" cavity
+        — three thermal excursion events where body temperature rises, reflected
+        power spikes, and forward power trips. C2/K2 (device "02") is the
+        "stable" reference — one minor event for contrast.
+
+        Operators and logbook entries refer to the primary cavity as "C1"; the
+        tier-1 channel database addresses it as device "01" (channel name like
+        ``SR:RF:CAVITY:01:...``). Both naming conventions resolve to the same
+        underlying instrument, so the matcher accepts either.
 
         Event positions are hardcoded so temperature, power, and voltage channels
         all show correlated behavior at the same time points.
         """
-        is_primary = "c1" in pv_lower or "k1" in pv_lower
+        is_primary = "c1" in pv_lower or "k1" in pv_lower or ":01:" in pv_lower
 
         if is_primary:
             events = [(0.20, 1.0), (0.55, 0.7), (0.85, 1.2)]
@@ -229,7 +289,12 @@ class MockArchiverConnector(ArchiverConnector):
         noise = rng.normal(0, 0.01, num_points)
         return base + noise
 
-    def _generate_time_series(self, pv_name: str, num_points: int) -> np.ndarray:
+    def _generate_time_series(
+        self,
+        pv_name: str,
+        num_points: int,
+        vacuum_event_positions: list[float] | None = None,
+    ) -> np.ndarray:
         """
         Generate synthetic time series with trends and noise.
 
@@ -240,14 +305,50 @@ class MockArchiverConnector(ArchiverConnector):
         - PV-type-specific characteristics
         - BPMs use random offsets with slow oscillations
         - RF system channels use correlated event patterns
+        - Cold-cathode gauges + DCCT share a Sector-7 vacuum-burst event
+          whenever the requested window straddles 14:32:08 of any date
         """
         t = np.linspace(0, 1, num_points)
         pv_lower = pv_name.lower()
         rng = np.random.default_rng(seed=hash(pv_name) % (2**32))
+        vacuum_event_positions = vacuum_event_positions or []
 
         # RF system channels — correlated thermal excursion / trip patterns
         if self._is_rf_channel(pv_lower):
             return self._generate_rf_time_series(pv_lower, t, num_points, rng)
+
+        # Cold-cathode vacuum gauges — flat ~5e-8 Torr baseline.  Sector 7
+        # spikes to ~2e-7 Torr at each scheduled vacuum-event time; all other
+        # sectors remain flat for visual contrast.
+        if self._is_cold_cathode_gauge(pv_lower):
+            base = 5e-8
+            series = np.full(num_points, base) + rng.normal(0, base * 0.03, num_points)
+            if self._is_sector7_gauge(pv_lower) and vacuum_event_positions:
+                # Width 0.025 ≈ ~15 s in a 10-min window: sharp, visible spike.
+                spike_envelope = self._rf_event_envelope(
+                    t,
+                    [(pos, 1.0) for pos in vacuum_event_positions],
+                    width=0.025,
+                )
+                series = series + spike_envelope * 1.5e-7
+            return np.maximum(series, 0)
+
+        # DCCT / beam-current — when a vacuum event is in the window, override
+        # the default sawtooth with a ~5 mA Gaussian dip aligned with the
+        # Sector-7 gauge spike.  The dip width (0.05) is intentionally about
+        # twice the gauge-spike width (0.025) so Pearson r against SR07 lands
+        # around -0.88 over a 10-min window — matching the talk slide.  A
+        # small residual offset of 0.3 mA keeps a faint "we lost some beam"
+        # signal after top-up refills the ring.
+        if self._is_dcct_channel(pv_lower) and vacuum_event_positions:
+            base = 500.0
+            series = np.full(num_points, base)
+            for pos in vacuum_event_positions:
+                dip = 5.0 * np.exp(-((t - pos) ** 2) / (2 * 0.05**2))
+                residual = 0.3 / (1.0 + np.exp(-200.0 * (t - pos)))
+                series = series - dip - residual
+            series += rng.normal(0, 0.05, num_points)
+            return series
 
         # BPM channels — reproducible random offsets with slow oscillations
         if "position" in pv_lower or "pos" in pv_lower or "bpm" in pv_lower:

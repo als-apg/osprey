@@ -21,11 +21,13 @@ from __future__ import annotations
 
 import pytest
 
+from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
     find_png_files,
     init_project,
     run_sdk_query,
 )
+from tests.e2e.test_preset_agentic import _to_workflow_result
 
 
 class TestClaudeCodeSDKIntegration:
@@ -36,7 +38,7 @@ class TestClaudeCodeSDKIntegration:
     # -------------------------------------------------------------------
 
     @pytest.mark.requires_api
-    @pytest.mark.requires_anthropic
+    @pytest.mark.requires_als_apg
     @pytest.mark.asyncio
     async def test_tool_call_observability_smoke(self, tmp_path):
         """Verify that the SDK ToolTrace collection works correctly.
@@ -44,7 +46,7 @@ class TestClaudeCodeSDKIntegration:
         Uses a simple prompt that triggers a single MCP tool call
         (channel_find) to prove the observability pipeline works.
         """
-        project_dir = init_project(tmp_path, "sdk-smoke-test")
+        project_dir = init_project(tmp_path, "sdk-smoke-test", provider="als-apg")
 
         prompt = (
             "Use the channel_find tool to search for BPM channels. "
@@ -80,11 +82,11 @@ class TestClaudeCodeSDKIntegration:
             "No tool calls recorded — SDK observability may be broken"
         )
 
-        # At least one tool name should contain a recognizable MCP tool
-        mcp_tool_names = [t.name for t in result.tool_traces if "channel" in t.name.lower()]
-        assert len(mcp_tool_names) > 0, (
-            f"Expected a channel-related tool call but got: {result.tool_names}"
-        )
+        # The prompt asks for channel_find specifically — assert a channel-finder
+        # MCP server tool was called, not just any "channel"-substring tool
+        # (controls-server channel_read/write/limits would otherwise satisfy this).
+        cf_tools = [t for t in result.tool_traces if t.name.startswith("mcp__channel-finder__")]
+        assert cf_tools, f"Expected a channel-finder tool call but got: {result.tool_names}"
 
         # Cost should be reasonable for a simple query
         if result.cost_usd is not None:
@@ -98,22 +100,32 @@ class TestClaudeCodeSDKIntegration:
 
     @pytest.mark.slow
     @pytest.mark.requires_api
-    @pytest.mark.requires_anthropic
+    @pytest.mark.requires_als_apg
     @pytest.mark.asyncio
     async def test_archiver_and_plot_via_sdk(self, tmp_path):
-        """Verify archiver_read -> execute pipeline with tool ordering.
+        """Verify archiver_read → plot pipeline with semantic judging.
 
         Uses hardcoded channel names to bypass the channel-finder and
         reduce LLM non-determinism and cost.
+
+        Three layers of contract:
+          1. Deterministic: ``archiver_read`` was called and a PNG
+             artifact exists in the project tree.
+          2. Semantic (LLM judge): the agent fetched the requested
+             channel data and produced a plot from it — the judge
+             decides whether ``execute``, ``create_static_plot``, or
+             any other plotting path was used correctly, without the
+             test prescribing a specific tool.
+          3. Cost: under $1.00 budget.
         """
-        project_dir = init_project(tmp_path, "sdk-archiver-plot")
+        project_dir = init_project(tmp_path, "sdk-archiver-plot", provider="als-apg")
 
         prompt = (
             "Use the archiver_read tool to retrieve data for channels "
             "'DIAG:BPM01:POSITION:X', 'DIAG:BPM02:POSITION:X', "
             "'DIAG:BPM03:POSITION:X' over the last 24 hours. "
-            "Then use the execute tool to create a timeseries plot of "
-            "the data and save it as a PNG file in the current directory."
+            "Then create a timeseries plot of the data and save it as a "
+            "PNG file."
         )
 
         result = await run_sdk_query(
@@ -133,40 +145,52 @@ class TestClaudeCodeSDKIntegration:
             print(f"    input keys: {list(trace.input.keys())}")
             print(f"    is_error: {trace.is_error}")
 
-        # -- Assertions --
+        # -- Deterministic assertions (cheap, catch gross regressions) --
         assert result.result is not None, "No ResultMessage received"
         assert not result.result.is_error, f"SDK query ended in error: {result.result.result}"
 
-        # archiver_read was called
         archiver_calls = result.tools_matching("archiver_read")
         assert len(archiver_calls) > 0, f"archiver_read not called. Tools used: {result.tool_names}"
 
-        # execute was called
-        python_calls = result.tools_matching("execute")
-        assert len(python_calls) > 0, f"execute not called. Tools used: {result.tool_names}"
-
-        # archiver_read was called BEFORE execute
-        archiver_idx = next(
-            i for i, t in enumerate(result.tool_traces) if "archiver_read" in t.name
-        )
-        python_idx = next(i for i, t in enumerate(result.tool_traces) if "execute" in t.name)
-        assert archiver_idx < python_idx, (
-            f"archiver_read (idx={archiver_idx}) should come before execute (idx={python_idx})"
-        )
-
-        # PNG artifact exists in the project tree
         png_files = find_png_files(project_dir)
         assert len(png_files) > 0, (
-            "No PNG files found in the project -- execute may not have created a plot."
+            "No PNG files found in the project — agent did not produce a plot."
+        )
+        print(f"  PNG files: {[p.name for p in png_files]}")
+
+        # -- Semantic assertion via LLM judge --
+        # The agent may legitimately solve this via ``execute`` (raw python),
+        # ``create_static_plot`` (dedicated visualizer), or another path. The
+        # judge evaluates the workflow against the contract, not the tools.
+        judge = LLMJudge(provider="als-apg")
+        evaluation = await judge.evaluate(
+            _to_workflow_result(prompt, result),
+            expectations=(
+                "The agent must (a) retrieve time-series data for the three "
+                "named BPM channels via the archiver, and then (b) plot that "
+                "data and save it as a PNG. The retrieval step must occur "
+                "before the plotting step. The specific plotting mechanism "
+                "(direct python execution vs. a dedicated plotting MCP tool) "
+                "is acceptable in any form — do not penalize the choice of "
+                "tool. Fail only if data was not actually fetched for the "
+                "requested channels, if no plot was produced, or if the "
+                "ordering is wrong (e.g., the agent invented data instead of "
+                "calling the archiver)."
+            ),
+        )
+        assert evaluation.passed, (
+            f"LLM judge failed the workflow.\n"
+            f"  reasoning: {evaluation.reasoning}\n"
+            f"  confidence: {evaluation.confidence}\n"
+            f"  warnings: {evaluation.warnings}\n"
+            f"  tools used: {result.tool_names}"
         )
 
-        # Cost should be under budget
+        # -- Cost ceiling --
         if result.cost_usd is not None:
             assert result.cost_usd < 1.0, (
                 f"Test cost ${result.cost_usd:.4f} — exceeded $1.00 budget"
             )
-
-        print(f"  PNG files: {[p.name for p in png_files]}")
 
     # -------------------------------------------------------------------
     # Test 3 — Full BPM correlation pipeline (channel-finder -> archiver -> plot)
@@ -174,22 +198,29 @@ class TestClaudeCodeSDKIntegration:
 
     @pytest.mark.slow
     @pytest.mark.requires_api
-    @pytest.mark.requires_anthropic
+    @pytest.mark.requires_als_apg
     @pytest.mark.asyncio
     async def test_full_bpm_correlation_pipeline_via_sdk(self, tmp_path):
         """Full multi-tool pipeline with sub-agent delegation.
 
         Natural language prompt matching the user's interactive workflow:
-        channel-finder sub-agent -> archiver_read -> execute -> artifact.
+        channel-finder sub-agent → archiver_read → plot → artifact.
+
+        Three layers of contract:
+          1. Deterministic: channel-finder invoked, archiver_read called,
+             at least one PNG artifact produced, cost + turn ceilings.
+          2. Semantic (LLM judge): the agent followed the
+             discover-channels → fetch-data → plot pipeline correctly,
+             regardless of whether plotting went through ``execute``,
+             ``create_static_plot``, or another visualizer tool.
         """
-        project_dir = init_project(tmp_path, "sdk-bpm-pipeline")
+        project_dir = init_project(tmp_path, "sdk-bpm-pipeline", provider="als-apg")
 
         prompt = (
             "Give me a timeseries and a correlation plot of all horizontal "
             "BPM positions over the last 24 hours. Use the channel_find tool "
             "to discover BPM channels, then archiver_read to get historical "
-            "data, then the execute tool to create the plots. Save the plots "
-            "as PNG files."
+            "data, then plot the data. Save the plots as PNG files."
         )
 
         result = await run_sdk_query(
@@ -213,55 +244,73 @@ class TestClaudeCodeSDKIntegration:
             print(f"  tool: {trace.name}{error_flag}{parent_flag}")
             print(f"    input keys: {list(trace.input.keys())}")
 
-        # -- Assertions --
+        # -- Deterministic assertions --
         assert result.result is not None, "No ResultMessage received"
         assert not result.result.is_error, f"SDK query ended in error: {result.result.result}"
 
-        # Channel finding was invoked (either via channel_find tool or sub-agent)
-        channel_calls = result.tools_matching("channel")
+        # Channel finding was invoked. Match the channel-finder MCP server
+        # specifically — `tools_matching("channel")` would also accept
+        # controls-server `channel_read`/`channel_write`/`channel_limits`,
+        # none of which constitute "finding a channel".
+        channel_calls = [
+            t for t in result.tool_traces if t.name.startswith("mcp__channel-finder__")
+        ]
         assert len(channel_calls) > 0, (
-            f"No channel-related tool calls found. Tools used: {result.tool_names}"
+            f"No channel-finder tool calls found. Tools used: {result.tool_names}"
         )
 
         # archiver_read was called (should retrieve data for multiple channels)
         archiver_calls = result.tools_matching("archiver_read")
         assert len(archiver_calls) > 0, f"archiver_read not called. Tools used: {result.tool_names}"
 
-        # execute was called (should contain plotting code)
-        python_calls = result.tools_matching("execute")
-        assert len(python_calls) > 0, f"execute not called. Tools used: {result.tool_names}"
-
-        # Check that execute input contains plotting-related code
-        plot_related = False
-        for call in python_calls:
-            code = call.input.get("code", "")
-            if any(
-                kw in code.lower()
-                for kw in ["plot", "figure", "correlation", "plotly", "matplotlib"]
-            ):
-                plot_related = True
-                break
-        assert plot_related, "execute was called but code doesn't contain plot-related keywords"
-
         # At least one PNG artifact was created
         png_files = find_png_files(project_dir)
-        assert len(png_files) > 0, "No PNG files found -- execute may not have created plots."
+        assert len(png_files) > 0, "No PNG files found — agent did not produce plots."
+        print(f"  PNG files: {[p.name for p in png_files]}")
 
-        # Cost should be under budget
+        # -- Semantic assertion via LLM judge --
+        # The plotting step may go through ``execute`` (raw python),
+        # ``create_static_plot`` (dedicated visualizer), or another tool —
+        # the judge decides if the discover→fetch→plot pipeline was executed
+        # correctly without prescribing the plotting mechanism.
+        judge = LLMJudge(provider="als-apg")
+        evaluation = await judge.evaluate(
+            _to_workflow_result(prompt, result),
+            expectations=(
+                "The agent must complete a three-step pipeline: (a) discover "
+                "horizontal BPM channels via channel-finder, (b) fetch "
+                "historical data for those channels via the archiver over a "
+                "~24-hour window, (c) produce both a timeseries plot AND a "
+                "correlation plot from that data, saved as PNG. Steps must "
+                "occur in that order (discover → fetch → plot). The plotting "
+                "tool choice (direct python execution vs. a dedicated "
+                "plotting MCP tool) is acceptable in any form — do not "
+                "penalize the choice. Fail only if a step is missing, the "
+                "ordering is wrong, the channels fetched are clearly not "
+                "horizontal BPMs, or only one of the two requested plots "
+                "(timeseries + correlation) was produced."
+            ),
+        )
+        assert evaluation.passed, (
+            f"LLM judge failed the pipeline workflow.\n"
+            f"  reasoning: {evaluation.reasoning}\n"
+            f"  confidence: {evaluation.confidence}\n"
+            f"  warnings: {evaluation.warnings}\n"
+            f"  tools used: {result.tool_names}"
+        )
+
+        # -- Cost + turn ceilings --
         if result.cost_usd is not None:
             assert result.cost_usd < 2.0, (
                 f"Test cost ${result.cost_usd:.4f} — exceeded $2.00 budget"
             )
 
-        # Turn count should be reasonable
         if result.num_turns is not None:
             assert result.num_turns < 25, (
                 f"Test used {result.num_turns} turns — may indicate a loop"
             )
 
-        print(f"  PNG files: {[p.name for p in png_files]}")
         print(f"  archiver calls: {len(archiver_calls)}")
-        print(f"  python calls: {len(python_calls)}")
 
     # -------------------------------------------------------------------
     # Test 4 — 3D scatter plot via data-visualizer subagent
@@ -269,7 +318,7 @@ class TestClaudeCodeSDKIntegration:
 
     @pytest.mark.slow
     @pytest.mark.requires_api
-    @pytest.mark.requires_anthropic
+    @pytest.mark.requires_als_apg
     @pytest.mark.asyncio
     async def test_3d_scatter_plot_via_data_visualizer(self, tmp_path):
         """Verify the data-visualizer agent can create a 3D scatter plot.
@@ -283,7 +332,7 @@ class TestClaudeCodeSDKIntegration:
 
         Cost budget: $2.00
         """
-        project_dir = init_project(tmp_path, "sdk-3d-scatter")
+        project_dir = init_project(tmp_path, "sdk-3d-scatter", provider="als-apg")
 
         prompt = (
             "Use archiver_read to retrieve data for channels "

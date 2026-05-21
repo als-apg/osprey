@@ -37,7 +37,7 @@ def resolve_data_source(data_source: str) -> str:
 
 
 def build_data_loading_code(data_source: str) -> str:
-    """Generate preamble code to load data from an artifact ID, context entry ID, or file path.
+    """Generate preamble code to load data from an artifact ID or file path.
 
     Resolution is done server-side (not in the sandbox) so that the generated
     code always contains an absolute file path.
@@ -82,7 +82,14 @@ elif _data_path.endswith('.json'):
         data = data['dataframe']
     # Handle split-orient format: {columns, index, data}
     if isinstance(data, dict) and 'columns' in data and 'index' in data and 'data' in data:
-        data = pd.DataFrame(data['data'], columns=data['columns'], index=data['index'])
+        _idx = data['index']
+        # Only str: pd.to_datetime on ints would silently coerce row IDs to epoch-1970 timestamps.
+        if _idx and isinstance(_idx[0], str):
+            try:
+                _idx = pd.to_datetime(_idx)
+            except (ValueError, TypeError):
+                pass
+        data = pd.DataFrame(data['data'], columns=data['columns'], index=_idx)
     elif isinstance(data, dict):
         data = pd.DataFrame(data)
     elif isinstance(data, list):

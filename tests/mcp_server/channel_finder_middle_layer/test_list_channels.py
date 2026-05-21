@@ -1,6 +1,5 @@
 """Tests for list_channels tool."""
 
-import json
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
@@ -9,6 +8,7 @@ from osprey.mcp_server.channel_finder_middle_layer.server_context import (
     initialize_cf_ml_context,
 )
 from tests.mcp_server.channel_finder_middle_layer.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict
 
 
 def _setup(tmp_path, monkeypatch):
@@ -39,7 +39,7 @@ def test_list_channels_returns_channels(tmp_path, monkeypatch):
         fn = get_tool_fn(list_channels)
         result = fn(system="SR", family="BPM", field="Monitor")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["total"] == 3
     assert "SR:C01-MG:BPM1:X" in data["channels"]
     mock_db.list_channel_names.assert_called_once_with("SR", "BPM", "Monitor", None, None, None)
@@ -70,7 +70,7 @@ def test_list_channels_with_subfield_and_filters(tmp_path, monkeypatch):
             devices=[1],
         )
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["total"] == 1
     assert "SR:C01-MG:BPM1:X" in data["channels"]
     mock_db.list_channel_names.assert_called_once_with("SR", "BPM", "Monitor", "X", [1, 2], [1])
@@ -92,11 +92,10 @@ def test_list_channels_validation_error(tmp_path, monkeypatch):
         )
 
         fn = get_tool_fn(list_channels)
-        result = fn(system="SR", family="BPM", field="Bad")
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            fn(system="SR", family="BPM", field="Bad")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = _exc_ctx["envelope"]
     assert "Unknown field" in data["error_message"]
 
 
@@ -116,9 +115,8 @@ def test_list_channels_internal_error(tmp_path, monkeypatch):
         )
 
         fn = get_tool_fn(list_channels)
-        result = fn(system="SR", family="BPM", field="Monitor")
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            fn(system="SR", family="BPM", field="Monitor")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    data = _exc_ctx["envelope"]
     assert "Segfault" in data["error_message"]

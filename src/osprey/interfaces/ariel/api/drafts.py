@@ -21,13 +21,14 @@ from pydantic import BaseModel
 from osprey.utils.workspace import resolve_shared_data_root
 
 
-# DRAFTS_DIR is resolved lazily so OSPREY_CONFIG changes (via site_config)
-# are respected at access time, not import time. Tests that
-# monkeypatch.setattr the attribute still take precedence via __dict__.
-def __getattr__(name: str) -> Any:
-    if name == "DRAFTS_DIR":
-        return resolve_shared_data_root() / "drafts"
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+# Drafts directory is resolved lazily so OSPREY_CONFIG changes (via
+# site_config) are respected at access time, not import time. We expose it
+# as a helper function rather than a module-level __getattr__ because PEP-562
+# __getattr__ only fires on external `module.NAME` lookups — bare-name
+# references inside this module would NameError. The matching `entry.py`
+# pattern uses `_get_drafts_dir`; tests monkeypatch `_drafts_dir` to redirect.
+def _drafts_dir() -> Path:
+    return resolve_shared_data_root() / "drafts"
 
 
 draft_router = APIRouter(prefix="/api")
@@ -70,16 +71,18 @@ DRAFT_TTL_SECONDS = 3600  # 1 hour
 
 def _ensure_drafts_dir() -> Path:
     """Ensure the drafts directory exists and return its path."""
-    DRAFTS_DIR.mkdir(parents=True, exist_ok=True)  # noqa: F821  # PEP 562 __getattr__
-    return DRAFTS_DIR  # noqa: F821  # PEP 562 __getattr__
+    drafts_dir = _drafts_dir()
+    drafts_dir.mkdir(parents=True, exist_ok=True)
+    return drafts_dir
 
 
 def _cleanup_expired_drafts() -> None:
     """Delete draft files older than DRAFT_TTL_SECONDS."""
-    if not DRAFTS_DIR.exists():  # noqa: F821  # PEP 562 __getattr__
+    drafts_dir = _drafts_dir()
+    if not drafts_dir.exists():
         return
     now = time.time()
-    for path in DRAFTS_DIR.glob("draft-*.json"):  # noqa: F821  # PEP 562 __getattr__
+    for path in drafts_dir.glob("draft-*.json"):
         if now - path.stat().st_mtime > DRAFT_TTL_SECONDS:
             path.unlink(missing_ok=True)
 
@@ -99,7 +102,7 @@ def write_draft(draft_id: str, data: dict[str, Any]) -> Path:
 
 def read_draft(draft_id: str) -> dict[str, Any] | None:
     """Read a draft JSON file. Returns None if not found."""
-    filepath = DRAFTS_DIR / f"{draft_id}.json"  # noqa: F821  # PEP 562 __getattr__
+    filepath = _drafts_dir() / f"{draft_id}.json"
     if not filepath.exists():
         return None
     return json.loads(filepath.read_text())

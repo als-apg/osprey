@@ -27,6 +27,7 @@ class TestClaudeCodeIntegrationDefault:
             project_name="test-project",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         # All core files should exist
@@ -47,6 +48,7 @@ class TestClaudeCodeIntegrationDefault:
             project_name="always-claude-project",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         assert (project_dir / ".mcp.json").exists()
@@ -64,6 +66,7 @@ class TestClaudeCodeFileContents:
             project_name="content-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
     def test_mcp_json_is_valid_json(self, project_dir):
@@ -74,7 +77,7 @@ class TestClaudeCodeFileContents:
         assert "mcpServers" in data
         # Core OSPREY servers
         assert "controls" in data["mcpServers"]
-        assert "workspace" in data["mcpServers"]
+        assert "osprey_workspace" in data["mcpServers"]
 
         import sys
 
@@ -86,7 +89,7 @@ class TestClaudeCodeFileContents:
         assert cs["env"]["OSPREY_CONFIG"] == expected_config
 
         # Workspace server
-        ws = data["mcpServers"]["workspace"]
+        ws = data["mcpServers"]["osprey_workspace"]
         assert ws["args"] == ["-m", "osprey.mcp_server.workspace"]
 
     def test_settings_json_has_hooks_and_permissions(self, project_dir):
@@ -97,13 +100,13 @@ class TestClaudeCodeFileContents:
         assert "permissions" in data
         assert "allow" in data["permissions"]
         assert "ask" in data["permissions"]
-        # channel_read is hook-managed (not in allow) so all_capabilities mode works
+        # channel_read is hook-managed (not in allow) so `default_policy: always` can ask on reads
         assert "mcp__controls__channel_read" not in data["permissions"]["allow"]
         assert "mcp__controls__channel_write" in data["permissions"]["ask"]
         # channel_read has a PreToolUse matcher for dynamic approval
         pre_matchers = [h["matcher"] for h in data["hooks"]["PreToolUse"]]
         assert "mcp__controls__channel_read" in pre_matchers
-        assert "mcp__workspace__submit_response" in data["permissions"]["allow"]
+        assert "mcp__osprey_workspace__submit_response" in data["permissions"]["allow"]
 
         assert "hooks" in data
         assert "PreToolUse" in data["hooks"]
@@ -230,6 +233,7 @@ class TestClaudeCodeAcrossTemplates:
             project_name=f"test-{data_bundle}",
             output_dir=tmp_path,
             data_bundle=data_bundle,
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         assert (project_dir / ".mcp.json").exists()
@@ -248,6 +252,7 @@ class TestClaudeCodeGitignore:
             project_name="gitignore-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         gitignore = (project_dir / ".gitignore").read_text()
@@ -325,6 +330,7 @@ class TestChannelFinderAgent:
             project_name="agent-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         agent_path = project_dir / ".claude" / "agents" / "channel-finder.md"
@@ -339,6 +345,7 @@ class TestChannelFinderAgent:
             project_name="frontmatter-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
@@ -395,8 +402,9 @@ class TestChannelFinderAgent:
         )
 
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
-        assert "get_channels" in content
-        assert "resolve_addresses" in content
+        assert "query_channels" in content
+        assert "get_channels" not in content
+        assert "resolve_addresses" not in content
         assert "hierarchy_info" not in content
         assert "list_systems" not in content
 
@@ -407,23 +415,30 @@ class TestChannelFinderAgent:
             project_name="cr-submit-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
         content = (project_dir / ".claude" / "agents" / "channel-finder.md").read_text()
         assert "submit_response" in content
         assert "Submitting Results" in content
 
     def test_channel_finder_tools_allowed_by_default(self, tmp_path):
-        """control_assistant allows all channel-finder MCP tools in settings.json."""
+        """control_assistant allows each channel-finder MCP tool explicitly in settings.json."""
+        from osprey.registry.mcp import CHANNEL_FINDER_TOOLS_BY_PIPELINE
+
         manager = TemplateManager()
         project_dir = manager.create_project(
             project_name="cf-allow-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
         allow = data["permissions"]["allow"]
-        assert "mcp__channel-finder" in allow
+        # No bare-prefix wildcard — each tool is listed explicitly.
+        assert "mcp__channel-finder" not in allow
+        for tool in CHANNEL_FINDER_TOOLS_BY_PIPELINE["hierarchical"]:
+            assert f"mcp__channel-finder__{tool}" in allow
 
     def test_channel_finder_in_mcp_json(self, tmp_path):
         """channel-finder MCP server IS in .mcp.json (project-level, not inline)."""
@@ -432,6 +447,7 @@ class TestChannelFinderAgent:
             project_name="mcp-isolation-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         data = json.loads((project_dir / ".mcp.json").read_text())
@@ -444,6 +460,7 @@ class TestChannelFinderAgent:
             project_name="no-rule-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         assert not (project_dir / ".claude" / "rules" / "channel_finding.md").exists()
@@ -459,6 +476,7 @@ class TestLogbookSearchAgent:
             project_name="logbook-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
         agent_path = project_dir / ".claude" / "agents" / "logbook-search.md"
         assert agent_path.exists()
@@ -472,6 +490,7 @@ class TestLogbookSearchAgent:
             project_name="logbook-fm-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
         content = (project_dir / ".claude" / "agents" / "logbook-search.md").read_text()
         assert "name: logbook-search" in content
@@ -487,6 +506,7 @@ class TestLogbookSearchAgent:
             project_name="logbook-submit-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
         content = (project_dir / ".claude" / "agents" / "logbook-search.md").read_text()
         assert "submit_response" in content
@@ -499,6 +519,7 @@ class TestLogbookSearchAgent:
             project_name="logbook-perm-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
         assert "Task(logbook-search)" in data["permissions"]["allow"]
@@ -513,6 +534,7 @@ class TestLogbookSearchAgent:
             project_name="logbook-claude-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
         content = (project_dir / "CLAUDE.md").read_text()
         assert "logbook-search" in content
@@ -529,6 +551,7 @@ class TestLogbookDeepResearchAgent:
             project_name="deep-research-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
         agent_path = project_dir / ".claude" / "agents" / "logbook-deep-research.md"
         assert agent_path.exists()
@@ -542,6 +565,7 @@ class TestLogbookDeepResearchAgent:
             project_name="deep-research-fm-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
         content = (project_dir / ".claude" / "agents" / "logbook-deep-research.md").read_text()
         assert "name: logbook-deep-research" in content
@@ -558,6 +582,7 @@ class TestLogbookDeepResearchAgent:
             project_name="deep-research-submit-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
         content = (project_dir / ".claude" / "agents" / "logbook-deep-research.md").read_text()
         assert "submit_response" in content
@@ -570,6 +595,7 @@ class TestLogbookDeepResearchAgent:
             project_name="deep-research-perm-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
         assert "Task(logbook-deep-research)" in data["permissions"]["allow"]
@@ -581,6 +607,7 @@ class TestLogbookDeepResearchAgent:
             project_name="deep-research-claude-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
         content = (project_dir / "CLAUDE.md").read_text()
         assert "logbook-deep-research" in content
@@ -599,6 +626,7 @@ class TestNeverFabricateDataRule:
             project_name="fabrication-safety-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         content = (project_dir / ".claude" / "rules" / "safety.md").read_text()
@@ -613,6 +641,7 @@ class TestNeverFabricateDataRule:
             project_name="fabrication-claude-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -629,6 +658,7 @@ class TestChannelFinderAwareness:
             project_name="awareness-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -643,6 +673,7 @@ class TestChannelFinderAwareness:
             project_name="no-direct-tools-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         content = (project_dir / "CLAUDE.md").read_text()
@@ -659,6 +690,7 @@ class TestUserOwnedSkipBehavior:
             project_name="test-skip-safety",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         # Customize safety.md and add to user_owned
@@ -667,11 +699,11 @@ class TestUserOwnedSkipBehavior:
         safety_path.write_text(custom_content)
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
-        if "prompts" not in config:
-            config["prompts"] = {}
-        user_owned = config["prompts"].get("user_owned", [])
+        if "scaffold" not in config:
+            config["scaffold"] = {}
+        user_owned = config["scaffold"].get("user_owned", [])
         user_owned.append("rules/safety")
-        config["prompts"]["user_owned"] = user_owned
+        config["scaffold"]["user_owned"] = user_owned
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
         manager.regenerate_claude_code(project_dir)
@@ -685,17 +717,18 @@ class TestUserOwnedSkipBehavior:
             project_name="test-skip-md",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         custom_content = "# My Custom CLAUDE.md\nFacility-specific content."
         (project_dir / "CLAUDE.md").write_text(custom_content)
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
-        if "prompts" not in config:
-            config["prompts"] = {}
-        user_owned = config["prompts"].get("user_owned", [])
+        if "scaffold" not in config:
+            config["scaffold"] = {}
+        user_owned = config["scaffold"].get("user_owned", [])
         user_owned.append("claude-md")
-        config["prompts"]["user_owned"] = user_owned
+        config["scaffold"]["user_owned"] = user_owned
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
         manager.regenerate_claude_code(project_dir)
@@ -709,17 +742,18 @@ class TestUserOwnedSkipBehavior:
             project_name="test-skip-mcp",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         custom_content = '{"mcpServers": {"custom": {}}}'
         (project_dir / ".mcp.json").write_text(custom_content)
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
-        if "prompts" not in config:
-            config["prompts"] = {}
-        user_owned = config["prompts"].get("user_owned", [])
+        if "scaffold" not in config:
+            config["scaffold"] = {}
+        user_owned = config["scaffold"].get("user_owned", [])
         user_owned.append("mcp-json")
-        config["prompts"]["user_owned"] = user_owned
+        config["scaffold"]["user_owned"] = user_owned
         (project_dir / "config.yml").write_text(yaml.dump(config))
 
         manager.regenerate_claude_code(project_dir)
@@ -733,6 +767,7 @@ class TestUserOwnedSkipBehavior:
             project_name="test-no-owned",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         assert (project_dir / "CLAUDE.md").exists()
@@ -746,6 +781,7 @@ class TestUserOwnedSkipBehavior:
             project_name="no-project-md-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         assert not (project_dir / "CLAUDE-project.md").exists()
@@ -757,6 +793,7 @@ class TestUserOwnedSkipBehavior:
             project_name="no-overrides-dir",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         assert not (project_dir / "overrides").exists()
@@ -779,7 +816,7 @@ class TestProviderEnvBlock:
             project_name=f"no-env-{provider}",
             output_dir=tmp_path,
             data_bundle="control_assistant",
-            context={"default_provider": provider},
+            context={"default_provider": provider, "channel_finder_mode": "hierarchical"},
         )
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
@@ -796,7 +833,7 @@ class TestProviderEnvBlock:
             project_name=f"no-model-{provider}",
             output_dir=tmp_path,
             data_bundle="control_assistant",
-            context={"default_provider": provider},
+            context={"default_provider": provider, "channel_finder_mode": "hierarchical"},
         )
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())
@@ -814,7 +851,7 @@ class TestProviderEnvBlock:
             project_name="als-apg-config-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
-            context={"default_provider": "als-apg"},
+            context={"default_provider": "als-apg", "channel_finder_mode": "hierarchical"},
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -832,6 +869,7 @@ class TestProtocolAwareSafetyRules:
             project_name="safety-epics",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         # Set control_system.type to epics and regenerate
@@ -864,6 +902,7 @@ class TestProtocolAwareSafetyRules:
             project_name="safety-tango",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -894,6 +933,7 @@ class TestProtocolAwareSafetyRules:
             project_name="safety-opcua",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -923,6 +963,7 @@ class TestProtocolAwareSafetyRules:
             project_name="safety-mock",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -954,6 +995,7 @@ class TestProtocolAwareSafetyRules:
                 project_name=f"safety-{protocol}",
                 output_dir=tmp_path / protocol,
                 data_bundle="control_assistant",
+                context={"channel_finder_mode": "hierarchical"},
             )
             config = yaml.safe_load((project_dir / "config.yml").read_text())
             config.setdefault("control_system", {})["type"] = protocol
@@ -983,6 +1025,7 @@ class TestControlSystemTypeContext:
             project_name="ctx-cs-type",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1002,6 +1045,7 @@ class TestControlSystemTypeContext:
             project_name="ctx-cs-default",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1025,6 +1069,7 @@ class TestGeneralizedRulesContent:
             project_name="gen-safety",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         content = (project_dir / ".claude" / "rules" / "safety.md").read_text()
@@ -1040,6 +1085,7 @@ class TestGeneralizedRulesContent:
             project_name="gen-errors",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         content = (project_dir / ".claude" / "rules" / "error-handling.md").read_text()
@@ -1070,6 +1116,7 @@ class TestFacilityPermissions:
             project_name="perms-test",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         config = yaml.safe_load((project_dir / "config.yml").read_text())
@@ -1117,6 +1164,7 @@ class TestFacilityPermissions:
             project_name="perms-default",
             output_dir=tmp_path,
             data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
         )
 
         data = json.loads((project_dir / ".claude" / "settings.json").read_text())

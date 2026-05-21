@@ -17,6 +17,12 @@ import yaml
 
 from osprey.errors import BuildProfileError
 
+VALID_CHANNEL_FINDER_MODES: tuple[str, ...] = (
+    "in_context",
+    "hierarchical",
+    "middle_layer",
+)
+
 
 @dataclass
 class McpServerDef:
@@ -28,6 +34,11 @@ class McpServerDef:
     permissions: dict[str, list[str]] = field(default_factory=dict)
     # permissions: {"allow": ["tool1"], "ask": ["tool2"]}
     url: str | None = None  # HTTP/SSE transport URL (mutually exclusive with command)
+    # Single port the HTTP MCP service binds AND publishes. Compose maps
+    # host:port → container:port 1:1, so consumers can derive every URL
+    # variant from this single value. Mutually exclusive with command;
+    # compatible with url (a port hint for non-Claude consumers).
+    port: int | None = None
 
 
 @dataclass
@@ -141,11 +152,22 @@ def _resolve_extends(
     if extends_value is None:
         return raw
 
-    base_path = (profile_path.parent / extends_value).resolve()
-    if not base_path.exists():
-        raise BuildProfileError(
-            f"Extended profile not found: {extends_value} (resolved to {base_path})"
-        )
+    # Try a bundled preset by name first; fall through to filesystem-path
+    # resolution. Path-shaped values like ``als-base.yml`` correctly miss the
+    # preset probe (it looks up ``als-base.yml.yml``) and resolve as paths,
+    # preserving the sibling-file semantics ALS-style profiles depend on.
+    preset_path = _preset_exists(extends_value)
+    if preset_path is not None:
+        base_path = preset_path
+    else:
+        base_path = (profile_path.parent / extends_value).resolve()
+        if not base_path.exists():
+            available = ", ".join(list_presets()) or "(none)"
+            raise BuildProfileError(
+                f"Cannot resolve extends: {extends_value!r}. "
+                f"No bundled preset by that name (available: {available}), "
+                f"and no file at {base_path}."
+            )
 
     try:
         base_raw = yaml.safe_load(base_path.read_text(encoding="utf-8"))
@@ -170,6 +192,15 @@ class BuildProfile:
     provider: str | None = None
     model: str | None = None
     channel_finder_mode: str | None = None
+    tier: int | None = None
+    """Channel-database tier (1|2|3) selecting which preset `tiers/tier{N}` DB
+    is materialized at build time to the flat `data/channel_databases/<name>.json`
+    location. When ``None``, the build resolves a paradigm-aware default via
+    :meth:`resolved_tier` (in_context → 1, hierarchical/middle_layer → 3).
+    This is build-time only and is NOT rendered into `config.yml`; the runtime
+    config carries no tier knob. Facility profiles can ignore it because the
+    DB they overlay overwrites whatever the preset put there.
+    """
     config: dict[str, Any] = field(default_factory=dict)
     overlay: dict[str, str] = field(default_factory=dict)
     mcp_servers: dict[str, McpServerDef] = field(default_factory=dict)
@@ -191,7 +222,27 @@ class BuildProfile:
     agents: list[str] = field(default_factory=list)
     output_styles: list[str] = field(default_factory=list)
     web_panels: list[str] = field(default_factory=list)
+    default_panel: str | None = None
+    claude_md_template: str | None = None
+    """Bundled `templates/claude_code/<filename>` to render as CLAUDE.md
+    (default: "CLAUDE.md.j2"). Lets a preset pick an alternate persona
+    (e.g. "CLAUDE.ariel.md.j2" for the logbook-research bundle). Internal
+    preset-author primitive — facility profiles override CLAUDE.md via
+    overlay, not via this key.
+    """
     categories: dict[str, dict[str, str]] = field(default_factory=dict)
+
+    def resolved_tier(self) -> int:
+        """Resolve the build-time tier, applying a paradigm-aware default.
+
+        Returns ``self.tier`` if set; otherwise picks tier 1 for ``in_context``
+        and tier 3 for ``hierarchical``/``middle_layer``.  Callers that need a
+        concrete integer (the build pipeline, the materializer) MUST go through
+        this method rather than reading ``self.tier`` directly.
+        """
+        if self.tier is not None:
+            return self.tier
+        return 1 if self.channel_finder_mode == "in_context" else 3
 
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
@@ -199,6 +250,18 @@ class BuildProfile:
 
         if not self.name:
             errors.append("Profile 'name' is required")
+
+        if self.tier is not None and self.tier not in (1, 2, 3):
+            errors.append(f"tier must be 1, 2, or 3 (got {self.tier!r})")
+
+        if (
+            self.channel_finder_mode is not None
+            and self.channel_finder_mode not in VALID_CHANNEL_FINDER_MODES
+        ):
+            errors.append(
+                f"channel_finder_mode must be one of {VALID_CHANNEL_FINDER_MODES} "
+                f"(got {self.channel_finder_mode!r})"
+            )
 
         # Validate overlay source paths exist
         for src, _dst in self.overlay.items():
@@ -292,6 +355,27 @@ class BuildProfile:
                     f"({sorted(BUILTIN_PANELS)}) and no '{url_key}' config override"
                 )
 
+        # Validate default_panel: must be a built-in, a declared web_panels
+        # entry, or a custom panel backed by a `web.panels.<id>.url` override.
+        # Catches typos like `default_panel: areil` that would otherwise
+        # silently fall back to the frontend DEFAULT_PANEL_FALLBACK at runtime.
+        if self.default_panel is not None:
+            known_custom_urls = {
+                key.split(".")[2]
+                for key in self.config
+                if key.startswith("web.panels.") and key.endswith(".url")
+            }
+            if (
+                self.default_panel not in BUILTIN_PANELS
+                and self.default_panel not in self.web_panels
+                and self.default_panel not in known_custom_urls
+            ):
+                errors.append(
+                    f"Unknown default_panel {self.default_panel!r}: not in BUILTIN_PANELS "
+                    f"({sorted(BUILTIN_PANELS)}), not in web_panels, and no "
+                    f"'web.panels.{self.default_panel}.url' config override"
+                )
+
         # Validate custom category definitions
         import re
 
@@ -353,6 +437,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "provider",
         "model",
         "channel_finder_mode",
+        "tier",
         "config",
         "overlay",
         "mcp_servers",
@@ -369,6 +454,8 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "agents",
         "output_styles",
         "web_panels",
+        "default_panel",
+        "claude_md_template",
         "categories",
     }
 )
@@ -402,10 +489,25 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         perms = sdef.get("permissions", {})
         url = sdef.get("url")
         command = sdef.get("command", "")
+        port = sdef.get("port")
+        if port is not None and (
+            not isinstance(port, int) or isinstance(port, bool) or not (1 <= port <= 65535)
+        ):
+            raise BuildProfileError(
+                f"MCP server '{name}' port must be an integer in 1..65535 (got {port!r})"
+            )
         if url and command:
             raise BuildProfileError(
                 f"MCP server '{name}' has both 'command' and 'url' — use one or the other"
             )
+        if port is not None and command:
+            raise BuildProfileError(
+                f"MCP server '{name}' has both 'command' and 'port' — stdio servers cannot declare a port"
+            )
+        # Derive url from port when only port is set (HTTP host-published service).
+        # Web terminals run host-networked, so localhost is the right host for .mcp.json.
+        if port is not None and not url:
+            url = f"http://localhost:{port}/mcp"
         if not url and not command:
             raise BuildProfileError(f"MCP server '{name}' must have either 'command' or 'url'")
         mcp_servers[name] = McpServerDef(
@@ -417,6 +519,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
                 "ask": perms.get("ask", []),
             },
             url=url,
+            port=port,
         )
 
     services: dict[str, ServiceDef] = {}
@@ -450,6 +553,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         provider=raw.get("provider"),
         model=raw.get("model"),
         channel_finder_mode=raw.get("channel_finder_mode"),
+        tier=(int(raw["tier"]) if raw.get("tier") is not None else None),
         config=raw.get("config", {}),
         overlay=raw.get("overlay", {}),
         mcp_servers=mcp_servers,
@@ -466,6 +570,8 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         agents=raw.get("agents", []),
         output_styles=raw.get("output_styles", []),
         web_panels=raw.get("web_panels", []),
+        default_panel=raw.get("default_panel"),
+        claude_md_template=raw.get("claude_md_template"),
         categories=raw.get("categories", {}),
     )
 
@@ -487,12 +593,30 @@ def _normalize_preset_name(name: str) -> str:
     return name.replace("_", "-")
 
 
+def _presets_dir() -> Path:
+    """Return the directory containing bundled preset YAMLs."""
+    return Path(str(importlib.resources.files(_PRESETS_PACKAGE)))
+
+
+def _preset_exists(name: str) -> Path | None:
+    """Return the resolved preset path if ``name`` matches a bundled preset, else None.
+
+    Non-raising probe; mirrors :func:`_load_preset_raw`'s lookup so callers
+    that need to *try* preset resolution before falling back can do so
+    without absorbing an exception. Note that :func:`_normalize_preset_name`
+    only translates ``_`` → ``-``; values containing ``.yml`` (e.g. path-style
+    ``extends: als-base.yml``) probe as ``als-base.yml.yml`` and correctly miss.
+    """
+    normalized = _normalize_preset_name(name)
+    candidate = _presets_dir() / f"{normalized}.yml"
+    return candidate if candidate.is_file() else None
+
+
 def list_presets() -> list[str]:
     """Return the sorted list of bundled preset names (hyphenated)."""
-    presets_root = importlib.resources.files(_PRESETS_PACKAGE)
     return sorted(
         p.name.removesuffix(".yml")
-        for p in presets_root.iterdir()
+        for p in _presets_dir().iterdir()
         if p.name.endswith(".yml") and not p.name.startswith("_")
     )
 
@@ -503,9 +627,7 @@ def _load_preset_raw(name: str) -> tuple[dict[str, Any], Path]:
     Raises ``BuildProfileError`` if the preset is unknown or invalid YAML.
     """
     normalized = _normalize_preset_name(name)
-    presets_root = importlib.resources.files(_PRESETS_PACKAGE)
-    presets_dir = Path(str(presets_root))
-    target = presets_dir / f"{normalized}.yml"
+    target = _presets_dir() / f"{normalized}.yml"
     if not target.exists():
         available = ", ".join(list_presets()) or "(none)"
         raise BuildProfileError(f"Unknown preset {name!r}. Available: {available}")

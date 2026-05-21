@@ -98,19 +98,6 @@ function renderStatus(container, status) {
         </div>
       </div>
 
-      <!-- Pipelines -->
-      <div class="card">
-        <div class="card-header">
-          <span class="card-title">Pipelines</span>
-        </div>
-        <div class="card-body">
-          ${renderModuleList([
-            { name: 'RAG Pipeline', enabled: status.enabled_pipelines?.includes('rag') },
-            { name: 'Agent Pipeline', enabled: status.enabled_pipelines?.includes('agent') },
-          ])}
-        </div>
-      </div>
-
       <!-- Enhancement Modules -->
       <div class="card">
         <div class="card-header">

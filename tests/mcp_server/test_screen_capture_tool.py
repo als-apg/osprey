@@ -6,7 +6,6 @@ the backend, exception-to-make_error mapping, and ArtifactStore integration.
 All backend calls are mocked — no actual screencapture/swift/osascript execution.
 """
 
-import json
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -17,7 +16,7 @@ from osprey.mcp_server.workspace.tools.screen_capture_backends.base import (
     WindowInfo,
     WindowNotFoundError,
 )
-from tests.mcp_server.conftest import get_tool_fn
+from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 
 def _get_screenshot_capture():
@@ -89,7 +88,7 @@ async def test_screenshot_full_mode(tmp_path, monkeypatch):
         fn = _get_screenshot_capture()
         result = await fn(mode="full")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert "artifact_id" in data
     assert data["summary"]["mode"] == "full"
@@ -116,7 +115,7 @@ async def test_screenshot_region_mode(tmp_path, monkeypatch):
         fn = _get_screenshot_capture()
         result = await fn(mode="region", target="100,200,800,600")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert "artifact_id" in data
     backend.capture_region.assert_called_once()
@@ -143,7 +142,7 @@ async def test_screenshot_display_mode(tmp_path, monkeypatch):
         fn = _get_screenshot_capture()
         result = await fn(mode="display", target="2")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert "artifact_id" in data
     backend.capture_display.assert_called_once()
@@ -169,7 +168,7 @@ async def test_screenshot_window_by_wid(tmp_path, monkeypatch):
         fn = _get_screenshot_capture()
         result = await fn(mode="window", target="12345")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert "artifact_id" in data
     backend.capture_window.assert_called_once()
@@ -195,7 +194,7 @@ async def test_screenshot_window_by_name(tmp_path, monkeypatch):
         fn = _get_screenshot_capture()
         result = await fn(mode="window", target="Phoebus")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert "artifact_id" in data
     backend.capture_window.assert_called_once()
@@ -217,11 +216,10 @@ async def test_screenshot_window_name_not_found(tmp_path, monkeypatch):
 
     with patch(_BACKEND_PATCH, return_value=backend):
         fn = _get_screenshot_capture()
-        result = await fn(mode="window", target="NonExistentApp")
+        with assert_raises_error(error_type="window_not_found") as _exc_ctx:
+            await fn(mode="window", target="NonExistentApp")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "window_not_found"
+    _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -243,7 +241,7 @@ async def test_screenshot_custom_filename(tmp_path, monkeypatch):
         fn = _get_screenshot_capture()
         result = await fn(mode="full", filename="my_screenshot")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert "artifact_id" in data
     assert "my_screenshot.png" in data["summary"]["filepath"]
@@ -268,7 +266,7 @@ async def test_screenshot_default_filename(tmp_path, monkeypatch):
         fn = _get_screenshot_capture()
         result = await fn(mode="full")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert "artifact_id" in data
     assert "capture_" in data["summary"]["filepath"]
@@ -284,11 +282,10 @@ async def test_screenshot_invalid_mode(tmp_path, monkeypatch):
     )
 
     fn = _get_screenshot_capture()
-    result = await fn(mode="invalid")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(mode="invalid")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = _exc_ctx["envelope"]
     assert "invalid" in data["error_message"].lower()
 
 
@@ -307,11 +304,10 @@ async def test_screenshot_command_failure(tmp_path, monkeypatch):
 
     with patch(_BACKEND_PATCH, return_value=backend):
         fn = _get_screenshot_capture()
-        result = await fn(mode="full")
+        with assert_raises_error(error_type="capture_error") as _exc_ctx:
+            await fn(mode="full")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "capture_error"
+    _exc_ctx["envelope"]
 
 
 @pytest.mark.unit
@@ -330,11 +326,10 @@ async def test_screenshot_backend_unavailable(tmp_path, monkeypatch):
         ),
     ):
         fn = _get_screenshot_capture()
-        result = await fn(mode="full")
+        with assert_raises_error(error_type="platform_error") as _exc_ctx:
+            await fn(mode="full")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "platform_error"
+    data = _exc_ctx["envelope"]
     assert "win32" in data["error_message"]
     assert len(data["suggestions"]) >= 1
 
@@ -361,7 +356,7 @@ async def test_list_windows_basic(tmp_path, monkeypatch):
         fn = _get_list_windows()
         result = await fn()
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["window_count"] == 2
     assert len(data["windows"]) == 2
@@ -383,7 +378,7 @@ async def test_list_windows_app_filter(tmp_path, monkeypatch):
         fn = _get_list_windows()
         result = await fn(app_filter="terminal")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["window_count"] == 1
     assert data["windows"][0]["app"] == "Terminal"
@@ -400,11 +395,10 @@ async def test_list_windows_backend_failure(tmp_path, monkeypatch):
 
     with patch(_BACKEND_PATCH, return_value=backend):
         fn = _get_list_windows()
-        result = await fn()
+        with assert_raises_error(error_type="internal_error") as _exc_ctx:
+            await fn()
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "internal_error"
+    _exc_ctx["envelope"]
 
 
 # ---------------------------------------------------------------------------
@@ -424,7 +418,7 @@ async def test_manage_window_bring_to_front(tmp_path, monkeypatch):
         fn = _get_manage_window()
         result = await fn(app="Phoebus", action="bring_to_front")
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["action"] == "bring_to_front"
     backend.bring_to_front.assert_called_once_with("Phoebus")
@@ -442,7 +436,7 @@ async def test_manage_window_move(tmp_path, monkeypatch):
         fn = _get_manage_window()
         result = await fn(app="Terminal", action="move", x=200, y=300)
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["action"] == "move"
     assert data["details"]["x"] == 200
@@ -462,7 +456,7 @@ async def test_manage_window_resize(tmp_path, monkeypatch):
         fn = _get_manage_window()
         result = await fn(app="Terminal", action="resize", width=1024, height=768)
 
-    data = json.loads(result)
+    data = extract_response_dict(result)
     assert data["status"] == "success"
     assert data["action"] == "resize"
     assert data["details"]["width"] == 1024
@@ -476,11 +470,10 @@ async def test_manage_window_invalid_action(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     fn = _get_manage_window()
-    result = await fn(app="Terminal", action="maximize")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(app="Terminal", action="maximize")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = _exc_ctx["envelope"]
     assert "maximize" in data["error_message"]
 
 
@@ -490,11 +483,10 @@ async def test_manage_window_move_missing_params(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     fn = _get_manage_window()
-    result = await fn(app="Terminal", action="move", x=100)
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(app="Terminal", action="move", x=100)
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = _exc_ctx["envelope"]
     assert "x and y" in data["error_message"]
 
 
@@ -504,11 +496,10 @@ async def test_manage_window_resize_missing_params(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
     fn = _get_manage_window()
-    result = await fn(app="Terminal", action="resize", width=800)
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(app="Terminal", action="resize", width=800)
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = _exc_ctx["envelope"]
     assert "width and height" in data["error_message"]
 
 
@@ -527,11 +518,10 @@ async def test_manage_window_injection_prevention(tmp_path, monkeypatch):
 
     with patch(_BACKEND_PATCH, return_value=backend):
         fn = _get_manage_window()
-        result = await fn(app='Finder"; do shell script "rm -rf /', action="bring_to_front")
+        with assert_raises_error(error_type="validation_error") as _exc_ctx:
+            await fn(app='Finder"; do shell script "rm -rf /', action="bring_to_front")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = _exc_ctx["envelope"]
     assert "Invalid app name" in data["error_message"]
 
 
@@ -544,9 +534,8 @@ async def test_screenshot_region_missing_target(tmp_path, monkeypatch):
     )
 
     fn = _get_screenshot_capture()
-    result = await fn(mode="region")
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(mode="region")
 
-    data = json.loads(result)
-    assert data["error"] is True
-    assert data["error_type"] == "validation_error"
+    data = _exc_ctx["envelope"]
     assert "x,y,w,h" in data["error_message"]
