@@ -294,8 +294,9 @@ jobs:
   e2e-tests:
     name: E2E Tests
     runs-on: ubuntu-latest
-    # Only run on PRs (not pushes) to control API costs, and only for non-fork PRs (secrets unavailable on forks)
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Only run on PRs (not pushes) to control API costs, and only for non-fork PRs (secrets unavailable on forks).
+    # Also runs on manual workflow_dispatch to enable scoped reruns via the e2e_filter input.
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'workflow_dispatch'
 
     steps:
     - name: Checkout repository
