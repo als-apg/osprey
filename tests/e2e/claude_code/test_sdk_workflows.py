@@ -204,7 +204,15 @@ class TestClaudeCodeSDKIntegration:
         """Full multi-tool pipeline with sub-agent delegation.
 
         Natural language prompt matching the user's interactive workflow:
-        channel-finder sub-agent -> archiver_read -> execute -> artifact.
+        channel-finder sub-agent → archiver_read → plot → artifact.
+
+        Three layers of contract:
+          1. Deterministic: channel-finder invoked, archiver_read called,
+             at least one PNG artifact produced, cost + turn ceilings.
+          2. Semantic (LLM judge): the agent followed the
+             discover-channels → fetch-data → plot pipeline correctly,
+             regardless of whether plotting went through ``execute``,
+             ``create_static_plot``, or another visualizer tool.
         """
         project_dir = init_project(tmp_path, "sdk-bpm-pipeline", provider="als-apg")
 
@@ -212,8 +220,7 @@ class TestClaudeCodeSDKIntegration:
             "Give me a timeseries and a correlation plot of all horizontal "
             "BPM positions over the last 24 hours. Use the channel_find tool "
             "to discover BPM channels, then archiver_read to get historical "
-            "data, then the execute tool to create the plots. Save the plots "
-            "as PNG files."
+            "data, then plot the data. Save the plots as PNG files."
         )
 
         result = await run_sdk_query(
@@ -237,7 +244,7 @@ class TestClaudeCodeSDKIntegration:
             print(f"  tool: {trace.name}{error_flag}{parent_flag}")
             print(f"    input keys: {list(trace.input.keys())}")
 
-        # -- Assertions --
+        # -- Deterministic assertions --
         assert result.result is not None, "No ResultMessage received"
         assert not result.result.is_error, f"SDK query ended in error: {result.result.result}"
 
@@ -256,41 +263,54 @@ class TestClaudeCodeSDKIntegration:
         archiver_calls = result.tools_matching("archiver_read")
         assert len(archiver_calls) > 0, f"archiver_read not called. Tools used: {result.tool_names}"
 
-        # execute was called (should contain plotting code)
-        python_calls = result.tools_matching("execute")
-        assert len(python_calls) > 0, f"execute not called. Tools used: {result.tool_names}"
-
-        # Check that execute input contains plotting-related code
-        plot_related = False
-        for call in python_calls:
-            code = call.input.get("code", "")
-            if any(
-                kw in code.lower()
-                for kw in ["plot", "figure", "correlation", "plotly", "matplotlib"]
-            ):
-                plot_related = True
-                break
-        assert plot_related, "execute was called but code doesn't contain plot-related keywords"
-
         # At least one PNG artifact was created
         png_files = find_png_files(project_dir)
-        assert len(png_files) > 0, "No PNG files found -- execute may not have created plots."
+        assert len(png_files) > 0, "No PNG files found — agent did not produce plots."
+        print(f"  PNG files: {[p.name for p in png_files]}")
 
-        # Cost should be under budget
+        # -- Semantic assertion via LLM judge --
+        # The plotting step may go through ``execute`` (raw python),
+        # ``create_static_plot`` (dedicated visualizer), or another tool —
+        # the judge decides if the discover→fetch→plot pipeline was executed
+        # correctly without prescribing the plotting mechanism.
+        judge = LLMJudge(provider="als-apg")
+        evaluation = await judge.evaluate(
+            _to_workflow_result(prompt, result),
+            expectations=(
+                "The agent must complete a three-step pipeline: (a) discover "
+                "horizontal BPM channels via channel-finder, (b) fetch "
+                "historical data for those channels via the archiver over a "
+                "~24-hour window, (c) produce both a timeseries plot AND a "
+                "correlation plot from that data, saved as PNG. Steps must "
+                "occur in that order (discover → fetch → plot). The plotting "
+                "tool choice (direct python execution vs. a dedicated "
+                "plotting MCP tool) is acceptable in any form — do not "
+                "penalize the choice. Fail only if a step is missing, the "
+                "ordering is wrong, the channels fetched are clearly not "
+                "horizontal BPMs, or only one of the two requested plots "
+                "(timeseries + correlation) was produced."
+            ),
+        )
+        assert evaluation.passed, (
+            f"LLM judge failed the pipeline workflow.\n"
+            f"  reasoning: {evaluation.reasoning}\n"
+            f"  confidence: {evaluation.confidence}\n"
+            f"  warnings: {evaluation.warnings}\n"
+            f"  tools used: {result.tool_names}"
+        )
+
+        # -- Cost + turn ceilings --
         if result.cost_usd is not None:
             assert result.cost_usd < 2.0, (
                 f"Test cost ${result.cost_usd:.4f} — exceeded $2.00 budget"
             )
 
-        # Turn count should be reasonable
         if result.num_turns is not None:
             assert result.num_turns < 25, (
                 f"Test used {result.num_turns} turns — may indicate a loop"
             )
 
-        print(f"  PNG files: {[p.name for p in png_files]}")
         print(f"  archiver calls: {len(archiver_calls)}")
-        print(f"  python calls: {len(python_calls)}")
 
     # -------------------------------------------------------------------
     # Test 4 — 3D scatter plot via data-visualizer subagent
