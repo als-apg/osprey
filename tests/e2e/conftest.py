@@ -5,23 +5,23 @@ See tests/e2e/README.md for details.
 """
 
 import os
-from pathlib import Path
 
 import pytest
 
 from osprey.registry import reset_registry
 
 
-# Warn if tests are being run the wrong way
 def pytest_configure(config):
-    """Warn users if e2e tests are being run incorrectly."""
-    # Check if we're running with -m e2e marker from outside tests/e2e/
-    if config.option.markexpr and "e2e" in config.option.markexpr:
-        # Get the invocation directory
-        invocation_dir = config.invocation_params.dir
-        Path(__file__).parent
+    """Register E2E markers and warn if tests are being run incorrectly."""
+    # Register custom markers
+    config.addinivalue_line("markers", "e2e: End-to-end workflow tests (requires API keys, slow)")
+    config.addinivalue_line("markers", "e2e_smoke: Quick smoke tests for critical workflows")
+    config.addinivalue_line("markers", "e2e_tutorial: Tutorial workflow validation tests")
+    config.addinivalue_line("markers", "e2e_benchmark: Channel finder benchmark validation tests")
 
-        # If not invoked from tests/e2e/ directory, warn
+    # Warn if invoked with `-m e2e` from outside tests/e2e/ (causes registry leaks)
+    if config.option.markexpr and "e2e" in config.option.markexpr:
+        invocation_dir = config.invocation_params.dir
         if not str(invocation_dir).endswith("tests/e2e"):
             import warnings
 
@@ -91,11 +91,3 @@ def pytest_addoption(parser):
         default=False,
         help="Show real-time progress updates during E2E test execution",
     )
-
-
-def pytest_configure(config):
-    """Register custom markers for E2E tests."""
-    config.addinivalue_line("markers", "e2e: End-to-end workflow tests (requires API keys, slow)")
-    config.addinivalue_line("markers", "e2e_smoke: Quick smoke tests for critical workflows")
-    config.addinivalue_line("markers", "e2e_tutorial: Tutorial workflow validation tests")
-    config.addinivalue_line("markers", "e2e_benchmark: Channel finder benchmark validation tests")
