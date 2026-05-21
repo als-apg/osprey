@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      e2e_filter:
+        description: >-
+          Optional pytest path/keyword filter for the E2E job (debug-only;
+          PR runs always use the full suite). Example:
+          'tests/e2e/test_rf_cavity_correlation_scenario.py
+          tests/e2e/test_vacuum_burst_scenario.py'
+        required: false
+        default: ''
   schedule:
     # Nightly at 07:00 UTC (midnight Pacific). Tier 4 (provider matrix,
     # benchmarks) gates on github.event_name == 'schedule'.
@@ -328,13 +337,27 @@ jobs:
         echo "✅ ALS-APG endpoint reachable (HTTP 200)"
 
     - name: Run E2E tests
+      # E2E_FILTER comes from workflow_dispatch `inputs.e2e_filter` and is
+      # empty on push/PR/schedule triggers, so the full-suite command runs
+      # by default. The filter is a debug-only convenience for scoped CI
+      # reruns — PR merge gate always exercises the full suite. Workflow
+      # inputs require repo write access; treat as trusted (same level as
+      # this file).
       env:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+        E2E_FILTER: ${{ inputs.e2e_filter }}
       run: |
-        # Tier 3 per-preset agentic flows live in their own matrix job
-        # (agentic-per-preset). Exclude here to avoid double-execution.
-        uv run pytest tests/e2e/ -v --tb=short \
-          --ignore=tests/e2e/test_preset_agentic.py
+        if [ -n "$E2E_FILTER" ]; then
+          echo "Running scoped E2E filter: $E2E_FILTER"
+          # Word-splitting on $E2E_FILTER is intentional so callers can
+          # pass multiple paths or extra pytest args in one input.
+          uv run pytest $E2E_FILTER -v --tb=short
+        else
+          # Tier 3 per-preset agentic flows live in their own matrix job
+          # (agentic-per-preset). Exclude here to avoid double-execution.
+          uv run pytest tests/e2e/ -v --tb=short \
+            --ignore=tests/e2e/test_preset_agentic.py
+        fi
 
   deploy-e2e:
     name: Deploy E2E Test (build + deploy pipeline)
