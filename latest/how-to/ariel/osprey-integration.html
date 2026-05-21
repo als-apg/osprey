@@ -60,12 +60,12 @@
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="CLI Reference" href="../../cli-reference/index.html" />
-    <link rel="prev" title="Web Interface" href="web-interface.html" />
+    <link rel="next" title="Data Ingestion" href="data-ingestion.html" />
+    <link rel="prev" title="Logbook Search Service (ARIEL)" href="index.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 20, 2026"/>
+    <meta name="docbuild:last-update" content="May 21, 2026"/>
   </head>
   
   
@@ -378,10 +378,11 @@
 <li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Control System Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Logbook Search Service (ARIEL)</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="data-ingestion.html">Data Ingestion</a></li>
 <li class="toctree-l2"><a class="reference internal" href="search-modes.html">Search Modes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-interface.html">Web Interface</a></li>
-<li class="toctree-l2 current active"><a class="current reference internal" href="#">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../../cli-reference/index.html">CLI Reference</a></li>
@@ -451,37 +452,38 @@
   <section id="osprey-integration">
 <h1>Osprey Integration<a class="headerlink" href="#osprey-integration" title="Link to this heading">#</a></h1>
 <p>ARIEL is integrated into Osprey as a dedicated MCP server
-(<code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.ariel</span></code>) with 11 specialized tools. When a user asks a
-question like “What happened with the RF cavity last week?”, Claude Code
-selects the appropriate ARIEL MCP tool based on the query type, which invokes
-the <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> and returns structured results that Claude uses to
+(<code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.ariel</span></code>) that exposes the logbook search service to the
+agent layer through a set of specialized tools. When a user asks a question
+like “What happened with the RF cavity last week?”, the Osprey agent selects
+the appropriate ARIEL MCP tool based on the query type, which invokes the
+<code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> and returns structured results that the agent uses to
 produce a cited answer. This page documents how that integration works: the
 MCP tools, the service factory, and the search result structure.</p>
 <section id="integration-architecture">
 <h2>Integration Architecture<a class="headerlink" href="#integration-architecture" title="Link to this heading">#</a></h2>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>User Query
     ↓
-Claude Code (via osprey claude chat)
+Osprey agent (via osprey claude chat)
     ↓  selects from ARIEL MCP tools
 ARIEL MCP Server → ARIELSearchService
     ↓
-Structured search results (entries + RAG answer)
+Structured search results (entries + metadata)
     ↓
-Claude Code → User Response
+Osprey agent → User Response
 </pre></div>
 </div>
-<p>The flow begins when Claude determines that a user query involves historical
-logbook data. Claude selects from ARIEL’s specialized MCP tools based on the
-query type — for example, <code class="docutils literal notranslate"><span class="pre">keyword_search</span></code> for exact-match lookups,
+<p>The flow begins when the Osprey agent determines that a user query involves
+historical logbook data. It selects from ARIEL’s specialized MCP tools based
+on the query type — for example, <code class="docutils literal notranslate"><span class="pre">keyword_search</span></code> for exact-match lookups,
 <code class="docutils literal notranslate"><span class="pre">semantic_search</span></code> for conceptual queries, or <code class="docutils literal notranslate"><span class="pre">browse</span></code> for exploring recent
 entries. Each tool builds the appropriate request and routes it through the
-<code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code>. Results are returned directly to Claude, which uses
-them to generate a cited response.</p>
+<code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code>. Results are returned directly to the agent, which
+uses them to generate a cited response.</p>
 </section>
 <section id="ariel-mcp-tools">
 <h2>ARIEL MCP Tools<a class="headerlink" href="#ariel-mcp-tools" title="Link to this heading">#</a></h2>
-<p>ARIEL exposes 11 tools through its dedicated MCP server. Claude selects the
-appropriate tool based on the user’s query.</p>
+<p>ARIEL exposes the following tools through its dedicated MCP server. The
+Osprey agent selects the appropriate tool based on the user’s query.</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 25.0%" />
@@ -551,17 +553,9 @@ appropriate tool based on the user’s query.</p>
 <td><p><code class="docutils literal notranslate"><span class="pre">list[dict]</span></code></p></td>
 <td><p>Matching entries, ranked by relevance</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">answer</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">str</span> <span class="pre">|</span> <span class="pre">None</span></code></p></td>
-<td><p>RAG-generated answer (if RAG was used)</p></td>
-</tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sources</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">list[str]</span></code></p></td>
-<td><p>Entry IDs cited in the answer</p></td>
-</tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">search_modes_used</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">list[str]</span></code></p></td>
-<td><p>Search modes invoked (e.g., <code class="docutils literal notranslate"><span class="pre">[&quot;keyword&quot;,</span> <span class="pre">&quot;rag&quot;]</span></code>)</p></td>
+<td><p>Search modes invoked (e.g., <code class="docutils literal notranslate"><span class="pre">[&quot;keyword&quot;,</span> <span class="pre">&quot;semantic&quot;]</span></code>)</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">query</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">str</span></code></p></td>
@@ -594,12 +588,22 @@ through the FastAPI lifespan. For cleanup in tests, use
 <code class="docutils literal notranslate"><span class="pre">reset_ariel_service()</span></code> (resets without closing).</p>
 <p><strong>Source:</strong> <code class="file docutils literal notranslate"><span class="pre">src/osprey/services/ariel_search/capability.py</span></code></p>
 </section>
+<section id="extending-the-integration">
+<h2>Extending the integration<a class="headerlink" href="#extending-the-integration" title="Link to this heading">#</a></h2>
+<p>ARIEL is the interface to logbook data. A facility adapter ingests entries,
+data enhancement enriches them, and pluggable search modules expose them.
+Multi-step reasoning, answer synthesis, and any custom workflow over ARIEL’s
+results live in the agent layer, not in ARIEL itself.</p>
+<p>The recommended way to build such a workflow is to write a skill. Skills run
+inside the Osprey agent, can call ARIEL’s MCP tools directly, and ship inside
+your build profile under <code class="docutils literal notranslate"><span class="pre">skills/</span></code> — see <a class="reference internal" href="../build-profiles.html"><span class="doc">Build Profiles</span></a>.</p>
+</section>
 <section id="see-also">
 <h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading">#</a></h2>
 <dl class="simple">
 <dt><a class="reference internal" href="data-ingestion.html"><span class="doc">Data Ingestion</span></a></dt><dd><p>How data gets into the system — facility adapters, enhancement modules, and database schema</p>
 </dd>
-<dt><a class="reference internal" href="search-modes.html"><span class="doc">Search Modes</span></a></dt><dd><p>Search module and pipeline architecture</p>
+<dt><a class="reference internal" href="search-modes.html"><span class="doc">Search Modes</span></a></dt><dd><p>Search module architecture</p>
 </dd>
 <dt><a class="reference internal" href="web-interface.html"><span class="doc">Web Interface</span></a></dt><dd><p>Web interface architecture and REST API</p>
 </dd>
@@ -618,20 +622,20 @@ through the FastAPI lifespan. For cleanup in tests, use
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="web-interface.html"
+       href="index.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Web Interface</p>
+        <p class="prev-next-title">Logbook Search Service (ARIEL)</p>
       </div>
     </a>
     <a class="right-next"
-       href="../../cli-reference/index.html"
+       href="data-ingestion.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">CLI Reference</p>
+        <p class="prev-next-title">Data Ingestion</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -658,6 +662,7 @@ through the FastAPI lifespan. For cleanup in tests, use
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel-mcp-tools">ARIEL MCP Tools</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#search-result-structure">Search Result Structure</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#service-factory">Service Factory</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#extending-the-integration">Extending the integration</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See Also</a></li>
 </ul>
   </nav></div>

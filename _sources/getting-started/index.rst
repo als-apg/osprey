@@ -103,7 +103,7 @@ By following this comprehensive learning path, you'll have:
       :link-type: doc
       :class-header: bg-warning text-white
 
-      Understand the Claude Code + MCP architecture, data flow, and key concepts.
+      Understand the Osprey agent + MCP architecture, data flow, and key concepts.
 
       **Outcome:**
       Architecture understanding

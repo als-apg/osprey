@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 20, 2026"/>
+    <meta name="docbuild:last-update" content="May 21, 2026"/>
   </head>
   
   
@@ -378,10 +378,11 @@
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Control System Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/search-modes.html">Search Modes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
@@ -447,173 +448,153 @@
                   
   <section id="container-deployment">
 <h1>Container Deployment<a class="headerlink" href="#container-deployment" title="Link to this heading">#</a></h1>
-<p>How to deploy and manage containerized services using the <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> CLI.</p>
+<p>How to run an Osprey project’s containerized services with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code>.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
-<li><p class="sd-card-text">Using <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> for service deployment and orchestration</p></li>
-<li><p class="sd-card-text">Configuring services in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p></li>
-<li><p class="sd-card-text">Managing Jinja2 Docker Compose templates</p></li>
-<li><p class="sd-card-text">Development vs production deployment patterns</p></li>
+<li><p class="sd-card-text">What <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> does and when you need it</p></li>
+<li><p class="sd-card-text">Configuring services in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (minimal example)</p></li>
+<li><p class="sd-card-text">Authoring <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code> templates</p></li>
+<li><p class="sd-card-text">Network binding, <code class="docutils literal notranslate"><span class="pre">.env</span></code> loading, and the <code class="docutils literal notranslate"><span class="pre">--dev</span></code> workflow</p></li>
 </ul>
-<p class="sd-card-text"><strong>Prerequisites:</strong> Docker/Podman basics, familiarity with project configuration.</p>
-<p class="sd-card-text"><strong>Time:</strong> 30–45 minutes</p>
+<p class="sd-card-text"><strong>Prerequisites:</strong> Docker or Podman installed locally.</p>
 </div>
-</details><section id="overview">
+</details><div class="admonition tip">
+<p class="admonition-title">Tip</p>
+<p>This page is the operator/service-author reference for <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code>.
+For the end-to-end build → ship workflow (CI/CD, release operations), use
+the <code class="docutils literal notranslate"><span class="pre">osprey-build-deploy</span></code> skill that the build interview installs into
+your profile repo. For the full <code class="docutils literal notranslate"><span class="pre">services:</span></code> schema as authored inside a
+build profile, see <a class="reference internal" href="build-profiles.html#profile-services"><span class="std std-ref">Services</span></a>.</p>
+</div>
+<section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
-<p>The deployment system handles service discovery, Docker Compose template rendering,
-and container orchestration using Docker or Podman.</p>
-<ul class="simple">
-<li><p><strong>Runtime Flexibility</strong>: Automatic Docker/Podman detection</p></li>
-<li><p><strong>Template Rendering</strong>: Jinja2 processing with full configuration context</p></li>
-<li><p><strong>Build Management</strong>: Automated build directories with source and config copying</p></li>
-<li><p><strong>Localhost by Default</strong>: Services bind to <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> unless <code class="docutils literal notranslate"><span class="pre">--expose</span></code> is used</p></li>
-</ul>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> renders each service’s Jinja2 Docker Compose template,
+copies source and configuration into a per-service build directory, and
+hands the result to Docker or Podman Compose. A new project built from the
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset deploys exactly one service out of the box
+(<code class="docutils literal notranslate"><span class="pre">postgresql</span></code>); the <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> preset deploys none. You only need
+this page when you add or customize a containerized service.</p>
 </section>
 <section id="service-configuration">
 <h2>Service Configuration<a class="headerlink" href="#service-configuration" title="Link to this heading">#</a></h2>
-<p>Services are defined in the <code class="docutils literal notranslate"><span class="pre">services:</span></code> section of <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<p>Services are declared under <code class="docutils literal notranslate"><span class="pre">services:</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and selected for
+deployment via <code class="docutils literal notranslate"><span class="pre">deployed_services:</span></code>. A minimal example (this is what the
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset ships with):</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">jupyter</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/jupyter</span>
-<span class="w">    </span><span class="nt">containers</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">read</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter-read</span>
-<span class="w">        </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter-read</span>
-<span class="w">        </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8088</span>
-<span class="w">        </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8088</span>
-<span class="w">        </span><span class="nt">execution_modes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;read_only&quot;</span><span class="p p-Indicator">]</span>
-<span class="w">      </span><span class="nt">write</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter-write</span>
-<span class="w">        </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter-write</span>
-<span class="w">        </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8089</span>
-<span class="w">        </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8088</span>
-<span class="w">        </span><span class="nt">execution_modes</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;write_access&quot;</span><span class="p p-Indicator">]</span>
-<span class="w">    </span><span class="nt">copy_src</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">render_kernel_templates</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-
-<span class="w">  </span><span class="nt">open_webui</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/open-webui</span>
-<span class="w">    </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
-<span class="w">    </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8080</span>
-<span class="w">    </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8080</span>
-
-<span class="w">  </span><span class="nt">pipelines</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/pipelines</span>
-<span class="w">    </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9099</span>
-<span class="w">    </span><span class="nt">port_container</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">9099</span>
-<span class="w">    </span><span class="nt">copy_src</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">postgresql</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/postgresql</span>
+<span class="w">    </span><span class="nt">database_name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ariel</span>
+<span class="w">    </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ariel</span>
+<span class="w">    </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ariel</span>
+<span class="w">    </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5432</span>
 
 <span class="nt">deployed_services</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">jupyter</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">open_webui</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pipelines</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">postgresql</span>
 </pre></div>
 </div>
-<p><strong>Key options:</strong> <code class="docutils literal notranslate"><span class="pre">path</span></code> (service directory), <code class="docutils literal notranslate"><span class="pre">port_host</span></code>/<code class="docutils literal notranslate"><span class="pre">port_container</span></code>,
-<code class="docutils literal notranslate"><span class="pre">copy_src</span></code> (copy <code class="docutils literal notranslate"><span class="pre">src/</span></code> into build), <code class="docutils literal notranslate"><span class="pre">additional_dirs</span></code>, <code class="docutils literal notranslate"><span class="pre">containers</span></code>
-(multi-container services like Jupyter read/write).</p>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>The <code class="docutils literal notranslate"><span class="pre">execution</span></code> section in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> is optional. If omitted, the system
-defaults to local Python execution. You may see a warning about this on every
-command — it is safe to ignore.</p>
-</div>
+<p>Each service entry must point <code class="docutils literal notranslate"><span class="pre">path:</span></code> at a directory containing a
+<code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code> template. Everything else under the service key is
+project-specific configuration exposed to the template as
+<code class="docutils literal notranslate"><span class="pre">{{services.&lt;name&gt;.&lt;key&gt;}}</span></code>. For the canonical schema (including
+<code class="docutils literal notranslate"><span class="pre">copy_src</span></code>, <code class="docutils literal notranslate"><span class="pre">additional_dirs</span></code>, <code class="docutils literal notranslate"><span class="pre">render_kernel_templates</span></code>, and
+<code class="docutils literal notranslate"><span class="pre">containers</span></code> for multi-container services), see <a class="reference internal" href="build-profiles.html#profile-services"><span class="std std-ref">Services</span></a>.</p>
+<section id="service-lookup-namespaces">
+<h3>Service lookup namespaces<a class="headerlink" href="#service-lookup-namespaces" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">find_service_config</span></code> resolves a name from <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> in three
+places, in order: <code class="docutils literal notranslate"><span class="pre">osprey.&lt;name&gt;</span></code>, <code class="docutils literal notranslate"><span class="pre">applications.&lt;app&gt;.&lt;name&gt;</span></code>, and
+top-level <code class="docutils literal notranslate"><span class="pre">services.&lt;name&gt;</span></code>. The flat form shown above is the legacy
+pattern; the namespaced forms are preferred for build profiles that ship
+multiple applications.</p>
+</section>
 </section>
 <section id="cli-commands">
 <h2>CLI Commands<a class="headerlink" href="#cli-commands" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w">                  </span><span class="c1"># Start (foreground)</span>
-osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--detached<span class="w">       </span><span class="c1"># Start (background)</span>
-osprey<span class="w"> </span>deploy<span class="w"> </span>down<span class="w">                </span><span class="c1"># Stop</span>
-osprey<span class="w"> </span>deploy<span class="w"> </span>restart<span class="w">             </span><span class="c1"># Restart</span>
-osprey<span class="w"> </span>deploy<span class="w"> </span>status<span class="w">              </span><span class="c1"># Show status table</span>
-osprey<span class="w"> </span>deploy<span class="w"> </span>build<span class="w">               </span><span class="c1"># Prepare compose files without starting</span>
-osprey<span class="w"> </span>deploy<span class="w"> </span>clean<span class="w">               </span><span class="c1"># Remove containers and volumes</span>
-osprey<span class="w"> </span>deploy<span class="w"> </span>rebuild<span class="w">             </span><span class="c1"># Clean + rebuild from scratch</span>
-
-<span class="c1"># Flags</span>
-osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--dev<span class="w">            </span><span class="c1"># Use local osprey source</span>
-osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--expose<span class="w">         </span><span class="c1"># Bind to 0.0.0.0 (use with caution)</span>
-osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--config<span class="w"> </span>alt.yml<span class="w"> </span><span class="c1"># Custom config file</span>
-osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--project<span class="w"> </span>/path<span class="w">  </span><span class="c1"># Specify project directory</span>
-
-<span class="c1"># Environment variable alternative to --project</span>
-<span class="nb">export</span><span class="w"> </span><span class="nv">OSPREY_PROJECT</span><span class="o">=</span>~/my-project
-osprey<span class="w"> </span>deploy<span class="w"> </span>up
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span><span class="o">[</span>-d<span class="p">|</span>--detached<span class="o">]</span><span class="w">   </span><span class="c1"># Start services</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>down<span class="w">                 </span><span class="c1"># Stop services</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>status<span class="w">               </span><span class="c1"># Show status table</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>build<span class="w">                </span><span class="c1"># Render compose files without starting</span>
 </pre></div>
 </div>
-<div class="admonition tip">
-<p class="admonition-title">Tip</p>
-<p>The project directory is resolved in this order: <code class="docutils literal notranslate"><span class="pre">--project</span></code> flag &gt;
-<code class="docutils literal notranslate"><span class="pre">OSPREY_PROJECT</span></code> environment variable &gt; current working directory.</p>
-</div>
-<div class="admonition tip">
-<p class="admonition-title">Tip</p>
-<p>There is no <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">logs</span></code> subcommand. Access container logs directly
-with <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">logs</span> <span class="pre">&lt;container-name&gt;</span></code> or <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">logs</span> <span class="pre">&lt;container-name&gt;</span></code>.</p>
-</div>
+<p>Full command and flag reference: <a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a>. Note there
+is no <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">logs</span></code> subcommand — use <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">logs</span> <span class="pre">&lt;name&gt;</span></code> or
+<code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">logs</span> <span class="pre">&lt;name&gt;</span></code> directly.</p>
+<p>The project directory is resolved as: <code class="docutils literal notranslate"><span class="pre">--project</span></code> flag, then
+<code class="docutils literal notranslate"><span class="pre">OSPREY_PROJECT</span></code> environment variable, then current working directory.</p>
+</section>
+<section id="container-runtime-selection">
+<h2>Container Runtime Selection<a class="headerlink" href="#container-runtime-selection" title="Link to this heading">#</a></h2>
+<p>The runtime is auto-detected: if Docker’s daemon is reachable it is
+preferred, otherwise Podman is used. Force a specific runtime with the
+<code class="docutils literal notranslate"><span class="pre">CONTAINER_RUNTIME</span></code> environment variable or by setting
+<code class="docutils literal notranslate"><span class="pre">container_runtime:</span> <span class="pre">docker|podman|auto</span></code> at the root of <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
 </section>
 <section id="deployment-workflow">
 <h2>Deployment Workflow<a class="headerlink" href="#deployment-workflow" title="Link to this heading">#</a></h2>
 <p>When <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> runs:</p>
 <ol class="arabic simple">
-<li><p>Load and merge configuration</p></li>
-<li><p>Discover services from <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code></p></li>
-<li><p>Create clean build directories</p></li>
-<li><p>Render Jinja2 templates with configuration context</p></li>
-<li><p>Copy service files, source code, additional directories</p></li>
-<li><p>Generate flattened <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> per service</p></li>
-<li><p>Run Docker/Podman Compose</p></li>
+<li><p>Resolve the project directory and load <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> via <code class="docutils literal notranslate"><span class="pre">ConfigBuilder</span></code>.</p></li>
+<li><p>Set <code class="docutils literal notranslate"><span class="pre">deployment.bind_address</span></code> (<code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> by default, <code class="docutils literal notranslate"><span class="pre">0.0.0.0</span></code> with <code class="docutils literal notranslate"><span class="pre">--expose</span></code>).</p></li>
+<li><p>Render the root <code class="docutils literal notranslate"><span class="pre">services/docker-compose.yml.j2</span></code> (shared <code class="docutils literal notranslate"><span class="pre">osprey-network</span></code>).</p></li>
+<li><p>For each entry in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>: clean and create the build dir, render the service compose template, copy service files.</p></li>
+<li><p>If <code class="docutils literal notranslate"><span class="pre">copy_src:</span> <span class="pre">true</span></code>, copy <code class="docutils literal notranslate"><span class="pre">src/</span></code> into the build as <code class="docutils literal notranslate"><span class="pre">repo_src/</span></code>, plus <code class="docutils literal notranslate"><span class="pre">requirements.txt</span></code> and <code class="docutils literal notranslate"><span class="pre">pyproject.toml</span></code> (renamed <code class="docutils literal notranslate"><span class="pre">pyproject_user.toml</span></code>).</p></li>
+<li><p>With <code class="docutils literal notranslate"><span class="pre">--dev</span></code>, build a wheel from the local Osprey checkout and drop it into the build dir.</p></li>
+<li><p>Copy any <code class="docutils literal notranslate"><span class="pre">additional_dirs</span></code> into the build.</p></li>
+<li><p>Auto-create <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code> subdirectories declared under <code class="docutils literal notranslate"><span class="pre">file_paths</span></code>.</p></li>
+<li><p>Write a flattened <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> per service. <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> placeholders are preserved (secrets stay out of the rendered output and are resolved at container start).</p></li>
+<li><p>Shell out to <code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">compose</span></code> / <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">compose</span></code>.</p></li>
 </ol>
 </section>
 <section id="docker-compose-templates">
 <h2>Docker Compose Templates<a class="headerlink" href="#docker-compose-templates" title="Link to this heading">#</a></h2>
-<p>Each service needs a <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code> template in its service directory.
-In addition, a <strong>root-level</strong> <code class="docutils literal notranslate"><span class="pre">services/docker-compose.yml.j2</span></code> is required to
-define the shared network (<code class="docutils literal notranslate"><span class="pre">osprey-network</span></code>). Without it, <code class="docutils literal notranslate"><span class="pre">deploy</span> <span class="pre">build</span></code> and
-<code class="docutils literal notranslate"><span class="pre">deploy</span> <span class="pre">up</span></code> will fail.</p>
+<p>Each service needs a <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code> template in its service
+directory. In addition, a <strong>root-level</strong> <code class="docutils literal notranslate"><span class="pre">services/docker-compose.yml.j2</span></code>
+is required to define the shared network (<code class="docutils literal notranslate"><span class="pre">osprey-network</span></code>). Without it,
+<code class="docutils literal notranslate"><span class="pre">deploy</span> <span class="pre">build</span></code> and <code class="docutils literal notranslate"><span class="pre">deploy</span> <span class="pre">up</span></code> will fail.</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>services/
 ├── docker-compose.yml.j2          # Required: shared network definition
-├── jupyter/
-│   └── docker-compose.yml.j2      # Per-service template
 └── postgresql/
     └── docker-compose.yml.j2      # Per-service template
 </pre></div>
 </div>
-<p>Per-service templates have access to the full configuration:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># services/jupyter/docker-compose.yml.j2</span>
+<p>Per-service templates have access to the full configuration plus a few
+engine-injected values:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># services/postgresql/docker-compose.yml.j2</span>
 <span class="nt">services</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">jupyter-read</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{{</span><span class="nv">services.jupyter.containers.read.name</span><span class="p p-Indicator">}}</span>
+<span class="w">  </span><span class="nt">postgresql</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">container_name</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{{</span><span class="nv">services.postgresql.container_name | default(&#39;osprey-postgres&#39;)</span><span class="p p-Indicator">}}</span>
+<span class="w">    </span><span class="nt">labels</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">osprey.project.name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{osprey_labels.project_name}}&quot;</span>
+<span class="w">      </span><span class="nt">osprey.project.root</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{osprey_labels.project_root}}&quot;</span>
+<span class="w">      </span><span class="nt">osprey.deployed.at</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;{{osprey_labels.deployed_at}}&quot;</span>
 <span class="w">    </span><span class="nt">ports</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;{{services.jupyter.containers.read.port_host}}:{{services.jupyter.containers.read.port_container}}&quot;</span>
+<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="s">&quot;{{deployment.bind_address}}:{{services.postgresql.port_host}}:5432&quot;</span>
 <span class="w">    </span><span class="nt">environment</span><span class="p">:</span>
-<span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">TZ={{system.timezone}}</span>
+<span class="w">      </span><span class="nt">TZ</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{{</span><span class="nv">system.timezone</span><span class="p p-Indicator">}}</span>
 <span class="w">    </span><span class="nt">networks</span><span class="p">:</span>
 <span class="w">      </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey-network</span>
 </pre></div>
 </div>
-<p>Access patterns: <code class="docutils literal notranslate"><span class="pre">{{services.&lt;name&gt;.&lt;key&gt;}}</span></code>, <code class="docutils literal notranslate"><span class="pre">{{file_paths.&lt;key&gt;}}</span></code>,
-<code class="docutils literal notranslate"><span class="pre">{{system.&lt;key&gt;}}</span></code>, <code class="docutils literal notranslate"><span class="pre">{{project_root}}</span></code>, <code class="docutils literal notranslate"><span class="pre">{{deployment.&lt;key&gt;}}</span></code>
-(e.g., <code class="docutils literal notranslate"><span class="pre">deployment.bind_address</span></code>), <code class="docutils literal notranslate"><span class="pre">{{osprey_labels.&lt;key&gt;}}</span></code>
-(<code class="docutils literal notranslate"><span class="pre">project_name</span></code>, <code class="docutils literal notranslate"><span class="pre">project_root</span></code>, <code class="docutils literal notranslate"><span class="pre">deployed_at</span></code>).</p>
+<p>Common access patterns: <code class="docutils literal notranslate"><span class="pre">{{services.&lt;name&gt;.&lt;key&gt;}}</span></code>,
+<code class="docutils literal notranslate"><span class="pre">{{file_paths.&lt;key&gt;}}</span></code>, <code class="docutils literal notranslate"><span class="pre">{{system.&lt;key&gt;}}</span></code>, <code class="docutils literal notranslate"><span class="pre">{{project_root}}</span></code>,
+<code class="docutils literal notranslate"><span class="pre">{{deployment.bind_address}}</span></code>, and <code class="docutils literal notranslate"><span class="pre">{{osprey_labels.project_name}}</span></code> /
+<code class="docutils literal notranslate"><span class="pre">project_root</span></code> / <code class="docutils literal notranslate"><span class="pre">deployed_at</span></code> (injected by the deploy engine).</p>
 </section>
 <section id="network-binding-and-security">
 <h2>Network Binding and Security<a class="headerlink" href="#network-binding-and-security" title="Link to this heading">#</a></h2>
 <p>Services bind to <code class="docutils literal notranslate"><span class="pre">127.0.0.1</span></code> by default. Use <code class="docutils literal notranslate"><span class="pre">--expose</span></code> only when you
-have authentication and firewalling in place.
-You can also set <code class="docutils literal notranslate"><span class="pre">deployment.bind_address</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
+have authentication and firewalling in place — <code class="docutils literal notranslate"><span class="pre">--expose</span></code> overrides any
+<code class="docutils literal notranslate"><span class="pre">deployment.bind_address</span></code> you set in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p>
 <p>Container networking uses service names as hostnames (e.g.,
-<code class="docutils literal notranslate"><span class="pre">http://pipelines:9099</span></code>). For host access from containers, use
+<code class="docutils literal notranslate"><span class="pre">postgresql:5432</span></code>). For host access from inside containers, use
 <code class="docutils literal notranslate"><span class="pre">host.docker.internal</span></code> (Docker) or <code class="docutils literal notranslate"><span class="pre">host.containers.internal</span></code> (Podman).</p>
 </section>
 <section id="environment-variables-env">
 <h2>Environment Variables (<code class="docutils literal notranslate"><span class="pre">.env</span></code>)<a class="headerlink" href="#environment-variables-env" title="Link to this heading">#</a></h2>
-<p>The deploy system loads a <code class="docutils literal notranslate"><span class="pre">.env</span></code> file from the project root using python-dotenv
-and passes it to Docker Compose. This file typically contains API keys, timezone
-settings, and proxy configuration.</p>
-<p>To set up:</p>
+<p>The deploy system passes a <code class="docutils literal notranslate"><span class="pre">.env</span></code> file from the project root to Docker /
+Podman Compose via <code class="docutils literal notranslate"><span class="pre">--env-file</span></code>. Variables defined there are available to
+Compose substitution and to running containers.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>.env.example<span class="w"> </span>.env
 <span class="c1"># Edit .env with your actual values</span>
 </pre></div>
@@ -623,37 +604,40 @@ variables and a warning is logged.</p>
 </section>
 <section id="development-mode">
 <h2>Development Mode<a class="headerlink" href="#development-mode" title="Link to this heading">#</a></h2>
-<p>The <code class="docutils literal notranslate"><span class="pre">--dev</span></code> flag deploys with your locally installed Osprey source instead of
-the PyPI version:</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">--dev</span></code> flag deploys with your locally installed Osprey source
+instead of the PyPI version:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>--dev
 </pre></div>
 </div>
-<p>The system builds a wheel package from your local Osprey source and copies it into
-each service’s build directory. It also sets <code class="docutils literal notranslate"><span class="pre">DEV_MODE=true</span></code> in the container
-environment. If the local source cannot be found (e.g., Osprey was installed from
-PyPI rather than in editable/development mode), containers fall back to the PyPI
-version.</p>
-<p>Ensure Osprey is importable in your environment before using <code class="docutils literal notranslate"><span class="pre">--dev</span></code> (e.g., via
-<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span></code> or an editable install). The <code class="docutils literal notranslate"><span class="pre">--dev</span></code> flag also requires the Python
-<code class="docutils literal notranslate"><span class="pre">build</span></code> package to create the wheel:</p>
+<p>The system builds a wheel from your local Osprey source and copies it into
+each service’s build directory, then sets <code class="docutils literal notranslate"><span class="pre">DEV_MODE=true</span></code> in the
+container environment. If the local source cannot be found (e.g., Osprey
+was installed from PyPI rather than editable mode), containers fall back to
+the PyPI version.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--dev</span></code> requires the Python <code class="docutils literal notranslate"><span class="pre">build</span></code> package:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>pip<span class="w"> </span>install<span class="w"> </span>build<span class="w">   </span><span class="c1"># or: pip install build</span>
 </pre></div>
 </div>
 </section>
 <section id="troubleshooting">
 <h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h2>
-<p><strong>Services fail to start:</strong> Check logs (<code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">logs</span> <span class="pre">&lt;name&gt;</span></code>), verify
-<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> syntax, ensure <code class="docutils literal notranslate"><span class="pre">.env</span></code> variables are set, confirm service paths
-contain <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code>.</p>
-<p><strong>Port conflicts:</strong> <code class="docutils literal notranslate"><span class="pre">lsof</span> <span class="pre">-i</span> <span class="pre">:&lt;port&gt;</span></code> to find the culprit; update port mappings.</p>
-<p><strong>Template errors:</strong> Verify Jinja2 syntax (<code class="docutils literal notranslate"><span class="pre">{{var}}</span></code> not <code class="docutils literal notranslate"><span class="pre">{var}</span></code>); inspect
-rendered files in <code class="docutils literal notranslate"><span class="pre">build/</span></code>.</p>
-<p><strong>Dev mode issues:</strong> Confirm the Osprey wheel (<code class="docutils literal notranslate"><span class="pre">.whl</span></code>) exists in the service
-build directory; check <code class="docutils literal notranslate"><span class="pre">DEV_MODE</span></code> env var inside the container.</p>
+<p><strong>Services fail to start:</strong> Check logs (<code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">logs</span> <span class="pre">&lt;name&gt;</span></code> or
+<code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">logs</span> <span class="pre">&lt;name&gt;</span></code>), verify <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> syntax, ensure <code class="docutils literal notranslate"><span class="pre">.env</span></code>
+variables are set, confirm service paths contain <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code>.</p>
+<p><strong>Port conflicts:</strong> <code class="docutils literal notranslate"><span class="pre">lsof</span> <span class="pre">-i</span> <span class="pre">:&lt;port&gt;</span></code> to find the culprit; update
+<code class="docutils literal notranslate"><span class="pre">port_host</span></code>.</p>
+<p><strong>Template errors:</strong> Verify Jinja2 syntax (<code class="docutils literal notranslate"><span class="pre">{{var}}</span></code> not <code class="docutils literal notranslate"><span class="pre">{var}</span></code>);
+inspect rendered files under <code class="docutils literal notranslate"><span class="pre">build/services/&lt;name&gt;/</span></code>.</p>
+<p><strong>Daemon not running:</strong> Both Docker and Podman print platform-specific
+hints; on macOS, start Docker Desktop or run <code class="docutils literal notranslate"><span class="pre">podman</span> <span class="pre">machine</span> <span class="pre">start</span></code>.</p>
+<p><strong>``–dev`` issues:</strong> Confirm the Osprey wheel (<code class="docutils literal notranslate"><span class="pre">.whl</span></code>) exists in the
+service build directory; check <code class="docutils literal notranslate"><span class="pre">DEV_MODE</span></code> env var inside the container.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
-<dt><a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a></dt><dd><p>CLI command reference</p>
+<dt><a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a></dt><dd><p>Full <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> command and flag reference.</p>
+</dd>
+<dt><a class="reference internal" href="build-profiles.html#profile-services"><span class="std std-ref">Services</span></a></dt><dd><p>Authoritative <code class="docutils literal notranslate"><span class="pre">services:</span></code> schema for build profiles.</p>
 </dd>
 </dl>
 </div>
@@ -708,8 +692,12 @@ build directory; check <code class="docutils literal notranslate"><span class="p
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#service-configuration">Service Configuration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#service-configuration">Service Configuration</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#service-lookup-namespaces">Service lookup namespaces</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#cli-commands">CLI Commands</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#container-runtime-selection">Container Runtime Selection</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-workflow">Deployment Workflow</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#docker-compose-templates">Docker Compose Templates</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#network-binding-and-security">Network Binding and Security</a></li>

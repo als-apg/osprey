@@ -500,7 +500,7 @@ window.addEventListener("load", load);</script>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 20, 2026"/>
+    <meta name="docbuild:last-update" content="May 21, 2026"/>
   </head>
   
   
@@ -813,10 +813,11 @@ window.addEventListener("load", load);</script>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Control System Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/search-modes.html">Search Modes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
@@ -900,7 +901,7 @@ custom MCP servers) from <strong>what OSPREY provides</strong> (agents, rules, h
 </div>
 </details><section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
-<p>The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> command takes a YAML profile and produces a standalone Claude Code
+<p>The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> command takes a YAML profile and produces a standalone Osprey agent
 project. The profile declares:</p>
 <ul class="simple">
 <li><p><strong>Base template</strong> to start from (<code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> or <code class="docutils literal notranslate"><span class="pre">hello_world</span></code>)</p></li>
@@ -922,6 +923,79 @@ project. The profile declares:</p>
 produces the same output, and user-owned files (like <code class="docutils literal notranslate"><span class="pre">facility.md</span></code>) are tracked
 separately.</p>
 </section>
+<section id="preset-profile-project">
+<h2>Preset → Profile → Project<a class="headerlink" href="#preset-profile-project" title="Link to this heading">#</a></h2>
+<p>OSPREY’s build inputs form a three-layer hierarchy:</p>
+<ul class="simple">
+<li><p><strong>Preset</strong> — bundled upstream, lives in <code class="docutils literal notranslate"><span class="pre">src/osprey/profiles/presets/</span></code>.
+Self-contained: no <code class="docutils literal notranslate"><span class="pre">extends:</span></code>. Edited only by PR’ing OSPREY itself.
+Examples: <code class="docutils literal notranslate"><span class="pre">hello-world</span></code>, <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code>.</p></li>
+<li><p><strong>Profile</strong> — user-owned, lives in <em>your</em> repo as a directory. Has
+<code class="docutils literal notranslate"><span class="pre">extends:</span> <span class="pre">&lt;preset-name&gt;</span></code> (or a path) and overrides only what your
+facility needs. This is your durable source-of-truth for customizations.</p></li>
+<li><p><strong>Project</strong> — the rendered output of <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>. Derived; regenerable;
+treat it as a build artifact and avoid editing it in place.</p></li>
+</ul>
+<p>You can drive <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> in three modes:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 22.0%" />
+<col style="width: 38.0%" />
+<col style="width: 40.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Mode</p></th>
+<th class="head"><p>Command</p></th>
+<th class="head"><p>When to use</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Quick start</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">my-project</span> <span class="pre">--preset</span> <span class="pre">X</span></code></p></td>
+<td><p>Trying a preset; no customizations needed.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Scaffold profile</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--emit-profile</span> <span class="pre">my-profile</span> <span class="pre">--preset</span> <span class="pre">X</span></code></p></td>
+<td><p>Starting facility-specific customization. Writes an editable
+profile directory and exits — no project rendered yet.</p></td>
+</tr>
+<tr class="row-even"><td><p>Build from profile</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">my-project</span> <span class="pre">my-profile/profile.yml</span></code></p></td>
+<td><p>Rendering a project from your profile (the everyday command after
+the profile exists).</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The scaffold mode writes:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>my-profile/
+  profile.yml          # extends: &lt;preset&gt;, with override sections (commented)
+  overlays/
+    rules/   .gitkeep  # drop facility-specific rule .md files here
+    skills/  .gitkeep  # drop custom skill directories here
+    agents/  .gitkeep  # drop custom subagent .md files here
+  README.md            # explains the layout
+</pre></div>
+</div>
+<p>The seed <code class="docutils literal notranslate"><span class="pre">profile.yml</span></code> lists every supported override section in commented
+form (<code class="docutils literal notranslate"><span class="pre">skills:</span></code>, <code class="docutils literal notranslate"><span class="pre">rules:</span></code>, <code class="docutils literal notranslate"><span class="pre">agents:</span></code>, <code class="docutils literal notranslate"><span class="pre">config:</span></code>, <code class="docutils literal notranslate"><span class="pre">env:</span></code>,
+<code class="docutils literal notranslate"><span class="pre">overlay:</span></code>) — uncomment what you need.</p>
+<section id="inheriting-from-a-preset">
+<h3>Inheriting from a preset<a class="headerlink" href="#inheriting-from-a-preset" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">extends:</span></code> accepts either a bundled preset name or a filesystem path:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># By bundled preset name (recommended for new profiles).</span>
+<span class="nt">extends</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-assistant</span>
+
+<span class="c1"># By relative path (e.g. multi-profile facility repos with a shared base).</span>
+<span class="nt">extends</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./als-base.yml</span>
+</pre></div>
+</div>
+<p>Path-shaped values containing <code class="docutils literal notranslate"><span class="pre">.yml</span></code> always resolve as filesystem paths,
+so existing multi-file layouts (like the ALS profiles repo) keep working
+unchanged. A preset-name probe is tried first; if it misses, path
+resolution runs.</p>
+</section>
+</section>
 <section id="quick-start">
 <h2>Quick Start<a class="headerlink" href="#quick-start" title="Link to this heading">#</a></h2>
 <p>Create a minimal profile and build:</p>
@@ -941,7 +1015,7 @@ separately.</p>
 </pre></div>
 </div>
 <p>This renders the <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> template with a mock control system and produces
-a complete Claude Code project at <code class="docutils literal notranslate"><span class="pre">/tmp/my-facility/</span></code>.</p>
+a complete Osprey agent project at <code class="docutils literal notranslate"><span class="pre">/tmp/my-facility/</span></code>.</p>
 </section>
 <section id="profile-yaml-schema">
 <h2>Profile YAML Schema<a class="headerlink" href="#profile-yaml-schema" title="Link to this heading">#</a></h2>
@@ -983,7 +1057,7 @@ a complete Claude Code project at <code class="docutils literal notranslate"><sp
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">channel_finder_mode</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">None</span></code></p></td>
-<td><p>Channel finder pipeline (<code class="docutils literal notranslate"><span class="pre">hierarchical</span></code>, <code class="docutils literal notranslate"><span class="pre">middle_layer</span></code>, <code class="docutils literal notranslate"><span class="pre">in_context</span></code>, <code class="docutils literal notranslate"><span class="pre">all</span></code>).</p></td>
+<td><p>Channel finder pipeline (<code class="docutils literal notranslate"><span class="pre">hierarchical</span></code>, <code class="docutils literal notranslate"><span class="pre">middle_layer</span></code>, <code class="docutils literal notranslate"><span class="pre">in_context</span></code>).</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">config</span></code></p></td>
 <td><p>mapping</p></td>
@@ -1109,7 +1183,7 @@ destination paths relative to the project root.</p>
 </tr>
 <tr class="row-odd"><td><p>Facility rule</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">.claude/rules/{name}.md</span></code></p></td>
-<td><p>Custom Claude rule</p></td>
+<td><p>Custom agent rule</p></td>
 </tr>
 <tr class="row-even"><td><p>Benchmark data</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">data/benchmarks/{name}.json</span></code></p></td>
@@ -1117,7 +1191,7 @@ destination paths relative to the project root.</p>
 </tr>
 <tr class="row-odd"><td><p>Example scripts</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">_agent_data/example_scripts/{cat}/</span></code></p></td>
-<td><p>Claude learning examples</p></td>
+<td><p>Agent learning examples</p></td>
 </tr>
 </tbody>
 </table>
@@ -1291,7 +1365,7 @@ framework dependencies.</p>
 │   ├── channel_limits.json        # Safety limits
 │   └── benchmarks/
 │       └── pv_finder_benchmark.json
-├── prompts/                       # Facility-specific Claude rules
+├── prompts/                       # Facility-specific agent rules
 │   ├── facility.md
 │   └── domain-knowledge.md
 └── mcp_servers/                   # Custom MCP server packages
@@ -1392,7 +1466,7 @@ osprey<span class="w"> </span>build<span class="w"> </span>als-test<span class="
 <li><p><strong>Check version constraint</strong> — abort if <code class="docutils literal notranslate"><span class="pre">requires_osprey_version</span></code> is not satisfied</p></li>
 <li><p><strong>Resolve output path</strong> and handle <code class="docutils literal notranslate"><span class="pre">--force</span></code> (remove existing directory)</p></li>
 <li><p><strong>Run pre_build commands</strong> (cwd: profile directory)</p></li>
-<li><p><strong>Clear Claude Code state</strong> for the target directory</p></li>
+<li><p><strong>Clear Osprey agent state</strong> for the target directory</p></li>
 <li><p><strong>Create project venv</strong> — install OSPREY (per <code class="docutils literal notranslate"><span class="pre">osprey_install</span></code>) and profile dependencies</p></li>
 <li><p><strong>Build context</strong> from profile fields (provider, model, python_env, channel finder mode)</p></li>
 <li><p><strong>Render base template</strong> via <code class="docutils literal notranslate"><span class="pre">TemplateManager.create_project()</span></code></p></li>
@@ -1414,7 +1488,7 @@ osprey<span class="w"> </span>build<span class="w"> </span>als-test<span class="
 templates can reference the resolved Python path. Lifecycle commands in
 <code class="docutils literal notranslate"><span class="pre">post_build</span></code> and <code class="docutils literal notranslate"><span class="pre">validate</span></code> automatically use the project venv’s Python.</p>
 </div>
-<p>The generated project contains everything Claude Code needs to run — no dependency on
+<p>The generated project contains everything the Osprey agent needs to run — no dependency on
 the profiles repository at runtime.</p>
 </section>
 <section id="what-gets-generated">
@@ -1438,7 +1512,7 @@ the profiles repository at runtime.</p>
 </div>
 <p>Which agents, rules, hooks, and skills are included is controlled by the template’s
 <code class="docutils literal notranslate"><span class="pre">manifest.yml</span></code> — not by the profile. The profile can override <strong>data and config</strong> but
-not the set of Claude Code artifacts. To add new agents or rules, modify the OSPREY
+not the set of Osprey agent artifacts. To add new agents or rules, modify the OSPREY
 template (see <a class="reference internal" href="add-mcp-server.html"><span class="doc">Add an MCP Server</span></a>).</p>
 </section>
 <section id="troubleshooting">
@@ -1520,6 +1594,10 @@ directory must contain a <code class="docutils literal notranslate"><span class=
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#preset-profile-project">Preset → Profile → Project</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#inheriting-from-a-preset">Inheriting from a preset</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-start">Quick Start</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#profile-yaml-schema">Profile YAML Schema</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-overrides">Configuration Overrides</a></li>

@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 20, 2026"/>
+    <meta name="docbuild:last-update" content="May 21, 2026"/>
   </head>
   
   
@@ -458,8 +458,8 @@ system and the operator decide whether they happen.</p>
 </section>
 <section id="how-the-agent-works">
 <h2>How the Agent Works<a class="headerlink" href="#how-the-agent-works" title="Link to this heading">#</a></h2>
-<p>The agent is built on two components: <strong>Claude Code</strong> and <strong>MCP tools</strong>.</p>
-<p><strong>Claude Code</strong> is an AI assistant that runs in your terminal (or behind
+<p>The agent is built on two components: <strong>a coding-agent harness</strong> and <strong>MCP tools</strong>.</p>
+<p><strong>The Osprey agent</strong> is an AI assistant that runs in your terminal (or behind
 a web interface). It reads natural language, reasons about what to do,
 and calls tools to carry out actions. It does not connect to your
 control system directly — it has no knowledge of PV names, channel
@@ -468,10 +468,10 @@ addresses, or hardware protocols until you give it tools.</p>
 infrastructure. OSPREY ships tools for reading and writing control
 system channels, querying archivers, searching logbooks, and finding
 channel addresses. When the agent starts, it discovers which tools are
-available and what each tool can do. When you ask a question, Claude
+available and what each tool can do. When you ask a question, the Osprey agent
 decides which tools to call, calls them, and uses the results to form
 a response.</p>
-<p>This separation matters: Claude is the reasoning layer, and the tools
+<p>This separation matters: the Osprey agent is the reasoning layer, and the tools
 are the execution layer. You control what the agent can do by choosing
 which tools to enable. If you only enable <code class="docutils literal notranslate"><span class="pre">channel_read</span></code>, the agent
 can read channels but has no way to write to them — regardless of

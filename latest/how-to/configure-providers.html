@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 20, 2026"/>
+    <meta name="docbuild:last-update" content="May 21, 2026"/>
   </head>
   
   
@@ -378,10 +378,11 @@
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Control System Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/search-modes.html">Search Modes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
@@ -447,7 +448,7 @@
                   
   <section id="configure-llm-providers">
 <h1>Configure LLM Providers<a class="headerlink" href="#configure-llm-providers" title="Link to this heading">#</a></h1>
-<p>Osprey uses LLM providers in two contexts: <strong>Claude Code</strong> (the main agent)
+<p>Osprey uses LLM providers in two contexts: <strong>the Osprey agent</strong> (the main agent)
 communicates over the Anthropic Messages API, while <strong>MCP tool servers</strong> use
 <a class="reference external" href="https://docs.litellm.ai/">LiteLLM</a> to call any provider. This guide covers
 how to configure providers for both.</p>
@@ -526,7 +527,7 @@ how to configure providers for both.</p>
 </tbody>
 </table>
 </div>
-<p><strong>Protocol</strong> indicates how the provider communicates with Claude Code:</p>
+<p><strong>Protocol</strong> indicates how the provider communicates with the Osprey agent:</p>
 <ul class="simple">
 <li><p><strong>Anthropic (native)</strong>: Speaks the Anthropic Messages API directly. No
 translation needed.</p></li>
@@ -558,7 +559,7 @@ automatically starts a local translation proxy to bridge the protocols.</p></li>
 <ol class="arabic simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">api.providers</span></code> — declares available providers with their endpoints and
 model IDs.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">claude_code</span></code> — selects which provider Claude Code uses and at which
+<li><p><code class="docutils literal notranslate"><span class="pre">claude_code</span></code> — selects which provider the Osprey agent uses and at which
 model tier.</p></li>
 </ol>
 <p><strong>Declare providers</strong> under <code class="docutils literal notranslate"><span class="pre">api.providers</span></code>:</p>
@@ -611,7 +612,7 @@ that assigns provider-specific model IDs to tiers (<code class="docutils literal
 </section>
 <section id="model-tier-mapping">
 <h2>Model Tier Mapping<a class="headerlink" href="#model-tier-mapping" title="Link to this heading">#</a></h2>
-<p>Claude Code uses three model tiers — <code class="docutils literal notranslate"><span class="pre">haiku</span></code> (fast/cheap), <code class="docutils literal notranslate"><span class="pre">sonnet</span></code>
+<p>The Osprey agent uses three model tiers — <code class="docutils literal notranslate"><span class="pre">haiku</span></code> (fast/cheap), <code class="docutils literal notranslate"><span class="pre">sonnet</span></code>
 (balanced), and <code class="docutils literal notranslate"><span class="pre">opus</span></code> (powerful). Each provider maps these to its own model
 IDs via the <code class="docutils literal notranslate"><span class="pre">models</span></code> block in <code class="docutils literal notranslate"><span class="pre">api.providers</span></code>.</p>
 <p>The resolver applies model IDs in this priority order:</p>
@@ -638,11 +639,11 @@ IDs via the <code class="docutils literal notranslate"><span class="pre">models<
 </section>
 <section id="protocol-translation">
 <h2>Protocol Translation<a class="headerlink" href="#protocol-translation" title="Link to this heading">#</a></h2>
-<p>Claude Code speaks the Anthropic Messages API. Providers that only offer an
+<p>The Osprey agent speaks the Anthropic Messages API. Providers that only offer an
 OpenAI-compatible endpoint (marked <em>OpenAI (proxied)</em> above) need protocol
 translation.</p>
 <p>Osprey handles this automatically: when an OpenAI-only provider is selected,
-a local translation proxy starts on a random port before Claude Code launches.
+a local translation proxy starts on a random port before the Osprey agent launches.
 No manual configuration is required.</p>
 <p>If you run a custom gateway that speaks Anthropic natively (e.g., a LiteLLM
 proxy in Anthropic mode), add <code class="docutils literal notranslate"><span class="pre">api_protocol:</span> <span class="pre">anthropic</span></code> to skip the
@@ -689,8 +690,8 @@ in <code class="docutils literal notranslate"><span class="pre">config.yml</span
 <ul class="simple">
 <li><p>Detects that <code class="docutils literal notranslate"><span class="pre">my-provider</span></code> is not a built-in Anthropic-native provider.</p></li>
 <li><p>Starts the translation proxy to bridge Anthropic → OpenAI protocols.</p></li>
-<li><p>Maps <code class="docutils literal notranslate"><span class="pre">${MY_PROVIDER_API_KEY}</span></code> to the auth token Claude Code expects.</p></li>
-<li><p>Injects the resolved model IDs into Claude Code’s environment.</p></li>
+<li><p>Maps <code class="docutils literal notranslate"><span class="pre">${MY_PROVIDER_API_KEY}</span></code> to the auth token the Osprey agent expects.</p></li>
+<li><p>Injects the resolved model IDs into the Osprey agent’s environment.</p></li>
 </ul>
 </section>
 </section>

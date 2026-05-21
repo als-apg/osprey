@@ -1,7 +1,7 @@
 Configure LLM Providers
 =======================
 
-Osprey uses LLM providers in two contexts: **Claude Code** (the main agent)
+Osprey uses LLM providers in two contexts: **the Osprey agent** (the main agent)
 communicates over the Anthropic Messages API, while **MCP tool servers** use
 `LiteLLM <https://docs.litellm.ai/>`_ to call any provider. This guide covers
 how to configure providers for both.
@@ -62,7 +62,7 @@ Available Providers
      - *(none)*
      - OpenAI (proxied)
 
-**Protocol** indicates how the provider communicates with Claude Code:
+**Protocol** indicates how the provider communicates with the Osprey agent:
 
 - **Anthropic (native)**: Speaks the Anthropic Messages API directly. No
   translation needed.
@@ -97,7 +97,7 @@ Providers are configured in two sections of ``config.yml``:
 
 1. ``api.providers`` — declares available providers with their endpoints and
    model IDs.
-2. ``claude_code`` — selects which provider Claude Code uses and at which
+2. ``claude_code`` — selects which provider the Osprey agent uses and at which
    model tier.
 
 **Declare providers** under ``api.providers``:
@@ -156,7 +156,7 @@ that assigns provider-specific model IDs to tiers (``haiku``, ``sonnet``,
 Model Tier Mapping
 ------------------
 
-Claude Code uses three model tiers — ``haiku`` (fast/cheap), ``sonnet``
+The Osprey agent uses three model tiers — ``haiku`` (fast/cheap), ``sonnet``
 (balanced), and ``opus`` (powerful). Each provider maps these to its own model
 IDs via the ``models`` block in ``api.providers``.
 
@@ -188,12 +188,12 @@ Agents can also be pinned to specific tiers:
 Protocol Translation
 --------------------
 
-Claude Code speaks the Anthropic Messages API. Providers that only offer an
+The Osprey agent speaks the Anthropic Messages API. Providers that only offer an
 OpenAI-compatible endpoint (marked *OpenAI (proxied)* above) need protocol
 translation.
 
 Osprey handles this automatically: when an OpenAI-only provider is selected,
-a local translation proxy starts on a random port before Claude Code launches.
+a local translation proxy starts on a random port before the Osprey agent launches.
 No manual configuration is required.
 
 If you run a custom gateway that speaks Anthropic natively (e.g., a LiteLLM
@@ -247,5 +247,5 @@ The framework automatically:
 
 - Detects that ``my-provider`` is not a built-in Anthropic-native provider.
 - Starts the translation proxy to bridge Anthropic → OpenAI protocols.
-- Maps ``${MY_PROVIDER_API_KEY}`` to the auth token Claude Code expects.
-- Injects the resolved model IDs into Claude Code's environment.
+- Maps ``${MY_PROVIDER_API_KEY}`` to the auth token the Osprey agent expects.
+- Injects the resolved model IDs into the Osprey agent's environment.

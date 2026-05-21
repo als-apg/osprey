@@ -103,7 +103,7 @@ Verify:
 Step 4: Set up your API key
 -----------------------------
 
-Claude Code needs an API key for the AI provider. Set it in your shell profile
+The Osprey agent needs an API key for the AI provider. Set it in your shell profile
 so it's always available.
 
 .. tab-set::

@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 20, 2026"/>
+    <meta name="docbuild:last-update" content="May 21, 2026"/>
   </head>
   
   
@@ -433,7 +433,7 @@
 <h1>MCP Servers<a class="headerlink" href="#mcp-servers" title="Link to this heading">#</a></h1>
 <p>OSPREY exposes control system operations, data retrieval, and workspace
 management as tools through <a class="reference external" href="https://github.com/jlowin/fastmcp">FastMCP</a>
-servers. Claude Code discovers servers from <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> at startup and calls
+servers. The Osprey agent discovers servers from <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> at startup and calls
 tools via stdio JSON-RPC. There are <strong>7 in-tree MCP servers</strong>; build profiles
 can inject additional servers beyond the core set below.</p>
 <section id="control-system">
@@ -474,13 +474,12 @@ device, signal) to narrow results.</p>
 <section id="channel-finder-in-context">
 <h3><code class="docutils literal notranslate"><span class="pre">channel_finder_in_context</span></code><a class="headerlink" href="#channel-finder-in-context" title="Link to this heading">#</a></h3>
 <p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.channel_finder_in_context</span></code></p>
-<p>Provides synchronous access to channel databases stored in flat or
-template format. Designed for smaller databases that fit in context.</p>
+<p>Answers natural-language questions about channels by handing the full
+channel database to an inner LLM as context. Designed for databases small
+enough to fit in a single context window.</p>
 <p><strong>Tools:</strong></p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">get_channels</span></code> – Get channels from the database, optionally paginated in chunks.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">resolve_addresses</span></code> – Resolve channel names to their control system PV addresses.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">statistics</span></code> – Get database statistics (total channels, format, chunk info).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">query_channels</span></code> – Answer a natural-language question about channels; an inner LLM call sees the full channel database as context and returns the answer text together with tokenizer-estimated input/output token counts (used by the benchmark harness for cost accounting).</p></li>
 </ul>
 </section>
 <section id="channel-finder-middle-layer">
@@ -498,6 +497,7 @@ lookups and validation.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">inspect_fields</span></code> – Inspect the field structure of a device family.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">validate</span></code> – Validate that channel names exist in the database.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">statistics</span></code> – Get database statistics (total channels, systems, families).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">query_channels</span></code> – Run a read-only SQL query directly against the channel finder DuckDB database (<code class="docutils literal notranslate"><span class="pre">channels</span></code>, <code class="docutils literal notranslate"><span class="pre">systems</span></code>, <code class="docutils literal notranslate"><span class="pre">families</span></code> tables).</p></li>
 </ul>
 </section>
 </section>

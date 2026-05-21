@@ -6,7 +6,7 @@ Osprey Framework Documentation
 .. admonition:: New architecture (April 2026)
 
    Osprey has transitioned from its legacy LangGraph orchestrator to a
-   coding-agent harness built on Claude Code with MCP servers and hook-based
+   coding-agent harness with MCP servers and hook-based
    approval. If you're upgrading from a previous version, see
    :doc:`getting-started/osprey-build-interview`. The last LangGraph-era release is archived at
    `v0.11.5 docs <https://als-apg.github.io/osprey/v0.11.5/>`_ (also reachable

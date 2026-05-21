@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 20, 2026"/>
+    <meta name="docbuild:last-update" content="May 21, 2026"/>
   </head>
   
   
@@ -378,10 +378,11 @@
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Control System Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/search-modes.html">Search Modes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
@@ -447,7 +448,7 @@
                   
   <section id="use-the-web-terminal">
 <h1>Use the Web Terminal<a class="headerlink" href="#use-the-web-terminal" title="Link to this heading">#</a></h1>
-<p>The OSPREY Web Terminal is a browser-based interface that wraps Claude Code in a
+<p>The OSPREY Web Terminal is a browser-based interface that wraps the Osprey agent in a
 split-pane layout: a real terminal (PTY) on the left and a live workspace file
 viewer on the right. It is built with FastAPI and communicates with the terminal
 session over WebSocket, so every keystroke and resize event is forwarded in real
@@ -501,7 +502,7 @@ output travel over the <code class="docutils literal notranslate"><span class="p
 <li><p><strong>Resize</strong>: the client sends <code class="docutils literal notranslate"><span class="pre">{&quot;type&quot;:</span> <span class="pre">&quot;resize&quot;,</span> <span class="pre">&quot;cols&quot;:</span> <span class="pre">N,</span> <span class="pre">&quot;rows&quot;:</span> <span class="pre">N}</span></code>
 and the PTY window is adjusted immediately.</p></li>
 <li><p><strong>Session resume</strong>: pass <code class="docutils literal notranslate"><span class="pre">?session_id=UUID&amp;mode=resume</span></code> to reconnect to an
-existing Claude Code conversation.</p></li>
+existing Osprey agent conversation.</p></li>
 <li><p><strong>Session switching</strong>: send <code class="docutils literal notranslate"><span class="pre">{&quot;type&quot;:</span> <span class="pre">&quot;switch_session&quot;,</span> <span class="pre">&quot;session_id&quot;:</span> <span class="pre">UUID}</span></code>
 to hop between background sessions without losing state.</p></li>
 <li><p><strong>Background pool</strong>: up to <code class="docutils literal notranslate"><span class="pre">max_background_sessions</span></code> (default 5) detached
@@ -510,7 +511,7 @@ sessions are kept alive in a pool for quick switching.</p></li>
 </section>
 <section id="operator-mode">
 <h3>Operator Mode<a class="headerlink" href="#operator-mode" title="Link to this heading">#</a></h3>
-<p>An alternative WebSocket endpoint (<code class="docutils literal notranslate"><span class="pre">/ws/operator</span></code>) drives Claude through the
+<p>An alternative WebSocket endpoint (<code class="docutils literal notranslate"><span class="pre">/ws/operator</span></code>) drives the Osprey agent through the
 Agent SDK instead of a PTY. The client sends structured JSON prompts and
 receives typed events (text, thinking, tool use, errors).</p>
 </section>
@@ -541,12 +542,12 @@ formatting.</p></li>
 <p>After saving, the UI prompts you to restart the terminal so the agent picks up
 the new settings.</p>
 </section>
-<section id="claude-code-setup-editor">
-<h3>Claude Code Setup Editor<a class="headerlink" href="#claude-code-setup-editor" title="Link to this heading">#</a></h3>
-<p>Read and edit the Claude Code integration files (<code class="docutils literal notranslate"><span class="pre">.claude/</span></code> directory) without
+<section id="osprey-agent-setup-editor">
+<h3>Osprey Agent Setup Editor<a class="headerlink" href="#osprey-agent-setup-editor" title="Link to this heading">#</a></h3>
+<p>Read and edit the Osprey agent integration files (<code class="docutils literal notranslate"><span class="pre">.claude/</span></code> directory) without
 leaving the browser:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/claude-setup</span></code> – list all Claude Code files in the project.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/claude-setup</span></code> – list all Osprey agent files in the project.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">PUT</span> <span class="pre">/api/claude-setup</span></code> – save changes to an existing file.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/claude-setup</span></code> – create a new file in an allowed subdirectory.</p></li>
 </ul>
@@ -555,7 +556,7 @@ leaving the browser:</p>
 <h3>Session Diagnostics<a class="headerlink" href="#session-diagnostics" title="Link to this heading">#</a></h3>
 <p>A dedicated session panel lets you inspect the running conversation:</p>
 <ul class="simple">
-<li><p><strong>Session list</strong> (<code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/sessions</span></code>) – all Claude Code sessions
+<li><p><strong>Session list</strong> (<code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/sessions</span></code>) – all Osprey agent sessions
 registered for the project.</p></li>
 <li><p><strong>Agent hierarchy</strong> (<code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/session-agents</span></code>) – subagent tree with tool
 call breakdowns.</p></li>
@@ -569,23 +570,23 @@ turns.</p></li>
 artifacts with channel extraction.</p></li>
 </ul>
 </section>
-<section id="prompt-gallery">
-<h3>Prompt Gallery<a class="headerlink" href="#prompt-gallery" title="Link to this heading">#</a></h3>
-<p>Browse, edit, and override the prompt artifacts that shape the agent:</p>
+<section id="scaffold-gallery">
+<h3>Scaffold Gallery<a class="headerlink" href="#scaffold-gallery" title="Link to this heading">#</a></h3>
+<p>Browse, edit, and override the build artifacts that shape the agent:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/prompts</span></code> – list all prompt artifacts with framework/user-owned
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/scaffold</span></code> – list all build artifacts with framework/user-owned
 status.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/prompts/{name}/scaffold</span></code> – scaffold an override from the
-framework template.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">PUT</span> <span class="pre">/api/prompts/{name}/override</span></code> – save a custom override.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">DELETE</span> <span class="pre">/api/prompts/{name}/override</span></code> – revert to the framework version.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/prompts/{name}/diff</span></code> – unified diff between framework and
+<li><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/scaffold/{name}/claim</span></code> – claim an artifact for editing
+(scaffold an override from the framework template).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">PUT</span> <span class="pre">/api/scaffold/{name}/override</span></code> – save a custom override.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">DELETE</span> <span class="pre">/api/scaffold/{name}/override</span></code> – revert to the framework version.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/scaffold/{name}/diff</span></code> – unified diff between framework and
 override.</p></li>
 </ul>
 </section>
 <section id="memory-gallery">
 <h3>Memory Gallery<a class="headerlink" href="#memory-gallery" title="Link to this heading">#</a></h3>
-<p>Manage Claude memory files (Markdown notes persisted across sessions):</p>
+<p>Manage Osprey agent memory files (Markdown notes persisted across sessions):</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">GET</span> <span class="pre">/api/claude-memory</span></code> – list memory files.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">POST</span> <span class="pre">/api/claude-memory</span></code> – create a new memory file.</p></li>
@@ -722,9 +723,9 @@ on the command line. CLI flags take precedence over <code class="docutils litera
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#operator-mode">Operator Mode</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#live-workspace-viewer">Live Workspace Viewer</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#settings-drawer">Settings Drawer</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#claude-code-setup-editor">Claude Code Setup Editor</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-agent-setup-editor">Osprey Agent Setup Editor</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#session-diagnostics">Session Diagnostics</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#prompt-gallery">Prompt Gallery</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#scaffold-gallery">Scaffold Gallery</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#memory-gallery">Memory Gallery</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#side-panels">Side Panels</a></li>
 </ul>

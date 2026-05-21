@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 20, 2026"/>
+    <meta name="docbuild:last-update" content="May 21, 2026"/>
   </head>
   
   
@@ -437,7 +437,7 @@
 <h1>Hello World Tutorial<a class="headerlink" href="#hello-world-tutorial" title="Link to this heading">#</a></h1>
 <p>Build your first OSPREY agent. One MCP server, one mock control system, zero
 complexity. By the end of this tutorial, you’ll have an agent that reads
-control system channels using Claude Code.</p>
+control system channels using the Osprey agent.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-list-unordered" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.75 2.5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm1-6a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM2 4a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text"><strong>Prerequisites</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
@@ -500,16 +500,16 @@ read freely.</p>
 <span class="p">}</span>
 </pre></div>
 </div>
-<p>This is how Claude Code discovers the control system MCP server. When Claude
-starts, it launches this server and gains access to tools like
+<p>This is how the Osprey agent discovers the control system MCP server. When the
+agent starts, it launches this server and gains access to tools like
 <code class="docutils literal notranslate"><span class="pre">channel_read</span></code> and <code class="docutils literal notranslate"><span class="pre">channel_write</span></code>.</p>
 <p><strong>CLAUDE.md</strong> — Agent Behavior Instructions</p>
-<p>This file contains instructions that Claude reads on startup. It defines how
+<p>This file contains instructions that the Osprey agent reads on startup. It defines how
 the agent should behave, what safety rules to follow, and how to format
 responses. Edit this file to customize your agent’s personality and behavior.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>The <code class="docutils literal notranslate"><span class="pre">hello_world</span></code> template also installs Claude Code <strong>hooks</strong> for
+<p>The <code class="docutils literal notranslate"><span class="pre">hello_world</span></code> template also installs agent <strong>hooks</strong> for
 safety enforcement. These hooks run automatically before each tool call to
 check limits and require human approval for writes. You don’t need to
 configure them manually.</p>
@@ -523,9 +523,9 @@ configure them manually.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>On first run, Claude Code will ask you to trust the MCP servers in this
-project. Accept to allow Claude to use the control system tools.</p>
-<p>Claude connects to the <code class="docutils literal notranslate"><span class="pre">control_system</span></code> MCP server and is ready to accept
+<p>On first run, the Osprey agent will ask you to trust the MCP servers in this
+project. Accept to allow the agent to use the control system tools.</p>
+<p>The Osprey agent connects to the <code class="docutils literal notranslate"><span class="pre">control_system</span></code> MCP server and is ready to accept
 queries.</p>
 </div>
 </section>
@@ -554,7 +554,7 @@ all PV names without needing a real control system.</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Read SR:VAC:PRESSURE:01 and SR:MAG:QF:01:CURRENT:RB
 </pre></div>
 </div>
-<p>Claude calls the <code class="docutils literal notranslate"><span class="pre">channel_read</span></code> tool for each channel and presents the
+<p>The Osprey agent calls the <code class="docutils literal notranslate"><span class="pre">channel_read</span></code> tool for each channel and presents the
 results together — vacuum pressure and magnet readback values.</p>
 </section>
 <section id="step-5-safety-limits">
@@ -602,19 +602,19 @@ The limits hook blocks the write regardless of the value:</p>
 <section id="step-6-understand-the-flow">
 <h2>Step 6: Understand the Flow<a class="headerlink" href="#step-6-understand-the-flow" title="Link to this heading">#</a></h2>
 <p>Here’s what happens when you ask “Read channel SR:BEAM:CURRENT”:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You ──→ Claude Code ──→ channel_read MCP tool
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You ──→ Osprey agent ──→ channel_read MCP tool
                                  │
                            Mock Connector
                                  │
-                        Synthetic data ──→ Claude formats response ──→ You
+                        Synthetic data ──→ Osprey agent formats response ──→ You
 </pre></div>
 </div>
 <ol class="arabic simple">
 <li><p>You type a natural language query</p></li>
-<li><p>Claude decides to call the <code class="docutils literal notranslate"><span class="pre">channel_read</span></code> MCP tool</p></li>
+<li><p>The Osprey agent decides to call the <code class="docutils literal notranslate"><span class="pre">channel_read</span></code> MCP tool</p></li>
 <li><p>The MCP server receives the call and routes it to the <strong>mock connector</strong></p></li>
 <li><p>The mock connector generates synthetic data (realistic noise, naming-based values)</p></li>
-<li><p>Claude formats the response and presents it to you</p></li>
+<li><p>The Osprey agent formats the response and presents it to you</p></li>
 </ol>
 <p><strong>This is the same flow in production</strong> — just with <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">epics</span></code> instead of
 <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">mock</span></code>. The connector handles the difference; your agent and queries
@@ -624,7 +624,7 @@ stay the same.</p>
 <h2>Step 7: Customize<a class="headerlink" href="#step-7-customize" title="Link to this heading">#</a></h2>
 <p><strong>Change agent behavior</strong> by editing <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>:</p>
 <p>Add a line like “Always report values with 4 decimal places” or “When reading
-magnet channels, also explain what the magnet does.” Restart Claude to see
+magnet channels, also explain what the magnet does.” Restart the Osprey agent to see
 the effect.</p>
 <p><strong>Add new channels to the limits database</strong> by editing
 <code class="docutils literal notranslate"><span class="pre">data/channel_limits.json</span></code>:</p>

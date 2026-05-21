@@ -500,7 +500,7 @@ window.addEventListener("load", load);</script>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 20, 2026"/>
+    <meta name="docbuild:last-update" content="May 21, 2026"/>
   </head>
   
   
@@ -864,12 +864,12 @@ window.addEventListener("load", load);</script>
   <section id="architecture-overview">
 <h1>Architecture Overview<a class="headerlink" href="#architecture-overview" title="Link to this heading">#</a></h1>
 <p>OSPREY deploys agentic AI in safety-critical control system environments — particle accelerators,
-fusion experiments, and beamlines. It uses <strong>Claude Code</strong> as the orchestrator, <strong>MCP servers</strong> as
+fusion experiments, and beamlines. It uses <strong>the Osprey agent</strong> as the orchestrator, <strong>MCP servers</strong> as
 the tool interface, and <strong>pluggable connectors</strong> for protocol-agnostic hardware access.</p>
 <pre  class="mermaid">
         flowchart LR
     User[&quot;Operator&quot;] --&gt; WebTerm[&quot;Web Terminal&quot;]
-    WebTerm --&gt; Claude[&quot;Claude Code&quot;]
+    WebTerm --&gt; Claude[&quot;Osprey agent&quot;]
     Claude --&gt; Hooks[&quot;Safety Hooks&quot;]
     Hooks --&gt; MCP[&quot;MCP Servers&quot;]
     MCP --&gt; Conn[&quot;Connectors&quot;]
@@ -886,7 +886,7 @@ the tool interface, and <strong>pluggable connectors</strong> for protocol-agnos
 the MCP server. The chain for <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> — the most safety-critical tool — has three stages:</p>
 <pre  class="mermaid">
         flowchart LR
-    CC[&quot;Claude Code&lt;br/&gt;calls channel_write&quot;] --&gt; WC[&quot;writes_check&lt;br/&gt;&lt;i&gt;kill switch&lt;/i&gt;&quot;]
+    CC[&quot;Osprey agent&lt;br/&gt;calls channel_write&quot;] --&gt; WC[&quot;writes_check&lt;br/&gt;&lt;i&gt;kill switch&lt;/i&gt;&quot;]
     WC --&gt;|enabled| LIM[&quot;limits&lt;br/&gt;&lt;i&gt;min / max / step&lt;/i&gt;&quot;]
     LIM --&gt;|valid| APR[&quot;approval&lt;br/&gt;&lt;i&gt;human gate&lt;/i&gt;&quot;]
     APR --&gt;|approved| MCP[&quot;MCP Server&lt;br/&gt;executes write&quot;]
@@ -904,18 +904,18 @@ is <code class="docutils literal notranslate"><span class="pre">false</span></co
 <li><p><strong>osprey_limits</strong> — Validates the setpoint against the channel limits database
 (min, max, step size, writable flag). Only applies to <code class="docutils literal notranslate"><span class="pre">channel_write</span></code>.</p></li>
 <li><p><strong>osprey_approval</strong> — Human approval gate. Per-tool policy dispatch: <code class="docutils literal notranslate"><span class="pre">always</span></code> (require
-approval every time), <code class="docutils literal notranslate"><span class="pre">selective</span></code> (ask Claude to decide), or <code class="docutils literal notranslate"><span class="pre">skip</span></code>.</p></li>
+approval every time), <code class="docutils literal notranslate"><span class="pre">selective</span></code> (ask the Osprey agent to decide), or <code class="docutils literal notranslate"><span class="pre">skip</span></code>.</p></li>
 </ol>
 </section>
 <section id="data-flow">
 <h2>Data Flow<a class="headerlink" href="#data-flow" title="Link to this heading">#</a></h2>
-<p>A typical control system write follows this path. The three safety hooks fire between Claude Code
+<p>A typical control system write follows this path. The three safety hooks fire between the Osprey agent
 and the MCP server:</p>
 <pre  class="mermaid">
         sequenceDiagram
     participant Op as Operator
     participant WT as Web Terminal
-    participant CC as Claude Code
+    participant CC as Osprey agent
     participant CF as Channel Finder Sub-Agent
     participant H as Safety Hooks
     participant CS as Control System MCP

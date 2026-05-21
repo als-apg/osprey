@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 20, 2026"/>
+    <meta name="docbuild:last-update" content="May 21, 2026"/>
   </head>
   
   
@@ -378,10 +378,11 @@
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Control System Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/search-modes.html">Search Modes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
@@ -447,9 +448,9 @@
                   
   <section id="use-the-cli-chat-interface">
 <h1>Use the CLI Chat Interface<a class="headerlink" href="#use-the-cli-chat-interface" title="Link to this heading">#</a></h1>
-<p>The CLI chat interface launches Claude Code in your native terminal while
+<p>The CLI chat interface launches the Osprey agent in your native terminal while
 running OSPREY’s companion services in the background. This gives you the full
-Claude Code TUI experience — keyboard shortcuts, slash commands, native
+agent TUI experience — keyboard shortcuts, slash commands, native
 scrollback — with access to companion services (artifact gallery, session
 analytics, etc.) via their URLs in a browser.</p>
 <section id="launching">
@@ -460,13 +461,13 @@ analytics, etc.) via their URLs in a browser.</p>
 </div>
 <p>This command:</p>
 <ol class="arabic simple">
-<li><p>Regenerates Claude Code integration files (<code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>, <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>,
+<li><p>Regenerates Osprey agent integration files (<code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>, <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>,
 <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code>) from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></li>
 <li><p>Resolves the configured LLM provider and injects authentication.</p></li>
 <li><p>Starts the translation proxy if the provider needs it (see
 <a class="reference internal" href="configure-providers.html"><span class="doc">Configure LLM Providers</span></a>).</p></li>
 <li><p>Launches companion web servers in the background.</p></li>
-<li><p>Opens the Claude Code TUI in your terminal.</p></li>
+<li><p>Opens the Osprey agent TUI in your terminal.</p></li>
 </ol>
 <section id="options">
 <h3>Options<a class="headerlink" href="#options" title="Link to this heading">#</a></h3>
@@ -482,17 +483,17 @@ osprey<span class="w"> </span>claude<span class="w"> </span>chat<span class="w">
 <section id="companion-services">
 <h2>Companion Services<a class="headerlink" href="#companion-services" title="Link to this heading">#</a></h2>
 <p>On startup, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">chat</span></code> launches the same companion servers as
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>. Each server’s URL is printed before Claude Code starts:</p>
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>. Each server’s URL is printed before the Osprey agent starts:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Companion servers:
   * Artifact gallery  http://127.0.0.1:8086
   * ARIEL server      http://127.0.0.1:8085
 </pre></div>
 </div>
-<p>Open any of these URLs in a browser to access the service while Claude Code
+<p>Open any of these URLs in a browser to access the service while the Osprey agent
 runs in your terminal. Which servers start depends on your <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> —
 each server respects its own <code class="docutils literal notranslate"><span class="pre">auto_launch</span></code> setting.</p>
 <p>The servers run as background threads and stop automatically when you exit
-Claude Code.</p>
+the Osprey agent.</p>
 </section>
 <section id="when-to-use-cli-vs-web-terminal">
 <h2>When to Use CLI vs. Web Terminal<a class="headerlink" href="#when-to-use-cli-vs-web-terminal" title="Link to this heading">#</a></h2>
@@ -510,7 +511,7 @@ Claude Code.</p>
 <tr class="row-even"><td><p>Native terminal experience</p></td>
 <td><p>Browser-based split-pane UI</p></td>
 </tr>
-<tr class="row-odd"><td><p>Full Claude Code TUI with keyboard shortcuts</p></td>
+<tr class="row-odd"><td><p>Full Osprey agent TUI with keyboard shortcuts</p></td>
 <td><p>Embedded terminal emulator</p></td>
 </tr>
 <tr class="row-even"><td><p>Companion services in separate browser tabs</p></td>

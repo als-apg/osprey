@@ -25,7 +25,7 @@ custom MCP servers) from **what OSPREY provides** (agents, rules, hooks, safety 
 Overview
 ========
 
-The ``osprey build`` command takes a YAML profile and produces a standalone Claude Code
+The ``osprey build`` command takes a YAML profile and produces a standalone Osprey agent
 project. The profile declares:
 
 - **Base template** to start from (``control_assistant`` or ``hello_world``)
@@ -48,6 +48,76 @@ project. The profile declares:
 The built project is **wipe-and-rebuild safe** — regenerating from the same profile
 produces the same output, and user-owned files (like ``facility.md``) are tracked
 separately.
+
+
+Preset → Profile → Project
+==========================
+
+OSPREY's build inputs form a three-layer hierarchy:
+
+- **Preset** — bundled upstream, lives in ``src/osprey/profiles/presets/``.
+  Self-contained: no ``extends:``. Edited only by PR'ing OSPREY itself.
+  Examples: ``hello-world``, ``control-assistant``, ``ariel-standalone``.
+- **Profile** — user-owned, lives in *your* repo as a directory. Has
+  ``extends: <preset-name>`` (or a path) and overrides only what your
+  facility needs. This is your durable source-of-truth for customizations.
+- **Project** — the rendered output of ``osprey build``. Derived; regenerable;
+  treat it as a build artifact and avoid editing it in place.
+
+You can drive ``osprey build`` in three modes:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 22 38 40
+
+   * - Mode
+     - Command
+     - When to use
+   * - Quick start
+     - ``osprey build my-project --preset X``
+     - Trying a preset; no customizations needed.
+   * - Scaffold profile
+     - ``osprey build --emit-profile my-profile --preset X``
+     - Starting facility-specific customization. Writes an editable
+       profile directory and exits — no project rendered yet.
+   * - Build from profile
+     - ``osprey build my-project my-profile/profile.yml``
+     - Rendering a project from your profile (the everyday command after
+       the profile exists).
+
+The scaffold mode writes:
+
+.. code-block:: text
+
+   my-profile/
+     profile.yml          # extends: <preset>, with override sections (commented)
+     overlays/
+       rules/   .gitkeep  # drop facility-specific rule .md files here
+       skills/  .gitkeep  # drop custom skill directories here
+       agents/  .gitkeep  # drop custom subagent .md files here
+     README.md            # explains the layout
+
+The seed ``profile.yml`` lists every supported override section in commented
+form (``skills:``, ``rules:``, ``agents:``, ``config:``, ``env:``,
+``overlay:``) — uncomment what you need.
+
+Inheriting from a preset
+------------------------
+
+``extends:`` accepts either a bundled preset name or a filesystem path:
+
+.. code-block:: yaml
+
+   # By bundled preset name (recommended for new profiles).
+   extends: control-assistant
+
+   # By relative path (e.g. multi-profile facility repos with a shared base).
+   extends: ./als-base.yml
+
+Path-shaped values containing ``.yml`` always resolve as filesystem paths,
+so existing multi-file layouts (like the ALS profiles repo) keep working
+unchanged. A preset-name probe is tried first; if it misses, path
+resolution runs.
 
 
 Quick Start
@@ -73,7 +143,7 @@ Create a minimal profile and build:
    osprey build my-facility my-facility-dev.yml -o /tmp --force
 
 This renders the ``control_assistant`` template with a mock control system and produces
-a complete Claude Code project at ``/tmp/my-facility/``.
+a complete Osprey agent project at ``/tmp/my-facility/``.
 
 
 Profile YAML Schema
@@ -106,7 +176,7 @@ Profile YAML Schema
    * - ``channel_finder_mode``
      - string
      - ``None``
-     - Channel finder pipeline (``hierarchical``, ``middle_layer``, ``in_context``, ``all``).
+     - Channel finder pipeline (``hierarchical``, ``middle_layer``, ``in_context``).
    * - ``config``
      - mapping
      - ``{}``
@@ -217,13 +287,13 @@ Common overlay targets:
      - Directory copy
    * - Facility rule
      - ``.claude/rules/{name}.md``
-     - Custom Claude rule
+     - Custom agent rule
    * - Benchmark data
      - ``data/benchmarks/{name}.json``
      - Evaluation datasets
    * - Example scripts
      - ``_agent_data/example_scripts/{cat}/``
-     - Claude learning examples
+     - Agent learning examples
 
 .. admonition:: Path Safety
    :class: important
@@ -428,7 +498,7 @@ A facility profiles repository should follow this layout:
    │   ├── channel_limits.json        # Safety limits
    │   └── benchmarks/
    │       └── pv_finder_benchmark.json
-   ├── prompts/                       # Facility-specific Claude rules
+   ├── prompts/                       # Facility-specific agent rules
    │   ├── facility.md
    │   └── domain-knowledge.md
    └── mcp_servers/                   # Custom MCP server packages
@@ -521,7 +591,7 @@ When ``osprey build`` runs, it executes these steps in order:
 2. **Check version constraint** — abort if ``requires_osprey_version`` is not satisfied
 3. **Resolve output path** and handle ``--force`` (remove existing directory)
 4. **Run pre_build commands** (cwd: profile directory)
-5. **Clear Claude Code state** for the target directory
+5. **Clear Osprey agent state** for the target directory
 6. **Create project venv** — install OSPREY (per ``osprey_install``) and profile dependencies
 7. **Build context** from profile fields (provider, model, python_env, channel finder mode)
 8. **Render base template** via ``TemplateManager.create_project()``
@@ -543,7 +613,7 @@ When ``osprey build`` runs, it executes these steps in order:
    templates can reference the resolved Python path. Lifecycle commands in
    ``post_build`` and ``validate`` automatically use the project venv's Python.
 
-The generated project contains everything Claude Code needs to run — no dependency on
+The generated project contains everything the Osprey agent needs to run — no dependency on
 the profiles repository at runtime.
 
 
@@ -571,7 +641,7 @@ After building, the project contains:
 
 Which agents, rules, hooks, and skills are included is controlled by the template's
 ``manifest.yml`` — not by the profile. The profile can override **data and config** but
-not the set of Claude Code artifacts. To add new agents or rules, modify the OSPREY
+not the set of Osprey agent artifacts. To add new agents or rules, modify the OSPREY
 template (see :doc:`add-mcp-server`).
 
 

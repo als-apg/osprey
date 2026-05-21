@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 20, 2026"/>
+    <meta name="docbuild:last-update" content="May 21, 2026"/>
   </head>
   
   
@@ -378,10 +378,11 @@
 <li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Control System Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Logbook Search Service (ARIEL)</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="data-ingestion.html">Data Ingestion</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Search Modes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-interface.html">Web Interface</a></li>
-<li class="toctree-l2"><a class="reference internal" href="osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../../cli-reference/index.html">CLI Reference</a></li>
@@ -450,40 +451,33 @@
                   
   <section id="search-modes">
 <h1>Search Modes<a class="headerlink" href="#search-modes" title="Link to this heading">#</a></h1>
-<p>ARIEL’s search system is organized into two layers: <strong>search modules</strong> and <strong>pipelines</strong>. Search modules are leaf-level functions that each implement a single retrieval strategy — keyword full-text search or embedding-based semantic similarity. Pipelines are higher-level execution strategies that compose one or more search modules with LLM reasoning to produce richer answers. At query time, the <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> routes each request to one of four modes: the two search modules can be called directly for fast, focused lookups; the RAG pipeline retrieves, fuses, and generates a cited answer deterministically; and the agent mode lets a ReAct agent autonomously decide which tools to call and how many times. All four modes share the same underlying <a class="reference internal" href="data-ingestion.html#database"><span class="std std-ref">database</span></a> and produce a common <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code>.</p>
-<p>Both layers are designed for extensibility. Search modules and pipelines are discovered through Osprey’s central registry, so you can add your own without modifying any framework code. A custom search module only needs to export a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function; a custom pipeline only needs to export a <code class="docutils literal notranslate"><span class="pre">get_pipeline_descriptor()</span></code> function. Once registered, they are automatically available in the agent executor, the RAG pipeline’s retrieval list, and the web interface.</p>
+<p>ARIEL’s search system is built around <strong>search modules</strong> — leaf-level functions that each implement a single retrieval strategy against the logbook database. The framework ships two modules out of the box: keyword full-text search and embedding-based semantic similarity. At query time, the <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> routes each request to a specific module or runs both and merges the results in <code class="docutils literal notranslate"><span class="pre">auto</span></code> mode. All modes share the same underlying <a class="reference internal" href="data-ingestion.html#database"><span class="std std-ref">database</span></a> and produce a common <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code>. Higher-level reasoning over results — multi-step retrieval, answer synthesis, custom prompting — lives in the Osprey agent layer, which calls these search modules through ARIEL’s MCP tools.</p>
+<p>Search modules are discovered through Osprey’s central registry, so you can add your own without modifying any framework code. A custom search module only needs to export a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function. Once registered, it is automatically available to the Osprey agent through the ARIEL MCP server and in the web interface.</p>
 <section id="search-architecture">
 <h2>Search Architecture<a class="headerlink" href="#search-architecture" title="Link to this heading">#</a></h2>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>User Query
     ↓
 ARIELSearchService.search(mode=...)
-    ├── KEYWORD  → keyword_search()      → ranked entries
+    ├── KEYWORD  → keyword_search()       → ranked entries
     ├── SEMANTIC → semantic_search()      → ranked entries
-    ├── RAG      → RAGPipeline.execute()
-    │                ├── Retrieve (keyword ∥ semantic)
-    │                ├── Fuse (Reciprocal Rank Fusion)
-    │                ├── Assemble (token-aware context)
-    │                └── Generate (LLM + citations)
-    └── AGENT    → AgentExecutor.execute()
-                     └── ReAct loop (search tools → synthesize)
+    └── AUTO     → run enabled modules in parallel and merge
     ↓
-ARIELSearchResult (entries, answer, sources, reasoning)
+ARIELSearchResult (entries, search_modes_used)
 </pre></div>
 </div>
-<p>The service validates that the requested mode is enabled in configuration before routing. Keyword and semantic are direct function calls; RAG and agent instantiate their respective classes with the repository, config, and an embedder loader. All four modes return an <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code> with entries, an optional LLM-generated answer, source entry IDs, and a reasoning string.</p>
+<p>The service validates that the requested mode is enabled in configuration before routing. Keyword and semantic are direct function calls; <code class="docutils literal notranslate"><span class="pre">auto</span></code> runs the enabled modules in parallel and returns a merged list. All modes return an <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code> with entries and the list of search modes that were invoked.</p>
 <p><strong>CLI usage:</strong></p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>auto<span class="w">    </span><span class="c1"># default</span>
 osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>keyword
 osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>semantic
-osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>rag
 </pre></div>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">--mode</span></code> option accepts <code class="docutils literal notranslate"><span class="pre">keyword</span></code>, <code class="docutils literal notranslate"><span class="pre">semantic</span></code>, <code class="docutils literal notranslate"><span class="pre">rag</span></code>, or <code class="docutils literal notranslate"><span class="pre">auto</span></code>
-(the default). In <code class="docutils literal notranslate"><span class="pre">auto</span></code> mode, the service selects the best strategy based
-on the query and available modules.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">--mode</span></code> option accepts <code class="docutils literal notranslate"><span class="pre">keyword</span></code>, <code class="docutils literal notranslate"><span class="pre">semantic</span></code>, or <code class="docutils literal notranslate"><span class="pre">auto</span></code> (the
+default). In <code class="docutils literal notranslate"><span class="pre">auto</span></code> mode, the service runs all enabled modules and merges
+the results.</p>
 <section id="search-modules">
 <h3>Search Modules<a class="headerlink" href="#search-modules" title="Link to this heading">#</a></h3>
-<p>Search modules are leaf-level functions that execute a single search strategy against the database. They are the building blocks that pipelines compose. Each module exports a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function that describes its capabilities, input schema, and execution function so the rest of the system — the agent executor, the RAG pipeline, and the web interface — can discover and use it automatically. The framework ships with the following built-in search modules:</p>
+<p>Search modules are leaf-level functions that execute a single search strategy against the database. Each module exports a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function that describes its capabilities, input schema, and execution function so the rest of the system — the ARIEL MCP server and the web interface — can discover and use it automatically. The framework ships with the following built-in search modules:</p>
 <div class="sd-tab-set docutils">
 <input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-0">
@@ -583,119 +577,23 @@ Semantic Search</label><div class="sd-tab-content docutils">
 <span class="p">)</span>
 </pre></div>
 </div>
-<p>Once registered and enabled in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (<code class="docutils literal notranslate"><span class="pre">search_modules.my_search.enabled:</span> <span class="pre">true</span></code>), the module is automatically available as a tool in the agent executor, as a retrieval source in any pipeline that lists it in <code class="docutils literal notranslate"><span class="pre">retrieval_modules</span></code>, and as a search option in the web interface. The <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function must return a <code class="docutils literal notranslate"><span class="pre">SearchToolDescriptor</span></code>:</p>
+<p>Once registered and enabled in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (<code class="docutils literal notranslate"><span class="pre">search_modules.my_search.enabled:</span> <span class="pre">true</span></code>), the module is automatically available as an ARIEL MCP tool that the Osprey agent can call, and as a search option in the web interface. The <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function must return a <code class="docutils literal notranslate"><span class="pre">SearchToolDescriptor</span></code>:</p>
 <p><code class="xref py py-class docutils literal notranslate"><span class="pre">SearchToolDescriptor</span></code> — a frozen dataclass whose key fields are <code class="docutils literal notranslate"><span class="pre">execute</span></code> (the async search function), <code class="docutils literal notranslate"><span class="pre">format_result</span></code> (formats results for agent consumption), and <code class="docutils literal notranslate"><span class="pre">args_schema</span></code> (a Pydantic model for input validation). See the class definition in the source for the full field list.</p>
 <p>Modules may also export <code class="docutils literal notranslate"><span class="pre">get_parameter_descriptors()</span></code> to declare tunable parameters for the frontend capabilities API. Each <code class="xref py py-class docutils literal notranslate"><span class="pre">ParameterDescriptor</span></code> describes a single knob — its name, type, default, range, and UI grouping — so the web interface can render controls dynamically.</p>
 <div class="outreach admonition">
 <p class="admonition-title">Collaboration Welcome</p>
 <p>If you implement a search module that could benefit other facilities — for example, a structured-metadata search, a time-series correlation search, or a cross-entry linking search — we encourage you to open a pull request so it becomes natively available in Osprey.</p>
 </div>
-</section>
-<section id="pipelines">
-<h3>Pipelines<a class="headerlink" href="#pipelines" title="Link to this heading">#</a></h3>
-<p>Pipelines compose search modules into higher-level execution strategies. Each pipeline specifies which <code class="docutils literal notranslate"><span class="pre">retrieval_modules</span></code> it uses in configuration and is declared through a <code class="docutils literal notranslate"><span class="pre">PipelineDescriptor</span></code> that provides metadata and tunable parameters for the web interface. Like search modules, pipelines are discovered through the Osprey registry — you can register your own execution strategy without modifying any framework code. The framework ships with the following built-in pipelines:</p>
-<div class="sd-tab-set docutils">
-<input checked="checked" id="sd-tab-item-2" name="sd-tab-set-1" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-2">
-RAG Pipeline</label><div class="sd-tab-content docutils">
-<p><strong>Module:</strong> <code class="docutils literal notranslate"><span class="pre">rag.py</span></code></p>
-<p>Deterministic 4-stage pipeline for direct question answering. Produces auditable, reproducible results.</p>
-<p><strong>Stages:</strong></p>
-<ol class="arabic">
-<li><p><strong>Retrieve</strong> — runs the pipeline’s configured <code class="docutils literal notranslate"><span class="pre">retrieval_modules</span></code> (keyword and/or semantic) in parallel using <code class="docutils literal notranslate"><span class="pre">asyncio.gather</span></code>. If a retrieval module fails, it logs a warning and continues with whichever modules succeeded.</p></li>
-<li><p><strong>Fuse</strong> — combines results using Reciprocal Rank Fusion (RRF). Each entry’s score from a single source is <code class="docutils literal notranslate"><span class="pre">1</span> <span class="pre">/</span> <span class="pre">(k</span> <span class="pre">+</span> <span class="pre">rank</span> <span class="pre">+</span> <span class="pre">1)</span></code> where <em>k</em> is the fusion parameter (default: 60) and <em>rank</em> is the 0-based position in that source’s result list. When an entry appears in both keyword and semantic results, its RRF scores are summed. When only one source returns results, they pass through directly with their single-source RRF scores.</p></li>
-<li><p><strong>Assemble</strong> — builds a token-aware context window from fused entries. Each entry is formatted as:</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>ENTRY #&lt;id&gt; | &lt;timestamp&gt; | Author: &lt;name&gt; | &lt;title&gt;
-&lt;content truncated to max_chars_per_entry&gt;
-</pre></div>
-</div>
-<p>Entries are joined with <code class="docutils literal notranslate"><span class="pre">---</span></code> separators. Total context is limited to <code class="docutils literal notranslate"><span class="pre">max_context_chars</span></code> (default: 12,000). If the limit is reached mid-entry and at least 100 characters remain, the entry is truncated with <code class="docutils literal notranslate"><span class="pre">...</span></code>; otherwise it is excluded entirely. The pipeline tracks whether truncation occurred.</p>
-</li>
-<li><p><strong>Generate</strong> — sends the assembled context and query to the configured LLM using a prompt that instructs the model to cite entries using <code class="docutils literal notranslate"><span class="pre">[#id]</span></code> notation. The prompt, temperature, provider, and model are all configurable.</p></li>
-</ol>
-<p><strong>Citation extraction:</strong> After generation, the pipeline extracts <code class="docutils literal notranslate"><span class="pre">[#id]</span></code> patterns from the answer to produce a list of unique source entry IDs in order of appearance. If no citations are found in the text, the pipeline falls back to citing all entries that were included in the context.</p>
-<p><strong>Configuration:</strong></p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">pipelines</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">rag</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">retrieval_modules</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">keyword</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">semantic</span><span class="p p-Indicator">]</span><span class="w">  </span><span class="c1"># Which search modules to use</span>
-
-<span class="nt">reasoning</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
-<span class="w">  </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic/claude-haiku</span>
-<span class="w">  </span><span class="nt">temperature</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.1</span>
-</pre></div>
-</div>
-</div>
-<input id="sd-tab-item-3" name="sd-tab-set-1" type="radio">
-<label class="sd-tab-label" for="sd-tab-item-3">
-Agent Mode</label><div class="sd-tab-content docutils">
-<p><strong>Module:</strong> <code class="docutils literal notranslate"><span class="pre">agent/executor.py</span></code></p>
-<p>Custom async ReAct loop using Osprey’s LiteLLM-based completion API. The agent autonomously decides which search tools to call and how to synthesize an answer from multiple invocations. Unlike the RAG pipeline, the agent can refine its searches iteratively — for example, broadening a query that returned no results, or issuing follow-up searches to corroborate initial findings.</p>
-<p><strong>How it works:</strong></p>
-<ol class="arabic simple">
-<li><p><strong>Tool discovery</strong> — loads <code class="docutils literal notranslate"><span class="pre">SearchToolDescriptor</span></code> instances from the registry, filtered to the pipeline’s configured <code class="docutils literal notranslate"><span class="pre">retrieval_modules</span></code> and further filtered to only those that are enabled. Each descriptor is converted to an OpenAI-format function definition for tool-calling.</p></li>
-<li><p><strong>Time range resolution</strong> — each tool call uses a 3-tier priority for date filtering:</p>
-<ol class="loweralpha simple">
-<li><p>Tool call parameter (highest) — agent explicitly passes <code class="docutils literal notranslate"><span class="pre">start_date</span></code>/<code class="docutils literal notranslate"><span class="pre">end_date</span></code></p></li>
-<li><p>Request context — from the search request’s <code class="docutils literal notranslate"><span class="pre">time_range</span></code></p></li>
-<li><p>No filter (lowest) — search all entries</p></li>
-</ol>
-</li>
-<li><p><strong>Agent creation</strong> — creates a ReAct loop with a system prompt that instructs it to search the logbook, cite entry IDs, and synthesize findings. The LLM is called via Osprey’s centralized <code class="docutils literal notranslate"><span class="pre">get_chat_completion</span></code> API.</p></li>
-<li><p><strong>Execution</strong> — runs the agent with a configurable iteration limit (<code class="docutils literal notranslate"><span class="pre">max_iterations</span></code>, default 5) via a simple <code class="docutils literal notranslate"><span class="pre">for</span></code> loop, with a total timeout enforced via <code class="docutils literal notranslate"><span class="pre">asyncio.wait_for</span></code>. Timeout produces a graceful <code class="docutils literal notranslate"><span class="pre">SearchTimeoutError</span></code> rather than crashing.</p></li>
-<li><p><strong>Result parsing</strong> — extracts the final answer from the last AI message, citation IDs via substring matching (<code class="docutils literal notranslate"><span class="pre">entry_id</span> <span class="pre">in</span> <span class="pre">answer</span></code>), and which search modes were actually invoked by inspecting the tool call history.</p></li>
-</ol>
-<p><strong>Configuration:</strong></p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">pipelines</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">agent</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">    </span><span class="nt">retrieval_modules</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">keyword</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">semantic</span><span class="p p-Indicator">]</span><span class="w">  </span><span class="c1"># Which search tools the agent can use</span>
-
-<span class="nt">reasoning</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">cborg</span>
-<span class="w">  </span><span class="nt">model_id</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic/claude-haiku</span>
-<span class="w">  </span><span class="nt">max_iterations</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5</span><span class="w">              </span><span class="c1"># Maximum ReAct cycles</span>
-<span class="w">  </span><span class="nt">temperature</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.1</span>
-<span class="w">  </span><span class="nt">total_timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">120</span><span class="w">     </span><span class="c1"># Total agent timeout</span>
-</pre></div>
-</div>
-</div>
-</div>
-<div class="tip admonition">
-<p class="admonition-title">RAG vs. Agent</p>
-<p>The RAG pipeline and agent mode are peers, not layers — they are two independent execution strategies. <strong>RAG</strong> is deterministic and auditable: the same query always follows the same retrieve-fuse-assemble-generate path, making it ideal for operational use where reproducibility matters. <strong>Agent</strong> is exploratory and non-deterministic: the LLM decides what to search and may iterate, making it better for complex questions that require multi-step reasoning or query refinement.</p>
-</div>
-<p><strong>Registering a custom pipeline:</strong></p>
-<p>To add your own execution strategy, create a Python module that exports <code class="docutils literal notranslate"><span class="pre">get_pipeline_descriptor()</span></code>, then register it through your application’s registry configuration:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry.helpers</span><span class="w"> </span><span class="kn">import</span> <span class="n">extend_framework_registry</span>
-<span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArielPipelineRegistration</span>
-
-<span class="n">app_config</span> <span class="o">=</span> <span class="n">extend_framework_registry</span><span class="p">(</span>
-    <span class="n">ariel_pipelines</span><span class="o">=</span><span class="p">[</span>
-        <span class="n">ArielPipelineRegistration</span><span class="p">(</span>
-            <span class="n">name</span><span class="o">=</span><span class="s2">&quot;my_pipeline&quot;</span><span class="p">,</span>
-            <span class="n">module_path</span><span class="o">=</span><span class="s2">&quot;my_app.pipelines.my_pipeline&quot;</span><span class="p">,</span>
-            <span class="n">description</span><span class="o">=</span><span class="s2">&quot;Custom execution strategy&quot;</span><span class="p">,</span>
-            <span class="n">category</span><span class="o">=</span><span class="s2">&quot;llm&quot;</span><span class="p">,</span>  <span class="c1"># &quot;llm&quot; for LLM-powered, &quot;direct&quot; for deterministic</span>
-        <span class="p">),</span>
-    <span class="p">],</span>
-<span class="p">)</span>
-</pre></div>
-</div>
-<p>The <code class="docutils literal notranslate"><span class="pre">get_pipeline_descriptor()</span></code> function must return a <code class="xref py py-class docutils literal notranslate"><span class="pre">PipelineDescriptor</span></code> — a frozen dataclass with <code class="docutils literal notranslate"><span class="pre">name</span></code>, <code class="docutils literal notranslate"><span class="pre">label</span></code>, <code class="docutils literal notranslate"><span class="pre">description</span></code>, <code class="docutils literal notranslate"><span class="pre">category</span></code> (<code class="docutils literal notranslate"><span class="pre">&quot;llm&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;direct&quot;</span></code>), and <code class="docutils literal notranslate"><span class="pre">parameters</span></code> (a list of <code class="xref py py-class docutils literal notranslate"><span class="pre">ParameterDescriptor</span></code>).</p>
-<p>Once registered, enable the pipeline in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (<code class="docutils literal notranslate"><span class="pre">pipelines.my_pipeline.enabled:</span> <span class="pre">true</span></code>) and configure its <code class="docutils literal notranslate"><span class="pre">retrieval_modules</span></code> to control which search modules it uses. The pipeline will appear in the web interface alongside the built-in options.</p>
-<div class="outreach admonition">
-<p class="admonition-title">Collaboration Welcome</p>
-<p>The built-in pipelines cover the most common retrieval patterns, but there is plenty of room for new strategies — for example, a multi-hop pipeline that chains searches based on intermediate results, a map-reduce pipeline that summarizes large result sets, or a hybrid pipeline that combines RAG with structured database queries. If you build a useful pipeline, we encourage you to open a pull request so it becomes natively available to all Osprey users.</p>
-</div>
+<p>Need behavior beyond these search modules — multi-step reasoning, answer
+synthesis, custom prompting? That lives in the Osprey agent layer; see
+<a class="reference internal" href="osprey-integration.html"><span class="doc">Osprey Integration</span></a> under “Extending the integration.”</p>
 </section>
 <section id="see-also">
 <h3>See Also<a class="headerlink" href="#see-also" title="Link to this heading">#</a></h3>
 <dl class="simple">
 <dt><a class="reference internal" href="data-ingestion.html"><span class="doc">Data Ingestion</span></a></dt><dd><p>How data gets into the system — facility adapters, enhancement modules, and database schema</p>
 </dd>
-<dt><a class="reference internal" href="osprey-integration.html"><span class="doc">Osprey Integration</span></a></dt><dd><p>Capability, context flow, and error classification</p>
+<dt><a class="reference internal" href="osprey-integration.html"><span class="doc">Osprey Integration</span></a></dt><dd><p>MCP tools, service factory, and search result structure</p>
 </dd>
 <dt><a class="reference internal" href="web-interface.html"><span class="doc">Web Interface</span></a></dt><dd><p>Web interface architecture and capabilities API</p>
 </dd>
@@ -753,7 +651,6 @@ Agent Mode</label><div class="sd-tab-content docutils">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#search-architecture">Search Architecture</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#search-modules">Search Modules</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pipelines">Pipelines</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See Also</a></li>
 </ul>
 </li>

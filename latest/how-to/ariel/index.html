@@ -60,12 +60,12 @@
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Data Ingestion" href="data-ingestion.html" />
+    <link rel="next" title="Osprey Integration" href="osprey-integration.html" />
     <link rel="prev" title="How to Use the Channel Finder" href="../use-channel-finder.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 20, 2026"/>
+    <meta name="docbuild:last-update" content="May 21, 2026"/>
   </head>
   
   
@@ -378,10 +378,11 @@
 <li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Control System Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">Logbook Search Service (ARIEL)</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="data-ingestion.html">Data Ingestion</a></li>
 <li class="toctree-l2"><a class="reference internal" href="search-modes.html">Search Modes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-interface.html">Web Interface</a></li>
-<li class="toctree-l2"><a class="reference internal" href="osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../../cli-reference/index.html">CLI Reference</a></li>
@@ -450,23 +451,24 @@
 <p>ARIEL (Agentic Retrieval Interface for Electronic Logbooks) provides intelligent
 search over facility electronic logbooks. It is built around a <strong>modular
 architecture</strong> with three main layers: a <a class="reference internal" href="data-ingestion.html"><span class="doc">data ingestion pipeline</span></a> that normalizes logbook entries from any facility into a common
-PostgreSQL schema, composable <a class="reference internal" href="search-modes.html"><span class="doc">search modules</span></a> such as keyword
-matching, semantic similarity, and RAG-powered question answering, and a
-<a class="reference internal" href="web-interface.html"><span class="doc">web interface</span></a> for interactive exploration. These components
-connect to the rest of Osprey through the <a class="reference internal" href="osprey-integration.html"><span class="doc">integration layer</span></a>.</p>
+PostgreSQL schema, composable <a class="reference internal" href="search-modes.html"><span class="doc">search modules</span></a> such as
+keyword and semantic similarity matching, and a <a class="reference internal" href="web-interface.html"><span class="doc">web interface</span></a> for interactive exploration. These components connect to the
+rest of Osprey through the <a class="reference internal" href="osprey-integration.html"><span class="doc">integration layer</span></a>, where
+the agent invokes ARIEL’s MCP tools as part of broader workflows.</p>
 <p>Every layer is designed to be <strong>facility-agnostic and extensible</strong>. Ingestion
 adapters, search modules, and enhancement stages are all registerable — you can
 implement your own and plug them into the full pipeline without modifying ARIEL’s
 source code. Out of the box, adapters are included for facilities such as ALS,
-JLab, and ORNL, and search strategies range from keyword lookup to a multi-step
-ReAct agent that chains searches autonomously.</p>
+JLab, and ORNL, and search strategies range from fast keyword lookup to
+embedding-based semantic similarity, with multi-step reasoning over results
+delegated to the Osprey agent layer.</p>
 <figure class="align-center" id="id1">
 <a class="reference internal image-reference" href="../../_images/ariel_overview.svg"><img alt="ARIEL Logbook Search Architecture" src="../../_images/ariel_overview.svg" style="width: 100%;" />
 </a>
 <figcaption>
 <p><span class="caption-text">ARIEL data flow: facility logbooks are normalized through pluggable adapters
 into a shared PostgreSQL database, enhanced by modular processing stages, and
-queried through composable search modules and pipelines.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
+queried through composable search modules.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
 </figcaption>
 </figure>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
@@ -561,10 +563,10 @@ CLI Search</label><div class="sd-tab-content docutils">
 </div>
 <input id="sd-tab-item-7" name="sd-tab-set-2" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-7">
-Claude Chat</label><div class="sd-tab-content docutils">
-<p class="sd-card-text">Ask the Osprey agent. The logbook search MCP tool connects
-Claude Code with the ARIEL search service, so it can combine
-logbook results with other context.</p>
+Agent Chat</label><div class="sd-tab-content docutils">
+<p class="sd-card-text">Ask the Osprey agent. The logbook-search MCP tools connect the
+agent to the ARIEL search service, so it can combine logbook
+results with other context.</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>claude<span class="w"> </span>chat
 &gt;&gt;&gt;<span class="w"> </span>What<span class="w"> </span>does<span class="w"> </span>the<span class="w"> </span>logbook<span class="w"> </span>say<span class="w"> </span>about<span class="w"> </span>the<span class="w"> </span>last<span class="w"> </span>RF<span class="w"> </span>cavity<span class="w"> </span>trip?
 </pre></div>
@@ -592,7 +594,7 @@ Data Ingestion</div>
 <div class="sd-card-body docutils">
 <div class="sd-card-title sd-font-weight-bold docutils">
 Search Modes</div>
-<p class="sd-card-text">Keyword, semantic, RAG pipeline, and agent execution strategies.</p>
+<p class="sd-card-text">Keyword and semantic search modules and how to add your own.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="search-modes.html"><span class="doc">Search Modes</span></a></div>
 </div>
@@ -613,6 +615,15 @@ Web Interface</div>
 <p class="sd-card-text">FastAPI app, frontend architecture, capabilities API, and REST endpoints.</p>
 </div>
 <a class="sd-stretched-link sd-hide-link-text reference internal" href="web-interface.html"><span class="doc">Web Interface</span></a></div>
+</div>
+<div class="sd-col sd-d-flex-row docutils">
+<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-md sd-card-hover docutils">
+<div class="sd-card-body docutils">
+<div class="sd-card-title sd-font-weight-bold docutils">
+Standalone Deployment</div>
+<p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> preset: ARIEL without the control-system stack.</p>
+</div>
+<a class="sd-stretched-link sd-hide-link-text reference internal" href="standalone-deployment.html"><span class="doc">Standalone Deployment</span></a></div>
 </div>
 </div>
 </div>
@@ -638,7 +649,7 @@ Web Interface</div>
 <td><p>Show ARIEL service status</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">search</span></code></p></td>
-<td><p>Search the logbook (<code class="docutils literal notranslate"><span class="pre">--mode</span> <span class="pre">keyword|semantic|rag|auto</span></code>)</p></td>
+<td><p>Search the logbook (<code class="docutils literal notranslate"><span class="pre">--mode</span> <span class="pre">keyword|semantic|auto</span></code>)</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ingest</span></code></p></td>
 <td><p>Ingest logbook entries from a source file or URL</p></td>
@@ -698,11 +709,11 @@ Web Interface</div>
       </div>
     </a>
     <a class="right-next"
-       href="data-ingestion.html"
+       href="osprey-integration.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Data Ingestion</p>
+        <p class="prev-next-title">Osprey Integration</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

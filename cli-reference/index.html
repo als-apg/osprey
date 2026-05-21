@@ -61,11 +61,11 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Contributing to Osprey" href="../contributing/index.html" />
-    <link rel="prev" title="Osprey Integration" href="../how-to/ariel/osprey-integration.html" />
+    <link rel="prev" title="Standalone Deployment" href="../how-to/ariel/standalone-deployment.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 20, 2026"/>
+    <meta name="docbuild:last-update" content="May 21, 2026"/>
   </head>
   
   
@@ -378,10 +378,11 @@
 <li class="toctree-l1"><a class="reference internal" href="../how-to/add-connector.html">Control System Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../how-to/use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../how-to/ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../how-to/ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../how-to/ariel/data-ingestion.html">Data Ingestion</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../how-to/ariel/search-modes.html">Search Modes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../how-to/ariel/web-interface.html">Web Interface</a></li>
-<li class="toctree-l2"><a class="reference internal" href="../how-to/ariel/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../how-to/ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">CLI Reference</a></li>
@@ -460,12 +461,12 @@ osprey<span class="w"> </span>config<span class="w">             </span><span cl
 osprey<span class="w"> </span>deploy<span class="w"> </span>COMMAND<span class="w">     </span><span class="c1"># Manage services</span>
 osprey<span class="w"> </span>health<span class="w">             </span><span class="c1"># Check system health</span>
 osprey<span class="w"> </span>channel-finder<span class="w">     </span><span class="c1"># Channel finder CLI</span>
-osprey<span class="w"> </span>claude<span class="w">             </span><span class="c1"># Manage Claude Code integration</span>
+osprey<span class="w"> </span>claude<span class="w">             </span><span class="c1"># Manage Osprey agent integration</span>
 osprey<span class="w"> </span>eject<span class="w">              </span><span class="c1"># Copy framework components for customization</span>
 osprey<span class="w"> </span>ariel<span class="w">              </span><span class="c1"># ARIEL logbook search service</span>
 osprey<span class="w"> </span>artifacts<span class="w">          </span><span class="c1"># Artifact gallery</span>
 osprey<span class="w"> </span>web<span class="w">                </span><span class="c1"># Launch web terminal</span>
-osprey<span class="w"> </span>prompts<span class="w">            </span><span class="c1"># Prompt artifact overrides</span>
+osprey<span class="w"> </span>scaffold<span class="w">           </span><span class="c1"># Build artifact overrides</span>
 osprey<span class="w"> </span>audit<span class="w">              </span><span class="c1"># Audit project or profile safety</span>
 osprey<span class="w"> </span>skills<span class="w">             </span><span class="c1"># Manage bundled Osprey skills</span>
 osprey<span class="w"> </span>vendor<span class="w">             </span><span class="c1"># Manage locally bundled vendor assets</span>
@@ -564,17 +565,17 @@ osprey<span class="w"> </span>deploy<span class="w"> </span>down
 </section>
 <section id="osprey-claude">
 <h2>osprey claude<a class="headerlink" href="#osprey-claude" title="Link to this heading">#</a></h2>
-<p>Manage Claude Code integration — regenerate artifacts, launch chat, and check
+<p>Manage Osprey agent integration — regenerate artifacts, launch chat, and check
 status.</p>
 <dl>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">chat</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Regenerate artifacts from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, launch companion servers, and
-start Claude Code in the terminal. See <a class="reference internal" href="../how-to/use-cli-chat.html"><span class="doc">Use the CLI Chat Interface</span></a>.</p>
+start the Osprey agent in the terminal. See <a class="reference internal" href="../how-to/use-cli-chat.html"><span class="doc">Use the CLI Chat Interface</span></a>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--project</span> <span class="pre">DIRECTORY</span></code> — Project directory (default: current directory).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--resume</span> <span class="pre">SESSION_ID</span></code> — Resume a previous session.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--print</span></code> — Non-interactive pipe-friendly mode.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--effort</span> <span class="pre">[low|medium|high|max]</span></code> — Set effort level.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Re-render all Claude Code integration files (<code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>,
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Re-render all Osprey agent integration files (<code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>,
 <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code>, <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>, agents) from <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.
 Existing files are backed up to <code class="docutils literal notranslate"><span class="pre">_agent_data/backup/</span></code>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--project</span> <span class="pre">DIRECTORY</span></code> — Project directory (default: current directory).</p>
@@ -658,8 +659,8 @@ osprey<span class="w"> </span>ariel<span class="w"> </span>web<span class="w"> <
 <section id="osprey-artifacts">
 <h2>osprey artifacts<a class="headerlink" href="#osprey-artifacts" title="Link to this heading">#</a></h2>
 <p>Manage the OSPREY Artifact Gallery – a local web gallery that displays
-interactive plots, tables, and other outputs produced by Claude during
-analysis sessions. Artifacts are written by Claude via <code class="docutils literal notranslate"><span class="pre">save_artifact()</span></code> in
+interactive plots, tables, and other outputs produced by the Osprey agent during
+analysis sessions. Artifacts are written by the Osprey agent via <code class="docutils literal notranslate"><span class="pre">save_artifact()</span></code> in
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">execute</span></code> or the <code class="docutils literal notranslate"><span class="pre">artifact_save</span></code> MCP tool.</p>
 <dl>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">artifacts</span> <span class="pre">web</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Launch the Artifact Gallery web interface. Starts a FastAPI server on
@@ -718,39 +719,39 @@ osprey<span class="w"> </span>audit<span class="w"> </span>project/<span class="
 </pre></div>
 </div>
 </section>
-<section id="osprey-prompts">
-<h2>osprey prompts<a class="headerlink" href="#osprey-prompts" title="Link to this heading">#</a></h2>
-<p>Manage prompt artifact ownership. Framework-managed prompt artifacts (agents,
+<section id="osprey-scaffold">
+<h2>osprey scaffold<a class="headerlink" href="#osprey-scaffold" title="Link to this heading">#</a></h2>
+<p>Manage build artifact ownership. Framework-managed build artifacts (agents,
 rules, etc.) can be claimed per-facility for in-place editing. Claimed files
 are marked user-owned in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and <code class="docutils literal notranslate"><span class="pre">.osprey-manifest.json</span></code>, and
 subsequent <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code> runs skip them.</p>
 <p>All subcommands accept a common flag:</p>
 <p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--project</span> <span class="pre">DIRECTORY</span></code> — Project directory (default: current directory).</p>
 <dl class="simple">
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">prompts</span> <span class="pre">list</span></code></dt><dd><p>List all prompt artifacts and their ownership status (framework vs.
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">list</span></code></dt><dd><p>List all build artifacts and their ownership status (framework vs.
 user-owned).</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">prompts</span> <span class="pre">claim</span> <span class="pre">NAME</span></code></dt><dd><p>Claim ownership of a framework artifact for in-place editing. If the file
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">claim</span> <span class="pre">NAME</span></code></dt><dd><p>Claim ownership of a framework artifact for in-place editing. If the file
 doesn’t exist yet, the framework template is rendered in place at the
 canonical output path. If it already exists, it is marked user-owned.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">prompts</span> <span class="pre">diff</span> <span class="pre">NAME</span></code></dt><dd><p>Show a unified diff between the current framework template (re-rendered)
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">diff</span> <span class="pre">NAME</span></code></dt><dd><p>Show a unified diff between the current framework template (re-rendered)
 and your file at the canonical output path.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">prompts</span> <span class="pre">unclaim</span> <span class="pre">NAME</span></code></dt><dd><p>Release ownership and restore framework management. The next
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">unclaim</span> <span class="pre">NAME</span></code></dt><dd><p>Release ownership and restore framework management. The next
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code> will overwrite the file with the framework template.</p>
 </dd>
 </dl>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>prompts<span class="w"> </span>list<span class="w">                           </span><span class="c1"># Show all artifacts</span>
-osprey<span class="w"> </span>prompts<span class="w"> </span>claim<span class="w"> </span>agents/channel-finder<span class="w">    </span><span class="c1"># Claim for editing</span>
-osprey<span class="w"> </span>prompts<span class="w"> </span>diff<span class="w"> </span>agents/channel-finder<span class="w">     </span><span class="c1"># Compare yours vs framework</span>
-osprey<span class="w"> </span>prompts<span class="w"> </span>unclaim<span class="w"> </span>rules/safety<span class="w">           </span><span class="c1"># Restore framework management</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>scaffold<span class="w"> </span>list<span class="w">                           </span><span class="c1"># Show all artifacts</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>agents/channel-finder<span class="w">    </span><span class="c1"># Claim for editing</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>diff<span class="w"> </span>agents/channel-finder<span class="w">     </span><span class="c1"># Compare yours vs framework</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>unclaim<span class="w"> </span>rules/safety<span class="w">           </span><span class="c1"># Restore framework management</span>
 </pre></div>
 </div>
 </section>
 <section id="osprey-skills">
 <h2>osprey skills<a class="headerlink" href="#osprey-skills" title="Link to this heading">#</a></h2>
-<p>Manage bundled Osprey skills — Claude Code skills shipped with OSPREY that
+<p>Manage bundled Osprey skills — agent skills shipped with OSPREY that
 can be installed either globally or into a specific project’s
 <code class="docutils literal notranslate"><span class="pre">.claude/skills/</span></code> directory.</p>
 <dl>
@@ -766,7 +767,7 @@ project-local <code class="docutils literal notranslate"><span class="pre">.clau
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">osprey-build-interview</span></code> — guided project-profile generation (see
 <a class="reference internal" href="../getting-started/osprey-build-interview.html"><span class="doc">Guided Project Setup</span></a>). Typically installed globally
-so it is available in any Claude Code session.</p></li>
+so it is available in any Osprey agent session.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">osprey-build-deploy</span></code> — CI/CD setup, deploy-server operations, and
 release workflow for a facility profile repo. Typically installed
 project-locally (into the profile repo’s <code class="docutils literal notranslate"><span class="pre">.claude/skills/</span></code>) by the
@@ -828,12 +829,12 @@ osprey<span class="w"> </span>vendor<span class="w"> </span>verify<span class="w
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="../how-to/ariel/osprey-integration.html"
+       href="../how-to/ariel/standalone-deployment.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Osprey Integration</p>
+        <p class="prev-next-title">Standalone Deployment</p>
       </div>
     </a>
     <a class="right-next"
@@ -877,7 +878,7 @@ osprey<span class="w"> </span>vendor<span class="w"> </span>verify<span class="w
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-artifacts">osprey artifacts</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-web">osprey web</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-audit">osprey audit</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-prompts">osprey prompts</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-scaffold">osprey scaffold</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-skills">osprey skills</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-vendor">osprey vendor</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-variables">Environment Variables</a></li>

@@ -138,10 +138,10 @@ enforces:
 If a required check turns out to be wrong, fix it forward — there is no
 escape hatch.
 
-Claude Code Workflow Skill
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+Osprey Agent Workflow Skill
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-If you use `Claude Code <https://docs.claude.com/en/docs/claude-code>`_,
+If you use the Osprey agent (e.g., via `Claude Code <https://docs.claude.com/en/docs/claude-code>`_),
 install the bundled ``osprey-contribute`` skill to get guided help following
 this workflow:
 

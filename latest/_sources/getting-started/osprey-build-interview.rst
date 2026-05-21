@@ -18,11 +18,11 @@ The whole interview takes about 10--15 minutes.
    **Required**
 
    * **OSPREY installed** — follow :doc:`installation` if you haven't yet.
-   * **Claude Code** — the interview runs inside a Claude Code session via the
+   * **The Osprey agent CLI** — the interview runs inside an Osprey agent session via the
      ``/osprey-build-interview`` command. Install it from
      `claude.ai/code <https://claude.ai/code>`_ and make sure ``claude --version``
      works in your terminal.
-   * **An Anthropic API key** (or any provider Claude Code is configured to use) —
+   * **An Anthropic API key** (or any provider the Osprey agent is configured to use) —
      the interview is a live LLM conversation.
 
    **Recommended**
@@ -48,14 +48,14 @@ Install the interview skill with the OSPREY CLI:
    osprey skills install osprey-build-interview
 
 This copies the skill into ``~/.claude/skills/osprey-build-interview`` and makes the
-``/osprey-build-interview`` command available in any Claude Code session. Re-running
+``/osprey-build-interview`` command available in any Osprey agent session. Re-running
 the command preserves your previous copy under
 ``~/.claude/skills/osprey-build-interview.bak.<timestamp>``.
 
 Run the interview
 =================
 
-Create a working directory for your project and start Claude Code:
+Create a working directory for your project and start the Osprey agent:
 
 .. code-block:: bash
 
@@ -64,13 +64,13 @@ Create a working directory for your project and start Claude Code:
    cd ~/my-osprey-project
    claude
 
-In the Claude Code session, type:
+In the Osprey agent session, type:
 
 .. code-block:: text
 
    /osprey-build-interview
 
-Claude will walk you through:
+The Osprey agent will walk you through:
 
 1. What system you work with and what you need the AI for
 2. Whether you're starting fresh or **migrating from an existing OSPREY project**
@@ -92,7 +92,7 @@ Tips during the interview
 Build your project
 ==================
 
-When the interview is done, Claude generates a ``build-profile/`` directory
+When the interview is done, the Osprey agent generates a ``build-profile/`` directory
 containing your ``profile.yml``, channel database, README, and a project-local
 copy of the **osprey-build-deploy** skill under
 ``build-profile/.claude/skills/osprey-build-deploy/``. The interview installs
@@ -129,7 +129,7 @@ Phase 2: deploy your project
 
 The ``build-profile/`` directory is a durable, git-tracked artifact you'll
 redeploy from many times. When you're ready to ship to a real deploy server
-(GitLab CI/CD, container registry, on-server containers), open Claude Code
+(GitLab CI/CD, container registry, on-server containers), open the Osprey agent
 **inside the profile repo** and trigger the deploy skill:
 
 .. code-block:: bash
@@ -139,7 +139,7 @@ redeploy from many times. When you're ready to ship to a real deploy server
    git init && git add -A && git commit -m "Initial profile"
    claude
 
-In the Claude Code session:
+In the Osprey agent session:
 
 .. code-block:: text
 
@@ -172,7 +172,7 @@ Send feedback
 =============
 
 After you've tested your project, you can send feedback to the OSPREY team by
-starting a Claude Code session and typing ``/osprey-build-interview feedback``. It takes
+starting an Osprey agent session and typing ``/osprey-build-interview feedback``. It takes
 about 30 seconds and helps us improve the process.
 
 See :doc:`/how-to/build-profiles` for the full build profile reference.

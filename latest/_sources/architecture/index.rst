@@ -2,14 +2,14 @@ Architecture Overview
 =====================
 
 OSPREY deploys agentic AI in safety-critical control system environments — particle accelerators,
-fusion experiments, and beamlines. It uses **Claude Code** as the orchestrator, **MCP servers** as
+fusion experiments, and beamlines. It uses **the Osprey agent** as the orchestrator, **MCP servers** as
 the tool interface, and **pluggable connectors** for protocol-agnostic hardware access.
 
 .. mermaid::
 
    flowchart LR
        User["Operator"] --> WebTerm["Web Terminal"]
-       WebTerm --> Claude["Claude Code"]
+       WebTerm --> Claude["Osprey agent"]
        Claude --> Hooks["Safety Hooks"]
        Hooks --> MCP["MCP Servers"]
        MCP --> Conn["Connectors"]
@@ -31,7 +31,7 @@ the MCP server. The chain for ``channel_write`` — the most safety-critical too
 .. mermaid::
 
    flowchart LR
-       CC["Claude Code<br/>calls channel_write"] --> WC["writes_check<br/><i>kill switch</i>"]
+       CC["Osprey agent<br/>calls channel_write"] --> WC["writes_check<br/><i>kill switch</i>"]
        WC -->|enabled| LIM["limits<br/><i>min / max / step</i>"]
        LIM -->|valid| APR["approval<br/><i>human gate</i>"]
        APR -->|approved| MCP["MCP Server<br/>executes write"]
@@ -51,13 +51,13 @@ the MCP server. The chain for ``channel_write`` — the most safety-critical too
    (min, max, step size, writable flag). Only applies to ``channel_write``.
 
 3. **osprey_approval** — Human approval gate. Per-tool policy dispatch: ``always`` (require
-   approval every time), ``selective`` (ask Claude to decide), or ``skip``.
+   approval every time), ``selective`` (ask the Osprey agent to decide), or ``skip``.
 
 
 Data Flow
 ---------
 
-A typical control system write follows this path. The three safety hooks fire between Claude Code
+A typical control system write follows this path. The three safety hooks fire between the Osprey agent
 and the MCP server:
 
 .. mermaid::
@@ -65,7 +65,7 @@ and the MCP server:
    sequenceDiagram
        participant Op as Operator
        participant WT as Web Terminal
-       participant CC as Claude Code
+       participant CC as Osprey agent
        participant CF as Channel Finder Sub-Agent
        participant H as Safety Hooks
        participant CS as Control System MCP

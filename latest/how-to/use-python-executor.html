@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 20, 2026"/>
+    <meta name="docbuild:last-update" content="May 21, 2026"/>
   </head>
   
   
@@ -378,10 +378,11 @@
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Control System Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/search-modes.html">Search Modes</a></li>
 <li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
-<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
@@ -449,7 +450,7 @@
 <span id="how-to-python-executor"></span><h1>Python Execution Service<a class="headerlink" href="#python-execution-service" title="Link to this heading">#</a></h1>
 <p>The Python Execution Service runs user-provided code in an isolated
 environment with safety checks, process isolation, and timeout enforcement.
-Claude uses it via the <code class="docutils literal notranslate"><span class="pre">execute</span></code> MCP tool to perform data analysis,
+The Osprey agent uses it via the <code class="docutils literal notranslate"><span class="pre">execute</span></code> MCP tool to perform data analysis,
 plotting, and control-system interactions on behalf of the operator.</p>
 <section id="what-it-does">
 <h2>What It Does<a class="headerlink" href="#what-it-does" title="Link to this heading">#</a></h2>
@@ -457,7 +458,7 @@ plotting, and control-system interactions on behalf of the operator.</p>
 runs it in either a <strong>container</strong> (Jupyter kernel over WebSocket) or a
 <strong>local subprocess</strong> (<code class="docutils literal notranslate"><span class="pre">ExecutionWrapper</span></code>). Results—stdout, stderr,
 figures, and saved artifacts—are returned as structured JSON.</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Claude → execute MCP tool → safety checks → container / subprocess → result JSON
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Osprey agent → execute MCP tool → safety checks → container / subprocess → result JSON
 </pre></div>
 </div>
 <p>All packages installed in the deployment environment are available to
@@ -596,12 +597,12 @@ connector (EPICS, Mock, etc.) and notebooks remain reproducible.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>There is no in-framework code-generation pipeline. Claude Code generates
+<p>There is no in-framework code-generation pipeline. The Osprey agent generates
 Python code itself and invokes the <code class="docutils literal notranslate"><span class="pre">execute</span></code> MCP tool directly.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Write approval is handled by the <code class="docutils literal notranslate"><span class="pre">execution_mode</span></code> parameter. Claude Code
+<p>Write approval is handled by the <code class="docutils literal notranslate"><span class="pre">execution_mode</span></code> parameter. The Osprey agent
 requests user confirmation before calling <code class="docutils literal notranslate"><span class="pre">execute</span></code> with
 <code class="docutils literal notranslate"><span class="pre">execution_mode=&quot;readwrite&quot;</span></code>—there is no separate approval API.</p>
 </div>

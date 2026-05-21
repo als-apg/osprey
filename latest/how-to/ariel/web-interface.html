@@ -60,12 +60,12 @@
     <link rel="icon" href="../../_static/logo.svg"/>
     <link rel="index" title="Index" href="../../genindex.html" />
     <link rel="search" title="Search" href="../../search.html" />
-    <link rel="next" title="Osprey Integration" href="osprey-integration.html" />
+    <link rel="next" title="Standalone Deployment" href="standalone-deployment.html" />
     <link rel="prev" title="Search Modes" href="search-modes.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 20, 2026"/>
+    <meta name="docbuild:last-update" content="May 21, 2026"/>
   </head>
   
   
@@ -378,10 +378,11 @@
 <li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Control System Integration</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Logbook Search Service (ARIEL)</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2"><a class="reference internal" href="osprey-integration.html">Osprey Integration</a></li>
 <li class="toctree-l2"><a class="reference internal" href="data-ingestion.html">Data Ingestion</a></li>
 <li class="toctree-l2"><a class="reference internal" href="search-modes.html">Search Modes</a></li>
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Web Interface</a></li>
-<li class="toctree-l2"><a class="reference internal" href="osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../../cli-reference/index.html">CLI Reference</a></li>
@@ -454,7 +455,7 @@
 <p class="admonition-title">Experimental</p>
 <p>The ARIEL web interface is experimental and under active development. Its API endpoints, frontend architecture, and configuration options may change in future releases.</p>
 </div>
-<p>ARIEL ships with a browser-based search interface that provides the same search capabilities as the CLI in a more approachable form. The interface is a FastAPI application serving a JavaScript single-page application (SPA). It connects to the same <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> as the CLI and the ARIEL MCP tools, so any search module or pipeline you register is automatically available in the UI.</p>
+<p>ARIEL ships with a browser-based search interface that provides the same search capabilities as the CLI in a more approachable form. The interface is a FastAPI application serving a JavaScript single-page application (SPA). It connects to the same <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> as the CLI and the ARIEL MCP tools, so any search module you register is automatically available in the UI.</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Browser (SPA)                        Server (FastAPI)
 ┌──────────────────────┐             ┌──────────────────────────┐
 │  index.html          │             │  create_app()            │
@@ -473,12 +474,12 @@
 <input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-0">
 Search</label><div class="sd-tab-content docutils">
-<p>The primary view. A search bar with mode tabs (Keyword, Semantic, RAG, Agent — only enabled modes are shown) and an expandable advanced options panel. Results display as entry cards with relevance scores and highlights. RAG and Agent modes show a generated answer above the entry list. Press <code class="docutils literal notranslate"><span class="pre">Enter</span></code> to submit a query; <code class="docutils literal notranslate"><span class="pre">Ctrl+Enter</span></code> submits with the current advanced options.</p>
+<p>The primary view. A search bar with mode tabs (Keyword, Semantic — only enabled modes are shown) and an expandable advanced options panel. Results display as entry cards with relevance scores and highlights. Press <code class="docutils literal notranslate"><span class="pre">Enter</span></code> to submit a query; <code class="docutils literal notranslate"><span class="pre">Ctrl+Enter</span></code> submits with the current advanced options.</p>
 <figure class="align-center" id="id1">
 <a class="reference internal image-reference" href="../../_images/ariel_search.png"><img alt="ARIEL Search View" src="../../_images/ariel_search.png" style="width: 90%;" />
 </a>
 <figcaption>
-<p><span class="caption-text">Search view with RAG mode selected, showing LLM and Direct mode tabs.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
+<p><span class="caption-text">Search view with Keyword mode selected.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
 </figcaption>
 </figure>
 </div>
@@ -600,9 +601,7 @@ REST API</label><div class="sd-tab-content docutils">
 <span class="w">      </span><span class="nt">&quot;highlights&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;&lt;b&gt;RF cavity&lt;/b&gt; trip at 08:15&quot;</span><span class="p">]</span>
 <span class="w">    </span><span class="p">}</span>
 <span class="w">  </span><span class="p">],</span>
-<span class="w">  </span><span class="nt">&quot;answer&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;The RF cavity tripped at 08:15 due to...&quot;</span><span class="p">,</span>
-<span class="w">  </span><span class="nt">&quot;sources&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;12345&quot;</span><span class="p">],</span>
-<span class="w">  </span><span class="nt">&quot;search_modes_used&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;keyword&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;rag&quot;</span><span class="p">],</span>
+<span class="w">  </span><span class="nt">&quot;search_modes_used&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;keyword&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;semantic&quot;</span><span class="p">],</span>
 <span class="w">  </span><span class="nt">&quot;total_results&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">1</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;execution_time_ms&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">340</span>
 <span class="p">}</span>
@@ -619,7 +618,6 @@ REST API</label><div class="sd-tab-content docutils">
 <span class="w">  </span><span class="p">],</span>
 <span class="w">  </span><span class="nt">&quot;active_embedding_model&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;nomic-embed-text&quot;</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;enabled_search_modules&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;keyword&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;semantic&quot;</span><span class="p">],</span>
-<span class="w">  </span><span class="nt">&quot;enabled_pipelines&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;rag&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;agent&quot;</span><span class="p">],</span>
 <span class="w">  </span><span class="nt">&quot;enabled_enhancement_modules&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;text_embedding&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;semantic_processor&quot;</span><span class="p">],</span>
 <span class="w">  </span><span class="nt">&quot;last_ingestion&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;2025-01-15T06:00:00Z&quot;</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;errors&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
@@ -631,40 +629,30 @@ REST API</label><div class="sd-tab-content docutils">
 <input id="sd-tab-item-5" name="sd-tab-set-1" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-5">
 Capabilities</label><div class="sd-tab-content docutils">
-<p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">/api/capabilities</span></code> endpoint returns a JSON structure describing every enabled search module and pipeline, along with their parameters:</p>
+<p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">/api/capabilities</span></code> endpoint returns a JSON structure describing every enabled search module, along with its parameters:</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;categories&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;direct&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Direct&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;modes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">  </span><span class="nt">&quot;modes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;keyword&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Keyword&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Full-text PostgreSQL search...&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;parameters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">        </span><span class="p">{</span>
-<span class="w">          </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;keyword&quot;</span><span class="p">,</span>
-<span class="w">          </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Keyword&quot;</span><span class="p">,</span>
-<span class="w">          </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Full-text PostgreSQL search...&quot;</span><span class="p">,</span>
-<span class="w">          </span><span class="nt">&quot;parameters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">            </span><span class="p">{</span>
-<span class="w">              </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;fuzzy_fallback&quot;</span><span class="p">,</span>
-<span class="w">              </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Fuzzy Fallback&quot;</span><span class="p">,</span>
-<span class="w">              </span><span class="nt">&quot;param_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;bool&quot;</span><span class="p">,</span>
-<span class="w">              </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<span class="w">              </span><span class="nt">&quot;section&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Search&quot;</span>
-<span class="w">            </span><span class="p">}</span>
-<span class="w">          </span><span class="p">]</span>
+<span class="w">          </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;fuzzy_fallback&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Fuzzy Fallback&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;param_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;bool&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;section&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Search&quot;</span>
 <span class="w">        </span><span class="p">}</span>
 <span class="w">      </span><span class="p">]</span>
 <span class="w">    </span><span class="p">},</span>
-<span class="w">    </span><span class="nt">&quot;llm&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;LLM&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;modes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">        </span><span class="p">{</span>
-<span class="w">          </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;rag&quot;</span><span class="p">,</span>
-<span class="w">          </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;RAG Pipeline&quot;</span><span class="p">,</span>
-<span class="w">          </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Retrieve, fuse, and generate...&quot;</span><span class="p">,</span>
-<span class="w">          </span><span class="nt">&quot;parameters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
-<span class="w">        </span><span class="p">}</span>
-<span class="w">      </span><span class="p">]</span>
+<span class="w">    </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;semantic&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Semantic&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Embedding-based similarity search...&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;parameters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
 <span class="w">    </span><span class="p">}</span>
-<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="p">],</span>
 <span class="w">  </span><span class="nt">&quot;shared_parameters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;max_results&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;param_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;int&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">},</span>
 <span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;start_date&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;param_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;date&quot;</span><span class="p">},</span>
@@ -675,7 +663,7 @@ Capabilities</label><div class="sd-tab-content docutils">
 <span class="p">}</span>
 </pre></div>
 </div>
-<p class="sd-card-text"><strong>How it works:</strong> The <code class="docutils literal notranslate"><span class="pre">get_capabilities()</span></code> function in <code class="xref py py-mod docutils literal notranslate"><span class="pre">osprey.services.ariel_search.capabilities</span></code> iterates over enabled search modules and pipelines from the registry. Each module provides a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> (for its description) and optionally <code class="docutils literal notranslate"><span class="pre">get_parameter_descriptors()</span></code> (for its tunable parameters). Pipelines provide a <code class="docutils literal notranslate"><span class="pre">get_pipeline_descriptor()</span></code> with a <code class="docutils literal notranslate"><span class="pre">category</span></code> field (<code class="docutils literal notranslate"><span class="pre">&quot;direct&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;llm&quot;</span></code>) that determines which tab group the mode appears in.</p>
+<p class="sd-card-text"><strong>How it works:</strong> The <code class="docutils literal notranslate"><span class="pre">get_capabilities()</span></code> function in <code class="xref py py-mod docutils literal notranslate"><span class="pre">osprey.services.ariel_search.capabilities</span></code> iterates over enabled search modules from the registry. Each module provides a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> (for its description) and optionally <code class="docutils literal notranslate"><span class="pre">get_parameter_descriptors()</span></code> (for its tunable parameters).</p>
 </div>
 <input id="sd-tab-item-6" name="sd-tab-set-1" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-6">
@@ -683,7 +671,7 @@ App Internals</label><div class="sd-tab-content docutils">
 <p class="sd-card-text"><strong>App factory:</strong> The <code class="docutils literal notranslate"><span class="pre">create_app()</span></code> function in <code class="xref py py-mod docutils literal notranslate"><span class="pre">osprey.interfaces.ariel.app</span></code> is a standard FastAPI app factory. It accepts an optional <code class="docutils literal notranslate"><span class="pre">config_path</span></code> argument and returns a fully configured FastAPI application with CORS middleware, API routes, and static file serving.</p>
 <p class="sd-card-text"><strong>Lifespan management:</strong> The app uses FastAPI’s <code class="docutils literal notranslate"><span class="pre">lifespan</span></code> context manager to initialize the <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> on startup and clean it up on shutdown. During initialization:</p>
 <ol class="arabic simple">
-<li><p class="sd-card-text"><strong>Registry bootstrap</strong> — pre-creates the framework registry singleton (without an application registry path) so that ARIEL’s search module and pipeline discovery works even when running outside a full Osprey application.</p></li>
+<li><p class="sd-card-text"><strong>Registry bootstrap</strong> — pre-creates the framework registry singleton (without an application registry path) so that ARIEL’s search module discovery works even when running outside a full Osprey application.</p></li>
 <li><p class="sd-card-text"><strong>Config loading</strong> — searches for <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> in four locations: the provided <code class="docutils literal notranslate"><span class="pre">config_path</span></code>, <code class="docutils literal notranslate"><span class="pre">/app/config.yml</span></code> (Docker mount), the <code class="docutils literal notranslate"><span class="pre">CONFIG_FILE</span></code> environment variable, and the current directory. Applies the <code class="docutils literal notranslate"><span class="pre">ARIEL_DATABASE_HOST</span></code> environment variable override for Docker networking.</p></li>
 <li><p class="sd-card-text"><strong>Service creation</strong> — creates the <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> from the loaded config and stores it in <code class="docutils literal notranslate"><span class="pre">app.state.ariel_service</span></code>.</p></li>
 <li><p class="sd-card-text"><strong>Health check</strong> — validates the database connection and logs the result.</p></li>
@@ -822,7 +810,7 @@ osprey<span class="w"> </span>ariel<span class="w"> </span>web<span class="w"> <
 <section id="see-also">
 <h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading">#</a></h2>
 <dl class="simple">
-<dt><a class="reference internal" href="search-modes.html"><span class="doc">Search Modes</span></a></dt><dd><p>Search module and pipeline architecture</p>
+<dt><a class="reference internal" href="search-modes.html"><span class="doc">Search Modes</span></a></dt><dd><p>Search module architecture</p>
 </dd>
 <dt><a class="reference internal" href="osprey-integration.html"><span class="doc">Osprey Integration</span></a></dt><dd><p>Capability, context flow, and prompt builder</p>
 </dd>
@@ -852,11 +840,11 @@ osprey<span class="w"> </span>ariel<span class="w"> </span>web<span class="w"> <
       </div>
     </a>
     <a class="right-next"
-       href="osprey-integration.html"
+       href="standalone-deployment.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Osprey Integration</p>
+        <p class="prev-next-title">Standalone Deployment</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
