@@ -46,6 +46,7 @@ import pytest
 from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
+    _default_opus_model,
     init_project,
     run_sdk_query,
 )
@@ -77,8 +78,18 @@ async def test_sector7_vacuum_burst_flow(tmp_path: Path) -> None:
     layer guards against the agent fetching data but failing to identify
     the anomalous sector.
     """
+    # Use Opus for the planner: this scenario tests diagnostic reasoning
+    # (subsystem decomposition → discovery → cross-channel correlation →
+    # localized root cause), which Haiku has been observed to bail on by
+    # spinning in channel-finder discovery loops without progressing to
+    # archiver retrieval. The data-visualizer / channel-finder subagents
+    # still use their per-agent tier defaults from the resolver.
     project = init_project(
-        tmp_path, "vacuum_burst_demo", template="control_assistant", provider="als-apg"
+        tmp_path,
+        "vacuum_burst_demo",
+        template="control_assistant",
+        provider="als-apg",
+        model="opus",
     )
     cf_server = _channel_finder_server_name(project)
     if cf_server is None:
@@ -93,7 +104,13 @@ async def test_sector7_vacuum_burst_flow(tmp_path: Path) -> None:
         "We lost about 5 mA of beam yesterday around 14:32. "
         "Did the vacuum do anything weird around then?"
     )
-    result = await run_sdk_query(project, query, max_turns=25, max_budget_usd=1.50)
+    result = await run_sdk_query(
+        project,
+        query,
+        max_turns=25,
+        max_budget_usd=30.0,
+        model=_default_opus_model(project),
+    )
 
     # --- Tool routing contract -------------------------------------------------
     # The agent must reach for channel-finder to discover both the

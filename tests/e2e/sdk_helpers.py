@@ -236,6 +236,19 @@ def _default_haiku_model(project_dir: Path) -> str:
     return "claude-haiku-4-5-20251001"
 
 
+def _default_opus_model(project_dir: Path) -> str:
+    """Resolve the project's opus-tier model name.
+
+    Use for tests that benchmark agent reasoning (diagnostic-style
+    challenges) — Opus is required for the planner to converge on a
+    committed conclusion instead of hedging on a data dump.
+    """
+    spec = _resolve_project_spec(project_dir)
+    if spec is not None:
+        return spec.tier_to_model.get("opus", "claude-opus-4-7")
+    return "claude-opus-4-7"
+
+
 def sdk_env(project_dir: Path | None = None) -> dict[str, str]:
     """Return env overrides for the SDK subprocess.
 

@@ -49,6 +49,7 @@ import pytest
 from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
+    _default_opus_model,
     init_project,
     run_sdk_query,
 )
@@ -80,8 +81,17 @@ async def test_rf_cavity_c1_correlation_flow(tmp_path: Path) -> None:
     Tool-trace assertions are the deterministic contract; the LLM judge
     layer guards against the agent fetching data but failing to name C1.
     """
+    # Use Opus for the planner: this scenario tests diagnostic reasoning
+    # (decompose phenomenon → suspects → cross-correlate → commit to root
+    # cause), which Haiku reliably bails on by dumping data and asking the
+    # user to interpret it. The data-visualizer / channel-finder subagents
+    # still use their per-agent tier defaults from the resolver.
     project = init_project(
-        tmp_path, "rf_correlation_demo", template="control_assistant", provider="als-apg"
+        tmp_path,
+        "rf_correlation_demo",
+        template="control_assistant",
+        provider="als-apg",
+        model="opus",
     )
     cf_server = _channel_finder_server_name(project)
     if cf_server is None:
@@ -91,7 +101,13 @@ async def test_rf_cavity_c1_correlation_flow(tmp_path: Path) -> None:
     # Operator-style prompt: one diagnostic imperative + one deliverable.
     # No subsystem names, no PV addresses, no cavity ID, no time window.
     query = "The beam dumped this morning. Figure out what happened and plot the data."
-    result = await run_sdk_query(project, query, max_turns=50, max_budget_usd=4.00)
+    result = await run_sdk_query(
+        project,
+        query,
+        max_turns=50,
+        max_budget_usd=30.0,
+        model=_default_opus_model(project),
+    )
 
     # --- Tool routing contract -------------------------------------------------
     # Logbook investigation path — the agent must consult the logbook.
