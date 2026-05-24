@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 23, 2026"/>
+    <meta name="docbuild:last-update" content="May 24, 2026"/>
   </head>
   
   
@@ -497,6 +497,22 @@ sudo<span class="w"> </span>apt-get<span class="w"> </span>install<span class="w
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>claude<span class="w"> </span>--version
 </pre></div>
 </div>
+<section id="pinning-the-claude-code-cli-version">
+<h3>Pinning the Claude Code CLI version<a class="headerlink" href="#pinning-the-claude-code-cli-version" title="Link to this heading">#</a></h3>
+<p>Anthropic ships breaking changes to the Claude Code CLI from time to time. To
+insulate a project from upstream releases, pin a specific version in the
+project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">claude_code</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">cli_version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;2.1.146&quot;</span><span class="w">   </span><span class="c1"># exact version, no semver ranges</span>
+</pre></div>
+</div>
+<p>When set, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">chat</span></code> and the web terminal launch the pinned
+version via <code class="docutils literal notranslate"><span class="pre">npx</span> <span class="pre">-y</span> <span class="pre">&#64;anthropic-ai/claude-code&#64;&lt;version&gt;</span></code> instead of the
+globally-installed <code class="docutils literal notranslate"><span class="pre">claude</span></code> binary. The first run downloads the package;
+subsequent runs hit the npx cache. Use <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> to confirm the pin
+is being honored. To temporarily bypass the pin for debugging, run
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">chat</span> <span class="pre">--no-pin</span></code>.</p>
+</section>
 </section>
 <section id="step-3-install-python-tools">
 <h2>Step 3: Install Python tools<a class="headerlink" href="#step-3-install-python-tools" title="Link to this heading">#</a></h2>
@@ -683,9 +699,7 @@ notebooks, databases, or simulation IOCs.</p>
 <p class="sd-card-text">See <a class="reference internal" href="../how-to/configure-providers.html"><span class="doc">Configure LLM Providers</span></a> for provider setup and
 <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> for the full build profile YAML reference.</p>
 </div>
-</details><section id="troubleshooting">
-<h3>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h3>
-<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+</details><details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-warning sd-bg-text-warning">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-alert" viewBox="0 0 16 16" aria-hidden="true"><path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg></span><span class="sd-summary-text">Common issues</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <dl class="simple">
@@ -715,7 +729,6 @@ osprey<span class="w"> </span>--version<span class="w">     </span><span class="
 </div>
 </div>
 </details></section>
-</section>
 </section>
 
 
@@ -766,14 +779,14 @@ osprey<span class="w"> </span>--version<span class="w">     </span><span class="
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-1-install-node-js">Step 1: Install Node.js</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-install-claude-code">Step 2: Install Claude Code</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-install-claude-code">Step 2: Install Claude Code</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#pinning-the-claude-code-cli-version">Pinning the Claude Code CLI version</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-install-python-tools">Step 3: Install Python tools</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-set-up-your-api-key">Step 4: Set up your API key</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-5-install-osprey">Step 5: Install OSPREY</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#you-re-done">You’re done! 🎉</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#you-re-done">You’re done! 🎉</a></li>
 </ul>
   </nav></div>
 
