@@ -110,7 +110,7 @@ def create_server() -> FastMCP:
 
     workspace_root = resolve_workspace_root()
     logger.info("ARIEL workspace root: %s", workspace_root)
-    initialize_workspace_singletons()
+    initialize_workspace_singletons(workspace_root)
 
     # Import tool modules (each registers itself via @mcp.tool())
     from osprey.mcp_server.ariel.tools import (  # noqa: F401

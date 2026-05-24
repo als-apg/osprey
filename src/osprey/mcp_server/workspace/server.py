@@ -34,7 +34,7 @@ def create_server() -> FastMCP:
 
     workspace_root = resolve_workspace_root()
     logger.info("Workspace root: %s", workspace_root)
-    initialize_workspace_singletons()
+    initialize_workspace_singletons(workspace_root)
 
     # Import tool modules (each registers itself via @mcp.tool())
     with startup_timer("tool_imports"):
