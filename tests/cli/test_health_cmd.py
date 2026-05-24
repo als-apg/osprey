@@ -489,6 +489,82 @@ class TestHealthCheckerTimezone:
         assert "Europe/Berlin" in tz_results[0].message
 
 
+class TestCheckClaudeCliVersion:
+    """Test the Claude Code CLI pin verification (issue #218)."""
+
+    def _run(self, checker):
+        with patch("osprey.cli.health_cmd.console"):
+            checker.check_claude_cli_version()
+        return [r for r in checker.results if r.name == "claude_cli_version"]
+
+    def test_unpinned_reports_detected_version(self):
+        """Without a pin, runs `claude --version` and reports detected version."""
+        checker = HealthChecker()
+        checker.config = {}
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = Mock(returncode=0, stdout="2.1.146 (Claude Code)\n", stderr="")
+            results = self._run(checker)
+
+        assert mock_run.call_args[0][0] == ["claude", "--version"]
+        assert len(results) == 1
+        assert results[0].status == "ok"
+        assert "2.1.146" in results[0].message
+
+    def test_pinned_match_reports_ok(self):
+        """Pinned version that matches what npx reports is ok."""
+        checker = HealthChecker()
+        checker.config = {"claude_code": {"cli_version": "2.1.146"}}
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = Mock(returncode=0, stdout="2.1.146\n", stderr="")
+            results = self._run(checker)
+
+        argv = mock_run.call_args[0][0]
+        assert argv[:3] == ["npx", "-y", "@anthropic-ai/claude-code@2.1.146"]
+        assert argv[-1] == "--version"
+        assert len(results) == 1
+        assert results[0].status == "ok"
+        assert "2.1.146" in results[0].message
+
+    def test_pinned_mismatch_reports_warning(self):
+        """Pin set to X but npx returns Y produces warning."""
+        checker = HealthChecker()
+        checker.config = {"claude_code": {"cli_version": "2.1.146"}}
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = Mock(returncode=0, stdout="2.1.999\n", stderr="")
+            results = self._run(checker)
+
+        assert len(results) == 1
+        assert results[0].status == "warning"
+        assert "2.1.146" in results[0].message
+        assert "2.1.999" in results[0].message
+
+    def test_pinned_npx_missing_reports_error(self):
+        """npx not installed produces an error result."""
+        checker = HealthChecker()
+        checker.config = {"claude_code": {"cli_version": "2.1.146"}}
+
+        with patch("subprocess.run", side_effect=FileNotFoundError):
+            results = self._run(checker)
+
+        assert len(results) == 1
+        assert results[0].status == "error"
+        assert "npx" in results[0].message.lower()
+
+    def test_unpinned_claude_missing_reports_warning(self):
+        """`claude` not installed and no pin → warning (not error)."""
+        checker = HealthChecker()
+        checker.config = {}
+
+        with patch("subprocess.run", side_effect=FileNotFoundError):
+            results = self._run(checker)
+
+        assert len(results) == 1
+        assert results[0].status == "warning"
+
+
 class TestHealthDisplayResults:
     """Test result display functionality."""
 

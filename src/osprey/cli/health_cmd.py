@@ -93,6 +93,7 @@ class HealthChecker:
 
         self.check_containers()
         self.check_api_providers()
+        self.check_claude_cli_version()
 
         if self.full:
             self.check_model_chat_completions()
@@ -103,6 +104,103 @@ class HealthChecker:
         # Return overall status
         errors = sum(1 for r in self.results if r.status == "error")
         return errors == 0
+
+    def check_claude_cli_version(self):
+        """Verify the Claude Code CLI is available, honoring claude_code.cli_version pin.
+
+        When ``claude_code.cli_version`` is set, runs
+        ``npx -y @anthropic-ai/claude-code@<version> --version`` with a 60s
+        timeout (first-run download budget) and warns if the reported version
+        does not match the pin. Otherwise reports the globally-installed
+        ``claude`` version as informational. See issue #218.
+        """
+        from osprey.utils.claude_launcher import parse_claude_version
+
+        console.print("\n[bold]Claude Code CLI[/bold]")
+
+        cc_config = self.config.get("claude_code", {}) or {}
+        pinned = cc_config.get("cli_version")
+
+        if pinned:
+            argv = ["npx", "-y", f"@anthropic-ai/claude-code@{pinned}", "--version"]
+            try:
+                result = subprocess.run(argv, capture_output=True, text=True, timeout=60)
+            except FileNotFoundError:
+                self.add_result(
+                    "claude_cli_version",
+                    "error",
+                    "npx not found in PATH",
+                    "Install Node.js (which ships npx) to use claude_code.cli_version pinning.",
+                )
+                console.print(f"  {Messages.error('✗ npx not found — install Node.js')}")
+                return
+            except subprocess.TimeoutExpired:
+                self.add_result(
+                    "claude_cli_version",
+                    "error",
+                    f"npx timed out fetching @anthropic-ai/claude-code@{pinned} (60s)",
+                    "Check network connectivity to the npm registry.",
+                )
+                console.print(f"  {Messages.error('✗ npx download timed out')}")
+                return
+
+            if result.returncode != 0:
+                self.add_result(
+                    "claude_cli_version",
+                    "error",
+                    f"npx failed for @anthropic-ai/claude-code@{pinned}",
+                    result.stderr.strip() or "no stderr output",
+                )
+                console.print(f"  {Messages.error('✗ npx invocation failed')}")
+                return
+
+            detected = parse_claude_version(result.stdout)
+            if detected == pinned:
+                self.add_result("claude_cli_version", "ok", f"Pinned Claude Code CLI {pinned}")
+                console.print(f"  {Messages.success(f'Pinned: {pinned}')}")
+            else:
+                shown = detected or "unknown"
+                self.add_result(
+                    "claude_cli_version",
+                    "warning",
+                    f"Pinned {pinned} but npx reported {shown}",
+                    f"raw --version output: {result.stdout.strip()!r}",
+                )
+                console.print(f"  {Messages.warning(f' Pin {pinned} != detected {shown}')}")
+            return
+
+        # Unpinned: report globally-installed claude version as informational.
+        try:
+            result = subprocess.run(
+                ["claude", "--version"], capture_output=True, text=True, timeout=5
+            )
+        except FileNotFoundError:
+            self.add_result(
+                "claude_cli_version",
+                "warning",
+                "`claude` not found in PATH",
+                "Install with `npm install -g @anthropic-ai/claude-code` or "
+                "pin via claude_code.cli_version in config.yml.",
+            )
+            console.print(f"  {Messages.warning(' `claude` not installed')}")
+            return
+        except subprocess.TimeoutExpired:
+            self.add_result("claude_cli_version", "warning", "`claude --version` timed out (5s)")
+            console.print(f"  {Messages.warning(' `claude --version` timed out')}")
+            return
+
+        detected = parse_claude_version(result.stdout) if result.returncode == 0 else None
+        if detected:
+            self.add_result("claude_cli_version", "ok", f"Claude Code CLI {detected}")
+            console.print(f"  {Messages.success(f'Detected: {detected}')}")
+        else:
+            self.add_result(
+                "claude_cli_version",
+                "warning",
+                "Could not parse `claude --version` output",
+                f"stdout={result.stdout.strip()!r} stderr={result.stderr.strip()!r}",
+            )
+            console.print(f"  {Messages.warning(' Could not detect Claude Code version')}")
 
     def _check_timezone(self):
         """Check if timezone is configured (not left as UTC default)."""

@@ -117,12 +117,14 @@ async def terminal_ws(websocket: WebSocket):
 
     effort = _read_effort_level(websocket.app.state.config_path)
 
-    # Build the command and determine the initial session key
+    # Build the command and determine the initial session key.
+    # base_shell_command is list[str] (set by app.lifespan), so unpack with
+    # [*base, ...] — nesting would break PtySession's exec (issue #218).
     if mode == "resume" and req_session_id:
-        command: str | list[str] = [base_shell_command, "--resume", req_session_id]
+        command: list[str] = [*base_shell_command, "--resume", req_session_id]
         claude_session_id: str | None = req_session_id
     else:
-        command = [base_shell_command]
+        command = [*base_shell_command]
         claude_session_id = None
 
     if effort:
@@ -235,9 +237,11 @@ async def terminal_ws(websocket: WebSocket):
                             # 2. Detach current session (stays alive in pool)
                             registry.detach_session(current_key)
 
-                            # 3. Build command for target
-                            target_cmd: str | list[str] = [
-                                base_shell_command,
+                            # 3. Build command for target — unpack base_shell_command
+                            #    (list[str]) so a pinned ["npx", "-y", "..."] prefix
+                            #    flattens into target_cmd rather than nesting.
+                            target_cmd: list[str] = [
+                                *base_shell_command,
                                 "--resume",
                                 target_id,
                             ]

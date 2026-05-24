@@ -136,6 +136,14 @@ control_system:
 # Agents are auto-managed based on config and are not listed here.
 
 claude_code:
+  # ── CLI Version Pin (issue #218) ──────────────────────────
+  # Pin the Claude Code CLI version to insulate this project from upstream
+  # breaking releases. When set, `osprey claude chat` and `osprey web` launch
+  # via `npx -y @anthropic-ai/claude-code@<version>` instead of bare `claude`.
+  # First run downloads the package; subsequent runs hit the npx cache.
+  # Verify with `osprey health` after setting.
+  # cli_version: "2.1.146"
+  #
   # ── Server / Agent Overrides ──────────────────────────────
   # Disable framework servers or add custom MCP servers:
   # servers:

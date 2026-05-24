@@ -199,21 +199,58 @@ def _load_web_config(config_path: str | Path | None = None) -> dict:
     return {}
 
 
+def _load_claude_code_config(config_path: str | Path | None = None) -> dict:
+    """Load claude_code config section from config.yml.
+
+    Mirrors :func:`_load_web_config` so the lifespan can derive the Claude
+    Code launch argv (honoring ``claude_code.cli_version`` pins) even when
+    no explicit ``shell_command`` was passed — e.g. under ``uvicorn --reload``
+    where ``create_app`` is called with no arguments.
+    """
+    config_paths = [
+        Path(config_path) if config_path else None,
+        Path(os.environ.get("CONFIG_FILE", "")) if os.environ.get("CONFIG_FILE") else None,
+        Path("config.yml"),
+    ]
+
+    for path in config_paths:
+        if path and path.exists() and path.is_file():
+            with open(path) as f:
+                config = yaml.safe_load(f) or {}
+            return config.get("claude_code", {})
+
+    return {}
+
+
 def _create_lifespan(
     config_path: str | Path | None = None,
-    shell_command: str = "claude",
+    shell_command: list[str] | None = None,
     project_dir: str | Path | None = None,
 ):
     """Create a lifespan context manager for the app."""
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        from osprey.utils.claude_launcher import build_claude_launch_argv
+
         config = _load_web_config(config_path)
 
         import uuid
 
         app.state.server_session_id = uuid.uuid4().hex[:12]
-        app.state.shell_command = shell_command or config.get("shell") or "claude"
+        # Shell-command precedence — always normalized to list[str] so every
+        # downstream consumer (websocket initial spawn + switch_session) can
+        # safely unpack with [*base, ...]. The pin lookup lets --reload mode
+        # honor claude_code.cli_version even though uvicorn's factory bypass
+        # never lets web_cmd.py inject the argv.
+        if shell_command:
+            app.state.shell_command = list(shell_command)
+        elif config.get("shell"):
+            app.state.shell_command = [str(config["shell"])]
+        else:
+            app.state.shell_command = build_claude_launch_argv(
+                _load_claude_code_config(config_path)
+            )
         max_bg = int(config.get("max_background_sessions", 5))
         app.state.pty_registry = PtyRegistry(max_background=max_bg)
         app.state.operator_registry = OperatorRegistry()
@@ -331,7 +368,7 @@ def _create_lifespan(
 
 def create_app(
     config_path: str | Path | None = None,
-    shell_command: str = "claude",
+    shell_command: list[str] | None = None,
     project_dir: str | Path | None = None,
 ) -> FastAPI:
     """Create the Web Terminal FastAPI application.
@@ -409,7 +446,7 @@ def _open_browser_when_ready(url: str, timeout: float = 15.0) -> None:
 def run_web(
     host: str = "127.0.0.1",
     port: int = 8087,
-    shell_command: str = "claude",
+    shell_command: list[str] | None = None,
     config_path: str | None = None,
     project_dir: str | None = None,
 ) -> None:

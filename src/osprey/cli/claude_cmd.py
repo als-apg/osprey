@@ -16,6 +16,7 @@ import click
 import yaml
 
 from osprey.cli.styles import console
+from osprey.utils.claude_launcher import build_claude_launch_argv
 
 
 def get_claude_skills_dir() -> Path:
@@ -358,7 +359,12 @@ def status(project):
     default=None,
     help="Claude Code effort level",
 )
-def chat_claude(project, resume, print_mode, effort):
+@click.option(
+    "--no-pin",
+    is_flag=True,
+    help="Ignore claude_code.cli_version and launch the globally-installed `claude` binary",
+)
+def chat_claude(project, resume, print_mode, effort, no_pin):
     """Launch Claude Code with regenerated artifacts.
 
     Regenerates Claude Code integration files from config.yml,
@@ -400,6 +406,7 @@ def chat_claude(project, resume, print_mode, effort):
     )
 
     config_path = project_dir / "config.yml"
+    cc_config: dict = {}
     if config_path.exists():
         config = yaml.safe_load(config_path.read_text()) or {}
         cc_config = config.get("claude_code", {})
@@ -432,8 +439,11 @@ def chat_claude(project, resume, print_mode, effort):
                     f"[dim]Translation proxy started on :{proxy_port} → {spec.upstream_base_url}[/dim]"
                 )
 
-    # Build claude CLI args (claude uses cwd as project root — no --project-dir flag)
-    args = ["claude"]
+    # Build claude CLI args (claude uses cwd as project root — no --project-dir flag).
+    # When claude_code.cli_version is set, build_claude_launch_argv() returns an
+    # ``npx -y @anthropic-ai/claude-code@<v>`` prefix instead of bare ``claude``
+    # so each project can pin the CLI version (issue #218). ``--no-pin`` opts out.
+    args = ["claude"] if no_pin else build_claude_launch_argv(cc_config)
     if resume:
         args.extend(["--resume", resume])
     if print_mode:

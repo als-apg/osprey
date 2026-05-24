@@ -73,6 +73,26 @@ Verify:
    claude --version
 
 
+Pinning the Claude Code CLI version
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Anthropic ships breaking changes to the Claude Code CLI from time to time. To
+insulate a project from upstream releases, pin a specific version in the
+project's ``config.yml``:
+
+.. code-block:: yaml
+
+   claude_code:
+     cli_version: "2.1.146"   # exact version, no semver ranges
+
+When set, ``osprey claude chat`` and the web terminal launch the pinned
+version via ``npx -y @anthropic-ai/claude-code@<version>`` instead of the
+globally-installed ``claude`` binary. The first run downloads the package;
+subsequent runs hit the npx cache. Use ``osprey health`` to confirm the pin
+is being honored. To temporarily bypass the pin for debugging, run
+``osprey claude chat --no-pin``.
+
+
 Step 3: Install Python tools
 ------------------------------
 

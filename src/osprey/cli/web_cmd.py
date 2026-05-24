@@ -153,19 +153,37 @@ def web(
     _preflight_vendor_check()
 
     wt_config = get_config_value("web_terminal", {})
+    cc_config = get_config_value("claude_code", {})
     host = host or wt_config.get("host", "127.0.0.1")
     port = port or wt_config.get("port", 8087)
+
+    from osprey.utils.claude_launcher import build_claude_launch_argv
     from osprey.utils.shell_resolver import resolve_shell_command
 
-    shell_raw = shell or wt_config.get("shell") or "claude"
+    # Shell-command precedence (highest first):
+    #   1. --shell CLI flag (user-explicit; defeats the pin)
+    #   2. web_terminal.shell config field (also defeats the pin)
+    #   3. claude_code.cli_version pin via build_claude_launch_argv()
+    #   4. bare ["claude"] (current default)
+    # Always normalized to list[str] so downstream consumers can unpack safely.
+    user_shell_override = shell  # keep raw click value for the detached re-spawn
     try:
-        shell = resolve_shell_command(shell_raw)
+        if user_shell_override:
+            shell_command: list[str] = [resolve_shell_command(user_shell_override)]
+        elif wt_config.get("shell"):
+            shell_command = [resolve_shell_command(wt_config["shell"])]
+        else:
+            argv = build_claude_launch_argv(cc_config)
+            if len(argv) == 1:  # no-pin: preserve absolute-path parity with today
+                shell_command = [resolve_shell_command(argv[0])]
+            else:
+                shell_command = argv  # pinned ["npx", "-y", ...] — leave to PATH lookup
     except FileNotFoundError as e:
         click.echo(f"ERROR: {e}", err=True)
         raise SystemExit(1) from e
 
     if detach:
-        _start_detached(host, port, shell, project)
+        _start_detached(host, port, user_shell_override, project)
         return
 
     # -- foreground (original behavior) ------------------------------------
@@ -185,7 +203,7 @@ def web(
             raise SystemExit(1) from exc
 
     click.echo(f"Starting OSPREY Web Terminal on http://{host}:{port}")
-    click.echo(f"Shell: {shell}")
+    click.echo(f"Shell: {' '.join(shell_command)}")
     click.echo("Press Ctrl+C to stop\n")
 
     # Load .env so secrets (e.g. CONFLUENCE_ACCESS_TOKEN) are available
@@ -212,13 +230,20 @@ def web(
         else:
             from osprey.interfaces.web_terminal import run_web
 
-            run_web(host=host, port=port, shell_command=shell, project_dir=project)
+            run_web(host=host, port=port, shell_command=shell_command, project_dir=project)
     except KeyboardInterrupt:
         click.echo("\nShutting down...")
 
 
 def _start_detached(host: str, port: int, shell: str | None, project: str | None) -> None:
-    """Spawn the web server as a background process."""
+    """Spawn the web server as a background process.
+
+    ``shell`` is the raw user ``--shell`` flag (or None), NOT the resolved argv.
+    The child re-derives the shell-command precedence so any ``claude_code.cli_version``
+    pin remains honored from config; if we forwarded a resolved/pinned argv here,
+    it would re-enter ``resolve_shell_command()`` in the child and fail for
+    multi-word forms like ``npx -y @anthropic-ai/claude-code@<v>``.
+    """
     project_dir = Path(project).resolve() if project else Path.cwd()
 
     # Idempotent: if already running, just report

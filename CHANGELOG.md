@@ -13,6 +13,8 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- Pin Claude Code CLI version per project. New `claude_code.cli_version` config field; when set, OSPREY launches via `npx -y @anthropic-ai/claude-code@<version>` instead of bare `claude`. Use to insulate projects from upstream CC breakage (#218). Verified by `osprey health`; bypass with `osprey claude chat --no-pin`.
+
 ### Changed
 
 ### Fixed

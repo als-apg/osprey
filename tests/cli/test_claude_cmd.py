@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from osprey.cli.claude_cmd import (
@@ -242,6 +243,55 @@ class TestClaudeChatCommand:
         mock_servers.assert_called_once()
         assert "Artifact gallery" in result.output
         assert "http://127.0.0.1:8086" in result.output
+
+    @patch("osprey.cli.claude_cmd._launch_companion_servers", return_value=[])
+    @patch("subprocess.run", return_value=Mock(returncode=0))
+    def test_chat_uses_cli_version_pin_when_set(self, mock_run, mock_servers, cli_runner, tmp_path):
+        """Pinned claude_code.cli_version launches via npx instead of bare claude."""
+        from osprey.cli.templates.manager import TemplateManager
+
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="chat-pin-test",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+        config_path = project_dir / "config.yml"
+        config = yaml.safe_load(config_path.read_text()) or {}
+        config.setdefault("claude_code", {})["cli_version"] = "2.1.146"
+        config_path.write_text(yaml.safe_dump(config))
+
+        result = cli_runner.invoke(chat_claude, ["--project", str(project_dir)])
+
+        assert result.exit_code == 0
+        call_args = mock_run.call_args[0][0]
+        assert call_args[:3] == ["npx", "-y", "@anthropic-ai/claude-code@2.1.146"]
+
+    @patch("osprey.cli.claude_cmd._launch_companion_servers", return_value=[])
+    @patch("subprocess.run", return_value=Mock(returncode=0))
+    def test_chat_no_pin_flag_overrides_config(self, mock_run, mock_servers, cli_runner, tmp_path):
+        """--no-pin forces bare `claude` even when config sets cli_version."""
+        from osprey.cli.templates.manager import TemplateManager
+
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="chat-no-pin-test",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+        config_path = project_dir / "config.yml"
+        config = yaml.safe_load(config_path.read_text()) or {}
+        config.setdefault("claude_code", {})["cli_version"] = "2.1.146"
+        config_path.write_text(yaml.safe_dump(config))
+
+        result = cli_runner.invoke(chat_claude, ["--project", str(project_dir), "--no-pin"])
+
+        assert result.exit_code == 0
+        call_args = mock_run.call_args[0][0]
+        assert call_args[0] == "claude"
+        assert "npx" not in call_args
 
     @patch("osprey.cli.claude_cmd._launch_companion_servers", return_value=[])
     @patch("subprocess.run", return_value=Mock(returncode=0))
