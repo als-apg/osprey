@@ -13,6 +13,7 @@ from __future__ import annotations
 import fcntl
 import json
 import logging
+import threading
 from collections.abc import Callable
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -74,6 +75,11 @@ class BaseStore(Generic[T]):
         self._index_file = self._store_dir / self._index_filename
         self._entries: list[T] = []
         self._index_mtime: float = 0.0
+        # In-process reentrant lock guarding ``_entries`` reads/rebinds and
+        # saves. The file ``flock`` only serializes across processes; this lock
+        # prevents a background reload (e.g. StoreIndexWatcher) from swapping
+        # ``_entries`` out from under a same-process mutation.
+        self._thread_lock = threading.RLock()
         self._load_index()
 
     def _entry_from_dict(self, d: dict) -> T:
@@ -101,26 +107,31 @@ class BaseStore(Generic[T]):
         """
         self._ensure_dirs()
         fd = open(self._lock_file, "w")
-        try:
-            fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
-            self._load_index()  # Always reload under lock
-            yield
-        finally:
-            fd.close()  # Releases lock
+        # Hold the in-process lock across the whole critical section so a
+        # concurrent reload can't rebind ``_entries`` between the caller's
+        # mutation and its ``_save_index()``.
+        with self._thread_lock:
+            try:
+                fcntl.flock(fd.fileno(), fcntl.LOCK_EX)
+                self._load_index()  # Always reload under lock
+                yield
+            finally:
+                fd.close()  # Releases lock
 
     def _load_index(self) -> None:
         """Load the index from disk, if present."""
-        if self._index_file.exists():
-            try:
-                self._index_mtime = self._index_file.stat().st_mtime
-                with open(self._index_file) as f:
-                    data = json.load(f)
-                self._entries = self._parse_index_data(data)
-                self._post_load_index()
-            except Exception:
-                logger.warning("Could not load %s index; starting fresh", self._store_name)
-                self._entries = []
-                self._post_load_index()
+        with self._thread_lock:
+            if self._index_file.exists():
+                try:
+                    self._index_mtime = self._index_file.stat().st_mtime
+                    with open(self._index_file) as f:
+                        data = json.load(f)
+                    self._entries = self._parse_index_data(data)
+                    self._post_load_index()
+                except Exception:
+                    logger.warning("Could not load %s index; starting fresh", self._store_name)
+                    self._entries = []
+                    self._post_load_index()
 
     def _parse_index_data(self, data: Any) -> list[T]:
         """Parse loaded JSON into entries.
@@ -135,21 +146,23 @@ class BaseStore(Generic[T]):
 
     def _refresh_if_stale(self) -> None:
         """Reload the index from disk if another process has updated it."""
-        try:
-            if self._index_file.exists():
-                mtime = self._index_file.stat().st_mtime
-                if mtime > self._index_mtime:
-                    self._load_index()
-        except OSError:
-            pass
+        with self._thread_lock:
+            try:
+                if self._index_file.exists():
+                    mtime = self._index_file.stat().st_mtime
+                    if mtime > self._index_mtime:
+                        self._load_index()
+            except OSError:
+                pass
 
     def _save_index(self) -> None:
         """Persist the index to disk."""
-        self._ensure_dirs()
-        index_data = self._build_index_data()
-        with open(self._index_file, "w") as f:
-            json.dump(_sanitize_for_json(index_data), f, indent=2, default=str)
-        self._index_mtime = self._index_file.stat().st_mtime
+        with self._thread_lock:
+            self._ensure_dirs()
+            index_data = self._build_index_data()
+            with open(self._index_file, "w") as f:
+                json.dump(_sanitize_for_json(index_data), f, indent=2, default=str)
+            self._index_mtime = self._index_file.stat().st_mtime
 
     def _build_index_data(self) -> dict:
         """Build the index dict for serialization.
