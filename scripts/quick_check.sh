@@ -12,6 +12,14 @@ echo "→ Auto-fixing code style..."
 uv run ruff check src/ tests/ --fix --quiet || true
 uv run ruff format src/ tests/ --quiet
 
+# Prune stale bytecode. After deleting a package's .py files, git leaves the
+# now-empty dir behind if untracked __pycache__/*.pyc remain — and Python imports
+# any non-empty dir as a PEP 420 namespace package, so "package removed" tests
+# fail locally only. Drop the caches, then the dirs they kept alive.
+echo "→ Pruning stale bytecode caches..."
+find src/osprey -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
+find src/osprey -type d -empty -delete 2>/dev/null || true
+
 # Run fast tests only (stop on first failure for speed)
 echo "→ Running fast unit tests..."
 uv run pytest tests/ --ignore=tests/e2e -x --tb=line -q

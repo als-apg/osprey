@@ -19,6 +19,9 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- `BaseStore`: in-process lock fixes a lost-update race between the gallery index-watcher thread and same-process saves.
+- `quick_check.sh` / `ci_check.sh` prune stale `__pycache__` + empty dirs so a deleted package can't resurface as a namespace package locally.
+
 ### Removed
 
 ## [2026.5.1] - 2026-05-21
