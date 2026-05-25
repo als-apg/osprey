@@ -499,10 +499,11 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
     if control_type == types.EPICS:
         console.print("\n[bold]Archiver Configuration[/bold]\n")
         archiver_type = questionary.select(
-            "Also switch archiver to EPICS?",
+            "Which archiver?",
             choices=[
-                Choice("Yes - Use EPICS Archiver Appliance", value=types.EPICS_ARCHIVER),
-                Choice("No - Keep mock archiver", value=types.MOCK_ARCHIVER),
+                Choice("EPICS Archiver Appliance", value=types.EPICS_ARCHIVER),
+                Choice("MongoDB", value=types.MONGODB_ARCHIVER),
+                Choice("Mock archiver (keep)", value=types.MOCK_ARCHIVER),
             ],
             style=custom_style,
         ).ask()

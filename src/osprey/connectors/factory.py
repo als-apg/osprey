@@ -242,7 +242,18 @@ def register_builtin_connectors() -> None:
     from osprey.connectors.control_system.epics_connector import EPICSConnector
     from osprey.connectors.control_system.mock_connector import MockConnector
 
+    try:
+        from osprey.connectors.archiver.mongodb_archiver_connector import (
+            MongoDBArchiverConnector,
+        )
+
+        _mongo_available = True
+    except ImportError:
+        _mongo_available = False
+
     ConnectorFactory.register_control_system(types.MOCK, MockConnector)
     ConnectorFactory.register_control_system(types.EPICS, EPICSConnector)
     ConnectorFactory.register_archiver(types.MOCK_ARCHIVER, MockArchiverConnector)
     ConnectorFactory.register_archiver(types.EPICS_ARCHIVER, EPICSArchiverConnector)
+    if _mongo_available:
+        ConnectorFactory.register_archiver(types.MONGODB_ARCHIVER, MongoDBArchiverConnector)
