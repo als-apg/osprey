@@ -97,6 +97,9 @@ dependencies = [
     "unique-namer>=0.1.0",
     # Control system simulation (soft IOC generation)
     "caproto",
+    # EPICS Channel Access client (used by control_system connector,
+    # limits_validator, and python_executor wrapper).
+    "pyepics",
     # PostgreSQL (required for native logbook_search capability and checkpointing)
     "psycopg[binary,pool]>=3.1.0,<4.0.0",
     "psycopg-pool>=3.1.0,<4.0.0",
@@ -137,9 +140,9 @@ dev = [
     "mypy",
     "pre-commit",
     "ruff",
-    "pyepics",  # EPICS connector support for testing
     "build",  # Required for 'osprey deploy up --dev' to build local wheel
     "testcontainers[postgres]>=4.0.0",  # Real PostgreSQL for integration tests
+    "testcontainers[mongodb]>=4.0.0",  # MongoDB for archiver-mongodb integration tests
     "docker>=7.0.0",  # Docker SDK for testcontainers availability check
     "psycopg[binary,pool]>=3.1.0,<4.0.0",  # ARIEL search integration tests
     "psycopg-pool>=3.1.0,<4.0.0",  # ARIEL search integration tests
@@ -163,6 +166,11 @@ sheets = [
     "gspread>=6.0.0",
 ]
 
+# MongoDB archiver connector backend
+archiver-mongodb = [
+    "pymongo>=4.0",
+]
+
 # Screen capture on Linux (X11) — not needed on macOS
 screen-capture-linux = [
     "mss>=9.0.0",
@@ -171,7 +179,7 @@ screen-capture-linux = [
 
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux]"
+    "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,archiver-mongodb]"
 ]
 
 [project.urls]
@@ -222,6 +230,7 @@ module = [
     "matplotlib.*",
     "pyepics.*",
     "podman.*",
+    "pymongo.*",
 ]
 ignore_missing_imports = true
 
