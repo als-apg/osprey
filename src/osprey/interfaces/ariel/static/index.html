@@ -337,14 +337,8 @@
       <button class="drawer-close-btn">&times;</button>
     </div>
 
-    <!-- Tab bar -->
-    <div class="settings-tab-bar">
-      <button class="settings-tab active" data-tab="config">OSPREY Config</button>
-      <button class="settings-tab" data-tab="claude">Claude Setup</button>
-    </div>
-
-    <!-- Tab: OSPREY Config -->
-    <div class="settings-tab-pane active" id="config-pane">
+    <!-- OSPREY Config -->
+    <div id="config-pane">
       <div class="settings-mode-bar">
         <button class="settings-mode-btn active" data-mode="form">Form</button>
         <button class="settings-mode-btn" data-mode="raw">Raw YAML</button>
@@ -353,7 +347,7 @@
         <!-- Form view -->
         <div id="config-form-view">
           <div class="settings-form" id="config-form-fields">
-            <div class="claude-setup-empty">
+            <div class="settings-empty">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                 <circle cx="12" cy="12" r="3"/>
                 <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09"/>
@@ -370,39 +364,6 @@
       <div class="settings-save-bar">
         <span class="settings-status" id="config-status">No changes</span>
         <button class="settings-apply-btn" id="config-apply-btn" disabled>Apply &amp; Restart</button>
-      </div>
-    </div>
-
-    <!-- Tab: Claude Setup -->
-    <div class="settings-tab-pane" id="claude-pane">
-      <div class="drawer-body" style="padding: 0;">
-        <div class="claude-setup-layout">
-          <div class="claude-setup-sidebar" id="claude-setup-list">
-            <div class="claude-setup-empty">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-              </svg>
-              <span>Loading files...</span>
-            </div>
-          </div>
-          <div class="claude-setup-resize-handle"></div>
-          <div class="claude-setup-main" id="claude-setup-viewer">
-            <div class="claude-setup-empty">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
-                <polyline points="14 2 14 8 20 8"/>
-                <line x1="16" y1="13" x2="8" y2="13"/>
-                <line x1="16" y1="17" x2="8" y2="17"/>
-              </svg>
-              <span>Select a file to view</span>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="settings-save-bar" id="claude-save-bar" style="display: none;">
-        <span class="settings-status" id="claude-status"></span>
-        <button class="settings-apply-btn" id="claude-apply-btn" disabled>Apply &amp; Restart</button>
       </div>
     </div>
 

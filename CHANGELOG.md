@@ -21,6 +21,8 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Removed
 
+- ARIEL's duplicate Claude Setup tab (`/api/claude-setup` endpoints, `claude-setup.js`, related HTML/CSS). The canonical agent-file editor remains in the web terminal at `web_terminal/routes/config.py`; ARIEL's settings drawer now only edits `config.yml`.
+
 ## [2026.5.1] - 2026-05-21
 
 ### Added

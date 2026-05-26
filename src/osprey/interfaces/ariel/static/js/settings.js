@@ -1,14 +1,12 @@
 /**
  * Settings module
  *
- * Unified settings drawer with two tabs: OSPREY Config and Claude Setup.
- * Manages tab switching, config loading/saving, and the confirmation dialog.
+ * Settings drawer for editing OSPREY config.yml. Manages the form/raw
+ * editor modes, config loading/saving, and the confirmation dialog.
  */
 
 import { configApi } from './api.js';
-import { initClaudeSetup, hasUnsavedEdits as claudeHasUnsaved } from './claude-setup.js';
 
-let currentTab = 'config';
 let configDirty = false;
 let originalRaw = '';
 
@@ -16,17 +14,12 @@ let originalRaw = '';
  * Initialize settings module.
  */
 export function initSettings() {
-  // Tab switching
-  document.querySelectorAll('.settings-tab').forEach(tab => {
-    tab.addEventListener('click', () => switchTab(tab.dataset.tab));
-  });
-
-  // Mode bar (Form / Raw) within the config tab
+  // Mode bar (Form / Raw)
   document.querySelectorAll('.settings-mode-btn').forEach(btn => {
     btn.addEventListener('click', () => switchMode(btn.dataset.mode));
   });
 
-  // Apply button (config tab)
+  // Apply button
   const applyBtn = document.getElementById('config-apply-btn');
   if (applyBtn) applyBtn.addEventListener('click', () => showConfirm('config'));
 
@@ -45,52 +38,15 @@ export function initSettings() {
     });
   }
 
-  // Initialize Claude Setup sub-module
-  initClaudeSetup();
-
   // Observe drawer open to load config on first show
   const drawer = document.getElementById('settings-drawer');
   if (drawer) {
     const observer = new MutationObserver(() => {
       if (drawer.classList.contains('open')) {
-        if (currentTab === 'config') loadConfig();
+        loadConfig();
       }
     });
     observer.observe(drawer, { attributes: true, attributeFilter: ['class'] });
-  }
-}
-
-/**
- * Switch between tabs.
- * @param {string} tabName - 'config' or 'claude'
- */
-function switchTab(tabName) {
-  // Warn about unsaved changes
-  if (currentTab === 'config' && configDirty && tabName !== 'config') {
-    if (!confirm('You have unsaved config changes. Switch tabs anyway?')) return;
-    configDirty = false;
-  }
-  if (currentTab === 'claude' && claudeHasUnsaved() && tabName !== 'claude') {
-    if (!confirm('You have unsaved file edits. Switch tabs anyway?')) return;
-  }
-
-  currentTab = tabName;
-
-  // Update tab buttons
-  document.querySelectorAll('.settings-tab').forEach(t => {
-    t.classList.toggle('active', t.dataset.tab === tabName);
-  });
-
-  // Update panes
-  document.querySelectorAll('.settings-tab-pane').forEach(p => {
-    p.classList.toggle('active', p.id === `${tabName}-pane`);
-  });
-
-  // Lazy-load data for the activated tab
-  if (tabName === 'config') {
-    loadConfig();
-  } else if (tabName === 'claude') {
-    import('./claude-setup.js').then(m => m.loadFileList());
   }
 }
 
@@ -296,10 +252,6 @@ function showConfirm(action) {
     titleEl.textContent = 'Apply Configuration?';
     textEl.textContent =
       'This will overwrite config.yml and may require a service restart to take effect.';
-  } else if (action === 'claude-file') {
-    titleEl.textContent = 'Save & Restart?';
-    textEl.textContent =
-      'This will save the file (a .bak backup will be created) and may require a restart.';
   }
 
   overlay.classList.add('visible');
@@ -317,10 +269,6 @@ async function handleConfirmYes() {
 
   if (action === 'config') {
     await saveConfig();
-  } else if (action === 'claude-file') {
-    // Delegated to claude-setup.js via the exported doSave
-    const { doSave } = await import('./claude-setup.js');
-    await doSave();
   }
 }
 
@@ -344,14 +292,6 @@ async function saveConfig() {
     statusEl.textContent = `Save failed: ${e.message}`;
     statusEl.className = 'settings-status error';
   }
-}
-
-/**
- * Show the confirmation dialog for a claude-setup file save.
- * Called by claude-setup.js.
- */
-export function showClaudeConfirm() {
-  showConfirm('claude-file');
 }
 
 function escapeHtml(str) {

@@ -1,58 +1,10 @@
 /**
  * Settings drawer styles
  *
- * Tab bar, config form, raw YAML editor, Claude Setup browser,
- * edit mode, resize handle, save bar, confirmation overlay.
+ * Config form, raw YAML editor, save bar, confirmation overlay.
  */
 
-/* === Tab bar === */
-.settings-tab-bar {
-  display: flex;
-  gap: var(--space-1);
-  padding: var(--space-2) var(--space-5);
-  border-bottom: 1px solid var(--border-subtle);
-  background: var(--bg-tertiary);
-  flex-shrink: 0;
-}
-
-.settings-tab {
-  padding: var(--space-2) var(--space-4);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--text-secondary);
-  background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  white-space: nowrap;
-}
-
-.settings-tab:hover {
-  color: var(--text-primary);
-  background: var(--surface-hover);
-}
-
-.settings-tab.active {
-  color: var(--color-accent-light);
-  background: rgba(79, 209, 197, 0.1);
-  border-color: var(--color-accent);
-}
-
-/* === Tab panes === */
-.settings-tab-pane {
-  display: none;
-  flex-direction: column;
-  flex: 1;
-  min-height: 0;
-}
-
-.settings-tab-pane.active {
-  display: flex;
-}
-
-/* === Mode bar (Form/Raw within Config tab) === */
+/* === Mode bar (Form/Raw) === */
 .settings-mode-bar {
   display: flex;
   gap: var(--space-1);
@@ -260,191 +212,7 @@
   justify-content: center;
 }
 
-/* === Claude Setup layout === */
-.claude-setup-layout {
-  display: flex;
-  height: 100%;
-  min-height: 400px;
-}
-
-.claude-setup-sidebar {
-  width: 180px;
-  min-width: 120px;
-  max-width: 300px;
-  flex-shrink: 0;
-  overflow-y: auto;
-  border-right: 1px solid var(--border-subtle);
-  padding: var(--space-2) 0;
-}
-
-.claude-setup-resize-handle {
-  width: 5px;
-  flex-shrink: 0;
-  cursor: col-resize;
-  background: transparent;
-  transition: background var(--transition-fast);
-  position: relative;
-}
-
-.claude-setup-resize-handle::after {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 3px;
-  height: 40px;
-  background: var(--border-default);
-  border-radius: var(--radius-full);
-  opacity: 0;
-  transition: opacity var(--transition-fast);
-}
-
-.claude-setup-resize-handle:hover,
-.claude-setup-resize-handle.dragging {
-  background: var(--color-accent-glow);
-}
-
-.claude-setup-resize-handle:hover::after,
-.claude-setup-resize-handle.dragging::after {
-  opacity: 1;
-}
-
-.claude-setup-main {
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--space-3);
-  min-width: 0;
-}
-
-/* Sidebar file list */
-.claude-setup-category {
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-wide);
-  margin-top: var(--space-2);
-}
-
-.claude-setup-category:first-child {
-  margin-top: 0;
-}
-
-.claude-setup-file-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--text-sm);
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-left: 2px solid transparent;
-  transition: all var(--transition-fast);
-  word-break: break-all;
-}
-
-.claude-setup-file-item:hover {
-  color: var(--text-primary);
-  background: var(--surface-hover);
-}
-
-.claude-setup-file-item.active {
-  color: var(--color-accent-light);
-  background: rgba(79, 209, 197, 0.1);
-  border-left-color: var(--color-accent);
-}
-
-.claude-setup-file-item.missing {
-  color: var(--text-muted);
-  opacity: 0.5;
-  cursor: default;
-}
-
-.claude-setup-file-icon {
-  flex-shrink: 0;
-  width: 14px;
-  height: 14px;
-}
-
-/* Main viewer */
-.claude-setup-file-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: var(--space-3);
-  padding-bottom: var(--space-2);
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.claude-setup-file-title {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--color-amber-light);
-}
-
-.claude-setup-edit-btn {
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-xs);
-  font-weight: 500;
-  color: var(--text-secondary);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.claude-setup-edit-btn:hover {
-  color: var(--text-primary);
-  background: var(--bg-elevated);
-}
-
-.claude-setup-edit-btn.active {
-  color: var(--color-accent-light);
-  border-color: var(--color-accent);
-  background: rgba(79, 209, 197, 0.1);
-}
-
-.claude-setup-content pre {
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  line-height: var(--leading-relaxed);
-  color: var(--text-primary);
-  background: var(--bg-primary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  padding: var(--space-4);
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  overflow-x: auto;
-  max-height: 60vh;
-  overflow-y: auto;
-}
-
-.claude-setup-content textarea {
-  width: 100%;
-  min-height: 300px;
-  padding: var(--space-4);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  line-height: var(--leading-relaxed);
-  color: var(--text-primary);
-  background: var(--bg-primary);
-  border: 1px solid var(--color-accent);
-  border-radius: var(--radius-md);
-  resize: vertical;
-  tab-size: 2;
-  box-shadow: 0 0 0 3px var(--color-accent-glow);
-}
-
-.claude-setup-content textarea:focus {
-  outline: none;
-}
-
-.claude-setup-empty {
+.settings-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -455,7 +223,7 @@
   gap: var(--space-2);
 }
 
-.claude-setup-empty svg {
+.settings-empty svg {
   width: 40px;
   height: 40px;
   opacity: 0.5;
