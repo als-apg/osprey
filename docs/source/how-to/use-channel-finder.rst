@@ -164,13 +164,18 @@ Key ``config.yml`` settings:
 Framework Integration
 =====================
 
-The ``ChannelFinderService`` class remains the core business logic layer and
-can be used independently of the framework:
+Each pipeline is exposed to the agent through a dedicated MCP server
+(``channel_finder_in_context``, ``channel_finder_hierarchical``,
+``channel_finder_middle_layer``). The active server is selected from
+``channel_finder.pipeline_mode`` in ``config.yml`` and wired into the
+agent automatically by ``osprey deploy``. There is no public Python
+``find_channels(...)`` entry point — drive the resolver from natural
+language via the agent, or invoke the CLI directly:
 
-.. code-block:: python
+.. code-block:: bash
 
-   service = ChannelFinderService()
-   result = await service.find_channels("beam current")
+   osprey channel-finder generate     # build database from template
+   osprey channel-finder benchmark    # evaluate on a query dataset
 
 .. tip::
 

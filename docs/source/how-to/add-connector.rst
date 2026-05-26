@@ -1,6 +1,5 @@
-==========================
-Control System Integration
-==========================
+Add a Connector
+===============
 
 **What you'll build:** Control system connectors for accessing hardware abstraction layers
 
@@ -12,7 +11,7 @@ The Control System Integration system provides a **two-layer abstraction** for w
 **Key Features:**
 
 - **Mock Mode**: Work with any channel names without hardware access
-- **Production Mode**: Real control system connectors (EPICS, LabVIEW, Tango, custom)
+- **Production Mode**: EPICS in-tree; LabVIEW, Tango, and other stacks via user-registered custom connectors
 - **Unified API**: Same code works with mock and production connectors
 - **Pluggable Architecture**: Register custom connectors via ``ConnectorFactory``
 
@@ -72,10 +71,26 @@ Switch to real hardware by changing ``type`` in ``config.yml``:
 
 The Python API is identical -- only the config changes.
 
+**Archiver configuration** uses a parallel ``archiver:`` block. Switch from the mock
+archiver (synthetic data) to the EPICS Archiver Appliance the same way:
+
+.. code-block:: yaml
+
+   # Mock archiver (default, for development):
+   archiver:
+     type: mock_archiver
+
+   # Production:
+   archiver:
+     type: epics_archiver
+     epics_archiver:
+       url: https://archiver.facility.edu:8443   # required
+       timeout: 60                                # seconds, default 60
+
 .. note::
 
    Write operations require explicit opt-in. See :ref:`write-safety-config` below for the
-   ``writes_enabled`` and ``enable_writes`` settings that control write permissions.
+   ``writes_enabled`` setting that controls write permissions.
 
 
 Write Verification
@@ -131,7 +146,7 @@ All ``write_channel()`` calls return :class:`~osprey.connectors.control_system.b
    control_system:
      write_verification:
        default_level: "callback"
-       default_tolerance_percent: 0.1
+       default_tolerance_percent: 0.1   # interpreted as percent
 
 **Per-channel configuration** (in limits database):
 
@@ -172,17 +187,7 @@ Write operations are disabled by default and must be explicitly enabled at two l
    control_system:
      writes_enabled: true          # Master switch for all write operations
 
-**Per-connector write permission** (mock connector only):
-
-.. code-block:: yaml
-
-   control_system:
-     connector:
-       mock:
-         enable_writes: true       # Allow writes on this connector
-
-The mock connector checks local ``enable_writes`` first, then falls back to the global
-``writes_enabled`` setting. If neither is set, writes are disabled (safe default).
+If ``writes_enabled`` is omitted, it defaults to ``false`` and all writes are blocked.
 
 .. _limits-checking-config:
 
@@ -255,6 +260,17 @@ your connector automatically.
    )
 
    config = extend_framework_registry(connectors=[registration])
+
+**Dotted-module-path** (no registration call needed):
+
+.. code-block:: yaml
+
+   control_system:
+     type: my_package.connectors.tango_connector.TangoConnector
+
+When ``type`` contains a dot, the factory imports the module via ``importlib`` and
+instantiates the named class directly -- useful for one-off custom connectors that
+don't need a registry entry.
 
 Testing Custom Connectors
 -------------------------

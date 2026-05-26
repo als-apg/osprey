@@ -232,21 +232,6 @@ export const configApi = {
   },
 };
 
-/**
- * Claude Setup API — browse/edit Claude Code setup files.
- */
-export const claudeSetupApi = {
-  async list() {
-    return api.get('/claude-setup');
-  },
-  async getFile(path) {
-    return api.get(`/claude-setup/${path}`);
-  },
-  async updateFile(path, content) {
-    return api.put(`/claude-setup/${path}`, { content });
-  },
-};
-
 export default {
   api,
   capabilitiesApi,
@@ -255,5 +240,4 @@ export default {
   draftsApi,
   statusApi,
   configApi,
-  claudeSetupApi,
 };
