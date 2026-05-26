@@ -17,6 +17,8 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- Documentation cleanup pass over `docs/source/`: resync getting-started, how-to, architecture, and reference pages with the current codebase; fix stale APIs, config keys, and cross-references accumulated since the native-capabilities migration.
+
 ### Fixed
 
 ### Removed

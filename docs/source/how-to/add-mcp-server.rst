@@ -137,9 +137,12 @@ In ``server.py``, create a module-level ``FastMCP`` instance and a
        from osprey.mcp_server.startup import (
            initialize_workspace_singletons, prime_config_builder, startup_timer,
        )
+       from osprey.utils.workspace import resolve_workspace_root
 
        prime_config_builder()
-       initialize_workspace_singletons()
+
+       workspace_root = resolve_workspace_root()
+       initialize_workspace_singletons(workspace_root)
 
        with startup_timer("tool_imports"):
            from osprey.mcp_server.my_server.tools import my_tool  # noqa: F401

@@ -37,7 +37,7 @@ By following this comprehensive learning path, you'll have:
       :link-type: doc
       :class-header: bg-info text-white
 
-      Get your development environment running with Podman, dependencies, and configuration. Includes interactive CLI for easy project creation!
+      Install the ``osprey`` CLI and configure a provider. A container runtime (Docker or Podman) is optional and only needed for deployable services.
 
       **Outcome:**
       Working dev environment
@@ -98,7 +98,7 @@ By following this comprehensive learning path, you'll have:
 .. grid:: 1 1 2 2
    :gutter: 3
 
-   .. grid-item-card:: ⚡ 5. Architecture
+   .. grid-item-card:: ⚡ 6. Architecture
       :link: ../architecture/index
       :link-type: doc
       :class-header: bg-warning text-white

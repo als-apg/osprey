@@ -76,8 +76,11 @@ CLI Commands
 
    osprey deploy up [-d|--detached]   # Start services
    osprey deploy down                 # Stop services
+   osprey deploy restart              # Stop then start services
    osprey deploy status               # Show status table
    osprey deploy build                # Render compose files without starting
+   osprey deploy clean                # Remove containers and volumes (destructive)
+   osprey deploy rebuild              # Clean, rebuild, and restart services
 
 Full command and flag reference: :doc:`../cli-reference/index`. Note there
 is no ``osprey deploy logs`` subcommand — use ``docker logs <name>`` or
