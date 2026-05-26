@@ -989,3 +989,68 @@ class TestServerLauncherRetry:
             launcher.ensure_running()
 
         assert any("health check failed" in r.message.lower() for r in caplog.records)
+
+
+class TestArtifactStoreConcurrency:
+    """Regression tests for cross-thread races on the shared in-memory index.
+
+    The Artifact Gallery runs a ``StoreIndexWatcher`` background thread that
+    calls ``store._load_index()`` whenever the on-disk index file changes. That
+    reload rebinds ``self._entries`` to a freshly parsed list. If it lands in the
+    middle of a same-process mutation (between mutating an entry and persisting
+    it), the mutation's ``_save_index()`` serializes the reloaded list and the
+    change is silently lost. The file ``flock`` only guards *cross-process*
+    access, so it does nothing here.
+    """
+
+    def test_concurrent_reload_does_not_clobber_pin(self, tmp_path):
+        """A reload firing mid-``set_pinned`` must not drop the pin.
+
+        Deterministically reproduces the watcher race: a worker thread is
+        released to call ``_load_index()`` exactly while the main thread is
+        between flipping ``pinned`` and writing the index. With proper in-process
+        locking the worker's reload blocks until the mutation commits.
+        """
+        import threading
+        import time
+
+        from osprey.stores.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        target = store.save_object("# Target", title="Target")  # persisted unpinned
+
+        reload_started = threading.Event()
+        reload_finished = threading.Event()
+
+        def watcher_reload() -> None:
+            # Simulates StoreIndexWatcher firing on the index write.
+            reload_started.wait(timeout=2)
+            store._load_index()
+            reload_finished.set()
+
+        worker = threading.Thread(target=watcher_reload)
+        worker.start()
+
+        # Open the vulnerable window: when set_pinned()'s _save_index() builds
+        # the index payload, release the worker and give it time to reload.
+        original_build = store._build_index_data
+        calls = {"n": 0}
+
+        def build_with_window() -> dict:
+            calls["n"] += 1
+            if calls["n"] == 1:  # the set_pinned() save
+                reload_started.set()
+                time.sleep(0.1)
+            return original_build()
+
+        store._build_index_data = build_with_window  # type: ignore[method-assign]
+        try:
+            store.set_pinned(target.id, True)
+        finally:
+            worker.join(timeout=2)
+
+        assert not worker.is_alive(), "watcher reload deadlocked"
+        # The pin must survive both in memory and on disk.
+        assert store.get_entry(target.id).pinned is True
+        reloaded = ArtifactStore(workspace_root=tmp_path)
+        assert reloaded.get_entry(target.id).pinned is True

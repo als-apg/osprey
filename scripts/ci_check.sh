@@ -53,6 +53,15 @@ echo "🧪 Step 2/4: Unit Tests"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
+# Prune stale bytecode that can resurrect a deleted package as a PEP 420
+# namespace package locally (a dir left holding only __pycache__ still imports).
+# Drop the caches, then the now-empty dirs they kept alive. CI is unaffected —
+# a fresh checkout has no __pycache__ — but this keeps local runs matching CI.
+echo "→ Pruning stale bytecode caches..."
+find src/osprey -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
+find src/osprey -type d -empty -delete 2>/dev/null || true
+echo ""
+
 echo "→ Running pytest with coverage..."
 if ! uv run pytest tests/ --ignore=tests/e2e -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
     FAILED_CHECKS+=("pytest")

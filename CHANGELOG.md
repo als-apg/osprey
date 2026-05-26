@@ -21,6 +21,9 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- `BaseStore`: in-process lock fixes a lost-update race between the gallery index-watcher thread and same-process saves.
+- `quick_check.sh` / `ci_check.sh` prune stale `__pycache__` + empty dirs so a deleted package can't resurface as a namespace package locally.
+
 ### Removed
 
 - ARIEL's duplicate Claude Setup tab (`/api/claude-setup` endpoints, `claude-setup.js`, related HTML/CSS). The canonical agent-file editor remains in the web terminal at `web_terminal/routes/config.py`; ARIEL's settings drawer now only edits `config.yml`.
