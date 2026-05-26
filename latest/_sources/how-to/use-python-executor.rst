@@ -23,18 +23,22 @@ figures, and saved artifacts---are returned as structured JSON.
 
 All packages installed in the deployment environment are available to
 executed code (numpy, pandas, scipy, matplotlib, plotly, etc.).
-A ``save_artifact(obj, title="Untitled", description="", artifact_type=None)``
+A ``save_artifact(obj, title="Untitled", description="", artifact_type=None, category="")``
 helper is injected into the subprocess namespace for saving objects to the
 artifact gallery. The ``artifact_type`` parameter overrides automatic type
-detection (e.g., ``"figure"``, ``"dataframe"``).
+detection (e.g., ``"figure"``, ``"dataframe"``); ``category`` is a free-form
+grouping label used by the gallery UI.
 
 .. _executor-mcp-tool:
 
 MCP Tool Interface
 ==================
 
-The server exposes a single tool, ``execute``, registered on the ``python``
-FastMCP server (``osprey.mcp_server.python_executor``).
+The server exposes two tools, ``execute`` and ``execute_file``, registered on
+the ``python`` FastMCP server (``osprey.mcp_server.python_executor``).
+``execute_file`` runs an existing ``.py`` file on disk through the same safety
+pipeline as ``execute``; both share the parameters below (``execute_file``
+takes ``file_path`` and optional ``script_args`` in place of ``code``).
 
 .. list-table:: ``execute`` parameters
    :header-rows: 1
@@ -81,18 +85,17 @@ container via WebSocket. Separate containers can be configured for
 .. code-block:: yaml
 
    # config.yml
-   osprey:
-     execution:
-       execution_method: container
-     services:
-       jupyter:
-         containers:
-           read:
-             hostname: localhost
-             port_host: 8088
-           write:
-             hostname: localhost
-             port_host: 8089
+   execution:
+     execution_method: container
+   services:
+     jupyter:
+       containers:
+         read:
+           hostname: localhost
+           port_host: 8088
+         write:
+           hostname: localhost
+           port_host: 8089
 
 Container mode provides the strongest isolation---the MCP server
 process is never exposed to user code.
@@ -108,10 +111,9 @@ as a subprocess:
 
 .. code-block:: yaml
 
-   osprey:
-     execution:
-       execution_method: local
-       python_env_path: /path/to/venv   # optional; defaults to sys.executable
+   execution:
+     execution_method: local
+     python_env_path: /path/to/venv   # optional; defaults to sys.executable
 
 The subprocess working directory is set to the project root so that
 relative workspace paths (e.g. ``_agent_data/data/002_archiver_read.json``)
@@ -145,9 +147,8 @@ Five safety layers are applied in sequence:
 
 .. code-block:: yaml
 
-   osprey:
-     python_executor:
-       execution_timeout_seconds: 300
+   python_executor:
+     execution_timeout_seconds: 300
 
 .. admonition:: Control system operations in user code
 

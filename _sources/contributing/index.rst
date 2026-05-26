@@ -122,7 +122,7 @@ Pull Request Process
 
 1. Push your branch: ``git push origin feature/your-feature-name``
 2. Open a PR on GitHub with a description, related issues, and testing performed.
-3. PR requirements: pass all eight required CI checks, include a ``CHANGELOG.md`` entry for any user-visible change, and add appropriate tests. Internal-mode contributors with push access self-merge after CI is green (the ruleset does not require human approval); fork-mode contributions wait for a maintainer to merge.
+3. PR requirements: pass all required CI checks, include a ``CHANGELOG.md`` entry for any user-visible change, and add appropriate tests. Internal-mode contributors with push access self-merge after CI is green (the ruleset does not require human approval); fork-mode contributions wait for a maintainer to merge.
 4. During review: respond to feedback promptly, make requested changes, ask questions if unclear.
 
 Branch Protection on ``main``
@@ -131,7 +131,7 @@ Branch Protection on ``main``
 Direct pushes to ``main`` are rejected. All changes land via PR. The ruleset
 enforces:
 
-- All eight required CI checks must pass (no admin bypass).
+- All required CI checks must pass (no admin bypass).
 - Linear history (use ``gh pr merge --rebase``; merge commits are rejected).
 - Force-pushes and branch deletion on ``main`` are denied.
 

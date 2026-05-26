@@ -5,21 +5,12 @@ OSPREY deploys agentic AI in safety-critical control system environments — par
 fusion experiments, and beamlines. It uses **the Osprey agent** as the orchestrator, **MCP servers** as
 the tool interface, and **pluggable connectors** for protocol-agnostic hardware access.
 
-.. mermaid::
+.. figure:: /_static/resources/architecture.png
+   :alt: Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line.
+   :align: center
+   :width: 100%
 
-   flowchart LR
-       User["Operator"] --> WebTerm["Web Terminal"]
-       WebTerm --> Claude["Osprey agent"]
-       Claude --> Hooks["Safety Hooks"]
-       Hooks --> MCP["MCP Servers"]
-       MCP --> Conn["Connectors"]
-       Conn --> HW["Control System<br/>(EPICS / Mock)"]
-
-       style User fill:#f9f,stroke:#333
-       style Claude fill:#4a90e2,stroke:#333,color:#fff
-       style Hooks fill:#e74c3c,stroke:#333,color:#fff
-       style MCP fill:#50c878,stroke:#333,color:#fff
-       style HW fill:#ff9800,stroke:#333,color:#fff
+   Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line.
 
 
 Safety Chain

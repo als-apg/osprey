@@ -28,7 +28,7 @@ Overview
 The ``osprey build`` command takes a YAML profile and produces a standalone Osprey agent
 project. The profile declares:
 
-- **Base template** to start from (``control_assistant`` or ``hello_world``)
+- **Data bundle** to start from (``control_assistant``, ``hello_world``, or ``ariel_standalone``)
 - **Config overrides** for the generated ``config.yml`` (dot-notation)
 - **File overlays** that copy facility data into the project
 - **MCP server definitions** to inject custom tools
@@ -129,7 +129,7 @@ Create a minimal profile and build:
 
    # my-facility-dev.yml
    name: "My Facility (Dev)"
-   base_template: control_assistant
+   data_bundle: control_assistant
    provider: anthropic
    model: sonnet
    requires_osprey_version: ">=2026.5.0"
@@ -161,10 +161,11 @@ Profile YAML Schema
      - string
      - *required*
      - Human-readable profile name.
-   * - ``base_template``
+   * - ``data_bundle``
      - string
      - ``control_assistant``
-     - App template to use. See ``src/osprey/templates/apps/``.
+     - App template (data bundle) to use. Valid: ``control_assistant``,
+       ``hello_world``, ``ariel_standalone``. See ``src/osprey/templates/apps/``.
    * - ``provider``
      - string
      - ``None``
@@ -626,11 +627,11 @@ After building, the project contains:
 
    built-project/
    ├── .claude/
-   │   ├── agents/           # From manifest (channel-finder, data-visualizer, ...)
-   │   ├── rules/            # From manifest (safety, error-handling, ...)
-   │   ├── hooks/            # From manifest (approval, writes-check, limits, ...)
-   │   ├── skills/           # From manifest (diagnose, session-report, ...)
-   │   ├── output-styles/    # From manifest (control-operator)
+   │   ├── agents/           # From preset profile (channel-finder, data-visualizer, ...)
+   │   ├── rules/            # From preset profile (safety, error-handling, ...)
+   │   ├── hooks/            # From preset profile (approval, writes-check, limits, ...)
+   │   ├── skills/           # From preset profile (diagnose, session-report, ...)
+   │   ├── output-styles/    # From preset profile (control-operator)
    │   └── settings.json     # Permissions, hooks, model config
    ├── .mcp.json             # MCP server configurations
    ├── CLAUDE.md             # Generated system prompt
@@ -639,10 +640,11 @@ After building, the project contains:
    ├── _mcp_servers/         # Custom server code (from overlays)
    └── ...
 
-Which agents, rules, hooks, and skills are included is controlled by the template's
-``manifest.yml`` — not by the profile. The profile can override **data and config** but
-not the set of Osprey agent artifacts. To add new agents or rules, modify the OSPREY
-template (see :doc:`add-mcp-server`).
+Which agents, rules, hooks, and skills are included is controlled by the
+bundled preset profile (``src/osprey/profiles/presets/<bundle>.yml``) — not
+by your user profile. Your profile can override **data and config** but not
+the set of Osprey agent artifacts. To change the artifact set, edit the
+preset profile for that data bundle directly.
 
 
 Troubleshooting

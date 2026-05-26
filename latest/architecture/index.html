@@ -500,7 +500,7 @@ window.addEventListener("load", load);</script>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 24, 2026"/>
+    <meta name="docbuild:last-update" content="May 26, 2026"/>
   </head>
   
   
@@ -866,21 +866,14 @@ window.addEventListener("load", load);</script>
 <p>OSPREY deploys agentic AI in safety-critical control system environments — particle accelerators,
 fusion experiments, and beamlines. It uses <strong>the Osprey agent</strong> as the orchestrator, <strong>MCP servers</strong> as
 the tool interface, and <strong>pluggable connectors</strong> for protocol-agnostic hardware access.</p>
-<pre  class="mermaid">
-        flowchart LR
-    User[&quot;Operator&quot;] --&gt; WebTerm[&quot;Web Terminal&quot;]
-    WebTerm --&gt; Claude[&quot;Osprey agent&quot;]
-    Claude --&gt; Hooks[&quot;Safety Hooks&quot;]
-    Hooks --&gt; MCP[&quot;MCP Servers&quot;]
-    MCP --&gt; Conn[&quot;Connectors&quot;]
-    Conn --&gt; HW[&quot;Control System&lt;br/&gt;(EPICS / Mock)&quot;]
-
-    style User fill:#f9f,stroke:#333
-    style Claude fill:#4a90e2,stroke:#333,color:#fff
-    style Hooks fill:#e74c3c,stroke:#333,color:#fff
-    style MCP fill:#50c878,stroke:#333,color:#fff
-    style HW fill:#ff9800,stroke:#333,color:#fff
-    </pre><section id="safety-chain">
+<figure class="align-center" id="id1">
+<a class="reference internal image-reference" href="../_images/architecture.png"><img alt="Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line." src="../_images/architecture.png" style="width: 100%;" />
+</a>
+<figcaption>
+<p><span class="caption-text">Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line.</span><a class="headerlink" href="#id1" title="Link to this image">#</a></p>
+</figcaption>
+</figure>
+<section id="safety-chain">
 <h2>Safety Chain<a class="headerlink" href="#safety-chain" title="Link to this heading">#</a></h2>
 <p>Every tool invocation passes through a configurable chain of <strong>PreToolUse hooks</strong> before reaching
 the MCP server. The chain for <code class="docutils literal notranslate"><span class="pre">channel_write</span></code> — the most safety-critical tool — has three stages:</p>
@@ -953,7 +946,7 @@ and the MCP server:</p>
 <dl class="simple">
 <dt><a class="reference internal" href="mcp-servers.html"><span class="doc">MCP Servers</span></a></dt><dd><p>Complete list of MCP servers and their tools.</p>
 </dd>
-<dt><a class="reference internal" href="../how-to/add-connector.html"><span class="doc">Control System Integration</span></a></dt><dd><p>How to add a custom control system connector.</p>
+<dt><a class="reference internal" href="../how-to/add-connector.html"><span class="doc">Add a Connector</span></a></dt><dd><p>How to add a custom control system connector.</p>
 </dd>
 <dt><a class="reference internal" href="../how-to/deploy-project.html"><span class="doc">Container Deployment</span></a></dt><dd><p>How to create and deploy an OSPREY project.</p>
 </dd>

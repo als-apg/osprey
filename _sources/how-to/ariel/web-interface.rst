@@ -120,9 +120,21 @@ The web interface discovers its search modes and tunable parameters dynamically 
             * - POST
               - ``/api/entries``
               - Create a new logbook entry (body: :class:`~osprey.interfaces.ariel.api.schemas.EntryCreateRequest`)
+            * - POST
+              - ``/api/entries/upload``
+              - Create a new entry from multipart form data with attachments
+            * - GET
+              - ``/api/attachments/{attachment_id}``
+              - Download an attachment binary
             * - GET
               - ``/api/status``
               - Service health, module status, and statistics
+            * - GET
+              - ``/api/config``
+              - Read the current ARIEL configuration block
+            * - PUT
+              - ``/api/config``
+              - Update the ARIEL configuration block
 
          Additionally, a ``GET /health`` endpoint at the root level returns a simple health check response.
 
@@ -159,7 +171,7 @@ The web interface discovers its search modes and tunable parameters dynamically 
               "database_uri": "postgresql://localhost:5432/ariel",
               "entry_count": 15230,
               "embedding_tables": [
-                {"table_name": "embeddings_nomic_embed_text", "entry_count": 15230, "dimension": 768, "is_active": true}
+                {"table_name": "text_embeddings_nomic_embed_text", "entry_count": 15230, "dimension": 768, "is_active": true}
               ],
               "active_embedding_model": "nomic-embed-text",
               "enabled_search_modules": ["keyword", "semantic"],
@@ -263,6 +275,10 @@ The web interface discovers its search modes and tunable parameters dynamically 
               - Status dashboard rendering
             * - ``components.js``
               - Shared UI components (entry cards, loading states, error messages)
+            * - ``drawer.js``
+              - Side-drawer behavior (filters, advanced options, settings panels)
+            * - ``settings.js``
+              - Settings UI: read/write ARIEL config block via ``/api/config``
 
          **CSS architecture:**
 
@@ -280,6 +296,10 @@ The web interface discovers its search modes and tunable parameters dynamically 
               - Cards, buttons, badges, modals, search results
             * - ``layout.css``
               - Header, navigation, main content, responsive grid
+            * - ``drawer.css``
+              - Side-drawer panel styling
+            * - ``settings.css``
+              - Settings and OSPREY-agent-setup editor styling
 
          **Routing:** The app uses ``window.location.hash`` for navigation. The ``app.js`` module listens for ``hashchange`` events and shows/hides view sections (``#search``, ``#browse``, ``#create``, ``#status``). No page reloads occur during navigation.
 
@@ -296,22 +316,12 @@ Running the Web Interface
    osprey ariel web --host 0.0.0.0       # Bind to all interfaces
    osprey ariel web --reload             # Auto-reload on code changes
 
-**Deployed service** (via Osprey's deploy system):
+.. note::
 
-Add ``ariel_web`` to ``deployed_services`` in ``config.yml``:
-
-.. code-block:: yaml
-
-   deployed_services:
-     - postgresql
-     - ariel_web
-
-   services:
-     ariel_web:
-       path: ./services/ariel-web
-       port_host: 8085
-
-Then start with ``osprey deploy up``. The deployed container mounts ``config.yml`` at ``/app/config.yml`` and uses the ``ARIEL_DATABASE_HOST`` variable to resolve the database within the Docker network.
+   The web UI runs in-process via ``osprey ariel web`` and is also exposed
+   as a panel under ``osprey web``. There is no shipped container service
+   template for it --- ``osprey deploy up`` only brings up dependencies
+   such as PostgreSQL.
 
 **Programmatic usage:**
 

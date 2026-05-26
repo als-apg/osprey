@@ -64,7 +64,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 24, 2026"/>
+    <meta name="docbuild:last-update" content="May 26, 2026"/>
   </head>
   
   
@@ -523,7 +523,7 @@ git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </sp
 <ol class="arabic simple">
 <li><p>Push your branch: <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">push</span> <span class="pre">origin</span> <span class="pre">feature/your-feature-name</span></code></p></li>
 <li><p>Open a PR on GitHub with a description, related issues, and testing performed.</p></li>
-<li><p>PR requirements: pass all eight required CI checks, include a <code class="docutils literal notranslate"><span class="pre">CHANGELOG.md</span></code> entry for any user-visible change, and add appropriate tests. Internal-mode contributors with push access self-merge after CI is green (the ruleset does not require human approval); fork-mode contributions wait for a maintainer to merge.</p></li>
+<li><p>PR requirements: pass all required CI checks, include a <code class="docutils literal notranslate"><span class="pre">CHANGELOG.md</span></code> entry for any user-visible change, and add appropriate tests. Internal-mode contributors with push access self-merge after CI is green (the ruleset does not require human approval); fork-mode contributions wait for a maintainer to merge.</p></li>
 <li><p>During review: respond to feedback promptly, make requested changes, ask questions if unclear.</p></li>
 </ol>
 </section>
@@ -532,7 +532,7 @@ git<span class="w"> </span>commit<span class="w"> </span>-m<span class="w"> </sp
 <p>Direct pushes to <code class="docutils literal notranslate"><span class="pre">main</span></code> are rejected. All changes land via PR. The ruleset
 enforces:</p>
 <ul class="simple">
-<li><p>All eight required CI checks must pass (no admin bypass).</p></li>
+<li><p>All required CI checks must pass (no admin bypass).</p></li>
 <li><p>Linear history (use <code class="docutils literal notranslate"><span class="pre">gh</span> <span class="pre">pr</span> <span class="pre">merge</span> <span class="pre">--rebase</span></code>; merge commits are rejected).</p></li>
 <li><p>Force-pushes and branch deletion on <code class="docutils literal notranslate"><span class="pre">main</span></code> are denied.</p></li>
 </ul>

@@ -7,7 +7,9 @@ search over facility electronic logbooks. It is built around a **modular
 architecture** with three main layers: a :doc:`data ingestion pipeline
 <data-ingestion>` that normalizes logbook entries from any facility into a common
 PostgreSQL schema, composable :doc:`search modules <search-modes>` such as
-keyword and semantic similarity matching, and a :doc:`web interface
+keyword and semantic similarity matching (plus a raw read-only ``sql_query``
+MCP tool for structural queries the agent can run directly against the
+database), and a :doc:`web interface
 <web-interface>` for interactive exploration. These components connect to the
 rest of Osprey through the :doc:`integration layer <osprey-integration>`, where
 the agent invokes ARIEL's MCP tools as part of broader workflows.
@@ -38,7 +40,7 @@ delegated to the Osprey agent layer.
 
    - **Python 3.11+** with a virtual environment
    - **Osprey installed:** ``uv sync``
-   - **Container runtime:** `Docker Desktop 4.0+ <https://docs.docker.com/get-docker/>`_ or `Podman 4.0+ <https://podman.io/getting-started/installation>`_ (for PostgreSQL and the web interface)
+   - **Container runtime:** `Docker Desktop 4.0+ <https://docs.docker.com/get-docker/>`_ or `Podman 4.0+ <https://podman.io/getting-started/installation>`_ (for PostgreSQL)
    - **LLM API access:** An API key for your configured provider (e.g., ``ANTHROPIC_API_KEY``)
    - **(Recommended) Ollama** --- for local text embeddings powering semantic search:
 
@@ -109,11 +111,14 @@ delegated to the Osprey agent layer.
             .. tab-item:: Web Interface
                :selected:
 
-               Open the ARIEL web UI. Already running from Step 2.
+               Start the ARIEL web UI in a separate terminal, then open it in
+               your browser.
 
-               .. code-block:: text
+               .. code-block:: bash
 
-                  Open http://localhost:8085 in your browser
+                  osprey ariel web
+
+               Then open ``http://localhost:8085`` in your browser.
 
             .. tab-item:: CLI Search
 
@@ -197,7 +202,7 @@ All ARIEL functionality is available through the ``osprey ariel`` command group:
    * - ``status``
      - Show ARIEL service status
    * - ``search``
-     - Search the logbook (``--mode keyword|semantic|auto``)
+     - Search the logbook (``--mode keyword|semantic``)
    * - ``ingest``
      - Ingest logbook entries from a source file or URL
    * - ``migrate``

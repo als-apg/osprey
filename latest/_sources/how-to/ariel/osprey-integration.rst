@@ -86,17 +86,23 @@ The MCP tool returns a structured result containing:
      - Type
      - Description
    * - ``entries``
-     - ``list[dict]``
+     - ``tuple[dict, ...]``
      - Matching entries, ranked by relevance
+   * - ``answer``
+     - ``str | None``
+     - Synthesized answer text (set by callers)
+   * - ``sources``
+     - ``tuple[str, ...]``
+     - Entry IDs used as sources
    * - ``search_modes_used``
-     - ``list[str]``
-     - Search modes invoked (e.g., ``["keyword", "semantic"]``)
-   * - ``query``
+     - ``tuple[SearchMode, ...]``
+     - Modes executed (e.g., ``KEYWORD``, ``SEMANTIC``)
+   * - ``reasoning``
      - ``str``
-     - Original query text
-   * - ``time_range_applied``
-     - ``bool``
-     - Whether a time filter was used
+     - Explanation of results
+   * - ``diagnostics``
+     - ``tuple[SearchDiagnostic, ...]``
+     - Per-mode timing and result counts
 
 
 Service Factory

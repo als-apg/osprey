@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 24, 2026"/>
+    <meta name="docbuild:last-update" content="May 26, 2026"/>
   </head>
   
   
@@ -375,7 +375,11 @@
 <li class="toctree-l1"><a class="reference internal" href="../use-web-terminal.html">Use the Web Terminal</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-cli-chat.html">Use the CLI Chat Interface</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Control System Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Add a Connector</a></li>
+
+
+
+
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Logbook Search Service (ARIEL)</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="osprey-integration.html">Osprey Integration</a></li>
@@ -578,9 +582,25 @@ REST API</label><div class="sd-tab-content docutils">
 <td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/entries</span></code></p></td>
 <td><p class="sd-card-text">Create a new logbook entry (body: <code class="xref py py-class docutils literal notranslate"><span class="pre">EntryCreateRequest</span></code>)</p></td>
 </tr>
+<tr class="row-even"><td><p class="sd-card-text">POST</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/entries/upload</span></code></p></td>
+<td><p class="sd-card-text">Create a new entry from multipart form data with attachments</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text">GET</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/attachments/{attachment_id}</span></code></p></td>
+<td><p class="sd-card-text">Download an attachment binary</p></td>
+</tr>
 <tr class="row-even"><td><p class="sd-card-text">GET</p></td>
 <td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/status</span></code></p></td>
 <td><p class="sd-card-text">Service health, module status, and statistics</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text">GET</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/config</span></code></p></td>
+<td><p class="sd-card-text">Read the current ARIEL configuration block</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text">PUT</p></td>
+<td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">/api/config</span></code></p></td>
+<td><p class="sd-card-text">Update the ARIEL configuration block</p></td>
 </tr>
 </tbody>
 </table>
@@ -614,7 +634,7 @@ REST API</label><div class="sd-tab-content docutils">
 <span class="w">  </span><span class="nt">&quot;database_uri&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;postgresql://localhost:5432/ariel&quot;</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;entry_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">15230</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;embedding_tables&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">    </span><span class="p">{</span><span class="nt">&quot;table_name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;embeddings_nomic_embed_text&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;entry_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">15230</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;dimension&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">768</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;is_active&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">}</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;table_name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;text_embeddings_nomic_embed_text&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;entry_count&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">15230</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;dimension&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">768</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;is_active&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">}</span>
 <span class="w">  </span><span class="p">],</span>
 <span class="w">  </span><span class="nt">&quot;active_embedding_model&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;nomic-embed-text&quot;</span><span class="p">,</span>
 <span class="w">  </span><span class="nt">&quot;enabled_search_modules&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;keyword&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;semantic&quot;</span><span class="p">],</span>
@@ -735,6 +755,12 @@ Frontend</label><div class="sd-tab-content docutils">
 <tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">components.js</span></code></p></td>
 <td><p class="sd-card-text">Shared UI components (entry cards, loading states, error messages)</p></td>
 </tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">drawer.js</span></code></p></td>
+<td><p class="sd-card-text">Side-drawer behavior (filters, advanced options, settings panels)</p></td>
+</tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">settings.js</span></code></p></td>
+<td><p class="sd-card-text">Settings UI: read/write ARIEL config block via <code class="docutils literal notranslate"><span class="pre">/api/config</span></code></p></td>
+</tr>
 </tbody>
 </table>
 </div>
@@ -762,6 +788,12 @@ Frontend</label><div class="sd-tab-content docutils">
 <tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">layout.css</span></code></p></td>
 <td><p class="sd-card-text">Header, navigation, main content, responsive grid</p></td>
 </tr>
+<tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">drawer.css</span></code></p></td>
+<td><p class="sd-card-text">Side-drawer panel styling</p></td>
+</tr>
+<tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">settings.css</span></code></p></td>
+<td><p class="sd-card-text">Settings and OSPREY-agent-setup editor styling</p></td>
+</tr>
 </tbody>
 </table>
 </div>
@@ -779,19 +811,13 @@ osprey<span class="w"> </span>ariel<span class="w"> </span>web<span class="w"> <
 osprey<span class="w"> </span>ariel<span class="w"> </span>web<span class="w"> </span>--reload<span class="w">             </span><span class="c1"># Auto-reload on code changes</span>
 </pre></div>
 </div>
-<p><strong>Deployed service</strong> (via Osprey’s deploy system):</p>
-<p>Add <code class="docutils literal notranslate"><span class="pre">ariel_web</span></code> to <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">deployed_services</span><span class="p">:</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">postgresql</span>
-<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">ariel_web</span>
-
-<span class="nt">services</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">ariel_web</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/ariel-web</span>
-<span class="w">    </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8085</span>
-</pre></div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The web UI runs in-process via <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">web</span></code> and is also exposed
+as a panel under <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>. There is no shipped container service
+template for it — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> only brings up dependencies
+such as PostgreSQL.</p>
 </div>
-<p>Then start with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>. The deployed container mounts <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> at <code class="docutils literal notranslate"><span class="pre">/app/config.yml</span></code> and uses the <code class="docutils literal notranslate"><span class="pre">ARIEL_DATABASE_HOST</span></code> variable to resolve the database within the Docker network.</p>
 <p><strong>Programmatic usage:</strong></p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.interfaces.ariel.app</span><span class="w"> </span><span class="kn">import</span> <span class="n">create_app</span>
 

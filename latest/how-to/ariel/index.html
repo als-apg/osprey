@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 24, 2026"/>
+    <meta name="docbuild:last-update" content="May 26, 2026"/>
   </head>
   
   
@@ -375,7 +375,11 @@
 <li class="toctree-l1"><a class="reference internal" href="../use-web-terminal.html">Use the Web Terminal</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-cli-chat.html">Use the CLI Chat Interface</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Control System Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Add a Connector</a></li>
+
+
+
+
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 current active has-children"><a class="current reference internal" href="#">Logbook Search Service (ARIEL)</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="osprey-integration.html">Osprey Integration</a></li>
@@ -452,7 +456,9 @@
 search over facility electronic logbooks. It is built around a <strong>modular
 architecture</strong> with three main layers: a <a class="reference internal" href="data-ingestion.html"><span class="doc">data ingestion pipeline</span></a> that normalizes logbook entries from any facility into a common
 PostgreSQL schema, composable <a class="reference internal" href="search-modes.html"><span class="doc">search modules</span></a> such as
-keyword and semantic similarity matching, and a <a class="reference internal" href="web-interface.html"><span class="doc">web interface</span></a> for interactive exploration. These components connect to the
+keyword and semantic similarity matching (plus a raw read-only <code class="docutils literal notranslate"><span class="pre">sql_query</span></code>
+MCP tool for structural queries the agent can run directly against the
+database), and a <a class="reference internal" href="web-interface.html"><span class="doc">web interface</span></a> for interactive exploration. These components connect to the
 rest of Osprey through the <a class="reference internal" href="osprey-integration.html"><span class="doc">integration layer</span></a>, where
 the agent invokes ARIEL’s MCP tools as part of broader workflows.</p>
 <p>Every layer is designed to be <strong>facility-agnostic and extensible</strong>. Ingestion
@@ -479,7 +485,7 @@ ready before proceeding.</p>
 <ul>
 <li><p class="sd-card-text"><strong>Python 3.11+</strong> with a virtual environment</p></li>
 <li><p class="sd-card-text"><strong>Osprey installed:</strong> <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span></code></p></li>
-<li><p class="sd-card-text"><strong>Container runtime:</strong> <a class="reference external" href="https://docs.docker.com/get-docker/">Docker Desktop 4.0+</a> or <a class="reference external" href="https://podman.io/getting-started/installation">Podman 4.0+</a> (for PostgreSQL and the web interface)</p></li>
+<li><p class="sd-card-text"><strong>Container runtime:</strong> <a class="reference external" href="https://docs.docker.com/get-docker/">Docker Desktop 4.0+</a> or <a class="reference external" href="https://podman.io/getting-started/installation">Podman 4.0+</a> (for PostgreSQL)</p></li>
 <li><p class="sd-card-text"><strong>LLM API access:</strong> An API key for your configured provider (e.g., <code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code>)</p></li>
 <li><p class="sd-card-text"><strong>(Recommended) Ollama</strong> — for local text embeddings powering semantic search:</p>
 <div class="sd-tab-set docutils">
@@ -548,10 +554,12 @@ migrations, then ingest the demo logbook data and generate embeddings:</p>
 <input checked="checked" id="sd-tab-item-5" name="sd-tab-set-2" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-5">
 Web Interface</label><div class="sd-tab-content docutils">
-<p class="sd-card-text">Open the ARIEL web UI. Already running from Step 2.</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Open http://localhost:8085 in your browser
+<p class="sd-card-text">Start the ARIEL web UI in a separate terminal, then open it in
+your browser.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>web
 </pre></div>
 </div>
+<p class="sd-card-text">Then open <code class="docutils literal notranslate"><span class="pre">http://localhost:8085</span></code> in your browser.</p>
 </div>
 <input id="sd-tab-item-6" name="sd-tab-set-2" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-6">
@@ -649,7 +657,7 @@ Standalone Deployment</div>
 <td><p>Show ARIEL service status</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">search</span></code></p></td>
-<td><p>Search the logbook (<code class="docutils literal notranslate"><span class="pre">--mode</span> <span class="pre">keyword|semantic|auto</span></code>)</p></td>
+<td><p>Search the logbook (<code class="docutils literal notranslate"><span class="pre">--mode</span> <span class="pre">keyword|semantic</span></code>)</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ingest</span></code></p></td>
 <td><p>Ingest logbook entries from a source file or URL</p></td>

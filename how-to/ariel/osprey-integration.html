@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 24, 2026"/>
+    <meta name="docbuild:last-update" content="May 26, 2026"/>
   </head>
   
   
@@ -375,7 +375,11 @@
 <li class="toctree-l1"><a class="reference internal" href="../use-web-terminal.html">Use the Web Terminal</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-cli-chat.html">Use the CLI Chat Interface</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Control System Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Add a Connector</a></li>
+
+
+
+
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Logbook Search Service (ARIEL)</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2 current active"><a class="current reference internal" href="#">Osprey Integration</a></li>
@@ -550,20 +554,28 @@ Osprey agent selects the appropriate tool based on the user’s query.</p>
 </thead>
 <tbody>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">entries</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">list[dict]</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tuple[dict,</span> <span class="pre">...]</span></code></p></td>
 <td><p>Matching entries, ranked by relevance</p></td>
 </tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">answer</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">str</span> <span class="pre">|</span> <span class="pre">None</span></code></p></td>
+<td><p>Synthesized answer text (set by callers)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">sources</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tuple[str,</span> <span class="pre">...]</span></code></p></td>
+<td><p>Entry IDs used as sources</p></td>
+</tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">search_modes_used</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">list[str]</span></code></p></td>
-<td><p>Search modes invoked (e.g., <code class="docutils literal notranslate"><span class="pre">[&quot;keyword&quot;,</span> <span class="pre">&quot;semantic&quot;]</span></code>)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tuple[SearchMode,</span> <span class="pre">...]</span></code></p></td>
+<td><p>Modes executed (e.g., <code class="docutils literal notranslate"><span class="pre">KEYWORD</span></code>, <code class="docutils literal notranslate"><span class="pre">SEMANTIC</span></code>)</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">query</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">reasoning</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">str</span></code></p></td>
-<td><p>Original query text</p></td>
+<td><p>Explanation of results</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">time_range_applied</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">bool</span></code></p></td>
-<td><p>Whether a time filter was used</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">diagnostics</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">tuple[SearchDiagnostic,</span> <span class="pre">...]</span></code></p></td>
+<td><p>Per-mode timing and result counts</p></td>
 </tr>
 </tbody>
 </table>

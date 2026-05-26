@@ -2,7 +2,7 @@
 Search Modes
 ============
 
-ARIEL's search system is built around **search modules** --- leaf-level functions that each implement a single retrieval strategy against the logbook database. The framework ships two modules out of the box: keyword full-text search and embedding-based semantic similarity. At query time, the ``ARIELSearchService`` routes each request to a specific module or runs both and merges the results in ``auto`` mode. All modes share the same underlying :ref:`database <database>` and produce a common ``ARIELSearchResult``. Higher-level reasoning over results --- multi-step retrieval, answer synthesis, custom prompting --- lives in the Osprey agent layer, which calls these search modules through ARIEL's MCP tools.
+ARIEL's search system is built around **search modules** --- leaf-level functions that each implement a single retrieval strategy against the logbook database. The framework ships two modules out of the box: keyword full-text search and embedding-based semantic similarity. At query time, the ``ARIELSearchService`` routes each request to the requested module. All modes share the same underlying :ref:`database <database>` and produce a common ``ARIELSearchResult``. Higher-level reasoning over results --- multi-step retrieval, answer synthesis, custom prompting --- lives in the Osprey agent layer, which calls these search modules through ARIEL's MCP tools. A raw ``sql_query`` MCP tool is also available for direct database access by power users and the agent.
 
 Search modules are discovered through Osprey's central registry, so you can add your own without modifying any framework code. A custom search module only needs to export a ``get_tool_descriptor()`` function. Once registered, it is automatically available to the Osprey agent through the ARIEL MCP server and in the web interface.
 
@@ -14,25 +14,22 @@ Search Architecture
    User Query
        ↓
    ARIELSearchService.search(mode=...)
-       ├── KEYWORD  → keyword_search()       → ranked entries
-       ├── SEMANTIC → semantic_search()      → ranked entries
-       └── AUTO     → run enabled modules in parallel and merge
+       ├── KEYWORD  (default) → keyword_search()  → ranked entries
+       └── SEMANTIC           → semantic_search() → ranked entries
        ↓
    ARIELSearchResult (entries, search_modes_used)
 
-The service validates that the requested mode is enabled in configuration before routing. Keyword and semantic are direct function calls; ``auto`` runs the enabled modules in parallel and returns a merged list. All modes return an ``ARIELSearchResult`` with entries and the list of search modes that were invoked.
+The service validates that the requested mode is enabled in configuration before routing. Both keyword and semantic are direct function calls and return an ``ARIELSearchResult`` with entries and the search mode that was invoked. (A separate ``sql_query`` MCP tool exposes raw read-only SQL against the same database; it is not routed through ``search(mode=...)``.)
 
 **CLI usage:**
 
 .. code-block:: bash
 
-   osprey ariel search "RF cavity fault" --mode auto    # default
+   osprey ariel search "RF cavity fault"                  # default: keyword
    osprey ariel search "RF cavity fault" --mode keyword
    osprey ariel search "RF cavity fault" --mode semantic
 
-The ``--mode`` option accepts ``keyword``, ``semantic``, or ``auto`` (the
-default). In ``auto`` mode, the service runs all enabled modules and merges
-the results.
+The ``--mode`` option accepts ``keyword`` (default) or ``semantic``.
 
 
 Search Modules

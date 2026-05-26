@@ -60,12 +60,12 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Control System Integration" href="add-connector.html" />
+    <link rel="next" title="Add a Connector" href="add-connector.html" />
     <link rel="prev" title="Use the CLI Chat Interface" href="use-cli-chat.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 24, 2026"/>
+    <meta name="docbuild:last-update" content="May 26, 2026"/>
   </head>
   
   
@@ -375,7 +375,11 @@
 <li class="toctree-l1"><a class="reference internal" href="use-web-terminal.html">Use the Web Terminal</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Python Execution Service</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Control System Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
+
+
+
+
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
@@ -463,15 +467,19 @@ figures, and saved artifacts—are returned as structured JSON.</p>
 </div>
 <p>All packages installed in the deployment environment are available to
 executed code (numpy, pandas, scipy, matplotlib, plotly, etc.).
-A <code class="docutils literal notranslate"><span class="pre">save_artifact(obj,</span> <span class="pre">title=&quot;Untitled&quot;,</span> <span class="pre">description=&quot;&quot;,</span> <span class="pre">artifact_type=None)</span></code>
+A <code class="docutils literal notranslate"><span class="pre">save_artifact(obj,</span> <span class="pre">title=&quot;Untitled&quot;,</span> <span class="pre">description=&quot;&quot;,</span> <span class="pre">artifact_type=None,</span> <span class="pre">category=&quot;&quot;)</span></code>
 helper is injected into the subprocess namespace for saving objects to the
 artifact gallery. The <code class="docutils literal notranslate"><span class="pre">artifact_type</span></code> parameter overrides automatic type
-detection (e.g., <code class="docutils literal notranslate"><span class="pre">&quot;figure&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;dataframe&quot;</span></code>).</p>
+detection (e.g., <code class="docutils literal notranslate"><span class="pre">&quot;figure&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;dataframe&quot;</span></code>); <code class="docutils literal notranslate"><span class="pre">category</span></code> is a free-form
+grouping label used by the gallery UI.</p>
 </section>
 <section id="mcp-tool-interface">
 <span id="executor-mcp-tool"></span><h2>MCP Tool Interface<a class="headerlink" href="#mcp-tool-interface" title="Link to this heading">#</a></h2>
-<p>The server exposes a single tool, <code class="docutils literal notranslate"><span class="pre">execute</span></code>, registered on the <code class="docutils literal notranslate"><span class="pre">python</span></code>
-FastMCP server (<code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.python_executor</span></code>).</p>
+<p>The server exposes two tools, <code class="docutils literal notranslate"><span class="pre">execute</span></code> and <code class="docutils literal notranslate"><span class="pre">execute_file</span></code>, registered on
+the <code class="docutils literal notranslate"><span class="pre">python</span></code> FastMCP server (<code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.python_executor</span></code>).
+<code class="docutils literal notranslate"><span class="pre">execute_file</span></code> runs an existing <code class="docutils literal notranslate"><span class="pre">.py</span></code> file on disk through the same safety
+pipeline as <code class="docutils literal notranslate"><span class="pre">execute</span></code>; both share the parameters below (<code class="docutils literal notranslate"><span class="pre">execute_file</span></code>
+takes <code class="docutils literal notranslate"><span class="pre">file_path</span></code> and optional <code class="docutils literal notranslate"><span class="pre">script_args</span></code> in place of <code class="docutils literal notranslate"><span class="pre">code</span></code>).</p>
 <div class="pst-scrollable-table-container"><table class="table" id="id1">
 <caption><span class="caption-text"><code class="docutils literal notranslate"><span class="pre">execute</span></code> parameters</span><a class="headerlink" href="#id1" title="Link to this table">#</a></caption>
 <colgroup>
@@ -526,18 +534,17 @@ run.</p></li>
 container via WebSocket. Separate containers can be configured for
 <code class="docutils literal notranslate"><span class="pre">readonly</span></code> and <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> modes:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># config.yml</span>
-<span class="nt">osprey</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">execution</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">execution_method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">container</span>
-<span class="w">  </span><span class="nt">services</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">jupyter</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">containers</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">read</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
-<span class="w">          </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8088</span>
-<span class="w">        </span><span class="nt">write</span><span class="p">:</span>
-<span class="w">          </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
-<span class="w">          </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8089</span>
+<span class="nt">execution</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">execution_method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">container</span>
+<span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">jupyter</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">containers</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">read</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
+<span class="w">        </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8088</span>
+<span class="w">      </span><span class="nt">write</span><span class="p">:</span>
+<span class="w">        </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
+<span class="w">        </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8089</span>
 </pre></div>
 </div>
 <p>Container mode provides the strongest isolation—the MCP server
@@ -550,10 +557,9 @@ execution. The <code class="docutils literal notranslate"><span class="pre">Exec
 monkeypatches (e.g., <code class="docutils literal notranslate"><span class="pre">epics.caput()</span></code> validation against the limits
 database), writes the wrapped script to an execution folder, and runs it
 as a subprocess:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">osprey</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">execution</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">execution_method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
-<span class="w">    </span><span class="nt">python_env_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/path/to/venv</span><span class="w">   </span><span class="c1"># optional; defaults to sys.executable</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">execution</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">execution_method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
+<span class="w">  </span><span class="nt">python_env_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/path/to/venv</span><span class="w">   </span><span class="c1"># optional; defaults to sys.executable</span>
 </pre></div>
 </div>
 <p>The subprocess working directory is set to the project root so that
@@ -582,9 +588,8 @@ process, either in a container or a local subprocess.</p></li>
 <code class="docutils literal notranslate"><span class="pre">python_executor.execution_timeout_seconds</span></code> (default 600 s). The
 process is killed if it exceeds the limit.</p></li>
 </ol>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">osprey</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">python_executor</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">execution_timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">python_executor</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">execution_timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span>
 </pre></div>
 </div>
 <div class="admonition-control-system-operations-in-user-code admonition">
@@ -653,7 +658,7 @@ safety checks, and pattern detection.</p></li>
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Control System Integration</p>
+        <p class="prev-next-title">Add a Connector</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>

@@ -14,14 +14,14 @@ Osprey Framework Documentation
 
 The **Osprey Framework** is an agentic interface and harness for scientific facilities managing complex technical infrastructure — particle accelerators, fusion experiments, beamlines, and large telescopes. It wraps a coding agent in an operator-facing safety policy, a hook-based approval chain, and an MCP-server multiplexer, so the agent layer, the underlying LLM, and the compute backend are each replaceable without changing what the operator sees. The current reference implementation is a browser-based operator workstation; other surfaces (control-room consoles, chat clients, headless services) are possible.
 
-Osprey addresses control-specific challenges: semantic addressing across large channel namespaces, :doc:`protocol-agnostic integration with control stacks <how-to/add-connector>` (EPICS, LabVIEW, Tango), :doc:`intelligent logbook search <how-to/ariel/index>` across facility electronic logbooks, and mandatory human oversight for safety-critical operations.
+Osprey addresses control-specific challenges: semantic addressing across large channel namespaces, :doc:`protocol-agnostic integration with control stacks <how-to/add-connector>` (EPICS and Mock ship in-tree; LabVIEW, Tango, and other stacks are supported via custom connectors), :doc:`intelligent logbook search <how-to/ariel/index>` across facility electronic logbooks, and mandatory human oversight for safety-critical operations.
 
 .. figure:: _static/resources/architecture.png
    :alt: Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line.
    :align: center
    :width: 100%
 
-   Osprey system architecture — from operator to facility, with the safety gate and approval workflow in-line. For a detailed view, see :doc:`Architecture <architecture/index>`.
+   Osprey system architecture (for a detailed view, see :doc:`Architecture <architecture/index>`).
 
 Documentation Structure
 -----------------------

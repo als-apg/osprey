@@ -120,9 +120,9 @@ The built-in enhancement modules:
 
    .. tab-item:: Text Embedding
 
-      **Module:** ``enhancement/text_embedding.py``
+      **Module:** ``enhancement/text_embedding/`` (entry point: ``embedder.py``)
 
-      Generates vector embeddings for each entry using a configurable embedding model. Embeddings are stored in dedicated per-model tables (e.g., ``embeddings_nomic_embed_text``), allowing multiple models to coexist.
+      Generates vector embeddings for each entry using a configurable embedding model. Embeddings are stored in dedicated per-model tables (e.g., ``text_embeddings_nomic_embed_text``), allowing multiple models to coexist.
 
       **Configuration:**
 
@@ -140,7 +140,7 @@ The built-in enhancement modules:
 
    .. tab-item:: Semantic Processor
 
-      **Module:** ``enhancement/semantic_processor.py``
+      **Module:** ``enhancement/semantic_processor/`` (entry point: ``processor.py``)
 
       Uses an LLM to extract keywords and generate summaries for each entry. These fields improve keyword search recall and the quality of context the agent layer surfaces over results.
 
@@ -326,7 +326,7 @@ Core Tables
      - ``JSONB``
      - Additional structured data (title, tags, attachments)
 
-**Per-model embedding tables** (e.g., ``embeddings_nomic_embed_text``):
+**Per-model embedding tables** (e.g., ``text_embeddings_nomic_embed_text``):
 
 .. list-table::
    :header-rows: 1
@@ -371,7 +371,7 @@ Core Tables
 Migration System
 ----------------
 
-Migrations are run via ``osprey ariel migrate`` and managed by the ``run_migrations()`` function in ``database/migrate.py``. The migration system automatically creates embedding tables based on the ``enhancement_modules.text_embedding.models`` configuration.
+Migrations are run via ``osprey ariel migrate`` and managed by the ``run_migrations()`` function in ``database/migrations.py``. The migration system automatically creates embedding tables based on the ``enhancement_modules.text_embedding.models`` configuration.
 
 .. admonition:: Schema Evolution
    :class: outreach

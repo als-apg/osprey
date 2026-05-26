@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 24, 2026"/>
+    <meta name="docbuild:last-update" content="May 26, 2026"/>
   </head>
   
   
@@ -375,7 +375,11 @@
 <li class="toctree-l1"><a class="reference internal" href="use-web-terminal.html">Use the Web Terminal</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Control System Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
+
+
+
+
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
@@ -560,9 +564,12 @@ startup helper:</p>
     <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.mcp_server.startup</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
         <span class="n">initialize_workspace_singletons</span><span class="p">,</span> <span class="n">prime_config_builder</span><span class="p">,</span> <span class="n">startup_timer</span><span class="p">,</span>
     <span class="p">)</span>
+    <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.utils.workspace</span><span class="w"> </span><span class="kn">import</span> <span class="n">resolve_workspace_root</span>
 
     <span class="n">prime_config_builder</span><span class="p">()</span>
-    <span class="n">initialize_workspace_singletons</span><span class="p">()</span>
+
+    <span class="n">workspace_root</span> <span class="o">=</span> <span class="n">resolve_workspace_root</span><span class="p">()</span>
+    <span class="n">initialize_workspace_singletons</span><span class="p">(</span><span class="n">workspace_root</span><span class="p">)</span>
 
     <span class="k">with</span> <span class="n">startup_timer</span><span class="p">(</span><span class="s2">&quot;tool_imports&quot;</span><span class="p">):</span>
         <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.mcp_server.my_server.tools</span><span class="w"> </span><span class="kn">import</span> <span class="n">my_tool</span>  <span class="c1"># noqa: F401</span>

@@ -52,7 +52,9 @@ Manage project configuration. Interactive menu if no subcommand is given.
    Export framework default configuration template.
 
 ``osprey config set-control-system SYSTEM_TYPE [--project PATH]``
-   Switch connector: ``mock``, ``epics``, ``tango``, ``labview``.
+   Switch connector: ``mock`` or ``epics``. (Other control systems are
+   reachable through custom connector packages — see
+   :doc:`/how-to/add-connector`.)
 
 ``osprey config set-epics-gateway [--facility als|aps|custom] [--address] [--port]``
    Configure EPICS gateway using facility presets or custom values.
@@ -222,6 +224,15 @@ Options: ``-p, --project PATH``, ``-v, --verbose``
 ``osprey channel-finder preview``
    Preview a channel database with flexible display options.
 
+``osprey channel-finder generate [--output-dir DIR] [--source PATH] [--format in_context|hierarchical|middle_layer|all] [--tier 1|2|3|none] [--validate]``
+   Generate channel databases from a hierarchical template. Produces one
+   or more pipeline formats (default: all three) with optional tier filtering.
+
+``osprey channel-finder benchmark --model PROVIDER/WIRE_ID [--queries SPEC] [--runs-per-query N] [--concurrency N] [--output-dir DIR] [--queries-path PATH] [-v]``
+   Run the benchmark harness against a channel-finder pipeline using a
+   LiteLLM-form model id (e.g. ``anthropic/claude-haiku-4-5``). Saves per-run
+   JSON results for accuracy/cost analysis.
+
 ``osprey channel-finder web``
    Launch the Channel Finder web interface.
 
@@ -230,6 +241,8 @@ Options: ``-p, --project PATH``, ``-v, --verbose``
    osprey channel-finder build-database
    osprey channel-finder validate
    osprey channel-finder preview
+   osprey channel-finder generate --format hierarchical
+   osprey channel-finder benchmark --model anthropic/claude-haiku-4-5
    osprey channel-finder web
 
 osprey ariel
@@ -243,6 +256,9 @@ Manage the ARIEL logbook search service.
 
 ``migrate`` -- Create or update database tables.
 
+``sync [--limit N]`` -- Idempotent migrate + incremental ingest + enhance.
+Safe to run on every build; on a fresh database, runs a full ingest.
+
 ``ingest --source PATH [--adapter TYPE] [--since DATE] [--limit N] [--dry-run]``
    Ingest logbook entries from file or URL.
 
@@ -252,8 +268,8 @@ Manage the ARIEL logbook search service.
 
 ``models`` -- List embedding models and tables.
 
-``search QUERY [--mode auto|keyword|semantic|rag] [--limit N] [--json]``
-   Execute a search query.
+``search QUERY [--mode keyword|semantic] [--limit N] [--json]``
+   Execute a search query (default mode: ``keyword``).
 
 ``reembed --model NAME --dimension N [--batch-size N] [--force]``
    Re-embed entries with a different model.

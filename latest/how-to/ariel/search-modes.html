@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 24, 2026"/>
+    <meta name="docbuild:last-update" content="May 26, 2026"/>
   </head>
   
   
@@ -375,7 +375,11 @@
 <li class="toctree-l1"><a class="reference internal" href="../use-web-terminal.html">Use the Web Terminal</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-cli-chat.html">Use the CLI Chat Interface</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Control System Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Add a Connector</a></li>
+
+
+
+
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Logbook Search Service (ARIEL)</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="osprey-integration.html">Osprey Integration</a></li>
@@ -451,30 +455,27 @@
                   
   <section id="search-modes">
 <h1>Search Modes<a class="headerlink" href="#search-modes" title="Link to this heading">#</a></h1>
-<p>ARIEL’s search system is built around <strong>search modules</strong> — leaf-level functions that each implement a single retrieval strategy against the logbook database. The framework ships two modules out of the box: keyword full-text search and embedding-based semantic similarity. At query time, the <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> routes each request to a specific module or runs both and merges the results in <code class="docutils literal notranslate"><span class="pre">auto</span></code> mode. All modes share the same underlying <a class="reference internal" href="data-ingestion.html#database"><span class="std std-ref">database</span></a> and produce a common <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code>. Higher-level reasoning over results — multi-step retrieval, answer synthesis, custom prompting — lives in the Osprey agent layer, which calls these search modules through ARIEL’s MCP tools.</p>
+<p>ARIEL’s search system is built around <strong>search modules</strong> — leaf-level functions that each implement a single retrieval strategy against the logbook database. The framework ships two modules out of the box: keyword full-text search and embedding-based semantic similarity. At query time, the <code class="docutils literal notranslate"><span class="pre">ARIELSearchService</span></code> routes each request to the requested module. All modes share the same underlying <a class="reference internal" href="data-ingestion.html#database"><span class="std std-ref">database</span></a> and produce a common <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code>. Higher-level reasoning over results — multi-step retrieval, answer synthesis, custom prompting — lives in the Osprey agent layer, which calls these search modules through ARIEL’s MCP tools. A raw <code class="docutils literal notranslate"><span class="pre">sql_query</span></code> MCP tool is also available for direct database access by power users and the agent.</p>
 <p>Search modules are discovered through Osprey’s central registry, so you can add your own without modifying any framework code. A custom search module only needs to export a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function. Once registered, it is automatically available to the Osprey agent through the ARIEL MCP server and in the web interface.</p>
 <section id="search-architecture">
 <h2>Search Architecture<a class="headerlink" href="#search-architecture" title="Link to this heading">#</a></h2>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>User Query
     ↓
 ARIELSearchService.search(mode=...)
-    ├── KEYWORD  → keyword_search()       → ranked entries
-    ├── SEMANTIC → semantic_search()      → ranked entries
-    └── AUTO     → run enabled modules in parallel and merge
+    ├── KEYWORD  (default) → keyword_search()  → ranked entries
+    └── SEMANTIC           → semantic_search() → ranked entries
     ↓
 ARIELSearchResult (entries, search_modes_used)
 </pre></div>
 </div>
-<p>The service validates that the requested mode is enabled in configuration before routing. Keyword and semantic are direct function calls; <code class="docutils literal notranslate"><span class="pre">auto</span></code> runs the enabled modules in parallel and returns a merged list. All modes return an <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code> with entries and the list of search modes that were invoked.</p>
+<p>The service validates that the requested mode is enabled in configuration before routing. Both keyword and semantic are direct function calls and return an <code class="docutils literal notranslate"><span class="pre">ARIELSearchResult</span></code> with entries and the search mode that was invoked. (A separate <code class="docutils literal notranslate"><span class="pre">sql_query</span></code> MCP tool exposes raw read-only SQL against the same database; it is not routed through <code class="docutils literal notranslate"><span class="pre">search(mode=...)</span></code>.)</p>
 <p><strong>CLI usage:</strong></p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>auto<span class="w">    </span><span class="c1"># default</span>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w">                  </span><span class="c1"># default: keyword</span>
 osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>keyword
 osprey<span class="w"> </span>ariel<span class="w"> </span>search<span class="w"> </span><span class="s2">&quot;RF cavity fault&quot;</span><span class="w"> </span>--mode<span class="w"> </span>semantic
 </pre></div>
 </div>
-<p>The <code class="docutils literal notranslate"><span class="pre">--mode</span></code> option accepts <code class="docutils literal notranslate"><span class="pre">keyword</span></code>, <code class="docutils literal notranslate"><span class="pre">semantic</span></code>, or <code class="docutils literal notranslate"><span class="pre">auto</span></code> (the
-default). In <code class="docutils literal notranslate"><span class="pre">auto</span></code> mode, the service runs all enabled modules and merges
-the results.</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">--mode</span></code> option accepts <code class="docutils literal notranslate"><span class="pre">keyword</span></code> (default) or <code class="docutils literal notranslate"><span class="pre">semantic</span></code>.</p>
 <section id="search-modules">
 <h3>Search Modules<a class="headerlink" href="#search-modules" title="Link to this heading">#</a></h3>
 <p>Search modules are leaf-level functions that execute a single search strategy against the database. Each module exports a <code class="docutils literal notranslate"><span class="pre">get_tool_descriptor()</span></code> function that describes its capabilities, input schema, and execution function so the rest of the system — the ARIEL MCP server and the web interface — can discover and use it automatically. The framework ships with the following built-in search modules:</p>

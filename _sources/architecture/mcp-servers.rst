@@ -100,6 +100,7 @@ tools into several functional areas.
 - ``artifact_save`` -- Save a file or generated content as a gallery artifact.
 - ``artifact_get`` -- Look up an artifact by ID to get its file path and metadata.
 - ``artifact_delete`` -- Delete an artifact from the gallery.
+- ``artifact_delete_all`` -- Delete all artifacts from the gallery in a single call.
 - ``artifact_export`` -- Export an artifact to a different format (e.g., PNG, SVG, PDF).
 - ``artifact_focus`` -- Select an artifact in the gallery so the user sees it.
 - ``artifact_pin`` -- Pin or unpin an artifact for quick-access filtering.
@@ -125,6 +126,16 @@ tools into several functional areas.
 - ``lattice_set_param`` -- Set a magnet family parameter override.
 - ``lattice_refresh`` -- Trigger recomputation of lattice figures.
 - ``lattice_set_baseline`` -- Snapshot the current state as the comparison baseline.
+- ``lattice_clear_baseline`` -- Discard the saved comparison baseline.
+- ``lattice_get_figure`` -- Retrieve a rendered lattice figure (e.g., optics, layout) by name.
+- ``lattice_get_data`` -- Retrieve the underlying numeric data behind a named figure.
+- ``lattice_get_settings`` -- Get current dashboard settings (display options, baselines).
+- ``lattice_update_settings`` -- Update dashboard settings.
+
+**Panels:**
+
+- ``list_panels`` -- List the panels available in the Web Terminal (built-in and custom).
+- ``switch_panel`` -- Switch the Web Terminal to show a specific panel tab.
 
 **Screen Capture:**
 
@@ -159,6 +170,7 @@ limits enforcement, and timeout protection.
 **Tools:**
 
 - ``execute`` -- Execute Python code with safety checks, process isolation, and timeout.
+- ``execute_file`` -- Execute a Python file from the workspace with the same safety envelope as ``execute``.
 
 
 ARIEL

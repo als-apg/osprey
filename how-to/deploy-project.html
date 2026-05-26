@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 24, 2026"/>
+    <meta name="docbuild:last-update" content="May 26, 2026"/>
   </head>
   
   
@@ -375,7 +375,11 @@
 <li class="toctree-l1"><a class="reference internal" href="use-web-terminal.html">Use the Web Terminal</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Control System Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
+
+
+
+
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
@@ -513,8 +517,11 @@ multiple applications.</p>
 <h2>CLI Commands<a class="headerlink" href="#cli-commands" title="Link to this heading">#</a></h2>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span><span class="o">[</span>-d<span class="p">|</span>--detached<span class="o">]</span><span class="w">   </span><span class="c1"># Start services</span>
 osprey<span class="w"> </span>deploy<span class="w"> </span>down<span class="w">                 </span><span class="c1"># Stop services</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>restart<span class="w">              </span><span class="c1"># Stop then start services</span>
 osprey<span class="w"> </span>deploy<span class="w"> </span>status<span class="w">               </span><span class="c1"># Show status table</span>
 osprey<span class="w"> </span>deploy<span class="w"> </span>build<span class="w">                </span><span class="c1"># Render compose files without starting</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>clean<span class="w">                </span><span class="c1"># Remove containers and volumes (destructive)</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>rebuild<span class="w">              </span><span class="c1"># Clean, rebuild, and restart services</span>
 </pre></div>
 </div>
 <p>Full command and flag reference: <a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a>. Note there

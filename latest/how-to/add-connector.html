@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Control System Integration &#8212; Osprey Framework 2026.5.1 documentation</title>
+    <title>Add a Connector &#8212; Osprey Framework 2026.5.1 documentation</title>
   
   
   
@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 24, 2026"/>
+    <meta name="docbuild:last-update" content="May 26, 2026"/>
   </head>
   
   
@@ -375,7 +375,11 @@
 <li class="toctree-l1"><a class="reference internal" href="use-web-terminal.html">Use the Web Terminal</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Control System Integration</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Add a Connector</a></li>
+
+
+
+
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
@@ -429,7 +433,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">How-To Guides</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Control System Integration</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Add a Connector</span></li>
   </ul>
 </nav>
 </div>
@@ -446,16 +450,17 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="control-system-integration">
-<h1>Control System Integration<a class="headerlink" href="#control-system-integration" title="Link to this heading">#</a></h1>
+  <section id="add-a-connector">
+<h1>Add a Connector<a class="headerlink" href="#add-a-connector" title="Link to this heading">#</a></h1>
 <p><strong>What you’ll build:</strong> Control system connectors for accessing hardware abstraction layers</p>
+</section>
 <section id="overview">
-<h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
+<h1>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h1>
 <p>The Control System Integration system provides a <strong>two-layer abstraction</strong> for working with control systems and archivers. This enables development and R&amp;D work using mock connectors (without hardware access) and seamless migration to production by changing a single configuration line.</p>
 <p><strong>Key Features:</strong></p>
 <ul class="simple">
 <li><p><strong>Mock Mode</strong>: Work with any channel names without hardware access</p></li>
-<li><p><strong>Production Mode</strong>: Real control system connectors (EPICS, LabVIEW, Tango, custom)</p></li>
+<li><p><strong>Production Mode</strong>: EPICS in-tree; LabVIEW, Tango, and other stacks via user-registered custom connectors</p></li>
 <li><p><strong>Unified API</strong>: Same code works with mock and production connectors</p></li>
 <li><p><strong>Pluggable Architecture</strong>: Register custom connectors via <code class="docutils literal notranslate"><span class="pre">ConnectorFactory</span></code></p></li>
 </ul>
@@ -466,9 +471,9 @@
 </ul>
 </section>
 <section id="quick-start-using-connectors">
-<h2>Quick Start: Using Connectors<a class="headerlink" href="#quick-start-using-connectors" title="Link to this heading">#</a></h2>
+<h1>Quick Start: Using Connectors<a class="headerlink" href="#quick-start-using-connectors" title="Link to this heading">#</a></h1>
 <section id="mock-mode-development-r-d">
-<h3>Mock Mode (Development &amp; R&amp;D)<a class="headerlink" href="#mock-mode-development-r-d" title="Link to this heading">#</a></h3>
+<h2>Mock Mode (Development &amp; R&amp;D)<a class="headerlink" href="#mock-mode-development-r-d" title="Link to this heading">#</a></h2>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.connectors.factory</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConnectorFactory</span>
 
 <span class="c1"># Create mock connector - works with ANY channel names</span>
@@ -489,7 +494,7 @@
 </div>
 </section>
 <section id="production-mode-epics">
-<h3>Production Mode (EPICS)<a class="headerlink" href="#production-mode-epics" title="Link to this heading">#</a></h3>
+<h2>Production Mode (EPICS)<a class="headerlink" href="#production-mode-epics" title="Link to this heading">#</a></h2>
 <p>Switch to real hardware by changing <code class="docutils literal notranslate"><span class="pre">type</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># Mock (default, for development):</span>
 <span class="nt">control_system</span><span class="p">:</span>
@@ -509,15 +514,29 @@
 </pre></div>
 </div>
 <p>The Python API is identical – only the config changes.</p>
+<p><strong>Archiver configuration</strong> uses a parallel <code class="docutils literal notranslate"><span class="pre">archiver:</span></code> block. Switch from the mock
+archiver (synthetic data) to the EPICS Archiver Appliance the same way:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># Mock archiver (default, for development):</span>
+<span class="nt">archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mock_archiver</span>
+
+<span class="c1"># Production:</span>
+<span class="nt">archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics_archiver</span>
+<span class="w">  </span><span class="nt">epics_archiver</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">https://archiver.facility.edu:8443</span><span class="w">   </span><span class="c1"># required</span>
+<span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60</span><span class="w">                                </span><span class="c1"># seconds, default 60</span>
+</pre></div>
+</div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>Write operations require explicit opt-in. See <a class="reference internal" href="#write-safety-config"><span class="std std-ref">Write Safety Configuration</span></a> below for the
-<code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> and <code class="docutils literal notranslate"><span class="pre">enable_writes</span></code> settings that control write permissions.</p>
+<code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> setting that controls write permissions.</p>
 </div>
 </section>
 </section>
 <section id="write-verification">
-<h2>Write Verification<a class="headerlink" href="#write-verification" title="Link to this heading">#</a></h2>
+<h1>Write Verification<a class="headerlink" href="#write-verification" title="Link to this heading">#</a></h1>
 <p>All <code class="docutils literal notranslate"><span class="pre">write_channel()</span></code> calls return <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code>:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">connector</span> <span class="o">=</span> <span class="k">await</span> <span class="n">ConnectorFactory</span><span class="o">.</span><span class="n">create_control_system_connector</span><span class="p">()</span>
 
@@ -574,7 +593,7 @@
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">write_verification</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">default_level</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;callback&quot;</span>
-<span class="w">    </span><span class="nt">default_tolerance_percent</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.1</span>
+<span class="w">    </span><span class="nt">default_tolerance_percent</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">0.1</span><span class="w">   </span><span class="c1"># interpreted as percent</span>
 </pre></div>
 </div>
 <p><strong>Per-channel configuration</strong> (in limits database):</p>
@@ -600,25 +619,17 @@
 Channels inherit from <code class="docutils literal notranslate"><span class="pre">defaults</span></code> unless overridden. Set <code class="docutils literal notranslate"><span class="pre">&quot;writable&quot;:</span> <span class="pre">false</span></code> to block
 writes to a channel entirely.</p>
 <section id="write-safety-configuration">
-<span id="write-safety-config"></span><h3>Write Safety Configuration<a class="headerlink" href="#write-safety-configuration" title="Link to this heading">#</a></h3>
+<span id="write-safety-config"></span><h2>Write Safety Configuration<a class="headerlink" href="#write-safety-configuration" title="Link to this heading">#</a></h2>
 <p>Write operations are disabled by default and must be explicitly enabled at two levels:</p>
 <p><strong>Global write permission</strong> (in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>):</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># Master switch for all write operations</span>
 </pre></div>
 </div>
-<p><strong>Per-connector write permission</strong> (mock connector only):</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">mock</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">enable_writes</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">       </span><span class="c1"># Allow writes on this connector</span>
-</pre></div>
-</div>
-<p>The mock connector checks local <code class="docutils literal notranslate"><span class="pre">enable_writes</span></code> first, then falls back to the global
-<code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> setting. If neither is set, writes are disabled (safe default).</p>
+<p>If <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> is omitted, it defaults to <code class="docutils literal notranslate"><span class="pre">false</span></code> and all writes are blocked.</p>
 </section>
 <section id="limits-checking">
-<span id="limits-checking-config"></span><h3>Limits Checking<a class="headerlink" href="#limits-checking" title="Link to this heading">#</a></h3>
+<span id="limits-checking-config"></span><h2>Limits Checking<a class="headerlink" href="#limits-checking" title="Link to this heading">#</a></h2>
 <p>Automatic safety-limit validation for write operations:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">limits_checking</span><span class="p">:</span>
@@ -645,7 +656,7 @@ database format.</p>
 </section>
 </section>
 <section id="implementing-custom-connectors">
-<h2>Implementing Custom Connectors<a class="headerlink" href="#implementing-custom-connectors" title="Link to this heading">#</a></h2>
+<h1>Implementing Custom Connectors<a class="headerlink" href="#implementing-custom-connectors" title="Link to this heading">#</a></h1>
 <p>Subclass <code class="xref py py-class docutils literal notranslate"><span class="pre">ControlSystemConnector</span></code> and implement the abstract methods: <code class="docutils literal notranslate"><span class="pre">connect</span></code>, <code class="docutils literal notranslate"><span class="pre">disconnect</span></code>, <code class="docutils literal notranslate"><span class="pre">read_channel</span></code>, <code class="docutils literal notranslate"><span class="pre">write_channel</span></code>, <code class="docutils literal notranslate"><span class="pre">read_multiple_channels</span></code>, <code class="docutils literal notranslate"><span class="pre">subscribe</span></code>, <code class="docutils literal notranslate"><span class="pre">unsubscribe</span></code>, <code class="docutils literal notranslate"><span class="pre">get_metadata</span></code>, <code class="docutils literal notranslate"><span class="pre">validate_channel</span></code>.</p>
 <p>You may also override the non-abstract <code class="docutils literal notranslate"><span class="pre">write_multiple_channels()</span></code> method if your backend benefits from atomic batch writes (e.g., disabling lattice recalculation between writes in a simulator). The default implementation writes sequentially via <code class="docutils literal notranslate"><span class="pre">write_channel()</span></code>.</p>
 <p>Your connector must return the standard data models from <code class="docutils literal notranslate"><span class="pre">osprey.connectors.control_system.base</span></code>: <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelValue</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelMetadata</span></code>, <code class="xref py py-class docutils literal notranslate"><span class="pre">ChannelWriteResult</span></code>, and <code class="xref py py-class docutils literal notranslate"><span class="pre">WriteVerification</span></code>.</p>
@@ -672,8 +683,16 @@ your connector automatically.</p>
 <span class="n">config</span> <span class="o">=</span> <span class="n">extend_framework_registry</span><span class="p">(</span><span class="n">connectors</span><span class="o">=</span><span class="p">[</span><span class="n">registration</span><span class="p">])</span>
 </pre></div>
 </div>
+<p><strong>Dotted-module-path</strong> (no registration call needed):</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">my_package.connectors.tango_connector.TangoConnector</span>
+</pre></div>
+</div>
+<p>When <code class="docutils literal notranslate"><span class="pre">type</span></code> contains a dot, the factory imports the module via <code class="docutils literal notranslate"><span class="pre">importlib</span></code> and
+instantiates the named class directly – useful for one-off custom connectors that
+don’t need a registry entry.</p>
 <section id="testing-custom-connectors">
-<h3>Testing Custom Connectors<a class="headerlink" href="#testing-custom-connectors" title="Link to this heading">#</a></h3>
+<h2>Testing Custom Connectors<a class="headerlink" href="#testing-custom-connectors" title="Link to this heading">#</a></h2>
 <p>Test in three phases:</p>
 <ol class="arabic simple">
 <li><p><strong>Capability logic</strong> – use <code class="docutils literal notranslate"><span class="pre">type:</span> <span class="pre">mock</span></code> connector, no hardware needed.</p></li>
@@ -688,7 +707,6 @@ your connector automatically.</p>
     <span class="k">return</span> <span class="p">{</span><span class="s1">&#39;type&#39;</span><span class="p">:</span> <span class="s1">&#39;mock&#39;</span><span class="p">,</span> <span class="s1">&#39;connector&#39;</span><span class="p">:</span> <span class="p">{</span><span class="s1">&#39;mock&#39;</span><span class="p">:</span> <span class="p">{}}}</span>
 </pre></div>
 </div>
-</section>
 </section>
 </section>
 
@@ -739,22 +757,24 @@ your connector automatically.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-start-using-connectors">Quick Start: Using Connectors</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#mock-mode-development-r-d">Mock Mode (Development &amp; R&amp;D)</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#production-mode-epics">Production Mode (EPICS)</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#">Add a Connector</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-start-using-connectors">Quick Start: Using Connectors</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mock-mode-development-r-d">Mock Mode (Development &amp; R&amp;D)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#production-mode-epics">Production Mode (EPICS)</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-verification">Write Verification</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#write-safety-configuration">Write Safety Configuration</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#limits-checking">Limits Checking</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#write-verification">Write Verification</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-safety-configuration">Write Safety Configuration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#limits-checking">Limits Checking</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#implementing-custom-connectors">Implementing Custom Connectors</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#testing-custom-connectors">Testing Custom Connectors</a></li>
+<li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#implementing-custom-connectors">Implementing Custom Connectors</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#testing-custom-connectors">Testing Custom Connectors</a></li>
 </ul>
 </li>
 </ul>
+
   </nav></div>
 
   <div class="sidebar-secondary-item">

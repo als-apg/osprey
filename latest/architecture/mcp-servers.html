@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 24, 2026"/>
+    <meta name="docbuild:last-update" content="May 26, 2026"/>
   </head>
   
   
@@ -514,6 +514,7 @@ tools into several functional areas.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">artifact_save</span></code> – Save a file or generated content as a gallery artifact.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">artifact_get</span></code> – Look up an artifact by ID to get its file path and metadata.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">artifact_delete</span></code> – Delete an artifact from the gallery.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">artifact_delete_all</span></code> – Delete all artifacts from the gallery in a single call.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">artifact_export</span></code> – Export an artifact to a different format (e.g., PNG, SVG, PDF).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">artifact_focus</span></code> – Select an artifact in the gallery so the user sees it.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">artifact_pin</span></code> – Pin or unpin an artifact for quick-access filtering.</p></li>
@@ -539,6 +540,16 @@ tools into several functional areas.</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">lattice_set_param</span></code> – Set a magnet family parameter override.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">lattice_refresh</span></code> – Trigger recomputation of lattice figures.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">lattice_set_baseline</span></code> – Snapshot the current state as the comparison baseline.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lattice_clear_baseline</span></code> – Discard the saved comparison baseline.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lattice_get_figure</span></code> – Retrieve a rendered lattice figure (e.g., optics, layout) by name.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lattice_get_data</span></code> – Retrieve the underlying numeric data behind a named figure.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lattice_get_settings</span></code> – Get current dashboard settings (display options, baselines).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">lattice_update_settings</span></code> – Update dashboard settings.</p></li>
+</ul>
+<p><strong>Panels:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">list_panels</span></code> – List the panels available in the Web Terminal (built-in and custom).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">switch_panel</span></code> – Switch the Web Terminal to show a specific panel tab.</p></li>
 </ul>
 <p><strong>Screen Capture:</strong></p>
 <ul class="simple">
@@ -570,6 +581,7 @@ limits enforcement, and timeout protection.</p>
 <p><strong>Tools:</strong></p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">execute</span></code> – Execute Python code with safety checks, process isolation, and timeout.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">execute_file</span></code> – Execute a Python file from the workspace with the same safety envelope as <code class="docutils literal notranslate"><span class="pre">execute</span></code>.</p></li>
 </ul>
 </section>
 </section>

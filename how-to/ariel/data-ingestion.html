@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 24, 2026"/>
+    <meta name="docbuild:last-update" content="May 26, 2026"/>
   </head>
   
   
@@ -375,7 +375,11 @@
 <li class="toctree-l1"><a class="reference internal" href="../use-web-terminal.html">Use the Web Terminal</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-cli-chat.html">Use the CLI Chat Interface</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../use-python-executor.html">Python Execution Service</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Control System Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../add-connector.html">Add a Connector</a></li>
+
+
+
+
 <li class="toctree-l1"><a class="reference internal" href="../use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 current active has-children"><a class="reference internal" href="index.html">Logbook Search Service (ARIEL)</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
 <li class="toctree-l2"><a class="reference internal" href="osprey-integration.html">Osprey Integration</a></li>
@@ -559,8 +563,8 @@ See <a class="reference internal" href="#live-ingestion">Live Ingestion</a> belo
 <input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-0">
 Text Embedding</label><div class="sd-tab-content docutils">
-<p><strong>Module:</strong> <code class="docutils literal notranslate"><span class="pre">enhancement/text_embedding.py</span></code></p>
-<p>Generates vector embeddings for each entry using a configurable embedding model. Embeddings are stored in dedicated per-model tables (e.g., <code class="docutils literal notranslate"><span class="pre">embeddings_nomic_embed_text</span></code>), allowing multiple models to coexist.</p>
+<p><strong>Module:</strong> <code class="docutils literal notranslate"><span class="pre">enhancement/text_embedding/</span></code> (entry point: <code class="docutils literal notranslate"><span class="pre">embedder.py</span></code>)</p>
+<p>Generates vector embeddings for each entry using a configurable embedding model. Embeddings are stored in dedicated per-model tables (e.g., <code class="docutils literal notranslate"><span class="pre">text_embeddings_nomic_embed_text</span></code>), allowing multiple models to coexist.</p>
 <p><strong>Configuration:</strong></p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">enhancement_modules</span><span class="p">:</span>
 <span class="w">  </span><span class="nt">text_embedding</span><span class="p">:</span>
@@ -576,7 +580,7 @@ Text Embedding</label><div class="sd-tab-content docutils">
 <input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-1">
 Semantic Processor</label><div class="sd-tab-content docutils">
-<p><strong>Module:</strong> <code class="docutils literal notranslate"><span class="pre">enhancement/semantic_processor.py</span></code></p>
+<p><strong>Module:</strong> <code class="docutils literal notranslate"><span class="pre">enhancement/semantic_processor/</span></code> (entry point: <code class="docutils literal notranslate"><span class="pre">processor.py</span></code>)</p>
 <p>Uses an LLM to extract keywords and generate summaries for each entry. These fields improve keyword search recall and the quality of context the agent layer surfaces over results.</p>
 <p><strong>Configuration:</strong></p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">enhancement_modules</span><span class="p">:</span>
@@ -766,7 +770,7 @@ in the <code class="docutils literal notranslate"><span class="pre">watch</span>
 </tbody>
 </table>
 </div>
-<p><strong>Per-model embedding tables</strong> (e.g., <code class="docutils literal notranslate"><span class="pre">embeddings_nomic_embed_text</span></code>):</p>
+<p><strong>Per-model embedding tables</strong> (e.g., <code class="docutils literal notranslate"><span class="pre">text_embeddings_nomic_embed_text</span></code>):</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
 <col style="width: 25.0%" />
@@ -831,7 +835,7 @@ in the <code class="docutils literal notranslate"><span class="pre">watch</span>
 </section>
 <section id="migration-system">
 <h2>Migration System<a class="headerlink" href="#migration-system" title="Link to this heading">#</a></h2>
-<p>Migrations are run via <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">migrate</span></code> and managed by the <code class="docutils literal notranslate"><span class="pre">run_migrations()</span></code> function in <code class="docutils literal notranslate"><span class="pre">database/migrate.py</span></code>. The migration system automatically creates embedding tables based on the <code class="docutils literal notranslate"><span class="pre">enhancement_modules.text_embedding.models</span></code> configuration.</p>
+<p>Migrations are run via <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">migrate</span></code> and managed by the <code class="docutils literal notranslate"><span class="pre">run_migrations()</span></code> function in <code class="docutils literal notranslate"><span class="pre">database/migrations.py</span></code>. The migration system automatically creates embedding tables based on the <code class="docutils literal notranslate"><span class="pre">enhancement_modules.text_embedding.models</span></code> configuration.</p>
 <div class="outreach admonition">
 <p class="admonition-title">Schema Evolution</p>
 <p>The current schema was designed around three facility logbook formats (ALS, JLab, ORNL) and may not capture every field your facility needs. The <code class="docutils literal notranslate"><span class="pre">metadata</span></code> JSONB column provides flexibility for facility-specific extras, but if your logbook requires a fundamentally different table structure, please open a pull request or contact us — the ingestion and storage layers are designed to accommodate new schemas without disrupting existing ones.</p>

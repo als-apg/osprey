@@ -217,9 +217,10 @@ Verify:
 
    osprey --version
 
-OSPREY versions follow the ``YYYY.MM.MICRO`` `CalVer <https://calver.org/>`_
-scheme — the first two segments identify the release window, the micro
-segment increments for hotfixes. See ``CHANGELOG.md`` for details.
+OSPREY versions follow the ``YYYY.M.P`` `CalVer <https://calver.org/>`_
+scheme (e.g. ``2026.5.1``; git tags carry a ``v`` prefix, e.g. ``v2026.5.1``)
+— the first two segments identify the release window and the patch segment
+increments for hotfixes. See ``CHANGELOG.md`` for details.
 
 You're done! 🎉
 -----------------

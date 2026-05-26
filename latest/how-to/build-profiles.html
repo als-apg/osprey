@@ -500,7 +500,7 @@ window.addEventListener("load", load);</script>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 24, 2026"/>
+    <meta name="docbuild:last-update" content="May 26, 2026"/>
   </head>
   
   
@@ -810,7 +810,11 @@ window.addEventListener("load", load);</script>
 <li class="toctree-l1"><a class="reference internal" href="use-web-terminal.html">Use the Web Terminal</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Control System Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
+
+
+
+
 <li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
@@ -904,7 +908,7 @@ custom MCP servers) from <strong>what OSPREY provides</strong> (agents, rules, h
 <p>The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> command takes a YAML profile and produces a standalone Osprey agent
 project. The profile declares:</p>
 <ul class="simple">
-<li><p><strong>Base template</strong> to start from (<code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> or <code class="docutils literal notranslate"><span class="pre">hello_world</span></code>)</p></li>
+<li><p><strong>Data bundle</strong> to start from (<code class="docutils literal notranslate"><span class="pre">control_assistant</span></code>, <code class="docutils literal notranslate"><span class="pre">hello_world</span></code>, or <code class="docutils literal notranslate"><span class="pre">ariel_standalone</span></code>)</p></li>
 <li><p><strong>Config overrides</strong> for the generated <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (dot-notation)</p></li>
 <li><p><strong>File overlays</strong> that copy facility data into the project</p></li>
 <li><p><strong>MCP server definitions</strong> to inject custom tools</p></li>
@@ -1001,7 +1005,7 @@ resolution runs.</p>
 <p>Create a minimal profile and build:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># my-facility-dev.yml</span>
 <span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;My</span><span class="nv"> </span><span class="s">Facility</span><span class="nv"> </span><span class="s">(Dev)&quot;</span>
-<span class="nt">base_template</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control_assistant</span>
+<span class="nt">data_bundle</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control_assistant</span>
 <span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic</span>
 <span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sonnet</span>
 <span class="nt">requires_osprey_version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&gt;=2026.5.0&quot;</span>
@@ -1039,10 +1043,11 @@ a complete Osprey agent project at <code class="docutils literal notranslate"><s
 <td><p><em>required</em></p></td>
 <td><p>Human-readable profile name.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">base_template</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">data_bundle</span></code></p></td>
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">control_assistant</span></code></p></td>
-<td><p>App template to use. See <code class="docutils literal notranslate"><span class="pre">src/osprey/templates/apps/</span></code>.</p></td>
+<td><p>App template (data bundle) to use. Valid: <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code>,
+<code class="docutils literal notranslate"><span class="pre">hello_world</span></code>, <code class="docutils literal notranslate"><span class="pre">ariel_standalone</span></code>. See <code class="docutils literal notranslate"><span class="pre">src/osprey/templates/apps/</span></code>.</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">provider</span></code></p></td>
 <td><p>string</p></td>
@@ -1496,11 +1501,11 @@ the profiles repository at runtime.</p>
 <p>After building, the project contains:</p>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>built-project/
 ├── .claude/
-│   ├── agents/           # From manifest (channel-finder, data-visualizer, ...)
-│   ├── rules/            # From manifest (safety, error-handling, ...)
-│   ├── hooks/            # From manifest (approval, writes-check, limits, ...)
-│   ├── skills/           # From manifest (diagnose, session-report, ...)
-│   ├── output-styles/    # From manifest (control-operator)
+│   ├── agents/           # From preset profile (channel-finder, data-visualizer, ...)
+│   ├── rules/            # From preset profile (safety, error-handling, ...)
+│   ├── hooks/            # From preset profile (approval, writes-check, limits, ...)
+│   ├── skills/           # From preset profile (diagnose, session-report, ...)
+│   ├── output-styles/    # From preset profile (control-operator)
 │   └── settings.json     # Permissions, hooks, model config
 ├── .mcp.json             # MCP server configurations
 ├── CLAUDE.md             # Generated system prompt
@@ -1510,10 +1515,11 @@ the profiles repository at runtime.</p>
 └── ...
 </pre></div>
 </div>
-<p>Which agents, rules, hooks, and skills are included is controlled by the template’s
-<code class="docutils literal notranslate"><span class="pre">manifest.yml</span></code> — not by the profile. The profile can override <strong>data and config</strong> but
-not the set of Osprey agent artifacts. To add new agents or rules, modify the OSPREY
-template (see <a class="reference internal" href="add-mcp-server.html"><span class="doc">Add an MCP Server</span></a>).</p>
+<p>Which agents, rules, hooks, and skills are included is controlled by the
+bundled preset profile (<code class="docutils literal notranslate"><span class="pre">src/osprey/profiles/presets/&lt;bundle&gt;.yml</span></code>) — not
+by your user profile. Your profile can override <strong>data and config</strong> but not
+the set of Osprey agent artifacts. To change the artifact set, edit the
+preset profile for that data bundle directly.</p>
 </section>
 <section id="troubleshooting">
 <h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h2>

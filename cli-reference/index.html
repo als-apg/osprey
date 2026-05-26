@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 24, 2026"/>
+    <meta name="docbuild:last-update" content="May 26, 2026"/>
   </head>
   
   
@@ -375,7 +375,11 @@
 <li class="toctree-l1"><a class="reference internal" href="../how-to/use-web-terminal.html">Use the Web Terminal</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../how-to/use-cli-chat.html">Use the CLI Chat Interface</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../how-to/use-python-executor.html">Python Execution Service</a></li>
-<li class="toctree-l1"><a class="reference internal" href="../how-to/add-connector.html">Control System Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/add-connector.html">Add a Connector</a></li>
+
+
+
+
 <li class="toctree-l1"><a class="reference internal" href="../how-to/use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="../how-to/ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="../how-to/ariel/osprey-integration.html">Osprey Integration</a></li>
@@ -490,7 +494,9 @@ osprey<span class="w"> </span>vendor<span class="w">             </span><span cl
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">config</span> <span class="pre">export</span> <span class="pre">[--output</span> <span class="pre">PATH]</span> <span class="pre">[--format</span> <span class="pre">yaml|json]</span></code></dt><dd><p>Export framework default configuration template.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">config</span> <span class="pre">set-control-system</span> <span class="pre">SYSTEM_TYPE</span> <span class="pre">[--project</span> <span class="pre">PATH]</span></code></dt><dd><p>Switch connector: <code class="docutils literal notranslate"><span class="pre">mock</span></code>, <code class="docutils literal notranslate"><span class="pre">epics</span></code>, <code class="docutils literal notranslate"><span class="pre">tango</span></code>, <code class="docutils literal notranslate"><span class="pre">labview</span></code>.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">config</span> <span class="pre">set-control-system</span> <span class="pre">SYSTEM_TYPE</span> <span class="pre">[--project</span> <span class="pre">PATH]</span></code></dt><dd><p>Switch connector: <code class="docutils literal notranslate"><span class="pre">mock</span></code> or <code class="docutils literal notranslate"><span class="pre">epics</span></code>. (Other control systems are
+reachable through custom connector packages — see
+<a class="reference internal" href="../how-to/add-connector.html"><span class="doc">Add a Connector</span></a>.)</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">config</span> <span class="pre">set-epics-gateway</span> <span class="pre">[--facility</span> <span class="pre">als|aps|custom]</span> <span class="pre">[--address]</span> <span class="pre">[--port]</span></code></dt><dd><p>Configure EPICS gateway using facility presets or custom values.</p>
 </dd>
@@ -619,12 +625,21 @@ channel databases.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">preview</span></code></dt><dd><p>Preview a channel database with flexible display options.</p>
 </dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">generate</span> <span class="pre">[--output-dir</span> <span class="pre">DIR]</span> <span class="pre">[--source</span> <span class="pre">PATH]</span> <span class="pre">[--format</span> <span class="pre">in_context|hierarchical|middle_layer|all]</span> <span class="pre">[--tier</span> <span class="pre">1|2|3|none]</span> <span class="pre">[--validate]</span></code></dt><dd><p>Generate channel databases from a hierarchical template. Produces one
+or more pipeline formats (default: all three) with optional tier filtering.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">benchmark</span> <span class="pre">--model</span> <span class="pre">PROVIDER/WIRE_ID</span> <span class="pre">[--queries</span> <span class="pre">SPEC]</span> <span class="pre">[--runs-per-query</span> <span class="pre">N]</span> <span class="pre">[--concurrency</span> <span class="pre">N]</span> <span class="pre">[--output-dir</span> <span class="pre">DIR]</span> <span class="pre">[--queries-path</span> <span class="pre">PATH]</span> <span class="pre">[-v]</span></code></dt><dd><p>Run the benchmark harness against a channel-finder pipeline using a
+LiteLLM-form model id (e.g. <code class="docutils literal notranslate"><span class="pre">anthropic/claude-haiku-4-5</span></code>). Saves per-run
+JSON results for accuracy/cost analysis.</p>
+</dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">channel-finder</span> <span class="pre">web</span></code></dt><dd><p>Launch the Channel Finder web interface.</p>
 </dd>
 </dl>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>build-database
 osprey<span class="w"> </span>channel-finder<span class="w"> </span>validate
 osprey<span class="w"> </span>channel-finder<span class="w"> </span>preview
+osprey<span class="w"> </span>channel-finder<span class="w"> </span>generate<span class="w"> </span>--format<span class="w"> </span>hierarchical
+osprey<span class="w"> </span>channel-finder<span class="w"> </span>benchmark<span class="w"> </span>--model<span class="w"> </span>anthropic/claude-haiku-4-5
 osprey<span class="w"> </span>channel-finder<span class="w"> </span>web
 </pre></div>
 </div>
@@ -635,6 +650,8 @@ osprey<span class="w"> </span>channel-finder<span class="w"> </span>web
 <p><code class="docutils literal notranslate"><span class="pre">quickstart</span> <span class="pre">[--source</span> <span class="pre">PATH]</span></code> – Full setup: migrate and ingest demo data.</p>
 <p><code class="docutils literal notranslate"><span class="pre">status</span> <span class="pre">[--json]</span></code> – Show service status.</p>
 <p><code class="docutils literal notranslate"><span class="pre">migrate</span></code> – Create or update database tables.</p>
+<p><code class="docutils literal notranslate"><span class="pre">sync</span> <span class="pre">[--limit</span> <span class="pre">N]</span></code> – Idempotent migrate + incremental ingest + enhance.
+Safe to run on every build; on a fresh database, runs a full ingest.</p>
 <dl class="simple">
 <dt><code class="docutils literal notranslate"><span class="pre">ingest</span> <span class="pre">--source</span> <span class="pre">PATH</span> <span class="pre">[--adapter</span> <span class="pre">TYPE]</span> <span class="pre">[--since</span> <span class="pre">DATE]</span> <span class="pre">[--limit</span> <span class="pre">N]</span> <span class="pre">[--dry-run]</span></code></dt><dd><p>Ingest logbook entries from file or URL.</p>
 </dd>
@@ -643,7 +660,7 @@ osprey<span class="w"> </span>channel-finder<span class="w"> </span>web
 <p><code class="docutils literal notranslate"><span class="pre">enhance</span> <span class="pre">[--module</span> <span class="pre">NAME]</span> <span class="pre">[--force]</span> <span class="pre">[--limit</span> <span class="pre">N]</span></code> – Run enhancement modules.</p>
 <p><code class="docutils literal notranslate"><span class="pre">models</span></code> – List embedding models and tables.</p>
 <dl class="simple">
-<dt><code class="docutils literal notranslate"><span class="pre">search</span> <span class="pre">QUERY</span> <span class="pre">[--mode</span> <span class="pre">auto|keyword|semantic|rag]</span> <span class="pre">[--limit</span> <span class="pre">N]</span> <span class="pre">[--json]</span></code></dt><dd><p>Execute a search query.</p>
+<dt><code class="docutils literal notranslate"><span class="pre">search</span> <span class="pre">QUERY</span> <span class="pre">[--mode</span> <span class="pre">keyword|semantic]</span> <span class="pre">[--limit</span> <span class="pre">N]</span> <span class="pre">[--json]</span></code></dt><dd><p>Execute a search query (default mode: <code class="docutils literal notranslate"><span class="pre">keyword</span></code>).</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">reembed</span> <span class="pre">--model</span> <span class="pre">NAME</span> <span class="pre">--dimension</span> <span class="pre">N</span> <span class="pre">[--batch-size</span> <span class="pre">N]</span> <span class="pre">[--force]</span></code></dt><dd><p>Re-embed entries with a different model.</p>
 </dd>

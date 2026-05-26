@@ -61,11 +61,11 @@
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
     <link rel="next" title="Logbook Search Service (ARIEL)" href="ariel/index.html" />
-    <link rel="prev" title="Control System Integration" href="add-connector.html" />
+    <link rel="prev" title="Add a Connector" href="add-connector.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 24, 2026"/>
+    <meta name="docbuild:last-update" content="May 26, 2026"/>
   </head>
   
   
@@ -375,7 +375,11 @@
 <li class="toctree-l1"><a class="reference internal" href="use-web-terminal.html">Use the Web Terminal</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
-<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Control System Integration</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
+
+
+
+
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">How to Use the Channel Finder</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
@@ -585,10 +589,15 @@ osprey<span class="w"> </span>channel-finder<span class="w"> </span>web<span cla
 </section>
 <section id="framework-integration">
 <span id="channel-finder-framework-integration"></span><h2>Framework Integration<a class="headerlink" href="#framework-integration" title="Link to this heading">#</a></h2>
-<p>The <code class="docutils literal notranslate"><span class="pre">ChannelFinderService</span></code> class remains the core business logic layer and
-can be used independently of the framework:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">service</span> <span class="o">=</span> <span class="n">ChannelFinderService</span><span class="p">()</span>
-<span class="n">result</span> <span class="o">=</span> <span class="k">await</span> <span class="n">service</span><span class="o">.</span><span class="n">find_channels</span><span class="p">(</span><span class="s2">&quot;beam current&quot;</span><span class="p">)</span>
+<p>Each pipeline is exposed to the agent through a dedicated MCP server
+(<code class="docutils literal notranslate"><span class="pre">channel_finder_in_context</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_finder_hierarchical</span></code>,
+<code class="docutils literal notranslate"><span class="pre">channel_finder_middle_layer</span></code>). The active server is selected from
+<code class="docutils literal notranslate"><span class="pre">channel_finder.pipeline_mode</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and wired into the
+agent automatically by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code>. There is no public Python
+<code class="docutils literal notranslate"><span class="pre">find_channels(...)</span></code> entry point — drive the resolver from natural
+language via the agent, or invoke the CLI directly:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>generate<span class="w">     </span><span class="c1"># build database from template</span>
+osprey<span class="w"> </span>channel-finder<span class="w"> </span>benchmark<span class="w">    </span><span class="c1"># evaluate on a query dataset</span>
 </pre></div>
 </div>
 <div class="admonition tip">
@@ -615,7 +624,7 @@ service source into your project for custom modifications.</p>
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Control System Integration</p>
+        <p class="prev-next-title">Add a Connector</p>
       </div>
     </a>
     <a class="right-next"
