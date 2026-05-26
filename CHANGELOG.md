@@ -20,11 +20,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 - Documentation cleanup pass over `docs/source/`: resync getting-started, how-to, architecture, and reference pages with the current codebase; fix stale APIs, config keys, and cross-references accumulated since the native-capabilities migration.
 - **`pyepics` promoted to base dependencies.** EPICS connector users no longer need `pip install "osprey-framework[dev]"` to get a working EPICS install; pyepics is used in three production paths (control_system connector, limits_validator, python_executor wrapper).
+- **`claude-agent-sdk` upgraded to 0.2.87** (lockfile + venv now match `pyproject.toml`; PR #231 bumped the pin without regenerating the lock). Bundles CLI 2.1.150; CBORG/als-apg/anthropic-direct routing re-verified — the old "0.1.27+ breaks CBORG" warning was stale.
 
 ### Fixed
 
 - `BaseStore`: in-process lock fixes a lost-update race between the gallery index-watcher thread and same-process saves.
 - `quick_check.sh` / `ci_check.sh` prune stale `__pycache__` + empty dirs so a deleted package can't resurface as a namespace package locally.
+- e2e SDK trace collector now reads sub-agent transcripts via `list_subagents`/`get_subagent_messages`. CLI ≥2.1.x stopped streaming sub-agent messages through `query()`, blinding delegation/viz/search e2e tests; they observe sub-agent tool calls again.
 
 ### Removed
 

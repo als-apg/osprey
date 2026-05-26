@@ -17,8 +17,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-05-18T17:48:27.183271Z"
-exclude-newer-span = "P7D"
+exclude-newer = "2099-01-02T08:00:00Z"
 
 [[package]]
 name = "accelerator-toolbox"
@@ -608,18 +607,20 @@ wheels = [
 
 [[package]]
 name = "claude-agent-sdk"
-version = "0.1.26"
+version = "0.2.87"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "mcp" },
+    { name = "sniffio" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cc/c5/587e4d22188726d2c7ac11f3146f4ef7f7f1864cdc31a183edcbb6eb8367/claude_agent_sdk-0.1.26.tar.gz", hash = "sha256:b03124346111c018b1ae77f537d4f7dcc62dcfd97db634cc142a057b0b051a9b", size = 57211, upload-time = "2026-01-30T20:48:54.152Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/26/dc/e2afd59a1dd6484b6500245fa2331a0d8c0b68e6c180bc29d8ce9540f38a/claude_agent_sdk-0.2.87.tar.gz", hash = "sha256:56f02a49a97f7be37e0cd7323494d1c09e52fb0db7ab94f53bba8a230bb4bd0e", size = 252063, upload-time = "2026-05-23T04:19:25Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a8/ce/0e80d9c141547595b230d33e18d5f940c84bf5560f42d0ed16026290cd67/claude_agent_sdk-0.1.26-py3-none-macosx_11_0_arm64.whl", hash = "sha256:344408b83576cef9b98d12826ae74a347bd6fe6f31c5ff7e6b0e3b73fcd37666", size = 53901821, upload-time = "2026-01-30T20:48:40.182Z" },
-    { url = "https://files.pythonhosted.org/packages/42/bc/f7e8180ee4721c81d88fd4b83478f779a11f7a95dfdf354fb4209f4f30af/claude_agent_sdk-0.1.26-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:940fc82b0d222ee07b6d20e31063aa255533cabc02f1e404c35b9ea6786b4d43", size = 68106745, upload-time = "2026-01-30T20:48:44.012Z" },
-    { url = "https://files.pythonhosted.org/packages/85/88/dc8da2a38b3441c3c8a35ab26229daa3fdfd67f7e461ca9ab497d70a1589/claude_agent_sdk-0.1.26-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:aa5d5eb90a662912ce77c6023af1471c7e6bdfeb193dd945d4a170785206eda3", size = 69819882, upload-time = "2026-01-30T20:48:47.338Z" },
-    { url = "https://files.pythonhosted.org/packages/57/c7/9b3ddc3bc1c70b7372a6ee0a3de5627662e126946ad0f3d5a6a0d551941a/claude_agent_sdk-0.1.26-py3-none-win_amd64.whl", hash = "sha256:789235d9b7dd4df61f86b735b2563926dbf23e78e81e78d6b8177506567cc005", size = 72001402, upload-time = "2026-01-30T20:48:51.22Z" },
+    { url = "https://files.pythonhosted.org/packages/6c/4e/b83c4c6ec1e0b63e9d4d58ba9a5abfd9936c55b8ee4c06b88f5e93bdfd70/claude_agent_sdk-0.2.87-py3-none-macosx_11_0_arm64.whl", hash = "sha256:52204a9609dec3aa96032afd48c07d72e05d13311faf614978f17b61326e6e31", size = 63037960, upload-time = "2026-05-23T04:19:29.056Z" },
+    { url = "https://files.pythonhosted.org/packages/13/d7/5fb02260c5b95c66e108c35e046d4d66011921251f7896274b6b21594f14/claude_agent_sdk-0.2.87-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:1713e34e50b830ecac54386d39af14e3a2775f833f1ef715eb53566eaa1b6325", size = 65095745, upload-time = "2026-05-23T04:19:32.533Z" },
+    { url = "https://files.pythonhosted.org/packages/1d/84/1061f6580bbbc78de629467abf051cdbbabe71b982297b401e3fde65c7e0/claude_agent_sdk-0.2.87-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:e9e23119d2a02ad1ea1a2707214db98f5baf2c8809577186629843ddfcb8ec18", size = 72725120, upload-time = "2026-05-23T04:19:36.539Z" },
+    { url = "https://files.pythonhosted.org/packages/04/50/449f5044d76d9de18cf6a9f4b1c9386a74f41b4e2da5312df245d9dd23ef/claude_agent_sdk-0.2.87-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:5ac525d9ae3481296df5639d005e12ce2b6b0427426991f35da64db30be25c6e", size = 72875504, upload-time = "2026-05-23T04:19:40.839Z" },
+    { url = "https://files.pythonhosted.org/packages/80/dd/3f9d7c491d5a98138d293192b31cc9ed792d3552b3a7e276163d7fe2d43a/claude_agent_sdk-0.2.87-py3-none-win_amd64.whl", hash = "sha256:f34973669a1efaeb1543e7b22d7b22feefd8af2fae3adfd39181635077dae432", size = 73514880, upload-time = "2026-05-23T04:19:44.65Z" },
 ]
 
 [[package]]
@@ -3123,7 +3124,7 @@ requires-dist = [
     { name = "caproto" },
     { name = "certifi", specifier = ">=2025.4.26" },
     { name = "charset-normalizer", specifier = ">=3.4.2" },
-    { name = "claude-agent-sdk", specifier = "==0.1.26" },
+    { name = "claude-agent-sdk", specifier = "==0.2.87" },
     { name = "click", specifier = ">=8.1.0" },
     { name = "docker", marker = "extra == 'all'", specifier = ">=7.0.0" },
     { name = "docker", marker = "extra == 'dev'", specifier = ">=7.0.0" },
