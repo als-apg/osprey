@@ -468,6 +468,7 @@
 <ul class="simple">
 <li><p><strong>mock</strong> / <strong>mock_archiver</strong>: Development/R&amp;D mode (no hardware access required)</p></li>
 <li><p><strong>epics</strong> / <strong>epics_archiver</strong>: EPICS Channel Access / Archiver Appliance (production)</p></li>
+<li><p><strong>mongodb_archiver</strong>: MongoDB time-series archiver (optional, <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span> <span class="pre">&quot;osprey-framework[archiver-mongodb]&quot;</span></code>)</p></li>
 </ul>
 </section>
 <section id="quick-start-using-connectors">
@@ -532,6 +533,29 @@ archiver (synthetic data) to the EPICS Archiver Appliance the same way:</p>
 <p class="admonition-title">Note</p>
 <p>Write operations require explicit opt-in. See <a class="reference internal" href="#write-safety-config"><span class="std std-ref">Write Safety Configuration</span></a> below for the
 <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> setting that controls write permissions.</p>
+</div>
+</section>
+<section id="mongodb-archiver">
+<h2>MongoDB Archiver<a class="headerlink" href="#mongodb-archiver" title="Link to this heading">#</a></h2>
+<p>For facilities that store time-series PV data in MongoDB rather than EPICS Archiver
+Appliance, configure the archiver block independently of the control-system choice:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongodb_archiver</span>
+<span class="w">  </span><span class="nt">mongodb_archiver</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">mongodb.facility.edu</span>
+<span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">27017</span>
+<span class="w">    </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">archiver_db</span>
+<span class="w">    </span><span class="nt">collection</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">pv_data</span>
+<span class="w">    </span><span class="nt">auth</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">admin</span>
+<span class="w">    </span><span class="nt">username</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">readonly</span>
+<span class="w">    </span><span class="nt">password_env</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">MONGODB_READONLY_PASSWORD</span>
+</pre></div>
+</div>
+<p>Documents in the collection are expected to have a <code class="docutils literal notranslate"><span class="pre">date</span></code> field (<code class="docutils literal notranslate"><span class="pre">ISODate</span></code>) and
+PV names as top-level fields: <code class="docutils literal notranslate"><span class="pre">{date:</span> <span class="pre">ISODate(...),</span> <span class="pre">PV1:</span> <span class="pre">value1,</span> <span class="pre">PV2:</span> <span class="pre">value2,</span> <span class="pre">...}</span></code>.
+The connector requires the optional <code class="docutils literal notranslate"><span class="pre">archiver-mongodb</span></code> extra:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;osprey-framework[archiver-mongodb]&quot;</span>
+</pre></div>
 </div>
 </section>
 </section>
@@ -762,6 +786,7 @@ don’t need a registry entry.</p>
 <li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-start-using-connectors">Quick Start: Using Connectors</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mock-mode-development-r-d">Mock Mode (Development &amp; R&amp;D)</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#production-mode-epics">Production Mode (EPICS)</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mongodb-archiver">MongoDB Archiver</a></li>
 </ul>
 </li>
 <li class="toc-h1 nav-item toc-entry"><a class="reference internal nav-link" href="#write-verification">Write Verification</a><ul class="visible nav section-nav flex-column">
