@@ -116,26 +116,18 @@ class TestAuditObservability:
             "No PNG files found and no artifact_save calls. The plot may not have been persisted."
         )
 
-        # Tool ordering: channel before archiver, archiver before final plot tool
-        # The LLM may retry or reorder intermediate calls, so we check that
-        # *some* archiver call precedes the *last* plot tool call.
-        tool_names = result.tool_names
-        channel_indices = [
-            i for i, n in enumerate(tool_names) if n.startswith("mcp__channel-finder__")
-        ]
-        archiver_indices = [i for i, n in enumerate(tool_names) if "archiver" in n]
-        plot_indices = [i for i, n in enumerate(tool_names) if any(p in n for p in plot_tool_names)]
-        if channel_indices and archiver_indices and plot_indices:
-            assert min(channel_indices) < max(archiver_indices), (
-                f"Expected a channel-finder call before an archiver call. "
-                f"Channel indices: {channel_indices}, archiver: {archiver_indices}. "
-                f"Full order: {tool_names}"
-            )
-            assert min(archiver_indices) < max(plot_indices), (
-                f"Expected an archiver call before the final plot tool. "
-                f"Archiver indices: {archiver_indices}, plot: {plot_indices}. "
-                f"Full order: {tool_names}"
-            )
+        # NOTE: We intentionally do NOT assert chronological tool ordering.
+        # Sub-agent tool calls are harvested from the CLI side files *after*
+        # the main query() stream and appended to tool_traces (see
+        # sdk_helpers._harvest_subagent_traces), so result.tool_names is not a
+        # globally time-ordered sequence once the agent delegates — and Haiku
+        # routinely runs channel-finding and plotting in sub-agents. An index
+        # check like min(channel_indices) < max(archiver_indices) then compares
+        # a late-appended sub-agent index against an early main-stream index
+        # and fails even when the agent acted in the correct causal order. The
+        # "channel_find / archiver_read / plot tool were all invoked"
+        # assertions above already capture the workflow; cross-agent ordering
+        # is unreconstructable from append order.
 
         # ================================================================
         # TIER 2: Audit observability (transcript-based)
