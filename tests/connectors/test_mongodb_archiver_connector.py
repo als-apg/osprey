@@ -319,9 +319,11 @@ class TestGetDataMethod:
         connector = MongoDBArchiverConnector()
         await connector.connect(mongodb_config)
 
-        # Get data for first 6 hours
+        # Get first 6 hourly samples. The connector's range query is inclusive
+        # on both ends ($gte/$lte), so end_date is the timestamp of the last
+        # sample we want, not the exclusive upper bound.
         start_date = mongodb_test_data["start_date"]
-        end_date = datetime(2024, 1, 1, 6, 0, 0)
+        end_date = datetime(2024, 1, 1, 5, 0, 0)
 
         df = await connector.get_data(
             pv_list=["BEAM:CURRENT"],
@@ -329,7 +331,7 @@ class TestGetDataMethod:
             end_date=end_date,
         )
 
-        assert len(df) == 6  # 6 hours of data (hourly intervals)
+        assert len(df) == 6  # hourly samples at 00:00..05:00 inclusive
         assert df.index[0] >= start_date
         assert df.index[-1] <= end_date
 
