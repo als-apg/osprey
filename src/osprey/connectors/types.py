@@ -12,7 +12,8 @@ EPICS = "epics"
 # -- Archiver connector types --
 MOCK_ARCHIVER = "mock_archiver"
 EPICS_ARCHIVER = "epics_archiver"
+MONGODB_ARCHIVER = "mongodb_archiver"
 
 # -- CLI choice lists (only types with implementations) --
 CLI_CONTROL_SYSTEM_TYPES = [MOCK, EPICS]
-CLI_ARCHIVER_TYPES = [MOCK_ARCHIVER, EPICS_ARCHIVER]
+CLI_ARCHIVER_TYPES = [MOCK_ARCHIVER, EPICS_ARCHIVER, MONGODB_ARCHIVER]

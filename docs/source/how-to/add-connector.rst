@@ -19,6 +19,7 @@ The Control System Integration system provides a **two-layer abstraction** for w
 
 - **mock** / **mock_archiver**: Development/R&D mode (no hardware access required)
 - **epics** / **epics_archiver**: EPICS Channel Access / Archiver Appliance (production)
+- **mongodb_archiver**: MongoDB time-series archiver (optional, ``pip install "osprey-framework[archiver-mongodb]"``)
 
 
 Quick Start: Using Connectors
@@ -91,6 +92,33 @@ archiver (synthetic data) to the EPICS Archiver Appliance the same way:
 
    Write operations require explicit opt-in. See :ref:`write-safety-config` below for the
    ``writes_enabled`` setting that controls write permissions.
+
+MongoDB Archiver
+----------------
+
+For facilities that store time-series PV data in MongoDB rather than EPICS Archiver
+Appliance, configure the archiver block independently of the control-system choice:
+
+.. code-block:: yaml
+
+   archiver:
+     type: mongodb_archiver
+     mongodb_archiver:
+       host: mongodb.facility.edu
+       port: 27017
+       name: archiver_db
+       collection: pv_data
+       auth: admin
+       username: readonly
+       password_env: MONGODB_READONLY_PASSWORD
+
+Documents in the collection are expected to have a ``date`` field (``ISODate``) and
+PV names as top-level fields: ``{date: ISODate(...), PV1: value1, PV2: value2, ...}``.
+The connector requires the optional ``archiver-mongodb`` extra:
+
+.. code-block:: bash
+
+   pip install "osprey-framework[archiver-mongodb]"
 
 
 Write Verification

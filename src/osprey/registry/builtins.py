@@ -6,7 +6,7 @@ that all Osprey applications build upon.
 .. seealso:: :class:`RegistryConfigProvider`, :class:`RegistryManager`
 """
 
-from osprey.connectors.types import EPICS, EPICS_ARCHIVER, MOCK, MOCK_ARCHIVER
+from osprey.connectors.types import EPICS, EPICS_ARCHIVER, MOCK, MOCK_ARCHIVER, MONGODB_ARCHIVER
 
 from .base import (
     ArielEnhancementModuleRegistration,
@@ -77,6 +77,13 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     module_path="osprey.connectors.archiver.epics_archiver_connector",
                     class_name="EPICSArchiverConnector",
                     description="EPICS Archiver Appliance connector",
+                ),
+                ConnectorRegistration(
+                    name=MONGODB_ARCHIVER,
+                    connector_type="archiver",
+                    module_path="osprey.connectors.archiver.mongodb_archiver_connector",
+                    class_name="MongoDBArchiverConnector",
+                    description="MongoDB archiver connector for time-series PV data",
                 ),
             ],
             # ARIEL search modules
