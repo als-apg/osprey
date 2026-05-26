@@ -28,6 +28,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 - `quick_check.sh` / `ci_check.sh` prune stale `__pycache__` + empty dirs so a deleted package can't resurface as a namespace package locally.
 - e2e SDK trace collector now reads sub-agent transcripts via `list_subagents`/`get_subagent_messages`. CLI ≥2.1.x stopped streaming sub-agent messages through `query()`, blinding delegation/viz/search e2e tests; they observe sub-agent tool calls again.
 - `hello_world` preset triggered "OSPREY APPROVAL REQUIRED" on `channel_read`. Its `config.yml.j2` shipped without an `approval:` block, so after the `global_mode` removal (May 5) every MCP tool fell through to `default_policy: "always"`. Added the standard per-tool policies (`channel_read: skip`, `channel_write: always`, ...) matching the other presets.
+- channel-finder `in_context`/`middle_layer` MCP servers crashed on startup (missing required `workspace_root` arg after RF-001); both now resolve it like the other servers.
 
 ### Removed
 
