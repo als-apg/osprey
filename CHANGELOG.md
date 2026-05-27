@@ -13,6 +13,8 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- New e2e scenario `tests/e2e/test_corrector_limit_honest_refusal_scenario.py` — asserts the agent's *behavior under refusal* (no channel-shopping, no intent-splitting, no false success, clear safety-attribution, operator looped in), complementing the existing mechanism-level safety tests. Two-layer grading (deterministic + LLM judge).
+
 ### Changed
 
 ### Fixed
