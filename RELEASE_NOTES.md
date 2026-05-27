@@ -1,21 +1,18 @@
-# Osprey Framework - Latest Release (v2026.5.1)
+# Osprey Framework - Latest Release (v2026.5.2)
 
-**Paradigm-agnostic channel finder, ARIEL standalone, and the v2026.5.0 cleanup batch**
+**Reliability & integrations: SDK sub-agent trace collection restored, e2e suite stabilized, plus a MongoDB archiver and per-project Claude Code CLI pinning**
 
 ## Highlights
 
-- **Paradigm-agnostic channel finder.** `in_context` / `hierarchical` / `middle_layer` share one tier-resolved query set; `control_assistant` ships all 9 tier DBs.
-- **ARIEL standalone preset.** Logbook deployment without the control-system stack — see the [standalone deployment guide](https://als-apg.github.io/osprey/how-to/ariel/standalone-deployment.html).
-- **Virtual-accelerator scenarios.** Mock archiver emits seeded correlated events for operator-style investigation tests.
-- **Cleanup batch.** `osprey build` after `uv tool install` (#216), `osprey deploy up` on service-less presets, `suffix_map` in channel addresses, ARGO base URL (#214), E2E green again on CI.
+- **SDK sub-agent traces restored.** Claude Code CLI ≥2.1.x stopped streaming sub-agent messages through `query()`, blinding delegation/viz/search e2e tests. The trace collector now reads sub-agent transcripts via `list_subagents`/`get_subagent_messages`.
+- **MongoDB archiver connector.** New `mongodb_archiver` type for MongoDB time-series collections — `pip install "osprey-framework[archiver-mongodb]"` (ports PR #84).
+- **Per-project Claude Code CLI pinning.** New `claude_code.cli_version` field launches via `npx -y @anthropic-ai/claude-code@<version>` to insulate projects from upstream CLI breakage (#218).
+- **e2e stabilization.** Multi-step agentic-pipeline tests get `@pytest.mark.flaky(reruns=2)` to absorb rare Haiku stochastic misses; deterministic safety/approval/delegation tests stay strict.
 
-## Breaking
+## Notable changes
 
-- `prompts` → `scaffold` (CLI, web, Python, config) — no shim.
-- ARIEL internal RAG / Agent pipelines removed; drop `pipelines.rag` / `pipelines.agent` from configs.
-- Channel-finder hierarchical schema: bare-numeric device IDs.
-- `build-interview` skill renamed to `osprey-build-interview`.
-- `channel_finder_mode="all"` removed.
+- `pyepics` promoted to base dependencies — EPICS users no longer need the `[dev]` extra.
+- `claude-agent-sdk` upgraded to 0.2.87 (lockfile + venv now match); CBORG/als-apg/anthropic routing re-verified.
 
 ## Installation
 

@@ -13,6 +13,16 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+### Changed
+
+### Fixed
+
+### Removed
+
+## [2026.5.2] - 2026-05-27
+
+### Added
+
 - Pin Claude Code CLI version per project. New `claude_code.cli_version` config field; when set, OSPREY launches via `npx -y @anthropic-ai/claude-code@<version>` instead of bare `claude`. Use to insulate projects from upstream CC breakage (#218). Verified by `osprey health`; bypass with `osprey claude chat --no-pin`.
 - **MongoDB archiver connector.** New `mongodb_archiver` type for querying MongoDB time-series collections; install via `pip install "osprey-framework[archiver-mongodb]"` and configure with `archiver.type: mongodb_archiver` plus host/database/collection/auth settings. Ports PR #84 (RemiLehe) onto the current registry; documents are expected to have shape `{date: ISODate, PV1: value, PV2: value, ...}`.
 
