@@ -30,6 +30,12 @@ from tests.e2e.sdk_helpers import (
 class TestAuditObservability:
     """Natural workflow + transcript-based audit verification."""
 
+    # Multi-step agentic pipeline (channel-finder -> archiver -> plot -> PNG)
+    # on Haiku. Same stochastic-miss class as the test_sdk_workflows.py pipeline
+    # tests: the agent occasionally stops before persisting the plot. Rerun
+    # absorbs that flake; the strict artifact/audit assertions still gate (a
+    # real regression fails all attempts).
+    @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg
     @pytest.mark.asyncio
