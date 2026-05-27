@@ -98,6 +98,12 @@ class TestClaudeCodeSDKIntegration:
     # Test 2 — Archiver + plot (hardcoded channels, no channel-finder)
     # -------------------------------------------------------------------
 
+    # Multi-step agentic pipeline: the Haiku orchestrator must chain
+    # delegation + tool calls autonomously. Observed ~5%/run stochastic miss
+    # where it stops after an intermediate sub-agent result. The deterministic
+    # assertions below are correct (a real regression fails all reruns); the
+    # rerun only absorbs that rare LLM nondeterminism.
+    @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.slow
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg
@@ -196,6 +202,11 @@ class TestClaudeCodeSDKIntegration:
     # Test 3 — Full BPM correlation pipeline (channel-finder -> archiver -> plot)
     # -------------------------------------------------------------------
 
+    # Most demanding orchestration in the suite (3 chained steps + 2 plots) on
+    # the weakest model. 15/15 local passes; one CI miss where the orchestrator
+    # stopped after channel-finder without calling archiver_read. Rerun absorbs
+    # that stochastic miss without weakening the strict assertions below.
+    @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.slow
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg
@@ -316,6 +327,10 @@ class TestClaudeCodeSDKIntegration:
     # Test 4 — 3D scatter plot via data-visualizer subagent
     # -------------------------------------------------------------------
 
+    # Multi-step agentic pipeline (archiver -> data-visualizer subagent). Same
+    # stochastic-miss class as the other pipeline tests; rerun absorbs the rare
+    # LLM nondeterminism while the strict viz/3D-code assertions still gate.
+    @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.slow
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg

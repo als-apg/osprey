@@ -39,6 +39,18 @@ try:
 except ImportError:
     HAS_SDK = False
 
+# Sub-agent transcript readers — added in SDK 0.1.46, present in 0.2.87.
+# Claude Code CLI >= 2.1.x no longer streams sub-agent messages through the
+# ``query()`` iterator; they are written to side files under
+# ``~/.claude/projects/<proj>/<session>/subagents/agent-*.jsonl``. These
+# helpers parse those files so delegation traces are observable again.
+try:
+    from claude_agent_sdk import get_subagent_messages, list_subagents
+
+    HAS_SUBAGENT_READERS = True
+except ImportError:
+    HAS_SUBAGENT_READERS = False
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -370,6 +382,87 @@ def _ingest_tool_result(block: ToolResultBlock, pending_tools: dict[str, ToolTra
     matched.is_error = bool(block.is_error)
 
 
+def _result_text(content: Any) -> str:
+    """Flatten a tool_result ``content`` field (str or list of blocks) to text."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        texts = [
+            item.get("text", "")
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        ]
+        return "\n".join(texts) if texts else str(content)
+    return "" if content is None else str(content)
+
+
+def _harvest_subagent_traces(
+    workflow: SDKWorkflowResult,
+    pending_tools: dict[str, ToolTrace],
+    project_dir: Path,
+) -> None:
+    """Append sub-agent tool calls that never streamed through ``query()``.
+
+    Claude Code CLI >= 2.1.x writes sub-agent transcripts to side files rather
+    than streaming them through the SDK iterator. We read them back via the
+    SDK's ``list_subagents`` / ``get_subagent_messages`` helpers and append any
+    tool calls not already captured (deduped by ``tool_use_id``), tagging each
+    with a non-``None`` ``parent_tool_use_id`` so delegation tests can tell
+    sub-agent activity apart from main-agent activity.
+
+    Best-effort: a parsing failure here must not fail an otherwise-successful
+    run, so the caller still sees whatever the stream yielded.
+    """
+    if not HAS_SUBAGENT_READERS or workflow.result is None:
+        return
+    session_id = workflow.result.session_id
+    if not session_id:
+        return
+
+    directory = str(project_dir)
+    try:
+        agent_ids = list_subagents(session_id, directory=directory)
+    except Exception:
+        return
+
+    for agent_id in agent_ids:
+        try:
+            messages = get_subagent_messages(session_id, agent_id, directory=directory)
+        except Exception:
+            continue
+        for sm in messages:
+            msg = getattr(sm, "message", None)
+            content = msg.get("content") if isinstance(msg, dict) else None
+            if not isinstance(content, list):
+                continue
+            # A sub-agent message has no parent_tool_use_id of its own at the
+            # top level for tool_use blocks; fall back to the agent id so the
+            # trace is always attributable to a sub-agent (non-None).
+            parent_id = getattr(sm, "parent_tool_use_id", None) or agent_id
+            for block in content:
+                if not isinstance(block, dict):
+                    continue
+                btype = block.get("type")
+                if btype == "tool_use":
+                    tool_id = block.get("id")
+                    if tool_id in pending_tools:
+                        continue  # already captured via the stream
+                    trace = ToolTrace(
+                        name=block.get("name", ""),
+                        input=block.get("input", {}) or {},
+                        tool_use_id=tool_id,
+                        parent_tool_use_id=parent_id,
+                    )
+                    workflow.tool_traces.append(trace)
+                    if tool_id is not None:
+                        pending_tools[tool_id] = trace
+                elif btype == "tool_result":
+                    matched = pending_tools.get(block.get("tool_use_id"))
+                    if matched is not None:
+                        matched.result = _result_text(block.get("content"))
+                        matched.is_error = bool(block.get("is_error"))
+
+
 async def run_sdk_query(
     project_dir: Path,
     prompt: str,
@@ -452,6 +545,10 @@ async def run_sdk_query(
     except Exception as exc:
         stderr_output = "\n".join(stderr_lines) if stderr_lines else "(no stderr captured)"
         raise RuntimeError(f"SDK query failed: {exc}\n\nCLI stderr:\n{stderr_output}") from exc
+
+    # Sub-agent tool calls don't stream through query() on CLI >= 2.1.x; read
+    # them from the on-disk transcripts so delegation tests can observe them.
+    _harvest_subagent_traces(workflow, pending_tools, project_dir)
 
     return workflow
 
@@ -600,6 +697,9 @@ async def run_sdk_query_with_hooks(
     except Exception as exc:
         stderr_output = "\n".join(stderr_lines) if stderr_lines else "(no stderr captured)"
         raise RuntimeError(f"SDK query failed: {exc}\n\nCLI stderr:\n{stderr_output}") from exc
+
+    # See run_sdk_query: sub-agent tool calls live in on-disk transcripts.
+    _harvest_subagent_traces(workflow, pending_tools, project_dir)
 
     workflow.hook_events = hook_events
     return workflow

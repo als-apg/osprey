@@ -476,15 +476,12 @@ class TestClaudeExecutesArchiverAndPlots:
             image_artifacts = [a for a in entries if a.get("artifact_type", "").startswith("image")]
             print(f"  artifact store: {len(entries)} entries, {len(image_artifacts)} images")
 
-        # Output mentions relevant terms (belt-and-suspenders)
-        output_lower = result.stdout.lower()
-        assert any(term in output_lower for term in ["archiver", "data", "retrieved", "channel"]), (
-            f"Output doesn't mention archiver/data terms. Output: {result.stdout[:500]}"
-        )
-
-        assert any(
-            term in output_lower for term in ["plot", "figure", "png", "image", "chart", "saved"]
-        ), f"Output doesn't mention plot terms. Output: {result.stdout[:500]}"
+        # NOTE: We do NOT scan the agent's closing --print message for plot
+        # vocabulary. That message is free-form and model-dependent (Haiku
+        # sometimes ends with "what would you like me to do next?" even after
+        # completing the task), so the scan flaked while the workflow had
+        # actually succeeded. The data-file and PNG assertions above are the
+        # authoritative proof that archiver_read ran and a plot was persisted.
 
         print(f"  data files: {len(data_files)}")
         print(f"  PNG files: {[p.name for p in png_files]}")
@@ -577,17 +574,10 @@ class TestClaudeFullBpmAnalysisPipeline:
             image_artifacts = [a for a in entries if a.get("artifact_type", "").startswith("image")]
             print(f"  artifact store: {len(entries)} entries, {len(image_artifacts)} images")
 
-        # Output contains BPM-related terms
-        output_lower = result.stdout.lower()
-        assert any(term in output_lower for term in ["bpm", "channel", "position", "beam"]), (
-            f"Output doesn't mention BPM terms. Output: {result.stdout[:500]}"
-        )
-
-        # Output mentions plotting
-        assert any(
-            term in output_lower
-            for term in ["plot", "figure", "correlation", "timeseries", "chart", "png"]
-        ), f"Output doesn't mention plot terms. Output: {result.stdout[:500]}"
+        # NOTE: No scan of the agent's closing --print message for BPM/plot
+        # vocabulary. That message is free-form and model-dependent, so the
+        # scan flaked while the workflow had succeeded. The data-file and PNG
+        # assertions above are the authoritative proof of the pipeline.
 
         print(f"  data files: {len(data_files)}")
         print(f"  PNG files: {[p.name for p in png_files]}")

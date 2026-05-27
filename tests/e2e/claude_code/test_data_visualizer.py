@@ -29,6 +29,11 @@ class TestDataVisualizerAgent:
     # Test 1 — Interactive plot with data_source parameter
     # -------------------------------------------------------------------
 
+    # Multi-step agentic pipeline (archiver -> data-visualizer ->
+    # create_interactive_plot -> HTML artifact) on Haiku. Same stochastic-miss
+    # class as the other pipeline tests; rerun absorbs the rare LLM
+    # nondeterminism while the strict viz/artifact assertions still gate.
+    @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.slow
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg
@@ -150,6 +155,11 @@ class TestDataVisualizerAgent:
     # Test 2 — Archiver → data-visualizer → interactive HTML artifact
     # -------------------------------------------------------------------
 
+    # Multi-step agentic pipeline (archiver -> data-visualizer ->
+    # create_interactive_plot -> HTML artifact) on Haiku. Same stochastic-miss
+    # class as the other pipeline tests; rerun absorbs the rare LLM
+    # nondeterminism while the strict viz/artifact assertions still gate.
+    @pytest.mark.flaky(reruns=2, reruns_delay=5)
     @pytest.mark.slow
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg

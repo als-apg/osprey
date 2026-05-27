@@ -20,11 +20,18 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 - Documentation cleanup pass over `docs/source/`: resync getting-started, how-to, architecture, and reference pages with the current codebase; fix stale APIs, config keys, and cross-references accumulated since the native-capabilities migration.
 - **`pyepics` promoted to base dependencies.** EPICS connector users no longer need `pip install "osprey-framework[dev]"` to get a working EPICS install; pyepics is used in three production paths (control_system connector, limits_validator, python_executor wrapper).
+- **`claude-agent-sdk` upgraded to 0.2.87** (lockfile + venv now match `pyproject.toml`; PR #231 bumped the pin without regenerating the lock). Bundles CLI 2.1.150; CBORG/als-apg/anthropic-direct routing re-verified — the old "0.1.27+ breaks CBORG" warning was stale.
 
 ### Fixed
 
 - `BaseStore`: in-process lock fixes a lost-update race between the gallery index-watcher thread and same-process saves.
 - `quick_check.sh` / `ci_check.sh` prune stale `__pycache__` + empty dirs so a deleted package can't resurface as a namespace package locally.
+- e2e SDK trace collector now reads sub-agent transcripts via `list_subagents`/`get_subagent_messages`. CLI ≥2.1.x stopped streaming sub-agent messages through `query()`, blinding delegation/viz/search e2e tests; they observe sub-agent tool calls again.
+- `test_channel_read_archiver_plot_with_audit`: dropped the chronological tool-ordering assertions. Harvested sub-agent traces are appended after the main stream, so `tool_names` isn't time-ordered once the agent delegates (the norm on Haiku); the ordering check failed spuriously even when the workflow was correct and the PNG persisted.
+- `test_claude_code_build_integration` archiver+plot tests: dropped the belt-and-suspenders scan of the agent's closing `--print` message for plot/BPM vocabulary. That message is free-form and model-dependent (Haiku sometimes ends with "what next?"), so it flaked while the PNG/data-file artifact assertions — the authoritative workflow check — still passed.
+- `hello_world` preset triggered "OSPREY APPROVAL REQUIRED" on `channel_read`. Its `config.yml.j2` shipped without an `approval:` block, so after the `global_mode` removal (May 5) every MCP tool fell through to `default_policy: "always"`. Added the standard per-tool policies (`channel_read: skip`, `channel_write: always`, ...) matching the other presets.
+- channel-finder `in_context`/`middle_layer` MCP servers crashed on startup (missing required `workspace_root` arg after RF-001); both now resolve it like the other servers.
+- Multi-step agentic-pipeline e2e tests now `@pytest.mark.flaky(reruns=2)`: the discover→fetch→plot/persist-artifact tests in `test_sdk_workflows.py` (×3), `test_audit_observability.py`, and `test_data_visualizer.py` (×2). The Haiku orchestrator occasionally (~5%/run) stops before completing the pipeline or persisting the plot. Reruns absorb that stochastic miss while every deterministic assertion stays strict — a real regression fails all attempts. Deterministic safety/approval/delegation e2e tests are intentionally left strict. Adds `pytest-rerunfailures` dev dep.
 
 ### Removed
 

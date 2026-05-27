@@ -102,6 +102,25 @@ control_system:
     timeout: 5.0  # Default timeout in seconds
 
 # ============================================================
+# HUMAN-IN-THE-LOOP APPROVAL
+# ============================================================
+# Per-tool approval policies enforced by the osprey_approval PreToolUse hook.
+# default_policy is fail-closed ("always"): any tool not listed here will
+# require approval, so reads need an explicit "skip" entry.
+
+approval:
+  enabled: true
+  default_policy: "always"        # Fail-closed: unknown tools require approval
+  tools:
+    channel_write: always          # Always prompt for hardware writes
+    channel_read: skip             # Read-only, no approval needed
+    channel_limits: skip           # Read-only safety metadata, no approval needed
+    archiver_read: skip            # Historical data, no approval needed
+    execute: selective             # Content-aware: checks write patterns + exec mode
+    setup_patch: always            # Config mutation needs approval
+    entry_create: always           # ARIEL logbook write
+
+# ============================================================
 # EXECUTION INFRASTRUCTURE
 # ============================================================
 
