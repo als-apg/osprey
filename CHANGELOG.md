@@ -17,7 +17,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- `data-visualizer` subagent now defaults to `create_interactive_plot` when the caller does not explicitly request a static figure. Fixes the case where vague requests (e.g. "3D waterfall plot") produced an unreadable fixed-viewpoint matplotlib image instead of a rotatable Plotly view.
+
 ### Fixed
+
+- `rules/data-visualization.md` is now gated on the data-visualizer subagent being disabled. When the subagent is enabled (the default), CLAUDE.md forbids the main agent from calling `create_static_plot` / `create_interactive_plot` / `create_dashboard` / `python_execute` / `Write`, so shipping a rule that teaches those tools was contradictory context. The file is now a `.md.j2` template that renders empty (and is auto-unlinked) when the subagent is enabled.
 
 ### Removed
 

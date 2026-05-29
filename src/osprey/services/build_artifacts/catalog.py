@@ -131,9 +131,9 @@ def _get_default_artifacts() -> list[BuildArtifact]:
         ),
         BuildArtifact(
             canonical_name="rules/data-visualization",
-            template_path="claude/rules/data-visualization.md",
+            template_path="claude/rules/data-visualization.md.j2",
             output_path=".claude/rules/data-visualization.md",
-            description="Matplotlib and plot artifact conventions",
+            description="Matplotlib and plot artifact conventions (rendered only when the data-visualizer agent is disabled)",
         ),
         BuildArtifact(
             canonical_name="rules/control-system-safety",
