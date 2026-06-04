@@ -375,6 +375,8 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
         try:
             await queue.put({"type": "error", "message": "cancelled by user"})
         except Exception:
+            # Best-effort SSE notify during cancellation: the run is already
+            # recorded as cancelled above, so a closed/full queue here is non-fatal.
             pass
         raise
     except Exception as exc:

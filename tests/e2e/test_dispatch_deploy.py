@@ -215,9 +215,14 @@ def _runs_by_trigger() -> dict[str, dict]:
     """Snapshot the dispatcher run feed keyed by trigger_name (latest wins).
 
     The dispatcher's /dashboard/runs proxies the worker feed and enriches each
-    run with the trigger_name that produced it — read endpoint, no auth.
+    run with the trigger_name that produced it. It is a bearer-gated read endpoint,
+    so the snapshot must send the same EVENT_DISPATCHER_TOKEN written to .env above.
     """
-    req = urllib.request.Request(f"{DISPATCHER_URL}/dashboard/runs", method="GET")  # noqa: S310
+    req = urllib.request.Request(  # noqa: S310
+        f"{DISPATCHER_URL}/dashboard/runs",
+        method="GET",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+    )
     with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
         runs = json.loads(resp.read().decode("utf-8"))
     by_trigger: dict[str, dict] = {}

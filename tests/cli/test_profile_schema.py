@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-import osprey.cli.build_profile as bp
+from osprey.cli import build_profile as bp
 from osprey.cli.build_profile import (
     BuildProfile,
     DispatchConfig,

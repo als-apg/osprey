@@ -129,6 +129,8 @@ def _terminate(proc: subprocess.Popen | None) -> None:
         try:
             proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
+            # Process ignored SIGKILL within the grace window; teardown is
+            # best-effort, so leave it for the OS to reap rather than hang the test.
             pass
 
 
@@ -308,7 +310,8 @@ def _wait_for_run(dispatcher_url: str, dispatch_id: str, worker_proc: subprocess
     process, surfacing an extra phantom run with no dispatch_id. Matching the
     dispatch_id ignores that phantom and pins the assertion to the run we fired.
     The dispatcher's /dashboard/runs proxies the worker feed and enriches each run
-    with its dispatch_id (read endpoint, no auth).
+    with its dispatch_id. It is a bearer-gated read endpoint, so the poll must send
+    the same EVENT_DISPATCHER_TOKEN the dispatcher was started with.
     """
     deadline = time.monotonic() + RUN_TIMEOUT_SEC
     while time.monotonic() < deadline:
@@ -317,7 +320,11 @@ def _wait_for_run(dispatcher_url: str, dispatch_id: str, worker_proc: subprocess
                 f"worker exited mid-run (rc={worker_proc.returncode}).\n"
                 f"{_drain_output(worker_proc)}"
             )
-        runs = _http_get_json(f"{dispatcher_url}/dashboard/runs", timeout=5.0)
+        runs = _http_get_json(
+            f"{dispatcher_url}/dashboard/runs",
+            timeout=5.0,
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
         assert isinstance(runs, list)
         for run in runs:
             if run.get("dispatch_id") == dispatch_id and run.get("status") in (
