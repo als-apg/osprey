@@ -51,3 +51,30 @@ class TestMakeToolAllowlist:
 
         assert isinstance(result, PermissionResultDeny)
         assert "Write" in result.message
+
+    async def test_denylist_overrides_allowlist(self):
+        """A tool on the denylist is rejected even if it is also in the allowlist."""
+        callback = make_tool_allowlist(["Bash", "Read"], denied=["Bash"])
+
+        result = await callback("Bash", {"command": "ls"}, ToolPermissionContext())
+
+        assert isinstance(result, PermissionResultDeny)
+        assert "denylist" in result.message
+
+    async def test_denylist_wildcard_prefix(self):
+        """``*``-suffix denylist entries block by prefix; the allowlist can't rescue them."""
+        tool = "mcp__plugin_playwright_playwright__browser_click"
+        callback = make_tool_allowlist([tool], denied=["mcp__plugin_playwright_playwright__*"])
+
+        result = await callback(tool, {}, ToolPermissionContext())
+
+        assert isinstance(result, PermissionResultDeny)
+        assert "denylist" in result.message
+
+    async def test_empty_denylist_is_noop(self):
+        """The default empty denylist leaves the allowlist behavior unchanged."""
+        callback = make_tool_allowlist(["Read"])
+
+        result = await callback("Read", {}, ToolPermissionContext())
+
+        assert isinstance(result, PermissionResultAllow)

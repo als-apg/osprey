@@ -11,6 +11,7 @@ Exposes:
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import logging
 import os
@@ -196,6 +197,15 @@ DENIED_TOOLS: set[str] = {
     "WebFetch",
     "WebSearch",
     "mcp__plugin_playwright_playwright__*",
+    # Arbitrary shell access from a headless, unattended run is never warranted —
+    # the safety story is the per-trigger allowlist + MCP tools, not a raw shell.
+    # ``Bash`` runs commands; ``BashOutput`` reads a background shell's output;
+    # ``KillShell`` (the current CLI name; older builds used ``KillBash``) kills
+    # one. Deny all three.
+    "Bash",
+    "BashOutput",
+    "KillShell",
+    "KillBash",
 }
 
 
@@ -220,33 +230,48 @@ def _is_denied(tool: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def _sweep_stale_runs() -> None:
+    """One cleanup sweep: mark stale pending runs as error (cancelling their
+    orphaned tasks) and discard old SSE queues.
+
+    Extracted from the periodic loop so it is directly unit-testable without
+    driving the ``while True`` / ``sleep`` loop.
+    """
+    now = time.time()
+    stale_cutoff = DISPATCH_TIMEOUT_SEC + 30
+
+    for run_id, run in list(_runs.items()):
+        if run.get("status") == "pending":
+            created = run.get("created_at", 0)
+            if created and (now - created) > stale_cutoff:
+                logger.warning(
+                    "Marking stale run %s as error (pending > %ds)", run_id, stale_cutoff
+                )
+                _runs[run_id] = {
+                    **run,
+                    "status": "error",
+                    "error": f"Timed out after {stale_cutoff}s",
+                    "completed_at": now,
+                }
+                # Cancel the orphaned task so its Claude CLI subprocess exits;
+                # marking the run error alone would leave it running.
+                task = _tasks.get(run_id)
+                if task is not None and not task.done():
+                    task.cancel()
+
+    # Clean up unconsumed SSE queues for completed runs
+    for run_id in list(_queues.keys()):
+        run = _runs.get(run_id, {})
+        completed_at = run.get("completed_at")
+        if completed_at and (now - completed_at) > _QUEUE_TTL_SEC:
+            del _queues[run_id]
+
+
 async def _stale_run_cleanup() -> None:
-    """Periodically mark stale pending runs as error and discard old SSE queues."""
+    """Periodically run :func:`_sweep_stale_runs`."""
     while True:
         await asyncio.sleep(60)
-        now = time.time()
-        stale_cutoff = DISPATCH_TIMEOUT_SEC + 30
-
-        for run_id, run in list(_runs.items()):
-            if run.get("status") == "pending":
-                created = run.get("created_at", 0)
-                if created and (now - created) > stale_cutoff:
-                    logger.warning(
-                        "Marking stale run %s as error (pending > %ds)", run_id, stale_cutoff
-                    )
-                    _runs[run_id] = {
-                        **run,
-                        "status": "error",
-                        "error": f"Timed out after {stale_cutoff}s",
-                        "completed_at": now,
-                    }
-
-        # Clean up unconsumed SSE queues for completed runs
-        for run_id in list(_queues.keys()):
-            run = _runs.get(run_id, {})
-            completed_at = run.get("completed_at")
-            if completed_at and (now - completed_at) > _QUEUE_TTL_SEC:
-                del _queues[run_id]
+        _sweep_stale_runs()
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +286,9 @@ def _verify_token(credentials: HTTPAuthorizationCredentials = Depends(_bearer_sc
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="DISPATCH_WORKER_TOKEN is not configured",
         )
-    if credentials.credentials != expected:
+    # Constant-time comparison to avoid leaking the token via timing, matching
+    # the dispatcher's _check_auth / WebhookSource._handle.
+    if not hmac.compare_digest(credentials.credentials, expected):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid bearer token",
@@ -306,6 +333,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
                 allowed_tools=request.allowed_tools,
                 max_turns=request.max_turns,
                 event_queue=queue,
+                denied_tools=DENIED_TOOLS,
             ),
             timeout=DISPATCH_TIMEOUT_SEC,
         )

@@ -10,6 +10,7 @@ import asyncio
 import logging
 import os
 import time
+from collections.abc import Iterable
 from typing import Any
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker.sdk_runner")
@@ -34,12 +35,58 @@ except ImportError:
 
 _DEFAULT_PROJECT_DIR = "/app/project"
 
+# Bounds on per-run captured output. A run's text/tool output is held in memory,
+# persisted to JSON, and proxied to the dashboard, so an adversarial or runaway
+# trigger could otherwise balloon RAM and disk. Oversized payloads are truncated
+# with a marker rather than dropped.
+_MAX_TEXT_OUTPUT = 256 * 1024  # total concatenated assistant text
+_MAX_TOOL_RESULT = 16 * 1024  # per tool-result body
+_MAX_TOOL_CALLS = 200  # number of tool calls retained
+
+# Env-var name hints whose VALUES must be scrubbed from any text we persist or
+# return (provider auth tokens, dispatch bearer tokens, etc.).
+_SECRET_ENV_NAME_HINTS = ("TOKEN", "SECRET", "PASSWORD", "API_KEY")
+_MIN_SECRET_LEN = 12
+
+
+def _secret_values() -> list[str]:
+    """Collect non-trivial secret env values to scrub from run output."""
+    vals: set[str] = set()
+    for name, val in os.environ.items():
+        if (
+            val
+            and len(val) >= _MIN_SECRET_LEN
+            and any(hint in name.upper() for hint in _SECRET_ENV_NAME_HINTS)
+        ):
+            vals.add(val)
+    # Longest-first so a value that contains another is masked whole.
+    return sorted(vals, key=len, reverse=True)
+
+
+def _scrub(text: str | None, secrets: list[str]) -> str | None:
+    """Replace known secret values in ``text`` with ``***`` (best-effort)."""
+    if not text:
+        return text
+    for secret in secrets:
+        if secret in text:
+            text = text.replace(secret, "***")
+    return text
+
+
+def _cap_text(text: str) -> str:
+    """Truncate concatenated assistant text to _MAX_TEXT_OUTPUT with a marker."""
+    if len(text) > _MAX_TEXT_OUTPUT:
+        dropped = len(text) - _MAX_TEXT_OUTPUT
+        return text[:_MAX_TEXT_OUTPUT] + f"\n…[truncated {dropped} chars]"
+    return text
+
 
 async def run_dispatch(
     prompt: str,
     allowed_tools: list[str],
     max_turns: int = 25,
     event_queue: asyncio.Queue | None = None,
+    denied_tools: Iterable[str] = (),
 ) -> dict[str, Any]:
     """Run a prompt headlessly via the Claude Agent SDK.
 
@@ -47,6 +94,9 @@ async def run_dispatch(
         prompt: The prompt to send to the agent.
         allowed_tools: List of tool names the agent may use.
         max_turns: Maximum number of agentic turns (default 25).
+        denied_tools: Hard denylist enforced at the permission layer regardless
+            of ``allowed_tools`` (defense-in-depth; the worker threads its
+            ``DENIED_TOOLS`` here). Entries ending in ``*`` match by prefix.
 
     Returns:
         dict with keys:
@@ -107,7 +157,7 @@ async def run_dispatch(
     options = ClaudeAgentOptions(
         allowed_tools=allowed_tools,
         system_prompt=build_system_prompt(get_facility_timezone()),
-        can_use_tool=make_tool_allowlist(allowed_tools),
+        can_use_tool=make_tool_allowlist(allowed_tools, denied_tools),
         cwd=project_dir,
         env=sdk_env,
         max_turns=max_turns,
@@ -121,6 +171,23 @@ async def run_dispatch(
     pending_tools: dict[str, int] = {}
     cost_usd: float | None = None
     num_turns: int | None = None
+    # Snapshot secret values once so we can scrub them from anything we persist
+    # or return (the SDK env carries provider/auth tokens).
+    secret_values = _secret_values()
+
+    def _finalize(result: dict[str, Any]) -> dict[str, Any]:
+        """Scrub secrets and cap oversized fields before persist/return."""
+        result["text_output"] = _cap_text(
+            _scrub(result.get("text_output") or "", secret_values) or ""
+        )
+        if result.get("error"):
+            result["error"] = _scrub(result["error"], secret_values)
+        if result.get("stderr"):
+            result["stderr"] = _scrub(result["stderr"], secret_values)
+        for tc in result.get("tool_calls") or []:
+            if tc.get("result"):
+                tc["result"] = _scrub(tc["result"], secret_values)
+        return result
 
     async def _push(event: dict[str, Any]) -> None:
         if event_queue is not None:
@@ -140,14 +207,17 @@ async def run_dispatch(
                         text_parts.append(block.text)
                         await _push({"type": "text", "content": block.text})
                     elif isinstance(block, ToolUseBlock):
-                        entry: dict[str, Any] = {
-                            "name": block.name,
-                            "input": block.input,
-                            "result": None,
-                        }
-                        idx = len(tool_calls)
-                        tool_calls.append(entry)
-                        pending_tools[block.id] = idx
+                        # Bound the retained tool-call list; excess calls still
+                        # stream as events but are not accumulated in memory.
+                        if len(tool_calls) < _MAX_TOOL_CALLS:
+                            entry: dict[str, Any] = {
+                                "name": block.name,
+                                "input": block.input,
+                                "result": None,
+                            }
+                            idx = len(tool_calls)
+                            tool_calls.append(entry)
+                            pending_tools[block.id] = idx
                         await _push(
                             {"type": "tool_start", "name": block.name, "input": block.input}
                         )
@@ -167,6 +237,12 @@ async def run_dispatch(
                                 result_text = "\n".join(texts) if texts else str(content)
                             else:
                                 result_text = str(content)
+                            if result_text is not None and len(result_text) > _MAX_TOOL_RESULT:
+                                dropped = len(result_text) - _MAX_TOOL_RESULT
+                                result_text = (
+                                    result_text[:_MAX_TOOL_RESULT]
+                                    + f"\n…[truncated {dropped} chars]"
+                                )
                             tool_calls[idx]["result"] = result_text
                         await _push(
                             {
@@ -192,15 +268,17 @@ async def run_dispatch(
             duration_sec,
         )
         await _push({"type": "done"})
-        return {
-            "status": "completed",
-            "text_output": "".join(text_parts),
-            "tool_calls": tool_calls,
-            "error": None,
-            "duration_sec": round(duration_sec, 2),
-            "cost_usd": cost_usd,
-            "num_turns": num_turns,
-        }
+        return _finalize(
+            {
+                "status": "completed",
+                "text_output": "".join(text_parts),
+                "tool_calls": tool_calls,
+                "error": None,
+                "duration_sec": round(duration_sec, 2),
+                "cost_usd": cost_usd,
+                "num_turns": num_turns,
+            }
+        )
 
     except asyncio.CancelledError:
         # Close the SDK async generator so the CLI subprocess exits via its own
@@ -220,14 +298,16 @@ async def run_dispatch(
             exc,
             exc_info=True,
         )
-        await _push({"type": "error", "message": str(exc)})
-        return {
-            "status": "error",
-            "text_output": "".join(text_parts),
-            "tool_calls": tool_calls,
-            "error": str(exc),
-            "stderr": stderr_output,
-            "duration_sec": round(duration_sec, 2),
-            "cost_usd": cost_usd,
-            "num_turns": num_turns,
-        }
+        await _push({"type": "error", "message": _scrub(str(exc), secret_values)})
+        return _finalize(
+            {
+                "status": "error",
+                "text_output": "".join(text_parts),
+                "tool_calls": tool_calls,
+                "error": str(exc),
+                "stderr": stderr_output,
+                "duration_sec": round(duration_sec, 2),
+                "cost_usd": cost_usd,
+                "num_turns": num_turns,
+            }
+        )

@@ -44,7 +44,7 @@ def client(monkeypatch):
     monkeypatch.setattr(dispatch_api, "_queues", {})
     monkeypatch.setattr(dispatch_api, "_tasks", {})
 
-    async def _fake_run_dispatch(*, prompt, allowed_tools, max_turns, event_queue):
+    async def _fake_run_dispatch(*, prompt, allowed_tools, max_turns, event_queue, denied_tools=()):
         if event_queue is not None:
             await event_queue.put({"type": "done"})
         return dict(_CANNED_RESULT)
@@ -128,6 +128,44 @@ def test_dispatch_rejects_wildcard_denied_tool(client):
     )
     assert resp.status_code == 403
     assert tool in resp.json()["detail"]
+
+
+@pytest.mark.parametrize(
+    ("tool", "expected"),
+    [
+        ("WebFetch", True),
+        ("WebSearch", True),
+        ("Bash", True),
+        ("BashOutput", True),
+        ("KillShell", True),
+        ("KillBash", True),
+        ("mcp__plugin_playwright_playwright__browser_click", True),
+        ("mcp__plugin_playwright_playwright__", True),  # bare prefix still matches
+        ("Read", False),
+        ("Write", False),
+        ("mcp__osprey_workspace__write_channel", False),
+        ("WebFetcher", False),  # not an exact match, not a wildcard entry
+        ("", False),
+    ],
+)
+def test_is_denied_matrix(tool, expected):
+    """The server-side denylist matcher: exact entries + '*'-suffix prefixes."""
+    assert dispatch_api._is_denied(tool) is expected
+
+
+def test_dispatch_denied_tool_schedules_no_run(client):
+    """A denied tool 403s AND never creates a run (nothing enters the store)."""
+    monkey_before = len(dispatch_api._runs)
+    resp = client.post(
+        "/dispatch",
+        json={"prompt": "shell out", "allowed_tools": ["Read", "Bash"]},
+        headers=_auth(),
+    )
+    assert resp.status_code == 403
+    assert "Bash" in resp.json()["detail"]
+    # No run was created and no task was scheduled.
+    assert len(dispatch_api._runs) == monkey_before
+    assert dispatch_api._tasks == {}
 
 
 def test_dispatch_wrong_token(client):
@@ -305,3 +343,94 @@ def test_provision_swallows_regen_errors(tmp_path, monkeypatch):
 
     monkeypatch.setattr("osprey.cli.templates.manager.TemplateManager", _FakeTM, raising=True)
     dispatch_api._provision_claude_artifacts_once()  # must not raise
+
+
+# ---------------------------------------------------------------------------
+# Stale-run sweep cancels orphaned tasks
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sweep_marks_stale_run_error_and_cancels_task(monkeypatch):
+    """A run pending past the cutoff is marked error AND its task is cancelled."""
+    import asyncio
+
+    monkeypatch.setattr(dispatch_api, "_runs", {})
+    monkeypatch.setattr(dispatch_api, "_tasks", {})
+    monkeypatch.setattr(dispatch_api, "_queues", {})
+
+    async def _long_runner():
+        await asyncio.sleep(30)
+
+    task = asyncio.create_task(_long_runner())
+    run_id = "stale-1"
+    stale_cutoff = dispatch_api.DISPATCH_TIMEOUT_SEC + 30
+    dispatch_api._runs[run_id] = {
+        "status": "pending",
+        "created_at": time.time() - (stale_cutoff + 60),
+    }
+    dispatch_api._tasks[run_id] = task
+
+    dispatch_api._sweep_stale_runs()
+
+    assert dispatch_api._runs[run_id]["status"] == "error"
+    assert "Timed out" in dispatch_api._runs[run_id]["error"]
+    # Let the cancellation propagate.
+    await asyncio.sleep(0)
+    assert task.cancelled()
+
+
+@pytest.mark.asyncio
+async def test_sweep_leaves_fresh_pending_run_alone(monkeypatch):
+    monkeypatch.setattr(dispatch_api, "_runs", {})
+    monkeypatch.setattr(dispatch_api, "_tasks", {})
+    monkeypatch.setattr(dispatch_api, "_queues", {})
+
+    dispatch_api._runs["fresh"] = {"status": "pending", "created_at": time.time()}
+    dispatch_api._sweep_stale_runs()
+    assert dispatch_api._runs["fresh"]["status"] == "pending"
+
+
+# ---------------------------------------------------------------------------
+# Worker auth on the remaining gated endpoints
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("get", "/dispatch/some-id"),
+        ("get", "/dispatch/some-id/stream"),
+        ("delete", "/dispatch/some-id"),
+        ("get", "/dashboard/runs"),
+    ],
+)
+def test_gated_endpoint_missing_auth_rejected(client, method, path):
+    """Missing Authorization header is rejected (401 current FastAPI, 403 older)."""
+    resp = getattr(client, method)(path)
+    assert resp.status_code in (401, 403)
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("get", "/dispatch/some-id"),
+        ("delete", "/dispatch/some-id"),
+        ("get", "/dashboard/runs"),
+    ],
+)
+def test_gated_endpoint_wrong_token_401(client, method, path):
+    resp = getattr(client, method)(path, headers={"Authorization": "Bearer wrong"})
+    assert resp.status_code == 401
+
+
+def test_unconfigured_worker_token_fails_closed_500(monkeypatch):
+    """With DISPATCH_WORKER_TOKEN unset, the worker fails closed (500) on a token check."""
+    monkeypatch.delenv("DISPATCH_WORKER_TOKEN", raising=False)
+    monkeypatch.setattr(dispatch_api, "_runs", {})
+    monkeypatch.setattr(dispatch_api, "_queues", {})
+    monkeypatch.setattr(dispatch_api, "_tasks", {})
+    with TestClient(dispatch_api.app) as c:
+        resp = c.get("/dispatch/some-id", headers={"Authorization": "Bearer anything"})
+    assert resp.status_code == 500
+    assert "DISPATCH_WORKER_TOKEN" in resp.json()["detail"]

@@ -37,7 +37,7 @@ def _stub_osprey_helpers(monkeypatch):
     )
     monkeypatch.setattr(
         "osprey.interfaces.web_terminal.sdk_context.make_tool_allowlist",
-        lambda tools: lambda *a, **k: None,
+        lambda tools, denied=(): lambda *a, **k: None,
     )
     monkeypatch.setattr(
         "osprey.utils.config.get_facility_timezone",
@@ -152,3 +152,105 @@ async def test_error_path_does_not_raise(monkeypatch):
 
     events = await _drain(queue)
     assert any(e["type"] == "error" and e["message"] == "boom" for e in events)
+
+
+# ---------------------------------------------------------------------------
+# Per-run memory caps + secret scrubbing (lifecycle robustness)
+# ---------------------------------------------------------------------------
+
+
+def test_cap_text_truncates_with_marker():
+    big = "x" * (sdk_runner._MAX_TEXT_OUTPUT + 5000)
+    capped = sdk_runner._cap_text(big)
+    assert len(capped) < len(big)
+    assert "[truncated" in capped
+
+
+def test_scrub_replaces_secret_values():
+    secrets = ["supersecret-token-123456"]
+    out = sdk_runner._scrub("auth=supersecret-token-123456 done", secrets)
+    assert "supersecret-token-123456" not in out
+    assert "***" in out
+
+
+@pytest.mark.asyncio
+async def test_oversized_text_output_is_truncated(monkeypatch):
+    huge = "y" * (sdk_runner._MAX_TEXT_OUTPUT + 10000)
+
+    async def fake_query(prompt, options):
+        yield AssistantMessage(content=[TextBlock(text=huge)], model="m")
+        yield _result_message(cost_usd=0.1, num_turns=1)
+
+    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
+
+    assert len(result["text_output"]) <= sdk_runner._MAX_TEXT_OUTPUT + 100
+    assert "[truncated" in result["text_output"]
+
+
+@pytest.mark.asyncio
+async def test_secret_scrubbed_from_text_output(monkeypatch):
+    secret = "tok-abcdef-1234567890"  # len >= 12
+    monkeypatch.setenv("ANTHROPIC_AUTH_TOKEN", secret)
+
+    async def fake_query(prompt, options):
+        yield AssistantMessage(content=[TextBlock(text=f"leaked {secret} here")], model="m")
+        yield _result_message(cost_usd=0.1, num_turns=1)
+
+    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
+
+    assert secret not in result["text_output"]
+    assert "***" in result["text_output"]
+
+
+@pytest.mark.asyncio
+async def test_tool_use_and_result_are_captured(monkeypatch):
+    """A ToolUseBlock + matching ToolResultBlock land in tool_calls with the result."""
+    from claude_agent_sdk import ToolResultBlock, ToolUseBlock
+
+    async def fake_query(prompt, options):
+        yield AssistantMessage(
+            content=[ToolUseBlock(id="tu1", name="Read", input={"path": "f"})], model="m"
+        )
+        yield AssistantMessage(
+            content=[ToolResultBlock(tool_use_id="tu1", content="file contents")], model="m"
+        )
+        yield _result_message(cost_usd=0.2, num_turns=2)
+
+    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    queue: asyncio.Queue = asyncio.Queue()
+    result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=queue)
+
+    assert result["status"] == "completed"
+    assert len(result["tool_calls"]) == 1
+    call = result["tool_calls"][0]
+    assert call["name"] == "Read"
+    assert call["input"] == {"path": "f"}
+    assert call["result"] == "file contents"
+
+    events = await _drain(queue)
+    types = [e["type"] for e in events]
+    assert "tool_start" in types
+    assert "tool_result" in types
+
+
+@pytest.mark.asyncio
+async def test_oversized_tool_result_is_truncated(monkeypatch):
+    from claude_agent_sdk import ToolResultBlock, ToolUseBlock
+
+    huge = "z" * (sdk_runner._MAX_TOOL_RESULT + 5000)
+
+    async def fake_query(prompt, options):
+        yield AssistantMessage(content=[ToolUseBlock(id="tu1", name="Read", input={})], model="m")
+        yield AssistantMessage(
+            content=[ToolResultBlock(tool_use_id="tu1", content=huge)], model="m"
+        )
+        yield _result_message(cost_usd=0.1, num_turns=1)
+
+    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    result = await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
+
+    body = result["tool_calls"][0]["result"]
+    assert len(body) <= sdk_runner._MAX_TOOL_RESULT + 100
+    assert "[truncated" in body
