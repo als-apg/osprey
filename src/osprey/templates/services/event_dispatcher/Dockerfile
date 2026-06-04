@@ -20,7 +20,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
-    && npm install -g @anthropic-ai/claude-code \
+    # Pin the Claude Code CLI so an upstream release cannot silently change the
+    # headless agent's behavior between image builds (matches the cli_version
+    # OSPREY documents in config.yml). Bump deliberately.
+    && npm install -g @anthropic-ai/claude-code@2.1.146 \
     && apt-get purge -y curl gnupg \
     && apt-get autoremove -y \
     && rm -rf /var/lib/apt/lists/*

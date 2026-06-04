@@ -33,8 +33,11 @@ services:
       FASTMCP_TRANSPORT: http
       FASTMCP_HOST: 0.0.0.0
       FASTMCP_PORT: "{{ services.event_dispatcher.port | default(8020) }}"
-      EVENT_DISPATCHER_TOKEN: ${EVENT_DISPATCHER_TOKEN:-dev-token}
-      DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN:-dev-token}
+      # No :-default — an unset token must stay EMPTY so the server fails closed
+      # (HTTP 503) rather than booting with a guessable secret. `osprey deploy up`
+      # auto-generates strong random tokens into the project .env when unset.
+      EVENT_DISPATCHER_TOKEN: ${EVENT_DISPATCHER_TOKEN}
+      DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
       TRIGGERS_YML: /app/triggers.yml
       OSPREY_FACILITY_NAME: "{{ services.event_dispatcher.facility_name | default('') }}"
       PV_STRIP_PREFIX: "{{ services.event_dispatcher.pv_strip_prefix | default('') }}"
@@ -52,6 +55,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      # Grace period before failed probes count — the first run also provisions
+      # Claude artifacts and injects provider env, which takes a few seconds.
+      start_period: 30s
 
 networks:
   osprey-network:

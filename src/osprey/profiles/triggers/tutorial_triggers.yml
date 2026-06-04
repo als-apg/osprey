@@ -9,9 +9,10 @@
 #   3. save-report       — tool use, a short multi-turn loop, and persistence
 #   4. denied-tool-demo  — the worker's server-side tool denylist (safety)
 #
-# Fire one with (the dev token below works out of the box):
+# Fire one with (osprey deploy up generates EVENT_DISPATCHER_TOKEN in .env;
+# load it first: export $(grep -E '^EVENT_DISPATCHER_TOKEN=' .env | xargs)):
 #   curl -X POST http://localhost:8020/webhook/hello-dispatch \
-#     -H "Authorization: Bearer dev-token" \
+#     -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \
 #     -H "Content-Type: application/json" -d '{}'
 #
 # Watch progress stream in the dashboard at http://localhost:8020/dashboard
@@ -43,7 +44,7 @@ triggers:
   #    this cheap and focused on the payload lesson. Try it with a realistic
   #    event body, e.g.:
   #      curl -X POST http://localhost:8020/webhook/triage-event \
-  #        -H "Authorization: Bearer dev-token" \
+  #        -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \
   #        -H "Content-Type: application/json" \
   #        -d '{"signal":"demo:vacuum:pressure","value":4.2,"threshold":3.0,"severity":"warning"}'
   - name: triage-event

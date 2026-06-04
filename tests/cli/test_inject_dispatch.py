@@ -136,3 +136,33 @@ def test_inject_dispatch_unresolvable_triggers_raises(tmp_path: Path) -> None:
             profile_dir=profile_dir,
             project_path=project_path,
         )
+
+
+def test_inject_dispatch_propagates_pool_limits(tmp_path: Path) -> None:
+    """A non-default dispatch.max_concurrent_runs/max_queue_depth lands in triggers.yml.
+
+    The dispatcher reads pool limits from triggers.yml at runtime, while the
+    build profile validates them on DispatchConfig — so the copied triggers.yml
+    must be patched to the preset's values, not keep the bundled defaults.
+    """
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    profile_dir = tmp_path / "profile"  # empty — forces bundled resolution
+    profile_dir.mkdir()
+    _write_config(project_path)
+
+    _inject_dispatch(
+        _dispatch(max_concurrent_runs=7, max_queue_depth=33),
+        profile_dir=profile_dir,
+        project_path=project_path,
+    )
+
+    yaml = YAML()
+    with open(project_path / "triggers.yml") as fh:
+        triggers_doc = yaml.load(fh)
+
+    assert triggers_doc["dispatcher"]["max_concurrent_runs"] == 7
+    assert triggers_doc["dispatcher"]["max_queue_depth"] == 33
+    # dispatch_target (and the triggers themselves) are preserved by the patch.
+    assert triggers_doc["dispatcher"]["dispatch_target"]
+    assert any(t["name"] == "hello-dispatch" for t in triggers_doc["triggers"])

@@ -29,6 +29,7 @@ from urllib.parse import unquote, urlparse
 import click
 
 from osprey.errors import BuildProfileError
+from osprey.utils.dotenv import parse_dotenv_file as _load_dotenv
 from osprey.utils.logger import get_logger
 
 from .templates.manager import TemplateManager
@@ -546,35 +547,6 @@ def build(
 
 
 _SHELL_METACHARACTERS = ("|", "&&", "||", "$(", "`")
-
-
-def _load_dotenv(path: Path) -> dict[str, str]:
-    """Parse a .env file into a dict of environment variables.
-
-    Handles KEY=VALUE lines, #comments, blank lines, and quoted values
-    (single or double quotes stripped from value boundaries).
-    """
-    env: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        # Skip lines without =
-        if "=" not in line:
-            continue
-        # Skip `export` prefix (common in .env files)
-        if line.startswith("export "):
-            line = line[7:]
-        key, _, value = line.partition("=")
-        key = key.strip()
-        if not key:
-            continue
-        value = value.strip()
-        # Strip matching surrounding quotes
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-            value = value[1:-1]
-        env[key] = value
-    return env
 
 
 def _format_junit_summary(xml_path: Path) -> None:
@@ -1249,7 +1221,25 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
         triggers_src = _triggers_dir() / dispatch.triggers
     else:
         raise BuildProfileError(f"dispatch.triggers not found: {dispatch.triggers!r}")
-    shutil.copy2(triggers_src, project_path / "triggers.yml")
+    triggers_dest = project_path / "triggers.yml"
+    shutil.copy2(triggers_src, triggers_dest)
+
+    # 1a. Make the preset the single source of truth for pool limits. The bundled
+    # triggers file hardcodes its own dispatcher.max_concurrent_runs/max_queue_depth
+    # (the dispatcher reads them from triggers.yml at runtime), so a profile that
+    # overrides dispatch.max_concurrent_runs/max_queue_depth would otherwise be
+    # silently ignored. Patch the copied file's dispatcher block to match the
+    # validated DispatchConfig.
+    _trigger_yaml = YAML()
+    _trigger_yaml.preserve_quotes = True
+    with open(triggers_dest) as fh:
+        triggers_doc = _trigger_yaml.load(fh)
+    if triggers_doc is not None:
+        dispatcher_block = triggers_doc.setdefault("dispatcher", {})
+        dispatcher_block["max_concurrent_runs"] = dispatch.max_concurrent_runs
+        dispatcher_block["max_queue_depth"] = dispatch.max_queue_depth
+        with open(triggers_dest, "w") as fh:
+            _trigger_yaml.dump(triggers_doc, fh)
 
     # 2. Copy bundled compose templates (located the same way as service templates).
     try:
@@ -1322,8 +1312,13 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     )
     logger.info("    Dashboard:  http://localhost:%d/dashboard", dispatch.dispatcher_port)
     logger.info(
+        "    Token:      `osprey deploy up` writes EVENT_DISPATCHER_TOKEN to .env; "
+        "load it with: export $(grep -E '^EVENT_DISPATCHER_TOKEN=' .env | xargs)"
+    )
+    logger.info(
         "    Try it:     curl -X POST http://localhost:%d/webhook/hello-dispatch "
-        "-H 'Authorization: Bearer dev-token' -H 'Content-Type: application/json' -d '{}'",
+        '-H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" '
+        "-H 'Content-Type: application/json' -d '{}'",
         dispatch.dispatcher_port,
     )
     logger.info(

@@ -103,14 +103,19 @@ Each webhook trigger is reachable at ``POST /webhook/<name>``. The bundled
 Authentication
 ==============
 
-Two bearer tokens, set in the project ``.env`` (both default to ``dev-token``
-so local runs work with zero editing — **set real secrets for any shared
-deployment**):
+Two bearer tokens live in the project ``.env``. ``osprey deploy up``
+auto-generates a strong random value for each one when it is unset (and logs
+where it wrote it), so a containerized deploy is secure by default — no editing
+required. Set your own values in ``.env`` to override:
 
 - ``EVENT_DISPATCHER_TOKEN`` — guards **inbound** webhook and write endpoints.
   Send it as ``Authorization: Bearer <token>``. The dispatcher fails closed
   (HTTP 503) if it is unset.
 - ``DISPATCH_WORKER_TOKEN`` — guards the **dispatcher → worker** calls.
+
+To send a request, read the generated token back from ``.env`` (e.g.
+``export $(grep -E '^EVENT_DISPATCHER_TOKEN=' .env | xargs)``) so the
+``$EVENT_DISPATCHER_TOKEN`` references below resolve.
 
 Running the Pipeline
 ====================
@@ -155,21 +160,30 @@ Running the Pipeline
          dispatcher:
            dispatch_target: http://localhost:9190
 
+      Generate the two bearer tokens once (the containerized path does this for
+      you; here you set them by hand) and export them so both shells share them:
+
+      .. code-block:: bash
+
+         export EVENT_DISPATCHER_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+         export DISPATCH_WORKER_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+
       Start the **worker** (it reads ``config.yml`` to inject the same provider
       auth the web server uses):
 
       .. code-block:: bash
 
          OSPREY_PROJECT_DIR="$PWD" \
-         DISPATCH_WORKER_TOKEN=dev-token DISPATCH_WORKER_PORT=9190 \
+         DISPATCH_WORKER_TOKEN="$DISPATCH_WORKER_TOKEN" DISPATCH_WORKER_PORT=9190 \
            uv run python -m osprey.mcp_server.dispatch_worker
 
-      Start the **dispatcher** in a second shell:
+      Start the **dispatcher** in a second shell (re-export the same two tokens
+      there first):
 
       .. code-block:: bash
 
          TRIGGERS_YML="$PWD/triggers.yml" \
-         EVENT_DISPATCHER_TOKEN=dev-token DISPATCH_WORKER_TOKEN=dev-token \
+         EVENT_DISPATCHER_TOKEN="$EVENT_DISPATCHER_TOKEN" DISPATCH_WORKER_TOKEN="$DISPATCH_WORKER_TOKEN" \
          FASTMCP_TRANSPORT=http FASTMCP_HOST=127.0.0.1 FASTMCP_PORT=8020 \
            uv run python -m osprey.dispatch
 
@@ -182,7 +196,7 @@ passed to the agent as untrusted payload):
 .. code-block:: bash
 
    curl -X POST http://localhost:8020/webhook/hello-dispatch \
-     -H "Authorization: Bearer dev-token" \
+     -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \
      -H "Content-Type: application/json" \
      -d '{}'
 
@@ -191,7 +205,7 @@ To see a payload reach the agent, fire ``triage-event`` with a realistic body:
 .. code-block:: bash
 
    curl -X POST http://localhost:8020/webhook/triage-event \
-     -H "Authorization: Bearer dev-token" \
+     -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \
      -H "Content-Type: application/json" \
      -d '{"signal":"demo:vacuum:pressure","value":4.2,"threshold":3.0,"severity":"warning"}'
 

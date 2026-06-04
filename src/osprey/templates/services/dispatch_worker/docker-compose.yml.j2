@@ -31,7 +31,8 @@ services:
       osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
     restart: unless-stopped
     environment:
-      DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN:-dev-token}
+      # No :-default (see event_dispatcher compose): fail closed on an unset token.
+      DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
       DISPATCH_WORKER_PORT: "{{ services.dispatch_worker.worker_port_base | default(9190) }}"
       DISPATCH_TIMEOUT_SEC: "{{ services.dispatch_worker.timeout_sec | default(300) }}"
       OSPREY_PROJECT_DIR: /app/project
@@ -68,6 +69,9 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      # Grace period before failed probes count — first run provisions Claude
+      # artifacts and injects provider env, which takes a few seconds.
+      start_period: 30s
 {% endfor %}
 
 volumes:

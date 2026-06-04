@@ -96,12 +96,11 @@ dispatch:
 # ── Environment variables ────────────────────────────────────────────────────
 # Bearer tokens guarding the dispatcher's inbound webhook/dashboard auth
 # (EVENT_DISPATCHER_TOKEN) and the dispatcher→worker calls (DISPATCH_WORKER_TOKEN).
-# Both default to "dev-token" so local deployment works with zero .env editing;
-# set real secrets for any shared or production deployment.
+# No defaults on purpose: the dispatch services fail closed on an unset token.
+# `osprey deploy up` auto-generates a strong random value for each unset token
+# into the project .env (and logs where), so a fresh deploy is secure by default
+# with zero editing. Set your own values in .env to override.
 env:
   required:
     - EVENT_DISPATCHER_TOKEN
     - DISPATCH_WORKER_TOKEN
-  defaults:
-    EVENT_DISPATCHER_TOKEN: dev-token
-    DISPATCH_WORKER_TOKEN: dev-token
