@@ -35,6 +35,17 @@ TEST_LIMITS_DB = {
         "max_value": 100.0,
         "writable": True,
     },
+    "Amplifier 2 [J]": {
+        "min_value": 0.0,
+        "max_value": 50.0,
+        "writable": True,
+    },
+    "DDG-AA-ShotCntrl Delay.Ch H": {
+        "writable": True,
+    },
+    "Background density [1e18/cm^3]": {
+        "writable": False,
+    },
 }
 
 
@@ -94,9 +105,9 @@ async def test_summary_mode():
 
     data = extract_response_dict(result)
     assert data["status"] == "success"
-    assert data["summary"]["total_channels"] == 3
-    assert data["summary"]["writable"] == 2
-    assert data["summary"]["read_only"] == 1
+    assert data["summary"]["total_channels"] == 6
+    assert data["summary"]["writable"] == 4
+    assert data["summary"]["read_only"] == 2
     assert data["summary"]["has_step_limit"] == 1
     assert data["summary"]["version"] == "1.0"
     assert data["access_details"]["policy"]["allow_unlisted_channels"] is True
@@ -242,6 +253,43 @@ async def test_pattern_invalid_regex():
 
 
 # ---------------------------------------------------------------------------
+# Literal name search mode
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.unit
+async def test_name_contains_matches_regex_metacharacters_literally():
+    """name_contains uses literal matching for names with [], (), ., ^, etc."""
+    with patch(
+        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        return_value=_make_validator(),
+    ):
+        fn = _get_channel_limits()
+        result = await fn(name_contains="Amplifier 2 [J]")
+
+    data = extract_response_dict(result)
+    channels = data["access_details"]["channels"]
+    assert len(channels) == 1
+    assert "Amplifier 2 [J]" in channels
+
+
+@pytest.mark.unit
+async def test_name_contains_treats_dot_as_literal():
+    """Literal matching should not treat '.' as a regex wildcard."""
+    with patch(
+        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        return_value=_make_validator(),
+    ):
+        fn = _get_channel_limits()
+        result = await fn(name_contains="Delay.Ch")
+
+    data = extract_response_dict(result)
+    channels = data["access_details"]["channels"]
+    assert len(channels) == 1
+    assert "DDG-AA-ShotCntrl Delay.Ch H" in channels
+
+
+# ---------------------------------------------------------------------------
 # Filter mode
 # ---------------------------------------------------------------------------
 
@@ -258,7 +306,7 @@ async def test_filter_writable():
 
     data = extract_response_dict(result)
     channels = data["access_details"]["channels"]
-    assert len(channels) == 2
+    assert len(channels) == 4
     assert all(ch["writable"] is True for ch in channels.values())
 
 
@@ -274,7 +322,7 @@ async def test_filter_read_only():
 
     data = extract_response_dict(result)
     channels = data["access_details"]["channels"]
-    assert len(channels) == 1
+    assert len(channels) == 2
     assert "MAG:QF01:CURRENT:SP" in channels
 
 
@@ -332,6 +380,22 @@ async def test_combined_pattern_and_filter():
     assert "MAG:HCM01:CURRENT:SP" in channels
 
 
+@pytest.mark.unit
+async def test_combined_name_contains_and_filter():
+    """name_contains + filter_by → literal search filtered by property."""
+    with patch(
+        "osprey.connectors.control_system.limits_validator.LimitsValidator.from_config",
+        return_value=_make_validator(),
+    ):
+        fn = _get_channel_limits()
+        result = await fn(name_contains="[", filter_by="read_only")
+
+    data = extract_response_dict(result)
+    channels = data["access_details"]["channels"]
+    assert len(channels) == 1
+    assert "Background density [1e18/cm^3]" in channels
+
+
 # ---------------------------------------------------------------------------
 # Validation errors
 # ---------------------------------------------------------------------------
@@ -343,6 +407,26 @@ async def test_channels_and_pattern_error():
     fn = _get_channel_limits()
     with assert_raises_error(error_type="validation_error") as _exc_ctx:
         await fn(channels=["TEST:PV"], pattern="TEST:.*")
+
+    _exc_ctx["envelope"]
+
+
+@pytest.mark.unit
+async def test_channels_and_name_contains_error():
+    """Both channels and name_contains → validation_error."""
+    fn = _get_channel_limits()
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(channels=["TEST:PV"], name_contains="TEST")
+
+    _exc_ctx["envelope"]
+
+
+@pytest.mark.unit
+async def test_pattern_and_name_contains_error():
+    """Both pattern and name_contains → validation_error."""
+    fn = _get_channel_limits()
+    with assert_raises_error(error_type="validation_error") as _exc_ctx:
+        await fn(pattern="TEST:.*", name_contains="TEST")
 
     _exc_ctx["envelope"]
 
