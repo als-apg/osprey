@@ -309,6 +309,52 @@ class TestErrorHandling:
         # File should not be modified
         assert (project_dir / ".mcp.json").stat().st_mtime == mcp_mtime
 
+    def test_dry_run_clean_after_regen_reports_no_changes(self, tmp_path):
+        """Dry run on a freshly regenerated project reports nothing to change.
+
+        facility.md is create-only (auto-registered user-owned) — a real regen
+        never rewrites an existing copy, so the dry-run comparison must not
+        report it as drift. A phantom diff here makes regen_if_drift perform a
+        full regen (and churn a backup dir) on every web launch / config write,
+        and makes `osprey claude status` report permanent false drift.
+        """
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="dry-clean",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+        manager.regenerate_claude_code(project_dir)
+
+        result = manager.regenerate_claude_code(project_dir, dry_run=True)
+        assert result["changed"] == []
+
+    def test_dry_run_skips_user_owned_artifacts(self, tmp_path):
+        """Dry run mirrors real-regen semantics for ejected (user-owned) files.
+
+        A real regen never rewrites a user-owned artifact, so a customized copy
+        must not show up as drift in the dry-run report.
+        """
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="dry-owned",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+        safety_file = project_dir / ".claude" / "rules" / "safety.md"
+        safety_file.write_text("# My Custom Safety Rules\n")
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config.setdefault("scaffold", {}).setdefault("user_owned", []).append("rules/safety")
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+        manager.regenerate_claude_code(project_dir)
+        assert safety_file.read_text() == "# My Custom Safety Rules\n"
+
+        result = manager.regenerate_claude_code(project_dir, dry_run=True)
+        assert ".claude/rules/safety.md" not in result["changed"]
+        assert result["changed"] == []
+
     def test_dry_run_detects_changes(self, tmp_path):
         """Dry run correctly detects what would change."""
         manager = TemplateManager()
