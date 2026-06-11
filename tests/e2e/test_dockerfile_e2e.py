@@ -22,6 +22,7 @@ e2e-tests CI job (runs in its own dockerfile-e2e job).
 """
 
 import os
+import platform
 import shutil
 import subprocess
 import uuid
@@ -49,10 +50,18 @@ pytestmark = [
 BUILD_TIMEOUT = 1800  # cold image build downloads base layers + pip deps
 RUN_TIMEOUT = 300
 
+# OSPREY's dependency chain (accelerator-toolbox) ships linux/amd64 wheels
+# only; on arm64 hosts (Apple Silicon) a native build would need a compiler
+# the slim base lacks. Build/run amd64 under emulation instead — it matches
+# the real deployment targets.
+_PLATFORM_ARGS = (
+    ["--platform", "linux/amd64"] if platform.machine().lower() in ("arm64", "aarch64") else []
+)
+
 
 def _docker_run(tag: str, *cmd: str) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["docker", "run", "--rm", tag, *cmd],
+        ["docker", "run", "--rm", *_PLATFORM_ARGS, tag, *cmd],
         capture_output=True,
         text=True,
         timeout=RUN_TIMEOUT,
@@ -79,7 +88,7 @@ def test_generated_dockerfile_builds_and_boots(tmp_path):
     assert (project / "Dockerfile").exists()
 
     tag = f"osprey-dockerfile-e2e:{uuid.uuid4().hex[:8]}"
-    build_cmd = ["docker", "build", "-t", tag]
+    build_cmd = ["docker", "build", *_PLATFORM_ARGS, "-t", tag]
     pip_spec = os.environ.get("OSPREY_E2E_PIP_SPEC")
     if pip_spec:
         build_cmd += ["--build-arg", f"OSPREY_PIP_SPEC={pip_spec}"]

@@ -150,6 +150,19 @@ Kubernetes notes
   ``securityContext`` (``runAsNonRoot: true``) works out of the box.
 - Expose port ``8087`` (or override the ``CMD`` with ``--port``).
 
+Troubleshooting
+===============
+
+**pip fails building** ``accelerator-toolbox`` **on Apple Silicon** — OSPREY's
+dependency chain ships ``linux/amd64`` wheels only, and the slim base image
+has no compiler. Build (and run) the amd64 image under Docker Desktop's
+emulation instead; it matches the usual amd64 deployment target:
+
+.. code-block:: bash
+
+   docker build --platform linux/amd64 -t my-project .
+   docker run --platform linux/amd64 --rm -p 8087:8087 --env-file .env my-project
+
 Customizing
 ===========
 
