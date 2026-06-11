@@ -320,3 +320,67 @@ class TestExpressionRuntimeErrorContext:
         engine = SimulationEngine.from_file(make_machine_file(machine_dict))
         with pytest.raises(ExpressionError, match="T:DERIVED.*T:MODE"):
             engine.read("T:DERIVED")
+
+
+class TestEventParamValidation:
+    """Archiver event params are type/range-checked at load time."""
+
+    def _machine_with_event(self, machine_dict, channel, event):
+        machine_dict["scenarios"]["nominal"]["archiver"] = [{"channel": channel, "events": [event]}]
+        return machine_dict
+
+    def test_non_numeric_at_rejected(self, machine_dict, make_machine_file):
+        bad = self._machine_with_event(
+            machine_dict, "T:VAC", {"shape": "step", "at": "0.5", "to": 1.0}
+        )
+        with pytest.raises(ValueError, match="'at' must be a number"):
+            SimulationEngine.from_file(make_machine_file(bad))
+
+    def test_bool_at_rejected(self, machine_dict, make_machine_file):
+        bad = self._machine_with_event(
+            machine_dict, "T:VAC", {"shape": "step", "at": True, "to": 1.0}
+        )
+        with pytest.raises(ValueError, match="'at' must be a number"):
+            SimulationEngine.from_file(make_machine_file(bad))
+
+    def test_at_out_of_window_rejected(self, machine_dict, make_machine_file):
+        bad = self._machine_with_event(
+            machine_dict, "T:VAC", {"shape": "step", "at": 1.5, "to": 1.0}
+        )
+        with pytest.raises(ValueError, match="between 0 and 1"):
+            SimulationEngine.from_file(make_machine_file(bad))
+
+    def test_zero_width_spike_rejected(self, machine_dict, make_machine_file):
+        bad = self._machine_with_event(
+            machine_dict, "T:VAC", {"shape": "spike", "at": 0.5, "amplitude": 1.0, "width": 0}
+        )
+        with pytest.raises(ValueError, match="'width' must be .* > 0"):
+            SimulationEngine.from_file(make_machine_file(bad))
+
+    def test_ramp_on_string_channel_rejected(self, machine_dict, make_machine_file):
+        bad = self._machine_with_event(
+            machine_dict, "T:MODE", {"shape": "ramp", "at": 0.1, "until": 0.5, "to": 1.0}
+        )
+        with pytest.raises(ValueError, match="string-valued"):
+            SimulationEngine.from_file(make_machine_file(bad))
+
+    def test_spike_on_string_channel_rejected(self, machine_dict, make_machine_file):
+        bad = self._machine_with_event(
+            machine_dict, "T:MODE", {"shape": "spike", "at": 0.5, "amplitude": 1.0, "width": 0.1}
+        )
+        with pytest.raises(ValueError, match="string-valued"):
+            SimulationEngine.from_file(make_machine_file(bad))
+
+    def test_non_numeric_to_on_numeric_channel_rejected(self, machine_dict, make_machine_file):
+        bad = self._machine_with_event(
+            machine_dict, "T:VAC", {"shape": "step", "at": 0.5, "to": "FAULT"}
+        )
+        with pytest.raises(ValueError, match="'to' must be a number"):
+            SimulationEngine.from_file(make_machine_file(bad))
+
+    def test_string_step_on_string_channel_allowed(self, machine_dict, make_machine_file):
+        good = self._machine_with_event(
+            machine_dict, "T:MODE", {"shape": "step", "at": 0.5, "to": "FAULT"}
+        )
+        engine = SimulationEngine.from_file(make_machine_file(good))
+        assert engine.has_channel("T:MODE")

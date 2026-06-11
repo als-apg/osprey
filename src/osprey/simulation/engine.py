@@ -498,7 +498,7 @@ def _parse_scenarios(raw: Any, channels: dict[str, SimChannel]) -> dict[str, Sce
                 raise ValueError(f"Scenario {name!r}: archiver events for unknown channel {pv!r}")
             events = entry.get("events", [])
             for event in events:
-                _validate_event(name, pv, event)
+                _validate_event(name, pv, event, channels[pv])
             archiver[pv] = list(events)
 
         scenarios[name] = Scenario(
@@ -513,8 +513,8 @@ def _parse_scenarios(raw: Any, channels: dict[str, SimChannel]) -> dict[str, Sce
     return scenarios
 
 
-def _validate_event(scenario: str, pv: str, event: Any) -> None:
-    """Validate a single archiver event object."""
+def _validate_event(scenario: str, pv: str, event: Any, channel: SimChannel) -> None:
+    """Validate a single archiver event object (types and ranges at load time)."""
     prefix = f"Scenario {scenario!r}, channel {pv!r}"
     if not isinstance(event, dict):
         raise ValueError(f"{prefix}: event must be a mapping")
@@ -526,6 +526,38 @@ def _validate_event(scenario: str, pv: str, event: Any) -> None:
     missing = [key for key in _EVENT_REQUIRED_KEYS[shape] if key not in event]
     if missing:
         raise ValueError(f"{prefix}: {shape!r} event missing keys {missing}")
+
+    is_string_channel = channel.expr is None and isinstance(channel.value, str)
+    if is_string_channel and shape != "step":
+        raise ValueError(
+            f"{prefix}: {shape!r} events are not supported on string-valued channels (only 'step')"
+        )
+
+    def _require_number(
+        key: str, minimum: float | None = None, maximum: float | None = None
+    ) -> None:
+        value = event[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"{prefix}: event key {key!r} must be a number, got {value!r}")
+        if minimum is not None and maximum is not None:
+            if not (minimum <= value <= maximum):
+                raise ValueError(
+                    f"{prefix}: event key {key!r} must be between {minimum:g} and "
+                    f"{maximum:g} (window fraction), got {value!r}"
+                )
+        elif minimum is not None and value <= minimum:
+            raise ValueError(
+                f"{prefix}: event key {key!r} must be a number > {minimum:g}, got {value!r}"
+            )
+
+    _require_number("at", 0.0, 1.0)
+    if shape == "ramp":
+        _require_number("until", 0.0, 1.0)
+    if shape in ("step", "ramp") and not is_string_channel:
+        _require_number("to")
+    if shape == "spike":
+        _require_number("amplitude")
+        _require_number("width", minimum=0.0)
 
 
 def _ref_value(ref_series: dict[str, "np.ndarray | list[str]"], name: str, index: int) -> float:
