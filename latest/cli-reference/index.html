@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="May 27, 2026"/>
+    <meta name="docbuild:last-update" content="Jun 11, 2026"/>
   </head>
   
   
@@ -370,6 +370,7 @@
   <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="../how-to/configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../how-to/deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../how-to/containerize-project.html">Containerize a Project</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../how-to/build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../how-to/add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="../how-to/use-web-terminal.html">Use the Web Terminal</a></li>
@@ -586,6 +587,11 @@ start the Osprey agent in the terminal. See <a class="reference internal" href="
 Existing files are backed up to <code class="docutils literal notranslate"><span class="pre">_agent_data/backup/</span></code>.</p>
 <p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--project</span> <span class="pre">DIRECTORY</span></code> — Project directory (default: current directory).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--dry-run</span></code> — Show what would change without writing files.</p>
+<p><code class="docutils literal notranslate"><span class="pre">--runtime-root</span> <span class="pre">PATH</span></code> — Rewrite <code class="docutils literal notranslate"><span class="pre">project_root</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> to
+PATH (comment-preserving) and re-render artifacts against it. A recorded
+<code class="docutils literal notranslate"><span class="pre">execution.python_env_path</span></code> that does not exist on the current
+filesystem is replaced with the current interpreter. Use after copying a
+built project into a container image; see <a class="reference internal" href="../how-to/containerize-project.html"><span class="doc">Containerize a Project</span></a>.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">status</span> <span class="pre">[OPTIONS]</span></code></dt><dd><p>Display provider configuration, model tier mappings, per-agent model
 assignments, and artifact sync status.</p>

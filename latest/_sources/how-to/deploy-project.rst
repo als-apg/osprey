@@ -227,3 +227,8 @@ service build directory; check ``DEV_MODE`` env var inside the container.
 
    :ref:`profile-services`
        Authoritative ``services:`` schema for build profiles.
+
+   :doc:`containerize-project`
+       The *project image* (assistant + web terminal in one container) built
+       from the generated ``Dockerfile`` — distinct from the service
+       containers this page covers.
