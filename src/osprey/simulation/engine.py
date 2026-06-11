@@ -12,7 +12,7 @@ propagate through the physics couplings automatically.
 
 The active scenario lives in a plain-text ``active_scenario`` file next to
 the machine file; it is re-read whenever its mtime changes, and switching
-scenarios clears all session-written state (fresh machine).
+(or re-asserting) a scenario clears all session-written state (fresh machine).
 """
 
 import ast
@@ -157,6 +157,9 @@ class SimulationEngine:
     def set_active_scenario(self, name: str) -> None:
         """Activate a scenario by writing the state file; clears session writes.
 
+        Re-asserting the already-active scenario also clears session writes
+        (fresh machine), matching the state-file path.
+
         Args:
             name: Scenario name (must exist in the machine file).
 
@@ -166,11 +169,9 @@ class SimulationEngine:
         if name not in self._scenarios:
             raise ValueError(f"Unknown scenario {name!r}. Available: {sorted(self._scenarios)}")
         self._state_path.write_text(f"{name}\n")
-        self._state_mtime_ns = self._state_path.stat().st_mtime_ns
-        if name != self._active:
-            self._written.clear()
-            logger.info(f"Simulation scenario switched to {name!r} (session writes cleared)")
-        self._active = name
+        # Force a re-read even if filesystem mtime granularity hides the write.
+        self._state_mtime_ns = -1
+        self._refresh_scenario()
 
     def has_channel(self, pv: str) -> bool:
         """Return True if the machine file defines this channel."""
@@ -198,6 +199,11 @@ class SimulationEngine:
     def write(self, pv: str, value: Any) -> None:
         """Record a session write (takes precedence over overrides and baseline).
 
+        Numeric strings are coerced to float: the MCP/CLI write paths deliver
+        all values as strings, and storing one verbatim would poison every
+        derived channel that references it. Only values that genuinely fail
+        ``float()`` are kept as strings (enum-like string channels).
+
         Args:
             pv: Channel name.
             value: Value to write (numbers are stored as float).
@@ -207,6 +213,11 @@ class SimulationEngine:
         """
         self._refresh_scenario()
         self._require_channel(pv)
+        if isinstance(value, str):
+            try:
+                value = float(value)
+            except ValueError:
+                pass
         self._written[pv] = value if isinstance(value, str) else float(value)
 
     def synthesize_series(self, pv: str, timestamps: Sequence[Any]) -> list[Any]:
@@ -277,6 +288,11 @@ class SimulationEngine:
             self._written.clear()
             logger.info(f"Simulation scenario switched to {name!r} (session writes cleared)")
             self._active = name
+        elif self._written:
+            # State file touched with the same scenario name: treat as an
+            # explicit re-assert and hand back a fresh machine.
+            self._written.clear()
+            logger.info(f"Simulation scenario {name!r} re-asserted (session writes cleared)")
 
     def _effective(self, pv: str) -> float | str:
         """Effective value: session write > scenario override > baseline."""

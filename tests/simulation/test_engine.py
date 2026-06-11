@@ -230,3 +230,49 @@ class TestActiveScenarioStateFile:
         engine.set_active_scenario("vac-leak")
         state_file = machine_file.parent / "active_scenario"
         assert state_file.read_text().strip() == "vac-leak"
+
+
+class TestWriteCoercion:
+    """MCP/CLI write paths deliver strings; numeric strings must be coerced."""
+
+    def test_numeric_string_write_coerced(self, machine_file):
+        engine = SimulationEngine.from_file(machine_file)
+        engine.write("T:Q1:CUR:SP", "37.5")
+        assert engine.read("T:Q1:CUR:SP").value == 37.5
+        # Derived channels referencing the written one still evaluate
+        assert engine.read("T:Q1:CUR:RB").value == 37.5
+
+    def test_integer_string_write_coerced(self, machine_file):
+        engine = SimulationEngine.from_file(machine_file)
+        engine.write("T:RF:STATUS", "0")
+        assert engine.read("T:TRANS").value == 0.0
+
+    def test_non_numeric_string_stays_string(self, machine_file):
+        engine = SimulationEngine.from_file(machine_file)
+        engine.write("T:MODE", "FAULT")
+        assert engine.read("T:MODE").value == "FAULT"
+
+
+class TestSameScenarioReset:
+    """Re-asserting the active scenario resets session writes (fresh machine)."""
+
+    def test_set_active_scenario_same_name_clears_writes(self, machine_file):
+        engine = SimulationEngine.from_file(machine_file)
+        engine.set_active_scenario("quad-drift")
+        engine.write("T:Q1:CUR:SP", 99.0)
+        assert engine.read("T:Q1:CUR:SP").value == 99.0
+
+        engine.set_active_scenario("quad-drift")
+        assert engine.read("T:Q1:CUR:SP").value == 28.4  # write cleared
+
+    def test_state_file_reassert_clears_writes(self, machine_file):
+        engine = SimulationEngine.from_file(machine_file)
+        state_file = machine_file.parent / "active_scenario"
+        state_file.write_text("quad-drift\n")
+        os.utime(state_file, ns=(10**9, 10**9))
+        assert engine.active_scenario() == "quad-drift"
+
+        engine.write("T:Q1:CUR:SP", 99.0)
+        state_file.write_text("quad-drift\n")
+        os.utime(state_file, ns=(2 * 10**9, 2 * 10**9))
+        assert engine.read("T:Q1:CUR:SP").value == 28.4  # write cleared
