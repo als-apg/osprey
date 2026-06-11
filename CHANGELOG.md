@@ -21,9 +21,13 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- `ariel search` CLI now renders keyword-search entries when no composed answer is available, instead of printing an empty result.
+- `osprey build` re-anchors profile-overlaid logbook seeds to the current date (overlays land after the in-template timestamp rebase).
 - `rules/data-visualization.md` is now gated on the data-visualizer subagent being disabled. When the subagent is enabled (the default), CLAUDE.md forbids the main agent from calling `create_static_plot` / `create_interactive_plot` / `create_dashboard` / `python_execute` / `Write`, so shipping a rule that teaches those tools was contradictory context. The file is now a `.md.j2` template that renders empty (and is auto-unlinked) when the subagent is enabled.
 
 ### Removed
+
+- Unused `caproto` dependency and stale `osprey generate soft-ioc` hints (command removed in the LangGraph-era cleanup).
 
 ## [2026.5.2] - 2026-05-27
 
