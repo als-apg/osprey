@@ -379,6 +379,11 @@ def build(
         if runtime_root:
             context["project_root"] = str(runtime_root)
 
+        # 6f. Profile pip dependencies for the generated Dockerfile's install line
+        deps = list(build_profile.dependencies or [])
+        context["dependencies"] = deps
+        context["pip_dependency_args"] = " ".join(shlex.quote(d) for d in deps)
+
         # 7. Create project from template (also materializes tier-specific
         # channel DBs from the preset's tiers/ subtree, before the Claude Code
         # hierarchy probe reads the flat data/channel_databases/<name>.json
