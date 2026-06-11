@@ -384,3 +384,42 @@ class TestEventParamValidation:
         )
         engine = SimulationEngine.from_file(make_machine_file(good))
         assert engine.has_channel("T:MODE")
+
+
+class TestOffsetEventValidation:
+    """at_offset / until_offset variants are validated at load time."""
+
+    def _machine_with_event(self, machine_dict, event):
+        machine_dict["scenarios"]["nominal"]["archiver"] = [{"channel": "T:VAC", "events": [event]}]
+        return machine_dict
+
+    def test_at_and_at_offset_together_rejected(self, machine_dict, make_machine_file):
+        bad = self._machine_with_event(
+            machine_dict, {"shape": "step", "at": 0.5, "at_offset": -10, "to": 1.0}
+        )
+        with pytest.raises(ValueError, match="exactly one"):
+            SimulationEngine.from_file(make_machine_file(bad))
+
+    def test_neither_at_nor_at_offset_rejected(self, machine_dict, make_machine_file):
+        bad = self._machine_with_event(machine_dict, {"shape": "step", "to": 1.0})
+        with pytest.raises(ValueError, match="exactly one"):
+            SimulationEngine.from_file(make_machine_file(bad))
+
+    def test_ramp_mixing_offset_and_fraction_rejected(self, machine_dict, make_machine_file):
+        bad = self._machine_with_event(
+            machine_dict, {"shape": "ramp", "at_offset": -60, "until": 0.9, "to": 1.0}
+        )
+        with pytest.raises(ValueError, match="mix"):
+            SimulationEngine.from_file(make_machine_file(bad))
+
+    def test_ramp_at_offset_missing_until_offset_rejected(self, machine_dict, make_machine_file):
+        bad = self._machine_with_event(machine_dict, {"shape": "ramp", "at_offset": -60, "to": 1.0})
+        with pytest.raises(ValueError, match="missing keys"):
+            SimulationEngine.from_file(make_machine_file(bad))
+
+    def test_non_numeric_at_offset_rejected(self, machine_dict, make_machine_file):
+        bad = self._machine_with_event(
+            machine_dict, {"shape": "step", "at_offset": "-60", "to": 1.0}
+        )
+        with pytest.raises(ValueError, match="'at_offset' must be a number"):
+            SimulationEngine.from_file(make_machine_file(bad))

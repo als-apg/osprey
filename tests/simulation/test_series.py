@@ -130,3 +130,114 @@ class TestPointwiseExpressions:
         engine = SimulationEngine.from_file(machine_file)
         trans = engine.synthesize_series("T:TRANS", _timestamps(50))
         assert all(v == pytest.approx(98.5) for v in trans)
+
+
+class TestWallClockAnchoredEvents:
+    """Events with at_offset anchor to scenario-activation time, not window fraction."""
+
+    @staticmethod
+    def _anchored_machine(machine_dict):
+        machine_dict["scenarios"]["anchored"] = {
+            "description": "Wall-clock anchored events.",
+            "overrides": {"T:Q1:CUR:SP": 28.4},
+            "archiver": [
+                {
+                    "channel": "T:Q1:CUR:SP",
+                    "events": [{"shape": "step", "at_offset": -50, "to": 28.4}],
+                },
+                {
+                    "channel": "T:VAC",
+                    "events": [
+                        {
+                            "shape": "ramp",
+                            "at_offset": -120,
+                            "until_offset": -60,
+                            "to": 9.5e-8,
+                        }
+                    ],
+                },
+                {
+                    "channel": "T:MODE",
+                    "events": [{"shape": "step", "at_offset": -50, "to": "FAULT"}],
+                },
+                {
+                    "channel": "T:RF:STATUS",
+                    "events": [{"shape": "step", "at_offset": 1000, "to": 0}],
+                },
+            ],
+        }
+        return machine_dict
+
+    @staticmethod
+    def _window(n=200):
+        """1 Hz window covering [now-150s, now+50s)."""
+        start = datetime.now() - timedelta(seconds=150)
+        return [start + timedelta(seconds=i) for i in range(n)]
+
+    def _engine(self, machine_dict, make_machine_file):
+        engine = SimulationEngine.from_file(make_machine_file(self._anchored_machine(machine_dict)))
+        engine.set_active_scenario("anchored")  # anchor = state-file mtime = now
+        return engine
+
+    def test_step_lands_at_offset_from_activation(self, machine_dict, make_machine_file):
+        engine = self._engine(machine_dict, make_machine_file)
+        timestamps = self._window()
+        series = engine.synthesize_series("T:Q1:CUR:SP", timestamps)
+        now = datetime.now()
+        for value, ts in zip(series, timestamps, strict=True):
+            seconds_from_now = (ts - now).total_seconds()
+            if seconds_from_now < -55:
+                assert value == 42.0
+            elif seconds_from_now > -45:
+                assert value == 28.4
+
+    def test_ramp_spans_offset_interval(self, machine_dict, make_machine_file):
+        engine = self._engine(machine_dict, make_machine_file)
+        timestamps = self._window()
+        series = engine.synthesize_series("T:VAC", timestamps)
+        now = datetime.now()
+        offsets = [(ts - now).total_seconds() for ts in timestamps]
+        before = [v for v, off in zip(series, offsets, strict=True) if off < -125]
+        after = [v for v, off in zip(series, offsets, strict=True) if off > -55]
+        mid = [v for v, off in zip(series, offsets, strict=True) if -100 < off < -80]
+        assert max(before) == pytest.approx(8.0e-9)
+        assert all(v == pytest.approx(9.5e-8) for v in after)
+        assert all(8.0e-9 < v < 9.5e-8 for v in mid)
+
+    def test_string_step_at_offset(self, machine_dict, make_machine_file):
+        engine = self._engine(machine_dict, make_machine_file)
+        timestamps = self._window()
+        series = engine.synthesize_series("T:MODE", timestamps)
+        now = datetime.now()
+        for value, ts in zip(series, timestamps, strict=True):
+            seconds_from_now = (ts - now).total_seconds()
+            if seconds_from_now < -55:
+                assert value == "CW"
+            elif seconds_from_now > -45:
+                assert value == "FAULT"
+
+    def test_event_after_window_does_not_appear(self, machine_dict, make_machine_file):
+        engine = self._engine(machine_dict, make_machine_file)
+        series = engine.synthesize_series("T:RF:STATUS", self._window())
+        assert all(v == 1.0 for v in series)
+
+    def test_numeric_epoch_timestamps_supported(self, machine_dict, make_machine_file):
+        import time
+
+        engine = self._engine(machine_dict, make_machine_file)
+        now = time.time()
+        timestamps = [now - 150 + i for i in range(200)]
+        series = engine.synthesize_series("T:Q1:CUR:SP", timestamps)
+        for value, ts in zip(series, timestamps, strict=True):
+            if ts - now < -55:
+                assert value == 42.0
+            elif ts - now > -45:
+                assert value == 28.4
+
+    def test_fraction_events_unaffected(self, machine_file):
+        engine = SimulationEngine.from_file(machine_file)
+        engine.set_active_scenario("quad-drift")
+        series = engine.synthesize_series("T:Q1:CUR:SP", _timestamps())
+        t = np.linspace(0, 1, 200)
+        assert all(v == 42.0 for v, ti in zip(series, t, strict=True) if ti < 0.35)
+        assert all(v == 28.4 for v, ti in zip(series, t, strict=True) if ti >= 0.35)

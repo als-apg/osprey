@@ -17,6 +17,7 @@ the machine file; it is re-read whenever its mtime changes, and switching
 
 import ast
 import json
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -37,10 +38,14 @@ logger = get_logger("simulation_engine")
 DEFAULT_SCENARIO = "nominal"
 ACTIVE_SCENARIO_FILENAME = "active_scenario"
 
-_EVENT_REQUIRED_KEYS = {
-    "step": ("at", "to"),
-    "ramp": ("at", "until", "to"),
-    "spike": ("at", "amplitude", "width"),
+# Non-position keys required per event shape. Position is validated
+# separately: exactly one of 'at' (window fraction) or 'at_offset' (seconds
+# relative to scenario-activation time); ramps need the matching
+# 'until'/'until_offset' flavor.
+_EVENT_VALUE_KEYS = {
+    "step": ("to",),
+    "ramp": ("to",),
+    "spike": ("amplitude", "width"),
 }
 
 
@@ -226,14 +231,23 @@ class SimulationEngine:
 
         Baseline-value channels yield a constant baseline plus per-channel
         noise, with the active scenario's archiver events (step/ramp/spike)
-        applied at window-relative positions. Expression channels are
-        evaluated pointwise over the synthesized series of their referenced
-        channels, so derived channels show correlated history.
+        applied. Expression channels are evaluated pointwise over the
+        synthesized series of their referenced channels, so derived channels
+        show correlated history.
+
+        Event positioning has two flavors: ``at`` places an event at a fixed
+        fraction of whatever window is requested, while ``at_offset`` (with
+        ``until_offset`` for ramps) anchors it in wall-clock time, in seconds
+        relative to the scenario-activation time (the ``active_scenario``
+        state-file mtime; negative = past). Anchored events honor the actual
+        timestamp values, so an event outside the requested window does not
+        appear in it. For anchored spikes, ``width`` is in seconds.
 
         Args:
             pv: Channel name.
-            timestamps: Timestamps of the requested window (only the count
-                matters; events land at fixed fractions of any window).
+            timestamps: Timestamps of the requested window (datetime objects
+                or epoch seconds). For fraction-positioned events only the
+                count matters; anchored events use the actual values.
 
         Returns:
             List of values, one per timestamp.
@@ -246,8 +260,10 @@ class SimulationEngine:
         n = len(timestamps)
         if n == 0:
             return []
+        t_abs = _epoch_seconds_array(timestamps)
+        anchor = self._scenario_anchor()
         cache: dict[str, np.ndarray | list[str]] = {}
-        series = self._synthesize(pv, n, cache)
+        series = self._synthesize(pv, n, cache, t_abs, anchor)
         if isinstance(series, np.ndarray):
             return [float(v) for v in series]
         return list(series)
@@ -323,8 +339,23 @@ class SimulationEngine:
             )
         return float(value)
 
+    def _scenario_anchor(self) -> float:
+        """Scenario-activation time in epoch seconds (state-file mtime).
+
+        Falls back to the current time when no state file exists (default
+        scenario was never explicitly activated).
+        """
+        if self._state_mtime_ns is not None and self._state_mtime_ns > 0:
+            return self._state_mtime_ns / 1e9
+        return time.time()
+
     def _synthesize(
-        self, pv: str, n: int, cache: dict[str, "np.ndarray | list[str]"]
+        self,
+        pv: str,
+        n: int,
+        cache: dict[str, "np.ndarray | list[str]"],
+        t_abs: "np.ndarray | None",
+        anchor: float,
     ) -> "np.ndarray | list[str]":
         """Build one channel's series, memoized per synthesis pass."""
         cached = cache.get(pv)
@@ -334,12 +365,14 @@ class SimulationEngine:
         events = self._scenarios[self._active].archiver.get(pv, [])
 
         if channel.expr is None and isinstance(channel.value, str):
-            string_series = _string_series(channel.value, events, n)
+            string_series = _string_series(channel.value, events, n, t_abs, anchor)
             cache[pv] = string_series
             return string_series
 
         if channel.expr is not None:
-            ref_series = {ref: self._synthesize(ref, n, cache) for ref in channel.refs}
+            ref_series = {
+                ref: self._synthesize(ref, n, cache, t_abs, anchor) for ref in channel.refs
+            }
             values: list[float] = []
             try:
                 for i in range(n):
@@ -359,7 +392,7 @@ class SimulationEngine:
             assert channel.value is not None  # guaranteed by _parse_channel
             series = np.full(n, float(channel.value))
 
-        series = _apply_events(series, events, n)
+        series = _apply_events(series, events, n, t_abs, anchor)
         if channel.noise > 0.0:
             series = series * (1.0 + self._rng.normal(0.0, channel.noise, n))
         cache[pv] = series
@@ -519,13 +552,29 @@ def _validate_event(scenario: str, pv: str, event: Any, channel: SimChannel) -> 
     if not isinstance(event, dict):
         raise ValueError(f"{prefix}: event must be a mapping")
     shape = event.get("shape")
-    if shape not in _EVENT_REQUIRED_KEYS:
+    if shape not in _EVENT_VALUE_KEYS:
         raise ValueError(
-            f"{prefix}: event shape must be one of {sorted(_EVENT_REQUIRED_KEYS)}, got {shape!r}"
+            f"{prefix}: event shape must be one of {sorted(_EVENT_VALUE_KEYS)}, got {shape!r}"
         )
-    missing = [key for key in _EVENT_REQUIRED_KEYS[shape] if key not in event]
+    missing = [key for key in _EVENT_VALUE_KEYS[shape] if key not in event]
     if missing:
         raise ValueError(f"{prefix}: {shape!r} event missing keys {missing}")
+
+    has_at = "at" in event
+    has_offset = "at_offset" in event
+    if has_at == has_offset:
+        raise ValueError(
+            f"{prefix}: event requires exactly one of 'at' (window fraction) or "
+            f"'at_offset' (seconds relative to scenario activation)"
+        )
+    if shape == "ramp":
+        if (has_at and "until_offset" in event) or (has_offset and "until" in event):
+            raise ValueError(
+                f"{prefix}: 'ramp' event must not mix fraction and offset position keys"
+            )
+        until_key = "until" if has_at else "until_offset"
+        if until_key not in event:
+            raise ValueError(f"{prefix}: 'ramp' event missing keys ['{until_key}']")
 
     is_string_channel = channel.expr is None and isinstance(channel.value, str)
     if is_string_channel and shape != "step":
@@ -550,9 +599,15 @@ def _validate_event(scenario: str, pv: str, event: Any, channel: SimChannel) -> 
                 f"{prefix}: event key {key!r} must be a number > {minimum:g}, got {value!r}"
             )
 
-    _require_number("at", 0.0, 1.0)
+    if has_at:
+        _require_number("at", 0.0, 1.0)
+    else:
+        _require_number("at_offset")
     if shape == "ramp":
-        _require_number("until", 0.0, 1.0)
+        if has_at:
+            _require_number("until", 0.0, 1.0)
+        else:
+            _require_number("until_offset")
     if shape in ("step", "ramp") and not is_string_channel:
         _require_number("to")
     if shape == "spike":
@@ -570,44 +625,97 @@ def _ref_value(ref_series: dict[str, "np.ndarray | list[str]"], name: str, index
     return float(value)
 
 
-def _string_series(baseline: str, events: list[dict[str, Any]], n: int) -> list[str]:
+def _epoch_seconds_array(timestamps: Sequence[Any]) -> "np.ndarray | None":
+    """Convert timestamps to epoch seconds, or None when not convertible."""
+    values: list[float] = []
+    for ts in timestamps:
+        if hasattr(ts, "timestamp"):
+            values.append(float(ts.timestamp()))
+        elif isinstance(ts, (int, float)) and not isinstance(ts, bool):
+            values.append(float(ts))
+        else:
+            return None
+    return np.asarray(values, dtype=np.float64)
+
+
+def _event_position(
+    event: dict[str, Any], t_frac: "np.ndarray", t_abs: "np.ndarray | None", anchor: float
+) -> "tuple[np.ndarray, float] | None":
+    """Coordinate axis and event position for one event.
+
+    Fraction-positioned events use the normalized window axis; offset-anchored
+    events use epoch seconds. Returns None when an anchored event cannot be
+    placed because the timestamps were not convertible to epoch seconds.
+    """
+    if "at_offset" in event:
+        if t_abs is None:
+            logger.debug(
+                "Skipping offset-anchored event: timestamps not convertible to epoch seconds"
+            )
+            return None
+        return t_abs, anchor + float(event["at_offset"])
+    return t_frac, float(event["at"])
+
+
+def _string_series(
+    baseline: str,
+    events: list[dict[str, Any]],
+    n: int,
+    t_abs: "np.ndarray | None",
+    anchor: float,
+) -> list[str]:
     """Constant string series; only 'step' events are meaningful for strings."""
-    t = np.linspace(0.0, 1.0, n)
+    t_frac = np.linspace(0.0, 1.0, n)
     series = [baseline] * n
     for event in events:
         if event["shape"] != "step":
             continue
-        at = float(event["at"])
+        position = _event_position(event, t_frac, t_abs, anchor)
+        if position is None:
+            continue
+        x, at = position
         for i in range(n):
-            if t[i] >= at:
+            if x[i] >= at:
                 series[i] = str(event["to"])
     return series
 
 
-def _apply_events(series: "np.ndarray", events: list[dict[str, Any]], n: int) -> "np.ndarray":
-    """Apply step/ramp/spike events in order at window-relative positions."""
+def _apply_events(
+    series: "np.ndarray",
+    events: list[dict[str, Any]],
+    n: int,
+    t_abs: "np.ndarray | None",
+    anchor: float,
+) -> "np.ndarray":
+    """Apply step/ramp/spike events in order (window-fraction or wall-clock)."""
     if not events:
         return series
-    t = np.linspace(0.0, 1.0, n)
+    t_frac = np.linspace(0.0, 1.0, n)
     series = series.copy()
     for event in events:
         shape = event["shape"]
-        at = float(event["at"])
+        position = _event_position(event, t_frac, t_abs, anchor)
+        if position is None:
+            continue
+        x, at = position
+        offset_anchored = "at_offset" in event
         if shape == "step":
-            series[t >= at] = float(event["to"])
+            series[x >= at] = float(event["to"])
         elif shape == "ramp":
-            until = float(event["until"])
+            until = (
+                anchor + float(event["until_offset"]) if offset_anchored else float(event["until"])
+            )
             to = float(event["to"])
             if until <= at:
-                series[t >= at] = to
+                series[x >= at] = to
                 continue
-            idx = int(np.searchsorted(t, at))
+            idx = int(np.searchsorted(x, at))
             start = float(series[min(idx, n - 1)])
-            mask = (t >= at) & (t <= until)
-            series[mask] = start + (to - start) * (t[mask] - at) / (until - at)
-            series[t > until] = to
-        else:  # spike (gaussian bump, width as fraction of window)
+            mask = (x >= at) & (x <= until)
+            series[mask] = start + (to - start) * (x[mask] - at) / (until - at)
+            series[x > until] = to
+        else:  # spike (gaussian bump; width as window fraction, or seconds when anchored)
             amplitude = float(event["amplitude"])
             width = float(event["width"])
-            series = series + amplitude * np.exp(-((t - at) ** 2) / (2.0 * width**2))
+            series = series + amplitude * np.exp(-((x - at) ** 2) / (2.0 * width**2))
     return series
