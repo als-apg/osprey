@@ -5,6 +5,7 @@ import os
 import pytest
 
 from osprey.simulation import SimulationEngine
+from osprey.simulation.expressions import ExpressionError
 
 QUAD_DRIFT_TRANS = 98.5 - 0.85 * abs(28.4 - 42.0)  # 86.94
 
@@ -276,3 +277,46 @@ class TestSameScenarioReset:
         state_file.write_text("quad-drift\n")
         os.utime(state_file, ns=(2 * 10**9, 2 * 10**9))
         assert engine.read("T:Q1:CUR:SP").value == 28.4  # write cleared
+
+
+class TestExpressionRuntimeErrorContext:
+    """Runtime math errors surface as ExpressionError naming the channel."""
+
+    def test_read_division_by_zero_names_channel(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:ZERO"] = {"value": 0.0, "description": "zero"}
+        machine_dict["channels"]["T:RATIO"] = {
+            "expr": "100.0 / ch('T:ZERO')",
+            "description": "ratio",
+        }
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        with pytest.raises(ExpressionError, match=r"T:RATIO.*100\.0 / ch"):
+            engine.read("T:RATIO")
+
+    def test_read_sqrt_of_negative_names_channel(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:NEG"] = {"value": -1.0, "description": "negative"}
+        machine_dict["channels"]["T:ROOT"] = {
+            "expr": "sqrt(ch('T:NEG'))",
+            "description": "root",
+        }
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        with pytest.raises(ExpressionError, match="T:ROOT"):
+            engine.read("T:ROOT")
+
+    def test_series_synthesis_error_names_channel(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:ZERO"] = {"value": 0.0, "description": "zero"}
+        machine_dict["channels"]["T:RATIO"] = {
+            "expr": "100.0 / ch('T:ZERO')",
+            "description": "ratio",
+        }
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        with pytest.raises(ExpressionError, match="T:RATIO"):
+            engine.synthesize_series("T:RATIO", list(range(10)))
+
+    def test_string_ref_error_names_outer_channel(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:DERIVED"] = {
+            "expr": "2.0 * ch('T:MODE')",
+            "description": "derived from string channel",
+        }
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        with pytest.raises(ExpressionError, match="T:DERIVED.*T:MODE"):
+            engine.read("T:DERIVED")

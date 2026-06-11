@@ -55,6 +55,7 @@ class SimChannel:
     units: str
     noise: float
     description: str
+    expr_source: str = ""
 
 
 @dataclass(frozen=True)
@@ -303,7 +304,14 @@ class SimulationEngine:
             return scenario.overrides[pv]
         channel = self._channels[pv]
         if channel.expr is not None:
-            return evaluate(channel.expr, self._numeric_effective)
+            try:
+                return evaluate(channel.expr, self._numeric_effective)
+            except ExpressionError as exc:
+                raise ExpressionError(f"Channel {pv!r}: {exc}") from exc
+            except (ZeroDivisionError, ValueError, OverflowError) as exc:
+                raise ExpressionError(
+                    f"Channel {pv!r}: expression {channel.expr_source!r} failed to evaluate: {exc}"
+                ) from exc
         assert channel.value is not None  # guaranteed by _parse_channel
         return channel.value
 
@@ -333,12 +341,19 @@ class SimulationEngine:
         if channel.expr is not None:
             ref_series = {ref: self._synthesize(ref, n, cache) for ref in channel.refs}
             values: list[float] = []
-            for i in range(n):
+            try:
+                for i in range(n):
 
-                def resolver(name: str, _index: int = i) -> float:
-                    return _ref_value(ref_series, name, _index)
+                    def resolver(name: str, _index: int = i) -> float:
+                        return _ref_value(ref_series, name, _index)
 
-                values.append(evaluate(channel.expr, resolver))
+                    values.append(evaluate(channel.expr, resolver))
+            except ExpressionError as exc:
+                raise ExpressionError(f"Channel {pv!r}: {exc}") from exc
+            except (ZeroDivisionError, ValueError, OverflowError) as exc:
+                raise ExpressionError(
+                    f"Channel {pv!r}: expression {channel.expr_source!r} failed to evaluate: {exc}"
+                ) from exc
             series = np.asarray(values, dtype=np.float64)
         else:
             assert channel.value is not None  # guaranteed by _parse_channel
@@ -422,6 +437,7 @@ def _parse_channel(pv: str, spec: Any) -> SimChannel:
         units=str(spec.get("units", "")),
         noise=float(noise),
         description=str(spec.get("description", "")),
+        expr_source=spec["expr"] if has_expr else "",
     )
 
 
