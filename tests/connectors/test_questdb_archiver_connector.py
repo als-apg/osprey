@@ -10,6 +10,9 @@ import pytest
 from osprey.connectors.archiver.base import ArchiverMetadata
 from osprey.connectors.archiver.questdb_archiver_connector import QuestDBArchiverConnector
 
+asyncpg = pytest.importorskip("asyncpg", reason="asyncpg not installed")
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
