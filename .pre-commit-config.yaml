@@ -56,6 +56,12 @@ repos:
       # Check for debugger imports
       - id: debug-statements
 
+  # Detect hardcoded secrets (passwords, API keys, tokens, etc.)
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
+
 # pre-commit.ci configuration
 ci:
   autofix_commit_msg: |
