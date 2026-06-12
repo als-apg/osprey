@@ -40,6 +40,8 @@ class ALSAPGProviderAdapter(BaseProvider):
 
     # LiteLLM integration - ALS-APG is an OpenAI-compatible proxy
     is_openai_compatible = True
+    # Note: intentionally leaves supports_native_structured_output at the None default
+    # (auto-detect via litellm) — als-apg was never in the old native-json_schema whitelist.
 
     def execute_completion(
         self,

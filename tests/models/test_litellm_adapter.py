@@ -134,3 +134,31 @@ class TestStructuredOutputCapabilityFlag:
     def test_base_default_is_none(self):
         from osprey.models.providers.base import BaseProvider
         assert BaseProvider.supports_native_structured_output is None
+
+    @pytest.mark.unit
+    def test_openai_compatible_providers_declare_true(self):
+        from osprey.models.providers.cborg import CBorgProviderAdapter
+        from osprey.models.providers.stanford import StanfordProviderAdapter
+        from osprey.models.providers.argo import ArgoProviderAdapter
+        from osprey.models.providers.vllm import VLLMProviderAdapter
+        from osprey.models.providers.amsc import AMSCProviderAdapter
+        for cls in (CBorgProviderAdapter, StanfordProviderAdapter,
+                    ArgoProviderAdapter, VLLMProviderAdapter, AMSCProviderAdapter):
+            assert cls.supports_native_structured_output is True, cls.name
+
+    @pytest.mark.unit
+    def test_flag_true_takes_native_path(self):
+        from osprey.models.providers.litellm_adapter import _supports_native_structured_output
+        assert _supports_native_structured_output("openai/anything", "vllm") is True
+
+    @pytest.mark.unit
+    def test_flag_none_defers_to_litellm(self):
+        from osprey.models.providers.litellm_adapter import _supports_native_structured_output
+        # openai provider has supports_native_structured_output = None, so defers to litellm.
+        # Use a model string litellm knows natively (gpt-4o returns True).
+        assert _supports_native_structured_output("gpt-4o", "openai") is True
+
+    @pytest.mark.unit
+    def test_unknown_provider_defers_and_is_safe(self):
+        from osprey.models.providers.litellm_adapter import _supports_native_structured_output
+        assert _supports_native_structured_output("unknown/nonexistent-xyz", "unknown") is False

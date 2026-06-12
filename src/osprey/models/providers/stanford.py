@@ -51,6 +51,7 @@ class StanfordProviderAdapter(BaseProvider):
 
     # LiteLLM integration - Stanford is an OpenAI-compatible proxy
     is_openai_compatible = True
+    supports_native_structured_output = True  # proxies to models with native json_schema support
 
     def execute_completion(
         self,

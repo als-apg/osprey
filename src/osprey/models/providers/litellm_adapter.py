@@ -359,25 +359,28 @@ def _handle_structured_output(
 
 
 def _supports_native_structured_output(litellm_model: str, provider: str) -> bool:
-    """Check if a model supports native structured outputs.
+    """Decide whether to use native response_format json_schema for *provider*.
 
-    Uses LiteLLM's built-in supports_response_schema() for detection, with
-    fallback handling for OpenAI-compatible providers (CBORG, AMSC, Stanford, ARGO, vLLM)
-    that support structured outputs via their proxy but aren't recognized by LiteLLM.
+    Reads the provider class's ``supports_native_structured_output`` flag:
+      - True/False  -> use it directly (explicit assertion)
+      - None        -> defer to litellm.supports_response_schema(litellm_model)
 
-    :param litellm_model: LiteLLM-formatted model string (e.g., "anthropic/claude-sonnet-4")
+    :param litellm_model: LiteLLM-formatted model string (e.g. "anthropic/claude-sonnet-4")
     :param provider: Osprey provider name
-    :return: True if native structured output is supported
+    :return: True if native structured output should be used
     """
-    # OpenAI-compatible providers support structured outputs via their API
-    # LiteLLM can't detect this since it sees the openai/ prefix, not the actual model
-    if provider in ("cborg", "stanford", "argo", "vllm", "amsc"):
-        return True
+    # Lazy import avoids an import cycle: provider_registry imports provider
+    # modules, which import this adapter.
+    from osprey.models.provider_registry import get_provider_registry
+
+    provider_class = get_provider_registry().get_provider(provider)
+    declared = getattr(provider_class, "supports_native_structured_output", None)
+    if declared is not None:
+        return declared
 
     try:
         return litellm.supports_response_schema(model=litellm_model)
     except Exception:
-        # If LiteLLM can't determine support, fall back to False (use prompt-based)
         return False
 
 
