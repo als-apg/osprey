@@ -273,6 +273,7 @@ markers = [
     "asyncio: Async test marker",
     "flaky: Rerun on failure to absorb rare LLM nondeterminism (pytest-rerunfailures)",
     "e2e_services: E2E tests requiring local MCP service infrastructure (PostgreSQL, AccelPapers, etc.)",
+    "dockerbuild: E2E tests that run a real docker build (skipped when docker is unavailable)",
 ]
 
 # Ruff configuration for modern Python linting

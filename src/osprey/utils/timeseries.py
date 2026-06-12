@@ -20,9 +20,16 @@ def lttb_downsample(index: list, data: list[list], max_points: int) -> tuple[lis
     if n <= max_points or max_points < 3:
         return index, data
 
-    # Convert index to numeric for area calculation
+    # Sanitized numeric working copy for triangle-area math ONLY.
+    # None gap values (archiver disconnects / IOC reboots) -> 0.0 here so the
+    # bucket-average and area arithmetic never see NoneType. The selected indices
+    # are applied to the ORIGINAL `data` below, so gaps are preserved in the output.
+    def _num(v: float | int | None) -> float:
+        return float(v) if v is not None else 0.0
+
+    clean = [[_num(v) for v in row] if row else [] for row in data]
     x = list(range(n))
-    y = [row[0] if row else 0 for row in data]  # first channel
+    y = [clean[i][0] if clean[i] else 0.0 for i in range(n)]  # first channel
 
     selected = [0]  # Always keep first point
     bucket_size = (n - 2) / (max_points - 2)

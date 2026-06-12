@@ -68,7 +68,14 @@ def claude(ctx):
     is_flag=True,
     help="Show what would change without writing files",
 )
-def regen(project, dry_run):
+@click.option(
+    "--runtime-root",
+    type=click.Path(),
+    default=None,
+    help="Rewrite project_root in config.yml and re-render artifacts for a "
+    "relocated project (e.g. inside a container: --runtime-root /app/my-project)",
+)
+def regen(project, dry_run, runtime_root):
     """Regenerate Claude Code artifacts from config.yml.
 
     Re-reads config.yml and re-renders all Claude Code integration files
@@ -76,6 +83,12 @@ def regen(project, dry_run):
     are backed up to _agent_data/backup/ before overwriting.
 
     Prompt overrides (in ``overrides/``) are used instead of framework templates.
+
+    With ``--runtime-root``, recorded host paths are rewritten for the new
+    location: ``project_root`` is set to the given path, and a recorded
+    ``execution.python_env_path`` that does not exist on this filesystem is
+    replaced with the current interpreter. Use this after copying a built
+    project into a container image.
 
     Examples:
 
@@ -88,14 +101,21 @@ def regen(project, dry_run):
 
       # Regenerate for a specific project
       osprey claude regen --project /path/to/project
+
+      # Relocate a project copied into a container
+      osprey claude regen --project /app/myproj --runtime-root /app/myproj
     """
     from osprey.cli.templates.manager import TemplateManager
 
     project_dir = Path(project) if project else Path.cwd()
 
     try:
+        if runtime_root and not dry_run:
+            _rewrite_runtime_paths(project_dir, runtime_root)
         manager = TemplateManager()
-        result = manager.regenerate_claude_code(project_dir, dry_run=dry_run)
+        result = manager.regenerate_claude_code(
+            project_dir, dry_run=dry_run, project_root_override=runtime_root
+        )
     except FileNotFoundError as e:
         console.print(f"[error]Error:[/error] {e}", style="red")
         raise SystemExit(1) from e
@@ -140,6 +160,36 @@ def regen(project, dry_run):
     # Display active/disabled summary
     _print_regen_summary(result)
     console.print()
+
+
+def _rewrite_runtime_paths(project_dir: Path, runtime_root: str) -> None:
+    """Rewrite recorded host paths in config.yml for a relocated project.
+
+    Sets ``project_root`` to *runtime_root*. When the recorded
+    ``execution.python_env_path`` no longer exists on this filesystem
+    (typical after copying a host-built project into a container), it is
+    replaced with the current interpreter; a valid path is left untouched.
+    Comments in config.yml are preserved.
+    """
+    import sys
+
+    from osprey.utils.config_writer import config_update_fields
+
+    config_file = project_dir / "config.yml"
+    if not config_file.exists():
+        raise FileNotFoundError(f"No config.yml found in {project_dir}")
+
+    updates: dict = {"project_root": str(runtime_root)}
+
+    config = yaml.safe_load(config_file.read_text()) or {}
+    env_path = (config.get("execution") or {}).get("python_env_path")
+    if env_path and not Path(env_path).exists():
+        console.print(f"[warning]⚠ Recorded python_env_path not found here: {env_path}[/warning]")
+        console.print(f"  [dim]Replacing with current interpreter: {sys.executable}[/dim]")
+        updates["execution.python_env_path"] = sys.executable
+
+    config_update_fields(config_file, updates)
+    console.print(f"[dim]Rewrote project_root → {runtime_root} in config.yml[/dim]")
 
 
 def _print_regen_summary(result: dict):

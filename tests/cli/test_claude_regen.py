@@ -664,6 +664,137 @@ class TestDisableServers:
         assert {"controls", "osprey_workspace", "ariel"} <= ctx["enabled_servers"]
 
 
+class TestRegenRuntimeRoot:
+    """Test `osprey claude regen --runtime-root` path relocation.
+
+    The flag rewrites recorded host paths in config.yml (comment-preserving)
+    and re-renders artifacts against the new root — the supported way to fix
+    up a project copied into a container image.
+    """
+
+    def _create(self, tmp_path, name):
+        manager = TemplateManager()
+        return manager.create_project(
+            project_name=name,
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+
+    def _invoke(self, args):
+        from click.testing import CliRunner
+
+        from osprey.cli.main import cli
+
+        return CliRunner().invoke(cli, args)
+
+    def test_project_root_rewritten_and_comments_preserved(self, tmp_path):
+        """config.yml project_root is rewritten; a known comment survives."""
+        project_dir = self._create(tmp_path, "rr-rewrite")
+        config_file = project_dir / "config.yml"
+        config_file.write_text("# KEEP-THIS-COMMENT\n" + config_file.read_text())
+
+        result = self._invoke(
+            ["claude", "regen", "--project", str(project_dir), "--runtime-root", "/app/rr-rewrite"]
+        )
+        assert result.exit_code == 0, result.output
+
+        text = config_file.read_text()
+        assert "# KEEP-THIS-COMMENT" in text, "ruamel rewrite must preserve comments"
+        config = yaml.safe_load(text)
+        assert config["project_root"] == "/app/rr-rewrite"
+
+    def test_stale_python_env_path_replaced(self, tmp_path):
+        """A recorded python_env_path that doesn't exist is healed to sys.executable."""
+        import sys
+
+        from osprey.utils.config_writer import config_update_fields
+
+        project_dir = self._create(tmp_path, "rr-stale-env")
+        config_file = project_dir / "config.yml"
+        config_update_fields(
+            config_file, {"execution.python_env_path": "/nonexistent/host/.venv/bin/python"}
+        )
+
+        result = self._invoke(
+            ["claude", "regen", "--project", str(project_dir), "--runtime-root", str(project_dir)]
+        )
+        assert result.exit_code == 0, result.output
+
+        config = yaml.safe_load(config_file.read_text())
+        assert config["execution"]["python_env_path"] == sys.executable
+
+    def test_valid_python_env_path_untouched(self, tmp_path):
+        """An existing python_env_path is left alone."""
+        from osprey.utils.config_writer import config_update_fields
+
+        project_dir = self._create(tmp_path, "rr-valid-env")
+        config_file = project_dir / "config.yml"
+        fake_python = tmp_path / "some-other-venv-python"
+        fake_python.touch()
+        config_update_fields(config_file, {"execution.python_env_path": str(fake_python)})
+
+        result = self._invoke(
+            ["claude", "regen", "--project", str(project_dir), "--runtime-root", str(project_dir)]
+        )
+        assert result.exit_code == 0, result.output
+
+        config = yaml.safe_load(config_file.read_text())
+        assert config["execution"]["python_env_path"] == str(fake_python)
+
+    def test_rendered_artifacts_reference_runtime_root(self, tmp_path):
+        """.mcp.json paths point at the runtime root after relocation."""
+        project_dir = self._create(tmp_path, "rr-artifacts")
+
+        result = self._invoke(
+            [
+                "claude",
+                "regen",
+                "--project",
+                str(project_dir),
+                "--runtime-root",
+                "/app/rr-artifacts",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+
+        mcp_data = json.loads((project_dir / ".mcp.json").read_text())
+        controls = mcp_data["mcpServers"].get("controls", {})
+        if "env" in controls:
+            config_path = controls["env"].get("OSPREY_CONFIG", "")
+            assert config_path.startswith("/app/rr-artifacts")
+
+    def test_dry_run_leaves_config_unchanged(self, tmp_path):
+        """--dry-run with --runtime-root must not rewrite config.yml."""
+        project_dir = self._create(tmp_path, "rr-dry-run")
+        config_file = project_dir / "config.yml"
+        original = config_file.read_text()
+
+        result = self._invoke(
+            [
+                "claude",
+                "regen",
+                "--project",
+                str(project_dir),
+                "--runtime-root",
+                "/app/rr-dry-run",
+                "--dry-run",
+            ]
+        )
+        assert result.exit_code == 0, result.output
+        assert config_file.read_text() == original
+
+    def test_regen_without_flag_is_unchanged_behavior(self, tmp_path):
+        """Plain regen (no --runtime-root) never rewrites config.yml."""
+        project_dir = self._create(tmp_path, "rr-no-flag")
+        config_file = project_dir / "config.yml"
+        original = config_file.read_text()
+
+        result = self._invoke(["claude", "regen", "--project", str(project_dir)])
+        assert result.exit_code == 0, result.output
+        assert config_file.read_text() == original
+
+
 class TestFacilityMd:
     """Test facility.md creation and preservation."""
 
