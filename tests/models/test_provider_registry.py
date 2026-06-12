@@ -49,7 +49,7 @@ class TestProviderRegistry:
 
     @pytest.mark.unit
     def test_list_providers_contains_all_builtins(self):
-        """list_providers returns all 11 built-in names."""
+        """list_providers returns all 12 built-in names."""
         reg = ProviderRegistry()
         names = reg.list_providers()
         expected = {
@@ -64,9 +64,10 @@ class TestProviderRegistry:
             "argo",
             "asksage",
             "vllm",
+            "ds4",
         }
         assert expected == set(names)
-        assert len(names) == 11
+        assert len(names) == 12
 
     @pytest.mark.unit
     def test_singleton_identity(self):
@@ -99,6 +100,16 @@ class TestProviderRegistry:
         first = reg.get_provider("anthropic")
         second = reg.get_provider("anthropic")
         assert first is second
+
+    @pytest.mark.unit
+    def test_ds4_is_registered(self):
+        """ds4 resolves to its adapter and is keyless."""
+        from osprey.models.provider_registry import PROVIDER_API_KEYS
+        reg = ProviderRegistry()
+        cls = reg.get_provider("ds4")
+        assert cls is not None
+        assert cls.name == "ds4"
+        assert PROVIDER_API_KEYS.get("ds4", "MISSING") is None
 
     @pytest.mark.unit
     def test_register_override_evicts_cache(self):

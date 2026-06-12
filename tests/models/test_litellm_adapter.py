@@ -90,7 +90,11 @@ class TestSupportsNativeStructuredOutput:
 
     def test_openai_compatible_providers_return_true(self):
         """OpenAI-compatible providers (CBORG, etc.) always support structured output."""
-        # These providers proxy to models that support structured output
+        # These providers proxy to models that support structured output.
+        # NOTE: ds4 is the intentional counterexample — it is OpenAI-compatible
+        # (is_openai_compatible=True) but declares supports_native_structured_output=False
+        # because it accepts but ignores response_format json_schema. ds4 is therefore
+        # excluded from this loop; its False override is tested in TestStructuredOutputCapabilityFlag.
         for provider in ("cborg", "stanford", "argo", "vllm", "amsc"):
             result = _supports_native_structured_output("openai/some-model", provider)
             assert result is True, f"Provider {provider} should support structured output"
@@ -162,3 +166,14 @@ class TestStructuredOutputCapabilityFlag:
     def test_unknown_provider_defers_and_is_safe(self):
         from osprey.models.providers.litellm_adapter import _supports_native_structured_output
         assert _supports_native_structured_output("unknown/nonexistent-xyz", "unknown") is False
+
+    @pytest.mark.unit
+    def test_ds4_declares_false_end_to_end(self):
+        from osprey.models.providers.litellm_adapter import _supports_native_structured_output
+        # gpt-4o is known to litellm as supporting response_schema (True for "openai").
+        # ds4 overrides this to False because it ignores json_schema despite being
+        # OpenAI-compatible — so a False result here can ONLY come from ds4's registered flag.
+        assert _supports_native_structured_output("openai/gpt-4o", "ds4") is False
+        # Sanity: same model string under "openai" returns True, proving the difference
+        # is the ds4 registration + flag, not the model string.
+        assert _supports_native_structured_output("openai/gpt-4o", "openai") is True
