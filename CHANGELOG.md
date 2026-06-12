@@ -23,6 +23,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- `lttb_downsample()` no longer crashes (`TypeError`) on archiver `None` gap values; gaps are treated as `0.0` for downsample selection and preserved as `null` in the returned data so charts render true gaps (#247).
 - `rules/data-visualization.md` is now gated on the data-visualizer subagent being disabled. When the subagent is enabled (the default), CLAUDE.md forbids the main agent from calling `create_static_plot` / `create_interactive_plot` / `create_dashboard` / `python_execute` / `Write`, so shipping a rule that teaches those tools was contradictory context. The file is now a `.md.j2` template that renders empty (and is auto-unlinked) when the subagent is enabled.
 
 ### Removed
