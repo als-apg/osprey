@@ -96,7 +96,7 @@ class DS4ProviderAdapter(BaseProvider):
             try:
                 import httpx
 
-                models_url = f"{effective_base_url.rstrip('/v1')}/v1/models"
+                models_url = f"{effective_base_url.removesuffix('/v1')}/v1/models"
                 response = httpx.get(models_url, timeout=timeout)
                 if response.status_code == 200:
                     models = response.json().get("data", [])
