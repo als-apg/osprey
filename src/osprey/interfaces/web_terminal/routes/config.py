@@ -32,6 +32,32 @@ _AGENT_CONFIG_SECTIONS = [
 ]
 
 
+def _regen_if_drift(request: Request) -> list[str]:
+    """Re-render Claude Code artifacts if config.yml drifted from them.
+
+    Called after a successful config write so safety-critical fields (e.g. the
+    writes_enabled kill-switch baked into settings.json's permissions.deny) take
+    effect on the next terminal restart, which respawns the agent and re-reads
+    the on-disk ``.claude/`` artifacts. Fails open: a regen error must never undo
+    a config write that already succeeded. ``regen_if_drift`` no-ops when the
+    project has no rendered ``.claude/`` to re-sync.
+    """
+    project_cwd = getattr(request.app.state, "project_cwd", None)
+    config_path: Path | None = request.app.state.config_path
+    project_dir = (
+        Path(project_cwd) if project_cwd else (config_path.parent if config_path else None)
+    )
+    if project_dir is None:
+        return []
+    try:
+        from osprey.cli.templates.manager import TemplateManager
+
+        return TemplateManager().regen_if_drift(project_dir)
+    except Exception:  # noqa: BLE001 — config write already succeeded; never raise here
+        logger.warning("Claude Code artifact regen after config write failed", exc_info=True)
+        return []
+
+
 @router.get("/api/config")
 async def get_config(request: Request):
     """Return agent-relevant config sections as structured JSON + raw YAML."""
@@ -88,7 +114,8 @@ async def put_config(body: ConfigUpdate, request: Request):
         os.fsync(f.fileno())
     logger.info("Config updated at %s", config_path)
 
-    return {"status": "ok", "requires_restart": True}
+    regenerated = _regen_if_drift(request)
+    return {"status": "ok", "requires_restart": True, "regenerated": regenerated}
 
 
 class ConfigPatch(BaseModel):
@@ -125,7 +152,13 @@ async def patch_config(body: ConfigPatch, request: Request):
         raise HTTPException(status_code=500, detail=f"Config update failed: {e}") from e
 
     logger.info("Config patched (%d fields) at %s", len(body.updates), config_path)
-    return {"status": "ok", "requires_restart": True, "fields_updated": len(body.updates)}
+    regenerated = _regen_if_drift(request)
+    return {
+        "status": "ok",
+        "requires_restart": True,
+        "fields_updated": len(body.updates),
+        "regenerated": regenerated,
+    }
 
 
 # ---- Hook Debug Endpoints ---- #

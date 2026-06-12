@@ -309,6 +309,52 @@ class TestErrorHandling:
         # File should not be modified
         assert (project_dir / ".mcp.json").stat().st_mtime == mcp_mtime
 
+    def test_dry_run_clean_after_regen_reports_no_changes(self, tmp_path):
+        """Dry run on a freshly regenerated project reports nothing to change.
+
+        facility.md is create-only (auto-registered user-owned) — a real regen
+        never rewrites an existing copy, so the dry-run comparison must not
+        report it as drift. A phantom diff here makes regen_if_drift perform a
+        full regen (and churn a backup dir) on every web launch / config write,
+        and makes `osprey claude status` report permanent false drift.
+        """
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="dry-clean",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+        manager.regenerate_claude_code(project_dir)
+
+        result = manager.regenerate_claude_code(project_dir, dry_run=True)
+        assert result["changed"] == []
+
+    def test_dry_run_skips_user_owned_artifacts(self, tmp_path):
+        """Dry run mirrors real-regen semantics for ejected (user-owned) files.
+
+        A real regen never rewrites a user-owned artifact, so a customized copy
+        must not show up as drift in the dry-run report.
+        """
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="dry-owned",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+        safety_file = project_dir / ".claude" / "rules" / "safety.md"
+        safety_file.write_text("# My Custom Safety Rules\n")
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config.setdefault("scaffold", {}).setdefault("user_owned", []).append("rules/safety")
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+        manager.regenerate_claude_code(project_dir)
+        assert safety_file.read_text() == "# My Custom Safety Rules\n"
+
+        result = manager.regenerate_claude_code(project_dir, dry_run=True)
+        assert ".claude/rules/safety.md" not in result["changed"]
+        assert result["changed"] == []
+
     def test_dry_run_detects_changes(self, tmp_path):
         """Dry run correctly detects what would change."""
         manager = TemplateManager()
@@ -1076,6 +1122,143 @@ class TestSettingsJsonValidity:
             mcp_path = project_dir / ".mcp.json"
             data = json.loads(mcp_path.read_text())
             assert "mcpServers" in data
+
+
+class TestWritesToggleRegen:
+    """Flipping control_system.writes_enabled re-renders the kill-switch deny entry.
+
+    This is the GitHub #244 regression: editing config.yml alone leaves
+    settings.json's permissions.deny stale, so a regen must add/remove
+    mcp__controls__channel_write to match the config.
+    """
+
+    @staticmethod
+    def _deny(project_dir):
+        settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        return settings["permissions"]["deny"]
+
+    def test_toggle_writes_updates_deny(self, tmp_path):
+        from osprey.utils.config_writer import config_update_fields
+
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="writes-toggle",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+        config_path = project_dir / "config.yml"
+
+        # Writes disabled → kill-switch baked into deny.
+        config_update_fields(config_path, {"control_system.writes_enabled": False})
+        manager.regenerate_claude_code(project_dir)
+        assert "mcp__controls__channel_write" in self._deny(project_dir)
+
+        # Enable writes → regen drops the deny entry and reports settings.json changed.
+        config_update_fields(config_path, {"control_system.writes_enabled": True})
+        result = manager.regenerate_claude_code(project_dir)
+        assert "mcp__controls__channel_write" not in self._deny(project_dir)
+        assert any("settings.json" in f for f in result["changed"]), (
+            f"settings.json should be in changed list, got {result['changed']}"
+        )
+
+    def test_regen_if_drift_only_regens_when_changed(self, tmp_path):
+        """regen_if_drift returns [] when in sync and the changed list when drifted."""
+        from osprey.utils.config_writer import config_update_fields
+
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="drift-gate",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+        manager.regenerate_claude_code(project_dir)
+
+        # Already in sync → no-op, and crucially NO real regen (no new backup dir).
+        backup_dir = project_dir / "_agent_data" / "backup"
+
+        def _backup_count():
+            return len(list(backup_dir.glob("claude-code-*"))) if backup_dir.exists() else 0
+
+        before = _backup_count()
+        assert manager.regen_if_drift(project_dir) == []
+        assert _backup_count() == before, "in-sync regen_if_drift must not create a backup"
+
+        # Drift the config by flipping writes_enabled → regen_if_drift reports the change.
+        config_path = project_dir / "config.yml"
+        cfg = yaml.safe_load(config_path.read_text())
+        current = bool(cfg.get("control_system", {}).get("writes_enabled", False))
+        config_update_fields(config_path, {"control_system.writes_enabled": not current})
+        changed = manager.regen_if_drift(project_dir)
+        assert any("settings.json" in f for f in changed)
+
+    def test_regen_if_drift_stamps_settings_mtime_on_cosmetic_edit(self, tmp_path):
+        """An edit that changes no artifact must still clear the mtime drift signal.
+
+        The SessionStart drift hook compares config.yml's mtime against
+        settings.json's. A cosmetic edit (e.g. a YAML comment, or a runtime-read
+        field) makes config.yml newer while regen_if_drift correctly finds nothing
+        to regenerate — without an mtime stamp the hook would warn at every
+        session start until a full `osprey claude regen`, training operators to
+        ignore the warning.
+        """
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="mtime-stamp",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+        manager.regenerate_claude_code(project_dir)
+
+        config_path = project_dir / "config.yml"
+        settings_path = project_dir / ".claude" / "settings.json"
+        # Cosmetic edit: a YAML comment changes no rendered artifact.
+        config_path.write_text(config_path.read_text() + "\n# operator note\n")
+        base = 1_700_000_000
+        os.utime(settings_path, (base, base))
+        os.utime(config_path, (base + 100, base + 100))
+
+        assert manager.regen_if_drift(project_dir) == []
+        assert settings_path.stat().st_mtime >= config_path.stat().st_mtime, (
+            "in-sync regen_if_drift must stamp settings.json so the drift hook "
+            "does not warn on an already-verified config"
+        )
+
+    def test_regen_if_drift_noops_without_rendered_claude(self, tmp_path):
+        """regen_if_drift is re-sync only — it never bootstraps a .claude/ from scratch."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="no-claude",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+        # A project with config.yml but no rendered settings.json (never built/regenerated).
+        settings = project_dir / ".claude" / "settings.json"
+        if settings.exists():
+            settings.unlink()
+        assert manager.regen_if_drift(project_dir) == []
+        # The guard must not create the artifact it was guarding against.
+        assert not settings.exists()
+
+    def test_session_start_drift_hook_wired_in_settings(self, tmp_path):
+        """The rendered settings.json wires the config-drift hook on SessionStart."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="drift-wiring",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+        manager.regenerate_claude_code(project_dir)
+        settings = json.loads((project_dir / ".claude" / "settings.json").read_text())
+        session_start = settings["hooks"]["SessionStart"]
+        cmds = [h["command"] for entry in session_start for h in entry["hooks"]]
+        assert any("osprey_config_drift.py" in c for c in cmds), cmds
+        # And the hook file is actually deployed alongside the wiring.
+        assert (project_dir / ".claude" / "hooks" / "osprey_config_drift.py").exists()
 
 
 if __name__ == "__main__":

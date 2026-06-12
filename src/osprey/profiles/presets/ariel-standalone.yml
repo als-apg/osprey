@@ -30,6 +30,7 @@ hooks:
   - error-guidance    # Post-error hook that surfaces remediation hints
   - notebook-update   # Sync CLAUDE.md notebook after each session
   - memory-guard      # Warn when context window approaches threshold
+  - config-drift      # Warn at session start when config.yml drifted from generated artifacts
 
 rules:
   - error-handling      # Standard error handling and retry guidance
