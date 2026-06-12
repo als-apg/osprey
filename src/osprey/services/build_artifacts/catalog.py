@@ -208,6 +208,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             output_path=".claude/hooks/osprey_focus_validate.py",
             description="UserPromptSubmit hook that strips stale artifact IDs from focus_state.txt",
         ),
+        BuildArtifact(
+            canonical_name="hooks/config-drift",
+            template_path="claude/hooks/osprey_config_drift.py",
+            output_path=".claude/hooks/osprey_config_drift.py",
+            description="SessionStart hook that warns when config.yml drifted from generated artifacts",
+        ),
         # ── Skills ──────────────────────────────────────────────────
         BuildArtifact(
             canonical_name="skills/session-report",

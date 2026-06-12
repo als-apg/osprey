@@ -284,6 +284,26 @@ def _create_lifespan(
                 break
         app.state.config_path = resolved_config_path
 
+        # ── Regenerate stale Claude Code artifacts on launch ──
+        # config.yml is a build-time input: safety-critical fields (e.g. the
+        # writes_enabled kill-switch baked into settings.json's permissions.deny)
+        # only take effect once the artifacts are re-rendered. Regenerating here
+        # — mirroring `osprey claude chat` — means an edited config.yml is honored
+        # on the next server start. Fail open so a regen error never blocks launch.
+        try:
+            from osprey.cli.templates.manager import TemplateManager
+
+            project_dir_for_regen = Path(app.state.project_cwd)
+            changed = TemplateManager().regen_if_drift(project_dir_for_regen)
+            if changed:
+                logger.info(
+                    "Regenerated %d stale Claude Code artifact(s): %s",
+                    len(changed),
+                    ", ".join(changed),
+                )
+        except Exception:  # noqa: BLE001 — never let regen block server startup
+            logger.warning("Claude Code artifact regen on launch failed", exc_info=True)
+
         # ── Provider env injection ──
         from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver, inject_provider_env
 
