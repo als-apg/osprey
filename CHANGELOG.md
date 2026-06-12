@@ -11,6 +11,8 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+## [2026.6.0] - 2026-06-12
+
 ### Added
 
 - **`ds4` provider** — local DwarfStar/DeepSeek-V4 inference server (OpenAI-compatible, keyless, default `http://127.0.0.1:8000/v1`). Introduces a per-provider `supports_native_structured_output` capability flag (`True`/`False`/`None`=auto-detect via LiteLLM) replacing the hardcoded structured-output whitelist; ds4 declares `False` because the server accepts but ignores `response_format: json_schema`, so OSPREY's prompt-based JSON fallback is used. Also fixes URL mangling in the vLLM/ds4 health checks (`rstrip('/v1')` stripped characters, breaking ports ending in `1`).
