@@ -3,6 +3,7 @@
 Requires a running ds4 server. Override the endpoint via DS4_BASE_URL.
 Run:  UV_LINK_MODE=copy DS4_BASE_URL=http://127.0.0.1:8401/v1 uv run python scripts/smoke/ds4_smoke.py
 """
+
 import os
 
 from pydantic import BaseModel, Field
@@ -12,8 +13,14 @@ from osprey.models.providers.litellm_adapter import execute_litellm_completion
 
 BASE = os.environ.get("DS4_BASE_URL", "http://127.0.0.1:8000/v1")
 MODEL = os.environ.get("DS4_MODEL", "deepseek-v4-flash")
-COMMON = {"provider": "ds4", "model_id": MODEL, "api_key": "EMPTY", "base_url": BASE,
-          "max_tokens": 400, "temperature": 0.0}
+COMMON = {
+    "provider": "ds4",
+    "model_id": MODEL,
+    "api_key": "EMPTY",
+    "base_url": BASE,
+    "max_tokens": 400,
+    "temperature": 0.0,
+}
 
 GET_PV = {
     "type": "function",
@@ -42,15 +49,24 @@ def main():
 
     tc = execute_litellm_completion(
         message="What is the current value of SR:DCCT? Use a tool.",
-        tools=[GET_PV], tool_choice="auto", **COMMON)
+        tools=[GET_PV],
+        tool_choice="auto",
+        **COMMON,
+    )
     print("tool_call:", tc)
 
     res = execute_litellm_completion(
         message="Beam loss rose after the last booster RF phase change. "
-                "Propose one corrective step.",
-        output_format=TuningDecision, **COMMON)
-    print("structured:", type(res).__name__, "->", res.model_dump()
-          if isinstance(res, TuningDecision) else repr(res))
+        "Propose one corrective step.",
+        output_format=TuningDecision,
+        **COMMON,
+    )
+    print(
+        "structured:",
+        type(res).__name__,
+        "->",
+        res.model_dump() if isinstance(res, TuningDecision) else repr(res),
+    )
 
 
 if __name__ == "__main__":

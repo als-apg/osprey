@@ -1,4 +1,5 @@
 """Unit tests for the ds4 (DwarfStar local DeepSeek V4) provider."""
+
 import pytest
 
 from osprey.models.providers.ds4 import DS4ProviderAdapter

@@ -105,6 +105,7 @@ class TestProviderRegistry:
     def test_ds4_is_registered(self):
         """ds4 resolves to its adapter and is keyless."""
         from osprey.models.provider_registry import PROVIDER_API_KEYS
+
         reg = ProviderRegistry()
         cls = reg.get_provider("ds4")
         assert cls is not None
