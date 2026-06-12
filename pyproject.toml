@@ -99,8 +99,6 @@ dependencies = [
     "uvicorn[standard]>=0.27.0",
     # Utilities
     "unique-namer>=0.1.0",
-    # Control system simulation (soft IOC generation)
-    "caproto",
     # EPICS Channel Access client (used by control_system connector,
     # limits_validator, and python_executor wrapper).
     "pyepics",

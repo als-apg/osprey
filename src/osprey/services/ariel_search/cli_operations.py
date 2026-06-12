@@ -520,6 +520,24 @@ async def list_models(config_dict: dict) -> list[dict]:
         ]
 
 
+def _entry_summary(entry: dict) -> dict:
+    """Compact, JSON-safe summary of a search-result entry for CLI display."""
+    from datetime import datetime
+
+    timestamp = entry.get("timestamp")
+    if isinstance(timestamp, datetime):
+        timestamp = timestamp.isoformat()
+    raw_text = (entry.get("raw_text") or "").strip()
+    title = raw_text.splitlines()[0][:100] if raw_text else ""
+    return {
+        "entry_id": entry.get("entry_id", ""),
+        "timestamp": str(timestamp or ""),
+        "author": entry.get("author", ""),
+        "title": title,
+        "score": entry.get("_score"),
+    }
+
+
 async def run_search(config_dict: dict, query: str, mode: str, limit: int) -> dict:
     """Execute a search query and return the result as a dict."""
     from osprey.services.ariel_search import ARIELConfig, SearchMode, create_ariel_service
@@ -546,6 +564,7 @@ async def run_search(config_dict: dict, query: str, mode: str, limit: int) -> di
                 "sources": list(result.sources),
                 "search_modes": [m.value for m in result.search_modes_used],
                 "reasoning": result.reasoning,
+                "entries": [_entry_summary(e) for e in result.entries],
             }
     except Exception as e:
         msg = str(e)

@@ -34,6 +34,7 @@ hooks:
   - memory-guard      # Warn when context window approaches threshold
   - notebook-update   # Sync CLAUDE.md notebook after each session
   - cf-feedback-capture  # Capture channel-finder accuracy feedback for tuning
+  - config-drift      # Warn at session start when config.yml drifted from generated artifacts
 
 rules:
   - safety              # Core safety rules: never write without approval

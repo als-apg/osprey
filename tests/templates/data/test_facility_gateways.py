@@ -96,7 +96,7 @@ def test_simulation_preset():
     sim = get_facility_config("simulation")
     assert sim is not None
     assert sim["name"] == "Local Simulation"
-    assert "caproto" in sim["description"]
+    assert "soft IOC" in sim["description"]
     assert sim["gateways"]["read_only"]["address"] == "localhost"
     assert sim["gateways"]["write_access"]["address"] == "localhost"
     assert sim["gateways"]["read_only"]["port"] == 5064

@@ -658,9 +658,8 @@ def handle_set_epics_gateway(project_path: Path | None = None) -> None:
             if not _check_simulation_ioc_running(host, port):
                 console.print(f"\n{Messages.warning(f'No IOC detected on {host}:{port}')}")
                 console.print(
-                    "\n[dim]To start the simulation IOC:[/dim]"
-                    "\n[dim]  1. Generate IOC: osprey generate soft-ioc[/dim]"
-                    "\n[dim]  2. Run IOC: python generated_iocs/<ioc_name>_ioc.py[/dim]"
+                    "\n[dim]Start a local soft IOC serving your channels, "
+                    "or switch to a facility gateway.[/dim]"
                 )
 
     # Show preview

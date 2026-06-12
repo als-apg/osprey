@@ -425,6 +425,15 @@ def build(
             if reg_count:
                 logger.info("  ✓ Registered %d overlay artifact(s) in config.yml", reg_count)
 
+            # 11c. Overlays land AFTER the in-template timestamp rebase
+            # (create_project step 6b), so a profile-provided logbook seed
+            # would keep its authored dates. Re-anchor it. Idempotent: the
+            # day-rounded offset is 0 for an already-rebased seed.
+            if any("logbook_seed" in Path(dst).parts for dst in build_profile.overlay.values()):
+                from .templates import scaffolding
+
+                scaffolding.rebase_logbook_timestamps(project_path)
+
         # 12. Persist profile MCP servers to config.yml
         if build_profile.mcp_servers:
             _persist_mcp_servers(project_path, build_profile.mcp_servers)

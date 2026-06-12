@@ -22,6 +22,7 @@ HOOK_FILES = [
     "osprey_error_guidance.py",
     "osprey_notebook_update.py",
     "osprey_memory_guard.py",
+    "osprey_config_drift.py",
 ]
 
 # Required fields for all hooks
@@ -84,7 +85,7 @@ class TestHookFrontMatter:
         docstring = _load_docstring(hook_file)
         fields, _ = _parse_front_matter(docstring)
 
-        valid_events = {"PreToolUse", "PostToolUse"}
+        valid_events = {"PreToolUse", "PostToolUse", "SessionStart", "UserPromptSubmit"}
         assert fields["event"] in valid_events, (
             f"Invalid event '{fields['event']}', expected one of {valid_events}"
         )
