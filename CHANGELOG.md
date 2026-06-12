@@ -20,6 +20,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- **`claude-agent-sdk` upgraded to 0.2.93** (bundles CLI 2.1.167); als-apg routing re-verified (hello-world canonical flow + approval-hook e2e).
 - `data-visualizer` subagent now defaults to `create_interactive_plot` when the caller does not explicitly request a static figure. Fixes the case where vague requests (e.g. "3D waterfall plot") produced an unreadable fixed-viewpoint matplotlib image instead of a rotatable Plotly view.
 
 ### Fixed
