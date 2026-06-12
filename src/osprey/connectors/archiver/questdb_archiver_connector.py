@@ -87,12 +87,12 @@ class QuestDBArchiverConnector(ArchiverConnector):
         """
         try:
             import asyncpg
+
             self._asyncpg = asyncpg
         except ImportError as e:
             raise ImportError(
                 "asyncpg is required for QuestDB archiver. Install with: pip install asyncpg"
             ) from e
-
 
         host = config.get("host")
         if not host:
@@ -205,7 +205,7 @@ class QuestDBArchiverConnector(ArchiverConnector):
 
         if not pv_list:
             raise ValueError("pv_list cannot be empty")
-        if not isinstance(start_date, datetime): 
+        if not isinstance(start_date, datetime):
             raise TypeError(f"start_date must be a datetime object, got {type(start_date)}")
         if not isinstance(end_date, datetime):
             raise TypeError(f"end_date must be a datetime object, got {type(end_date)}")
@@ -242,7 +242,7 @@ class QuestDBArchiverConnector(ArchiverConnector):
 
         try:
             records = await asyncio.wait_for(fetch(), timeout=float(timeout))
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             raise TimeoutError(f"QuestDB query timed out after {timeout}s") from e
         except Exception as e:
             raise ConnectionError(f"QuestDB query failed: {e}") from e
@@ -367,6 +367,7 @@ class QuestDBArchiverConnector(ArchiverConnector):
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _ms_to_sample_unit(precision_ms: int) -> str:
     """Convert milliseconds to a QuestDB SAMPLE BY unit string."""

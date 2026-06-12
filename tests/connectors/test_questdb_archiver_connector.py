@@ -10,16 +10,18 @@ import pytest
 from osprey.connectors.archiver.base import ArchiverMetadata
 from osprey.connectors.archiver.questdb_archiver_connector import QuestDBArchiverConnector
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_record(ts: str, pv: str, value: float) -> MagicMock:
     """Simulate an asyncpg Record row."""
     record = MagicMock()
     record.__iter__ = MagicMock(return_value=iter([ts, pv, value]))
-    record.__getitem__ = MagicMock(side_effect=lambda k: {"ts": ts, "pv_name": pv, "value": value}[k])
+    record.__getitem__ = MagicMock(
+        side_effect=lambda k: {"ts": ts, "pv_name": pv, "value": value}[k]
+    )
     return record
 
 
@@ -52,8 +54,8 @@ def _make_connector_with_pool(pool):
 # Connect / Disconnect
 # ---------------------------------------------------------------------------
 
-class TestConnectDisconnectLifecycle:
 
+class TestConnectDisconnectLifecycle:
     @pytest.mark.asyncio
     async def test_connect_missing_host_raises_value_error(self):
         connector = QuestDBArchiverConnector()
@@ -77,11 +79,13 @@ class TestConnectDisconnectLifecycle:
         monkeypatch.delenv("QUESTDB_PW", raising=False)
         connector = QuestDBArchiverConnector()
         with pytest.raises(ValueError, match="not set"):
-            await connector.connect({
-                "host": "localhost",
-                "username": "admin",
-                "password_env": "QUESTDB_PW",
-            })
+            await connector.connect(
+                {
+                    "host": "localhost",
+                    "username": "admin",
+                    "password_env": "QUESTDB_PW",
+                }
+            )
 
     @pytest.mark.asyncio
     async def test_connect_success_sets_connected(self, monkeypatch):
@@ -90,11 +94,13 @@ class TestConnectDisconnectLifecycle:
 
         with patch("asyncpg.create_pool", AsyncMock(return_value=pool)):
             connector = QuestDBArchiverConnector()
-            await connector.connect({
-                "host": "localhost",
-                "username": "admin",
-                "password_env": "QUESTDB_PW",
-            })
+            await connector.connect(
+                {
+                    "host": "localhost",
+                    "username": "admin",
+                    "password_env": "QUESTDB_PW",
+                }
+            )
 
         assert connector._connected is True
         await connector.disconnect()
@@ -106,15 +112,17 @@ class TestConnectDisconnectLifecycle:
 
         with patch("asyncpg.create_pool", AsyncMock(return_value=pool)):
             connector = QuestDBArchiverConnector()
-            await connector.connect({
-                "host": "localhost",
-                "username": "admin",
-                "password_env": "QUESTDB_PW",
-                "table": "beam_data",
-                "pv_column": "channel",
-                "value_column": "reading",
-                "ts_column": "timestamp",
-            })
+            await connector.connect(
+                {
+                    "host": "localhost",
+                    "username": "admin",
+                    "password_env": "QUESTDB_PW",
+                    "table": "beam_data",
+                    "pv_column": "channel",
+                    "value_column": "reading",
+                    "ts_column": "timestamp",
+                }
+            )
 
         assert connector._table == "beam_data"
         assert connector._pv_col == "channel"
@@ -142,8 +150,8 @@ class TestConnectDisconnectLifecycle:
 # get_data
 # ---------------------------------------------------------------------------
 
-class TestGetDataMethod:
 
+class TestGetDataMethod:
     @pytest.mark.asyncio
     async def test_not_connected_raises_runtime_error(self):
         connector = QuestDBArchiverConnector()
@@ -282,8 +290,8 @@ class TestGetDataMethod:
 # get_metadata
 # ---------------------------------------------------------------------------
 
-class TestGetMetadataMethod:
 
+class TestGetMetadataMethod:
     @pytest.mark.asyncio
     async def test_not_connected_raises_runtime_error(self):
         connector = QuestDBArchiverConnector()
@@ -300,12 +308,14 @@ class TestGetMetadataMethod:
     @pytest.mark.asyncio
     async def test_returns_archiver_metadata(self):
         row = MagicMock()
-        row.__getitem__ = MagicMock(side_effect=lambda k: {
-            "archival_start": "2024-01-01T00:00:00Z",
-            "archival_end": "2024-01-02T00:00:00Z",
-            "sample_count": 86400,
-            "avg_period_ms": 1000,
-        }[k])
+        row.__getitem__ = MagicMock(
+            side_effect=lambda k: {
+                "archival_start": "2024-01-01T00:00:00Z",
+                "archival_end": "2024-01-02T00:00:00Z",
+                "sample_count": 86400,
+                "avg_period_ms": 1000,
+            }[k]
+        )
 
         pool, _ = _make_pool(fetchrow_return=row)
         connector = _make_connector_with_pool(pool)
@@ -319,12 +329,14 @@ class TestGetMetadataMethod:
     @pytest.mark.asyncio
     async def test_not_archived_when_no_rows(self):
         row = MagicMock()
-        row.__getitem__ = MagicMock(side_effect=lambda k: {
-            "archival_start": None,
-            "archival_end": None,
-            "sample_count": 0,
-            "avg_period_ms": None,
-        }[k])
+        row.__getitem__ = MagicMock(
+            side_effect=lambda k: {
+                "archival_start": None,
+                "archival_end": None,
+                "sample_count": 0,
+                "avg_period_ms": None,
+            }[k]
+        )
 
         pool, _ = _make_pool(fetchrow_return=row)
         connector = _make_connector_with_pool(pool)
@@ -337,8 +349,8 @@ class TestGetMetadataMethod:
 # check_availability
 # ---------------------------------------------------------------------------
 
-class TestCheckAvailability:
 
+class TestCheckAvailability:
     @pytest.mark.asyncio
     async def test_not_connected_raises_runtime_error(self):
         connector = QuestDBArchiverConnector()
@@ -375,11 +387,12 @@ class TestCheckAvailability:
 # Factory integration
 # ---------------------------------------------------------------------------
 
-class TestFactoryIntegration:
 
+class TestFactoryIntegration:
     @pytest.fixture(autouse=True)
     def setup_factory(self):
         from osprey.connectors.factory import ConnectorFactory
+
         ConnectorFactory.register_archiver("questdb_archiver", QuestDBArchiverConnector)
         yield
         ConnectorFactory._archiver_connectors.pop("questdb_archiver", None)
@@ -391,6 +404,7 @@ class TestFactoryIntegration:
 
         with patch("asyncpg.create_pool", AsyncMock(return_value=pool)):
             from osprey.connectors.factory import ConnectorFactory
+
             config = {
                 "type": "questdb_archiver",
                 "questdb_archiver": {
@@ -410,9 +424,9 @@ class TestFactoryIntegration:
 # Integration test (requires live QuestDB)
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.integration
 class TestQuestDBIntegration:
-
     @pytest.mark.asyncio
     async def test_connect_and_query_live_instance(self, monkeypatch):
         """
@@ -425,11 +439,13 @@ class TestQuestDBIntegration:
         """
         monkeypatch.setenv("QUESTDB_PW", "quest")
         connector = QuestDBArchiverConnector()
-        await connector.connect({
-            "host": "localhost",
-            "port": 8812,
-            "username": "admin",
-            "password_env": "QUESTDB_PW",
-        })
+        await connector.connect(
+            {
+                "host": "localhost",
+                "port": 8812,
+                "username": "admin",
+                "password_env": "QUESTDB_PW",
+            }
+        )
         assert connector._connected is True
         await connector.disconnect()
