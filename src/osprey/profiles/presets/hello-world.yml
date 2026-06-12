@@ -22,6 +22,7 @@ hooks:
   - writes-check   # Pre-write safety check: confirm channel is writable
   - approval       # Gate hardware-write tool calls on human approval prompt
   - limits         # Enforce per-channel min/max limits before writes
+  - config-drift   # Warn at session start when config.yml drifted from generated artifacts
 
 rules:
   - safety          # Core safety rules: never write without approval

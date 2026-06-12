@@ -43,7 +43,7 @@ FACILITY_GATEWAYS = {
     },
     "simulation": {
         "name": "Local Simulation",
-        "description": "Simulated soft IOC (caproto) - run 'osprey generate soft-ioc' first",
+        "description": "Local simulation soft IOC on localhost",
         "gateways": {
             "read_only": {
                 "address": "localhost",

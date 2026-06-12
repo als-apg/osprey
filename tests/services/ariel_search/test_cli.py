@@ -3,6 +3,8 @@
 Tests for CLI command registration and basic validation.
 """
 
+from datetime import UTC
+
 import pytest
 from click.testing import CliRunner
 
@@ -634,3 +636,161 @@ class TestSyncCommand:
 
         assert result.exit_code == 1
         assert "osprey deploy up" in result.output
+
+
+class TestSearchResultRendering:
+    """Direct (non-RAG) search modes must surface found entries to the CLI user.
+
+    Keyword-only deployments (semantic and RAG disabled) return entries with an
+    empty ``answer`` — the CLI used to print "No results found." even when the
+    search matched entries.
+    """
+
+    @pytest.fixture
+    def runner(self):
+        """Create a CLI runner."""
+        return CliRunner()
+
+    @staticmethod
+    def _keyword_result(n: int = 3):
+        """Build an ARIELSearchResult as _run_keyword returns it: entries, no answer."""
+        from datetime import datetime
+
+        from osprey.services.ariel_search.models import ARIELSearchResult, SearchMode
+
+        entries = tuple(
+            {
+                "entry_id": f"VL-00{i}",
+                "source_system": "demo",
+                "timestamp": datetime(2026, 6, 9, 8, i, tzinfo=UTC),
+                "author": "M. Okafor",
+                "raw_text": f"CM2 coupler vacuum note {i}\n\nBody text {i}.",
+                "attachments": [],
+                "metadata": {},
+                "created_at": datetime(2026, 6, 9, 9, 0, tzinfo=UTC),
+                "updated_at": datetime(2026, 6, 9, 9, 0, tzinfo=UTC),
+                "_score": 0.9 - 0.1 * i,
+                "_highlights": [],
+            }
+            for i in range(1, n + 1)
+        )
+        return ARIELSearchResult(
+            entries=entries,
+            answer=None,
+            sources=tuple(e["entry_id"] for e in entries),
+            search_modes_used=(SearchMode.KEYWORD,),
+            reasoning=f"Keyword search: {n} results",
+        )
+
+    class _StubService:
+        """Async-context service stub returning a canned search result."""
+
+        def __init__(self, result):
+            self._result = result
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def search(self, **kwargs):
+            return self._result
+
+    @pytest.mark.asyncio
+    async def test_run_search_returns_entry_summaries(self, monkeypatch):
+        """run_search must include compact entry data, not just answer/sources."""
+        import osprey.services.ariel_search as ariel_pkg
+        from osprey.services.ariel_search.cli_operations import run_search
+
+        canned = self._keyword_result()
+        stub = self._StubService(canned)
+
+        async def fake_create(config):
+            return stub
+
+        monkeypatch.setattr(ariel_pkg, "create_ariel_service", fake_create)
+
+        out = await run_search(
+            {"database": {"uri": "postgresql://localhost/test"}}, "coupler", "keyword", 5
+        )
+
+        assert "error" not in out or not out.get("error")
+        assert out["sources"] == ["VL-001", "VL-002", "VL-003"]
+        entries = out["entries"]
+        assert len(entries) == 3
+        first = entries[0]
+        assert first["entry_id"] == "VL-001"
+        assert first["author"] == "M. Okafor"
+        assert first["title"] == "CM2 coupler vacuum note 1"
+        assert first["timestamp"].startswith("2026-06-09")
+        assert first["score"] == pytest.approx(0.8)
+
+    def test_search_command_renders_entries_when_answer_empty(self, runner, monkeypatch):
+        """Found entries must be shown even when no composed answer exists."""
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
+        )
+
+        async def fake_run_search(config_dict, query, mode, limit):
+            return {
+                "query": query,
+                "answer": None,
+                "sources": ["VL-001", "VL-002"],
+                "search_modes": ["keyword"],
+                "reasoning": "Keyword search: 2 results",
+                "entries": [
+                    {
+                        "entry_id": "VL-001",
+                        "timestamp": "2026-06-09T08:01:00+00:00",
+                        "author": "M. Okafor",
+                        "title": "CM2 coupler vacuum note 1",
+                        "score": 0.8,
+                    },
+                    {
+                        "entry_id": "VL-002",
+                        "timestamp": "2026-06-09T08:02:00+00:00",
+                        "author": "M. Okafor",
+                        "title": "CM2 coupler vacuum note 2",
+                        "score": 0.7,
+                    },
+                ],
+            }
+
+        monkeypatch.setattr(
+            "osprey.services.ariel_search.cli_operations.run_search", fake_run_search
+        )
+
+        result = runner.invoke(ariel_group, ["search", "coupler vacuum CM2"])
+
+        assert result.exit_code == 0
+        assert "No results found" not in result.output
+        assert "VL-001" in result.output
+        assert "CM2 coupler vacuum note 1" in result.output
+
+    def test_search_command_no_results_message_only_when_truly_empty(self, runner, monkeypatch):
+        """'No results found.' is reserved for zero entries AND no answer."""
+        monkeypatch.setattr(
+            "osprey.cli.ariel.get_config_value",
+            lambda key, default=None: {"database": {"uri": "x"}} if key == "ariel" else default,
+        )
+
+        async def fake_run_search(config_dict, query, mode, limit):
+            return {
+                "query": query,
+                "answer": None,
+                "sources": [],
+                "search_modes": ["keyword"],
+                "reasoning": "Keyword search: 0 results",
+                "entries": [],
+            }
+
+        monkeypatch.setattr(
+            "osprey.services.ariel_search.cli_operations.run_search", fake_run_search
+        )
+
+        result = runner.invoke(ariel_group, ["search", "nonexistent"])
+
+        assert result.exit_code == 0
+        assert "No results found" in result.output

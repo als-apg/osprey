@@ -55,7 +55,7 @@ jobs:
         uv run pytest tests/ --ignore=tests/e2e -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term
 
     - name: Upload coverage reports to Codecov
-      uses: codecov/codecov-action@v6
+      uses: codecov/codecov-action@v7
       if: matrix.python-version == '3.11' && matrix.os == 'ubuntu-latest'
       with:
         files: ./coverage.xml
@@ -445,6 +445,11 @@ jobs:
         # Install the PR branch inside the image (not the PyPI release) so
         # the generated Dockerfile is tested against the code under review.
         OSPREY_E2E_PIP_SPEC: git+https://github.com/${{ github.repository }}.git@${{ github.event.pull_request.head.sha }}
+        # Drives the real-LLM round-trip in test_generated_image_serves_agent_
+        # over_http (injected into the container at run time). The build/boot
+        # test needs no key; the HTTP test auto-skips (requires_als_apg) if the
+        # secret is ever absent, so this stays advisory and self-gating.
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: uv run pytest tests/e2e/test_dockerfile_e2e.py -v --tb=short
 
   all-checks-passed:

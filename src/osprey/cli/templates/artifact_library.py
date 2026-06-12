@@ -122,13 +122,16 @@ def parse_hook_frontmatter(hook_path: Path) -> dict | None:
     if not isinstance(meta, dict):
         return None
 
-    # Must have event + tools fields and wiring: standalone
+    # Only standalone-wired hooks build PreToolUse/PostToolUse rules from frontmatter.
+    # Hooks wired statically in settings.json.j2 (e.g. SessionStart/UserPromptSubmit
+    # guards) are deployed via the preset list but carry no wiring/tools — skip them
+    # silently. The missing-tools warning applies only to standalone hooks.
     if "event" not in meta:
+        return None
+    if meta.get("wiring") != "standalone":
         return None
     if "tools" not in meta:
         logger.warning("Hook %s has wiring: standalone but no tools: field — skipping", hook_path)
-        return None
-    if meta.get("wiring") != "standalone":
         return None
 
     # Apply defaults

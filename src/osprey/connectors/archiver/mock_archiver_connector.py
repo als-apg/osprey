@@ -7,13 +7,16 @@ Ideal for R&D and development without archiver access.
 """
 
 from datetime import datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pandas as pd
 
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey.utils.logger import get_logger
+
+if TYPE_CHECKING:
+    from osprey.simulation import SimulationEngine
 
 logger = get_logger("mock_archiver_connector")
 
@@ -55,6 +58,7 @@ class MockArchiverConnector(ArchiverConnector):
 
     def __init__(self):
         self._connected = False
+        self._sim_engine: SimulationEngine | None = None
 
     async def connect(self, config: dict[str, Any]) -> None:
         """
@@ -64,14 +68,24 @@ class MockArchiverConnector(ArchiverConnector):
             config: Configuration with keys:
                 - sample_rate_hz: Sampling rate (default: 1.0)
                 - noise_level: Relative noise level (default: 0.1)
+                - simulation_file: Optional path to a machine.json driving the
+                  data-driven simulation engine (relative paths resolve against
+                  the project root). Without it, legacy behavior is unchanged.
         """
         self._sample_rate_hz = config.get("sample_rate_hz", 1.0)
         self._noise_level = config.get("noise_level", 0.1)
+
+        # Optional data-driven simulation engine (machine file)
+        from osprey.simulation import engine_from_connector_config
+
+        self._sim_engine = engine_from_connector_config(config)
+
         self._connected = True
         logger.debug("Mock archiver connector initialized")
 
     async def disconnect(self) -> None:
         """Cleanup mock archiver."""
+        self._sim_engine = None
         self._connected = False
         logger.debug("Mock archiver connector disconnected")
 
@@ -112,10 +126,15 @@ class MockArchiverConnector(ArchiverConnector):
         # event position shared by Sector-7 gauge and DCCT channels.
         vacuum_event_positions = self._vacuum_event_positions(start_date, end_date)
 
-        # Generate data for each PV
+        # Generate data for each PV. Channels known to the simulation engine
+        # are synthesized from the machine model; everything else uses the
+        # legacy procedural generation.
         data = {}
         for pv in pv_list:
-            data[pv] = self._generate_time_series(pv, num_points, vacuum_event_positions)
+            if self._sim_engine is not None and self._sim_engine.has_channel(pv):
+                data[pv] = self._sim_engine.synthesize_series(pv, timestamps)
+            else:
+                data[pv] = self._generate_time_series(pv, num_points, vacuum_event_positions)
 
         df = pd.DataFrame(data, index=pd.to_datetime(timestamps))
 
