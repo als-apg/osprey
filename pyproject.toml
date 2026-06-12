@@ -176,6 +176,11 @@ archiver-mongodb = [
     "pymongo>=4.0",
 ]
 
+# QuestDB archiver connector backend
+archiver-questdb = [
+    "asyncpg>=0.29",
+]
+
 # Screen capture on Linux (X11) — not needed on macOS
 screen-capture-linux = [
     "mss>=9.0.0",
@@ -236,6 +241,7 @@ module = [
     "pyepics.*",
     "podman.*",
     "pymongo.*",
+    "asyncpg.*",
 ]
 ignore_missing_imports = true
 
