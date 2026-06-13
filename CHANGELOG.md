@@ -22,6 +22,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 - The control_assistant scenario e2e tests (`test_vacuum_burst_scenario`, `test_rf_cavity_correlation_scenario`) now drive their archiver ground truth from the simulation engine via `activate_scenario`, and build at tier 3 so every simulated channel is discoverable through the channel finder.
 
+### Removed
+
+- **BREAKING:** the mock archiver no longer emits the built-in Sector-7 vacuum-burst and RF cavity-C1 thermal-excursion demo events from hard-coded source. That physics is now data-driven (ship it as a `machine.json` scenario, e.g. the `control_assistant` preset's `vacuum-burst`/`rf-thermal`). Without a `simulation_file`, the mock archiver synthesizes only generic per-PV-type waveforms.
+
 ## [2026.6.0] - 2026-06-12
 
 ### Added
