@@ -45,6 +45,70 @@ class TestBaselineSeries:
             engine.synthesize_series("NO:SUCH:PV", _timestamps())
 
 
+class TestSeriesBounds:
+    """``min``/``max`` clamp synthesized series after events and noise."""
+
+    def test_spike_below_min_saturates_at_floor(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:FWD"] = {"value": 450.0, "noise": 0.0, "min": 0.0}
+        machine_dict["scenarios"]["quad-drift"]["archiver"] = [
+            {
+                "channel": "T:FWD",
+                "events": [{"shape": "spike", "at": 0.5, "amplitude": -600.0, "width": 0.05}],
+            }
+        ]
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        engine.set_active_scenario("quad-drift")
+        series = np.array(engine.synthesize_series("T:FWD", _timestamps()))
+        assert series.min() == 0.0  # floor is actually reached (saturation)
+        assert (series >= 0.0).all()  # never negative
+
+    def test_spike_above_max_saturates_at_ceiling(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:P"] = {"value": 5.0, "noise": 0.0, "max": 50.0}
+        machine_dict["scenarios"]["quad-drift"]["archiver"] = [
+            {
+                "channel": "T:P",
+                "events": [{"shape": "spike", "at": 0.5, "amplitude": 200.0, "width": 0.05}],
+            }
+        ]
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        engine.set_active_scenario("quad-drift")
+        series = np.array(engine.synthesize_series("T:P", _timestamps()))
+        assert series.max() == 50.0
+        assert (series <= 50.0).all()
+
+    def test_derived_series_sees_clamped_inputs(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:FWD"] = {"value": 450.0, "noise": 0.0, "min": 0.0}
+        machine_dict["channels"]["T:REV"] = {"value": 5.0, "noise": 0.0}
+        machine_dict["channels"]["T:NET"] = {
+            "expr": "ch('T:FWD') - ch('T:REV')",
+            "noise": 0.0,
+        }
+        machine_dict["scenarios"]["quad-drift"]["archiver"] = [
+            {
+                "channel": "T:FWD",
+                "events": [{"shape": "spike", "at": 0.5, "amplitude": -600.0, "width": 0.05}],
+            }
+        ]
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        engine.set_active_scenario("quad-drift")
+        net = np.array(engine.synthesize_series("T:NET", _timestamps()))
+        # NET tracks FWD-REV with FWD floored at 0: minimum is 0 - 5 = -5, not 450-600-5.
+        assert net.min() == pytest.approx(-5.0)
+
+    def test_unbounded_channel_unchanged(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:FREE"] = {"value": 10.0, "noise": 0.0}
+        machine_dict["scenarios"]["quad-drift"]["archiver"] = [
+            {
+                "channel": "T:FREE",
+                "events": [{"shape": "spike", "at": 0.5, "amplitude": -600.0, "width": 0.05}],
+            }
+        ]
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        engine.set_active_scenario("quad-drift")
+        series = np.array(engine.synthesize_series("T:FREE", _timestamps()))
+        assert series.min() < -100.0  # no bounds → spike goes deeply negative
+
+
 class TestEventShapes:
     """Step, ramp, and spike events at window-relative positions."""
 
@@ -285,11 +349,12 @@ class TestDailyTimeAnchor:
         assert max(series) < 1.0e-7  # flat baseline
 
     def test_fires_every_date_in_multiday_window(self, machine_dict, make_machine_file):
-        # width 300 s so the Gaussian is still detectable at the 10-min sample grid
+        # width 600 s: at a 10-min grid the nearest sample is <=300 s from the
+        # peak, so the Gaussian stays above threshold regardless of grid phase.
         engine = self._engine(
             machine_dict,
             make_machine_file,
-            [{"shape": "spike", "at_time": "14:32:08", "amplitude": 1.5e-7, "width": 300}],
+            [{"shape": "spike", "at_time": "14:32:08", "amplitude": 1.5e-7, "width": 600}],
         )
         start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         ts = [start + timedelta(minutes=10 * i) for i in range(288)]  # 2 days @ 10 min

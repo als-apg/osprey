@@ -100,6 +100,57 @@ class TestMachineFileLoading:
             SimulationEngine.from_file(make_machine_file(machine_dict))
 
 
+class TestChannelBoundsValidation:
+    """Optional ``min``/``max`` physical bounds are validated at load time."""
+
+    def test_non_number_min_rejected(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:BAD"] = {"value": 1.0, "min": "zero"}
+        with pytest.raises(ValueError, match="T:BAD.*'min'.*'zero'"):
+            SimulationEngine.from_file(make_machine_file(machine_dict))
+
+    def test_bool_max_rejected(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:BAD"] = {"value": 1.0, "max": True}
+        with pytest.raises(ValueError, match="T:BAD.*'max'"):
+            SimulationEngine.from_file(make_machine_file(machine_dict))
+
+    def test_min_not_less_than_max_rejected(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:BAD"] = {"value": 1.0, "min": 5.0, "max": 5.0}
+        with pytest.raises(ValueError, match="'min'.*must be less than 'max'"):
+            SimulationEngine.from_file(make_machine_file(machine_dict))
+
+    def test_bounds_on_string_channel_rejected(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:STR"] = {"value": "CW", "min": 0.0}
+        with pytest.raises(ValueError, match="not supported on string-valued"):
+            SimulationEngine.from_file(make_machine_file(machine_dict))
+
+
+class TestChannelBoundsReads:
+    """``min``/``max`` clamp live reads on the way out, not stored state."""
+
+    def test_override_below_min_is_clamped_on_read(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:PWR"] = {"value": 5.0, "noise": 0.0, "min": 0.0}
+        machine_dict["scenarios"]["quad-drift"]["overrides"]["T:PWR"] = -10.0
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        engine.set_active_scenario("quad-drift")
+        assert engine.read("T:PWR").value == 0.0  # clamped output
+        engine.set_active_scenario("nominal")
+        assert engine.read("T:PWR").value == 5.0  # stored override intact
+
+    def test_max_clamps_read(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:PWR"] = {"value": 5.0, "noise": 0.0, "max": 3.0}
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        assert engine.read("T:PWR").value == 3.0
+
+    def test_derived_read_sees_clamped_inputs(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:FWD"] = {"value": 5.0, "noise": 0.0, "min": 0.0}
+        machine_dict["channels"]["T:NET"] = {"expr": "ch('T:FWD') - 2.0", "noise": 0.0}
+        machine_dict["scenarios"]["quad-drift"]["overrides"]["T:FWD"] = -100.0
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        engine.set_active_scenario("quad-drift")
+        # T:FWD clamps to 0.0 before the expression sees it: NET = 0.0 - 2.0.
+        assert engine.read("T:NET").value == pytest.approx(-2.0)
+
+
 class TestReadsAndPrecedence:
     """Value precedence: session write > scenario override > baseline."""
 

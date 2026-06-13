@@ -210,8 +210,12 @@ control_system:
   connector:
     timeout: 5.0  # Default timeout in seconds
 
-    # Mock connector uses sensible defaults (no configuration needed)
-    # Advanced users can configure: response_delay_ms, noise_level
+    # Mock connector (development mode) — driven by the data-driven simulation
+    # machine model below. Switch scenarios by writing a scenario name into
+    # data/simulation/active_scenario (see the sim-scenarios skill).
+    # Advanced users can also configure: response_delay_ms, noise_level
+    mock:
+      simulation_file: data/simulation/machine.json
 
     # EPICS connector (production mode)
     epics:
@@ -237,8 +241,13 @@ archiver:
   #   - epics_archiver: EPICS Archiver Appliance
   type: mock_archiver  # <-- Change to 'epics_archiver' for production
 
-  # Mock archiver uses sensible defaults (no configuration needed)
-  # Advanced users can configure: sample_rate_hz, noise_level
+  # Mock archiver (development mode) — synthesizes history from the same
+  # simulation machine model as the mock control-system connector, so live
+  # reads and archiver data stay consistent. Switch scenarios by writing a
+  # scenario name into data/simulation/active_scenario (see the sim-scenarios
+  # skill). Advanced users can also configure: sample_rate_hz, noise_level
+  mock_archiver:
+    simulation_file: data/simulation/machine.json
 
   # EPICS Archiver Appliance (production mode)
   epics_archiver:

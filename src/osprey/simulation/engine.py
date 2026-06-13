@@ -64,6 +64,8 @@ class SimChannel:
     noise: float
     description: str
     expr_source: str = ""
+    min_value: float | None = None
+    max_value: float | None = None
 
 
 @dataclass(frozen=True)
@@ -201,8 +203,10 @@ class SimulationEngine:
         self._refresh_scenario()
         channel = self._require_channel(pv)
         value = self._effective(pv)
-        if not isinstance(value, str) and channel.noise > 0.0:
-            value = float(value) * (1.0 + float(self._rng.normal(0.0, channel.noise)))
+        if not isinstance(value, str):
+            if channel.noise > 0.0:
+                value = float(value) * (1.0 + float(self._rng.normal(0.0, channel.noise)))
+            value = _clamp(float(value), channel.min_value, channel.max_value)
         return SimReading(value=value, units=channel.units, description=channel.description)
 
     def write(self, pv: str, value: Any) -> None:
@@ -343,7 +347,8 @@ class SimulationEngine:
             raise ExpressionError(
                 f"Channel {pv!r} holds a string value and cannot be used in an expression"
             )
-        return float(value)
+        channel = self._channels[pv]
+        return _clamp(float(value), channel.min_value, channel.max_value)
 
     def _scenario_anchor(self) -> float:
         """Scenario-activation time in epoch seconds (state-file mtime).
@@ -401,6 +406,8 @@ class SimulationEngine:
         series = _apply_events(series, events, n, t_abs, anchor)
         if channel.noise > 0.0:
             series = series * (1.0 + self._rng.normal(0.0, channel.noise, n))
+        if channel.min_value is not None or channel.max_value is not None:
+            series = np.clip(series, channel.min_value, channel.max_value)
         cache[pv] = series
         return series
 
@@ -468,6 +475,14 @@ def _parse_channel(pv: str, spec: Any) -> SimChannel:
     if isinstance(noise, bool) or not isinstance(noise, (int, float)) or noise < 0:
         raise ValueError(f"Channel {pv!r}: 'noise' must be a non-negative number")
 
+    is_string_channel = has_value and isinstance(value, str)
+    min_value = _parse_bound(pv, spec, "min", is_string_channel)
+    max_value = _parse_bound(pv, spec, "max", is_string_channel)
+    if min_value is not None and max_value is not None and min_value >= max_value:
+        raise ValueError(
+            f"Channel {pv!r}: 'min' ({min_value:g}) must be less than 'max' ({max_value:g})"
+        )
+
     return SimChannel(
         name=pv,
         value=value,
@@ -477,7 +492,21 @@ def _parse_channel(pv: str, spec: Any) -> SimChannel:
         noise=float(noise),
         description=str(spec.get("description", "")),
         expr_source=spec["expr"] if has_expr else "",
+        min_value=min_value,
+        max_value=max_value,
     )
+
+
+def _parse_bound(pv: str, spec: dict[str, Any], key: str, is_string_channel: bool) -> float | None:
+    """Parse an optional ``min``/``max`` physical bound from a channel spec."""
+    if key not in spec:
+        return None
+    if is_string_channel:
+        raise ValueError(f"Channel {pv!r}: {key!r} is not supported on string-valued channels")
+    raw = spec[key]
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        raise ValueError(f"Channel {pv!r}: {key!r} must be a number, got {raw!r}")
+    return float(raw)
 
 
 def _check_references(channels: dict[str, SimChannel]) -> None:
@@ -643,6 +672,15 @@ def _validate_event(scenario: str, pv: str, event: Any, channel: SimChannel) -> 
     if shape == "spike":
         _require_number("amplitude")
         _require_number("width", minimum=0.0)
+
+
+def _clamp(value: float, min_value: float | None, max_value: float | None) -> float:
+    """Clamp a scalar into ``[min_value, max_value]`` (either bound optional)."""
+    if min_value is not None and value < min_value:
+        return min_value
+    if max_value is not None and value > max_value:
+        return max_value
+    return value
 
 
 def _ref_value(ref_series: dict[str, "np.ndarray | list[str]"], name: str, index: int) -> float:

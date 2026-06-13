@@ -14,6 +14,8 @@ Compatibility is documented in release notes, not encoded in the version string.
 ### Added
 
 - Simulation engine: `at_time: "HH:MM:SS"` event anchor — daily local-time recurrence for archiver events (step/spike; width in seconds), complementing window-fraction `at` and activation-relative `at_offset`.
+- Simulation engine: optional per-channel `min`/`max` physical bounds clamp live reads and synthesized history on the way out (e.g. forward RF power floored at 0 saturates instead of going negative during a trip); overrides and writes are stored verbatim.
+- `control_assistant` preset ships a data-driven simulation machine model (`data/simulation/machine.json`) with `vacuum-burst` and `rf-thermal` demo scenarios; both mock connectors read it via `simulation_file`. Switch scenarios by writing `data/simulation/active_scenario`.
 
 ## [2026.6.0] - 2026-06-12
 

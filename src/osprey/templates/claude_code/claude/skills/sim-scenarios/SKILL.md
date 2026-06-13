@@ -72,6 +72,12 @@ one positioning style:
   requested window. `step` and `spike` only (no ramps). Spike `width` is
   in seconds.
 
+A numeric channel may declare optional `min`/`max` physical bounds; live
+reads and synthesized history are clamped into that range on the way out
+(e.g. forward RF power floored at `0` saturates instead of going negative
+during a trip). Bounds clamp the output only — overrides and writes are
+stored verbatim.
+
 ## Anti-patterns
 
 Do NOT:

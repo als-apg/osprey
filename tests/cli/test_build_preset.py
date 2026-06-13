@@ -919,6 +919,50 @@ def test_each_bundled_preset_builds_clean(preset: str, runner: CliRunner, tmp_pa
     assert manifest["creation"]["template"] == preset
 
 
+def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_path: Path) -> None:
+    """The control-assistant preset bundles the simulation machine model.
+
+    Pins the Task-2 wiring: the data bundle ships
+    ``data/simulation/machine.json`` (with the demo scenarios) plus the
+    ``active_scenario`` state file, and the rendered ``config.yml`` points
+    both mock connectors at the machine file via the exact key paths the
+    connector factory scopes (``control_system.connector.mock`` and
+    ``archiver.mock_archiver``).
+    """
+    import json
+
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "control-assistant",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+    project_dir = tmp_path / "smoke"
+
+    machine_path = project_dir / "data" / "simulation" / "machine.json"
+    assert machine_path.exists(), "machine.json missing from built project"
+    machine = json.loads(machine_path.read_text(encoding="utf-8"))
+    assert {"nominal", "vacuum-burst", "rf-thermal"} <= set(machine["scenarios"])
+
+    state_path = project_dir / "data" / "simulation" / "active_scenario"
+    assert state_path.exists(), "active_scenario state file missing from built project"
+    assert state_path.read_text(encoding="utf-8") == "nominal\n"
+
+    config = _config_yaml(project_dir)
+    assert (
+        config["control_system"]["connector"]["mock"]["simulation_file"]
+        == "data/simulation/machine.json"
+    )
+    assert config["archiver"]["mock_archiver"]["simulation_file"] == "data/simulation/machine.json"
+
+
 def test_preset_yaml_must_be_mapping(tmp_path: Path) -> None:
     """T5: a preset YAML that parses to a list (not a mapping) raises BuildProfileError."""
     # We can't easily inject a malformed bundled preset, but we can verify the
