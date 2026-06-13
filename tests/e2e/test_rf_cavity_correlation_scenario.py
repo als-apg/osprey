@@ -18,10 +18,15 @@ DEMO-026 (trip) → DEMO-027 (investigation identifying cooling-manifold
 blockage) → DEMO-028 (manifold flush repair). The logbook seed dates are
 re-anchored at ``osprey build`` time so the most recent entry lands two
 days before today (see ``rebase_logbook_timestamps`` in
-``src/osprey/cli/templates/scaffolding.py``). The archiver pattern is
-window-relative: the three C1 excursions appear at normalized positions
-(t=0.20, 0.55, 0.85) in any window the agent chooses, so the test is
-date-agnostic.
+``src/osprey/cli/templates/scaffolding.py``). The telemetry ground truth lives in
+the preset's simulation overlay, ``data/simulation/machine.json`` (the
+``rf-thermal`` scenario): the three C1 thermal excursions are declared at
+normalized window fractions (0.20, 0.55, 0.85), so they appear at those
+relative positions in any window the agent chooses and the test stays
+date-agnostic. The test activates that scenario after building the project
+via ``activate_scenario(project, "rf-thermal")``; the mock connectors then
+route RF cavity / klystron / DCCT reads through the engine instead of the
+flat ``nominal`` default.
 
 The agent must:
 
@@ -51,6 +56,7 @@ from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
     _default_opus_model,
+    activate_scenario,
     init_project,
     run_sdk_query,
 )
@@ -88,6 +94,13 @@ async def test_rf_cavity_c1_correlation_flow(tmp_path: Path) -> None:
     Tool-trace assertions are the deterministic contract; the LLM judge
     layer guards against the agent fetching data but failing to name C1.
 
+    Requires a pre-seeded ARIEL postgres holding the control_assistant demo
+    logbook (DEMO-026/027/028 cavity-C1 arc) — the build uses
+    ``--skip-lifecycle`` and does not ingest. A stale or absent database makes
+    the ``mcp__ariel__*`` assertion fail rather than skip, and a database
+    seeded with a *different* preset's logbook (e.g. a leftover virtual-linac
+    run) silently derails the agent. See tests/e2e/README.md local-requirements.
+
     Passes locally; flaky on CI runners — skipped on CI pending investigation.
     """
     # Use Opus for the planner: this scenario tests diagnostic reasoning
@@ -95,13 +108,23 @@ async def test_rf_cavity_c1_correlation_flow(tmp_path: Path) -> None:
     # cause), which Haiku reliably bails on by dumping data and asking the
     # user to interpret it. The data-visualizer / channel-finder subagents
     # still use their per-agent tier defaults from the resolver.
+    #
+    # Tier 3 (full channel DB): match the sibling vacuum scenario so both run
+    # against the complete facility the simulation machine model defines, not a
+    # minimal tier-1 subset.
     project = init_project(
         tmp_path,
         "rf_correlation_demo",
         template="control_assistant",
         provider="als-apg",
         model="opus",
+        tier=3,
     )
+    # Switch the mock connectors' data substrate from the flat ``nominal``
+    # default to the ``rf-thermal`` scenario declared in
+    # ``data/simulation/machine.json`` — the C1 thermal excursions at window
+    # fractions 0.20/0.55/0.85.
+    activate_scenario(project, "rf-thermal")
     cf_server = _channel_finder_server_name(project)
     if cf_server is None:
         pytest.skip("control-assistant preset has no channel-finder server")

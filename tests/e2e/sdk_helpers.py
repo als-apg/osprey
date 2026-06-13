@@ -185,6 +185,22 @@ def enable_writes_in_project(project_dir: Path) -> None:
     TemplateManager().regen_if_drift(project_dir)
 
 
+def activate_scenario(project_dir: Path, scenario: str) -> None:
+    """Activate a named simulation scenario in a built project.
+
+    Writes the scenario name into ``data/simulation/active_scenario``; the
+    simulation engine re-reads the state file on mtime change and clears any
+    session writes (fresh machine state). Used by scenario e2e tests to switch
+    the mock connectors' data substrate from ``nominal`` to a fault scenario.
+    """
+    state_file = project_dir / "data" / "simulation" / "active_scenario"
+    assert state_file.exists(), (
+        f"active_scenario state file missing at {state_file} — "
+        "template simulation overlay incomplete?"
+    )
+    state_file.write_text(scenario + "\n", encoding="utf-8")
+
+
 def _resolve_project_spec(project_dir: Path):
     """Return the project's ``ClaudeCodeModelSpec`` or ``None`` when the
     project's ``config.yml`` has no ``claude_code`` block.

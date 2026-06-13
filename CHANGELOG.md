@@ -18,6 +18,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 - `control_assistant` preset ships a data-driven simulation machine model (`data/simulation/machine.json`) with `vacuum-burst` and `rf-thermal` demo scenarios; both mock connectors read it via `simulation_file`. Switch scenarios by writing `data/simulation/active_scenario`.
 - Deterministic statistical-contract tests (`tests/simulation/test_control_assistant_scenarios.py`) pin the simulation scenarios' signatures (anti-correlation, excursion positions, derived-channel consistency) so the LLM-judge e2e tests run against a known-good data substrate.
 
+### Changed
+
+- The control_assistant scenario e2e tests (`test_vacuum_burst_scenario`, `test_rf_cavity_correlation_scenario`) now drive their archiver ground truth from the simulation engine via `activate_scenario`, and build at tier 3 so every simulated channel is discoverable through the channel finder.
+
 ## [2026.6.0] - 2026-06-12
 
 ### Added
