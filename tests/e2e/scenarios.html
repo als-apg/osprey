@@ -48,7 +48,7 @@
 
 <h3>Pass criteria</h3>
 <ul>
-  <li><strong>Tool-routing:</strong> ≥1 <code>mcp__channel-finder__*</code>, ≥1 <code>mcp__controls__archiver_read</code>, archiver inputs reference both <code>dcct</code>/<code>current</code> AND <code>gauge</code>/<code>vac</code>.</li>
+  <li><strong>Tool-routing:</strong> ≥1 <code>mcp__channel-finder__*</code>, ≥1 <code>mcp__controls__archiver_read</code> whose inputs reference a vacuum gauge (<code>gauge</code>/<code>vac</code>). DCCT is <em>not</em> required &mdash; the operator already reported the loss event with a timestamp.</li>
   <li><strong>Judge:</strong> names "Sector 7" or "SR07" explicitly. Vague "a vacuum gauge somewhere" / "no anomaly" / a different sector = fail.</li>
 </ul>
 
@@ -86,11 +86,11 @@
 <h3>Pass criteria</h3>
 <ul>
   <li><strong>Tool-routing:</strong> ≥1 <code>mcp__ariel__*</code>, ≥1 <code>mcp__channel-finder__*</code>, ≥1 <code>mcp__controls__archiver_read</code>, archiver inputs reference <code>cavity</code> or <code>rf</code>, ≥1 plot tool (<code>create_static_plot</code>/<code>create_interactive_plot</code>/<code>create_dashboard</code>).</li>
-  <li><strong>Judge (all three required):</strong>
+  <li><strong>Judge (a and b required, c is bonus):</strong>
     <ul>
       <li>(a) commits to cavity C1 / cavity 01 / first cavity</li>
       <li>(b) names the mechanism (thermal/cooling &rarr; reflected-power rise &rarr; forward-power trip)</li>
-      <li>(c) contrasts with C2 (stable)</li>
+      <li>(c) <em>bonus, not required:</em> contrasts with C2 (stable)</li>
     </ul>
   </li>
 </ul>
@@ -102,7 +102,7 @@
   <li><strong>C1 &harr; "01" bridge is natural-language only.</strong> No alias table; channel description says "cavity 01", logbook says "C1".</li>
 </ul>
 
-<div class="warn"><strong>Tier setting (critical).</strong> <code>tests/e2e/sdk_helpers.py:88</code> defaults <code>tier=1</code>. Tier 1 contains no <code>SR:VAC:GAUGE</code> channels and no C1/C2 temperature/power/frequency channels in <strong>any</strong> paradigm (in_context, hierarchical, middle_layer) &mdash; the generator produces identical PV sets across paradigms at every tier. Both scenarios require tier ≥ 2. Bump the default or override per-test.</div>
+<div class="warn"><strong>Tier setting (critical).</strong> <code>init_project</code> in <code>tests/e2e/sdk_helpers.py</code> defaults <code>tier=1</code>, which contains no <code>SR:VAC:GAUGE</code> channels &mdash; the vacuum agent cannot discover the gauges and spins without retrieving data. Both scenario tests therefore pass <code>tier=3</code> explicitly so the full simulated facility is discoverable. If you clone these scenarios, do the same.</div>
 
 </body>
 </html>

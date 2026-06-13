@@ -87,7 +87,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 ### Added
 - **Paradigm-agnostic channel finder.** `in_context` / `hierarchical` / `middle_layer` share one tier-resolved query set; `control_assistant` ships all 9 tier DBs so you switch tier per run instead of re-initialising.
 - **ARIEL standalone preset.** Logbook deployment without the control-system stack (no channel finder, no archiver, no Python executor). See `docs/source/how-to/ariel/standalone-deployment.rst`.
-- **Virtual-accelerator scenarios.** Mock archiver emits seeded correlated events (Sector-7 vacuum burst, RF-cavity-C1 thermal runaway) for operator-style investigation tests.
+- **Virtual-accelerator scenarios.** Mock archiver emits seeded correlated events (Sector-7 vacuum burst, RF-cavity-C1 thermal runaway) for operator-style investigation tests. *(Superseded — these are now data-driven simulation scenarios; see the Unreleased "Removed" entry.)*
 - **Profile-mode builds.** `osprey build --emit-profile DIR --preset X` scaffolds an editable profile; `extends:` accepts bundled preset names.
 
 ### Changed
