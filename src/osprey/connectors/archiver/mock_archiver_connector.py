@@ -14,6 +14,7 @@ import pandas as pd
 
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey.connectors.pv_taxonomy import classify_pv
+from osprey.simulation import engine_serves
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -121,7 +122,7 @@ class MockArchiverConnector(ArchiverConnector):
         # generic procedural generation.
         data = {}
         for pv in pv_list:
-            if self._sim_engine is not None and self._sim_engine.has_channel(pv):
+            if engine_serves(self._sim_engine, pv):
                 data[pv] = self._sim_engine.synthesize_series(pv, timestamps)
             else:
                 data[pv] = self._generate_time_series(pv, num_points)

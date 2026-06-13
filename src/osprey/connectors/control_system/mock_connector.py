@@ -24,6 +24,7 @@ from osprey.connectors.control_system.base import (
     WriteVerification,
 )
 from osprey.connectors.pv_taxonomy import classify_pv
+from osprey.simulation import engine_serves
 from osprey.utils.logger import get_logger
 
 logger = get_logger("mock_connector")
@@ -116,7 +117,7 @@ class MockConnector(ControlSystemConnector):
         await asyncio.sleep(self._response_delay)
 
         # Simulation engine serves its channels; unknown PVs fall back to legacy
-        if self._sim_engine is not None and self._sim_engine.has_channel(channel_address):
+        if engine_serves(self._sim_engine, channel_address):
             reading = self._sim_engine.read(channel_address)
             now = datetime.now()
             return ChannelValue(
@@ -205,7 +206,7 @@ class MockConnector(ControlSystemConnector):
         # Simulate network delay
         await asyncio.sleep(self._response_delay)
 
-        if self._sim_engine is not None and self._sim_engine.has_channel(channel_address):
+        if engine_serves(self._sim_engine, channel_address):
             # Engine channels: :SP -> :RB mirroring is handled by expr readbacks
             # in the machine file, so no legacy string-replace mirroring here.
             self._sim_engine.write(channel_address, value)
@@ -330,7 +331,7 @@ class MockConnector(ControlSystemConnector):
 
     async def get_metadata(self, channel_address: str) -> ChannelMetadata:
         """Get channel metadata (from the simulation engine when available)."""
-        if self._sim_engine is not None and self._sim_engine.has_channel(channel_address):
+        if engine_serves(self._sim_engine, channel_address):
             reading = self._sim_engine.read(channel_address)
             return ChannelMetadata(
                 units=reading.units,

@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from osprey.simulation import SimulationEngine
+from osprey.simulation import SimulationEngine, engine_serves
 from osprey.simulation.expressions import ExpressionError
 
 QUAD_DRIFT_TRANS = 98.5 - 0.85 * abs(28.4 - 42.0)  # 86.94
@@ -523,3 +523,18 @@ class TestAtTimeEventValidation:
         )
         engine = SimulationEngine.from_file(make_machine_file(good))
         assert engine.has_channel("T:VAC")
+
+
+class TestEngineServes:
+    """The optional-engine guard shared by the mock connectors."""
+
+    def test_none_engine_never_serves(self):
+        assert engine_serves(None, "T:Q1:CUR:SP") is False
+
+    def test_known_channel_served(self, machine_file):
+        engine = SimulationEngine.from_file(machine_file)
+        assert engine_serves(engine, "T:Q1:CUR:SP") is True
+
+    def test_unknown_channel_not_served(self, machine_file):
+        engine = SimulationEngine.from_file(machine_file)
+        assert engine_serves(engine, "NOPE:UNKNOWN") is False

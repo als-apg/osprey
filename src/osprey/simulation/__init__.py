@@ -9,6 +9,7 @@ from osprey.simulation.engine import (
     SimReading,
     SimulationEngine,
     engine_from_connector_config,
+    engine_serves,
 )
 from osprey.simulation.expressions import ExpressionError
 from osprey.simulation.machine import DEFAULT_SCENARIO
@@ -19,4 +20,5 @@ __all__ = [
     "SimReading",
     "SimulationEngine",
     "engine_from_connector_config",
+    "engine_serves",
 ]

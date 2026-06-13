@@ -388,3 +388,13 @@ def engine_from_connector_config(config: dict[str, Any]) -> SimulationEngine | N
     engine = SimulationEngine.from_file(path)
     logger.info(f"Simulation engine {engine.name!r} active (machine file: {path})")
     return engine
+
+
+def engine_serves(engine: SimulationEngine | None, channel: str) -> bool:
+    """Return True if an engine is present and serves this channel.
+
+    Centralises the optional-engine guard used by the mock connectors: the
+    engine is None when no ``simulation_file`` is configured, in which case the
+    connector falls back to its generic procedural synthesis.
+    """
+    return engine is not None and engine.has_channel(channel)
