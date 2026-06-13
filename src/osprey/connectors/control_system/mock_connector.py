@@ -23,6 +23,7 @@ from osprey.connectors.control_system.base import (
     ControlSystemConnector,
     WriteVerification,
 )
+from osprey.connectors.pv_taxonomy import classify_pv
 from osprey.utils.logger import get_logger
 
 logger = get_logger("mock_connector")
@@ -347,51 +348,9 @@ class MockConnector(ControlSystemConnector):
         return True
 
     def _generate_initial_value(self, channel_name: str) -> float:
-        """
-        Generate realistic initial value based on channel type.
-
-        Uses naming conventions to infer reasonable values.
-        """
-        ch_lower = channel_name.lower()
-
-        if "current" in ch_lower:
-            return 500.0 if "beam" in ch_lower else 150.0
-        elif "voltage" in ch_lower:
-            return 5000.0
-        elif "power" in ch_lower:
-            return 50.0
-        elif "pressure" in ch_lower:
-            return 1e-9
-        elif "temp" in ch_lower:
-            return 25.0
-        elif "lifetime" in ch_lower:
-            return 10.0
-        elif "position" in ch_lower or "pos" in ch_lower:
-            return 0.0
-        elif "energy" in ch_lower:
-            return 1900.0  # MeV for typical storage ring
-        else:
-            return 100.0
+        """Generate a realistic initial value from the shared PV taxonomy."""
+        return classify_pv(channel_name).base_value
 
     def _infer_units(self, channel_name: str) -> str:
-        """Infer units from channel name."""
-        ch_lower = channel_name.lower()
-
-        if "current" in ch_lower:
-            return "mA" if "beam" in ch_lower else "A"
-        elif "voltage" in ch_lower:
-            return "V"
-        elif "power" in ch_lower:
-            return "kW"
-        elif "pressure" in ch_lower:
-            return "Torr"
-        elif "temp" in ch_lower:
-            return "°C"
-        elif "lifetime" in ch_lower:
-            return "hours"
-        elif "position" in ch_lower or "pos" in ch_lower:
-            return "mm"
-        elif "energy" in ch_lower:
-            return "MeV"
-        else:
-            return ""
+        """Infer units from the shared PV taxonomy."""
+        return classify_pv(channel_name).units

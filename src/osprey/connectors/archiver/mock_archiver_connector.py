@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
+from osprey.connectors.pv_taxonomy import classify_pv
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -193,40 +194,36 @@ class MockArchiverConnector(ArchiverConnector):
 
             return trend + offset + wave + noise
 
-        # Original behavior for all other PV types
-        if ("beam" in pv_lower and "current" in pv_lower) or "dcct" in pv_lower:
-            base = 500.0
+        # Shape a trend + wave per PV kind. Classification (name -> kind/base)
+        # is shared with the control-system mock via classify_pv; the synthesis
+        # shapes below are archiver-specific.
+        kind = classify_pv(pv_name)
+        base = kind.base_value
+        if kind.name == "beam_current":
             trend = np.ones(num_points) * base
             for i in range(num_points):
                 decay_phase = i % (num_points // 10)
                 trend[i] = base * (1 - 0.05 * (decay_phase / (num_points // 10)))
             wave = 5 * np.sin(2 * np.pi * t * 5)
-        elif "current" in pv_lower:
-            base = 150.0
+        elif kind.name == "current":
             trend = base + 10 * t
             wave = 10 * np.sin(2 * np.pi * t * 3)
-        elif "voltage" in pv_lower:
-            base = 5000.0
+        elif kind.name == "voltage":
             trend = np.ones(num_points) * base
             wave = 50 * np.sin(2 * np.pi * t * 2)
-        elif "power" in pv_lower:
-            base = 50.0
+        elif kind.name == "power":
             trend = base + 5 * t
             wave = 5 * np.sin(2 * np.pi * t * 4)
-        elif "pressure" in pv_lower:
-            base = 1e-9
+        elif kind.name == "pressure":
             trend = base * (1 + 0.1 * t)
             wave = base * 0.05 * np.sin(2 * np.pi * t * 10)
-        elif "temp" in pv_lower:
-            base = 25.0
+        elif kind.name == "temperature":
             trend = base + 2 * t
             wave = 0.5 * np.sin(2 * np.pi * t * 8)
-        elif "lifetime" in pv_lower:
-            base = 10.0
+        elif kind.name == "lifetime":
             trend = base - 2 * t
             wave = 1 * np.sin(2 * np.pi * t * 3)
         else:
-            base = 100.0
             trend = base + 20 * t
             wave = 10 * np.sin(2 * np.pi * t * 2)
 
