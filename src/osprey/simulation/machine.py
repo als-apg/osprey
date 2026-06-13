@@ -241,20 +241,38 @@ def _parse_scenarios(raw: Any, channels: dict[str, SimChannel]) -> dict[str, Sce
     return scenarios
 
 
-def _validate_event(scenario: str, pv: str, event: Any, channel: SimChannel) -> None:
-    """Validate a single archiver event object (types and ranges at load time)."""
-    prefix = f"Scenario {scenario!r}, channel {pv!r}"
-    if not isinstance(event, dict):
-        raise ValueError(f"{prefix}: event must be a mapping")
-    shape = event.get("shape")
-    if shape not in _EVENT_VALUE_KEYS:
-        raise ValueError(
-            f"{prefix}: event shape must be one of {sorted(_EVENT_VALUE_KEYS)}, got {shape!r}"
-        )
-    missing = [key for key in _EVENT_VALUE_KEYS[shape] if key not in event]
-    if missing:
-        raise ValueError(f"{prefix}: {shape!r} event missing keys {missing}")
+def _require_event_number(
+    prefix: str,
+    event: dict[str, Any],
+    key: str,
+    minimum: float | None = None,
+    maximum: float | None = None,
+) -> None:
+    """Validate that an event key holds a number within optional bounds.
 
+    With both ``minimum`` and ``maximum`` the value must lie inside the closed
+    interval (used for window fractions); with only ``minimum`` it must be
+    strictly greater than it (used for positive widths).
+    """
+    value = event[key]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{prefix}: event key {key!r} must be a number, got {value!r}")
+    if minimum is not None and maximum is not None:
+        if not (minimum <= value <= maximum):
+            raise ValueError(
+                f"{prefix}: event key {key!r} must be between {minimum:g} and "
+                f"{maximum:g} (window fraction), got {value!r}"
+            )
+    elif minimum is not None and value <= minimum:
+        raise ValueError(
+            f"{prefix}: event key {key!r} must be a number > {minimum:g}, got {value!r}"
+        )
+
+
+def _validate_position_keys(prefix: str, event: dict[str, Any], shape: str) -> None:
+    """Validate event position-key *presence*: exactly one of ``at`` / ``at_offset``
+    / ``at_time``, plus the ramp until-key pairing (no ``at_time``, no mixing of
+    fraction and offset flavors, matching until key present)."""
     has_at = "at" in event
     has_offset = "at_offset" in event
     has_time = "at_time" in event
@@ -277,58 +295,62 @@ def _validate_event(scenario: str, pv: str, event: Any, channel: SimChannel) -> 
         if until_key not in event:
             raise ValueError(f"{prefix}: 'ramp' event missing keys ['{until_key}']")
 
+
+def _validate_at_time(prefix: str, raw_time: Any) -> None:
+    """Validate an ``at_time`` value: a tz-naive ``'HH:MM:SS'`` local time-of-day."""
+    if not isinstance(raw_time, str):
+        raise ValueError(
+            f"{prefix}: event key 'at_time' must be an 'HH:MM:SS' time string, got {raw_time!r}"
+        )
+    try:
+        parsed_time = dtime.fromisoformat(raw_time)
+    except ValueError:
+        raise ValueError(
+            f"{prefix}: event key 'at_time' must be a valid 'HH:MM:SS' time of day, "
+            f"got {raw_time!r}"
+        ) from None
+    if parsed_time.tzinfo is not None:
+        raise ValueError(
+            f"{prefix}: event key 'at_time' is local time and must not carry a "
+            f"timezone offset, got {raw_time!r}"
+        )
+
+
+def _validate_event(scenario: str, pv: str, event: Any, channel: SimChannel) -> None:
+    """Validate a single archiver event object (types and ranges at load time)."""
+    prefix = f"Scenario {scenario!r}, channel {pv!r}"
+    if not isinstance(event, dict):
+        raise ValueError(f"{prefix}: event must be a mapping")
+    shape = event.get("shape")
+    if shape not in _EVENT_VALUE_KEYS:
+        raise ValueError(
+            f"{prefix}: event shape must be one of {sorted(_EVENT_VALUE_KEYS)}, got {shape!r}"
+        )
+    missing = [key for key in _EVENT_VALUE_KEYS[shape] if key not in event]
+    if missing:
+        raise ValueError(f"{prefix}: {shape!r} event missing keys {missing}")
+
+    _validate_position_keys(prefix, event, shape)
+
     is_string_channel = channel.expr is None and isinstance(channel.value, str)
     if is_string_channel and shape != "step":
         raise ValueError(
             f"{prefix}: {shape!r} events are not supported on string-valued channels (only 'step')"
         )
 
-    def _require_number(
-        key: str, minimum: float | None = None, maximum: float | None = None
-    ) -> None:
-        value = event[key]
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ValueError(f"{prefix}: event key {key!r} must be a number, got {value!r}")
-        if minimum is not None and maximum is not None:
-            if not (minimum <= value <= maximum):
-                raise ValueError(
-                    f"{prefix}: event key {key!r} must be between {minimum:g} and "
-                    f"{maximum:g} (window fraction), got {value!r}"
-                )
-        elif minimum is not None and value <= minimum:
-            raise ValueError(
-                f"{prefix}: event key {key!r} must be a number > {minimum:g}, got {value!r}"
-            )
-
-    if has_at:
-        _require_number("at", 0.0, 1.0)
-    elif has_offset:
-        _require_number("at_offset")
+    if "at" in event:
+        _require_event_number(prefix, event, "at", 0.0, 1.0)
+    elif "at_offset" in event:
+        _require_event_number(prefix, event, "at_offset")
     else:
-        raw_time = event["at_time"]
-        if not isinstance(raw_time, str):
-            raise ValueError(
-                f"{prefix}: event key 'at_time' must be an 'HH:MM:SS' time string, got {raw_time!r}"
-            )
-        try:
-            parsed_time = dtime.fromisoformat(raw_time)
-        except ValueError:
-            raise ValueError(
-                f"{prefix}: event key 'at_time' must be a valid 'HH:MM:SS' time of day, "
-                f"got {raw_time!r}"
-            ) from None
-        if parsed_time.tzinfo is not None:
-            raise ValueError(
-                f"{prefix}: event key 'at_time' is local time and must not carry a "
-                f"timezone offset, got {raw_time!r}"
-            )
+        _validate_at_time(prefix, event["at_time"])
     if shape == "ramp":
-        if has_at:
-            _require_number("until", 0.0, 1.0)
+        if "at" in event:
+            _require_event_number(prefix, event, "until", 0.0, 1.0)
         else:
-            _require_number("until_offset")
+            _require_event_number(prefix, event, "until_offset")
     if shape in ("step", "ramp") and not is_string_channel:
-        _require_number("to")
+        _require_event_number(prefix, event, "to")
     if shape == "spike":
-        _require_number("amplitude")
-        _require_number("width", minimum=0.0)
+        _require_event_number(prefix, event, "amplitude")
+        _require_event_number(prefix, event, "width", minimum=0.0)

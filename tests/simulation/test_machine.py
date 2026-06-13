@@ -15,6 +15,9 @@ from osprey.simulation.machine import (
     ParsedMachine,
     Scenario,
     SimChannel,
+    _require_event_number,
+    _validate_at_time,
+    _validate_position_keys,
     parse_machine,
 )
 
@@ -102,3 +105,70 @@ class TestParseMachineValidation:
         )
         with pytest.raises(ValueError, match="event shape must be one of"):
             parse_machine(machine, _PATH)
+
+
+_PREFIX = "Scenario 'x', channel 'PV:A'"
+
+
+class TestRequireEventNumber:
+    def test_accepts_number(self):
+        _require_event_number(_PREFIX, {"at": 0.5}, "at", 0.0, 1.0)  # no raise
+
+    def test_rejects_non_number(self):
+        with pytest.raises(ValueError, match="must be a number"):
+            _require_event_number(_PREFIX, {"to": "high"}, "to")
+
+    def test_rejects_bool(self):
+        # bool is an int subclass but must not pass the numeric check.
+        with pytest.raises(ValueError, match="must be a number"):
+            _require_event_number(_PREFIX, {"to": True}, "to")
+
+    def test_closed_interval_violation(self):
+        with pytest.raises(ValueError, match="must be between 0 and 1"):
+            _require_event_number(_PREFIX, {"at": 1.5}, "at", 0.0, 1.0)
+
+    def test_strict_minimum_violation(self):
+        with pytest.raises(ValueError, match="must be a number > 0"):
+            _require_event_number(_PREFIX, {"width": 0.0}, "width", minimum=0.0)
+
+
+class TestValidatePositionKeys:
+    def test_exactly_one_required_none(self):
+        with pytest.raises(ValueError, match="exactly one of"):
+            _validate_position_keys(_PREFIX, {"shape": "step", "to": 1.0}, "step")
+
+    def test_exactly_one_required_two(self):
+        with pytest.raises(ValueError, match="exactly one of"):
+            _validate_position_keys(_PREFIX, {"at": 0.5, "at_offset": 1.0}, "step")
+
+    def test_single_key_ok(self):
+        _validate_position_keys(_PREFIX, {"at": 0.5}, "step")  # no raise
+
+    def test_ramp_rejects_at_time(self):
+        with pytest.raises(ValueError, match="do not support 'at_time'"):
+            _validate_position_keys(_PREFIX, {"at_time": "12:00:00"}, "ramp")
+
+    def test_ramp_rejects_mixed_flavors(self):
+        with pytest.raises(ValueError, match="must not mix"):
+            _validate_position_keys(_PREFIX, {"at": 0.1, "until_offset": 5.0}, "ramp")
+
+    def test_ramp_requires_until(self):
+        with pytest.raises(ValueError, match=r"missing keys \['until'\]"):
+            _validate_position_keys(_PREFIX, {"at": 0.1}, "ramp")
+
+
+class TestValidateAtTime:
+    def test_valid(self):
+        _validate_at_time(_PREFIX, "08:30:00")  # no raise
+
+    def test_non_string(self):
+        with pytest.raises(ValueError, match="must be an 'HH:MM:SS' time string"):
+            _validate_at_time(_PREFIX, 830)
+
+    def test_bad_format(self):
+        with pytest.raises(ValueError, match="must be a valid 'HH:MM:SS' time of day"):
+            _validate_at_time(_PREFIX, "25:99:99")
+
+    def test_timezone_offset_rejected(self):
+        with pytest.raises(ValueError, match="must not carry a"):
+            _validate_at_time(_PREFIX, "08:30:00+02:00")
