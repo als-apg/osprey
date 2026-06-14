@@ -202,8 +202,15 @@ def _render_schema_table(channels: list[ChannelRow]) -> str:
 
 
 def _render_stub(stub: DeviceStub) -> str:
-    """Render the full OKF document text for *stub*."""
-    import yaml  # already a core dependency
+    """Render the full OKF document text for *stub*.
+
+    Delegates frontmatter + body serialization to
+    :meth:`~osprey.services.facility_knowledge.okf.document.OKFDocument.serialize`
+    so the on-disk OKF format (YAML dump options, ``---`` fences, trailing-newline
+    policy) has a single owner and stub output can never drift from documents
+    written by any other path.
+    """
+    from osprey.services.facility_knowledge.okf.document import OKFDocument
 
     frontmatter = {
         "type": "device_stub",
@@ -213,10 +220,9 @@ def _render_stub(stub: DeviceStub) -> str:
         "device_class": stub.device_class,
         "device_id": stub.device_id,
     }
-    fm_text = yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True).rstrip()
     schema_table = _render_schema_table(stub.channels)
     body = f"# Schema\n\n{schema_table}"
-    return f"---\n{fm_text}\n---\n\n{body}"
+    return OKFDocument(frontmatter=frontmatter, body=body).serialize()
 
 
 # ---------------------------------------------------------------------------
