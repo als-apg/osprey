@@ -277,11 +277,13 @@ class TestActiveScenarioStateFile:
         os.utime(state_file, ns=(10**9, 10**9))
         assert engine.read("T:Q1:CUR:SP").value == 28.4
 
-    def test_set_active_scenario_writes_state_file(self, machine_file):
+    def test_set_active_scenario_writes_canonical_state_file(self, machine_file):
         engine = SimulationEngine.from_file(machine_file)
         engine.set_active_scenario("vac-leak")
-        state_file = machine_file.parent / "active_scenario"
+        # Writes always target the canonical multi-scenario file (nominal implicit).
+        state_file = machine_file.parent / "active_scenarios"
         assert state_file.read_text().strip() == "vac-leak"
+        assert engine.active_scenarios() == ("nominal", "vac-leak")
 
 
 class TestWriteCoercion:

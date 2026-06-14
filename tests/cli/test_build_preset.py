@@ -922,9 +922,9 @@ def test_each_bundled_preset_builds_clean(preset: str, runner: CliRunner, tmp_pa
 def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_path: Path) -> None:
     """The control-assistant preset bundles the simulation machine model.
 
-    Pins the Task-2 wiring: the data bundle ships
-    ``data/simulation/machine.json`` (with the demo scenarios) plus the
-    ``active_scenario`` state file, and the rendered ``config.yml`` points
+    Pins the wiring: the data bundle ships ``data/simulation/machine.json``
+    (shared channels) plus a ``scenarios/`` tree of self-contained bundles and
+    the ``active_scenarios`` state file, and the rendered ``config.yml`` points
     both mock connectors at the machine file via the exact key paths the
     connector factory scopes (``control_system.connector.mock`` and
     ``archiver.mock_archiver``).
@@ -945,14 +945,24 @@ def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_
     )
     assert result.exit_code == 0, result.output
     project_dir = tmp_path / "smoke"
+    sim_dir = project_dir / "data" / "simulation"
 
-    machine_path = project_dir / "data" / "simulation" / "machine.json"
+    machine_path = sim_dir / "machine.json"
     assert machine_path.exists(), "machine.json missing from built project"
     machine = json.loads(machine_path.read_text(encoding="utf-8"))
-    assert {"nominal", "vacuum-burst", "rf-thermal"} <= set(machine["scenarios"])
+    assert "channels" in machine
+    assert "scenarios" not in machine, "scenarios moved to bundle tree, not the machine file"
 
-    state_path = project_dir / "data" / "simulation" / "active_scenario"
-    assert state_path.exists(), "active_scenario state file missing from built project"
+    # Self-contained scenario bundles (telemetry + optional logbook).
+    for name in ("nominal", "vacuum-burst", "rf-thermal"):
+        assert (sim_dir / "scenarios" / name / "scenario.json").exists(), f"{name} bundle missing"
+    assert (sim_dir / "scenarios" / "nominal" / "logbook.json").exists()
+    assert (sim_dir / "scenarios" / "rf-thermal" / "logbook.json").exists()
+    # vacuum-burst is telemetry-only by design (no logbook narrative).
+    assert not (sim_dir / "scenarios" / "vacuum-burst" / "logbook.json").exists()
+
+    state_path = sim_dir / "active_scenarios"
+    assert state_path.exists(), "active_scenarios state file missing from built project"
     assert state_path.read_text(encoding="utf-8") == "nominal\n"
 
     config = _config_yaml(project_dir)
@@ -1032,30 +1042,37 @@ class TestBuildProfileChannelFinderModeValidation:
         BuildProfile(name="t", channel_finder_mode=None).validate(tmp_path)
 
 
-class TestOverlayLogbookSeedRebase:
-    """Overlays targeting data/logbook_seed/ trigger a timestamp rebase.
+class TestOverlayLogbookSeedNotMutated:
+    """The build never mutates an overlaid logbook seed.
 
-    Overlay files land after the in-template rebase (create_project step 6b),
-    so without the build_cmd step-11c trigger a profile-provided logbook seed
-    would keep its authored (stale) dates.
+    Build-time timestamp rebasing was removed: demo/seed logbooks now carry
+    *relative* timestamps (``when: {days_ago, time}``) resolved at ingest time
+    by the generic adapter (see tests/services/ariel_search/test_demo_data.py),
+    so the build copies seed data verbatim instead of rewriting it in place.
     """
 
-    def test_overlaid_logbook_seed_is_rebased(self, runner: CliRunner, tmp_path: Path) -> None:
+    def test_overlaid_logbook_seed_is_copied_verbatim(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
         import json
-        from datetime import UTC, datetime
 
         profile_dir = tmp_path / "profile"
         (profile_dir / "logbook").mkdir(parents=True)
         seed = {
             "entries": [
-                {"id": "T-001", "timestamp": "2024-03-10T08:15:00Z", "text": "older entry"},
-                {"id": "T-002", "timestamp": "2024-03-15T03:30:00Z", "text": "latest entry"},
+                {"id": "T-001", "when": {"days_ago": 7, "time": "08:15:00"}, "text": "older entry"},
+                {
+                    "id": "T-002",
+                    "when": {"days_ago": 2, "time": "03:30:00"},
+                    "text": "latest entry",
+                },
             ]
         }
-        (profile_dir / "logbook" / "demo_logbook.json").write_text(json.dumps(seed))
+        seed_text = json.dumps(seed)
+        (profile_dir / "logbook" / "demo_logbook.json").write_text(seed_text)
         profile = profile_dir / "p.yml"
         profile.write_text(
-            "name: SeedRebase\n"
+            "name: SeedVerbatim\n"
             "data_bundle: hello_world\n"
             "provider: anthropic\n"
             "model: claude-haiku-4-5\n"
@@ -1079,14 +1096,5 @@ class TestOverlayLogbookSeedRebase:
         built = json.loads(
             (tmp_path / "smoke" / "data" / "logbook_seed" / "demo_logbook.json").read_text()
         )
-        timestamps = [
-            datetime.fromisoformat(e["timestamp"].replace("Z", "+00:00")) for e in built["entries"]
-        ]
-        latest = max(timestamps)
-        age_days = (datetime.now(UTC) - latest).days
-        # rebase_logbook_timestamps anchors the latest entry ~2 days ago
-        # (day-rounded offset, so allow a small window)
-        assert 1 <= age_days <= 3, f"latest entry is {age_days} days old, expected ~2"
-        # Relative gaps and time-of-day are preserved
-        assert (max(timestamps) - min(timestamps)).days == 4
-        assert latest.strftime("%H:%M") == "03:30"
+        # Seed data round-trips unchanged — the build did not rewrite timestamps.
+        assert built == seed

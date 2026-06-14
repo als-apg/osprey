@@ -15,15 +15,18 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 - Simulation engine: `at_time: "HH:MM:SS"` event anchor — daily local-time recurrence for archiver events (step/spike; width in seconds), complementing window-fraction `at` and activation-relative `at_offset`.
 - Simulation engine: optional per-channel `min`/`max` physical bounds clamp live reads and synthesized history on the way out (e.g. forward RF power floored at 0 saturates instead of going negative during a trip); overrides and writes are stored verbatim.
-- `control_assistant` preset ships a data-driven simulation machine model (`data/simulation/machine.json`) with `vacuum-burst` and `rf-thermal` demo scenarios; both mock connectors read it via `simulation_file`. Switch scenarios by writing `data/simulation/active_scenario`.
-- Deterministic statistical-contract tests (`tests/simulation/test_control_assistant_scenarios.py`) pin the simulation scenarios' signatures (anti-correlation, excursion positions, derived-channel consistency) so the LLM-judge e2e tests run against a known-good data substrate.
+- **Composable, self-contained simulation scenarios.** Scenarios are bundles under `data/simulation/scenarios/<name>/` — each owns its telemetry overlay (`scenario.json`) and, optionally, its logbook narrative (`logbook.json`). Several can be active at once as long as they touch disjoint channel sets (overlapping channels are a hard error). The `control_assistant` preset ships `vacuum-burst` (telemetry-only) and `rf-thermal` (with its DEMO-026/027/028 incident arc).
+- **`osprey sim` CLI** — `osprey sim list | status | apply NAME...` composes and applies one or more scenarios: it writes the simulator state (with a shared apply-time anchor) and purges + reseeds the ARIEL logbook from the active bundles, so the narrative the agent searches matches the telemetry it reads, against one clock. `apply` confirms before purging (`--yes` to skip, `--no-seed` for telemetry only).
+- **Relative timestamps for demo/seed logbooks** (`osprey.utils.relative_time`) — demo and seed entries express timestamps as `{days_ago, time}` and resolve to concrete datetimes when data enters the system (`osprey sim apply` for scenario bundles; `osprey ariel ingest`/`quickstart` for the generic JSON adapter, which now accepts a relative `when` alongside absolute `timestamp`). The data lands at a recent, deterministic position with no build-time file mutation.
+- Deterministic statistical-contract tests (`tests/simulation/test_control_assistant_scenarios.py`, `test_scenario_composition.py`) pin the scenarios' signatures (anti-correlation, excursion positions, derived-channel consistency) and the disjoint-composition contract, so the LLM-judge e2e tests run against a known-good data substrate.
 
 ### Changed
 
-- The control_assistant scenario e2e tests (`test_vacuum_burst_scenario`, `test_rf_cavity_correlation_scenario`) now drive their archiver ground truth from the simulation engine via `activate_scenario`, and build at tier 3 so every simulated channel is discoverable through the channel finder.
+- The control_assistant scenario e2e tests (`test_vacuum_burst_scenario` and `test_rf_cavity_correlation_scenario`) drive their archiver ground truth from the simulation engine via `activate_scenarios`, which also seeds the matching ARIEL logbook deterministically at setup (replacing the manual `purge && ingest` pre-seed and its stale-DB footgun). They build at tier 3 so every simulated channel is discoverable through the channel finder.
 
 ### Removed
 
+- The build-time logbook timestamp rebase (`rebase_logbook_timestamps`) is gone: demo/seed logbooks now carry declarative relative timestamps resolved at ingest/apply time instead of being mutated in place during `osprey build` (which no longer requires a running Postgres for logbook setup).
 - **BREAKING:** the mock archiver no longer emits the built-in Sector-7 vacuum-burst and RF cavity-C1 thermal-excursion demo events from hard-coded source. That physics is now data-driven (ship it as a `machine.json` scenario, e.g. the `control_assistant` preset's `vacuum-burst`/`rf-thermal`). Without a `simulation_file`, the mock archiver synthesizes only generic per-PV-type waveforms.
 
 ## [2026.6.0] - 2026-06-12

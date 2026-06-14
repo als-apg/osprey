@@ -13,20 +13,20 @@ for each suspect, (c) commit to a single cavity (C1 / device 01) as the
 fault source based on the telemetry signature, and (d) name the mechanism
 (thermal detuning → reflected-power spike → forward-power trip).
 
-A multi-day logbook arc is seeded for cross-source enrichment:
-DEMO-026 (trip) → DEMO-027 (investigation identifying cooling-manifold
-blockage) → DEMO-028 (manifold flush repair). The logbook seed dates are
-re-anchored at ``osprey build`` time so the most recent entry lands two
-days before today (see ``rebase_logbook_timestamps`` in
-``src/osprey/cli/templates/scaffolding.py``). The telemetry ground truth lives in
-the preset's simulation overlay, ``data/simulation/machine.json`` (the
-``rf-thermal`` scenario): the three C1 thermal excursions are declared at
-normalized window fractions (0.20, 0.55, 0.85), so they appear at those
-relative positions in any window the agent chooses and the test stays
-date-agnostic. The test activates that scenario after building the project
-via ``activate_scenario(project, "rf-thermal")``; the mock connectors then
-route RF cavity / klystron / DCCT reads through the engine instead of the
-flat ``nominal`` default.
+A multi-day logbook arc rides in the ``rf-thermal`` scenario bundle for
+cross-source enrichment: DEMO-026 (trip) → DEMO-027 (investigation identifying
+cooling-manifold blockage) → DEMO-028 (manifold flush repair). The bundle
+carries these as *relative* timestamps (``when: {days_ago, time}``); applying
+the scenario resolves them against one apply-time anchor (newest entry lands
+two days before today) and seeds them into ARIEL. The telemetry ground truth
+lives in the same bundle (``data/simulation/scenarios/rf-thermal/``): the three
+C1 thermal excursions are declared at normalized window fractions (0.20, 0.55,
+0.85), so they appear at those relative positions in any window the agent
+chooses and the test stays date-agnostic. The test activates the scenario after
+building the project via ``activate_scenarios(project, "rf-thermal")``, which
+also purges + reseeds the logbook so narrative and telemetry share one clock;
+the mock connectors then route RF cavity / klystron / DCCT reads through the
+engine instead of the flat ``nominal`` default.
 
 The agent must:
 
@@ -56,7 +56,7 @@ from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
     _default_opus_model,
-    activate_scenario,
+    activate_scenarios,
     init_project,
     run_sdk_query,
 )
@@ -73,8 +73,9 @@ pytestmark = [
     pytest.mark.e2e,
     pytest.mark.requires_als_apg,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
-    # Skipped on CI: needs a pre-seeded ARIEL logbook postgres, which the
-    # default GitHub Actions runner does not provision (see tests/e2e/README.md).
+    # Skipped on CI: needs a running ARIEL logbook postgres (seeded
+    # automatically at setup via activate_scenarios), which the default GitHub
+    # Actions runner does not provision (see tests/e2e/README.md).
     pytest.mark.skipif(
         os.environ.get("GITHUB_ACTIONS") == "true",
         reason="needs local ARIEL logbook backend; not provisioned on CI runners",
@@ -95,16 +96,16 @@ async def test_rf_cavity_c1_correlation_flow(tmp_path: Path) -> None:
     Tool-trace assertions are the deterministic contract; the LLM judge
     layer guards against the agent fetching data but failing to name C1.
 
-    Requires a pre-seeded ARIEL postgres holding the control_assistant demo
-    logbook (DEMO-026/027/028 cavity-C1 arc) — the build uses
-    ``--skip-lifecycle`` and does not ingest. A stale or absent database makes
-    the ``mcp__ariel__*`` assertion fail rather than skip, and a database
-    seeded with a *different* preset's logbook (e.g. a leftover virtual-linac
-    run) silently derails the agent. See tests/e2e/README.md local-requirements.
+    The ARIEL logbook is seeded deterministically at setup by
+    ``activate_scenarios(project, "rf-thermal")``: it purges and reseeds the DB
+    from the scenario bundle so the cavity-C1 arc (DEMO-026/027/028) is present
+    and matches the telemetry against one apply-time clock — no manual pre-seed,
+    and no stale/wrong-preset DB to silently derail the agent. Needs a running
+    ARIEL postgres (not provisioned on CI). See tests/e2e/README.md.
 
-    Runs locally against a seeded ARIEL backend; skipped on CI (no backend).
-    Marked ``flaky(reruns=2)`` to absorb the rare stochastic miss where the
-    agent gathers the evidence but fails to commit to cavity C1.
+    Skipped on CI (no backend). Marked ``flaky(reruns=2)`` to absorb the rare
+    stochastic miss where the agent gathers the evidence but fails to commit to
+    cavity C1.
     """
     # Use Opus for the planner: this scenario tests diagnostic reasoning
     # (decompose phenomenon → suspects → cross-correlate → commit to root
@@ -123,11 +124,11 @@ async def test_rf_cavity_c1_correlation_flow(tmp_path: Path) -> None:
         model="opus",
         tier=3,
     )
-    # Switch the mock connectors' data substrate from the flat ``nominal``
-    # default to the ``rf-thermal`` scenario declared in
-    # ``data/simulation/machine.json`` — the C1 thermal excursions at window
-    # fractions 0.20/0.55/0.85.
-    activate_scenario(project, "rf-thermal")
+    # Switch the mock connectors' data substrate to the ``rf-thermal`` scenario
+    # bundle — the C1 thermal excursions at window fractions 0.20/0.55/0.85 —
+    # and seed its DEMO-026/027/028 incident arc into ARIEL (purge + reseed) so
+    # logbook and telemetry share one apply-time clock.
+    activate_scenarios(project, "rf-thermal")
     cf_server = _channel_finder_server_name(project)
     if cf_server is None:
         pytest.skip("control-assistant preset has no channel-finder server")

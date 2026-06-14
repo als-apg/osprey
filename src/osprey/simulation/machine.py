@@ -13,7 +13,8 @@ construction and consumes the returned :class:`ParsedMachine`.
 """
 
 import ast
-from dataclasses import dataclass
+import json
+from dataclasses import dataclass, field
 from datetime import time as dtime
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,7 @@ from osprey.simulation.expressions import (
     compile_expression,
     extract_channel_refs,
 )
+from osprey.utils.relative_time import RelativeTimestamp
 
 DEFAULT_SCENARIO = "nominal"
 
@@ -55,13 +57,38 @@ class SimChannel:
 
 
 @dataclass(frozen=True)
+class ScenarioLogEntry:
+    """A logbook entry owned by a scenario bundle.
+
+    Single source of truth for both the ARIEL DB seed (via ``apply``) and the
+    fast per-scenario unit tests, so the telemetry overlay and its narrative
+    ship together in one bundle.
+    """
+
+    entry_id: str
+    when: RelativeTimestamp
+    author: str
+    title: str
+    text: str
+    tags: tuple[str, ...]
+    categories: tuple[str, ...]
+    loto_tag: str | None
+    extra: dict[str, Any]
+
+
+@dataclass(frozen=True)
 class Scenario:
-    """Parsed scenario definition: overrides plus archiver event scripts."""
+    """Parsed scenario definition: overrides, archiver event scripts, logbook.
+
+    ``logbook`` is empty for inline (machine-dict) scenarios; only filesystem
+    scenario bundles carry logbook entries (see :func:`load_scenario_bundles`).
+    """
 
     name: str
     description: str
     overrides: dict[str, float | str]
     archiver: dict[str, list[dict[str, Any]]]
+    logbook: tuple[ScenarioLogEntry, ...] = field(default_factory=tuple)
 
 
 @dataclass(frozen=True)
@@ -95,7 +122,11 @@ def parse_machine(machine: Any, machine_path: Path) -> ParsedMachine:
 
     channels = {pv: _parse_channel(pv, spec) for pv, spec in machine["channels"].items()}
     _check_references(channels)
-    scenarios = _parse_scenarios(machine.get("scenarios", {}), channels)
+    scenarios_dir = machine_path.parent / "scenarios"
+    if scenarios_dir.is_dir():
+        scenarios = load_scenario_bundles(scenarios_dir, channels)
+    else:
+        scenarios = _parse_scenarios(machine.get("scenarios", {}), channels)
     return ParsedMachine(
         name=str(machine.get("name", "")),
         description=str(machine.get("description", "")),
@@ -199,46 +230,175 @@ def _check_references(channels: dict[str, SimChannel]) -> None:
 
 
 def _parse_scenarios(raw: Any, channels: dict[str, SimChannel]) -> dict[str, Scenario]:
-    """Parse and validate the scenarios section; injects a default 'nominal'."""
+    """Parse and validate an inline scenarios section; injects a default 'nominal'.
+
+    Used for machine-dict (filesystem-free) inputs. Filesystem scenario bundles
+    take the :func:`load_scenario_bundles` path instead.
+    """
     if not isinstance(raw, dict):
         raise ValueError("'scenarios' must be a mapping of scenario name to definition")
     scenarios: dict[str, Scenario] = {}
     for name, spec in raw.items():
-        if not isinstance(spec, dict):
-            raise ValueError(f"Scenario {name!r}: definition must be a mapping")
-
-        overrides: dict[str, float | str] = {}
-        for pv, value in spec.get("overrides", {}).items():
-            if pv not in channels:
-                raise ValueError(f"Scenario {name!r}: override for unknown channel {pv!r}")
-            if isinstance(value, bool) or not isinstance(value, (int, float, str)):
-                raise ValueError(
-                    f"Scenario {name!r}: override for {pv!r} must be a number or string"
-                )
-            overrides[pv] = value if isinstance(value, str) else float(value)
-
-        archiver: dict[str, list[dict[str, Any]]] = {}
-        for entry in spec.get("archiver", []):
-            if not isinstance(entry, dict):
-                raise ValueError(f"Scenario {name!r}: archiver entries must be mappings")
-            pv = entry.get("channel")
-            if pv not in channels:
-                raise ValueError(f"Scenario {name!r}: archiver events for unknown channel {pv!r}")
-            events = entry.get("events", [])
-            for event in events:
-                _validate_event(name, pv, event, channels[pv])
-            archiver[pv] = list(events)
-
-        scenarios[name] = Scenario(
-            name=name,
-            description=str(spec.get("description", "")),
-            overrides=overrides,
-            archiver=archiver,
-        )
+        scenarios[name] = _parse_scenario_spec(name, spec, channels)
 
     if DEFAULT_SCENARIO not in scenarios:
-        scenarios[DEFAULT_SCENARIO] = Scenario(DEFAULT_SCENARIO, "All systems nominal.", {}, {})
+        scenarios[DEFAULT_SCENARIO] = _default_nominal()
     return scenarios
+
+
+def _parse_scenario_spec(
+    name: str,
+    spec: Any,
+    channels: dict[str, SimChannel],
+    logbook: tuple[ScenarioLogEntry, ...] = (),
+) -> Scenario:
+    """Validate one scenario's overrides + archiver events into a :class:`Scenario`.
+
+    Shared by the inline (:func:`_parse_scenarios`) and bundle
+    (:func:`load_scenario_bundles`) paths so override/event validation lives in
+    exactly one place. ``logbook`` is supplied only by the bundle path.
+    """
+    if not isinstance(spec, dict):
+        raise ValueError(f"Scenario {name!r}: definition must be a mapping")
+
+    overrides: dict[str, float | str] = {}
+    for pv, value in spec.get("overrides", {}).items():
+        if pv not in channels:
+            raise ValueError(f"Scenario {name!r}: override for unknown channel {pv!r}")
+        if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+            raise ValueError(f"Scenario {name!r}: override for {pv!r} must be a number or string")
+        overrides[pv] = value if isinstance(value, str) else float(value)
+
+    archiver: dict[str, list[dict[str, Any]]] = {}
+    for entry in spec.get("archiver", []):
+        if not isinstance(entry, dict):
+            raise ValueError(f"Scenario {name!r}: archiver entries must be mappings")
+        pv = entry.get("channel")
+        if pv not in channels:
+            raise ValueError(f"Scenario {name!r}: archiver events for unknown channel {pv!r}")
+        events = entry.get("events", [])
+        for event in events:
+            _validate_event(name, pv, event, channels[pv])
+        archiver[pv] = list(events)
+
+    return Scenario(
+        name=name,
+        description=str(spec.get("description", "")),
+        overrides=overrides,
+        archiver=archiver,
+        logbook=logbook,
+    )
+
+
+def _default_nominal() -> Scenario:
+    """The auto-injected baseline scenario used when none is defined."""
+    return Scenario(DEFAULT_SCENARIO, "All systems nominal.", {}, {}, ())
+
+
+def load_scenario_bundles(
+    scenarios_dir: Path, channels: dict[str, SimChannel]
+) -> dict[str, Scenario]:
+    """Load self-contained scenario bundles from a ``scenarios/`` directory.
+
+    Each immediate subdirectory is a bundle named after the directory: a
+    required ``scenario.json`` (``description`` plus optional ``overrides`` /
+    ``archiver``, same schema as an inline scenario) and an optional
+    ``logbook.json`` (a JSON array of entries with relative timestamps). A
+    default ``nominal`` is injected if no ``nominal/`` bundle exists.
+
+    Args:
+        scenarios_dir: The ``scenarios/`` directory (sibling of the machine file).
+        channels: Parsed channels, for override/event reference validation.
+
+    Returns:
+        Scenario name -> :class:`Scenario`, each carrying its logbook entries.
+
+    Raises:
+        ValueError: If a bundle is malformed (missing ``scenario.json``, invalid
+            scenario/logbook schema, or references an unknown channel).
+    """
+    scenarios: dict[str, Scenario] = {}
+    for bundle in sorted(p for p in scenarios_dir.iterdir() if p.is_dir()):
+        name = bundle.name
+        scenario_file = bundle / "scenario.json"
+        if not scenario_file.is_file():
+            raise ValueError(f"Scenario bundle {name!r} is missing scenario.json ({scenario_file})")
+        try:
+            spec = json.loads(scenario_file.read_text())
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Scenario bundle {name!r}: invalid scenario.json: {exc}") from exc
+
+        logbook: tuple[ScenarioLogEntry, ...] = ()
+        logbook_file = bundle / "logbook.json"
+        if logbook_file.is_file():
+            try:
+                raw_logbook = json.loads(logbook_file.read_text())
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Scenario bundle {name!r}: invalid logbook.json: {exc}") from exc
+            if not isinstance(raw_logbook, list):
+                raise ValueError(f"Scenario bundle {name!r}: logbook.json must be a JSON array")
+            logbook = tuple(_parse_log_entry(name, entry) for entry in raw_logbook)
+
+        scenarios[name] = _parse_scenario_spec(name, spec, channels, logbook=logbook)
+
+    if DEFAULT_SCENARIO not in scenarios:
+        scenarios[DEFAULT_SCENARIO] = _default_nominal()
+    return scenarios
+
+
+def _parse_relative_timestamp(prefix: str, raw: Any) -> RelativeTimestamp:
+    """Parse a ``{days_ago, time}`` relative timestamp (reuses at_time rules)."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"{prefix}: 'when' must be a mapping with 'days_ago' and 'time'")
+    days_ago = raw.get("days_ago")
+    if isinstance(days_ago, bool) or not isinstance(days_ago, int) or days_ago < 0:
+        raise ValueError(f"{prefix}: 'days_ago' must be a non-negative integer, got {days_ago!r}")
+    raw_time = raw.get("time")
+    _validate_at_time(prefix, raw_time)
+    return RelativeTimestamp(days_ago=days_ago, time=dtime.fromisoformat(raw_time))
+
+
+def _parse_log_entry(scenario_name: str, raw: Any) -> ScenarioLogEntry:
+    """Parse and validate one logbook entry from a bundle's logbook.json."""
+    prefix = f"Scenario {scenario_name!r} logbook"
+    if not isinstance(raw, dict):
+        raise ValueError(f"{prefix}: each entry must be a mapping")
+    entry_id = raw.get("entry_id")
+    if not isinstance(entry_id, str) or not entry_id:
+        raise ValueError(f"{prefix}: 'entry_id' must be a non-empty string, got {entry_id!r}")
+    entry_prefix = f"{prefix} entry {entry_id!r}"
+    when = _parse_relative_timestamp(entry_prefix, raw.get("when"))
+
+    def _require_str(key: str) -> str:
+        value = raw.get(key)
+        if not isinstance(value, str):
+            raise ValueError(f"{entry_prefix}: {key!r} must be a string, got {value!r}")
+        return value
+
+    def _str_tuple(key: str) -> tuple[str, ...]:
+        value = raw.get(key, [])
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise ValueError(f"{entry_prefix}: {key!r} must be a list of strings, got {value!r}")
+        return tuple(value)
+
+    loto_tag = raw.get("loto_tag")
+    if loto_tag is not None and not isinstance(loto_tag, str):
+        raise ValueError(f"{entry_prefix}: 'loto_tag' must be a string or null, got {loto_tag!r}")
+    extra = raw.get("extra", {})
+    if not isinstance(extra, dict):
+        raise ValueError(f"{entry_prefix}: 'extra' must be a mapping, got {extra!r}")
+
+    return ScenarioLogEntry(
+        entry_id=entry_id,
+        when=when,
+        author=_require_str("author"),
+        title=_require_str("title"),
+        text=_require_str("text"),
+        tags=_str_tuple("tags"),
+        categories=_str_tuple("categories"),
+        loto_tag=loto_tag,
+        extra=dict(extra),
+    )
 
 
 def _require_event_number(

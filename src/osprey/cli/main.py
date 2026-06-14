@@ -50,6 +50,7 @@ class LazyGroup(click.Group):
             "eject": "osprey.cli.eject_cmd",
             "channel-finder": "osprey.cli.channel_finder_cmd",
             "ariel": "osprey.cli.ariel",  # ARIEL search service
+            "sim": "osprey.cli.sim",  # Simulation scenarios
             "artifacts": "osprey.cli.artifacts_cmd",  # Artifact Gallery
             "web": "osprey.cli.web_cmd",  # Web Terminal
             "scaffold": "osprey.cli.scaffold_cmd",  # Build artifact overrides
@@ -71,6 +72,8 @@ class LazyGroup(click.Group):
             cmd_func = mod.channel_finder
         elif cmd_name == "ariel":
             cmd_func = mod.ariel_group
+        elif cmd_name == "sim":
+            cmd_func = mod.sim_group
         elif cmd_name == "artifacts":
             cmd_func = mod.artifacts
         elif cmd_name == "web":
@@ -93,6 +96,7 @@ class LazyGroup(click.Group):
             "claude",
             "eject",
             "ariel",
+            "sim",
             "artifacts",
             "web",
             "scaffold",

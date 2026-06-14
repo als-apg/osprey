@@ -57,7 +57,7 @@ from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
     _default_opus_model,
-    activate_scenario,
+    activate_scenarios,
     init_project,
     run_sdk_query,
 )
@@ -74,8 +74,9 @@ pytestmark = [
     pytest.mark.e2e,
     pytest.mark.requires_als_apg,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
-    # Skipped on CI: needs a pre-seeded ARIEL logbook postgres, which the
-    # default GitHub Actions runner does not provision (see tests/e2e/README.md).
+    # Skipped on CI: needs a running ARIEL logbook postgres (seeded
+    # automatically at setup via activate_scenarios), which the default GitHub
+    # Actions runner does not provision (see tests/e2e/README.md).
     pytest.mark.skipif(
         os.environ.get("GITHUB_ACTIONS") == "true",
         reason="needs local ARIEL logbook backend; not provisioned on CI runners",
@@ -96,7 +97,8 @@ async def test_sector7_vacuum_burst_flow(tmp_path: Path) -> None:
     layer guards against the agent fetching data but failing to identify
     the anomalous sector.
 
-    Runs locally against a seeded ARIEL backend; skipped on CI (no backend).
+    The ARIEL logbook is seeded deterministically at setup (ambient ops log,
+    no vacuum incident) by ``activate_scenarios``; skipped on CI (no backend).
     Marked ``flaky(reruns=2)`` to absorb the rare stochastic miss where the
     agent retrieves the data but bails before committing to the sector.
     """
@@ -122,10 +124,12 @@ async def test_sector7_vacuum_burst_flow(tmp_path: Path) -> None:
         tier=3,
     )
     # Switch the mock connectors' data substrate from the flat ``nominal``
-    # default to the ``vacuum-burst`` scenario declared in
-    # ``data/simulation/machine.json`` — the SR07 pressure spike + DCCT dip
-    # anchored daily at 14:32:08 via an ``at_time`` event.
-    activate_scenario(project, "vacuum-burst")
+    # default to the ``vacuum-burst`` scenario bundle — the SR07 pressure spike
+    # + DCCT dip anchored daily at 14:32:08 via an ``at_time`` event. This also
+    # purges and reseeds ARIEL with the ambient (nominal) logbook so the agent
+    # sees a realistic ops log but *no* vacuum-incident narrative to lean on —
+    # the diagnosis must come from telemetry (this scenario is telemetry-only).
+    activate_scenarios(project, "vacuum-burst")
     cf_server = _channel_finder_server_name(project)
     if cf_server is None:
         pytest.skip("control-assistant preset has no channel-finder server")

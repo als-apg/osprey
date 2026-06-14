@@ -23,41 +23,16 @@ Signatures pinned (target value -> asserted threshold, with margin):
   downward during the excursions.
 """
 
-import shutil
 from datetime import datetime, timedelta
-from pathlib import Path
 
 import numpy as np
 import pytest
 
-from osprey.simulation import SimulationEngine
-
-# tests/simulation/test_*.py -> parents[2] is the repository root.
-TEMPLATE_MACHINE = (
-    Path(__file__).parents[2]
-    / "src/osprey/templates/apps/control_assistant/data/simulation/machine.json"
-)
+# The shipped control_assistant engine is built by the shared ``engine_factory``
+# fixture in conftest.py (copies machine.json + the scenarios/ bundle tree).
 GAUGE = "SR:VAC:GAUGE:SR{:02d}:PRESSURE:RB"
 DCCT = "SR:DIAG:DCCT:01:CURRENT:RB"
 RF_SERIES_N = 2016  # 7-day window at 5-minute resolution
-
-
-@pytest.fixture
-def engine_factory(tmp_path):
-    """Return a builder that loads the shipped machine under a given scenario.
-
-    The shipped template ``machine.json`` is copied into a temp dir alongside
-    an ``active_scenario`` state file; the engine re-reads the state file on
-    mtime change, so the returned engine is already pinned to ``scenario``.
-    """
-
-    def make(scenario: str) -> SimulationEngine:
-        machine = tmp_path / "machine.json"
-        shutil.copy(TEMPLATE_MACHINE, machine)
-        (tmp_path / "active_scenario").write_text(scenario + "\n")
-        return SimulationEngine.from_file(machine)
-
-    return make
 
 
 def _window(center: datetime, minutes: int = 10, step_s: int = 1) -> list[datetime]:
