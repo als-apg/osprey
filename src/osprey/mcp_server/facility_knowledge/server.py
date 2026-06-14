@@ -14,6 +14,8 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -141,6 +143,44 @@ def create_server() -> FastMCP:
 
 
 # ---------------------------------------------------------------------------
+# Tool error envelope
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _tool_error_envelope(operation: str) -> Iterator[None]:
+    """Wrap an MCP tool body in the cross-team standard error envelope.
+
+    A :class:`~fastmcp.exceptions.ToolError` raised inside the body already
+    carries a formatted envelope from :func:`make_error` (e.g. ``not_found``,
+    ``validation_error``), so it is re-raised unchanged.  Any *other* exception
+    is logged and converted into a generic ``internal_error`` envelope; because
+    :func:`make_error` raises, that conversion propagates as a ``ToolError`` to
+    fastmcp like every other tool error.
+
+    This is a context manager used *inside* each tool body rather than a
+    decorator, so fastmcp's signature introspection — and therefore the
+    generated tool schema — is left untouched.
+
+    Args:
+        operation: Short label for the tool/operation, used in both the log
+            line and the ``internal_error`` message (e.g. ``"list_concepts"``
+            or ``f"read_concept {concept_id!r}"``).
+    """
+    try:
+        yield
+    except ToolError:
+        raise
+    except Exception as exc:
+        logger.exception("%s failed", operation)
+        make_error(
+            "internal_error",
+            f"{operation} failed: {exc}",
+            ["Check MCP server logs for details."],
+        )
+
+
+# ---------------------------------------------------------------------------
 # MCP tools
 # ---------------------------------------------------------------------------
 
@@ -157,7 +197,7 @@ async def capabilities() -> str:
         JSON object with ``bundle_path``, ``count``, ``types`` (sorted list of
         distinct ``type`` frontmatter values), and ``write_enabled: true``.
     """
-    try:
+    with _tool_error_envelope("capabilities"):
         bundle = _get_bundle()
         entries = bundle.list_concepts()
         # ConceptEntry.type is populated only when the index parser emits it;
@@ -180,15 +220,6 @@ async def capabilities() -> str:
                 "write_enabled": True,
             }
         )
-    except ToolError:
-        raise
-    except Exception as exc:
-        logger.exception("capabilities failed")
-        return make_error(
-            "internal_error",
-            f"Failed to get capabilities: {exc}",
-            ["Check MCP server logs for details."],
-        )
 
 
 @mcp.tool()
@@ -203,7 +234,7 @@ async def list_concepts() -> str:
         JSON object with a ``concepts`` list, each entry containing
         ``concept_id``, ``title``, and ``description``.
     """
-    try:
+    with _tool_error_envelope("list_concepts"):
         bundle = _get_bundle()
         entries = bundle.list_concepts()
         return json.dumps(
@@ -218,15 +249,6 @@ async def list_concepts() -> str:
                 ],
                 "count": len(entries),
             }
-        )
-    except ToolError:
-        raise
-    except Exception as exc:
-        logger.exception("list_concepts failed")
-        return make_error(
-            "internal_error",
-            f"Failed to list concepts: {exc}",
-            ["Check MCP server logs for details."],
         )
 
 
@@ -246,24 +268,16 @@ async def read_concept(concept_id: str) -> str:
     Returns:
         JSON object with ``concept_id``, ``frontmatter``, and ``body``.
     """
-    try:
-        bundle = _get_bundle()
-        doc = bundle.read_concept(concept_id)
-        return json.dumps(
-            {
-                "concept_id": concept_id,
-                "frontmatter": doc.frontmatter,
-                "body": doc.body,
-            }
-        )
-    except ToolError:
-        raise
-    except Exception as exc:
-        # Distinguish not-found (OKFBundleError) from internal errors.
-        from osprey.services.facility_knowledge.okf.bundle import OKFBundleError
+    from osprey.services.facility_knowledge.okf.bundle import OKFBundleError
 
-        if isinstance(exc, OKFBundleError):
-            return make_error(
+    with _tool_error_envelope(f"read_concept {concept_id!r}"):
+        bundle = _get_bundle()
+        try:
+            doc = bundle.read_concept(concept_id)
+        except OKFBundleError as exc:
+            # Map a missing concept to not_found; any other error falls through
+            # to the envelope's generic internal_error handler.
+            make_error(
                 "not_found",
                 str(exc),
                 [
@@ -271,11 +285,12 @@ async def read_concept(concept_id: str) -> str:
                     "Concept IDs are the file path minus .md (e.g. 'tables/users').",
                 ],
             )
-        logger.exception("read_concept failed")
-        return make_error(
-            "internal_error",
-            f"Failed to read concept {concept_id!r}: {exc}",
-            ["Check MCP server logs for details."],
+        return json.dumps(
+            {
+                "concept_id": concept_id,
+                "frontmatter": doc.frontmatter,
+                "body": doc.body,
+            }
         )
 
 
@@ -295,7 +310,7 @@ async def search(query: str) -> str:
         ``concept_id``, ``title``, ``description``, and a ``snippet``
         (first 200 characters of the body).
     """
-    try:
+    with _tool_error_envelope(f"search for query {query!r}"):
         bundle = _get_bundle()
         matches = bundle.search(query)
         return json.dumps(
@@ -312,15 +327,6 @@ async def search(query: str) -> str:
                 ],
                 "count": len(matches),
             }
-        )
-    except ToolError:
-        raise
-    except Exception as exc:
-        logger.exception("search failed")
-        return make_error(
-            "internal_error",
-            f"Search failed for query {query!r}: {exc}",
-            ["Check MCP server logs for details."],
         )
 
 
@@ -377,90 +383,78 @@ async def draft_concept(
     from osprey.services.facility_knowledge.okf.bundle import OKFBundleError
     from osprey.services.facility_knowledge.okf.document import OKFDocument, OKFDocumentError
 
-    try:
+    with _tool_error_envelope(f"draft_concept {concept_id!r}"):
         bundle = _get_bundle()
-    except ToolError:
-        raise
 
-    # Collision guard: reject concurrent drafts for the same concept ID.
-    if concept_id in _drafts_in_flight:
-        return make_error(
-            "draft_conflict",
-            f"A draft for concept {concept_id!r} is already in progress.",
-            [
-                "Wait for the current draft to complete before submitting another.",
-                "Sequential re-drafts are allowed (last-approved-wins).",
-            ],
-        )
-
-    # Parse extra_frontmatter JSON before acquiring the lock.
-    try:
-        extra: dict = json.loads(extra_frontmatter) if extra_frontmatter.strip() else {}
-    except json.JSONDecodeError as exc:
-        return make_error(
-            "validation_error",
-            f"extra_frontmatter is not valid JSON: {exc}",
-            ['Pass a JSON object, e.g. \'{"tags": ["epics"]}\'. Use "{}" for no extras.'],
-        )
-    if not isinstance(extra, dict):
-        return make_error(
-            "validation_error",
-            "extra_frontmatter must be a JSON object, not an array or scalar.",
-            ['Use a JSON object, e.g. \'{"resource": "https://example.com"}\'.'],
-        )
-
-    _drafts_in_flight.add(concept_id)
-    try:
-        # Build the document — reserved keys win over extra_frontmatter.
-        frontmatter = {**extra, "type": doc_type, "title": title, "description": description}
-        doc = OKFDocument(frontmatter=frontmatter, body=body)
-
-        # Validate at authoring level before touching the filesystem.
-        try:
-            doc.validate("authoring")
-        except OKFDocumentError as exc:
-            return make_error(
-                "validation_error",
-                str(exc),
+        # Collision guard: reject concurrent drafts for the same concept ID.
+        if concept_id in _drafts_in_flight:
+            make_error(
+                "draft_conflict",
+                f"A draft for concept {concept_id!r} is already in progress.",
                 [
-                    "Provide non-empty type, title, and description.",
-                    "timestamp is not required.",
+                    "Wait for the current draft to complete before submitting another.",
+                    "Sequential re-drafts are allowed (last-approved-wins).",
                 ],
             )
 
-        # Resolve path — OKFBundle.resolve_concept_path enforces containment.
+        # Parse extra_frontmatter JSON before acquiring the lock.
         try:
-            target = bundle.resolve_concept_path(concept_id)
-        except OKFBundleError as exc:
-            return make_error(
-                "path_traversal",
-                str(exc),
-                ["Use a relative path within the bundle (e.g. 'tables/beam_params')."],
+            extra: dict = json.loads(extra_frontmatter) if extra_frontmatter.strip() else {}
+        except json.JSONDecodeError as exc:
+            make_error(
+                "validation_error",
+                f"extra_frontmatter is not valid JSON: {exc}",
+                ['Pass a JSON object, e.g. \'{"tags": ["epics"]}\'. Use "{}" for no extras.'],
+            )
+        if not isinstance(extra, dict):
+            make_error(
+                "validation_error",
+                "extra_frontmatter must be a JSON object, not an array or scalar.",
+                ['Use a JSON object, e.g. \'{"resource": "https://example.com"}\'.'],
             )
 
-        # Ensure parent directories exist.
-        target.parent.mkdir(parents=True, exist_ok=True)
+        _drafts_in_flight.add(concept_id)
+        try:
+            # Build the document — reserved keys win over extra_frontmatter.
+            frontmatter = {**extra, "type": doc_type, "title": title, "description": description}
+            doc = OKFDocument(frontmatter=frontmatter, body=body)
 
-        # Atomic write: serialise and flush to disk.
-        target.write_text(doc.serialize(), encoding="utf-8")
+            # Validate at authoring level before touching the filesystem.
+            try:
+                doc.validate("authoring")
+            except OKFDocumentError as exc:
+                make_error(
+                    "validation_error",
+                    str(exc),
+                    [
+                        "Provide non-empty type, title, and description.",
+                        "timestamp is not required.",
+                    ],
+                )
 
-        logger.info("draft_concept: wrote %s → %s", concept_id, target)
-        return json.dumps(
-            {
-                "concept_id": concept_id,
-                "path": str(target),
-                "status": "written",
-            }
-        )
+            # Resolve path — OKFBundle.resolve_concept_path enforces containment.
+            try:
+                target = bundle.resolve_concept_path(concept_id)
+            except OKFBundleError as exc:
+                make_error(
+                    "path_traversal",
+                    str(exc),
+                    ["Use a relative path within the bundle (e.g. 'tables/beam_params')."],
+                )
 
-    except ToolError:
-        raise
-    except Exception as exc:
-        logger.exception("draft_concept failed for %s", concept_id)
-        return make_error(
-            "internal_error",
-            f"Failed to write concept {concept_id!r}: {exc}",
-            ["Check MCP server logs for details."],
-        )
-    finally:
-        _drafts_in_flight.discard(concept_id)
+            # Ensure parent directories exist.
+            target.parent.mkdir(parents=True, exist_ok=True)
+
+            # Atomic write: serialise and flush to disk.
+            target.write_text(doc.serialize(), encoding="utf-8")
+
+            logger.info("draft_concept: wrote %s → %s", concept_id, target)
+            return json.dumps(
+                {
+                    "concept_id": concept_id,
+                    "path": str(target),
+                    "status": "written",
+                }
+            )
+        finally:
+            _drafts_in_flight.discard(concept_id)
