@@ -12,9 +12,10 @@ Example::
     stubs = seed_from_ttl(Path("/path/to/als_gtb.ttl"))
 """
 
-from .ttl_seeder import DeviceStub, seed_from_ttl
+from .ttl_seeder import DeviceStub, local_name, seed_from_ttl
 
 __all__ = [
     "DeviceStub",
+    "local_name",
     "seed_from_ttl",
 ]

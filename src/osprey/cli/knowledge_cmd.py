@@ -172,6 +172,7 @@ def seed_from_ttl(ttl: Path, bundle: Path, force: bool) -> None:
         ) from exc
 
     from osprey.services.facility_knowledge.okf.bundle import OKFBundle
+    from osprey.services.facility_knowledge.seeder import local_name
 
     okf_bundle = OKFBundle(bundle)
 
@@ -179,9 +180,10 @@ def seed_from_ttl(ttl: Path, bundle: Path, force: bool) -> None:
 
     for stub in stubs:
         # Derive a filesystem-safe OKF §2 concept ID from the device IRI's
-        # local name (the segment after the final '/').
-        local_name = stub.resource.rsplit("/", 1)[-1]
-        concept_path = okf_bundle.resolve_concept_path(local_name)
+        # local name.  Reuse the seeder's single derivation rule (handles both
+        # '/' and '#' separators) so placement and identity never diverge.
+        concept_id = local_name(stub.resource)
+        concept_path = okf_bundle.resolve_concept_path(concept_id)
 
         if concept_path.exists():
             existing = concept_path.read_text(encoding="utf-8")

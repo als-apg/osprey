@@ -110,17 +110,28 @@ class DeviceStub:
 
 
 # ---------------------------------------------------------------------------
-# Internal helpers
+# Public helpers
 # ---------------------------------------------------------------------------
 
 
-def _local_name(iri: str) -> str:
-    """Return the local name fragment of an IRI (after the last ``/`` or ``#``)."""
+def local_name(iri: str) -> str:
+    """Return the local name fragment of an IRI (after the last ``/`` or ``#``).
+
+    This is the single source of truth for IRI → local-name derivation.  It is
+    exported from the ``seeder`` subpackage and reused by the knowledge CLI so
+    that stub *placement* (the bundle filename) and stub *identity* (the OKF §2
+    concept ID) are computed by exactly one rule, including ``#``-fragment IRIs.
+    """
     for sep in ("#", "/"):
         idx = iri.rfind(sep)
         if idx != -1:
             return iri[idx + 1 :]
     return iri
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
 
 
 def _binding_channel_name(binding_iri: str) -> str:
@@ -137,7 +148,7 @@ def _binding_channel_name(binding_iri: str) -> str:
         .../narad_endpoint_als_GTL_BC1_Monitor  -> "Monitor"
         .../tst_SEC_QF1_Setpoint                -> "Setpoint"
     """
-    segment = _local_name(binding_iri)
+    segment = local_name(binding_iri)
     parts = segment.rsplit("_", maxsplit=1)
     return parts[-1] if len(parts) > 1 else segment
 
@@ -159,10 +170,10 @@ def _build_channel_rows(g: Graph, binding_iris: list[str]) -> list[ChannelRow]:
 
         if reads_obj is not None:
             direction = "reads"
-            signal = _local_name(str(reads_obj))
+            signal = local_name(str(reads_obj))
         elif writes_obj is not None:
             direction = "writes"
-            signal = _local_name(str(writes_obj))
+            signal = local_name(str(writes_obj))
         else:
             direction = "unknown"
             signal = ""
@@ -276,7 +287,7 @@ def seed_from_ttl(ttl_path: Path | str | None) -> list[DeviceStub]:
         # future node carries >1 narad_sem type (graph iteration order is not
         # guaranteed by rdflib).
         narad_sem_classes = sorted(
-            _local_name(str(type_obj))
+            local_name(str(type_obj))
             for type_obj in g.objects(subject, rdf_type)
             if str(type_obj).startswith(_NARAD_SEM)
         )
@@ -292,7 +303,7 @@ def seed_from_ttl(ttl_path: Path | str | None) -> list[DeviceStub]:
         if section_code and source_name:
             title = f"{section_code}:{source_name} ({device_class})"
         else:
-            title = f"{device_class} {device_id or _local_name(subject_str)}"
+            title = f"{device_class} {device_id or local_name(subject_str)}"
 
         # Collect binding IRIs.
         binding_iris = [str(b) for b in g.objects(subject, URIRef(_P_HAS_BINDING))]
@@ -301,7 +312,7 @@ def seed_from_ttl(ttl_path: Path | str | None) -> list[DeviceStub]:
         stub = DeviceStub(
             resource=subject_str,
             device_class=device_class,
-            device_id=device_id or _local_name(subject_str),
+            device_id=device_id or local_name(subject_str),
             title=title,
             channels=channels,
         )
