@@ -188,7 +188,7 @@ class TestStructuredOutputCapabilityFlag:
 
     @pytest.mark.unit
     def test_openai_compatible_providers_declare_true(self):
-        from osprey.models.providers.amsc import AMSCProviderAdapter
+        from osprey.models.providers.amsc_i2 import AMSCI2ProviderAdapter
         from osprey.models.providers.argo import ArgoProviderAdapter
         from osprey.models.providers.cborg import CBorgProviderAdapter
         from osprey.models.providers.stanford import StanfordProviderAdapter
@@ -199,7 +199,7 @@ class TestStructuredOutputCapabilityFlag:
             StanfordProviderAdapter,
             ArgoProviderAdapter,
             VLLMProviderAdapter,
-            AMSCProviderAdapter,
+            AMSCI2ProviderAdapter,
         ):
             assert cls.supports_native_structured_output is True, cls.name
 
