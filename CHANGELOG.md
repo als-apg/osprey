@@ -11,15 +11,33 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+## [2026.6.0] - 2026-06-12
+
 ### Added
 
+- **`ds4` provider** — local DwarfStar/DeepSeek-V4 inference server (OpenAI-compatible, keyless, default `http://127.0.0.1:8000/v1`). Introduces a per-provider `supports_native_structured_output` capability flag (`True`/`False`/`None`=auto-detect via LiteLLM) replacing the hardcoded structured-output whitelist; ds4 declares `False` because the server accepts but ignores `response_format: json_schema`, so OSPREY's prompt-based JSON fallback is used. Also fixes URL mangling in the vLLM/ds4 health checks (`rstrip('/v1')` stripped characters, breaking ports ending in `1`).
+- **Data-driven simulation engine** (`osprey.simulation`) backing the mock control-system and archiver connectors: a `machine.json` defines channels (baseline values or derived expressions), scenarios (override sets), and archiver event scripts (step/ramp/spike, window-fraction or wall-clock anchored), so corrective writes propagate through physics couplings and archived history correlates with live values. Ships with a generic `sim-scenarios` skill for listing/switching scenarios.
+- **Generated reference Dockerfile.** `osprey build` now renders a self-documenting `Dockerfile` + `.dockerignore` into every project root — install Claude Code + OSPREY, copy the project, relocate paths, serve the web terminal on 8087 as a non-root user. Generated once and user-owned (`regen` never touches them); site extension via exactly three build ARGs (`OSPREY_PIP_SPEC`, `PIP_NO_PROXY`, `OSPREY_OFFLINE`). Profile pip `dependencies:` are baked into the install line. New how-to: `docs/source/how-to/containerize-project.rst`. Guarded by unit content tests, a CLI cross-check (every `osprey` invocation in the rendered Dockerfile must resolve against the real click tree), and a docker-build e2e (`dockerfile-e2e` CI job, advisory).
+- **`osprey claude regen --runtime-root PATH`.** Rewrites `project_root` in `config.yml` (comment-preserving) and re-renders Claude Code artifacts against the new root; a recorded `execution.python_env_path` that doesn't exist on the current filesystem is replaced with the current interpreter. Supersedes the manual "clear python_env_path + regen" container fix; used by the generated Dockerfile.
 - New e2e scenario `tests/e2e/test_corrector_limit_honest_refusal_scenario.py` — asserts the agent's *behavior under refusal* (no channel-shopping, no intent-splitting, no false success, clear safety-attribution, operator looped in), complementing the existing mechanism-level safety tests. Two-layer grading (deterministic + LLM judge).
 
 ### Changed
 
+- **`claude-agent-sdk` upgraded to 0.2.93** (bundles CLI 2.1.167); als-apg routing re-verified (hello-world canonical flow + approval-hook e2e).
+- `data-visualizer` subagent now defaults to `create_interactive_plot` when the caller does not explicitly request a static figure. Fixes the case where vague requests (e.g. "3D waterfall plot") produced an unreadable fixed-viewpoint matplotlib image instead of a rotatable Plotly view.
+
 ### Fixed
 
+- `ariel search` CLI now renders keyword-search entries when no composed answer is available, instead of printing an empty result.
+- `osprey build` re-anchors profile-overlaid logbook seeds to the current date (overlays land after the in-template timestamp rebase).
+- Editing `config.yml` no longer leaves the agent running stale settings (#244). Config changes via the web settings panel and `osprey config set-*` now auto-regenerate the Claude Code artifacts (so e.g. flipping `control_system.writes_enabled` actually takes effect), the web server re-syncs them on launch, and a SessionStart guard warns when a hand-edited `config.yml` has drifted from the generated `.claude/` artifacts. The hello-world tutorial documents the `osprey claude regen` + relaunch step.
+- Regen drift detection (`osprey claude status` and the auto-regen gate above) no longer reports phantom drift for user-owned artifacts (e.g. the create-only `facility.md`), which would have re-rendered and backed up artifacts on every web launch.
+- `lttb_downsample()` no longer crashes (`TypeError`) on archiver `None` gap values; gaps are treated as `0.0` for downsample selection and preserved as `null` in the returned data so charts render true gaps (#247).
+- `rules/data-visualization.md` is now gated on the data-visualizer subagent being disabled. When the subagent is enabled (the default), CLAUDE.md forbids the main agent from calling `create_static_plot` / `create_interactive_plot` / `create_dashboard` / `python_execute` / `Write`, so shipping a rule that teaches those tools was contradictory context. The file is now a `.md.j2` template that renders empty (and is auto-unlinked) when the subagent is enabled.
+
 ### Removed
+
+- Unused `caproto` dependency and stale `osprey generate soft-ioc` hints (command removed in the LangGraph-era cleanup).
 
 ## [2026.5.2] - 2026-05-27
 

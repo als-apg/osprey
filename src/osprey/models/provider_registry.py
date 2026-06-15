@@ -46,6 +46,7 @@ PROVIDER_API_KEYS: dict[str, str | None] = {
     "ollama": None,
     "asksage": None,  # uses different auth
     "vllm": None,  # local, no key
+    "ds4": None,  # local DwarfStar server, no key
 }
 
 
@@ -62,6 +63,7 @@ _BUILTIN_PROVIDERS: dict[str, _ProviderEntry] = {
     "als-apg": _ProviderEntry("osprey.models.providers.als_apg", "ALSAPGProviderAdapter"),
     "asksage": _ProviderEntry("osprey.models.providers.asksage", "AskSageProviderAdapter"),
     "vllm": _ProviderEntry("osprey.models.providers.vllm", "VLLMProviderAdapter"),
+    "ds4": _ProviderEntry("osprey.models.providers.ds4", "DS4ProviderAdapter"),
 }
 
 

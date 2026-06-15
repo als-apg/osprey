@@ -55,7 +55,7 @@ jobs:
         uv run pytest tests/ --ignore=tests/e2e -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term
 
     - name: Upload coverage reports to Codecov
-      uses: codecov/codecov-action@v6
+      uses: codecov/codecov-action@v7
       if: matrix.python-version == '3.11' && matrix.os == 'ubuntu-latest'
       with:
         files: ./coverage.xml
@@ -356,8 +356,10 @@ jobs:
         else
           # Tier 3 per-preset agentic flows live in their own matrix job
           # (agentic-per-preset). Exclude here to avoid double-execution.
+          # Dockerfile e2e runs in its own dockerfile-e2e job.
           uv run pytest tests/e2e/ -v --tb=short \
-            --ignore=tests/e2e/test_preset_agentic.py
+            --ignore=tests/e2e/test_preset_agentic.py \
+            --ignore=tests/e2e/test_dockerfile_e2e.py
         fi
 
   deploy-e2e:
@@ -415,9 +417,44 @@ jobs:
         cd hello-world-test
         uv run osprey deploy down || true
 
+  dockerfile-e2e:
+    name: Dockerfile E2E (generated container image)
+    runs-on: ubuntu-latest
+    # Only run on PRs from same repo (mirrors deploy-e2e gating)
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Run Dockerfile E2E
+      env:
+        # Install the PR branch inside the image (not the PyPI release) so
+        # the generated Dockerfile is tested against the code under review.
+        OSPREY_E2E_PIP_SPEC: git+https://github.com/${{ github.repository }}.git@${{ github.event.pull_request.head.sha }}
+        # Drives the real-LLM round-trip in test_generated_image_serves_agent_
+        # over_http (injected into the container at run time). The build/boot
+        # test needs no key; the HTTP test auto-skips (requires_als_apg) if the
+        # secret is ever absent, so this stays advisory and self-gating.
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      run: uv run pytest tests/e2e/test_dockerfile_e2e.py -v --tb=short
+
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, lint, docs, package, static-checks, build-boot-smoke, e2e-tests, deploy-e2e, agentic-per-preset]
+    needs: [test, lint, docs, package, static-checks, build-boot-smoke, e2e-tests, deploy-e2e, dockerfile-e2e, agentic-per-preset]
     runs-on: ubuntu-latest
     if: always()
 
@@ -471,5 +508,13 @@ jobs:
           echo "⏭️  Deploy E2E test skipped (only run on PRs)"
         else
           echo "✅ Deploy E2E test passed"
+        fi
+        # Dockerfile E2E: advisory (network-dependent: PyPI, claude.ai installer)
+        if [[ "${{ needs.dockerfile-e2e.result }}" == "failure" ]]; then
+          echo "⚠️  Dockerfile E2E failed (non-blocking, network-dependent)"
+        elif [[ "${{ needs.dockerfile-e2e.result }}" == "skipped" ]]; then
+          echo "⏭️  Dockerfile E2E skipped (only run on PRs)"
+        else
+          echo "✅ Dockerfile E2E passed"
         fi
         echo "✅ All CI checks passed!"

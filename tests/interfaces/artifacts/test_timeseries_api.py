@@ -309,3 +309,51 @@ class TestLTTBAlgorithm:
         new_idx, new_data = lttb_downsample(index, data, 100)
         assert len(new_idx) == 100
         assert len(new_data) == 100
+
+    @pytest.mark.unit
+    def test_handles_none_gap_values_without_crash(self):
+        """None gap values (archiver disconnects) must not crash the area math."""
+        from osprey.utils.timeseries import lttb_downsample
+
+        n = 200
+        index = list(range(n))
+        data = [[float(i)] for i in range(n)]
+        # Punch a contiguous gap, as an archiver disconnect would produce.
+        data[50:60] = [[None] for _ in range(10)]
+
+        new_idx, new_data = lttb_downsample(index, data, 20)
+        assert len(new_data) == 20
+
+    @pytest.mark.unit
+    def test_preserves_none_gaps_in_output(self):
+        """A None gap on a kept point survives into the output (not replaced with 0.0)."""
+        from osprey.utils.timeseries import lttb_downsample
+
+        n = 200
+        index = list(range(n))
+        data = [[float(i)] for i in range(n)]
+        # LTTB always keeps the first point (selected = [0]).
+        data[0] = [None]
+
+        _new_idx, new_data = lttb_downsample(index, data, 20)
+        assert new_data[0] == [None]
+
+    @pytest.mark.unit
+    def test_none_in_secondary_column(self):
+        """None in a non-representative column is preserved; column 0 drives selection.
+
+        Column 1 is never read by the triangle-area math (only column 0 is), so this
+        locks in None-preservation for secondary channels and guards the defensive
+        all-column sanitization in the working copy.
+        """
+        from osprey.utils.timeseries import lttb_downsample
+
+        n = 200
+        index = list(range(n))
+        data = [[float(i), None] for i in range(n)]
+
+        _new_idx, new_data = lttb_downsample(index, data, 20)
+        # First point is always kept and still carries the None in column 1.
+        assert new_data[0] == [0.0, None]
+        for row in new_data:
+            assert row[1] is None

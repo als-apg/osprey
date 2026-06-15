@@ -986,3 +986,63 @@ class TestBuildProfileChannelFinderModeValidation:
         from osprey.cli.build_profile import BuildProfile
 
         BuildProfile(name="t", channel_finder_mode=None).validate(tmp_path)
+
+
+class TestOverlayLogbookSeedRebase:
+    """Overlays targeting data/logbook_seed/ trigger a timestamp rebase.
+
+    Overlay files land after the in-template rebase (create_project step 6b),
+    so without the build_cmd step-11c trigger a profile-provided logbook seed
+    would keep its authored (stale) dates.
+    """
+
+    def test_overlaid_logbook_seed_is_rebased(self, runner: CliRunner, tmp_path: Path) -> None:
+        import json
+        from datetime import UTC, datetime
+
+        profile_dir = tmp_path / "profile"
+        (profile_dir / "logbook").mkdir(parents=True)
+        seed = {
+            "entries": [
+                {"id": "T-001", "timestamp": "2024-03-10T08:15:00Z", "text": "older entry"},
+                {"id": "T-002", "timestamp": "2024-03-15T03:30:00Z", "text": "latest entry"},
+            ]
+        }
+        (profile_dir / "logbook" / "demo_logbook.json").write_text(json.dumps(seed))
+        profile = profile_dir / "p.yml"
+        profile.write_text(
+            "name: SeedRebase\n"
+            "data_bundle: hello_world\n"
+            "provider: anthropic\n"
+            "model: claude-haiku-4-5\n"
+            "overlay:\n"
+            "  logbook/demo_logbook.json: data/logbook_seed/demo_logbook.json\n"
+        )
+
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                str(profile),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+
+        built = json.loads(
+            (tmp_path / "smoke" / "data" / "logbook_seed" / "demo_logbook.json").read_text()
+        )
+        timestamps = [
+            datetime.fromisoformat(e["timestamp"].replace("Z", "+00:00")) for e in built["entries"]
+        ]
+        latest = max(timestamps)
+        age_days = (datetime.now(UTC) - latest).days
+        # rebase_logbook_timestamps anchors the latest entry ~2 days ago
+        # (day-rounded offset, so allow a small window)
+        assert 1 <= age_days <= 3, f"latest entry is {age_days} days old, expected ~2"
+        # Relative gaps and time-of-day are preserved
+        assert (max(timestamps) - min(timestamps)).days == 4
+        assert latest.strftime("%H:%M") == "03:30"

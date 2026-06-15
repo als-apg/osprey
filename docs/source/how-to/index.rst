@@ -24,6 +24,13 @@ Framework & Infrastructure
       Create, configure, and deploy an OSPREY project from ``osprey build`` through
       ``osprey deploy`` to a running instance.
 
+   .. grid-item-card:: Containerize a Project
+      :link: containerize-project
+      :link-type: doc
+
+      Build and run the container image generated for every project — build args,
+      path relocation, air-gapped mode, and Kubernetes notes.
+
    .. grid-item-card:: Build Profiles
       :link: build-profiles
       :link-type: doc
@@ -99,6 +106,7 @@ Services & Connectors
 
    configure-providers
    deploy-project
+   containerize-project
    build-profiles
    add-mcp-server
    use-web-terminal

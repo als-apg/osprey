@@ -379,6 +379,11 @@ def build(
         if runtime_root:
             context["project_root"] = str(runtime_root)
 
+        # 6f. Profile pip dependencies for the generated Dockerfile's install line
+        deps = list(build_profile.dependencies or [])
+        context["dependencies"] = deps
+        context["pip_dependency_args"] = " ".join(shlex.quote(d) for d in deps)
+
         # 7. Create project from template (also materializes tier-specific
         # channel DBs from the preset's tiers/ subtree, before the Claude Code
         # hierarchy probe reads the flat data/channel_databases/<name>.json
@@ -419,6 +424,15 @@ def build(
             reg_count = _register_overlay_artifacts(project_path, build_profile.overlay)
             if reg_count:
                 logger.info("  ✓ Registered %d overlay artifact(s) in config.yml", reg_count)
+
+            # 11c. Overlays land AFTER the in-template timestamp rebase
+            # (create_project step 6b), so a profile-provided logbook seed
+            # would keep its authored dates. Re-anchor it. Idempotent: the
+            # day-rounded offset is 0 for an already-rebased seed.
+            if any("logbook_seed" in Path(dst).parts for dst in build_profile.overlay.values()):
+                from .templates import scaffolding
+
+                scaffolding.rebase_logbook_timestamps(project_path)
 
         # 12. Persist profile MCP servers to config.yml
         if build_profile.mcp_servers:

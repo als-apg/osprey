@@ -6,7 +6,7 @@
 repos:
   # Ruff - Fast Python linter and formatter
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.12
+    rev: v0.15.15
     hooks:
       # Run the linter
       - id: ruff
@@ -55,6 +55,12 @@ repos:
       - id: check-json
       # Check for debugger imports
       - id: debug-statements
+
+  # Detect hardcoded secrets (passwords, API keys, tokens, etc.)
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
 
 # pre-commit.ci configuration
 ci:

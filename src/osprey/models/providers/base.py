@@ -37,6 +37,7 @@ class BaseProvider(ABC):
         is_openai_compatible: True if this provider uses an OpenAI-compatible API
             endpoint with custom base_url (e.g., CBORG, Stanford, ARGO, vLLM).
             When True, LiteLLM routes via "openai/{model}" with api_base parameter.
+        supports_native_structured_output: True=native json_schema, False=prompt fallback, None=auto-detect
 
     This interface ensures consistent provider behavior across the framework
     while allowing provider-specific implementations.
@@ -66,6 +67,11 @@ class BaseProvider(ABC):
     # eliminating hardcoded provider checks in the adapter layer.
     litellm_prefix: str | None = None  # LiteLLM prefix (e.g., "anthropic", "gemini")
     is_openai_compatible: bool = False  # True for OpenAI-compatible endpoints (CBORG, etc.)
+    # Structured output routing:
+    #   True  -> send response_format json_schema (native constrained decoding)
+    #   False -> use OSPREY's prompt-based JSON fallback
+    #   None  -> defer to litellm.supports_response_schema() (auto-detect)
+    supports_native_structured_output: bool | None = None
 
     @abstractmethod
     def execute_completion(

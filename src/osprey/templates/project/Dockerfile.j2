@@ -1,0 +1,60 @@
+# syntax=docker/dockerfile:1
+# Reference container image for {{ project_name }} — generated once by `osprey build`.
+# This file is yours: edit it freely or delete it. `osprey claude regen` never
+# touches it. To get a fresh copy, rebuild the project with `osprey build`.
+#
+# Build (from this project directory):   docker build -t {{ project_name }} .
+# Run (secrets at runtime — .env is excluded from the image):
+#   docker run --rm -p 8087:8087 --env-file .env {{ project_name }}
+#
+# Build args:
+#   OSPREY_PIP_SPEC  pip requirement for OSPREY (default: PyPI release;
+#                    override with a git+https URL to pin an unreleased build)
+#   PIP_NO_PROXY     hosts exempted from any proxy during pip install
+#   OSPREY_OFFLINE   "1" vendors web assets into the image (air-gapped hosts)
+
+FROM python:3.12-slim
+ARG OSPREY_PIP_SPEC="osprey-framework"
+ARG PIP_NO_PROXY=""
+ARG OSPREY_OFFLINE="0"
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl git procps \
+ && rm -rf /var/lib/apt/lists/*
+
+# Claude Code (native installer)
+RUN curl -fsSL https://claude.ai/install.sh | bash \
+ && ln -s /root/.local/bin/claude /usr/local/bin/claude
+
+# OSPREY + profile dependencies
+RUN NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY" \
+    pip install --no-cache-dir "$OSPREY_PIP_SPEC" {{ pip_dependency_args | default("") }}
+
+# Optional offline mode: vendor web assets (JS/CSS/fonts) into the image so
+# the web UI works without internet access. "0" is falsy for is_offline().
+RUN if [ "$OSPREY_OFFLINE" = "1" ]; then osprey vendor fetch; fi
+ENV OSPREY_OFFLINE=${OSPREY_OFFLINE}
+
+# Project (build context = project root; .dockerignore excludes
+# .venv/.env/.git/_agent_data)
+COPY . /app/{{ project_name }}/
+RUN mkdir -p /app/{{ project_name }}/_agent_data/executed_scripts \
+             /app/{{ project_name }}/_agent_data/user_memory \
+             /app/{{ project_name }}/_agent_data/api_calls
+
+# Rewrite recorded host paths for the container layout and re-render the
+# Claude Code artifacts (.mcp.json, CLAUDE.md, .claude/) against it
+RUN osprey claude regen --project /app/{{ project_name }} --runtime-root /app/{{ project_name }}
+
+# Non-root user: Claude Code refuses bypassPermissions mode as root. The
+# native installer lives under /root/.local — make the chain traversable
+# for the runtime user.
+RUN useradd --create-home --shell /bin/bash osprey \
+ && chown -R osprey:osprey /app/{{ project_name }} \
+ && chmod o+x /root /root/.local /root/.local/bin /root/.local/share \
+ && chmod -R o+rX /root/.local/share/claude
+USER osprey
+ENV HOME=/home/osprey
+WORKDIR /app/{{ project_name }}
+EXPOSE 8087
+CMD ["osprey", "web", "--host", "0.0.0.0", "--port", "8087", "--project", "/app/{{ project_name }}"]

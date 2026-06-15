@@ -9,9 +9,12 @@ Ideal for R&D and development without control room access.
 import asyncio
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
+
+if TYPE_CHECKING:
+    from osprey.simulation import SimulationEngine
 
 from osprey.connectors.control_system.base import (
     ChannelMetadata,
@@ -55,6 +58,7 @@ class MockConnector(ControlSystemConnector):
         self._connected = False
         self._state: dict[str, float] = {}
         self._subscriptions: dict[str, tuple] = {}
+        self._sim_engine: SimulationEngine | None = None
 
     async def connect(self, config: dict[str, Any]) -> None:
         """
@@ -64,6 +68,9 @@ class MockConnector(ControlSystemConnector):
             config: Configuration with keys:
                 - response_delay_ms: Simulated response delay (default: 10)
                 - noise_level: Relative noise level 0-1 (default: 0.01)
+                - simulation_file: Optional path to a machine.json driving the
+                  data-driven simulation engine (relative paths resolve against
+                  the project root). Without it, legacy behavior is unchanged.
         """
         self._response_delay = config.get("response_delay_ms", 10) / 1000.0
         self._noise_level = config.get("noise_level", 0.01)
@@ -75,6 +82,11 @@ class MockConnector(ControlSystemConnector):
         if self._limits_validator:
             logger.debug("Mock connector: limits validator initialized")
 
+        # Optional data-driven simulation engine (machine file)
+        from osprey.simulation import engine_from_connector_config
+
+        self._sim_engine = engine_from_connector_config(config)
+
         self._connected = True
         logger.debug("Mock connector initialized")
 
@@ -82,6 +94,7 @@ class MockConnector(ControlSystemConnector):
         """Cleanup mock connector."""
         self._state.clear()
         self._subscriptions.clear()
+        self._sim_engine = None
         self._connected = False
         logger.debug("Mock connector disconnected")
 
@@ -100,6 +113,20 @@ class MockConnector(ControlSystemConnector):
         """
         # Simulate network delay
         await asyncio.sleep(self._response_delay)
+
+        # Simulation engine serves its channels; unknown PVs fall back to legacy
+        if self._sim_engine is not None and self._sim_engine.has_channel(channel_address):
+            reading = self._sim_engine.read(channel_address)
+            now = datetime.now()
+            return ChannelValue(
+                value=reading.value,
+                timestamp=now,
+                metadata=ChannelMetadata(
+                    units=reading.units,
+                    timestamp=now,
+                    description=reading.description,
+                ),
+            )
 
         # Get or generate initial value
         if channel_address not in self._state:
@@ -177,15 +204,20 @@ class MockConnector(ControlSystemConnector):
         # Simulate network delay
         await asyncio.sleep(self._response_delay)
 
-        # Update state
-        self._state[channel_address] = float(value)
+        if self._sim_engine is not None and self._sim_engine.has_channel(channel_address):
+            # Engine channels: :SP -> :RB mirroring is handled by expr readbacks
+            # in the machine file, so no legacy string-replace mirroring here.
+            self._sim_engine.write(channel_address, value)
+        else:
+            # Update state
+            self._state[channel_address] = float(value)
 
-        # Update corresponding readback channel (simulate small offset)
-        readback_ch = channel_address.replace(":SP", ":RB").replace(":SET", ":GET")
-        if readback_ch != channel_address:
-            # Simulate small offset between setpoint and readback
-            offset = np.random.normal(0, abs(float(value)) * 0.001)
-            self._state[readback_ch] = float(value) + offset
+            # Update corresponding readback channel (simulate small offset)
+            readback_ch = channel_address.replace(":SP", ":RB").replace(":SET", ":GET")
+            if readback_ch != channel_address:
+                # Simulate small offset between setpoint and readback
+                offset = np.random.normal(0, abs(float(value)) * 0.001)
+                self._state[readback_ch] = float(value) + offset
 
         if verification_level == "none":
             logger.debug(f"Mock write (no verification): {channel_address} = {value}")
@@ -296,7 +328,14 @@ class MockConnector(ControlSystemConnector):
             logger.debug(f"Mock subscription removed: {subscription_id}")
 
     async def get_metadata(self, channel_address: str) -> ChannelMetadata:
-        """Get channel metadata (synthetic for mock)."""
+        """Get channel metadata (from the simulation engine when available)."""
+        if self._sim_engine is not None and self._sim_engine.has_channel(channel_address):
+            reading = self._sim_engine.read(channel_address)
+            return ChannelMetadata(
+                units=reading.units,
+                description=reading.description,
+                timestamp=datetime.now(),
+            )
         return ChannelMetadata(
             units=self._infer_units(channel_address),
             description=f"Mock channel: {channel_address}",

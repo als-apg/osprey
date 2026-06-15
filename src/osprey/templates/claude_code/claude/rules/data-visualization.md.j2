@@ -1,4 +1,4 @@
-# Data Visualization
+{% if "data-visualizer" not in enabled_agents %}# Data Visualization
 
 Use `save_artifact(obj, title, description)` to register plots in the artifact
 gallery. This helper is available in all execution environments (`execute`,
@@ -35,3 +35,4 @@ are allowed — see each tool's description for details.
 
 Use the `execute` tool when code needs EPICS channel access or other packages
 not in the sandbox whitelist.
+{% endif %}

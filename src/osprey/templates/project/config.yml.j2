@@ -261,6 +261,18 @@ api:
         haiku: claude-haiku-4-5-20251001
         sonnet: claude-sonnet-4-6
         opus: claude-opus-4-6
+    # DwarfStar (ds4) — local DeepSeek V4 server (https://github.com/antirez/ds4)
+    # No API key required. If the server runs on a remote host, forward the port:
+    #   ssh -L 8000:127.0.0.1:8000 <host>
+    ds4:
+      api_key: EMPTY                  # ds4 ignores auth; any non-empty string works
+      base_url: http://127.0.0.1:8000/v1
+      # ds4 serves two model sizes; mapped onto the standard tiers so ds4 is a
+      # drop-in (flash = fast/cheap tier, pro = capable tiers).
+      models:
+        haiku: deepseek-v4-flash
+        sonnet: deepseek-v4-pro
+        opus: deepseek-v4-pro
     # Custom Anthropic-compatible proxy example:
     # my-proxy:
     #   api_key: ${MY_PROXY_API_KEY}   # Set ANTHROPIC_AUTH_TOKEN to this in your shell

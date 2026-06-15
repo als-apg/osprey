@@ -136,6 +136,8 @@ def create_project_structure(
         ("config.yml.j2", "config.yml"),
         ("env.example.j2", ".env.example"),
         ("README.md.j2", "README.md"),
+        # Reference container image — rendered once at build; regen never touches it
+        ("Dockerfile.j2", "Dockerfile"),
     ]
 
     # Copy static files
@@ -186,6 +188,12 @@ def create_project_structure(
     gitignore_source = project_template_dir / "gitignore"
     if gitignore_source.exists():
         shutil.copy(gitignore_source, project_dir / ".gitignore")
+
+    # Copy dockerignore (renamed to '.dockerignore') — keeps .env/.venv/.git
+    # out of the image built from the generated Dockerfile
+    dockerignore_source = project_template_dir / "dockerignore"
+    if dockerignore_source.exists():
+        shutil.copy(dockerignore_source, project_dir / ".dockerignore")
 
 
 def copy_services(template_root: Path, project_dir: Path):

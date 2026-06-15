@@ -1172,5 +1172,100 @@ class TestFacilityPermissions:
         assert deny == self.DEFAULT_DENY
 
 
+class TestDataVisualizationRuleGating:
+    """The data-visualization rule is for the main agent's own plot code.
+
+    When the data-visualizer subagent is enabled, CLAUDE.md forbids the main
+    agent from calling create_static_plot / create_interactive_plot /
+    create_dashboard / python_execute / Write directly. Shipping a rule that
+    teaches the main agent how to use those tools is contradictory context.
+    The rule should render only when the subagent is disabled.
+    """
+
+    def test_rule_absent_when_data_visualizer_enabled(self, tmp_path):
+        """Default config enables data-visualizer; the rule must not render."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="viz-rule-gated-on",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        agents_cfg = config.get("claude_code", {}).get("agents", {}) or {}
+        dv_cfg = agents_cfg.get("data-visualizer", {}) or {}
+        assert dv_cfg.get("enabled", True), (
+            "Precondition: control_assistant default should keep data-visualizer enabled; "
+            "this test asserts the rule disappears in that configuration."
+        )
+
+        rule_path = project_dir / ".claude" / "rules" / "data-visualization.md"
+        assert not rule_path.exists(), (
+            "data-visualization.md should not be shipped when the data-visualizer "
+            "agent is enabled — the rule teaches the main agent to use tools "
+            "CLAUDE.md explicitly forbids it from calling."
+        )
+
+    def test_rule_present_when_data_visualizer_disabled(self, tmp_path):
+        """When data-visualizer is disabled, the rule renders with matplotlib + Plotly guidance."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="viz-rule-gated-off",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config.setdefault("claude_code", {}).setdefault("agents", {}).setdefault(
+            "data-visualizer", {}
+        )["enabled"] = False
+        (project_dir / "config.yml").write_text(yaml.dump(config))
+
+        from osprey.cli.templates import claude_code
+
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
+        claude_code.create_claude_code_integration(
+            manager.template_root, manager.jinja_env, project_dir, ctx
+        )
+
+        rule_path = project_dir / ".claude" / "rules" / "data-visualization.md"
+        assert rule_path.exists(), (
+            "data-visualization.md should render when data-visualizer is disabled — "
+            "the main agent then needs the matplotlib/Plotly guidance for its own code."
+        )
+        content = rule_path.read_text()
+        assert "Matplotlib" in content
+        assert "Plotly" in content
+        assert "save_artifact" in content
+        assert "Sandbox vs Execute" in content
+
+
+class TestDataVisualizerInteractiveDefault:
+    """The data-visualizer agent should default to interactive output when the
+    calling agent does not explicitly request a static figure. This prevents
+    callers that vaguely ask for a 3D plot from getting an unreadable
+    fixed-viewpoint matplotlib image."""
+
+    def test_agent_prompt_documents_interactive_default(self, tmp_path):
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="viz-default-interactive",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+
+        agent_path = project_dir / ".claude" / "agents" / "data-visualizer.md"
+        assert agent_path.exists()
+        content = agent_path.read_text()
+        # The default-bias guidance must be present in the rendered agent prompt.
+        assert "Default" in content
+        assert "prefer `create_interactive_plot`" in content
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
