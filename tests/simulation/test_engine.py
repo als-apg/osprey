@@ -4,7 +4,7 @@ import os
 
 import pytest
 
-from osprey.simulation import SimulationEngine
+from osprey.simulation import SimulationEngine, engine_serves
 from osprey.simulation.expressions import ExpressionError
 
 QUAD_DRIFT_TRANS = 98.5 - 0.85 * abs(28.4 - 42.0)  # 86.94
@@ -98,6 +98,57 @@ class TestMachineFileLoading:
         ]
         with pytest.raises(ValueError, match="missing keys"):
             SimulationEngine.from_file(make_machine_file(machine_dict))
+
+
+class TestChannelBoundsValidation:
+    """Optional ``min``/``max`` physical bounds are validated at load time."""
+
+    def test_non_number_min_rejected(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:BAD"] = {"value": 1.0, "min": "zero"}
+        with pytest.raises(ValueError, match="T:BAD.*'min'.*'zero'"):
+            SimulationEngine.from_file(make_machine_file(machine_dict))
+
+    def test_bool_max_rejected(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:BAD"] = {"value": 1.0, "max": True}
+        with pytest.raises(ValueError, match="T:BAD.*'max'"):
+            SimulationEngine.from_file(make_machine_file(machine_dict))
+
+    def test_min_not_less_than_max_rejected(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:BAD"] = {"value": 1.0, "min": 5.0, "max": 5.0}
+        with pytest.raises(ValueError, match="'min'.*must be less than 'max'"):
+            SimulationEngine.from_file(make_machine_file(machine_dict))
+
+    def test_bounds_on_string_channel_rejected(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:STR"] = {"value": "CW", "min": 0.0}
+        with pytest.raises(ValueError, match="not supported on string-valued"):
+            SimulationEngine.from_file(make_machine_file(machine_dict))
+
+
+class TestChannelBoundsReads:
+    """``min``/``max`` clamp live reads on the way out, not stored state."""
+
+    def test_override_below_min_is_clamped_on_read(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:PWR"] = {"value": 5.0, "noise": 0.0, "min": 0.0}
+        machine_dict["scenarios"]["quad-drift"]["overrides"]["T:PWR"] = -10.0
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        engine.set_active_scenario("quad-drift")
+        assert engine.read("T:PWR").value == 0.0  # clamped output
+        engine.set_active_scenario("nominal")
+        assert engine.read("T:PWR").value == 5.0  # stored override intact
+
+    def test_max_clamps_read(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:PWR"] = {"value": 5.0, "noise": 0.0, "max": 3.0}
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        assert engine.read("T:PWR").value == 3.0
+
+    def test_derived_read_sees_clamped_inputs(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:FWD"] = {"value": 5.0, "noise": 0.0, "min": 0.0}
+        machine_dict["channels"]["T:NET"] = {"expr": "ch('T:FWD') - 2.0", "noise": 0.0}
+        machine_dict["scenarios"]["quad-drift"]["overrides"]["T:FWD"] = -100.0
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        engine.set_active_scenario("quad-drift")
+        # T:FWD clamps to 0.0 before the expression sees it: NET = 0.0 - 2.0.
+        assert engine.read("T:NET").value == pytest.approx(-2.0)
 
 
 class TestReadsAndPrecedence:
@@ -226,11 +277,13 @@ class TestActiveScenarioStateFile:
         os.utime(state_file, ns=(10**9, 10**9))
         assert engine.read("T:Q1:CUR:SP").value == 28.4
 
-    def test_set_active_scenario_writes_state_file(self, machine_file):
+    def test_set_active_scenario_writes_canonical_state_file(self, machine_file):
         engine = SimulationEngine.from_file(machine_file)
         engine.set_active_scenario("vac-leak")
-        state_file = machine_file.parent / "active_scenario"
+        # Writes always target the canonical multi-scenario file (nominal implicit).
+        state_file = machine_file.parent / "active_scenarios"
         assert state_file.read_text().strip() == "vac-leak"
+        assert engine.active_scenarios() == ("nominal", "vac-leak")
 
 
 class TestWriteCoercion:
@@ -423,3 +476,67 @@ class TestOffsetEventValidation:
         )
         with pytest.raises(ValueError, match="'at_offset' must be a number"):
             SimulationEngine.from_file(make_machine_file(bad))
+
+
+class TestAtTimeEventValidation:
+    """at_time (daily time-of-day) variants are validated at load time."""
+
+    def _machine_with_event(self, machine_dict, event):
+        machine_dict["scenarios"]["nominal"]["archiver"] = [{"channel": "T:VAC", "events": [event]}]
+        return machine_dict
+
+    @pytest.mark.parametrize(
+        ("event", "match"),
+        [
+            (
+                {"shape": "spike", "at": 0.5, "at_time": "14:32:08", "amplitude": 1, "width": 1},
+                "exactly one of",
+            ),
+            (
+                {"shape": "ramp", "at_time": "14:32:08", "to": 1, "until": 0.9},
+                "'ramp'.*'at_time'",
+            ),
+            (
+                {"shape": "spike", "at_time": "14:99:00", "amplitude": 1, "width": 1},
+                "'at_time'.*'14:99:00'",
+            ),
+            (
+                {"shape": "spike", "at_time": "noon", "amplitude": 1, "width": 1},
+                "'at_time'.*'noon'",
+            ),
+            (
+                {"shape": "spike", "at_time": 1432, "amplitude": 1, "width": 1},
+                "'at_time'.*1432",
+            ),
+            (
+                {"shape": "spike", "at_time": "14:32:08+02:00", "amplitude": 1, "width": 1},
+                "timezone",
+            ),
+        ],
+    )
+    def test_at_time_validation_errors(self, machine_dict, make_machine_file, event, match):
+        bad = self._machine_with_event(machine_dict, event)
+        with pytest.raises(ValueError, match=match):
+            SimulationEngine.from_file(make_machine_file(bad))
+
+    def test_valid_at_time_spike_accepted(self, machine_dict, make_machine_file):
+        good = self._machine_with_event(
+            machine_dict, {"shape": "spike", "at_time": "14:32:08", "amplitude": 1.0, "width": 15}
+        )
+        engine = SimulationEngine.from_file(make_machine_file(good))
+        assert engine.has_channel("T:VAC")
+
+
+class TestEngineServes:
+    """The optional-engine guard shared by the mock connectors."""
+
+    def test_none_engine_never_serves(self):
+        assert engine_serves(None, "T:Q1:CUR:SP") is False
+
+    def test_known_channel_served(self, machine_file):
+        engine = SimulationEngine.from_file(machine_file)
+        assert engine_serves(engine, "T:Q1:CUR:SP") is True
+
+    def test_unknown_channel_not_served(self, machine_file):
+        engine = SimulationEngine.from_file(machine_file)
+        assert engine_serves(engine, "NOPE:UNKNOWN") is False

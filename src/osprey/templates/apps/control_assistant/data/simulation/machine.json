@@ -1,0 +1,456 @@
+{
+  "name": "ALS-style storage ring demo machine",
+  "description": "Demo machine model for the control-assistant preset: 12-sector vacuum system, DCCT beam-current monitor, and a two-cavity RF system with klystrons. Drives the mock control-system connector and mock archiver via the simulation engine.",
+  "channels": {
+    "SR:VAC:GAUGE:SR01:PRESSURE:RB": {
+      "value": 5e-08,
+      "noise": 0.03,
+      "units": "Torr",
+      "description": "Cold-cathode gauge pressure, storage-ring sector 1 (nominal ~5e-8 Torr)",
+      "min": 0.0
+    },
+    "SR:VAC:GAUGE:SR01:STATUS:ON": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-1 cold-cathode gauge powered on (1=on, 0=off)"
+    },
+    "SR:VAC:GAUGE:SR01:STATUS:VALID": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-1 cold-cathode gauge reading valid (1=valid, 0=invalid)"
+    },
+    "SR:VAC:GAUGE:SR02:PRESSURE:RB": {
+      "value": 5e-08,
+      "noise": 0.03,
+      "units": "Torr",
+      "description": "Cold-cathode gauge pressure, storage-ring sector 2 (nominal ~5e-8 Torr)",
+      "min": 0.0
+    },
+    "SR:VAC:GAUGE:SR02:STATUS:ON": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-2 cold-cathode gauge powered on (1=on, 0=off)"
+    },
+    "SR:VAC:GAUGE:SR02:STATUS:VALID": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-2 cold-cathode gauge reading valid (1=valid, 0=invalid)"
+    },
+    "SR:VAC:GAUGE:SR03:PRESSURE:RB": {
+      "value": 5e-08,
+      "noise": 0.03,
+      "units": "Torr",
+      "description": "Cold-cathode gauge pressure, storage-ring sector 3 (nominal ~5e-8 Torr)",
+      "min": 0.0
+    },
+    "SR:VAC:GAUGE:SR03:STATUS:ON": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-3 cold-cathode gauge powered on (1=on, 0=off)"
+    },
+    "SR:VAC:GAUGE:SR03:STATUS:VALID": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-3 cold-cathode gauge reading valid (1=valid, 0=invalid)"
+    },
+    "SR:VAC:GAUGE:SR04:PRESSURE:RB": {
+      "value": 5e-08,
+      "noise": 0.03,
+      "units": "Torr",
+      "description": "Cold-cathode gauge pressure, storage-ring sector 4 (nominal ~5e-8 Torr)",
+      "min": 0.0
+    },
+    "SR:VAC:GAUGE:SR04:STATUS:ON": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-4 cold-cathode gauge powered on (1=on, 0=off)"
+    },
+    "SR:VAC:GAUGE:SR04:STATUS:VALID": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-4 cold-cathode gauge reading valid (1=valid, 0=invalid)"
+    },
+    "SR:VAC:GAUGE:SR05:PRESSURE:RB": {
+      "value": 5e-08,
+      "noise": 0.03,
+      "units": "Torr",
+      "description": "Cold-cathode gauge pressure, storage-ring sector 5 (nominal ~5e-8 Torr)",
+      "min": 0.0
+    },
+    "SR:VAC:GAUGE:SR05:STATUS:ON": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-5 cold-cathode gauge powered on (1=on, 0=off)"
+    },
+    "SR:VAC:GAUGE:SR05:STATUS:VALID": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-5 cold-cathode gauge reading valid (1=valid, 0=invalid)"
+    },
+    "SR:VAC:GAUGE:SR06:PRESSURE:RB": {
+      "value": 5e-08,
+      "noise": 0.03,
+      "units": "Torr",
+      "description": "Cold-cathode gauge pressure, storage-ring sector 6 (nominal ~5e-8 Torr)",
+      "min": 0.0
+    },
+    "SR:VAC:GAUGE:SR06:STATUS:ON": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-6 cold-cathode gauge powered on (1=on, 0=off)"
+    },
+    "SR:VAC:GAUGE:SR06:STATUS:VALID": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-6 cold-cathode gauge reading valid (1=valid, 0=invalid)"
+    },
+    "SR:VAC:GAUGE:SR07:PRESSURE:RB": {
+      "value": 5e-08,
+      "noise": 0.03,
+      "units": "Torr",
+      "description": "Cold-cathode gauge pressure, storage-ring sector 7 (nominal ~5e-8 Torr)",
+      "min": 0.0
+    },
+    "SR:VAC:GAUGE:SR07:STATUS:ON": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-7 cold-cathode gauge powered on (1=on, 0=off)"
+    },
+    "SR:VAC:GAUGE:SR07:STATUS:VALID": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-7 cold-cathode gauge reading valid (1=valid, 0=invalid)"
+    },
+    "SR:VAC:GAUGE:SR08:PRESSURE:RB": {
+      "value": 5e-08,
+      "noise": 0.03,
+      "units": "Torr",
+      "description": "Cold-cathode gauge pressure, storage-ring sector 8 (nominal ~5e-8 Torr)",
+      "min": 0.0
+    },
+    "SR:VAC:GAUGE:SR08:STATUS:ON": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-8 cold-cathode gauge powered on (1=on, 0=off)"
+    },
+    "SR:VAC:GAUGE:SR08:STATUS:VALID": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-8 cold-cathode gauge reading valid (1=valid, 0=invalid)"
+    },
+    "SR:VAC:GAUGE:SR09:PRESSURE:RB": {
+      "value": 5e-08,
+      "noise": 0.03,
+      "units": "Torr",
+      "description": "Cold-cathode gauge pressure, storage-ring sector 9 (nominal ~5e-8 Torr)",
+      "min": 0.0
+    },
+    "SR:VAC:GAUGE:SR09:STATUS:ON": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-9 cold-cathode gauge powered on (1=on, 0=off)"
+    },
+    "SR:VAC:GAUGE:SR09:STATUS:VALID": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-9 cold-cathode gauge reading valid (1=valid, 0=invalid)"
+    },
+    "SR:VAC:GAUGE:SR10:PRESSURE:RB": {
+      "value": 5e-08,
+      "noise": 0.03,
+      "units": "Torr",
+      "description": "Cold-cathode gauge pressure, storage-ring sector 10 (nominal ~5e-8 Torr)",
+      "min": 0.0
+    },
+    "SR:VAC:GAUGE:SR10:STATUS:ON": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-10 cold-cathode gauge powered on (1=on, 0=off)"
+    },
+    "SR:VAC:GAUGE:SR10:STATUS:VALID": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-10 cold-cathode gauge reading valid (1=valid, 0=invalid)"
+    },
+    "SR:VAC:GAUGE:SR11:PRESSURE:RB": {
+      "value": 5e-08,
+      "noise": 0.03,
+      "units": "Torr",
+      "description": "Cold-cathode gauge pressure, storage-ring sector 11 (nominal ~5e-8 Torr)",
+      "min": 0.0
+    },
+    "SR:VAC:GAUGE:SR11:STATUS:ON": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-11 cold-cathode gauge powered on (1=on, 0=off)"
+    },
+    "SR:VAC:GAUGE:SR11:STATUS:VALID": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-11 cold-cathode gauge reading valid (1=valid, 0=invalid)"
+    },
+    "SR:VAC:GAUGE:SR12:PRESSURE:RB": {
+      "value": 5e-08,
+      "noise": 0.03,
+      "units": "Torr",
+      "description": "Cold-cathode gauge pressure, storage-ring sector 12 (nominal ~5e-8 Torr)",
+      "min": 0.0
+    },
+    "SR:VAC:GAUGE:SR12:STATUS:ON": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-12 cold-cathode gauge powered on (1=on, 0=off)"
+    },
+    "SR:VAC:GAUGE:SR12:STATUS:VALID": {
+      "value": 1,
+      "noise": 0,
+      "description": "Sector-12 cold-cathode gauge reading valid (1=valid, 0=invalid)"
+    },
+    "SR:DIAG:DCCT:01:CURRENT:RB": {
+      "value": 500.0,
+      "noise": 0.0001,
+      "units": "mA",
+      "description": "Stored beam current from the DC current transformer (nominal 500 mA, top-up)",
+      "min": 0.0
+    },
+    "SR:DIAG:DCCT:01:STATUS:VALID": {
+      "value": 1,
+      "noise": 0,
+      "description": "DCCT beam-current reading valid (1=valid, 0=invalid)"
+    },
+    "SR:RF:CAVITY:01:TEMPERATURE:RB": {
+      "value": 27.0,
+      "noise": 0.007,
+      "units": "degC",
+      "description": "Cavity 01 body temperature from cooling-water RTD (nominal 27.0 degC)"
+    },
+    "SR:RF:CAVITY:01:POWER:FWD": {
+      "value": 450.0,
+      "noise": 0.011,
+      "units": "kW",
+      "description": "Cavity 01 forward RF power from the directional coupler",
+      "min": 0.0
+    },
+    "SR:RF:CAVITY:01:POWER:REV": {
+      "value": 5.0,
+      "noise": 0.2,
+      "units": "kW",
+      "description": "Cavity 01 reflected RF power (small when well matched)",
+      "min": 0.0
+    },
+    "SR:RF:CAVITY:01:POWER:NET": {
+      "expr": "ch('SR:RF:CAVITY:01:POWER:FWD') - ch('SR:RF:CAVITY:01:POWER:REV')",
+      "noise": 0,
+      "units": "kW",
+      "description": "Cavity 01 net power delivered to the cavity (forward minus reflected)"
+    },
+    "SR:RF:CAVITY:01:VOLTAGE:RB": {
+      "value": 2.5,
+      "noise": 0.008,
+      "units": "MV",
+      "description": "Cavity 01 accelerating gap voltage readback (nominal 2.5 MV)"
+    },
+    "SR:RF:CAVITY:01:VOLTAGE:SP": {
+      "value": 2.5,
+      "noise": 0,
+      "units": "MV",
+      "description": "Cavity 01 gap voltage setpoint"
+    },
+    "SR:RF:CAVITY:01:VOLTAGE:GOLDEN": {
+      "value": 2.5,
+      "noise": 0,
+      "units": "MV",
+      "description": "Cavity 01 golden (reference) gap voltage for restore operations"
+    },
+    "SR:RF:CAVITY:01:FREQUENCY:RB": {
+      "value": 499.654,
+      "noise": 2e-07,
+      "units": "MHz",
+      "description": "Cavity 01 resonant frequency readback (nominal 499.654 MHz)"
+    },
+    "SR:RF:CAVITY:01:FREQUENCY:SP": {
+      "value": 499.654,
+      "noise": 0,
+      "units": "MHz",
+      "description": "Cavity 01 frequency setpoint"
+    },
+    "SR:RF:CAVITY:01:TUNER:RB": {
+      "value": 5.0,
+      "noise": 0.002,
+      "units": "cm",
+      "description": "Cavity 01 mechanical tuner position readback"
+    },
+    "SR:RF:CAVITY:01:TUNER:SP": {
+      "value": 5.0,
+      "noise": 0,
+      "units": "cm",
+      "description": "Cavity 01 tuner position setpoint"
+    },
+    "SR:RF:CAVITY:01:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Cavity 01 fault summary (0=ok, 1=faulted)"
+    },
+    "SR:RF:CAVITY:01:STATUS:INTERLOCK": {
+      "value": 0,
+      "noise": 0,
+      "description": "Cavity 01 interlock active (0=clear, 1=tripped)"
+    },
+    "SR:RF:CAVITY:01:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Cavity 01 ready for RF (1=ready, 0=not ready)"
+    },
+    "SR:RF:CAVITY:02:TEMPERATURE:RB": {
+      "value": 26.5,
+      "noise": 0.007,
+      "units": "degC",
+      "description": "Cavity 02 body temperature from cooling-water RTD (nominal 26.5 degC)"
+    },
+    "SR:RF:CAVITY:02:POWER:FWD": {
+      "value": 450.0,
+      "noise": 0.011,
+      "units": "kW",
+      "description": "Cavity 02 forward RF power from the directional coupler",
+      "min": 0.0
+    },
+    "SR:RF:CAVITY:02:POWER:REV": {
+      "value": 5.0,
+      "noise": 0.2,
+      "units": "kW",
+      "description": "Cavity 02 reflected RF power (small when well matched)",
+      "min": 0.0
+    },
+    "SR:RF:CAVITY:02:POWER:NET": {
+      "expr": "ch('SR:RF:CAVITY:02:POWER:FWD') - ch('SR:RF:CAVITY:02:POWER:REV')",
+      "noise": 0,
+      "units": "kW",
+      "description": "Cavity 02 net power delivered to the cavity (forward minus reflected)"
+    },
+    "SR:RF:CAVITY:02:VOLTAGE:RB": {
+      "value": 2.5,
+      "noise": 0.008,
+      "units": "MV",
+      "description": "Cavity 02 accelerating gap voltage readback (nominal 2.5 MV)"
+    },
+    "SR:RF:CAVITY:02:VOLTAGE:SP": {
+      "value": 2.5,
+      "noise": 0,
+      "units": "MV",
+      "description": "Cavity 02 gap voltage setpoint"
+    },
+    "SR:RF:CAVITY:02:VOLTAGE:GOLDEN": {
+      "value": 2.5,
+      "noise": 0,
+      "units": "MV",
+      "description": "Cavity 02 golden (reference) gap voltage for restore operations"
+    },
+    "SR:RF:CAVITY:02:FREQUENCY:RB": {
+      "value": 499.654,
+      "noise": 2e-07,
+      "units": "MHz",
+      "description": "Cavity 02 resonant frequency readback (nominal 499.654 MHz)"
+    },
+    "SR:RF:CAVITY:02:FREQUENCY:SP": {
+      "value": 499.654,
+      "noise": 0,
+      "units": "MHz",
+      "description": "Cavity 02 frequency setpoint"
+    },
+    "SR:RF:CAVITY:02:TUNER:RB": {
+      "value": 5.0,
+      "noise": 0.002,
+      "units": "cm",
+      "description": "Cavity 02 mechanical tuner position readback"
+    },
+    "SR:RF:CAVITY:02:TUNER:SP": {
+      "value": 5.0,
+      "noise": 0,
+      "units": "cm",
+      "description": "Cavity 02 tuner position setpoint"
+    },
+    "SR:RF:CAVITY:02:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Cavity 02 fault summary (0=ok, 1=faulted)"
+    },
+    "SR:RF:CAVITY:02:STATUS:INTERLOCK": {
+      "value": 0,
+      "noise": 0,
+      "description": "Cavity 02 interlock active (0=clear, 1=tripped)"
+    },
+    "SR:RF:CAVITY:02:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Cavity 02 ready for RF (1=ready, 0=not ready)"
+    },
+    "SR:RF:KLYSTRON:01:POWER:RB": {
+      "value": 400.0,
+      "noise": 0.01,
+      "units": "kW",
+      "description": "Klystron 01 RF output power readback (nominal 400 kW)",
+      "min": 0.0
+    },
+    "SR:RF:KLYSTRON:01:VOLTAGE:RB": {
+      "value": 80.0,
+      "noise": 0.006,
+      "units": "kV",
+      "description": "Klystron 01 cathode high voltage readback (nominal 80 kV)"
+    },
+    "SR:RF:KLYSTRON:01:VOLTAGE:SP": {
+      "value": 80.0,
+      "noise": 0,
+      "units": "kV",
+      "description": "Klystron 01 cathode high-voltage setpoint"
+    },
+    "SR:RF:KLYSTRON:01:STATUS:ON": {
+      "value": 1,
+      "noise": 0,
+      "description": "Klystron 01 high voltage on (1=on, 0=off)"
+    },
+    "SR:RF:KLYSTRON:01:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Klystron 01 ready (1=ready, 0=not ready)"
+    },
+    "SR:RF:KLYSTRON:01:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Klystron 01 fault summary (0=ok, 1=faulted)"
+    },
+    "SR:RF:KLYSTRON:02:POWER:RB": {
+      "value": 400.0,
+      "noise": 0.01,
+      "units": "kW",
+      "description": "Klystron 02 RF output power readback (nominal 400 kW)",
+      "min": 0.0
+    },
+    "SR:RF:KLYSTRON:02:VOLTAGE:RB": {
+      "value": 80.0,
+      "noise": 0.006,
+      "units": "kV",
+      "description": "Klystron 02 cathode high voltage readback (nominal 80 kV)"
+    },
+    "SR:RF:KLYSTRON:02:VOLTAGE:SP": {
+      "value": 80.0,
+      "noise": 0,
+      "units": "kV",
+      "description": "Klystron 02 cathode high-voltage setpoint"
+    },
+    "SR:RF:KLYSTRON:02:STATUS:ON": {
+      "value": 1,
+      "noise": 0,
+      "description": "Klystron 02 high voltage on (1=on, 0=off)"
+    },
+    "SR:RF:KLYSTRON:02:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Klystron 02 ready (1=ready, 0=not ready)"
+    },
+    "SR:RF:KLYSTRON:02:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Klystron 02 fault summary (0=ok, 1=faulted)"
+    }
+  }
+}

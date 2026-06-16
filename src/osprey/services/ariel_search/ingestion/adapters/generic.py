@@ -9,6 +9,7 @@ import json
 import uuid
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
+from datetime import time as dtime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -16,6 +17,7 @@ from osprey.services.ariel_search.exceptions import IngestionError
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
 from osprey.utils.logger import get_logger
+from osprey.utils.relative_time import RelativeTimestamp, resolve_relative_timestamp
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search.config import ARIELConfig
@@ -212,7 +214,7 @@ class GenericJSONAdapter(FacilityAdapter):
         """Convert generic JSON entry to EnhancedLogbookEntry."""
         now = datetime.now(UTC)
 
-        timestamp = self._parse_timestamp(data.get("timestamp", ""))
+        timestamp = self._resolve_timestamp(data, now)
 
         title = data.get("title", "")
         text = data.get("text", "")
@@ -276,6 +278,32 @@ class GenericJSONAdapter(FacilityAdapter):
             "created_at": now,
             "updated_at": now,
         }
+
+    def _resolve_timestamp(self, data: dict[str, Any], now: datetime) -> datetime:
+        """Resolve an entry timestamp, preferring a relative ``when`` over absolute.
+
+        A ``when`` of ``{"days_ago": N, "time": "HH:MM:SS"}`` (used by demo/seed
+        data) resolves against ``now`` at ingest time, so the data always lands
+        at a recent, deterministic position without mutating the source file.
+        Real facility exports omit ``when`` and carry an absolute ``timestamp``.
+        """
+        when = data.get("when")
+        if isinstance(when, dict):
+            days_ago = when.get("days_ago", 0)
+            if isinstance(days_ago, bool) or not isinstance(days_ago, int) or days_ago < 0:
+                raise ValueError(
+                    f"'when.days_ago' must be a non-negative integer, got {days_ago!r}"
+                )
+            time_str = when.get("time", "00:00:00")
+            try:
+                time_of_day = dtime.fromisoformat(time_str)
+            except (TypeError, ValueError) as err:
+                raise ValueError(
+                    f"'when.time' must be an 'HH:MM:SS' string, got {time_str!r}"
+                ) from err
+            spec = RelativeTimestamp(days_ago=days_ago, time=time_of_day)
+            return resolve_relative_timestamp(spec, now)
+        return self._parse_timestamp(data.get("timestamp", ""))
 
     def _parse_timestamp(self, value: str | int | float) -> datetime:
         """Parse timestamp from various formats."""

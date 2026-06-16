@@ -8,6 +8,7 @@ from osprey.simulation.expressions import (
     ExpressionError,
     compile_expression,
     evaluate,
+    evaluate_channel,
     extract_channel_refs,
 )
 
@@ -100,3 +101,30 @@ class TestChannelRefs:
     def test_no_refs(self):
         node = compile_expression("1 + 2")
         assert extract_channel_refs(node) == set()
+
+
+class TestEvaluateChannel:
+    """The channel-context error-wrapping helper shared by both eval paths."""
+
+    def test_success_passes_through(self):
+        node = compile_expression("ch('PV:A') * 2")
+        assert evaluate_channel(node, "ch('PV:A') * 2", "PV:OUT", lambda _: 3.0) == 6.0
+
+    def test_expression_error_is_prefixed_with_channel(self):
+        # A resolver that itself raises ExpressionError (e.g. string channel)
+        # should be re-raised with the owning channel name attached.
+        node = compile_expression("ch('PV:STR')")
+
+        def resolver(_name):
+            raise ExpressionError("holds a string value")
+
+        with pytest.raises(ExpressionError, match=r"Channel 'PV:OUT': holds a string value"):
+            evaluate_channel(node, "ch('PV:STR')", "PV:OUT", resolver)
+
+    def test_arithmetic_error_names_channel_and_source(self):
+        node = compile_expression("1 / ch('PV:A')")
+        with pytest.raises(ExpressionError) as exc:
+            evaluate_channel(node, "1 / ch('PV:A')", "PV:OUT", lambda _: 0.0)
+        message = str(exc.value)
+        assert "PV:OUT" in message
+        assert "1 / ch('PV:A')" in message

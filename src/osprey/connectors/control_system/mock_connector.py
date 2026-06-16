@@ -23,6 +23,8 @@ from osprey.connectors.control_system.base import (
     ControlSystemConnector,
     WriteVerification,
 )
+from osprey.connectors.pv_taxonomy import classify_pv
+from osprey.simulation import engine_serves
 from osprey.utils.logger import get_logger
 
 logger = get_logger("mock_connector")
@@ -115,7 +117,7 @@ class MockConnector(ControlSystemConnector):
         await asyncio.sleep(self._response_delay)
 
         # Simulation engine serves its channels; unknown PVs fall back to legacy
-        if self._sim_engine is not None and self._sim_engine.has_channel(channel_address):
+        if engine_serves(self._sim_engine, channel_address):
             reading = self._sim_engine.read(channel_address)
             now = datetime.now()
             return ChannelValue(
@@ -204,7 +206,7 @@ class MockConnector(ControlSystemConnector):
         # Simulate network delay
         await asyncio.sleep(self._response_delay)
 
-        if self._sim_engine is not None and self._sim_engine.has_channel(channel_address):
+        if engine_serves(self._sim_engine, channel_address):
             # Engine channels: :SP -> :RB mirroring is handled by expr readbacks
             # in the machine file, so no legacy string-replace mirroring here.
             self._sim_engine.write(channel_address, value)
@@ -329,7 +331,7 @@ class MockConnector(ControlSystemConnector):
 
     async def get_metadata(self, channel_address: str) -> ChannelMetadata:
         """Get channel metadata (from the simulation engine when available)."""
-        if self._sim_engine is not None and self._sim_engine.has_channel(channel_address):
+        if engine_serves(self._sim_engine, channel_address):
             reading = self._sim_engine.read(channel_address)
             return ChannelMetadata(
                 units=reading.units,
@@ -347,51 +349,9 @@ class MockConnector(ControlSystemConnector):
         return True
 
     def _generate_initial_value(self, channel_name: str) -> float:
-        """
-        Generate realistic initial value based on channel type.
-
-        Uses naming conventions to infer reasonable values.
-        """
-        ch_lower = channel_name.lower()
-
-        if "current" in ch_lower:
-            return 500.0 if "beam" in ch_lower else 150.0
-        elif "voltage" in ch_lower:
-            return 5000.0
-        elif "power" in ch_lower:
-            return 50.0
-        elif "pressure" in ch_lower:
-            return 1e-9
-        elif "temp" in ch_lower:
-            return 25.0
-        elif "lifetime" in ch_lower:
-            return 10.0
-        elif "position" in ch_lower or "pos" in ch_lower:
-            return 0.0
-        elif "energy" in ch_lower:
-            return 1900.0  # MeV for typical storage ring
-        else:
-            return 100.0
+        """Generate a realistic initial value from the shared PV taxonomy."""
+        return classify_pv(channel_name).base_value
 
     def _infer_units(self, channel_name: str) -> str:
-        """Infer units from channel name."""
-        ch_lower = channel_name.lower()
-
-        if "current" in ch_lower:
-            return "mA" if "beam" in ch_lower else "A"
-        elif "voltage" in ch_lower:
-            return "V"
-        elif "power" in ch_lower:
-            return "kW"
-        elif "pressure" in ch_lower:
-            return "Torr"
-        elif "temp" in ch_lower:
-            return "°C"
-        elif "lifetime" in ch_lower:
-            return "hours"
-        elif "position" in ch_lower or "pos" in ch_lower:
-            return "mm"
-        elif "energy" in ch_lower:
-            return "MeV"
-        else:
-            return ""
+        """Infer units from the shared PV taxonomy."""
+        return classify_pv(channel_name).units

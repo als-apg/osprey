@@ -185,6 +185,41 @@ def enable_writes_in_project(project_dir: Path) -> None:
     TemplateManager().regen_if_drift(project_dir)
 
 
+def activate_scenario(project_dir: Path, scenario: str) -> None:
+    """Activate a single scenario's telemetry overlay (no logbook seeding).
+
+    Writes the scenario name into ``data/simulation/active_scenarios``; the
+    simulation engine re-reads the state file on mtime change and clears any
+    session writes (fresh machine state). Telemetry only — for scenarios whose
+    diagnosis needs a seeded logbook, use :func:`activate_scenarios`, which also
+    purges and reseeds ARIEL deterministically.
+    """
+    state_file = project_dir / "data" / "simulation" / "active_scenarios"
+    assert state_file.exists(), (
+        f"active_scenarios state file missing at {state_file} — "
+        "template simulation overlay incomplete?"
+    )
+    state_file.write_text(scenario + "\n", encoding="utf-8")
+
+
+def activate_scenarios(project_dir: Path, *names: str, now=None):
+    """Compose and apply scenarios, seeding their logbook into ARIEL.
+
+    Calls :func:`osprey.simulation.apply.apply_scenarios` with
+    ``seed_logbook=True``: it writes the active-scenario state (with a shared
+    apply-time anchor) and purges + reseeds the ARIEL logbook from the active
+    scenarios' own entries. This replaces the manual ``purge && ingest``
+    pre-seed and removes the stale-DB footgun (the logbook always matches the
+    active telemetry, against one clock). ``nominal`` is always implicit, so its
+    ambient entries are present even for telemetry-only faults.
+
+    Returns the :class:`~osprey.simulation.apply.ApplyResult`.
+    """
+    from osprey.simulation.apply import apply_scenarios
+
+    return apply_scenarios(project_dir, list(names), seed_logbook=True, now=now)
+
+
 def _resolve_project_spec(project_dir: Path):
     """Return the project's ``ClaudeCodeModelSpec`` or ``None`` when the
     project's ``config.yml`` has no ``claude_code`` block.
