@@ -92,6 +92,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             output_path=".claude/agents/logbook-deep-research.md",
             description="Logbook deep-research sub-agent",
         ),
+        BuildArtifact(
+            canonical_name="agents/facility-knowledge",
+            template_path="claude/agents/facility-knowledge.md.j2",
+            output_path=".claude/agents/facility-knowledge.md",
+            description="Facility knowledge sub-agent",
+        ),
         # ── Rules ────────────────────────────────────────────────────
         BuildArtifact(
             canonical_name="rules/safety",

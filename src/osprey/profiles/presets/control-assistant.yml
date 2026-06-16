@@ -58,6 +58,7 @@ agents:
   - data-visualizer         # Produce strip charts and correlation plots
   - logbook-search          # Search facility logbook for historical entries
   - logbook-deep-research   # Multi-hop logbook research with synthesis
+  - facility-knowledge      # Look up facility documentation, procedures, and device specs
 
 output_styles:
   - control-operator  # Terse, actionable output style for control-room operators

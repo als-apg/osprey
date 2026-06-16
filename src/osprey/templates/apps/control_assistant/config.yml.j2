@@ -499,6 +499,18 @@ logbook:
     default_tier: haiku   # Options: haiku | sonnet | opus
 
 # ============================================================
+# FACILITY KNOWLEDGE
+# ============================================================
+# OKF bundle providing deep facility knowledge (subsystems, devices,
+# procedures, physics notes, references) to the facility_knowledge
+# MCP server.  Resolved relative to this config file's directory
+# (project root).  Replace with the absolute path to your own bundle
+# once you have customised the example content.
+
+facility_knowledge:
+  bundle_path: data/facility_knowledge
+
+# ============================================================
 # AGENT DATA & ARTIFACT GALLERY
 # ============================================================
 # Working directory for artifacts, data context, screenshots, etc.

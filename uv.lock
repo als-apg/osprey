@@ -17,7 +17,8 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-06-13T07:00:00Z"
+exclude-newer = "2026-06-06T22:41:07.227999Z"
+exclude-newer-span = "P7D"
 
 [[package]]
 name = "accelerator-toolbox"
@@ -3047,6 +3048,7 @@ all = [
     { name = "pytest-order" },
     { name = "pytest-rerunfailures" },
     { name = "python-xlib" },
+    { name = "rdflib" },
     { name = "ruff" },
     { name = "sphinx", version = "9.0.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "sphinx", version = "9.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -3093,6 +3095,9 @@ docs = [
     { name = "sphinx-design" },
     { name = "sphinxcontrib-jsmath" },
     { name = "sphinxcontrib-mermaid" },
+]
+knowledge = [
+    { name = "rdflib" },
 ]
 screen-capture-linux = [
     { name = "mss" },
@@ -3182,6 +3187,8 @@ requires-dist = [
     { name = "python-xlib", marker = "extra == 'screen-capture-linux'", specifier = ">=0.33" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "questionary", specifier = ">=2.0.0" },
+    { name = "rdflib", marker = "extra == 'all'", specifier = ">=7.0" },
+    { name = "rdflib", marker = "extra == 'knowledge'", specifier = ">=7.0" },
     { name = "requests", specifier = ">=2.32.3" },
     { name = "rich", specifier = ">=14.0.0" },
     { name = "ruamel-yaml", specifier = ">=0.18.0" },
@@ -3214,7 +3221,7 @@ requires-dist = [
     { name = "watchdog", specifier = ">=3.0.0" },
     { name = "websocket-client", specifier = ">=1.7.0" },
 ]
-provides-extras = ["all", "archiver-mongodb", "ariel", "ariel-proxy", "dev", "docs", "screen-capture-linux", "sheets"]
+provides-extras = ["all", "archiver-mongodb", "ariel", "ariel-proxy", "dev", "docs", "knowledge", "screen-capture-linux", "sheets"]
 
 [[package]]
 name = "packaging"
@@ -4336,6 +4343,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f6/45/eafb0bba0f9988f6a2520f9ca2df2c82ddfa8d67c95d6625452e97b204a5/questionary-2.1.1.tar.gz", hash = "sha256:3d7e980292bb0107abaa79c68dd3eee3c561b83a0f89ae482860b181c8bd412d", size = 25845, upload-time = "2025-08-28T19:00:20.851Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3c/26/1062c7ec1b053db9e499b4d2d5bc231743201b74051c973dadeac80a8f43/questionary-2.1.1-py3-none-any.whl", hash = "sha256:a51af13f345f1cdea62347589fbb6df3b290306ab8930713bfae4d475a7d4a59", size = 36753, upload-time = "2025-08-28T19:00:19.56Z" },
+]
+
+[[package]]
+name = "rdflib"
+version = "7.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyparsing" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/98/f5/18bb77b7af9526add0c727a3b2048959847dc5fb030913e2918bf384fec3/rdflib-7.6.0.tar.gz", hash = "sha256:6c831288d5e4a5a7ece85d0ccde9877d512a3d0f02d7c06455d00d6d0ea379df", size = 4943826, upload-time = "2026-02-13T07:15:55.938Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/10/c2/6604a71269e0c1bd75656d5a001432d16f2cc5b8c057140ec797155c295e/rdflib-7.6.0-py3-none-any.whl", hash = "sha256:30c0a3ebf4c0e09215f066be7246794b6492e054e782d7ac2a34c9f70a15e0dd", size = 615416, upload-time = "2026-02-13T07:15:46.487Z" },
 ]
 
 [[package]]
