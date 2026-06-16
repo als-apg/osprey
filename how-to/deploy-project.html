@@ -376,6 +376,7 @@
 <li class="toctree-l1"><a class="reference internal" href="use-web-terminal.html">Use the Web Terminal</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
 
 
@@ -479,9 +480,10 @@ build profile, see <a class="reference internal" href="build-profiles.html#profi
 <p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> renders each service’s Jinja2 Docker Compose template,
 copies source and configuration into a per-service build directory, and
 hands the result to Docker or Podman Compose. A new project built from the
-<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset deploys exactly one service out of the box
-(<code class="docutils literal notranslate"><span class="pre">postgresql</span></code>); the <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> preset deploys none. You only need
-this page when you add or customize a containerized service.</p>
+<code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset deploys three services out of the box
+(<code class="docutils literal notranslate"><span class="pre">postgresql</span></code>, <code class="docutils literal notranslate"><span class="pre">event-dispatcher</span></code>, and <code class="docutils literal notranslate"><span class="pre">dispatch-worker</span></code> — the latter
+two from the preset’s <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block); the <code class="docutils literal notranslate"><span class="pre">hello-world</span></code> preset deploys
+none. You only need this page when you add or customize a containerized service.</p>
 </section>
 <section id="service-configuration">
 <h2>Service Configuration<a class="headerlink" href="#service-configuration" title="Link to this heading">#</a></h2>
