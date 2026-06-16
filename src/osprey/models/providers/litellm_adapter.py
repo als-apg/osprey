@@ -107,7 +107,7 @@ def get_litellm_model_name(
         "openai": "",  # No prefix for OpenAI
         "ollama": "ollama",
     }
-    _openai_compatible = {"cborg", "stanford", "argo", "vllm", "amsc", "als-apg", "ds4"}
+    _openai_compatible = {"cborg", "stanford", "argo", "vllm", "amsc-i2", "als-apg", "ds4"}
 
     if provider in _openai_compatible:
         return f"openai/{model_id}"

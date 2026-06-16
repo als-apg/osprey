@@ -58,7 +58,7 @@ class TestProviderRegistry:
             "google",
             "ollama",
             "cborg",
-            "amsc",
+            "amsc-i2",
             "als-apg",
             "stanford",
             "argo",

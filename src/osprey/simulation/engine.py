@@ -10,67 +10,49 @@ baseline (``value`` or ``expr``). Derived channels recompute on every read
 from the *effective* values of referenced channels, so overrides and writes
 propagate through the physics couplings automatically.
 
-The active scenario lives in a plain-text ``active_scenario`` file next to
-the machine file; it is re-read whenever its mtime changes, and switching
-(or re-asserting) a scenario clears all session-written state (fresh machine).
+The active scenarios live in a plain-text ``active_scenarios`` file next to
+the machine file: an optional ``anchor=<ISO8601>`` metadata line followed by
+one scenario name per line (``nominal`` is always implicitly first). It is
+re-read whenever its mtime changes, and switching (or re-asserting) the set
+clears all session-written state (fresh machine). Simultaneously active
+scenarios must touch disjoint channel sets (see :meth:`validate_composition`);
+their overrides and archiver scripts are merged into one composed view. The
+legacy single-name ``active_scenario`` file is still read (one-element list)
+for backward compatibility, but writes always target ``active_scenarios``.
 """
 
-import ast
 import json
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
 import numpy as np
 
-from osprey.simulation.expressions import (
-    ExpressionError,
-    compile_expression,
-    evaluate,
-    extract_channel_refs,
+from osprey.simulation.expressions import ExpressionError, evaluate_channel
+from osprey.simulation.machine import (
+    DEFAULT_SCENARIO,
+    Scenario,
+    ScenarioLogEntry,
+    SimChannel,
+    parse_machine,
+)
+from osprey.simulation.series import (
+    apply_events,
+    clamp,
+    epoch_seconds_array,
+    ref_value,
+    string_series,
 )
 from osprey.utils.logger import get_logger
 
 logger = get_logger("simulation_engine")
 
-DEFAULT_SCENARIO = "nominal"
+ACTIVE_SCENARIOS_FILENAME = "active_scenarios"
+# Legacy single-name state file; read for back-compat, never written.
 ACTIVE_SCENARIO_FILENAME = "active_scenario"
-
-# Non-position keys required per event shape. Position is validated
-# separately: exactly one of 'at' (window fraction) or 'at_offset' (seconds
-# relative to scenario-activation time); ramps need the matching
-# 'until'/'until_offset' flavor.
-_EVENT_VALUE_KEYS = {
-    "step": ("to",),
-    "ramp": ("to",),
-    "spike": ("amplitude", "width"),
-}
-
-
-@dataclass(frozen=True)
-class SimChannel:
-    """Parsed channel definition from the machine file."""
-
-    name: str
-    value: float | str | None
-    expr: ast.expr | None
-    refs: tuple[str, ...]
-    units: str
-    noise: float
-    description: str
-    expr_source: str = ""
-
-
-@dataclass(frozen=True)
-class Scenario:
-    """Parsed scenario definition: overrides plus archiver event scripts."""
-
-    name: str
-    description: str
-    overrides: dict[str, float | str]
-    archiver: dict[str, list[dict[str, Any]]]
 
 
 @dataclass(frozen=True)
@@ -100,27 +82,27 @@ class SimulationEngine:
             ValueError: If the machine description is invalid (bad schema,
                 invalid expression, unknown reference, or reference cycle).
         """
-        if not isinstance(machine, dict) or not isinstance(machine.get("channels"), dict):
-            raise ValueError(f"Machine file {machine_path} must define a 'channels' mapping")
+        model = parse_machine(machine, machine_path)
 
-        self.name: str = str(machine.get("name", ""))
-        self.description: str = str(machine.get("description", ""))
+        self.name: str = model.name
+        self.description: str = model.description
         self._machine_path = machine_path
-        self._state_path = machine_path.parent / ACTIVE_SCENARIO_FILENAME
-
-        self._channels: dict[str, SimChannel] = {
-            pv: _parse_channel(pv, spec) for pv, spec in machine["channels"].items()
-        }
-        _check_references(self._channels)
-        self._scenarios: dict[str, Scenario] = _parse_scenarios(
-            machine.get("scenarios", {}), self._channels
-        )
+        # Canonical (write) state file plus the legacy single-name file (read-only).
+        self._state_path = machine_path.parent / ACTIVE_SCENARIOS_FILENAME
+        self._legacy_state_path = machine_path.parent / ACTIVE_SCENARIO_FILENAME
+        self._channels: dict[str, SimChannel] = model.channels
+        self._scenarios: dict[str, Scenario] = model.scenarios
 
         self._rng = np.random.default_rng()
         self._written: dict[str, float | str] = {}
-        self._active = DEFAULT_SCENARIO
-        # Sentinel that never matches a real mtime so the first refresh always runs.
-        self._state_mtime_ns: int | None = -1
+        self._active: tuple[str, ...] = (DEFAULT_SCENARIO,)
+        self._composed_overrides: dict[str, float | str] = {}
+        self._composed_archiver: dict[str, list[dict[str, Any]]] = {}
+        self._anchor_epoch: float | None = None
+        self._state_mtime_ns: int | None = None
+        # Sentinel that never matches a real (path, mtime) so first refresh runs.
+        self._state_signature: tuple[str | None, int | None] = ("", -1)
+        self._recompose()
         self._refresh_scenario()
 
     @classmethod
@@ -138,7 +120,7 @@ class SimulationEngine:
             ValueError: If the machine description is invalid.
         """
         resolved = Path(path).expanduser().resolve()
-        mtime_ns = resolved.stat().st_mtime_ns
+        mtime_ns = cls._machine_mtime_ns(resolved)
         cached = cls._cache.get(str(resolved))
         if cached is not None and cached[0] == mtime_ns:
             return cached[1]
@@ -151,20 +133,100 @@ class SimulationEngine:
         )
         return engine
 
+    @staticmethod
+    def _machine_mtime_ns(machine_path: Path) -> int:
+        """Cache-key mtime: newest of the machine file and every bundle JSON.
+
+        Keying on the machine file alone would serve a stale cached engine after
+        an edit to a ``scenarios/<name>/scenario.json`` or ``logbook.json``; the
+        ``active_scenarios`` state file is deliberately excluded (it has its own
+        mtime-based refresh in :meth:`_refresh_scenario`).
+        """
+        latest = machine_path.stat().st_mtime_ns
+        scenarios_dir = machine_path.parent / "scenarios"
+        if scenarios_dir.is_dir():
+            for bundle_file in scenarios_dir.rglob("*.json"):
+                latest = max(latest, bundle_file.stat().st_mtime_ns)
+        return latest
+
     def list_scenarios(self) -> dict[str, str]:
         """Return scenario name -> description for all defined scenarios."""
         return {name: scenario.description for name, scenario in self._scenarios.items()}
 
+    def scenario_logbook(self, name: str) -> tuple[ScenarioLogEntry, ...]:
+        """Return the logbook entries a scenario bundle owns (empty if none)."""
+        return self._scenarios[name].logbook
+
+    def active_logbook(self) -> list[ScenarioLogEntry]:
+        """Return all logbook entries owned by the active scenarios.
+
+        Concatenated in activation order (nominal-first), so the composed set
+        carries every active scenario's narrative. Telemetry-only scenarios
+        (no ``logbook.json``) contribute nothing.
+        """
+        self._refresh_scenario()
+        entries: list[ScenarioLogEntry] = []
+        for name in self._active:
+            entries.extend(self._scenarios[name].logbook)
+        return entries
+
+    def active_scenarios(self) -> tuple[str, ...]:
+        """Return the active scenario set (nominal-first; state file re-read if changed)."""
+        self._refresh_scenario()
+        return self._active
+
     def active_scenario(self) -> str:
-        """Return the currently active scenario name (state file re-read if changed)."""
+        """Return the last-activated scenario name (single-element back-compat view).
+
+        For a nominal-only machine this is ``'nominal'``; for one active fault it
+        is that fault. Prefer :meth:`active_scenarios` for the full set.
+        """
+        self._refresh_scenario()
+        return self._active[-1]
+
+    def set_active_scenarios(
+        self, names: Sequence[str], anchor: datetime | None = None
+    ) -> tuple[str, ...]:
+        """Activate a composed set of scenarios by writing the state file.
+
+        ``nominal`` is always implicitly active and prepended. The requested set
+        must touch disjoint channel sets (see :meth:`validate_composition`).
+        Writing the state file clears session writes (fresh machine). Always
+        writes the canonical ``active_scenarios`` file.
+
+        Args:
+            names: Scenario names to activate (order preserved, deduped).
+            anchor: Optional apply-time anchor T0 written as an ``anchor=`` line;
+                shared by telemetry and logbook so both resolve against one clock.
+                When omitted, the engine falls back to the state-file mtime.
+
+        Returns:
+            The resolved active set (nominal-first).
+
+        Raises:
+            ValueError: If a name is unknown or the set does not compose.
+        """
+        resolved: list[str] = [DEFAULT_SCENARIO]
+        for name in names:
+            if name != DEFAULT_SCENARIO and name not in resolved:
+                resolved.append(name)
+        problems = self.validate_composition(resolved)
+        if problems:
+            raise ValueError("Cannot activate scenarios: " + "; ".join(problems))
+
+        body: list[str] = []
+        if anchor is not None:
+            body.append(f"anchor={anchor.isoformat()}")
+        faults = [n for n in resolved if n != DEFAULT_SCENARIO]
+        body.extend(faults if faults else [DEFAULT_SCENARIO])
+        self._state_path.write_text("\n".join(body) + "\n")
+        # Force a re-read even if filesystem mtime granularity hides the write.
+        self._state_signature = ("", -1)
         self._refresh_scenario()
         return self._active
 
     def set_active_scenario(self, name: str) -> None:
-        """Activate a scenario by writing the state file; clears session writes.
-
-        Re-asserting the already-active scenario also clears session writes
-        (fresh machine), matching the state-file path.
+        """Activate a single scenario (back-compat wrapper over :meth:`set_active_scenarios`).
 
         Args:
             name: Scenario name (must exist in the machine file).
@@ -172,12 +234,41 @@ class SimulationEngine:
         Raises:
             ValueError: If the scenario name is unknown.
         """
-        if name not in self._scenarios:
-            raise ValueError(f"Unknown scenario {name!r}. Available: {sorted(self._scenarios)}")
-        self._state_path.write_text(f"{name}\n")
-        # Force a re-read even if filesystem mtime granularity hides the write.
-        self._state_mtime_ns = -1
-        self._refresh_scenario()
+        self.set_active_scenarios([name])
+
+    def validate_composition(self, names: Sequence[str]) -> list[str]:
+        """Return composition problems for a set of scenarios; empty list = OK.
+
+        Active scenarios must touch *disjoint* channel sets — a channel is
+        "touched" if a scenario declares an override or an archiver block for it.
+        Archiver step/ramp events overwrite the synthesized series (and overrides
+        collide on point reads), so two scenarios touching one channel compose
+        order-dependently and silently wrong. Returns a message per unknown name
+        and per channel collision.
+
+        Args:
+            names: Scenario names to check (typically the resolved active set).
+
+        Returns:
+            Human-readable problem strings; empty when the set composes cleanly.
+        """
+        problems: list[str] = []
+        owner: dict[str, str] = {}
+        for name in names:
+            if name not in self._scenarios:
+                problems.append(f"Unknown scenario {name!r}. Available: {sorted(self._scenarios)}")
+                continue
+            scenario = self._scenarios[name]
+            touched = set(scenario.overrides) | set(scenario.archiver)
+            for pv in sorted(touched):
+                if pv in owner and owner[pv] != name:
+                    problems.append(
+                        f"Channel {pv!r} is touched by both {owner[pv]!r} and {name!r}; "
+                        f"active scenarios must touch disjoint channel sets"
+                    )
+                else:
+                    owner[pv] = name
+        return problems
 
     def has_channel(self, pv: str) -> bool:
         """Return True if the machine file defines this channel."""
@@ -198,8 +289,10 @@ class SimulationEngine:
         self._refresh_scenario()
         channel = self._require_channel(pv)
         value = self._effective(pv)
-        if not isinstance(value, str) and channel.noise > 0.0:
-            value = float(value) * (1.0 + float(self._rng.normal(0.0, channel.noise)))
+        if not isinstance(value, str):
+            if channel.noise > 0.0:
+                value = float(value) * (1.0 + float(self._rng.normal(0.0, channel.noise)))
+            value = clamp(float(value), channel.min_value, channel.max_value)
         return SimReading(value=value, units=channel.units, description=channel.description)
 
     def write(self, pv: str, value: Any) -> None:
@@ -235,13 +328,17 @@ class SimulationEngine:
         synthesized series of their referenced channels, so derived channels
         show correlated history.
 
-        Event positioning has two flavors: ``at`` places an event at a fixed
+        Event positioning has three flavors: ``at`` places an event at a fixed
         fraction of whatever window is requested, while ``at_offset`` (with
         ``until_offset`` for ramps) anchors it in wall-clock time, in seconds
-        relative to the scenario-activation time (the ``active_scenario``
-        state-file mtime; negative = past). Anchored events honor the actual
-        timestamp values, so an event outside the requested window does not
-        appear in it. For anchored spikes, ``width`` is in seconds.
+        relative to the apply-time anchor T0 (the ``anchor=`` line in the state
+        file, falling back to its mtime; negative = past). ``at_time``
+        (``"HH:MM:SS"``, local
+        time; step/spike only) recurs daily: the event fires at that time of
+        day on every calendar date inside the requested window. Anchored and
+        time-of-day events honor the actual timestamp values, so an event
+        outside the requested window does not appear in it. For anchored and
+        time-of-day spikes, ``width`` is in seconds.
 
         Args:
             pv: Channel name.
@@ -260,7 +357,7 @@ class SimulationEngine:
         n = len(timestamps)
         if n == 0:
             return []
-        t_abs = _epoch_seconds_array(timestamps)
+        t_abs = epoch_seconds_array(timestamps)
         anchor = self._scenario_anchor()
         cache: dict[str, np.ndarray | list[str]] = {}
         series = self._synthesize(pv, n, cache, t_abs, anchor)
@@ -278,57 +375,119 @@ class SimulationEngine:
             raise KeyError(f"Unknown simulation channel {pv!r}")
         return channel
 
-    def _refresh_scenario(self) -> None:
-        """Re-read the active-scenario state file when its mtime changes."""
-        try:
-            mtime_ns: int | None = self._state_path.stat().st_mtime_ns
-        except FileNotFoundError:
-            mtime_ns = None
-        if mtime_ns == self._state_mtime_ns:
-            return
-        self._state_mtime_ns = mtime_ns
+    def _active_state_file(self) -> Path | None:
+        """The state file to read: canonical ``active_scenarios``, else legacy."""
+        if self._state_path.exists():
+            return self._state_path
+        if self._legacy_state_path.exists():
+            return self._legacy_state_path
+        return None
 
-        name = DEFAULT_SCENARIO
-        if mtime_ns is not None:
+    def _refresh_scenario(self) -> None:
+        """Re-read and recompose the active-scenario set when the state file changes."""
+        state_file = self._active_state_file()
+        if state_file is None:
+            signature: tuple[str | None, int | None] = (None, None)
+        else:
             try:
-                raw = self._state_path.read_text().strip()
+                signature = (str(state_file), state_file.stat().st_mtime_ns)
             except FileNotFoundError:
-                raw = ""
-            if raw in self._scenarios:
-                name = raw
-            elif raw:
-                logger.warning(
-                    f"Unknown scenario {raw!r} in {self._state_path}; "
-                    f"falling back to '{DEFAULT_SCENARIO}'"
-                )
-        if name != self._active:
+                signature, state_file = (None, None), None
+        if signature == self._state_signature:
+            return
+        self._state_signature = signature
+        self._state_mtime_ns = signature[1]
+
+        names: list[str] = []
+        anchor_epoch: float | None = None
+        if state_file is not None:
+            try:
+                text = state_file.read_text()
+            except FileNotFoundError:
+                text = ""
+            raw_names, anchor_epoch = self._parse_state(text)
+            for raw in raw_names:
+                if raw in self._scenarios:
+                    if raw not in names:
+                        names.append(raw)
+                else:
+                    logger.warning(f"Unknown scenario {raw!r} in {state_file}; ignoring")
+
+        resolved = [DEFAULT_SCENARIO] + [n for n in names if n != DEFAULT_SCENARIO]
+        problems = self.validate_composition(resolved)
+        if problems:
+            logger.error(
+                f"Active scenarios {resolved!r} do not compose ({'; '.join(problems)}); "
+                f"falling back to ['{DEFAULT_SCENARIO}']"
+            )
+            resolved = [DEFAULT_SCENARIO]
+
+        self._anchor_epoch = anchor_epoch
+        new_active = tuple(resolved)
+        if new_active != self._active:
             self._written.clear()
-            logger.info(f"Simulation scenario switched to {name!r} (session writes cleared)")
-            self._active = name
+            logger.info(
+                f"Simulation scenarios switched to {list(new_active)!r} (session writes cleared)"
+            )
+            self._active = new_active
         elif self._written:
-            # State file touched with the same scenario name: treat as an
-            # explicit re-assert and hand back a fresh machine.
+            # State file touched with the same set: treat as an explicit
+            # re-assert and hand back a fresh machine.
             self._written.clear()
-            logger.info(f"Simulation scenario {name!r} re-asserted (session writes cleared)")
+            logger.info(
+                f"Simulation scenarios {list(new_active)!r} re-asserted (session writes cleared)"
+            )
+        self._recompose()
+
+    @staticmethod
+    def _parse_state(text: str) -> tuple[list[str], float | None]:
+        """Parse state-file text into (scenario names, anchor epoch seconds or None).
+
+        Skips blank lines and ``#`` comments; any ``key=value`` line is metadata
+        (only ``anchor=<ISO8601>`` is recognised), everything else is a name.
+        """
+        names: list[str] = []
+        anchor_epoch: float | None = None
+        for line in text.splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if "=" in stripped:
+                key, _, value = stripped.partition("=")
+                if key.strip() == "anchor":
+                    try:
+                        anchor_epoch = datetime.fromisoformat(value.strip()).timestamp()
+                    except ValueError:
+                        logger.warning(f"Ignoring malformed anchor in state file: {stripped!r}")
+                continue
+            names.append(stripped)
+        return names, anchor_epoch
+
+    def _recompose(self) -> None:
+        """Merge the active set's overrides and archiver scripts into composed views.
+
+        Safe to merge by plain update because :meth:`validate_composition`
+        guarantees the active scenarios touch disjoint channel sets.
+        """
+        overrides: dict[str, float | str] = {}
+        archiver: dict[str, list[dict[str, Any]]] = {}
+        for name in self._active:
+            scenario = self._scenarios[name]
+            overrides.update(scenario.overrides)
+            archiver.update(scenario.archiver)
+        self._composed_overrides = overrides
+        self._composed_archiver = archiver
 
     def _effective(self, pv: str) -> float | str:
-        """Effective value: session write > scenario override > baseline."""
+        """Effective value: session write > composed scenario override > baseline."""
         if pv in self._written:
             return self._written[pv]
-        scenario = self._scenarios[self._active]
-        if pv in scenario.overrides:
-            return scenario.overrides[pv]
+        if pv in self._composed_overrides:
+            return self._composed_overrides[pv]
         channel = self._channels[pv]
         if channel.expr is not None:
-            try:
-                return evaluate(channel.expr, self._numeric_effective)
-            except ExpressionError as exc:
-                raise ExpressionError(f"Channel {pv!r}: {exc}") from exc
-            except (ZeroDivisionError, ValueError, OverflowError) as exc:
-                raise ExpressionError(
-                    f"Channel {pv!r}: expression {channel.expr_source!r} failed to evaluate: {exc}"
-                ) from exc
-        assert channel.value is not None  # guaranteed by _parse_channel
+            return evaluate_channel(channel.expr, channel.expr_source, pv, self._numeric_effective)
+        assert channel.value is not None  # guaranteed by parse_machine
         return channel.value
 
     def _numeric_effective(self, pv: str) -> float:
@@ -337,14 +496,18 @@ class SimulationEngine:
             raise ExpressionError(
                 f"Channel {pv!r} holds a string value and cannot be used in an expression"
             )
-        return float(value)
+        channel = self._channels[pv]
+        return clamp(float(value), channel.min_value, channel.max_value)
 
     def _scenario_anchor(self) -> float:
-        """Scenario-activation time in epoch seconds (state-file mtime).
+        """Apply-time anchor T0 in epoch seconds.
 
-        Falls back to the current time when no state file exists (default
-        scenario was never explicitly activated).
+        Prefers the explicit ``anchor=`` line from the state file (so telemetry
+        and the seeded logbook share one clock), falling back to the state-file
+        mtime, then to the current time when neither is available.
         """
+        if self._anchor_epoch is not None:
+            return self._anchor_epoch
         if self._state_mtime_ns is not None and self._state_mtime_ns > 0:
             return self._state_mtime_ns / 1e9
         return time.time()
@@ -362,39 +525,34 @@ class SimulationEngine:
         if cached is not None:
             return cached
         channel = self._channels[pv]
-        events = self._scenarios[self._active].archiver.get(pv, [])
+        events = self._composed_archiver.get(pv, [])
 
         if channel.expr is None and isinstance(channel.value, str):
-            string_series = _string_series(channel.value, events, n, t_abs, anchor)
-            cache[pv] = string_series
-            return string_series
+            series_str = string_series(channel.value, events, n, t_abs, anchor)
+            cache[pv] = series_str
+            return series_str
 
         if channel.expr is not None:
             ref_series = {
                 ref: self._synthesize(ref, n, cache, t_abs, anchor) for ref in channel.refs
             }
             values: list[float] = []
-            try:
-                for i in range(n):
+            for i in range(n):
 
-                    def resolver(name: str, _index: int = i) -> float:
-                        return _ref_value(ref_series, name, _index)
+                def resolver(name: str, _index: int = i) -> float:
+                    return ref_value(ref_series, name, _index)
 
-                    values.append(evaluate(channel.expr, resolver))
-            except ExpressionError as exc:
-                raise ExpressionError(f"Channel {pv!r}: {exc}") from exc
-            except (ZeroDivisionError, ValueError, OverflowError) as exc:
-                raise ExpressionError(
-                    f"Channel {pv!r}: expression {channel.expr_source!r} failed to evaluate: {exc}"
-                ) from exc
+                values.append(evaluate_channel(channel.expr, channel.expr_source, pv, resolver))
             series = np.asarray(values, dtype=np.float64)
         else:
-            assert channel.value is not None  # guaranteed by _parse_channel
+            assert channel.value is not None  # guaranteed by parse_machine
             series = np.full(n, float(channel.value))
 
-        series = _apply_events(series, events, n, t_abs, anchor)
+        series = apply_events(series, events, n, t_abs, anchor)
         if channel.noise > 0.0:
             series = series * (1.0 + self._rng.normal(0.0, channel.noise, n))
+        if channel.min_value is not None or channel.max_value is not None:
+            series = np.clip(series, channel.min_value, channel.max_value)
         cache[pv] = series
         return series
 
@@ -431,291 +589,11 @@ def engine_from_connector_config(config: dict[str, Any]) -> SimulationEngine | N
     return engine
 
 
-def _parse_channel(pv: str, spec: Any) -> SimChannel:
-    """Parse and validate a single channel entry."""
-    if not isinstance(spec, dict):
-        raise ValueError(f"Channel {pv!r}: entry must be a mapping, got {type(spec).__name__}")
-    has_value = "value" in spec
-    has_expr = "expr" in spec
-    if has_value == has_expr:
-        raise ValueError(f"Channel {pv!r}: exactly one of 'value' or 'expr' is required")
+def engine_serves(engine: SimulationEngine | None, channel: str) -> bool:
+    """Return True if an engine is present and serves this channel.
 
-    value: float | str | None = None
-    expr: ast.expr | None = None
-    refs: tuple[str, ...] = ()
-    if has_value:
-        raw = spec["value"]
-        if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
-            raise ValueError(f"Channel {pv!r}: 'value' must be a number or string")
-        value = raw if isinstance(raw, str) else float(raw)
-    else:
-        source = spec["expr"]
-        if not isinstance(source, str):
-            raise ValueError(f"Channel {pv!r}: 'expr' must be a string")
-        try:
-            expr = compile_expression(source)
-        except ExpressionError as exc:
-            raise ValueError(f"Channel {pv!r}: {exc}") from exc
-        refs = tuple(sorted(extract_channel_refs(expr)))
-
-    noise = spec.get("noise", 0.0)
-    if isinstance(noise, bool) or not isinstance(noise, (int, float)) or noise < 0:
-        raise ValueError(f"Channel {pv!r}: 'noise' must be a non-negative number")
-
-    return SimChannel(
-        name=pv,
-        value=value,
-        expr=expr,
-        refs=refs,
-        units=str(spec.get("units", "")),
-        noise=float(noise),
-        description=str(spec.get("description", "")),
-        expr_source=spec["expr"] if has_expr else "",
-    )
-
-
-def _check_references(channels: dict[str, SimChannel]) -> None:
-    """Validate expression references: all known, no cycles (DFS)."""
-    for channel in channels.values():
-        for ref in channel.refs:
-            if ref not in channels:
-                raise ValueError(
-                    f"Channel {channel.name!r}: expression references unknown channel {ref!r}"
-                )
-
-    white, gray, black = 0, 1, 2
-    color = dict.fromkeys(channels, white)
-
-    def visit(node: str, path: list[str]) -> None:
-        color[node] = gray
-        path.append(node)
-        for ref in channels[node].refs:
-            if color[ref] == gray:
-                cycle = " -> ".join([*path[path.index(ref) :], ref])
-                raise ValueError(f"Expression reference cycle detected: {cycle}")
-            if color[ref] == white:
-                visit(ref, path)
-        path.pop()
-        color[node] = black
-
-    for pv in channels:
-        if color[pv] == white:
-            visit(pv, [])
-
-
-def _parse_scenarios(raw: Any, channels: dict[str, SimChannel]) -> dict[str, Scenario]:
-    """Parse and validate the scenarios section; injects a default 'nominal'."""
-    if not isinstance(raw, dict):
-        raise ValueError("'scenarios' must be a mapping of scenario name to definition")
-    scenarios: dict[str, Scenario] = {}
-    for name, spec in raw.items():
-        if not isinstance(spec, dict):
-            raise ValueError(f"Scenario {name!r}: definition must be a mapping")
-
-        overrides: dict[str, float | str] = {}
-        for pv, value in spec.get("overrides", {}).items():
-            if pv not in channels:
-                raise ValueError(f"Scenario {name!r}: override for unknown channel {pv!r}")
-            if isinstance(value, bool) or not isinstance(value, (int, float, str)):
-                raise ValueError(
-                    f"Scenario {name!r}: override for {pv!r} must be a number or string"
-                )
-            overrides[pv] = value if isinstance(value, str) else float(value)
-
-        archiver: dict[str, list[dict[str, Any]]] = {}
-        for entry in spec.get("archiver", []):
-            if not isinstance(entry, dict):
-                raise ValueError(f"Scenario {name!r}: archiver entries must be mappings")
-            pv = entry.get("channel")
-            if pv not in channels:
-                raise ValueError(f"Scenario {name!r}: archiver events for unknown channel {pv!r}")
-            events = entry.get("events", [])
-            for event in events:
-                _validate_event(name, pv, event, channels[pv])
-            archiver[pv] = list(events)
-
-        scenarios[name] = Scenario(
-            name=name,
-            description=str(spec.get("description", "")),
-            overrides=overrides,
-            archiver=archiver,
-        )
-
-    if DEFAULT_SCENARIO not in scenarios:
-        scenarios[DEFAULT_SCENARIO] = Scenario(DEFAULT_SCENARIO, "All systems nominal.", {}, {})
-    return scenarios
-
-
-def _validate_event(scenario: str, pv: str, event: Any, channel: SimChannel) -> None:
-    """Validate a single archiver event object (types and ranges at load time)."""
-    prefix = f"Scenario {scenario!r}, channel {pv!r}"
-    if not isinstance(event, dict):
-        raise ValueError(f"{prefix}: event must be a mapping")
-    shape = event.get("shape")
-    if shape not in _EVENT_VALUE_KEYS:
-        raise ValueError(
-            f"{prefix}: event shape must be one of {sorted(_EVENT_VALUE_KEYS)}, got {shape!r}"
-        )
-    missing = [key for key in _EVENT_VALUE_KEYS[shape] if key not in event]
-    if missing:
-        raise ValueError(f"{prefix}: {shape!r} event missing keys {missing}")
-
-    has_at = "at" in event
-    has_offset = "at_offset" in event
-    if has_at == has_offset:
-        raise ValueError(
-            f"{prefix}: event requires exactly one of 'at' (window fraction) or "
-            f"'at_offset' (seconds relative to scenario activation)"
-        )
-    if shape == "ramp":
-        if (has_at and "until_offset" in event) or (has_offset and "until" in event):
-            raise ValueError(
-                f"{prefix}: 'ramp' event must not mix fraction and offset position keys"
-            )
-        until_key = "until" if has_at else "until_offset"
-        if until_key not in event:
-            raise ValueError(f"{prefix}: 'ramp' event missing keys ['{until_key}']")
-
-    is_string_channel = channel.expr is None and isinstance(channel.value, str)
-    if is_string_channel and shape != "step":
-        raise ValueError(
-            f"{prefix}: {shape!r} events are not supported on string-valued channels (only 'step')"
-        )
-
-    def _require_number(
-        key: str, minimum: float | None = None, maximum: float | None = None
-    ) -> None:
-        value = event[key]
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ValueError(f"{prefix}: event key {key!r} must be a number, got {value!r}")
-        if minimum is not None and maximum is not None:
-            if not (minimum <= value <= maximum):
-                raise ValueError(
-                    f"{prefix}: event key {key!r} must be between {minimum:g} and "
-                    f"{maximum:g} (window fraction), got {value!r}"
-                )
-        elif minimum is not None and value <= minimum:
-            raise ValueError(
-                f"{prefix}: event key {key!r} must be a number > {minimum:g}, got {value!r}"
-            )
-
-    if has_at:
-        _require_number("at", 0.0, 1.0)
-    else:
-        _require_number("at_offset")
-    if shape == "ramp":
-        if has_at:
-            _require_number("until", 0.0, 1.0)
-        else:
-            _require_number("until_offset")
-    if shape in ("step", "ramp") and not is_string_channel:
-        _require_number("to")
-    if shape == "spike":
-        _require_number("amplitude")
-        _require_number("width", minimum=0.0)
-
-
-def _ref_value(ref_series: dict[str, "np.ndarray | list[str]"], name: str, index: int) -> float:
-    """Resolver for pointwise expression evaluation over referenced series."""
-    value = ref_series[name][index]
-    if isinstance(value, str):
-        raise ExpressionError(
-            f"Channel {name!r} holds string values and cannot be used in an expression"
-        )
-    return float(value)
-
-
-def _epoch_seconds_array(timestamps: Sequence[Any]) -> "np.ndarray | None":
-    """Convert timestamps to epoch seconds, or None when not convertible."""
-    values: list[float] = []
-    for ts in timestamps:
-        if hasattr(ts, "timestamp"):
-            values.append(float(ts.timestamp()))
-        elif isinstance(ts, (int, float)) and not isinstance(ts, bool):
-            values.append(float(ts))
-        else:
-            return None
-    return np.asarray(values, dtype=np.float64)
-
-
-def _event_position(
-    event: dict[str, Any], t_frac: "np.ndarray", t_abs: "np.ndarray | None", anchor: float
-) -> "tuple[np.ndarray, float] | None":
-    """Coordinate axis and event position for one event.
-
-    Fraction-positioned events use the normalized window axis; offset-anchored
-    events use epoch seconds. Returns None when an anchored event cannot be
-    placed because the timestamps were not convertible to epoch seconds.
+    Centralises the optional-engine guard used by the mock connectors: the
+    engine is None when no ``simulation_file`` is configured, in which case the
+    connector falls back to its generic procedural synthesis.
     """
-    if "at_offset" in event:
-        if t_abs is None:
-            logger.debug(
-                "Skipping offset-anchored event: timestamps not convertible to epoch seconds"
-            )
-            return None
-        return t_abs, anchor + float(event["at_offset"])
-    return t_frac, float(event["at"])
-
-
-def _string_series(
-    baseline: str,
-    events: list[dict[str, Any]],
-    n: int,
-    t_abs: "np.ndarray | None",
-    anchor: float,
-) -> list[str]:
-    """Constant string series; only 'step' events are meaningful for strings."""
-    t_frac = np.linspace(0.0, 1.0, n)
-    series = [baseline] * n
-    for event in events:
-        if event["shape"] != "step":
-            continue
-        position = _event_position(event, t_frac, t_abs, anchor)
-        if position is None:
-            continue
-        x, at = position
-        for i in range(n):
-            if x[i] >= at:
-                series[i] = str(event["to"])
-    return series
-
-
-def _apply_events(
-    series: "np.ndarray",
-    events: list[dict[str, Any]],
-    n: int,
-    t_abs: "np.ndarray | None",
-    anchor: float,
-) -> "np.ndarray":
-    """Apply step/ramp/spike events in order (window-fraction or wall-clock)."""
-    if not events:
-        return series
-    t_frac = np.linspace(0.0, 1.0, n)
-    series = series.copy()
-    for event in events:
-        shape = event["shape"]
-        position = _event_position(event, t_frac, t_abs, anchor)
-        if position is None:
-            continue
-        x, at = position
-        offset_anchored = "at_offset" in event
-        if shape == "step":
-            series[x >= at] = float(event["to"])
-        elif shape == "ramp":
-            until = (
-                anchor + float(event["until_offset"]) if offset_anchored else float(event["until"])
-            )
-            to = float(event["to"])
-            if until <= at:
-                series[x >= at] = to
-                continue
-            idx = int(np.searchsorted(x, at))
-            start = float(series[min(idx, n - 1)])
-            mask = (x >= at) & (x <= until)
-            series[mask] = start + (to - start) * (x[mask] - at) / (until - at)
-            series[x > until] = to
-        else:  # spike (gaussian bump; width as window fraction, or seconds when anchored)
-            amplitude = float(event["amplitude"])
-            width = float(event["width"])
-            series = series + amplitude * np.exp(-((x - at) ** 2) / (2.0 * width**2))
-    return series
+    return engine is not None and engine.has_channel(channel)

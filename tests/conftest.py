@@ -75,7 +75,7 @@ def _has_any_provider_api_key() -> bool:
     """True if any supported LLM provider key is set.
 
     Mirrors the inline detection in tests/e2e/test_llm_channel_namer.py:
-    als-apg, cborg, amsc, anthropic.
+    als-apg, cborg, amsc-i2, anthropic.
     """
     import os as _os
 

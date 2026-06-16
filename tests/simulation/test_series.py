@@ -45,6 +45,70 @@ class TestBaselineSeries:
             engine.synthesize_series("NO:SUCH:PV", _timestamps())
 
 
+class TestSeriesBounds:
+    """``min``/``max`` clamp synthesized series after events and noise."""
+
+    def test_spike_below_min_saturates_at_floor(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:FWD"] = {"value": 450.0, "noise": 0.0, "min": 0.0}
+        machine_dict["scenarios"]["quad-drift"]["archiver"] = [
+            {
+                "channel": "T:FWD",
+                "events": [{"shape": "spike", "at": 0.5, "amplitude": -600.0, "width": 0.05}],
+            }
+        ]
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        engine.set_active_scenario("quad-drift")
+        series = np.array(engine.synthesize_series("T:FWD", _timestamps()))
+        assert series.min() == 0.0  # floor is actually reached (saturation)
+        assert (series >= 0.0).all()  # never negative
+
+    def test_spike_above_max_saturates_at_ceiling(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:P"] = {"value": 5.0, "noise": 0.0, "max": 50.0}
+        machine_dict["scenarios"]["quad-drift"]["archiver"] = [
+            {
+                "channel": "T:P",
+                "events": [{"shape": "spike", "at": 0.5, "amplitude": 200.0, "width": 0.05}],
+            }
+        ]
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        engine.set_active_scenario("quad-drift")
+        series = np.array(engine.synthesize_series("T:P", _timestamps()))
+        assert series.max() == 50.0
+        assert (series <= 50.0).all()
+
+    def test_derived_series_sees_clamped_inputs(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:FWD"] = {"value": 450.0, "noise": 0.0, "min": 0.0}
+        machine_dict["channels"]["T:REV"] = {"value": 5.0, "noise": 0.0}
+        machine_dict["channels"]["T:NET"] = {
+            "expr": "ch('T:FWD') - ch('T:REV')",
+            "noise": 0.0,
+        }
+        machine_dict["scenarios"]["quad-drift"]["archiver"] = [
+            {
+                "channel": "T:FWD",
+                "events": [{"shape": "spike", "at": 0.5, "amplitude": -600.0, "width": 0.05}],
+            }
+        ]
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        engine.set_active_scenario("quad-drift")
+        net = np.array(engine.synthesize_series("T:NET", _timestamps()))
+        # NET tracks FWD-REV with FWD floored at 0: minimum is 0 - 5 = -5, not 450-600-5.
+        assert net.min() == pytest.approx(-5.0)
+
+    def test_unbounded_channel_unchanged(self, machine_dict, make_machine_file):
+        machine_dict["channels"]["T:FREE"] = {"value": 10.0, "noise": 0.0}
+        machine_dict["scenarios"]["quad-drift"]["archiver"] = [
+            {
+                "channel": "T:FREE",
+                "events": [{"shape": "spike", "at": 0.5, "amplitude": -600.0, "width": 0.05}],
+            }
+        ]
+        engine = SimulationEngine.from_file(make_machine_file(machine_dict))
+        engine.set_active_scenario("quad-drift")
+        series = np.array(engine.synthesize_series("T:FREE", _timestamps()))
+        assert series.min() < -100.0  # no bounds → spike goes deeply negative
+
+
 class TestEventShapes:
     """Step, ramp, and spike events at window-relative positions."""
 
@@ -241,3 +305,85 @@ class TestWallClockAnchoredEvents:
         t = np.linspace(0, 1, 200)
         assert all(v == 42.0 for v, ti in zip(series, t, strict=True) if ti < 0.35)
         assert all(v == 28.4 for v, ti in zip(series, t, strict=True) if ti >= 0.35)
+
+
+class TestDailyTimeAnchor:
+    """at_time events fire at a wall-clock time-of-day, every date in window."""
+
+    @staticmethod
+    def _burst_machine(machine_dict, events, channel="T:VAC"):
+        machine_dict["scenarios"]["burst"] = {
+            "description": "Daily vacuum burst.",
+            "archiver": [{"channel": channel, "events": events}],
+        }
+        return machine_dict
+
+    def _engine(self, machine_dict, make_machine_file, events, channel="T:VAC"):
+        machine = self._burst_machine(machine_dict, events, channel)
+        engine = SimulationEngine.from_file(make_machine_file(machine))
+        engine.set_active_scenario("burst")
+        return engine
+
+    def test_spike_fires_at_time_of_day(self, machine_dict, make_machine_file):
+        engine = self._engine(
+            machine_dict,
+            make_machine_file,
+            [{"shape": "spike", "at_time": "14:32:08", "amplitude": 1.5e-7, "width": 15}],
+        )
+        day = datetime.now().replace(hour=14, minute=30, second=0, microsecond=0)
+        ts = [day + timedelta(seconds=i) for i in range(600)]  # 14:30-14:40
+        series = engine.synthesize_series("T:VAC", ts)
+        peak_idx = max(range(len(series)), key=lambda i: series[i])
+        assert abs((ts[peak_idx] - day).total_seconds() - 128) < 5  # peak at 14:32:08
+        assert max(series) > 1.0e-7
+
+    def test_no_event_outside_window(self, machine_dict, make_machine_file):
+        engine = self._engine(
+            machine_dict,
+            make_machine_file,
+            [{"shape": "spike", "at_time": "14:32:08", "amplitude": 1.5e-7, "width": 15}],
+        )
+        day = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0)
+        ts = [day + timedelta(seconds=i) for i in range(600)]
+        series = engine.synthesize_series("T:VAC", ts)
+        assert max(series) < 1.0e-7  # flat baseline
+
+    def test_fires_every_date_in_multiday_window(self, machine_dict, make_machine_file):
+        # width 600 s: at a 10-min grid the nearest sample is <=300 s from the
+        # peak, so the Gaussian stays above threshold regardless of grid phase.
+        engine = self._engine(
+            machine_dict,
+            make_machine_file,
+            [{"shape": "spike", "at_time": "14:32:08", "amplitude": 1.5e-7, "width": 600}],
+        )
+        start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        ts = [start + timedelta(minutes=10 * i) for i in range(288)]  # 2 days @ 10 min
+        series = engine.synthesize_series("T:VAC", ts)
+        peaks = [i for i in range(1, 287) if series[i] > 1.0e-7]
+        days_hit = {ts[i].date() for i in peaks}
+        assert len(days_hit) == 2
+
+    def test_epoch_second_timestamps_supported(self, machine_dict, make_machine_file):
+        engine = self._engine(
+            machine_dict,
+            make_machine_file,
+            [{"shape": "spike", "at_time": "14:32:08", "amplitude": 1.5e-7, "width": 15}],
+        )
+        day = datetime.now().replace(hour=14, minute=30, second=0, microsecond=0)
+        ts = [(day + timedelta(seconds=i)).timestamp() for i in range(600)]
+        series = engine.synthesize_series("T:VAC", ts)
+        assert max(series) > 1.0e-7
+
+    def test_string_step_at_time_of_day(self, machine_dict, make_machine_file):
+        engine = self._engine(
+            machine_dict,
+            make_machine_file,
+            [{"shape": "step", "at_time": "14:32:08", "to": "FAULT"}],
+            channel="T:MODE",
+        )
+        day = datetime.now().replace(hour=14, minute=30, second=0, microsecond=0)
+        ts = [day + timedelta(seconds=i) for i in range(600)]
+        series = engine.synthesize_series("T:MODE", ts)
+        for value, t in zip(series, ts, strict=True):
+            expected = "FAULT" if (t - day).total_seconds() >= 128 else "CW"
+            assert value == expected

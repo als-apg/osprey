@@ -172,7 +172,7 @@ network:
 
 ```yaml
 llm:
-  provider: "cborg"                        # cborg | anthropic | openai | google | ollama | asksage | vllm | argo | als-apg | stanford | amsc | other
+  provider: "cborg"                        # cborg | anthropic | openai | google | ollama | asksage | vllm | argo | als-apg | stanford | amsc-i2 | other
   api_key_env_var: "CBORG_API_KEY"         # name of env var holding the key (NOT the value)
   model: "anthropic/claude-sonnet-4-20250514"  # default model id; profile YAMLs may override per agent
   base_url: null                           # optional override (e.g., for self-hosted ollama)

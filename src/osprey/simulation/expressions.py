@@ -11,7 +11,13 @@ import ast
 import math
 from collections.abc import Callable
 
-__all__ = ["ExpressionError", "compile_expression", "evaluate", "extract_channel_refs"]
+__all__ = [
+    "ExpressionError",
+    "compile_expression",
+    "evaluate",
+    "evaluate_channel",
+    "extract_channel_refs",
+]
 
 
 class ExpressionError(ValueError):
@@ -103,6 +109,41 @@ def evaluate(node: ast.expr, resolver: Callable[[str], float]) -> float:
         func = _FUNCTIONS[node.func.id]
         return float(func(*[evaluate(arg, resolver) for arg in node.args]))
     raise ExpressionError(f"Cannot evaluate node type {type(node).__name__!r}")
+
+
+def evaluate_channel(
+    expr: ast.expr, source: str, pv: str, resolver: Callable[[str], float]
+) -> float:
+    """Evaluate a channel's expression, wrapping failures with channel context.
+
+    Centralizes the error handling shared by the scalar (effective-value) and
+    pointwise (series-synthesis) evaluation paths: an :class:`ExpressionError`
+    is re-raised with the channel name prefixed, and the arithmetic errors that
+    :func:`evaluate` does not itself raise (``ZeroDivisionError``,
+    ``ValueError``, ``OverflowError``) are converted into an
+    :class:`ExpressionError` naming the channel and its source expression.
+
+    Args:
+        expr: Validated AST node from :func:`compile_expression`.
+        source: Original expression source (for error messages).
+        pv: Channel name owning the expression (for error messages).
+        resolver: Channel-name -> numeric-value callable passed to
+            :func:`evaluate`.
+
+    Returns:
+        The numeric result of the expression.
+
+    Raises:
+        ExpressionError: If evaluation fails, with the channel name attached.
+    """
+    try:
+        return evaluate(expr, resolver)
+    except ExpressionError as exc:
+        raise ExpressionError(f"Channel {pv!r}: {exc}") from exc
+    except (ZeroDivisionError, ValueError, OverflowError) as exc:
+        raise ExpressionError(
+            f"Channel {pv!r}: expression {source!r} failed to evaluate: {exc}"
+        ) from exc
 
 
 def _validate(node: ast.AST, source: str) -> None:

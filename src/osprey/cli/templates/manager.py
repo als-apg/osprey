@@ -296,10 +296,7 @@ class TemplateManager:
                 f"  [success]✓[/success] Copied machine data to [path]{machine_data_dst}[/path]"
             )
 
-        # 6b. Rebase demo logbook timestamps to current date
-        scaffolding.rebase_logbook_timestamps(project_dir)
-
-        # 6c. Flatten the preset's tier-routed channel DBs into the canonical
+        # 6b. Flatten the preset's tier-routed channel DBs into the canonical
         # data/channel_databases/<paradigm>.json locations. Must run before the
         # Claude Code hierarchy probe below, which reads the flat path. Only
         # relevant when channel-finder is selected — builds that skip the

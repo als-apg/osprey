@@ -57,7 +57,7 @@ api:
         sonnet: claude-sonnet-4-6
         opus: claude-opus-4-6
     # American Science Cloud
-    amsc:
+    amsc-i2:
       api_key: ${AMSC_I2_API_KEY}
       base_url: https://api.i2-core.american-science-cloud.org/v1
     # Stanford
@@ -693,7 +693,7 @@ Used when write access is enabled to define safe operating ranges:
 | anthropic | `ANTHROPIC_API_KEY` | `https://api.anthropic.com` | Direct Anthropic API |
 | cborg | `CBORG_API_KEY` | `https://api.cborg.lbl.gov/v1` | LBNL proxy, most LBNL users |
 | als-apg | `ALS_APG_API_KEY` | `https://llm.gianlucamartino.com/v1` | ALS-specific proxy |
-| amsc | `AMSC_I2_API_KEY` | `https://api.i2-core.american-science-cloud.org/v1` | American Science Cloud |
+| amsc-i2 | `AMSC_I2_API_KEY` | `https://api.i2-core.american-science-cloud.org/v1` | American Science Cloud |
 | stanford | `STANFORD_API_KEY` | `https://aiapi-prod.stanford.edu/v1` | Stanford proxy |
 | openai | `OPENAI_API_KEY` | `https://api.openai.com/v1` | OpenAI models |
 | google | `GOOGLE_API_KEY` | `https://generativelanguage.googleapis.com/v1beta` | Google models |

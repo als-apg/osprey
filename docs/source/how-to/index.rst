@@ -15,7 +15,7 @@ Framework & Infrastructure
       :link-type: doc
 
       Set up and switch between supported LLM providers — Anthropic, OpenAI, Google,
-      CBORG, AMSC, Ollama, and others — via ``config.yml``.
+      CBORG, AMSC i2, Ollama, and others — via ``config.yml``.
 
    .. grid-item-card:: Deploy a Project
       :link: deploy-project

@@ -47,9 +47,9 @@ class TestGetLiteLLMModelName:
         result = get_litellm_model_name("argo", "claudesonnet45")
         assert result == "openai/claudesonnet45"
 
-    def test_amsc_model(self):
-        """AMSC uses openai/ prefix (OpenAI-compatible)."""
-        result = get_litellm_model_name("amsc", "anthropic/claude-haiku")
+    def test_amsc_i2_model(self):
+        """AMSC i2 uses openai/ prefix (OpenAI-compatible)."""
+        result = get_litellm_model_name("amsc-i2", "anthropic/claude-haiku")
         assert result == "openai/anthropic/claude-haiku"
 
     def test_vllm_model(self):
@@ -143,7 +143,7 @@ class TestSupportsNativeStructuredOutput:
         # (is_openai_compatible=True) but declares supports_native_structured_output=False
         # because it accepts but ignores response_format json_schema. ds4 is therefore
         # excluded from this loop; its False override is tested in TestStructuredOutputCapabilityFlag.
-        for provider in ("cborg", "stanford", "argo", "vllm", "amsc"):
+        for provider in ("cborg", "stanford", "argo", "vllm", "amsc-i2"):
             result = _supports_native_structured_output("openai/some-model", provider)
             assert result is True, f"Provider {provider} should support structured output"
 
@@ -188,7 +188,7 @@ class TestStructuredOutputCapabilityFlag:
 
     @pytest.mark.unit
     def test_openai_compatible_providers_declare_true(self):
-        from osprey.models.providers.amsc import AMSCProviderAdapter
+        from osprey.models.providers.amsc_i2 import AMSCI2ProviderAdapter
         from osprey.models.providers.argo import ArgoProviderAdapter
         from osprey.models.providers.cborg import CBorgProviderAdapter
         from osprey.models.providers.stanford import StanfordProviderAdapter
@@ -199,7 +199,7 @@ class TestStructuredOutputCapabilityFlag:
             StanfordProviderAdapter,
             ArgoProviderAdapter,
             VLLMProviderAdapter,
-            AMSCProviderAdapter,
+            AMSCI2ProviderAdapter,
         ):
             assert cls.supports_native_structured_output is True, cls.name
 

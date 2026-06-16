@@ -18,8 +18,16 @@ shape, no "if any" hedging. The agent must do the discovery work:
      ``mcp__controls__archiver_read`` to fetch the vacuum time series.
   3. Inspect across sectors and finger Sector 7 (SR07) — the only
      sector whose pressure spike aligns with the beam-loss event
-     (mock-archiver ground truth: Pearson r ≈ -0.88 against DCCT;
-     max|r| for the other 11 sectors ≤ 0.077).
+     (ground truth: Pearson r ≈ -0.88 against DCCT; max|r| for the
+     other 11 sectors ≤ 0.077).
+
+The ground truth now lives in the preset's simulation overlay,
+``data/simulation/machine.json`` (the ``vacuum-burst`` scenario): the SR07
+pressure spike + coincident DCCT dip are declared as an ``at_time`` event
+anchored daily at 14:32:08. The test activates that scenario after building
+the project via ``activate_scenario(project, "vacuum-burst")``; the mock
+connectors then route gauge/DCCT reads through the engine instead of the
+flat ``nominal`` default.
 
 If the agent can't do this, the failure is in the OSPREY preset config
 (channel-finder agent context, archiver tool description, planner prompt) —
@@ -31,8 +39,8 @@ telemetry-only scenario from the RF-cavity scenario's morning logbook arc
 the vacuum investigation. "Yesterday" rather than "today" keeps the
 timestamp unambiguously in the past regardless of when the test runs.
 
-The mock archiver fires the event for every calendar date whose 14:32:08
-falls inside the requested window, so the test is date-agnostic.
+The ``at_time`` event fires for every calendar date whose 14:32:08 falls
+inside the requested window, so the test is date-agnostic.
 
 Run with:
     pytest tests/e2e/test_vacuum_burst_scenario.py -v
@@ -49,6 +57,7 @@ from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
     HAS_SDK,
     _default_opus_model,
+    activate_scenarios,
     init_project,
     run_sdk_query,
 )
@@ -65,15 +74,17 @@ pytestmark = [
     pytest.mark.e2e,
     pytest.mark.requires_als_apg,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
-    # Passes locally; flaky on CI runners — pending investigation.
+    # Skipped on CI: needs a running ARIEL logbook postgres (seeded
+    # automatically at setup via activate_scenarios), which the default GitHub
+    # Actions runner does not provision (see tests/e2e/README.md).
     pytest.mark.skipif(
         os.environ.get("GITHUB_ACTIONS") == "true",
-        reason="flaky on CI runners; passes locally — pending investigation",
+        reason="needs local ARIEL logbook backend; not provisioned on CI runners",
     ),
 ]
 
 
-@pytest.mark.order(2)  # actively debugging; run second for fail-fast feedback in CI
+@pytest.mark.flaky(reruns=2)  # multi-step agentic; absorb rare LLM stochastic misses
 @pytest.mark.asyncio
 async def test_sector7_vacuum_burst_flow(tmp_path: Path) -> None:
     """Operator gives a vague beam-loss complaint; agent must finger SR07.
@@ -86,7 +97,10 @@ async def test_sector7_vacuum_burst_flow(tmp_path: Path) -> None:
     layer guards against the agent fetching data but failing to identify
     the anomalous sector.
 
-    Passes locally; flaky on CI runners — skipped on CI pending investigation.
+    The ARIEL logbook is seeded deterministically at setup (ambient ops log,
+    no vacuum incident) by ``activate_scenarios``; skipped on CI (no backend).
+    Marked ``flaky(reruns=2)`` to absorb the rare stochastic miss where the
+    agent retrieves the data but bails before committing to the sector.
     """
     # Use Opus for the planner: this scenario tests diagnostic reasoning
     # (subsystem decomposition → discovery → cross-channel correlation →
@@ -94,13 +108,28 @@ async def test_sector7_vacuum_burst_flow(tmp_path: Path) -> None:
     # spinning in channel-finder discovery loops without progressing to
     # archiver retrieval. The data-visualizer / channel-finder subagents
     # still use their per-agent tier defaults from the resolver.
+    #
+    # Tier 3 (full channel DB): the vacuum gauges live only in tier 2+, so a
+    # tier-1 build leaves SR:VAC:GAUGE:* undiscoverable and the agent spins in
+    # channel-finder without ever retrieving data. Tier 3 (not the merely
+    # sufficient tier 2) is used so the discoverable channel set matches the
+    # full facility the simulation machine model defines, consistent with the
+    # sibling RF scenario.
     project = init_project(
         tmp_path,
         "vacuum_burst_demo",
         template="control_assistant",
         provider="als-apg",
         model="opus",
+        tier=3,
     )
+    # Switch the mock connectors' data substrate from the flat ``nominal``
+    # default to the ``vacuum-burst`` scenario bundle — the SR07 pressure spike
+    # + DCCT dip anchored daily at 14:32:08 via an ``at_time`` event. This also
+    # purges and reseeds ARIEL with the ambient (nominal) logbook so the agent
+    # sees a realistic ops log but *no* vacuum-incident narrative to lean on —
+    # the diagnosis must come from telemetry (this scenario is telemetry-only).
+    activate_scenarios(project, "vacuum-burst")
     cf_server = _channel_finder_server_name(project)
     if cf_server is None:
         pytest.skip("control-assistant preset has no channel-finder server")

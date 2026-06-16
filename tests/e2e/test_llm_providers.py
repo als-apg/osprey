@@ -4,7 +4,7 @@ Tests the LiteLLM-based provider system with real API calls across a
 provider × model matrix. Tests are conditionally run based on available API keys.
 
 Test Matrix:
-- Providers: anthropic, openai, google, ollama, cborg, amsc, als-apg
+- Providers: anthropic, openai, google, ollama, cborg, amsc-i2, als-apg
 - Models: Multiple tiers per provider (haiku/sonnet, mini/4o, mistral/gptoss)
 - Tasks: completion, structured output, ReAct agent with tools
 
@@ -38,7 +38,7 @@ MODEL_MATRIX: dict[str, list[tuple[str, str]]] = {
         ("anthropic/claude-haiku", "haiku"),
         ("anthropic/claude-sonnet", "sonnet"),
     ],
-    "amsc": [
+    "amsc-i2": [
         ("claude-haiku", "haiku"),
         ("claude-sonnet", "sonnet"),
     ],
@@ -64,7 +64,7 @@ STRUCTURED_OUTPUT_PROVIDERS = [
     "openai",
     "google",
     "cborg",
-    "amsc",
+    "amsc-i2",
     "als-apg",
     "vllm",
     "ollama",
@@ -144,7 +144,7 @@ def get_available_providers_raw() -> dict[str, dict[str, Any]]:
         ("google", ["GOOGLE_API_KEY"], None, "gemini-2.0-flash"),
         ("cborg", ["CBORG_API_KEY"], "https://api.cborg.lbl.gov", "anthropic/claude-haiku"),
         (
-            "amsc",
+            "amsc-i2",
             ["AMSC_I2_API_KEY"],
             "https://api.i2-core.american-science-cloud.org",
             "claude-haiku",

@@ -178,7 +178,7 @@ class AppProvider(RegistryConfigProvider):
                     class_name="OnlyProvider"
                 )
             ],
-            exclude_providers=["anthropic", "openai", "google", "ollama", "cborg", "amsc"]
+            exclude_providers=["anthropic", "openai", "google", "ollama", "cborg", "amsc-i2"]
         )
 """
         )
@@ -186,7 +186,7 @@ class AppProvider(RegistryConfigProvider):
         manager = RegistryManager(registry_path=str(registry_file))
 
         # All listed framework providers should be in exclusion list
-        expected_exclusions = ["anthropic", "openai", "google", "ollama", "cborg", "amsc"]
+        expected_exclusions = ["anthropic", "openai", "google", "ollama", "cborg", "amsc-i2"]
         assert len(manager._excluded_provider_names) == len(expected_exclusions)
         for provider in expected_exclusions:
             assert provider in manager._excluded_provider_names
