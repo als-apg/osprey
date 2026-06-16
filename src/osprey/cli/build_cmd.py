@@ -23,15 +23,19 @@ import threading
 import time
 from importlib.metadata import PackageNotFoundError, distribution
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlparse
 
 import click
 
 from osprey.errors import BuildProfileError
+from osprey.utils.dotenv import parse_dotenv_file as _load_dotenv
 from osprey.utils.logger import get_logger
 
 from .templates.manager import TemplateManager
+
+if TYPE_CHECKING:
+    from osprey.cli.build_profile import DispatchConfig
 
 logger = get_logger("build")
 
@@ -415,6 +419,10 @@ def build(
             psvc_count = _inject_profile_services(profile_dir, project_path, build_profile.services)
             logger.info("  ✓ Injected %d profile service(s) for deploy", psvc_count)
 
+        # 10b. Inject event-dispatch services + triggers
+        if build_profile.dispatch is not None:
+            _inject_dispatch(build_profile.dispatch, profile_dir, project_path)
+
         # 11. Copy overlay files
         if build_profile.overlay:
             _copy_overlay_files(profile_dir, project_path, build_profile.overlay)
@@ -553,35 +561,6 @@ def build(
 
 
 _SHELL_METACHARACTERS = ("|", "&&", "||", "$(", "`")
-
-
-def _load_dotenv(path: Path) -> dict[str, str]:
-    """Parse a .env file into a dict of environment variables.
-
-    Handles KEY=VALUE lines, #comments, blank lines, and quoted values
-    (single or double quotes stripped from value boundaries).
-    """
-    env: dict[str, str] = {}
-    for line in path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        # Skip lines without =
-        if "=" not in line:
-            continue
-        # Skip `export` prefix (common in .env files)
-        if line.startswith("export "):
-            line = line[7:]
-        key, _, value = line.partition("=")
-        key = key.strip()
-        if not key:
-            continue
-        value = value.strip()
-        # Strip matching surrounding quotes
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
-            value = value[1:-1]
-        env[key] = value
-    return env
 
 
 def _format_junit_summary(xml_path: Path) -> None:
@@ -1225,6 +1204,142 @@ def _inject_profile_services(
         yaml.dump(config, fh)
 
     return count
+
+
+def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: Path) -> None:
+    """Wire the event-dispatch feature into a built project.
+
+    1. Resolve and copy the triggers file to ``<project>/triggers.yml``.
+    2. Copy the bundled event_dispatcher + dispatch_worker compose templates
+       into ``<project>/services/``.
+    3. Write ``services.{event_dispatcher,dispatch_worker}`` config + register
+       both in ``deployed_services``.
+    4. Print a post-build hint (dashboard URL + sample curl + image prerequisite).
+
+    Args:
+        dispatch: Validated dispatch configuration from the build profile.
+        profile_dir: Directory containing the build profile (triggers source).
+        project_path: Root of the built project.
+
+    Raises:
+        BuildProfileError: If the configured triggers file cannot be resolved.
+    """
+    from ruamel.yaml import YAML
+
+    from osprey.cli.build_profile import _triggers_dir
+
+    # 1. Resolve + copy triggers file (profile-relative path or bundled triggers name).
+    if (profile_dir / dispatch.triggers).is_file():
+        triggers_src = profile_dir / dispatch.triggers
+    elif (_triggers_dir() / dispatch.triggers).is_file():
+        triggers_src = _triggers_dir() / dispatch.triggers
+    else:
+        raise BuildProfileError(f"dispatch.triggers not found: {dispatch.triggers!r}")
+    triggers_dest = project_path / "triggers.yml"
+    shutil.copy2(triggers_src, triggers_dest)
+
+    # 1a. Make the preset the single source of truth for pool limits. The bundled
+    # triggers file hardcodes its own dispatcher.max_concurrent_runs/max_queue_depth
+    # (the dispatcher reads them from triggers.yml at runtime), so a profile that
+    # overrides dispatch.max_concurrent_runs/max_queue_depth would otherwise be
+    # silently ignored. Patch the copied file's dispatcher block to match the
+    # validated DispatchConfig.
+    _trigger_yaml = YAML()
+    _trigger_yaml.preserve_quotes = True
+    with open(triggers_dest) as fh:
+        triggers_doc = _trigger_yaml.load(fh)
+    if triggers_doc is not None:
+        dispatcher_block = triggers_doc.setdefault("dispatcher", {})
+        dispatcher_block["max_concurrent_runs"] = dispatch.max_concurrent_runs
+        dispatcher_block["max_queue_depth"] = dispatch.max_queue_depth
+        with open(triggers_dest, "w") as fh:
+            _trigger_yaml.dump(triggers_doc, fh)
+
+    # 2. Copy bundled compose templates (located the same way as service templates).
+    try:
+        import osprey.templates
+
+        pkg_services = Path(osprey.templates.__file__).parent / "services"
+    except (ImportError, AttributeError):
+        pkg_services = Path(__file__).parent.parent / "templates" / "services"
+
+    dest_services_root = project_path / "services"
+    dest_services_root.mkdir(exist_ok=True)
+
+    for name in ("event_dispatcher", "dispatch_worker"):
+        src_dir = pkg_services / name
+        if not src_dir.is_dir():
+            logger.warning("No package template for dispatch service %r at %s", name, src_dir)
+            continue
+        dest_dir = dest_services_root / name
+        if dest_dir.exists():
+            shutil.rmtree(dest_dir)
+        shutil.copytree(src_dir, dest_dir)
+
+    # 3. Write config.yml entries + register in deployed_services.
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        logger.warning("config.yml not found — skipping dispatch config registration")
+        return
+
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    with open(config_path) as fh:
+        config = yaml.load(fh)
+
+    # No ``image`` key: both services build the shared local image
+    # (services/event_dispatcher/Dockerfile) on first ``osprey deploy up``.
+    # Override with OSPREY_DISPATCH_IMAGE/OSPREY_WORKER_IMAGE, or set
+    # ``services.<name>.image`` here, to use a prebuilt/published image.
+    config.setdefault("services", {})
+    config["services"]["event_dispatcher"] = {
+        "path": "./services/event_dispatcher",
+        "port": dispatch.dispatcher_port,
+        "facility_name": dispatch.facility_name,
+        "pv_strip_prefix": dispatch.pv_strip_prefix,
+        # Copy the project's triggers.yml into the service build context so the
+        # compose ``./triggers.yml`` bind-mount resolves to a file (otherwise the
+        # container runtime auto-creates an empty directory at the mount source).
+        "additional_dirs": [{"src": "triggers.yml", "dst": "triggers.yml"}],
+    }
+    config["services"]["dispatch_worker"] = {
+        "path": "./services/dispatch_worker",
+        "worker_count": dispatch.worker_count,
+        "worker_port_base": dispatch.worker_port_base,
+        "workspace_mode": dispatch.workspace_mode,
+        "timeout_sec": dispatch.timeout_sec,
+    }
+    deployed = config.get("deployed_services", []) or []
+    for name in ("event_dispatcher", "dispatch_worker"):
+        if name not in [str(s) for s in deployed]:
+            deployed.append(name)
+    config["deployed_services"] = deployed
+
+    with open(config_path, "w") as fh:
+        yaml.dump(config, fh)
+
+    # 4. Post-build hint.
+    logger.info(
+        "  ✓ Injected event dispatch (%d worker(s), port %d)",
+        dispatch.worker_count,
+        dispatch.dispatcher_port,
+    )
+    logger.info("    Dashboard:  http://localhost:%d/dashboard", dispatch.dispatcher_port)
+    logger.info(
+        "    Token:      `osprey deploy up` writes EVENT_DISPATCHER_TOKEN to .env; "
+        "load it with: export $(grep -E '^EVENT_DISPATCHER_TOKEN=' .env | xargs)"
+    )
+    logger.info(
+        "    Try it:     curl -X POST http://localhost:%d/webhook/hello-dispatch "
+        '-H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" '
+        "-H 'Content-Type: application/json' -d '{}'",
+        dispatch.dispatcher_port,
+    )
+    logger.info(
+        "    Images:     `osprey deploy up` builds the shared dispatch image locally "
+        "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
+        "set OSPREY_DISPATCH_IMAGE/OSPREY_WORKER_IMAGE to use a published image."
+    )
 
 
 def _copy_overlay_files(

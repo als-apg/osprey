@@ -1,0 +1,87 @@
+# The dispatch-worker shares the event-dispatcher's locally-built image
+# (../event_dispatcher/Dockerfile). `osprey deploy up` builds it on first run.
+# Override with OSPREY_WORKER_IMAGE to use a prebuilt/published image instead.
+#
+# NOTE: Multi-worker load distribution is NOT yet implemented.
+# The dispatcher routes to dispatch-worker-1 only (hardcoded in tutorial_triggers.yml dispatch_target).
+# Additional workers declared here are provisioned but idle until routing is implemented.
+{% set wc = services.dispatch_worker.worker_count | default(1) %}
+{% set mode = services.dispatch_worker.workspace_mode | default('isolated') %}
+
+services:
+{% for i in range(1, wc + 1) %}
+  dispatch-worker-{{ i }}:
+    image: ${OSPREY_WORKER_IMAGE:-{{ services.dispatch_worker.image | default('osprey-dispatch:local') }}}
+    # NO build: block here on purpose. The worker shares the event-dispatcher's
+    # image (osprey-dispatch:local). If BOTH services declared `build:` for the
+    # same tag, `docker compose up` builds them concurrently and the two exports
+    # race to tag the image — one fails with
+    #   ERROR: image "osprey-dispatch:local": already exists
+    # (deterministic once base layers are cached). So event-dispatcher is the sole
+    # builder; the worker just references the image it produces (and `depends_on`
+    # it so the build is done first). A prebuilt OSPREY_WORKER_IMAGE override is
+    # pulled normally instead.
+    depends_on:
+      - event-dispatcher
+    container_name: osprey-dispatch-worker-{{ i }}
+    command: ["python", "-m", "osprey.mcp_server.dispatch_worker"]
+    labels:
+      osprey.project.name: "{{ osprey_labels.project_name }}"
+      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+    restart: unless-stopped
+    environment:
+      # No :-default (see event_dispatcher compose): fail closed on an unset token.
+      DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
+      DISPATCH_WORKER_PORT: "{{ services.dispatch_worker.worker_port_base | default(9190) }}"
+      DISPATCH_TIMEOUT_SEC: "{{ services.dispatch_worker.timeout_sec | default(300) }}"
+      OSPREY_PROJECT_DIR: /app/project
+      # The worker process reads OSPREY config directly (e.g. get_facility_timezone
+      # while building the agent's system prompt). Its CWD is the image WORKDIR
+      # (/app), not the project dir, so without CONFIG_FILE osprey.utils.config
+      # falls back to /app/config.yml and every dispatch errors with "No config.yml
+      # found in current directory: /app". Setting it here also flows to the CLI
+      # subprocess and its MCP servers via env inheritance.
+      CONFIG_FILE: /app/project/config.yml
+      TZ: {{ system.timezone }}
+    # Bind-mount source is relative to the compose project directory
+    # (build/services/), not this service's subdir — hence the dispatch_worker/ prefix.
+    volumes:
+      - ./dispatch_worker/config.yml:/app/project/config.yml:ro
+{% if osprey_env_present | default(false) %}
+      # Provider auth: the worker's startup hook (inject_provider_env) reads
+      # $OSPREY_PROJECT_DIR/.env to resolve the LLM provider key (e.g.
+      # ALS_APG_API_KEY -> ANTHROPIC_AUTH_TOKEN). Without this, dispatched agent
+      # runs cannot authenticate. The project .env lives two levels up from the
+      # compose project directory (build/services/); mounted read-only so the
+      # secret is never copied into the build dir.
+      - ../../.env:/app/project/.env:ro
+{% endif %}
+{% if mode == 'shared' %}
+      - dispatch_workspace:/app/project/_agent_data
+{% else %}
+      - dispatch_workspace_{{ i }}:/app/project/_agent_data
+{% endif %}
+    networks:
+      - osprey-network
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:{{ services.dispatch_worker.worker_port_base | default(9190) }}/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # Grace period before failed probes count — first run provisions Claude
+      # artifacts and injects provider env, which takes a few seconds.
+      start_period: 30s
+{% endfor %}
+
+volumes:
+{% if mode == 'shared' %}
+  dispatch_workspace:
+{% else %}
+{% for i in range(1, wc + 1) %}
+  dispatch_workspace_{{ i }}:
+{% endfor %}
+{% endif %}
+
+networks:
+  osprey-network:

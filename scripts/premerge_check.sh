@@ -70,8 +70,8 @@ fi
 
 # HIGH checks
 echo -e "\n=== HIGH ==="
-todos=$(git diff $BASE...HEAD | grep -cE "^\+.*(TODO|FIXME|HACK|XXX)" || echo 0)
-linked=$(git diff $BASE...HEAD | grep -cE "^\+.*(TODO|FIXME|HACK|XXX).*(issue #[0-9]+|https://)" || echo 0)
+todos=$(git diff $BASE...HEAD | grep -cE "^\+.*(TODO|FIXME|HACK|XXX)" || true)
+linked=$(git diff $BASE...HEAD | grep -cE "^\+.*(TODO|FIXME|HACK|XXX).*(issue #[0-9]+|https://)" || true)
 unlinked=$((todos - linked))
 if [ $unlinked -gt 0 ]; then
   echo "⚠ $unlinked TODOs without issue links"

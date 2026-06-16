@@ -141,3 +141,69 @@ class TestProxyForwardedPrefix:
         assert '"/panel/my-dash/dashboard/triggers"' in resp.text
         assert "'/panel/my-dash/dashboard/runs'" in resp.text
         assert '"/panel/my-dash/dashboard/stream/abc"' in resp.text
+
+
+class TestEventsPanelTokenInjection:
+    """The EVENTS panel proxy injects the dispatcher bearer token server-side."""
+
+    @pytest.fixture
+    def app_and_client_events(self, workspace_dir):
+        custom = [
+            {"id": "events", "label": "EVENTS", "url": "http://localhost:8020"},
+            {"id": "my-dash", "label": "DASH", "url": "http://localhost:9000"},
+        ]
+        yield from _make_client(workspace_dir, custom)
+
+    def test_events_panel_injects_bearer(self, app_and_client_events, monkeypatch):
+        app, client = app_and_client_events
+        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "sekret")
+
+        captured = {}
+
+        async def fake_request(*, method, url, headers, content):
+            captured.update(headers)
+            return httpx.Response(
+                200, json={"ok": True}, headers={"content-type": "application/json"}
+            )
+
+        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
+
+        resp = client.get("/panel/events/dashboard/state")
+        assert resp.status_code == 200
+        assert captured.get("authorization") == "Bearer sekret"
+
+    def test_non_events_panel_not_injected(self, app_and_client_events, monkeypatch):
+        app, client = app_and_client_events
+        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "sekret")
+
+        captured = {}
+
+        async def fake_request(*, method, url, headers, content):
+            captured.update(headers)
+            return httpx.Response(
+                200, json={"ok": True}, headers={"content-type": "application/json"}
+            )
+
+        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
+
+        resp = client.get("/panel/my-dash/api/status")
+        assert resp.status_code == 200
+        assert "authorization" not in {k.lower() for k in captured}
+
+    def test_events_panel_no_token_no_header(self, app_and_client_events, monkeypatch):
+        app, client = app_and_client_events
+        monkeypatch.delenv("EVENT_DISPATCHER_TOKEN", raising=False)
+
+        captured = {}
+
+        async def fake_request(*, method, url, headers, content):
+            captured.update(headers)
+            return httpx.Response(
+                200, json={"ok": True}, headers={"content-type": "application/json"}
+            )
+
+        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
+
+        resp = client.get("/panel/events/dashboard/state")
+        assert resp.status_code == 200
+        assert "authorization" not in {k.lower() for k in captured}

@@ -16,6 +16,7 @@ BUILTIN_PANELS: set[str] = {
     "tuning",
     "channel-finder",
     "lattice",
+    "events",  # event-dispatcher dashboard (control-assistant); URL-backed, see preset
 }
 
 # Frontend fallback when a profile/config doesn't pin a default tab.

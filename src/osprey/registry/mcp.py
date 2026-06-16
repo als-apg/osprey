@@ -155,6 +155,10 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         module="osprey.mcp_server.workspace",
         env={
             "OSPREY_CONFIG": "{project_root}/config.yml",
+            # osprey.utils.config reads CONFIG_FILE (not OSPREY_CONFIG); set both
+            # so the server resolves config even when launched with a CWD other
+            # than the project dir (e.g. the dispatch worker's /app WORKDIR).
+            "CONFIG_FILE": "{project_root}/config.yml",
         },
         permissions_allow=[
             "facility_description",
@@ -201,6 +205,8 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         module="osprey.mcp_server.ariel",
         env={
             "OSPREY_CONFIG": "{project_root}/config.yml",
+            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            "CONFIG_FILE": "{project_root}/config.yml",
             "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}",
         },
         permissions_allow=[
@@ -244,6 +250,8 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         module="osprey.mcp_server.channel_finder_{channel_finder_pipeline}",
         env={
             "OSPREY_CONFIG": "{project_root}/config.yml",
+            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            "CONFIG_FILE": "{project_root}/config.yml",
         },
         condition="channel_finder_pipeline",
         # permissions_allow is populated dynamically from

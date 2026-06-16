@@ -142,6 +142,14 @@ def _inject_project_metadata(config):
         # Final fallback: Default
         project_name = "unnamed-project"
 
+    # Resolve the running framework version so service Dockerfiles can pin the
+    # PyPI install (`pip install osprey-framework==<version>`) for production
+    # builds. Dev builds install a locally-built wheel instead (see --dev).
+    try:
+        from osprey import __version__ as osprey_version
+    except Exception:
+        osprey_version = ""
+
     # Create enhanced config with label metadata
     config_with_labels = config.copy()
     config_with_labels["osprey_labels"] = {
@@ -149,6 +157,13 @@ def _inject_project_metadata(config):
         "project_root": config.get("project_root", os.getcwd()),
         "deployed_at": datetime.datetime.now().isoformat(),
     }
+    config_with_labels["osprey_version"] = osprey_version
+
+    # Whether a project ``.env`` exists in the deploy CWD. The dispatch worker
+    # mounts it read-only so ``inject_provider_env`` can read provider auth at
+    # startup; gating the mount on existence avoids docker auto-creating a stray
+    # empty ``.env`` directory when none is present.
+    config_with_labels["osprey_env_present"] = os.path.exists(".env")
 
     return config_with_labels
 
@@ -254,6 +269,7 @@ def _copy_local_framework_for_override(out_dir):
     try:
         # Try to import osprey to get its location
         import subprocess
+        import sys
         import tempfile
         from pathlib import Path
 
@@ -287,8 +303,13 @@ def _copy_local_framework_for_override(out_dir):
         # Build the wheel package from local source
         logger.info("Building osprey wheel from local source...")
         with tempfile.TemporaryDirectory() as tmpdir:
+            # Use sys.executable, NOT bare "python3": in a non-activated venv,
+            # PATH "python3" resolves to the system/pyenv interpreter (which
+            # lacks the 'build' package), not the venv running osprey. Bare
+            # python3 made --dev silently fall back to the PyPI release, booting
+            # containers with stale osprey that lacks unreleased modules.
             result = subprocess.run(
-                ["python3", "-m", "build", "--wheel", "--outdir", tmpdir],
+                [sys.executable, "-m", "build", "--wheel", "--outdir", tmpdir],
                 cwd=osprey_source_root,
                 capture_output=True,
                 text=True,
@@ -663,6 +684,18 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
 
             # Recursively adjust all src/ paths in the config
             adjust_src_paths_recursive(flattened_config)
+
+            # Drop the host interpreter path: execution.python_env_path is the
+            # build machine's venv (e.g. /Users/.../.venv/bin/python3), which does
+            # not exist in the container. Claude Code MCP-server generation prefers
+            # python_env_path over sys.executable, so leaving it baked the host
+            # interpreter into the container's .mcp.json — every MCP server then
+            # failed to launch. Removing it makes generation fall back to the
+            # container's own sys.executable (/usr/local/bin/python).
+            exec_cfg = flattened_config.get("execution")
+            if isinstance(exec_cfg, dict) and "python_env_path" in exec_cfg:
+                removed = exec_cfg.pop("python_env_path")
+                logger.debug(f"Dropped host python_env_path for container config: {removed}")
 
             # Handle claude_config_path: copy the file and adjust path
             # The config explicitly specifies which file to use, so we copy exactly that

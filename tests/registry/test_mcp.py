@@ -120,6 +120,24 @@ class TestResolveServers:
         # Shell variables ${...} are preserved
         assert controls["env"]["EPICS_CA_ADDR_LIST"] == "${EPICS_CA_ADDR_LIST:-}"
 
+    def test_all_python_servers_set_config_file(self):
+        """Every framework python MCP server must set CONFIG_FILE, not just OSPREY_CONFIG.
+
+        osprey.utils.config reads CONFIG_FILE (OSPREY_CONFIG is only used to locate
+        .env). When a server subprocess is launched with a CWD other than the
+        project dir (e.g. the dispatch worker's /app WORKDIR), a missing CONFIG_FILE
+        makes config resolution fall back to CWD/config.yml and fail. Regression
+        guard: osprey_workspace / ariel / channel-finder used to omit it.
+        """
+        ctx = _base_ctx(channel_finder_pipeline="hierarchical")
+        servers = resolve_servers({}, ctx)
+        expected = "/tmp/test-project/config.yml"
+        for name in ("controls", "python", "osprey_workspace", "ariel", "channel-finder"):
+            srv = [s for s in servers if s["name"] == name][0]
+            assert srv["env"].get("CONFIG_FILE") == expected, (
+                f"{name} must set CONFIG_FILE={expected!r}, got {srv['env'].get('CONFIG_FILE')!r}"
+            )
+
     def test_controls_hook_structure(self):
         """controls server has 3 distinct PreToolUse hook rules."""
         ctx = _base_ctx()

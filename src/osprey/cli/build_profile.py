@@ -9,9 +9,10 @@ from __future__ import annotations
 
 import importlib.resources
 import re
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
@@ -76,6 +77,28 @@ class ServiceDef:
 
     template: str  # Path to template dir (relative to profile dir)
     config: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class DispatchConfig:
+    """Event-dispatch configuration for a build profile (opt-in via the ``dispatch:`` key).
+
+    Consumed by the build pipeline's dispatch-injection step to deploy the
+    event_dispatcher + dispatch_worker services. All ports/counts are validated
+    by :meth:`BuildProfile.validate`.
+    """
+
+    # Bundled trigger-file name (e.g. "tutorial_triggers.yml") or profile-relative path.
+    triggers: str
+    worker_count: int = 1
+    workspace_mode: Literal["isolated", "shared"] = "isolated"
+    max_concurrent_runs: int = 2
+    max_queue_depth: int = 50
+    dispatcher_port: int = 8020
+    worker_port_base: int = 9190
+    timeout_sec: int = 300
+    facility_name: str = ""
+    pv_strip_prefix: str = ""
 
 
 _ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
@@ -231,6 +254,7 @@ class BuildProfile:
     overlay, not via this key.
     """
     categories: dict[str, dict[str, str]] = field(default_factory=dict)
+    dispatch: DispatchConfig | None = None
 
     def resolved_tier(self) -> int:
         """Resolve the build-time tier, applying a paradigm-aware default.
@@ -284,6 +308,10 @@ class BuildProfile:
         for name, svc in self.services.items():
             if not svc.template:
                 errors.append(f"Service '{name}' missing 'template'")
+            elif svc.template.startswith("osprey."):
+                # Bundled template (e.g. "osprey.event_dispatcher") — resolved at copy
+                # time by _copy_service_templates; no profile-dir file to validate.
+                continue
             else:
                 tmpl_path = profile_dir / svc.template
                 if not tmpl_path.is_dir():
@@ -389,6 +417,60 @@ class BuildProfile:
             if "color" not in cat_spec or not _hex_re.match(str(cat_spec.get("color", ""))):
                 errors.append(f"Category '{cat_key}' missing or invalid 'color' (must be #RRGGBB)")
 
+        # Validate dispatch configuration
+        if self.dispatch is not None:
+            d = self.dispatch
+            if d.worker_count < 1:
+                errors.append(f"dispatch.worker_count must be >= 1 (got {d.worker_count})")
+            if not (1 <= d.dispatcher_port <= 65535):
+                errors.append(
+                    f"dispatch.dispatcher_port must be in 1..65535 (got {d.dispatcher_port})"
+                )
+            if not (1 <= d.worker_port_base <= 65535):
+                errors.append(
+                    f"dispatch.worker_port_base must be in 1..65535 (got {d.worker_port_base})"
+                )
+            elif d.worker_count >= 1 and (d.worker_port_base + d.worker_count - 1) > 65535:
+                errors.append(
+                    f"dispatch.worker_port_base + worker_count - 1 exceeds 65535 "
+                    f"({d.worker_port_base} + {d.worker_count} - 1)"
+                )
+            if d.workspace_mode not in ("isolated", "shared"):
+                errors.append(
+                    f"dispatch.workspace_mode must be 'isolated' or 'shared' "
+                    f"(got {d.workspace_mode!r})"
+                )
+            if d.max_concurrent_runs < 1:
+                errors.append(
+                    f"dispatch.max_concurrent_runs must be >= 1 (got {d.max_concurrent_runs})"
+                )
+            if d.max_queue_depth < 1:
+                errors.append(f"dispatch.max_queue_depth must be >= 1 (got {d.max_queue_depth})")
+            if d.timeout_sec <= 0:
+                errors.append(f"dispatch.timeout_sec must be > 0 (got {d.timeout_sec})")
+            # triggers must be a non-empty, resolvable file
+            # (profile-relative OR bundled preset name)
+            if not d.triggers:
+                errors.append(
+                    "dispatch.triggers is required (bundled name or profile-relative path)"
+                )
+            elif (
+                not (profile_dir / d.triggers).is_file()
+                and not (_triggers_dir() / d.triggers).is_file()
+            ):
+                errors.append(
+                    f"dispatch.triggers file not found: {d.triggers!r} "
+                    f"(looked in profile dir {profile_dir} and bundled triggers)"
+                )
+            # Advisory: multiple workers sharing one workspace can corrupt each other.
+            if d.worker_count > 1 and d.workspace_mode == "shared":
+                warnings.warn(
+                    "dispatch.workspace_mode='shared' with worker_count>1: workers share one "
+                    "workspace volume and may clobber each other's files; consider 'isolated'.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+
         if errors:
             raise BuildProfileError(
                 "Build profile validation failed:\n  - " + "\n  - ".join(errors)
@@ -457,6 +539,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "default_panel",
         "claude_md_template",
         "categories",
+        "dispatch",
     }
 )
 
@@ -547,6 +630,24 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
 
     dependencies = raw.get("dependencies", [])
 
+    dispatch_raw = raw.get("dispatch")
+    dispatch = None
+    if dispatch_raw is not None:
+        if not isinstance(dispatch_raw, dict):
+            raise BuildProfileError("Profile 'dispatch' must be a mapping")
+        dispatch = DispatchConfig(
+            triggers=dispatch_raw.get("triggers", ""),
+            worker_count=dispatch_raw.get("worker_count", 1),
+            workspace_mode=dispatch_raw.get("workspace_mode", "isolated"),
+            max_concurrent_runs=dispatch_raw.get("max_concurrent_runs", 2),
+            max_queue_depth=dispatch_raw.get("max_queue_depth", 50),
+            dispatcher_port=dispatch_raw.get("dispatcher_port", 8020),
+            worker_port_base=dispatch_raw.get("worker_port_base", 9190),
+            timeout_sec=dispatch_raw.get("timeout_sec", 300),
+            facility_name=dispatch_raw.get("facility_name", ""),
+            pv_strip_prefix=dispatch_raw.get("pv_strip_prefix", ""),
+        )
+
     return BuildProfile(
         name=raw.get("name", ""),
         data_bundle=raw.get("data_bundle", "control_assistant"),
@@ -573,6 +674,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         default_panel=raw.get("default_panel"),
         claude_md_template=raw.get("claude_md_template"),
         categories=raw.get("categories", {}),
+        dispatch=dispatch,
     )
 
 
@@ -596,6 +698,18 @@ def _normalize_preset_name(name: str) -> str:
 def _presets_dir() -> Path:
     """Return the directory containing bundled preset YAMLs."""
     return Path(str(importlib.resources.files(_PRESETS_PACKAGE)))
+
+
+_TRIGGERS_PACKAGE = "osprey.profiles.triggers"
+
+
+def _triggers_dir() -> Path:
+    """Return the directory containing bundled trigger-config YAMLs.
+
+    Distinct from :func:`_presets_dir` — trigger configs are not build presets
+    and must not appear in the preset namespace (``--list-presets``).
+    """
+    return Path(str(importlib.resources.files(_TRIGGERS_PACKAGE)))
 
 
 def _preset_exists(name: str) -> Path | None:

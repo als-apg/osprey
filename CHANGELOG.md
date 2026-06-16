@@ -13,6 +13,8 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- **Event dispatch (opt-in).** New `osprey.dispatch` FastMCP server + `osprey.mcp_server.dispatch_worker` service turn external events into headless agent runs, with a live dashboard, an in-memory FIFO pool with backpressure, per-trigger tool allowlists, and a server-side tool denylist (shell + web/browser tools blocked regardless of a trigger's allowlist). All dispatcher and worker HTTP endpoints that carry agent output or accept writes are bearer-token gated (the in-terminal EVENTS tab injects the token server-side, so the browser never holds it); `osprey deploy up` auto-generates the tokens into the project `.env` so a fresh deploy is secure with zero editing. Enable per profile via a `dispatch:` block; the `control-assistant` preset ships four control-system-free tutorial triggers (fire `hello-dispatch` with a single `curl`). Trigger sources are pluggable via the `osprey.trigger_sources` entry-point group (built-in: `webhook`, `cron`). Worker containers mount the project `.env` read-only so dispatched agent runs can authenticate to the LLM provider. The pipeline is exercised end-to-end by real-token e2e tests — a subprocess sweep over the shipped triggers and a full Docker-stack deploy. `osprey deploy up` builds a shared local image for the dispatcher + worker from a bundled Dockerfile (no published image required); use `--dev` to bake in a local osprey checkout, or set `OSPREY_DISPATCH_IMAGE`/`OSPREY_WORKER_IMAGE` to use a prebuilt image.
+- The `control-assistant` preset now surfaces the event-dispatcher dashboard as an in-terminal **EVENTS** tab in `osprey web` (health-gated; repoint via `EVENT_DISPATCHER_URL`).
 - **Facility Knowledge (OKF).** Structured markdown bundle (`osprey_facility_knowledge` MCP server, `list_concepts` / `read_concept` / `search` tools) for on-demand retrieval of subsystem descriptions, device details, operational procedures, and facility-specific references. `facility.md` is thinned to facility identity only; deep content is fetched via the agent on demand. The `control_assistant` preset ships an Example Research Facility bundle. Includes `draft_concept` write tool (approval-gated) for authoring new concept docs directly from an agent session. See :doc:`/how-to/use-facility-knowledge`.
 - `osprey knowledge` CLI: `regen-index` (regenerate bundle indexes, idempotent), `validate` (collect-all frontmatter + index validation, exits 1 on any failure), `seed-from-ttl` (seed device stubs from a NARAD/als-ontology TTL; requires `knowledge` extra; `--force` to overwrite hand-edited stubs).
 - `facility-knowledge` subagent: specialist agent scoped to `list_concepts` / `read_concept` / `search`; enabled by default in `control_assistant`; delegates facility knowledge lookups out of the main agent's context.
@@ -26,6 +28,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 ### Changed
 
 - The control_assistant scenario e2e tests (`test_vacuum_burst_scenario` and `test_rf_cavity_correlation_scenario`) drive their archiver ground truth from the simulation engine via `activate_scenarios`, which also seeds the matching ARIEL logbook deterministically at setup (replacing the manual `purge && ingest` pre-seed and its stale-DB footgun). They build at tier 3 so every simulated channel is discoverable through the channel finder.
+
+### Fixed
+
+- `osprey deploy up --dev` now passes `--build` so the freshly-rendered local wheel is actually baked into the image; previously compose reused the cached image and ran stale code after the first build.
+- `osprey deploy up --dev` now builds the local wheel with the active interpreter (`sys.executable`) instead of bare `python3`. In a non-activated virtualenv, PATH `python3` is the system/pyenv interpreter, which lacks the `build` package — so the wheel build silently failed and containers fell back to the released PyPI version (missing any unreleased local code).
 
 ### Removed
 

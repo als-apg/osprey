@@ -203,6 +203,12 @@ Changelog = "https://github.com/als-apg/osprey/blob/main/CHANGELOG.md"
 # Main CLI entry point (Click group with subcommands)
 osprey = "osprey.cli.main:cli"
 
+# Built-in trigger sources for the event dispatcher, discovered by
+# osprey.dispatch.source_registry.SourceRegistry at startup.
+[project.entry-points."osprey.trigger_sources"]
+webhook = "osprey.dispatch.sources.webhook:WebhookSource"
+cron = "osprey.dispatch.sources.cron:CronSource"
+
 # Hatchling build configuration
 [tool.hatch.version]
 path = "src/osprey/__init__.py"

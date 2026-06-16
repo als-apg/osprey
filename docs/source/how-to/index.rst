@@ -66,6 +66,13 @@ Framework & Infrastructure
       Run agent-generated Python scripts safely in a containerized environment with
       access to the OSPREY runtime API.
 
+   .. grid-item-card:: Event Dispatch
+      :link: event-dispatch
+      :link-type: doc
+
+      Turn external events — webhooks and cron ticks — into headless Osprey agent
+      runs, deployed as containers or run locally.
+
    .. grid-item-card:: CLI Reference
       :link: /cli-reference/index
       :link-type: doc
@@ -119,6 +126,7 @@ Services & Connectors
    use-web-terminal
    use-cli-chat
    use-python-executor
+   event-dispatch
    add-connector
    use-channel-finder
    ariel/index

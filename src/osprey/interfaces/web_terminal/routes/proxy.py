@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import re
 
 import httpx
@@ -146,6 +147,15 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
         if k.lower() not in _HOP_BY_HOP and k.lower() != "host"
     }
     fwd_headers["x-forwarded-prefix"] = f"/panel/{panel_id}"
+
+    # The event-dispatcher dashboard endpoints are bearer-gated. Inject the
+    # dispatcher token server-side for the EVENTS panel only, so the browser
+    # never holds it (and other panels are unaffected). The web-terminal process
+    # picks up EVENT_DISPATCHER_TOKEN from the project .env via load_dotenv.
+    if panel_id == "events":
+        token = os.environ.get("EVENT_DISPATCHER_TOKEN", "")
+        if token:
+            fwd_headers["authorization"] = f"Bearer {token}"
 
     try:
         body = await request.body()
