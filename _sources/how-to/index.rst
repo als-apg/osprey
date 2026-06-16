@@ -100,6 +100,13 @@ Services & Connectors
       Intelligent search over facility electronic logbooks with keyword, semantic,
       RAG, and agentic retrieval modes.
 
+   .. grid-item-card:: Facility Knowledge
+      :link: use-facility-knowledge
+      :link-type: doc
+
+      Author and serve structured facility knowledge (subsystems, devices, procedures)
+      to the OSPREY agent via an on-demand markdown bundle.
+
 
 .. toctree::
    :hidden:
@@ -115,4 +122,5 @@ Services & Connectors
    add-connector
    use-channel-finder
    ariel/index
+   use-facility-knowledge
    /cli-reference/index

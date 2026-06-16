@@ -1,0 +1,857 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Facility Knowledge &#8212; Osprey Framework 2026.6.0 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=4b476d9d"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/use-facility-knowledge';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.6.0';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="CLI Reference" href="../cli-reference/index.html" />
+    <link rel="prev" title="Standalone Deployment" href="ariel/standalone-deployment.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Jun 16, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-web-terminal.html">Use the Web Terminal</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
+
+
+
+
+<li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Facility Knowledge</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">How-To Guides</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Facility Knowledge</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="facility-knowledge">
+<span id="how-to-facility-knowledge"></span><h1>Facility Knowledge<a class="headerlink" href="#facility-knowledge" title="Link to this heading">#</a></h1>
+<p>The Facility Knowledge system gives the OSPREY agent on-demand access to
+structured narrative knowledge about your facility — subsystems, devices,
+operational procedures, physics notes, and facility-specific references.</p>
+<p>It uses a two-altitude model:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">facility.md</span></code> — always loaded into the agent’s context; contains only
+stable <strong>identity</strong> information (facility name, type, mission).</p></li>
+<li><p><strong>OKF bundle</strong> — a directory of markdown concept documents; content is
+fetched on demand via <code class="docutils literal notranslate"><span class="pre">list_concepts</span></code>, <code class="docutils literal notranslate"><span class="pre">read_concept</span></code>, and <code class="docutils literal notranslate"><span class="pre">search</span></code>
+tools exposed by the <code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code> MCP server.</p></li>
+</ul>
+<p>This keeps the agent’s context window lean for routine tasks while making
+the full knowledge base available whenever the agent (or you) needs it.</p>
+<section id="how-it-works">
+<h2>How It Works<a class="headerlink" href="#how-it-works" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code> MCP server reads an OKF bundle at startup.
+The bundle is a directory tree of markdown files with YAML frontmatter.
+Each file is a <em>concept document</em> describing one topic (a subsystem,
+a device class, an operational procedure, etc.).</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>data/facility_knowledge/
+├── index.md                      ← bundle root index (auto-generated)
+├── subsystems/
+│   ├── index.md                  ← sub-directory index (auto-generated)
+│   ├── power-supply-system.md
+│   └── timing-system.md
+├── devices/
+│   ├── index.md
+│   └── magnet-power-supply.md
+└── procedures/
+    ├── index.md
+    └── beam-startup.md
+</pre></div>
+</div>
+<p>The agent can:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">list_concepts</span></code> — browse the index to discover what topics exist</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">read_concept</span></code> — retrieve a specific document by its bundle-relative path</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">search</span></code> — full-text search across all concept documents</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">draft_concept</span></code> — author a new concept document (requires human approval)</p></li>
+</ul>
+</section>
+<section id="configuring-the-bundle-path">
+<h2>Configuring the Bundle Path<a class="headerlink" href="#configuring-the-bundle-path" title="Link to this heading">#</a></h2>
+<p>Point the server at your bundle by adding a <code class="docutils literal notranslate"><span class="pre">facility_knowledge</span></code> block to
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">facility_knowledge</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">bundle_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/facility_knowledge</span>
+</pre></div>
+</div>
+<p>Relative paths are resolved against the directory containing <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
+(the project root).  For the <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> preset the example bundle
+is scaffolded into <code class="docutils literal notranslate"><span class="pre">data/facility_knowledge/</span></code> automatically.  Replace the
+example content with your own facility’s documents.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The bundle path is required.  If it is missing or the directory does not
+exist, the <code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code> server will refuse to start with
+a clear error message.</p>
+</div>
+</section>
+<section id="authoring-concept-documents">
+<h2>Authoring Concept Documents<a class="headerlink" href="#authoring-concept-documents" title="Link to this heading">#</a></h2>
+<p>Each concept document is a markdown file with YAML frontmatter at the top:</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>---
+type: subsystem
+title: Power Supply System
+description: DC power supplies for all storage-ring magnets.
+<span class="gu">tags: [magnets, power-supplies, PSS]</span>
+<span class="gu">---</span>
+
+<span class="gh"># Power Supply System</span>
+
+...document body...
+</pre></div>
+</div>
+<p>Required frontmatter fields (authoring level):</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<thead>
+<tr class="row-odd"><th class="head"><p>Field</p></th>
+<th class="head"><p>Description</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">type</span></code></p></td>
+<td><p>Document type — see conventional types below</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">title</span></code></p></td>
+<td><p>Human-readable title</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">description</span></code></p></td>
+<td><p>One-sentence summary used in indexes and search</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Conventional <code class="docutils literal notranslate"><span class="pre">type</span></code> values (free-form, but the following are recommended
+for consistent index grouping):</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">Subsystem</span></code> — major facility subsystem (power supply, timing, vacuum…)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Device</span></code> — a device class or family of hardware components</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Procedure</span></code> — operational procedure or checklist</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">PhysicsNote</span></code> — accelerator/beam physics explanation</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Reference</span></code> — external document pointer, standard, or glossary entry</p></li>
+</ul>
+<p>Optional fields: <code class="docutils literal notranslate"><span class="pre">tags</span></code> (list of strings), <code class="docutils literal notranslate"><span class="pre">related</span></code> (list of
+bundle-relative paths to related docs).</p>
+<p>Cross-links between documents use bundle-relative paths:</p>
+<div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>See [<span class="nt">Timing System</span>](<span class="na">/subsystems/timing-system.md</span>) for synchronisation details.
+</pre></div>
+</div>
+</section>
+<section id="osprey-knowledge-cli">
+<span id="knowledge-cli"></span><h2><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span></code> CLI<a class="headerlink" href="#osprey-knowledge-cli" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span></code> command group provides three operations for managing
+an OKF bundle from the terminal.</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>--help
+<span class="go">Usage: osprey knowledge [OPTIONS] COMMAND [ARGS]...</span>
+
+<span class="go">  Manage OKF facility knowledge bundles.</span>
+
+<span class="go">Commands:</span>
+<span class="go">  regen-index    Regenerate index.md files throughout an OKF bundle.</span>
+<span class="go">  validate       Validate all OKF documents in a bundle.</span>
+<span class="go">  seed-from-ttl  Seed OKF stub documents from a NARAD/als-ontology TTL file.</span>
+</pre></div>
+</div>
+<section id="regen-index">
+<h3>regen-index<a class="headerlink" href="#regen-index" title="Link to this heading">#</a></h3>
+<p>Regenerates <code class="docutils literal notranslate"><span class="pre">index.md</span></code> files throughout the bundle.  Run this after adding
+or removing concept documents:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>regen-index<span class="w"> </span>data/facility_knowledge
+</pre></div>
+</div>
+<p>When called without an argument the bundle path is read from
+<code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.  The command is
+idempotent — a second run produces bit-identical output.</p>
+</section>
+<section id="validate">
+<h3>validate<a class="headerlink" href="#validate" title="Link to this heading">#</a></h3>
+<p>Validates every <code class="docutils literal notranslate"><span class="pre">*.md</span></code> file in the bundle and reports all failures in one
+pass (collect-all, never aborts on the first error):</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>validate<span class="w"> </span>data/facility_knowledge
+<span class="go">All files in data/facility_knowledge are valid.</span>
+</pre></div>
+</div>
+<p>Concept documents are checked at the <em>authoring</em> level (<code class="docutils literal notranslate"><span class="pre">type</span></code>, <code class="docutils literal notranslate"><span class="pre">title</span></code>,
+and <code class="docutils literal notranslate"><span class="pre">description</span></code> must be present and non-empty).  Index files are checked
+for frontmatter compliance (OKF §6/§11).  The command exits 0 on a clean
+bundle, 1 if any file fails.</p>
+</section>
+<section id="seed-from-ttl">
+<h3>seed-from-ttl<a class="headerlink" href="#seed-from-ttl" title="Link to this heading">#</a></h3>
+<p>Seeds one OKF stub document per device node in a NARAD/als-ontology
+Turtle file.  Requires the <code class="docutils literal notranslate"><span class="pre">knowledge</span></code> extra:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>pip<span class="w"> </span>install<span class="w"> </span><span class="s2">&quot;osprey-framework[knowledge]&quot;</span>
+<span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>seed-from-ttl<span class="w"> </span>devices.ttl<span class="w"> </span>data/facility_knowledge
+</pre></div>
+</div>
+<p>Idempotency rules applied per stub:</p>
+<ul class="simple">
+<li><p><strong>File absent</strong> — write and report <code class="docutils literal notranslate"><span class="pre">written</span></code>.</p></li>
+<li><p><strong>File present, same body</strong> — skip and report <code class="docutils literal notranslate"><span class="pre">unchanged</span></code>.</p></li>
+<li><p><strong>File present, body differs, no</strong> <code class="docutils literal notranslate"><span class="pre">--force</span></code> — skip and report
+<code class="docutils literal notranslate"><span class="pre">differs,</span> <span class="pre">use</span> <span class="pre">--force</span></code>.</p></li>
+<li><p><strong>File present, body differs,</strong> <code class="docutils literal notranslate"><span class="pre">--force</span></code> set — overwrite and report
+<code class="docutils literal notranslate"><span class="pre">overwritten</span></code>.</p></li>
+</ul>
+<p>Use <code class="docutils literal notranslate"><span class="pre">--force</span></code> only when you want to reset hand-edited stubs to the
+auto-generated content.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code class="docutils literal notranslate"><span class="pre">--force</span></code> overwrites existing stubs.  Omit it to protect hand-edited
+documents.</p>
+</div>
+</section>
+</section>
+<section id="regenerating-indexes">
+<span id="id1"></span><h2>Regenerating Indexes<a class="headerlink" href="#regenerating-indexes" title="Link to this heading">#</a></h2>
+<p>After adding or removing concept documents, regenerate the index files:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>knowledge<span class="w"> </span>regen-index<span class="w"> </span>data/facility_knowledge
+</pre></div>
+</div>
+<p>Or via the Python API:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.services.facility_knowledge.okf.index</span><span class="w"> </span><span class="kn">import</span> <span class="n">regenerate_indexes</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+
+<span class="n">regenerate_indexes</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="s2">&quot;data/facility_knowledge&quot;</span><span class="p">))</span>
+</pre></div>
+</div>
+<p>The root <code class="docutils literal notranslate"><span class="pre">index.md</span></code> includes an <code class="docutils literal notranslate"><span class="pre">okf_version</span></code> frontmatter key; sub-directory
+indexes contain no frontmatter (they are consumed by the server, not the agent
+directly).</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code class="docutils literal notranslate"><span class="pre">regen-index</span></code> is idempotent — running it twice produces the same
+output.  It never touches concept documents, only index files.</p>
+</div>
+</section>
+<section id="drafting-concepts-from-an-agent-session">
+<span id="drafting-concepts"></span><h2>Drafting Concepts from an Agent Session<a class="headerlink" href="#drafting-concepts-from-an-agent-session" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">draft_concept</span></code> tool lets you author new knowledge documents directly
+from a conversation with the OSPREY agent.  Because it writes to your project’s
+knowledge bundle, it requires <strong>human approval</strong> before executing.</p>
+<p>Example agent prompt:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Draft a concept document for the vacuum system interlock procedure —
+how to respond to a sudden pressure spike in sector 4.
+</pre></div>
+</div>
+<p>The agent will call <code class="docutils literal notranslate"><span class="pre">draft_concept</span></code> with a proposed path, frontmatter, and
+body.  You review and approve in the standard approval dialog; the document
+is written into the bundle and the index is regenerated.</p>
+</section>
+<section id="the-facility-knowledge-subagent">
+<h2>The <code class="docutils literal notranslate"><span class="pre">facility-knowledge</span></code> Subagent<a class="headerlink" href="#the-facility-knowledge-subagent" title="Link to this heading">#</a></h2>
+<p>When the <code class="docutils literal notranslate"><span class="pre">facility-knowledge</span></code> subagent is enabled in a project’s config, the
+main OSPREY agent delegates facility knowledge questions to a dedicated
+specialist rather than handling them inline.  The subagent has access only to
+the three read-only MCP tools (<code class="docutils literal notranslate"><span class="pre">list_concepts</span></code>, <code class="docutils literal notranslate"><span class="pre">read_concept</span></code>, <code class="docutils literal notranslate"><span class="pre">search</span></code>)
+and follows a fixed retrieval strategy: list first to orient, search to narrow,
+read to synthesize, then submit the result.</p>
+<p>The subagent is enabled by default in the <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> preset.  To
+enable or disable it in another preset, set the <code class="docutils literal notranslate"><span class="pre">agents.facility-knowledge</span></code>
+flag in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">agents</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">facility-knowledge</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">   </span><span class="c1"># set to false to disable</span>
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The subagent never writes to the bundle.  Authoring new concept documents
+is done via the <code class="docutils literal notranslate"><span class="pre">draft_concept</span></code> MCP tool in the main agent session
+(see <a class="reference internal" href="#drafting-concepts"><span class="std std-ref">Drafting Concepts from an Agent Session</span></a>) or directly via <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span>
+<span class="pre">seed-from-ttl</span></code> (see <a class="reference internal" href="#knowledge-cli"><span class="std std-ref">osprey knowledge CLI</span></a>).</p>
+</div>
+</section>
+<section id="replacing-the-example-bundle">
+<h2>Replacing the Example Bundle<a class="headerlink" href="#replacing-the-example-bundle" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> preset ships an Example Research Facility (ERF)
+bundle under <code class="docutils literal notranslate"><span class="pre">data/facility_knowledge/</span></code>.  To replace it with your own
+facility’s knowledge:</p>
+<ol class="arabic simple">
+<li><p>Delete the example concept documents (keep the directory structure as a
+guide, or start fresh).</p></li>
+<li><p>Author concept documents for your facility’s subsystems, devices,
+procedures, physics notes, and references.</p></li>
+<li><p>Run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">regen-index</span> <span class="pre">data/facility_knowledge</span></code>
+(see <a class="reference internal" href="#regenerating-indexes"><span class="std std-ref">Regenerating Indexes</span></a>) to rebuild the index files.</p></li>
+<li><p>Update <code class="docutils literal notranslate"><span class="pre">facility.md</span></code> with your facility’s name, type, and mission
+(the identity section at the top).</p></li>
+</ol>
+<p>There is no required structure beyond the top-level directory.  Organise
+sub-directories however makes sense for your facility.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="build-profiles.html"><span class="doc">Build Profiles</span></a></dt><dd><p>How to assemble facility-specific OSPREY projects with custom data bundles.</p>
+</dd>
+<dt><a class="reference internal" href="../architecture/mcp-servers.html"><span class="doc">MCP Servers</span></a></dt><dd><p>MCP servers provided by the framework, including <code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code>.</p>
+</dd>
+</dl>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="ariel/standalone-deployment.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Standalone Deployment</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="../cli-reference/index.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">CLI Reference</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-it-works">How It Works</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuring-the-bundle-path">Configuring the Bundle Path</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#authoring-concept-documents">Authoring Concept Documents</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-knowledge-cli"><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span></code> CLI</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#regen-index">regen-index</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#validate">validate</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#seed-from-ttl">seed-from-ttl</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#regenerating-indexes">Regenerating Indexes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#drafting-concepts-from-an-agent-session">Drafting Concepts from an Agent Session</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-facility-knowledge-subagent">The <code class="docutils literal notranslate"><span class="pre">facility-knowledge</span></code> Subagent</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#replacing-the-example-bundle">Replacing the Example Bundle</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/use-facility-knowledge.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
