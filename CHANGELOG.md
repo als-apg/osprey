@@ -31,6 +31,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Drop the unused `ANTHROPIC_API_KEY` forwarding from the `python` executor MCP server env; nothing in the executor stack reads it (#264).
 - `osprey deploy up --dev` now passes `--build` so the freshly-rendered local wheel is actually baked into the image; previously compose reused the cached image and ran stale code after the first build.
 - `osprey deploy up --dev` now builds the local wheel with the active interpreter (`sys.executable`) instead of bare `python3`. In a non-activated virtualenv, PATH `python3` is the system/pyenv interpreter, which lacks the `build` package — so the wheel build silently failed and containers fell back to the released PyPI version (missing any unreleased local code).
 

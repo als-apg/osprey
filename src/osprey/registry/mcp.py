@@ -138,7 +138,6 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         env={
             "OSPREY_CONFIG": "{project_root}/config.yml",
             "CONFIG_FILE": "{project_root}/config.yml",
-            "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}",
         },
         permissions_allow=[],
         permissions_ask=["execute"],
