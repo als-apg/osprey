@@ -1,10 +1,16 @@
 """Tests for LiteLLM adapter module."""
 
+from unittest.mock import MagicMock, patch
+
 import pytest
+from pydantic import BaseModel
 
 from osprey.models.providers.litellm_adapter import (
     _clean_json_response,
+    _handle_structured_output,
     _supports_native_structured_output,
+    check_litellm_health,
+    execute_litellm_completion,
     get_litellm_model_name,
 )
 
@@ -197,6 +203,66 @@ class TestCleanJsonResponse:
         assert result == '{"x": "True story"}'
 
 
+class _FallbackModel(BaseModel):
+    name: str
+    count: int
+
+
+class TestHandleStructuredOutputPromptFallback:
+    """The prompt-based fallback path used by providers that declare
+    supports_native_structured_output=False (e.g. ds4).
+
+    provider='ds4' deterministically routes here because its registered flag is
+    False; chat_request=None exercises the single-message construction.
+    """
+
+    def _call(self, mock_litellm, content, *, is_typed_dict_output=False):
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = content
+        mock_litellm.completion.return_value = mock_response
+
+        completion_kwargs = {"model": "openai/deepseek-v4-flash"}
+        return _handle_structured_output(
+            provider="ds4",
+            model_id="deepseek-v4-flash",
+            litellm_model="openai/deepseek-v4-flash",
+            message="extract info",
+            completion_kwargs=completion_kwargs,
+            output_format=_FallbackModel,
+            is_typed_dict_output=is_typed_dict_output,
+        )
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_parses_valid_json_and_appends_schema_instruction(self, mock_litellm):
+        result = self._call(mock_litellm, '{"name": "abc", "count": 3}')
+        assert result == _FallbackModel(name="abc", count=3)
+        # The single user message must carry the original prompt plus the
+        # injected schema instruction (this is how a no-native-support model is
+        # coaxed into returning JSON).
+        sent = mock_litellm.completion.call_args.kwargs["messages"]
+        assert len(sent) == 1
+        assert sent[0]["role"] == "user"
+        assert sent[0]["content"].startswith("extract info")
+        assert "must respond with valid JSON" in sent[0]["content"]
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_typed_dict_output_returns_dict(self, mock_litellm):
+        result = self._call(mock_litellm, '{"name": "abc", "count": 3}', is_typed_dict_output=True)
+        assert result == {"name": "abc", "count": 3}
+        assert isinstance(result, dict)
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_markdown_wrapped_json_is_cleaned_then_parsed(self, mock_litellm):
+        result = self._call(mock_litellm, '```json\n{"name": "y", "count": 1}\n```')
+        assert result == _FallbackModel(name="y", count=1)
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_unparseable_response_raises_valueerror(self, mock_litellm):
+        with pytest.raises(ValueError, match="Failed to parse structured output from ds4"):
+            self._call(mock_litellm, "this is not json")
+
+
 class TestStructuredOutputCapabilityFlag:
     """The capability attribute drives the structured-output path."""
 
@@ -246,3 +312,122 @@ class TestStructuredOutputCapabilityFlag:
         # Sanity: same model string under "openai" returns True, proving the difference
         # is the ds4 registration + flag, not the model string.
         assert _supports_native_structured_output("openai/gpt-4o", "openai") is True
+
+
+class TestExecuteLitellmCompletionResponses:
+    """Response-shape handling in execute_litellm_completion (non-structured)."""
+
+    @patch("litellm.completion")
+    def test_returns_normalized_tool_calls(self, mock_completion):
+        """A response carrying tool_calls is normalized to the OSPREY tool-call
+        dict shape (id/type/function), not returned as raw text."""
+        tc = MagicMock()
+        tc.id = "call_1"
+        tc.function.name = "get_weather"
+        tc.function.arguments = '{"city": "SF"}'
+        message = MagicMock()
+        message.tool_calls = [tc]
+        response = MagicMock()
+        response.choices = [MagicMock(message=message)]
+        mock_completion.return_value = response
+
+        result = execute_litellm_completion(
+            provider="openai",
+            message="weather?",
+            model_id="gpt-4o",
+            api_key="k",
+            base_url=None,
+        )
+
+        assert result == [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {"name": "get_weather", "arguments": '{"city": "SF"}'},
+            }
+        ]
+
+    @patch("litellm.completion")
+    def test_returns_text_when_no_tool_calls(self, mock_completion):
+        """A plain text response (tool_calls falsy) yields the content string."""
+        message = MagicMock()
+        message.tool_calls = None
+        message.content = "hello there"
+        response = MagicMock()
+        response.choices = [MagicMock(message=message)]
+        mock_completion.return_value = response
+
+        result = execute_litellm_completion(
+            provider="openai",
+            message="hi",
+            model_id="gpt-4o",
+            api_key="k",
+            base_url=None,
+        )
+
+        assert result == "hello there"
+
+
+class TestCheckLitellmHealth:
+    """Guard rails and litellm-exception mapping in check_litellm_health."""
+
+    @pytest.mark.unit
+    def test_missing_api_key(self):
+        assert check_litellm_health(
+            provider="openai", api_key=None, base_url=None, model_id="gpt-4o"
+        ) == (False, "API key not set")
+
+    @pytest.mark.unit
+    def test_placeholder_api_key_rejected(self):
+        ok, msg = check_litellm_health(
+            provider="openai", api_key="${OPENAI_API_KEY}", base_url=None, model_id="gpt-4o"
+        )
+        assert ok is False
+        assert "placeholder" in msg
+
+    @pytest.mark.unit
+    def test_missing_model_id(self):
+        assert check_litellm_health(
+            provider="openai", api_key="sk-real", base_url=None, model_id=None
+        ) == (False, "Model ID required for health check")
+
+    @patch("litellm.completion")
+    def test_healthy_when_call_succeeds(self, mock_completion):
+        mock_completion.return_value = MagicMock()
+        assert check_litellm_health(
+            provider="openai", api_key="sk-real", base_url=None, model_id="gpt-4o"
+        ) == (True, "API accessible and authenticated")
+
+    @patch("litellm.completion")
+    def test_authentication_error_is_unhealthy(self, mock_completion):
+        import litellm
+
+        mock_completion.side_effect = litellm.AuthenticationError(
+            message="bad key", llm_provider="openai", model="gpt-4o"
+        )
+        assert check_litellm_health(
+            provider="openai", api_key="sk-bad", base_url=None, model_id="gpt-4o"
+        ) == (False, "Authentication failed (invalid API key)")
+
+    @patch("litellm.completion")
+    def test_rate_limit_is_treated_as_healthy(self, mock_completion):
+        """A rate-limit response proves the key works, so it reports healthy."""
+        import litellm
+
+        mock_completion.side_effect = litellm.RateLimitError(
+            message="slow down", llm_provider="openai", model="gpt-4o"
+        )
+        ok, msg = check_litellm_health(
+            provider="openai", api_key="sk-real", base_url=None, model_id="gpt-4o"
+        )
+        assert ok is True
+        assert "rate limited" in msg
+
+    @patch("litellm.completion")
+    def test_unexpected_error_is_wrapped(self, mock_completion):
+        mock_completion.side_effect = ValueError("boom")
+        ok, msg = check_litellm_health(
+            provider="openai", api_key="sk-real", base_url=None, model_id="gpt-4o"
+        )
+        assert ok is False
+        assert msg.startswith("Unexpected error")

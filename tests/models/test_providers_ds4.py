@@ -1,6 +1,9 @@
 """Unit tests for the ds4 (DwarfStar local DeepSeek V4) provider."""
 
+from unittest.mock import patch
+
 import pytest
+from pydantic import BaseModel
 
 from osprey.models.providers.ds4 import DS4ProviderAdapter
 
@@ -152,3 +155,80 @@ class TestDS4Provider:
 
         result = DS4ProviderAdapter().check_health(api_key="EMPTY", base_url="http://host:8001/v1")
         assert result == (False, "No model available for health check")
+
+
+class _Sample(BaseModel):
+    name: str
+
+
+class TestDS4ExecuteCompletion:
+    """ds4.execute_completion delegates to the shared litellm path with ds4's
+    keyless ('EMPTY') and base-url defaults applied."""
+
+    @patch("osprey.models.providers.ds4.execute_litellm_completion")
+    def test_defaults_empty_key_and_base_url(self, mock_exec):
+        """No api_key + no base_url -> 'EMPTY' placeholder and the default URL."""
+        mock_exec.return_value = "ok"
+
+        result = DS4ProviderAdapter().execute_completion(
+            message="hello",
+            model_id="deepseek-v4-flash",
+            api_key=None,
+            base_url=None,
+        )
+
+        assert result == "ok"
+        kwargs = mock_exec.call_args.kwargs
+        assert kwargs["provider"] == "ds4"
+        assert kwargs["message"] == "hello"
+        assert kwargs["model_id"] == "deepseek-v4-flash"
+        assert kwargs["api_key"] == "EMPTY"
+        assert kwargs["base_url"] == "http://127.0.0.1:8000/v1"
+        assert kwargs["output_format"] is None
+
+    @patch("osprey.models.providers.ds4.execute_litellm_completion")
+    def test_empty_string_key_becomes_placeholder(self, mock_exec):
+        """A falsy api_key (empty string) is also coerced to 'EMPTY'."""
+        mock_exec.return_value = "ok"
+
+        DS4ProviderAdapter().execute_completion(
+            message="hi",
+            model_id="deepseek-v4-flash",
+            api_key="",
+            base_url=None,
+        )
+
+        assert mock_exec.call_args.kwargs["api_key"] == "EMPTY"
+
+    @patch("osprey.models.providers.ds4.execute_litellm_completion")
+    def test_passes_through_explicit_key_and_base_url(self, mock_exec):
+        """An explicit key and base_url are forwarded unchanged (not overridden
+        by the defaults)."""
+        mock_exec.return_value = "ok"
+
+        DS4ProviderAdapter().execute_completion(
+            message="hi",
+            model_id="deepseek-v4-pro",
+            api_key="sk-real",
+            base_url="http://gpu-host:9000/v1",
+        )
+
+        kwargs = mock_exec.call_args.kwargs
+        assert kwargs["api_key"] == "sk-real"
+        assert kwargs["base_url"] == "http://gpu-host:9000/v1"
+
+    @patch("osprey.models.providers.ds4.execute_litellm_completion")
+    def test_output_format_is_forwarded(self, mock_exec):
+        """output_format is passed through so the shared layer can route ds4 to
+        its prompt-based JSON fallback."""
+        mock_exec.return_value = _Sample(name="x")
+
+        DS4ProviderAdapter().execute_completion(
+            message="extract",
+            model_id="deepseek-v4-flash",
+            api_key="EMPTY",
+            base_url=None,
+            output_format=_Sample,
+        )
+
+        assert mock_exec.call_args.kwargs["output_format"] is _Sample
