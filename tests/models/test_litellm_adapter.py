@@ -262,6 +262,88 @@ class TestHandleStructuredOutputPromptFallback:
         with pytest.raises(ValueError, match="Failed to parse structured output from ds4"):
             self._call(mock_litellm, "this is not json")
 
+    def _call_with_chat_request(self, mock_litellm, messages):
+        """Drive the fallback path with chat_request set (multi-turn). The schema
+        instruction is appended into completion_kwargs['messages'] in place, so the
+        caller's `messages` list is what gets mutated and sent."""
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = '{"name": "abc", "count": 3}'
+        mock_litellm.completion.return_value = mock_response
+
+        completion_kwargs = {"model": "openai/deepseek-v4-flash", "messages": messages}
+        result = _handle_structured_output(
+            provider="ds4",
+            model_id="deepseek-v4-flash",
+            litellm_model="openai/deepseek-v4-flash",
+            message="ignored when chat_request is set",
+            completion_kwargs=completion_kwargs,
+            output_format=_FallbackModel,
+            is_typed_dict_output=False,
+            chat_request=object(),  # only checked for `is not None`
+        )
+        return result, mock_litellm.completion.call_args.kwargs["messages"]
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_chat_request_appends_schema_to_last_user_message(self, mock_litellm):
+        """With chat_request set, the schema instruction is appended to the LAST
+        user turn only — the system prompt and earlier turns are left intact, so
+        multi-turn ds4 context is preserved."""
+        result, sent = self._call_with_chat_request(
+            mock_litellm,
+            [
+                {"role": "system", "content": "sys"},
+                {"role": "user", "content": "turn1"},
+                {"role": "assistant", "content": "a"},
+                {"role": "user", "content": "turn2"},
+            ],
+        )
+        assert result == _FallbackModel(name="abc", count=3)
+        assert sent[0]["content"] == "sys"
+        assert sent[1]["content"] == "turn1"  # earlier user turn untouched
+        assert sent[3]["content"].startswith("turn2")
+        assert "must respond with valid JSON" in sent[3]["content"]
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_chat_request_appends_schema_to_last_list_content_block(self, mock_litellm):
+        """When the last user message's content is a list (Anthropic-style cache
+        blocks), the instruction is appended to the last block's 'text' field
+        rather than overwriting the list."""
+        result, sent = self._call_with_chat_request(
+            mock_litellm,
+            [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "block1"},
+                        {"type": "text", "text": "block2"},
+                    ],
+                }
+            ],
+        )
+        assert result == _FallbackModel(name="abc", count=3)
+        blocks = sent[0]["content"]
+        assert blocks[0]["text"] == "block1"  # earlier block untouched
+        assert blocks[1]["text"].startswith("block2")
+        assert "must respond with valid JSON" in blocks[1]["text"]
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_chat_request_skips_trailing_non_user_message(self, mock_litellm):
+        """The reverse search for the last user message must skip a trailing
+        assistant turn and append the schema to the real last user turn, leaving
+        the assistant message untouched."""
+        result, sent = self._call_with_chat_request(
+            mock_litellm,
+            [
+                {"role": "user", "content": "realquestion"},
+                {"role": "assistant", "content": "partial"},
+            ],
+        )
+        assert result == _FallbackModel(name="abc", count=3)
+        assert sent[0]["content"].startswith("realquestion")
+        assert "must respond with valid JSON" in sent[0]["content"]
+        assert sent[1]["content"] == "partial"  # trailing assistant untouched
+
 
 class TestStructuredOutputCapabilityFlag:
     """The capability attribute drives the structured-output path."""
@@ -431,3 +513,75 @@ class TestCheckLitellmHealth:
         )
         assert ok is False
         assert msg.startswith("Unexpected error")
+
+    @patch("litellm.completion")
+    def test_not_found_error_reports_model(self, mock_completion):
+        """A NotFoundError (wrong model id on the server) is unhealthy and names
+        the offending model — the common ds4 case of pointing at a model the
+        local server hasn't loaded."""
+        import litellm
+
+        mock_completion.side_effect = litellm.NotFoundError(
+            message="no such model", model="deepseek-v4-pro", llm_provider="openai"
+        )
+        ok, msg = check_litellm_health(
+            provider="ds4", api_key="EMPTY", base_url="http://h:8000/v1", model_id="deepseek-v4-pro"
+        )
+        assert ok is False
+        assert "deepseek-v4-pro" in msg
+        assert "not found" in msg
+
+    @patch("litellm.completion")
+    def test_bad_request_error_is_unhealthy(self, mock_completion):
+        import litellm
+
+        mock_completion.side_effect = litellm.BadRequestError(
+            message="malformed", model="gpt-4o", llm_provider="openai"
+        )
+        ok, msg = check_litellm_health(
+            provider="openai", api_key="sk-real", base_url=None, model_id="gpt-4o"
+        )
+        assert ok is False
+        assert msg.startswith("Bad request")
+
+    @patch("litellm.completion")
+    def test_timeout_is_unhealthy(self, mock_completion):
+        import litellm
+
+        mock_completion.side_effect = litellm.Timeout(
+            message="took too long", model="gpt-4o", llm_provider="openai"
+        )
+        assert check_litellm_health(
+            provider="openai", api_key="sk-real", base_url=None, model_id="gpt-4o"
+        ) == (False, "Request timeout")
+
+    @patch("litellm.completion")
+    def test_connection_error_is_unhealthy(self, mock_completion):
+        """An APIConnectionError is the typical failure when the local ds4 server
+        is down — it maps to a 'Connection failed' diagnostic, not a crash."""
+        import litellm
+
+        mock_completion.side_effect = litellm.APIConnectionError(
+            message="refused", model="deepseek-v4-flash", llm_provider="openai"
+        )
+        ok, msg = check_litellm_health(
+            provider="ds4",
+            api_key="EMPTY",
+            base_url="http://h:8000/v1",
+            model_id="deepseek-v4-flash",
+        )
+        assert ok is False
+        assert msg.startswith("Connection failed")
+
+    @patch("litellm.completion")
+    def test_api_error_is_unhealthy(self, mock_completion):
+        import litellm
+
+        mock_completion.side_effect = litellm.APIError(
+            status_code=500, message="server blew up", model="gpt-4o", llm_provider="openai"
+        )
+        ok, msg = check_litellm_health(
+            provider="openai", api_key="sk-real", base_url=None, model_id="gpt-4o"
+        )
+        assert ok is False
+        assert msg.startswith("API error")

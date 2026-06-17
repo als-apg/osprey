@@ -156,6 +156,33 @@ class TestDS4Provider:
         result = DS4ProviderAdapter().check_health(api_key="EMPTY", base_url="http://host:8001/v1")
         assert result == (False, "No model available for health check")
 
+    @pytest.mark.unit
+    def test_check_health_explicit_model_id_skips_discovery(self, monkeypatch):
+        """When model_id is supplied, the server-discovery httpx.get must be
+        skipped entirely (the `if not model_id` block) and the given model
+        forwarded straight to the litellm health check."""
+        captured = {}
+
+        def fail_get(url, timeout=None):
+            raise AssertionError("httpx.get must not be called when model_id is given")
+
+        def fake_health(**kw):
+            captured["health_kwargs"] = kw
+            return True, "ok"
+
+        import httpx
+
+        import osprey.models.providers.ds4 as ds4mod
+
+        monkeypatch.setattr(httpx, "get", fail_get)
+        monkeypatch.setattr(ds4mod, "check_litellm_health", fake_health)
+
+        result = DS4ProviderAdapter().check_health(
+            api_key="EMPTY", base_url="http://host:8001/v1", model_id="deepseek-v4-pro"
+        )
+        assert result == (True, "ok")
+        assert captured["health_kwargs"]["model_id"] == "deepseek-v4-pro"
+
 
 class _Sample(BaseModel):
     name: str
