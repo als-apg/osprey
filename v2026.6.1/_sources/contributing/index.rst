@@ -1,0 +1,284 @@
+Contributing to Osprey
+======================
+
+Thank you for your interest in contributing to the Osprey Framework. This guide covers environment setup, Git workflow, code standards, and community guidelines.
+
+----
+
+Environment Setup
+-----------------
+
+**Prerequisites:** Python 3.11+, Git, a GitHub account, and `uv <https://docs.astral.sh/uv/>`_.
+
+**1. Fork and Clone**
+
+.. code-block:: bash
+
+   git clone https://github.com/YOUR-USERNAME/osprey.git
+   cd osprey
+
+**2. Install Dependencies**
+
+.. code-block:: bash
+
+   # Install all dev and docs dependencies (creates .venv automatically)
+   uv sync --extra dev --extra docs
+
+   # Add a new dependency
+   uv add <package>
+
+**3. Set Up Pre-commit Hooks**
+
+.. code-block:: bash
+
+   pre-commit install
+
+Hooks auto-fix formatting and prevent commits with common problems.
+
+**4. Verify Installation**
+
+.. code-block:: bash
+
+   uv run pytest tests/ --ignore=tests/e2e -v
+
+If all tests pass, you are ready to contribute.
+
+----
+
+Git and GitHub Workflow
+-----------------------
+
+Branch Strategy
+^^^^^^^^^^^^^^^
+
+Osprey follows **GitHub Flow**: a single long-lived branch (``main``) with
+short-lived topic branches that PR back into it. Releases are CalVer tags
+(``vYYYY.M.P``) on ``main`` — no separate release branch.
+
+**What this means for contributors:**
+
+- Branch your work off ``main``, and open your PR against ``main``.
+- ``main`` is always the integration target. CI gates every PR; protected status checks must pass before merge.
+- Releases are cut by maintainers tagging a commit on ``main``; the PyPI publish workflow runs on ``v*.*.*`` tags.
+- Hotfixes follow the same path: branch from the tag (or ``main``), PR back, tag again as ``vYYYY.M.P+1``. No special hotfix branches.
+
+Branch Naming
+^^^^^^^^^^^^^
+
+- ``feature/description`` -- New features
+- ``fix/description`` -- Bug fixes
+- ``docs/description`` -- Documentation
+- ``refactor/description`` -- Code refactoring
+- ``test/description`` -- Test improvements
+
+Making Changes
+^^^^^^^^^^^^^^
+
+**1. Create a branch:**
+
+.. code-block:: bash
+
+   git checkout -b feature/your-feature-name
+
+**2. Make changes** -- follow the code standards below, add tests, update docs.
+
+**3. Test locally** using the three-tier system:
+
+.. code-block:: bash
+
+   # Tier 1: Quick check (< 30s) -- before every commit
+   ./scripts/quick_check.sh
+
+   # Tier 2: Full CI check (2-3 min) -- before pushing
+   ./scripts/ci_check.sh
+
+   # Tier 3: Pre-merge check -- before creating a PR (compare against your PR target)
+   ./scripts/premerge_check.sh main
+
+**4. Commit changes** using conventional commit format:
+
+.. code-block:: bash
+
+   git add .
+   git commit -m "feat(scope): short description
+
+   - Detail about what changed
+   - Another detail"
+
+Commit Message Format
+^^^^^^^^^^^^^^^^^^^^^
+
+- ``feat:`` -- New features
+- ``fix:`` -- Bug fixes
+- ``docs:`` -- Documentation
+- ``refactor:`` -- Code refactoring
+- ``test:`` -- Tests
+- ``chore:`` -- Dependencies, build
+
+Every commit needs a corresponding CHANGELOG entry added **before** committing.
+
+Pull Request Process
+^^^^^^^^^^^^^^^^^^^^
+
+1. Push your branch: ``git push origin feature/your-feature-name``
+2. Open a PR on GitHub with a description, related issues, and testing performed.
+3. PR requirements: pass all required CI checks, include a ``CHANGELOG.md`` entry for any user-visible change, and add appropriate tests. Internal-mode contributors with push access self-merge after CI is green (the ruleset does not require human approval); fork-mode contributions wait for a maintainer to merge.
+4. During review: respond to feedback promptly, make requested changes, ask questions if unclear.
+
+Branch Protection on ``main``
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Direct pushes to ``main`` are rejected. All changes land via PR. The ruleset
+enforces:
+
+- All required CI checks must pass (no admin bypass).
+- Linear history (use ``gh pr merge --rebase``; merge commits are rejected).
+- Force-pushes and branch deletion on ``main`` are denied.
+
+If a required check turns out to be wrong, fix it forward — there is no
+escape hatch.
+
+Osprey Agent Workflow Skill
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If you use the Osprey agent (e.g., via `Claude Code <https://docs.claude.com/en/docs/claude-code>`_),
+install the bundled ``osprey-contribute`` skill to get guided help following
+this workflow:
+
+.. code-block:: bash
+
+   uv run osprey skills install osprey-contribute
+
+The skill walks you through branching, commits, push, PR, and CI iteration,
+auto-detecting whether you have push access to ``als-apg/osprey`` or are
+contributing from a fork. It composes with the other bundled skills:
+
+- ``osprey-pre-commit`` -- standalone validation runs
+- ``commit-organize`` -- splits a messy working tree into atomic commits
+- ``osprey-release`` -- the release-cutting flow for maintainers
+
+List all installable skills with ``uv run osprey skills install --help``.
+
+----
+
+Code Standards
+--------------
+
+Python Style
+^^^^^^^^^^^^
+
+We follow PEP 8 with Ruff enforcement:
+
+- **Line length**: 100 characters
+- **Type hints**: Gradual typing enforced with mypy
+- **Docstrings**: Google style
+- **Classes**: PascalCase, **Functions**: snake_case, **Constants**: UPPER_SNAKE_CASE
+
+**Import organization:** standard library, then third-party, then local (``from osprey...``).
+
+Linting and Formatting
+^^^^^^^^^^^^^^^^^^^^^^
+
+.. code-block:: bash
+
+   # Lint and format
+   uv run ruff check src/ tests/
+   uv run ruff format src/ tests/
+
+   # Auto-fix lint issues
+   uv run ruff check --fix src/ tests/
+
+   # Type checking
+   uv run mypy src/
+
+Testing
+^^^^^^^
+
+All new functionality must include tests.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 40 40
+
+   * - Type
+     - When to Use
+     - Cost/Speed
+   * - **Unit**
+     - Pure functions, business logic, utilities
+     - Fast, no external dependencies
+   * - **Integration**
+     - Component interactions, API endpoints
+     - Medium
+   * - **E2E**
+     - Critical user flows, deployment validation
+     - Slow, requires API keys ($0.10-$0.25/run)
+
+**Running tests:**
+
+.. code-block:: bash
+
+   # Unit tests (fast, no API keys required)
+   uv run pytest tests/ --ignore=tests/e2e -v
+
+   # Single test file
+   uv run pytest tests/path/to/test_file.py -v
+
+   # Single test function
+   uv run pytest tests/path/to/test_file.py::test_function_name -v
+
+   # E2E tests (requires API keys) -- MUST use path, NOT marker
+   uv run pytest tests/e2e/ -v
+
+   # With coverage
+   uv run pytest tests/ --ignore=tests/e2e --cov=src/osprey
+
+.. warning::
+
+   E2E tests **must** be run with ``pytest tests/e2e/`` not ``pytest -m e2e``.
+   The marker-based approach causes registry state leaks and service conflicts.
+
+Docstrings
+^^^^^^^^^^
+
+All public functions, classes, and methods need Google-style docstrings:
+
+.. code-block:: python
+
+   def capability_function(param1: str, param2: int) -> bool:
+       """Short description of function.
+
+       Args:
+           param1: Description of first parameter.
+           param2: Description of second parameter.
+
+       Returns:
+           Description of return value.
+
+       Raises:
+           ValueError: When parameter is invalid.
+       """
+
+----
+
+Community Guidelines
+--------------------
+
+**Code of Conduct**: We are committed to a welcoming and inclusive environment. Be respectful, welcome newcomers, accept constructive criticism, and show empathy. Harassment, personal attacks, trolling, or publishing private information are unacceptable. Report issues to the maintainers; all reports are handled confidentially.
+
+**Communication Channels:**
+
+- **GitHub Issues** -- Bug reports, feature requests, task tracking
+- **GitHub Discussions** -- Questions, ideas, brainstorming
+- **Pull Requests** -- Code contributions, documentation, code review
+
+**Reporting Bugs**: Search existing issues first, then open a bug report with a clear description, reproduction steps, environment details (OS, Python version, Osprey version), and full error messages.
+
+**Feature Requests**: Describe your use case, current limitations, proposed solution, and alternatives considered.
+
+**Response Expectations**: Maintainers are volunteers. Please be patient and provide clear, detailed information.
+
+Getting Help
+------------
+
+- `GitHub Discussions <https://github.com/als-apg/osprey/discussions>`_ -- Ask questions, share ideas
+- `GitHub Issues <https://github.com/als-apg/osprey/issues>`_ -- Report bugs, request features
