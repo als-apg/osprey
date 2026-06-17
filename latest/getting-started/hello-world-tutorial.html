@@ -522,8 +522,16 @@ configure them manually.</p>
 <section id="step-3-start-the-agent">
 <h2>Step 3: Start the Agent<a class="headerlink" href="#step-3-start-the-agent" title="Link to this heading">#</a></h2>
 <p>From your project directory:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>claude
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>claude<span class="w"> </span>chat
 </pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">chat</span></code> is the recommended way to launch: it reads
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and points the agent at your configured LLM provider.
+Launching the bare agent CLI skips this, so it silently uses whatever
+provider your shell environment points at — see
+<a class="reference internal" href="../how-to/use-cli-chat.html"><span class="doc">Use the CLI Chat Interface</span></a>.</p>
 </div>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
@@ -579,7 +587,7 @@ results together — vacuum pressure and magnet readback values.</p>
 <code class="docutils literal notranslate"><span class="pre">.claude/</span></code> artifacts), so editing <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> alone does not change the
 agent’s behavior. Regenerate the artifacts and relaunch:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>claude<span class="w"> </span>regen
-claude
+osprey<span class="w"> </span>claude<span class="w"> </span>chat
 </pre></div>
 </div>
 <div class="admonition note">
@@ -672,6 +680,9 @@ finder, electronic logbook search, archiver access, and a web terminal</p></li>
 <li><p><strong>Architecture deep dive</strong>: The <a class="reference internal" href="conceptual-tutorial.html"><span class="doc">Conceptual Tutorial</span></a> explains the
 MCP server architecture, connector system, and safety mechanisms</p></li>
 <li><p><strong>CLI reference</strong>: See <a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a> for all <code class="docutils literal notranslate"><span class="pre">osprey</span></code> commands</p></li>
+<li><p><strong>Launch options &amp; providers</strong>: <a class="reference internal" href="../how-to/use-cli-chat.html"><span class="doc">Use the CLI Chat Interface</span></a> explains what
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">chat</span></code> sets up and how to point the agent at a non-default LLM
+provider via <code class="docutils literal notranslate"><span class="pre">config.yml</span></code></p></li>
 </ul>
 </section>
 </section>
