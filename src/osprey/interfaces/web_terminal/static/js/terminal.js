@@ -1,6 +1,6 @@
 /* OSPREY Web Terminal — Terminal Module */
 
-import { createWebSocket } from './api.js';
+import { createWebSocket, wsUrl } from './api.js';
 import { getXtermPalette, setTerminalRef } from './theme.js';
 
 let term = null;
@@ -91,13 +91,13 @@ export function startTerminal(sessionId = null, mode = 'new') {
   if (wsConnection) return;
   if (!term) return;
 
-  let wsUrl = `ws://${location.host}/ws/terminal`;
+  let url = wsUrl('/ws/terminal');
   if (mode === 'resume' && sessionId) {
-    wsUrl += `?session_id=${encodeURIComponent(sessionId)}&mode=resume`;
+    url += `?session_id=${encodeURIComponent(sessionId)}&mode=resume`;
     currentSessionId = sessionId;
   }
 
-  wsConnection = createWebSocket(wsUrl, {
+  wsConnection = createWebSocket(url, {
     onOpen() {
       // On reconnection (server restart), reset terminal to avoid
       // garbled output from old session mixed with new.
@@ -146,7 +146,7 @@ export function startTerminal(sessionId = null, mode = 'new') {
             // Update reconnect URL so auto-reconnect targets the correct session
             if (wsConnection) {
               wsConnection.setUrl(
-                `ws://${location.host}/ws/terminal?session_id=${encodeURIComponent(msg.session_id)}&mode=resume`
+                wsUrl(`/ws/terminal?session_id=${encodeURIComponent(msg.session_id)}&mode=resume`)
               );
             }
           } else if (msg.type === 'error') {

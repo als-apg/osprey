@@ -20,6 +20,16 @@ export function getConnectionState() {
 }
 
 /**
+ * Build a same-origin WebSocket URL with the scheme that matches the current
+ * page: wss:// when served over HTTPS, ws:// otherwise. Pass a root-absolute
+ * path such as '/ws/terminal'. Avoids mixed-content failures under TLS.
+ */
+export function wsUrl(path) {
+  const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${scheme}//${location.host}${path}`;
+}
+
+/**
  * Create a WebSocket with exponential backoff reconnection.
  */
 export function createWebSocket(url, { onOpen, onMessage, onClose, onError } = {}) {
