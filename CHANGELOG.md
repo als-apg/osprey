@@ -11,6 +11,8 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+## [2026.6.1] - 2026-06-17
+
 ### Added
 
 - **Event dispatch (opt-in).** New `osprey.dispatch` FastMCP server + `osprey.mcp_server.dispatch_worker` service turn external events into headless agent runs, with a live dashboard, an in-memory FIFO pool with backpressure, per-trigger tool allowlists, and a server-side tool denylist (shell + web/browser tools blocked regardless of a trigger's allowlist). All dispatcher and worker HTTP endpoints that carry agent output or accept writes are bearer-token gated (the in-terminal EVENTS tab injects the token server-side, so the browser never holds it); `osprey deploy up` auto-generates the tokens into the project `.env` so a fresh deploy is secure with zero editing. Enable per profile via a `dispatch:` block; the `control-assistant` preset ships four control-system-free tutorial triggers (fire `hello-dispatch` with a single `curl`). Trigger sources are pluggable via the `osprey.trigger_sources` entry-point group (built-in: `webhook`, `cron`). Worker containers mount the project `.env` read-only so dispatched agent runs can authenticate to the LLM provider. The pipeline is exercised end-to-end by real-token e2e tests — a subprocess sweep over the shipped triggers and a full Docker-stack deploy. `osprey deploy up` builds a shared local image for the dispatcher + worker from a bundled Dockerfile (no published image required); use `--dev` to bake in a local osprey checkout, or set `OSPREY_DISPATCH_IMAGE`/`OSPREY_WORKER_IMAGE` to use a prebuilt image.
@@ -35,6 +37,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Drop the unused `ANTHROPIC_API_KEY` forwarding from the `python` executor MCP server env; nothing in the executor stack reads it (#264).
 - `osprey deploy up --dev` now passes `--build` so the freshly-rendered local wheel is actually baked into the image; previously compose reused the cached image and ran stale code after the first build.
 - `osprey deploy up --dev` now builds the local wheel with the active interpreter (`sys.executable`) instead of bare `python3`. In a non-activated virtualenv, PATH `python3` is the system/pyenv interpreter, which lacks the `build` package — so the wheel build silently failed and containers fell back to the released PyPI version (missing any unreleased local code).
+- `osprey build` no longer aborts when a profile removes a framework agent (e.g. dropping the logbook agents) while also disabling the MCP server those agents depended on. OSPREY's two-pass `.claude/` render left the dropped agents' `.md` files orphaned on disk with their original `mcp__*` tool frontmatter, which the agent tool/permission drift check then flagged as a false positive and aborted the build. Files outside the active manifest selection are now deleted on re-render instead of left behind. (#266)
 
 ### Removed
 
