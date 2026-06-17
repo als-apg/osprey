@@ -94,6 +94,23 @@ class TestProviderRegistry:
         assert "cborg" in result
 
     @pytest.mark.unit
+    def test_load_providers_skips_failed_imports(self):
+        """A configured provider whose module can't be imported is silently
+        dropped from the result (not crashing the bulk load) while valid
+        siblings still load. This is the air-gapped behavior the `if cls is not
+        None` guard exists for — exercised here via a deliberately broken entry.
+        """
+        reg = ProviderRegistry()
+        reg.register_provider(
+            "broken_provider",
+            "osprey.models.providers.does_not_exist_xyz",
+            "NoSuchAdapter",
+        )
+        result = reg.load_providers(configured_names={"anthropic", "broken_provider"})
+        assert "broken_provider" not in result
+        assert "anthropic" in result
+
+    @pytest.mark.unit
     def test_lazy_load_caches(self):
         """Second get_provider call returns cached class (no re-import)."""
         reg = ProviderRegistry()

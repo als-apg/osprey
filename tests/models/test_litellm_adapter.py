@@ -114,10 +114,15 @@ class TestSupportsNativeStructuredOutput:
     """
 
     def test_takes_litellm_model_string(self):
-        """Function accepts LiteLLM-formatted model string and provider."""
-        # Should not raise - function accepts string and returns bool
+        """anthropic declares the flag as None, so the decision defers to litellm.
+
+        litellm does not recognize the bare "claude-sonnet-4" model string, so
+        ``supports_response_schema`` reports False — i.e. OSPREY uses its
+        prompt-based fallback. Asserting the concrete decision (not just that a
+        bool came back) catches an inverted or short-circuited routing bug.
+        """
         result = _supports_native_structured_output("anthropic/claude-sonnet-4", "anthropic")
-        assert isinstance(result, bool)
+        assert result is False
 
     def test_handles_unknown_model_gracefully(self):
         """Returns False for unknown models instead of raising."""
@@ -175,6 +180,21 @@ class TestCleanJsonResponse:
         """Handles only trailing markdown."""
         result = _clean_json_response('{"key": "value"}```')
         assert result == '{"key": "value"}'
+
+    def test_fixes_python_style_booleans(self):
+        """Python-style True/False values are rewritten to JSON true/false.
+
+        This exercises the boolean-fixing regex branch (lines 419-422), which is
+        otherwise untested — covering both ': True' and ', False' positions.
+        """
+        result = _clean_json_response('{"a": True, "b": False}')
+        assert result == '{"a": true, "b": false}'
+
+    def test_does_not_corrupt_true_inside_string_value(self):
+        """The boolean regex must only touch bare values, never text inside a
+        quoted string (the leading quote breaks the ':\\s*True' match)."""
+        result = _clean_json_response('{"x": "True story"}')
+        assert result == '{"x": "True story"}'
 
 
 class TestStructuredOutputCapabilityFlag:

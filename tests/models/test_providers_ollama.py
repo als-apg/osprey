@@ -146,6 +146,52 @@ class TestOllamaExecuteCompletion:
         assert call_args[1]["json"]["model"] == "mistral:7b"
 
     @patch("httpx.post")
+    @patch.object(OllamaProviderAdapter, "_test_connection", return_value=True)
+    def test_execute_structured_output(self, mock_test, mock_post):
+        """output_format routes through the direct structured-output path,
+        requesting format=json and validating the response into the model."""
+        provider = OllamaProviderAdapter()
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"message": {"content": '{"result": "ok", "value": 42}'}}
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        result = provider.execute_completion(
+            message="Extract",
+            model_id="mistral:7b",
+            api_key=None,
+            base_url="http://localhost:11434",
+            output_format=SampleOutput,
+        )
+
+        assert isinstance(result, SampleOutput)
+        assert result == SampleOutput(result="ok", value=42)
+        # The structured path must ask Ollama for JSON-formatted output.
+        assert mock_post.call_args[1]["json"]["format"] == "json"
+
+    @patch("httpx.post")
+    @patch.object(OllamaProviderAdapter, "_test_connection", return_value=True)
+    def test_execute_structured_output_invalid_json_raises(self, mock_test, mock_post):
+        """Unparseable content surfaces as a ValueError rather than propagating a
+        raw pydantic error or returning garbage."""
+        provider = OllamaProviderAdapter()
+
+        mock_response = MagicMock()
+        mock_response.json.return_value = {"message": {"content": "not valid json"}}
+        mock_response.raise_for_status = MagicMock()
+        mock_post.return_value = mock_response
+
+        with pytest.raises(ValueError, match="Failed to parse structured output"):
+            provider.execute_completion(
+                message="Extract",
+                model_id="mistral:7b",
+                api_key=None,
+                base_url="http://localhost:11434",
+                output_format=SampleOutput,
+            )
+
+    @patch("httpx.post")
     @patch.object(
         OllamaProviderAdapter,
         "_test_connection",
@@ -168,6 +214,10 @@ class TestOllamaExecuteCompletion:
         )
 
         assert result == "Response"
+        # The primary localhost URL failed (_test_connection -> False), so the
+        # request must target the resolved fallback host, not the original URL.
+        # Asserting the URL is what distinguishes this from the no-fallback path.
+        assert mock_post.call_args[0][0] == "http://host.containers.internal:11434/api/chat"
 
     @patch.object(OllamaProviderAdapter, "_test_connection", return_value=False)
     def test_execute_completion_all_connections_fail(self, mock_test):

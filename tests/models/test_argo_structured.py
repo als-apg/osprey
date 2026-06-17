@@ -255,7 +255,21 @@ class TestArgoExecuteCompletionStructured:
             output_format=SampleOutput,
         )
 
-        mock_structured.assert_called_once()
+        # Assert the full set of forwarded kwargs, not just that the handler was
+        # called once: a regression that dropped or mis-mapped output_format or
+        # is_typed_dict_output (extracted from **kwargs) would still call the
+        # handler exactly once and return a SampleOutput, passing a presence-only
+        # check.
+        mock_structured.assert_called_once_with(
+            model_id="gpt5mini",
+            message="Extract info",
+            output_format=SampleOutput,
+            api_key="test-key",
+            base_url="https://test.url",
+            max_tokens=1024,
+            temperature=0.0,
+            is_typed_dict_output=False,
+        )
         assert isinstance(result, SampleOutput)
 
     @patch("osprey.models.providers.litellm_adapter.litellm.completion")

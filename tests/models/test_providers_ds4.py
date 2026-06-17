@@ -12,10 +12,10 @@ class TestDS4Provider:
         assert DS4ProviderAdapter.is_openai_compatible is True
         assert DS4ProviderAdapter.requires_api_key is False
         assert DS4ProviderAdapter.default_base_url == "http://127.0.0.1:8000/v1"
-
-    @pytest.mark.unit
-    def test_uses_prompt_fallback_for_structured_output(self):
-        # ds4 ignores response_format json_schema -> must NOT use native path
+        # ds4 accepts but ignores response_format json_schema -> must NOT use the
+        # native path. The behavioral consequence (this flag actually routing ds4
+        # to the prompt fallback) is verified in
+        # test_litellm_adapter.py::TestStructuredOutputCapabilityFlag::test_ds4_declares_false_end_to_end.
         assert DS4ProviderAdapter.supports_native_structured_output is False
 
     @pytest.mark.unit
@@ -102,3 +102,53 @@ class TestDS4Provider:
 
         result = DS4ProviderAdapter().check_health(api_key="EMPTY", base_url="http://host:8001/v1")
         assert result == (False, "ds4 server returned 503")
+
+    @pytest.mark.unit
+    def test_check_health_connect_error(self, monkeypatch):
+        """A refused connection yields the connect-specific diagnostic (the most
+        likely real failure for a local inference server) and never reaches the
+        litellm health call."""
+        import httpx
+
+        def fake_get(url, timeout=None):
+            raise httpx.ConnectError("connection refused")
+
+        monkeypatch.setattr(httpx, "get", fake_get)
+
+        result = DS4ProviderAdapter().check_health(api_key="EMPTY", base_url="http://host:8001/v1")
+        assert result == (False, "Cannot connect to ds4 server at http://host:8001/v1")
+
+    @pytest.mark.unit
+    def test_check_health_query_error(self, monkeypatch):
+        """A non-connect error querying the server is wrapped in the generic
+        'Error querying ds4' message rather than propagating."""
+        import httpx
+
+        def fake_get(url, timeout=None):
+            raise ValueError("boom")
+
+        monkeypatch.setattr(httpx, "get", fake_get)
+
+        result = DS4ProviderAdapter().check_health(api_key="EMPTY", base_url="http://host:8001/v1")
+        assert result == (False, "Error querying ds4: boom")
+
+    @pytest.mark.unit
+    def test_check_health_model_without_id(self, monkeypatch):
+        """A model entry lacking an 'id' leaves model_id unset, so the post-query
+        guard reports no usable model instead of forwarding None to litellm."""
+
+        class _Resp:
+            status_code = 200
+
+            def json(self):
+                return {"data": [{"object": "model"}]}  # no "id" key
+
+        def fake_get(url, timeout=None):
+            return _Resp()
+
+        import httpx
+
+        monkeypatch.setattr(httpx, "get", fake_get)
+
+        result = DS4ProviderAdapter().check_health(api_key="EMPTY", base_url="http://host:8001/v1")
+        assert result == (False, "No model available for health check")
