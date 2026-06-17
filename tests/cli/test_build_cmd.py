@@ -1839,6 +1839,104 @@ def test_build_profile_only_tier(tmp_path: Path, paradigm: str) -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Events-panel URL derivation (Task 1.4)
+# ---------------------------------------------------------------------------
+
+
+class TestEventsPanelUrlDerivation:
+    """_inject_dispatch derives web.panels.events.url from dispatcher_port."""
+
+    def _write_minimal_config(self, project_path: Path) -> None:
+        """Write the smallest config.yml that _inject_dispatch needs."""
+        from ruamel.yaml import YAML
+
+        yaml = YAML()
+        with open(project_path / "config.yml", "w") as fh:
+            yaml.dump({"deployed_services": [], "services": {}}, fh)
+
+    def _dispatch(self, dispatcher_port: int = 8020, **overrides: object):
+        from osprey.cli.build_profile import DispatchConfig
+
+        base: dict = {
+            "triggers": "tutorial_triggers.yml",
+            "worker_count": 1,
+            "workspace_mode": "isolated",
+            "max_concurrent_runs": 2,
+            "max_queue_depth": 50,
+            "dispatcher_port": dispatcher_port,
+            "worker_port_base": 9190,
+            "timeout_sec": 300,
+            "facility_name": "generic-facility",
+            "pv_strip_prefix": "",
+        }
+        base.update(overrides)
+        return DispatchConfig(**base)  # type: ignore[arg-type]
+
+    def _inject(self, dispatch, project_path: Path, profile_dir: Path) -> None:
+        from osprey.cli.build_cmd import _inject_dispatch
+
+        _inject_dispatch(dispatch, profile_dir=profile_dir, project_path=project_path)
+
+    def _read_config(self, project_path: Path) -> dict:
+        import yaml
+
+        return yaml.safe_load((project_path / "config.yml").read_text()) or {}
+
+    def test_events_panel_url_derived_from_dispatcher_port(self, tmp_path: Path) -> None:
+        """web.panels.events.url is written as http://localhost:{port}/dashboard."""
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        profile_dir = tmp_path / "profile"
+        profile_dir.mkdir()
+        self._write_minimal_config(project_path)
+
+        self._inject(self._dispatch(dispatcher_port=8888), project_path, profile_dir)
+
+        config = self._read_config(project_path)
+        url = config["web"]["panels"]["events"]["url"]
+        assert url == "http://localhost:8888/dashboard"
+
+    def test_events_panel_url_reflects_custom_port(self, tmp_path: Path) -> None:
+        """Different dispatcher_port values produce different derived URLs."""
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        profile_dir = tmp_path / "profile"
+        profile_dir.mkdir()
+        self._write_minimal_config(project_path)
+
+        self._inject(self._dispatch(dispatcher_port=9999), project_path, profile_dir)
+
+        config = self._read_config(project_path)
+        assert config["web"]["panels"]["events"]["url"] == "http://localhost:9999/dashboard"
+
+    def test_explicit_events_url_not_overwritten(self, tmp_path: Path) -> None:
+        """An explicit web.panels.events.url already in config.yml is not replaced."""
+        from ruamel.yaml import YAML
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        profile_dir = tmp_path / "profile"
+        profile_dir.mkdir()
+
+        # Pre-set an explicit URL via a profile config override (simulated here by
+        # writing it directly into config.yml before _inject_dispatch runs).
+        yaml = YAML()
+        config_pre = {
+            "deployed_services": [],
+            "services": {},
+            "web": {"panels": {"events": {"url": "http://custom-host:7777/dashboard"}}},
+        }
+        with open(project_path / "config.yml", "w") as fh:
+            yaml.dump(config_pre, fh)
+
+        self._inject(self._dispatch(dispatcher_port=8020), project_path, profile_dir)
+
+        config = self._read_config(project_path)
+        # Explicit URL must survive — derivation must not overwrite it.
+        assert config["web"]["panels"]["events"]["url"] == "http://custom-host:7777/dashboard"
+
+
 def test_build_channel_finder_agent_requires_mode(tmp_path: Path) -> None:
     """A profile that selects the channel-finder agent but omits
     channel_finder_mode must fail with a clear BuildProfileError."""
