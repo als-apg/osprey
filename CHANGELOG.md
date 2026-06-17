@@ -27,6 +27,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- Hello-world tutorial now launches via `osprey claude chat` instead of bare `claude`, so the provider configured under `claude_code` is actually used (bare `claude` silently falls back to the shell's provider); links the CLI-chat how-to (#261).
 - The control_assistant scenario e2e tests (`test_vacuum_burst_scenario` and `test_rf_cavity_correlation_scenario`) drive their archiver ground truth from the simulation engine via `activate_scenarios`, which also seeds the matching ARIEL logbook deterministically at setup (replacing the manual `purge && ingest` pre-seed and its stale-DB footgun). They build at tier 3 so every simulated channel is discoverable through the channel finder.
 
 ### Fixed
