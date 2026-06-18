@@ -271,6 +271,20 @@ class TestCoolDown:
             assert rec.wait_until(2)
         assert rec.call_count == 2
 
+    def test_first_fire_not_suppressed_when_monotonic_below_cooldown(self) -> None:
+        """A large cool_down must not suppress the FIRST fire when the monotonic
+        clock reads below cool_down_sec (e.g. a freshly booted host, where
+        ``time.monotonic()`` can be smaller than the configured cool-down)."""
+        rec = _FireRecorder()
+        trigger = _trigger(pv="SIM:BEAM", threshold=1.0, edge="rising", cool_down_sec=9999.0)
+        with patch("osprey.dispatch.sources.epics_ca.time.monotonic", return_value=5.0):
+            with _running_loop() as loop:
+                _watcher, fake_pv = _arm_watcher(trigger, rec, loop)
+                fake_pv.fire(0.0)  # first read (suppressed)
+                fake_pv.fire(2.0)  # crossing — must fire despite monotonic(5) < cool_down
+                assert rec.wait_until(1)
+        assert rec.call_count == 1
+
 
 class TestNonNumericValue:
     """Non-numeric PV values are logged and ignored, not raised on the CA thread."""

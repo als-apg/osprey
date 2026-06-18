@@ -50,7 +50,7 @@ class _PvWatcher:
         self._fire = fire_callback
         self._loop = loop
         self._pv: epics.PV | None = None
-        self._last_fire_ts: float = 0.0
+        self._last_fire_ts: float | None = None  # None = has not fired yet
         self._last_value: float | None = None  # None = first read not yet seen
 
     def start(self) -> None:
@@ -99,7 +99,10 @@ class _PvWatcher:
         if not self._detect_edge(prev, numeric):
             return
         now = time.monotonic()
-        if now - self._last_fire_ts < self._cool_down:
+        # Cool-down only applies between actual fires — never relative to the
+        # monotonic epoch, or a large cool_down_sec would suppress the first
+        # event whenever monotonic() < cool_down_sec (e.g. a freshly booted host).
+        if self._last_fire_ts is not None and now - self._last_fire_ts < self._cool_down:
             return
         self._last_fire_ts = now
         payload = {
