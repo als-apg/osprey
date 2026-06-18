@@ -30,6 +30,10 @@ api:
     amsc-i2:
       api_key: ${AMSC_I2_API_KEY}
       base_url: https://api.i2-core.american-science-cloud.org/v1
+      models:                        # Model IDs as named by this provider
+        haiku: claude-haiku
+        sonnet: claude-sonnet
+        opus: claude-opus
     stanford:
       api_key: ${STANFORD_API_KEY}
       base_url: https://aiapi-prod.stanford.edu/v1
