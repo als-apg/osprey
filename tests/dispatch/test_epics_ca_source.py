@@ -8,7 +8,9 @@ fake that injects callbacks synchronously.
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
+from contextlib import contextmanager
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -110,52 +112,85 @@ class TestPvWatcherEdgeDetection:
 
 
 # ---------------------------------------------------------------------------
-# Integration-style tests: _PvWatcher with fake CA + real asyncio loop
+# Integration-style tests: _PvWatcher with a fake CA monitor and a real asyncio
+# loop running in a background thread.
+#
+# This mirrors production: pyepics delivers CA callbacks on its own thread while
+# the dispatcher's asyncio loop runs elsewhere, and ``_PvWatcher`` bridges the
+# two via ``run_coroutine_threadsafe``.  Running a genuine loop (rather than
+# hand-stepping one) keeps the threadsafe hand-off deterministic regardless of
+# platform, Python version, or scheduling timing.
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture()
-def event_loop():
-    """Fresh asyncio event loop for each test."""
+@contextmanager
+def _running_loop():
+    """Yield an asyncio loop that is running in a dedicated background thread."""
     loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
+    ready = threading.Event()
+
+    def _serve() -> None:
+        asyncio.set_event_loop(loop)
+        loop.call_soon(ready.set)
+        loop.run_forever()
+
+    thread = threading.Thread(target=_serve, name="epics-ca-test-loop", daemon=True)
+    thread.start()
+    if not ready.wait(5.0):  # pragma: no cover - safety net
+        raise RuntimeError("test event loop failed to start")
+    try:
+        yield loop
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(5.0)
+        loop.close()
 
 
-def _run(coro, loop: asyncio.AbstractEventLoop):
-    """Run ``coro`` on ``loop``, then drain any coroutines scheduled via
-    ``run_coroutine_threadsafe``.
+class _FireRecorder:
+    """Async fire-callback stand-in that records each dispatch thread-safely.
 
-    ``run_coroutine_threadsafe`` hands work to the loop in two hops: a
-    threadsafe callback first creates the task, and only a later loop iteration
-    runs that task to completion.  A single ``run_until_complete(sleep(0))`` is
-    therefore not guaranteed to execute the dispatch coroutine — on some
-    platforms/Python builds the self-pipe wakeup and the task's first step land
-    in different iterations, leaving ``call_count`` at 0.  Pump the loop until
-    it has no pending tasks or ready callbacks so the assertions are
-    deterministic regardless of scheduling timing.
+    The dispatch runs on the loop thread; the test asserts from the main thread.
+    ``wait_until`` polls the thread-safe counter so positive assertions block
+    only as long as needed, and ``settle`` gives any spurious dispatch a chance
+    to land before a negative assertion.
     """
-    result = loop.run_until_complete(coro)
-    # ``run_coroutine_threadsafe`` needs at least two iterations to land: one to
-    # run the threadsafe callback that creates the task, and one (or more) to run
-    # the task itself.  The threadsafe callback may also still be queued and not
-    # yet have created its task, so requiring two *consecutive* idle checks
-    # ensures a just-created task is observed before we stop pumping.
-    idle_checks = 0
-    for _ in range(100):
-        if any(not t.done() for t in asyncio.all_tasks(loop)):
-            idle_checks = 0
-        else:
-            idle_checks += 1
-            if idle_checks >= 2:
-                break
-        loop.run_until_complete(asyncio.sleep(0))
-    return result
+
+    def __init__(self, return_value: str | None = "dispatch-id") -> None:
+        self._return_value = return_value
+        self._lock = threading.Lock()
+        self._calls: list[tuple[Any, dict[str, Any]]] = []
+
+    async def __call__(self, trigger: Any, payload: dict[str, Any]) -> str | None:
+        with self._lock:
+            self._calls.append((trigger, payload))
+        return self._return_value
+
+    @property
+    def call_count(self) -> int:
+        with self._lock:
+            return len(self._calls)
+
+    @property
+    def payloads(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return [payload for _, payload in self._calls]
+
+    def wait_until(self, count: int, timeout: float = 2.0) -> bool:
+        """Block until at least ``count`` dispatches have run (or timeout)."""
+        deadline = time.monotonic() + timeout
+        while self.call_count < count and time.monotonic() < deadline:
+            time.sleep(0.005)
+        return self.call_count >= count
+
+    @staticmethod
+    def settle(grace: float = 0.15) -> None:
+        """Let any in-flight dispatch land before a 'did not fire' assertion."""
+        time.sleep(grace)
 
 
 def _arm_watcher(
     trigger: TriggerConfig,
-    fire_cb: AsyncMock,
+    fire_cb: Any,
     loop: asyncio.AbstractEventLoop,
 ) -> tuple[_PvWatcher, _FakePV]:
     """Arm a _PvWatcher with a _FakePV and return both."""
@@ -176,30 +211,26 @@ def _arm_watcher(
 class TestFirstReadSuppression:
     """No fire on the initial connect-time PV value."""
 
-    def test_no_fire_on_first_value(self, event_loop) -> None:
-        fire_cb = AsyncMock(return_value="dispatch-id-1")
+    def test_no_fire_on_first_value(self) -> None:
+        rec = _FireRecorder()
         trigger = _trigger(pv="SIM:SETPOINT", threshold=1.0, edge="rising")
-        watcher, fake_pv = _arm_watcher(trigger, fire_cb, event_loop)
+        with _running_loop() as loop:
+            _watcher, fake_pv = _arm_watcher(trigger, rec, loop)
+            # First value: suppressed even though it crosses the threshold.
+            fake_pv.fire(2.0)
+            rec.settle()
+        assert rec.call_count == 0
 
-        # First value: should suppress regardless of whether it crosses threshold.
-        fake_pv.fire(2.0)
-        _run(asyncio.sleep(0), event_loop)  # drain any queued coroutines
-
-        fire_cb.assert_not_called()
-
-    def test_fire_on_second_crossing(self, event_loop) -> None:
-        fire_cb = AsyncMock(return_value="dispatch-id-2")
+    def test_fire_on_second_crossing(self) -> None:
+        rec = _FireRecorder()
         trigger = _trigger(pv="SIM:SETPOINT", threshold=1.0, edge="rising", cool_down_sec=0.0)
-        watcher, fake_pv = _arm_watcher(trigger, fire_cb, event_loop)
-
-        fake_pv.fire(0.0)  # first read (suppressed)
-        fake_pv.fire(2.0)  # rising crossing — should fire
-
-        # run_coroutine_threadsafe schedules on the loop; run a step to execute it.
-        _run(asyncio.sleep(0), event_loop)
-
-        fire_cb.assert_called_once()
-        payload = fire_cb.call_args[0][1]
+        with _running_loop() as loop:
+            _watcher, fake_pv = _arm_watcher(trigger, rec, loop)
+            fake_pv.fire(0.0)  # first read (suppressed)
+            fake_pv.fire(2.0)  # rising crossing — should fire
+            assert rec.wait_until(1)
+        assert rec.call_count == 1
+        payload = rec.payloads[0]
         assert payload["source"] == "epics_ca"
         assert payload["pv"] == "SIM:SETPOINT"
         assert payload["value"] == 2.0
@@ -209,68 +240,66 @@ class TestFirstReadSuppression:
 class TestCoolDown:
     """Repeat fires within cool_down_sec are suppressed."""
 
-    def test_second_fire_suppressed_within_cool_down(self, event_loop) -> None:
-        fire_cb = AsyncMock(return_value="dispatch-id")
+    def test_second_fire_suppressed_within_cool_down(self) -> None:
+        rec = _FireRecorder()
         trigger = _trigger(pv="SIM:BEAM", threshold=1.0, edge="rising", cool_down_sec=9999.0)
-        watcher, fake_pv = _arm_watcher(trigger, fire_cb, event_loop)
+        with _running_loop() as loop:
+            _watcher, fake_pv = _arm_watcher(trigger, rec, loop)
+            fake_pv.fire(0.0)  # first read (suppressed)
+            fake_pv.fire(2.0)  # crossing — fires
+            assert rec.wait_until(1)
 
-        fake_pv.fire(0.0)  # first read (suppressed)
-        fake_pv.fire(2.0)  # crossing — fires
-        _run(asyncio.sleep(0), event_loop)
-        assert fire_cb.call_count == 1
+            # Fall back below then rise again within the cool-down window.
+            fake_pv.fire(0.0)  # falling
+            fake_pv.fire(2.0)  # rising again — suppressed by cool_down
+            rec.settle()
+        assert rec.call_count == 1  # second fire suppressed
 
-        # Simulate falling back below then rising again within the cool-down window.
-        fake_pv.fire(0.0)  # falling
-        fake_pv.fire(2.0)  # rising again — suppressed by cool_down
-        _run(asyncio.sleep(0), event_loop)
-        assert fire_cb.call_count == 1  # still 1, second fire suppressed
-
-    def test_fire_allowed_after_cool_down_expires(self, event_loop) -> None:
-        fire_cb = AsyncMock(return_value="dispatch-id")
+    def test_fire_allowed_after_cool_down_expires(self) -> None:
+        rec = _FireRecorder()
         trigger = _trigger(pv="SIM:BEAM", threshold=1.0, edge="rising", cool_down_sec=0.001)
-        watcher, fake_pv = _arm_watcher(trigger, fire_cb, event_loop)
+        with _running_loop() as loop:
+            _watcher, fake_pv = _arm_watcher(trigger, rec, loop)
+            fake_pv.fire(0.0)  # first read (suppressed)
+            fake_pv.fire(2.0)  # crossing — fires
+            assert rec.wait_until(1)
 
-        fake_pv.fire(0.0)  # first read (suppressed)
-        fake_pv.fire(2.0)  # crossing — fires
-        _run(asyncio.sleep(0), event_loop)
-        assert fire_cb.call_count == 1
+            time.sleep(0.01)  # wait longer than cool_down_sec
 
-        time.sleep(0.01)  # wait longer than cool_down_sec
-
-        fake_pv.fire(0.0)  # fall below
-        fake_pv.fire(2.0)  # rising again — cool-down expired, should fire
-        _run(asyncio.sleep(0), event_loop)
-        assert fire_cb.call_count == 2
+            fake_pv.fire(0.0)  # fall below
+            fake_pv.fire(2.0)  # rising again — cool-down expired, should fire
+            assert rec.wait_until(2)
+        assert rec.call_count == 2
 
 
 class TestNonNumericValue:
     """Non-numeric PV values are logged and ignored, not raised on the CA thread."""
 
-    def test_non_numeric_value_does_not_fire_or_raise(self, event_loop) -> None:
-        fire_cb = AsyncMock(return_value="dispatch-id")
+    def test_non_numeric_value_does_not_fire_or_raise(self) -> None:
+        rec = _FireRecorder()
         trigger = _trigger(pv="SIM:ENUM", threshold=1.0, edge="rising", cool_down_sec=0.0)
-        watcher, fake_pv = _arm_watcher(trigger, fire_cb, event_loop)
+        with _running_loop() as loop:
+            _watcher, fake_pv = _arm_watcher(trigger, rec, loop)
+            fake_pv.fire(0.0)  # numeric first read (suppressed)
+            fake_pv.fire("Enabled")  # non-numeric — must be ignored, not raise
+            rec.settle()
+            assert rec.call_count == 0
 
-        fake_pv.fire(0.0)  # numeric first read (suppressed)
-        fake_pv.fire("Enabled")  # non-numeric — must be ignored, not raise
-        _run(asyncio.sleep(0), event_loop)
-        fire_cb.assert_not_called()
+            # A subsequent numeric crossing still fires (watcher survived the bad value).
+            fake_pv.fire(2.0)
+            assert rec.wait_until(1)
+        assert rec.call_count == 1
 
-        # A subsequent numeric crossing still fires (watcher survived the bad value).
-        fake_pv.fire(2.0)
-        _run(asyncio.sleep(0), event_loop)
-        fire_cb.assert_called_once()
-
-    def test_numeric_string_is_coerced(self, event_loop) -> None:
-        fire_cb = AsyncMock(return_value="dispatch-id")
+    def test_numeric_string_is_coerced(self) -> None:
+        rec = _FireRecorder()
         trigger = _trigger(pv="SIM:STR", threshold=1.0, edge="rising", cool_down_sec=0.0)
-        watcher, fake_pv = _arm_watcher(trigger, fire_cb, event_loop)
-
-        fake_pv.fire("0.0")  # numeric string first read (suppressed)
-        fake_pv.fire("2.0")  # numeric string crossing — coerced and fires
-        _run(asyncio.sleep(0), event_loop)
-        fire_cb.assert_called_once()
-        payload = fire_cb.call_args[0][1]
+        with _running_loop() as loop:
+            _watcher, fake_pv = _arm_watcher(trigger, rec, loop)
+            fake_pv.fire("0.0")  # numeric string first read (suppressed)
+            fake_pv.fire("2.0")  # numeric string crossing — coerced and fires
+            assert rec.wait_until(1)
+        assert rec.call_count == 1
+        payload = rec.payloads[0]
         assert payload["value"] == 2.0
         assert payload["previous_value"] == 0.0
 
@@ -283,10 +312,10 @@ class TestNonNumericValue:
 class TestMultiPvIndependence:
     """Each PV watcher has its own state; one PV does not affect another."""
 
-    def test_cool_down_is_per_pv(self, event_loop) -> None:
+    def test_cool_down_is_per_pv(self) -> None:
         """Triggering PV-A within its cool-down must not affect PV-B."""
-        fire_a = AsyncMock(return_value="id-a")
-        fire_b = AsyncMock(return_value="id-b")
+        rec_a = _FireRecorder("id-a")
+        rec_b = _FireRecorder("id-b")
 
         trigger_a = _trigger(
             name="trigger-a", pv="SIM:PV:A", threshold=1.0, edge="rising", cool_down_sec=9999.0
@@ -295,56 +324,55 @@ class TestMultiPvIndependence:
             name="trigger-b", pv="SIM:PV:B", threshold=1.0, edge="rising", cool_down_sec=0.0
         )
 
-        watcher_a, pv_a = _arm_watcher(trigger_a, fire_a, event_loop)
-        watcher_b, pv_b = _arm_watcher(trigger_b, fire_b, event_loop)
+        with _running_loop() as loop:
+            _watcher_a, pv_a = _arm_watcher(trigger_a, rec_a, loop)
+            _watcher_b, pv_b = _arm_watcher(trigger_b, rec_b, loop)
 
-        pv_a.fire(0.0)  # first read A
-        pv_b.fire(0.0)  # first read B
+            pv_a.fire(0.0)  # first read A
+            pv_b.fire(0.0)  # first read B
 
-        pv_a.fire(2.0)  # A fires (1st)
-        pv_b.fire(2.0)  # B fires (1st)
-        _run(asyncio.sleep(0), event_loop)
-        assert fire_a.call_count == 1
-        assert fire_b.call_count == 1
+            pv_a.fire(2.0)  # A fires (1st)
+            pv_b.fire(2.0)  # B fires (1st)
+            assert rec_a.wait_until(1)
+            assert rec_b.wait_until(1)
 
-        # A is now in cool-down; B is not (cool_down=0).
-        pv_a.fire(0.0)
-        pv_a.fire(2.0)  # A: suppressed
-        pv_b.fire(0.0)
-        pv_b.fire(2.0)  # B: fires (2nd)
-        _run(asyncio.sleep(0), event_loop)
-        assert fire_a.call_count == 1  # A still suppressed
-        assert fire_b.call_count == 2  # B fired again
+            # A is now in cool-down; B is not (cool_down=0).
+            pv_a.fire(0.0)
+            pv_a.fire(2.0)  # A: suppressed
+            pv_b.fire(0.0)
+            pv_b.fire(2.0)  # B: fires (2nd)
+            assert rec_b.wait_until(2)
+            rec_a.settle()
+        assert rec_a.call_count == 1  # A still suppressed
+        assert rec_b.call_count == 2  # B fired again
 
-    def test_first_read_suppression_is_per_pv(self, event_loop) -> None:
+    def test_first_read_suppression_is_per_pv(self) -> None:
         """Each PV suppresses only its own first read."""
-        fire_a = AsyncMock(return_value="id-a")
-        fire_b = AsyncMock(return_value="id-b")
+        rec_a = _FireRecorder("id-a")
+        rec_b = _FireRecorder("id-b")
 
         trigger_a = _trigger(name="trigger-a", pv="SIM:PV:A")
         trigger_b = _trigger(name="trigger-b", pv="SIM:PV:B")
 
-        watcher_a, pv_a = _arm_watcher(trigger_a, fire_a, event_loop)
-        watcher_b, pv_b = _arm_watcher(trigger_b, fire_b, event_loop)
+        with _running_loop() as loop:
+            _watcher_a, pv_a = _arm_watcher(trigger_a, rec_a, loop)
+            _watcher_b, pv_b = _arm_watcher(trigger_b, rec_b, loop)
 
-        # B fires its first read (suppressed); A has not yet had one.
-        pv_b.fire(0.0)
+            # B fires its first read (suppressed); A has not yet had one.
+            pv_b.fire(0.0)
+            pv_b.fire(2.0)  # B crosses the threshold on its 2nd value → fires.
+            assert rec_b.wait_until(1)
 
-        # B crosses the threshold on its 2nd value → fires.
-        pv_b.fire(2.0)
-        _run(asyncio.sleep(0), event_loop)
-        assert fire_b.call_count == 1
+            # A still on its first read (suppressed).
+            pv_a.fire(2.0)
+            rec_a.settle()
+            assert rec_a.call_count == 0
 
-        # A still on its first read (suppressed).
-        pv_a.fire(2.0)
-        _run(asyncio.sleep(0), event_loop)
-        assert fire_a.call_count == 0  # A's first read suppressed
-
-        # A's 2nd value fires.
-        pv_a.fire(0.0)  # fall below
-        pv_a.fire(2.0)  # rise → fires
-        _run(asyncio.sleep(0), event_loop)
-        assert fire_a.call_count == 1
+            # A's 2nd value fires.
+            pv_a.fire(0.0)  # fall below
+            pv_a.fire(2.0)  # rise → fires
+            assert rec_a.wait_until(1)
+        assert rec_a.call_count == 1
 
 
 # ---------------------------------------------------------------------------
