@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from osprey.models.providers.litellm_adapter import (
     _clean_json_response,
+    _execute_ollama_structured_output,
     _handle_structured_output,
     _supports_native_structured_output,
     check_litellm_health,
@@ -111,6 +112,59 @@ class TestGetLiteLLMModelName:
         result = get_litellm_model_name("unknown_provider", "some-model")
         assert result == "unknown_provider/some-model"
 
+    def test_explicit_provider_class_skips_registry(self, monkeypatch):
+        """When provider_class is passed in, the registry must NOT be consulted
+        (the lazy import / lookup is skipped entirely)."""
+        import osprey.models.provider_registry as registry_module
+
+        def _boom():
+            raise AssertionError("registry must not be consulted when class is supplied")
+
+        monkeypatch.setattr(registry_module, "get_provider_registry", _boom)
+
+        class _StubOA:
+            is_openai_compatible = True
+
+        assert get_litellm_model_name("whatever", "m", provider_class=_StubOA) == "openai/m"
+
+    def test_class_without_prefix_falls_through_to_fallback_maps(self):
+        """A resolved class that is neither OpenAI-compatible nor declares a
+        litellm_prefix falls through to the hardcoded fallback maps, which still
+        route by provider name."""
+
+        class _StubBare:
+            is_openai_compatible = False
+            # no litellm_prefix attribute -> getattr returns None
+
+        assert get_litellm_model_name("anthropic", "claude-x", provider_class=_StubBare) == (
+            "anthropic/claude-x"
+        )
+
+    def test_fallback_openai_compatible_set_when_registry_unresolved(self, monkeypatch):
+        """If the registry can't resolve the provider, an OpenAI-compatible name
+        still routes via the last-resort _openai_compatible set (openai/ prefix)."""
+        import osprey.models.provider_registry as registry_module
+
+        class _EmptyRegistry:
+            def get_provider(self, name):
+                return None
+
+        monkeypatch.setattr(registry_module, "get_provider_registry", lambda: _EmptyRegistry())
+        assert get_litellm_model_name("ds4", "deepseek-v4-flash") == "openai/deepseek-v4-flash"
+
+    def test_fallback_prefix_maps_when_registry_unresolved(self, monkeypatch):
+        """If the registry can't resolve the provider, the last-resort prefix map
+        still applies: anthropic gets a prefix, openai gets none."""
+        import osprey.models.provider_registry as registry_module
+
+        class _EmptyRegistry:
+            def get_provider(self, name):
+                return None
+
+        monkeypatch.setattr(registry_module, "get_provider_registry", lambda: _EmptyRegistry())
+        assert get_litellm_model_name("anthropic", "claude-x") == "anthropic/claude-x"
+        assert get_litellm_model_name("openai", "gpt-4o") == "gpt-4o"  # empty prefix
+
 
 class TestSupportsNativeStructuredOutput:
     """Tests for structured output support detection.
@@ -135,6 +189,17 @@ class TestSupportsNativeStructuredOutput:
         # Unknown models should return False (use prompt-based fallback)
         result = _supports_native_structured_output("unknown/nonexistent-model-xyz", "unknown")
         assert result is False
+
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_litellm_lookup_exception_falls_back_to_false(self, mock_litellm):
+        """If the provider declares None (defer to litellm) and
+        supports_response_schema raises, the decision degrades safely to False
+        (prompt-based fallback) instead of propagating the error.
+
+        openai declares the flag as None, so the decision reaches litellm here.
+        """
+        mock_litellm.supports_response_schema.side_effect = Exception("lookup blew up")
+        assert _supports_native_structured_output("openai/gpt-4o", "openai") is False
 
     def test_openai_models_format(self):
         """OpenAI models use direct model name (no prefix)."""
@@ -344,6 +409,61 @@ class TestHandleStructuredOutputPromptFallback:
         assert "must respond with valid JSON" in sent[0]["content"]
         assert sent[1]["content"] == "partial"  # trailing assistant untouched
 
+    @patch("osprey.models.providers.litellm_adapter.litellm")
+    def test_chat_request_with_no_user_message_sends_messages_unchanged(self, mock_litellm):
+        """A pathological chat_request with no user turn finds nothing to append
+        to, so the messages are sent as-is (the loop completes without a break)."""
+        result, sent = self._call_with_chat_request(
+            mock_litellm,
+            [
+                {"role": "system", "content": "sys"},
+                {"role": "assistant", "content": "a"},
+            ],
+        )
+        assert result == _FallbackModel(name="abc", count=3)
+        assert [m["content"] for m in sent] == ["sys", "a"]  # untouched
+
+
+class TestExecuteOllamaStructuredOutput:
+    """The direct-API Ollama structured-output path (bypasses LiteLLM bug #15463)."""
+
+    @patch("httpx.post")
+    def test_typed_dict_output_returns_dict(self, mock_post):
+        """is_typed_dict_output=True dumps the validated model to a plain dict."""
+        response = MagicMock()
+        response.json.return_value = {"message": {"content": '{"name": "z", "count": 7}'}}
+        response.raise_for_status = MagicMock()
+        mock_post.return_value = response
+
+        result = _execute_ollama_structured_output(
+            model_id="llama3.1:8b",
+            message="extract",
+            output_format=_FallbackModel,
+            base_url="http://localhost:11434",
+            max_tokens=256,
+            is_typed_dict_output=True,
+        )
+        assert result == {"name": "z", "count": 7}
+        assert isinstance(result, dict)
+        # The direct path must request JSON-formatted output from Ollama.
+        assert mock_post.call_args.kwargs["json"]["format"] == "json"
+
+    @patch("httpx.post")
+    def test_unparseable_response_raises_valueerror(self, mock_post):
+        response = MagicMock()
+        response.json.return_value = {"message": {"content": "not json"}}
+        response.raise_for_status = MagicMock()
+        mock_post.return_value = response
+
+        with pytest.raises(ValueError, match="Failed to parse structured output from Ollama"):
+            _execute_ollama_structured_output(
+                model_id="llama3.1:8b",
+                message="extract",
+                output_format=_FallbackModel,
+                base_url="http://localhost:11434",
+                max_tokens=256,
+            )
+
 
 class TestStructuredOutputCapabilityFlag:
     """The capability attribute drives the structured-output path."""
@@ -449,6 +569,150 @@ class TestExecuteLitellmCompletionResponses:
 
         assert result == "hello there"
 
+    @patch("litellm.completion")
+    def test_no_api_key_is_omitted_from_completion_kwargs(self, mock_completion):
+        """A falsy api_key must not be forwarded as api_key=None to litellm (it is
+        simply omitted, letting litellm/env resolve credentials)."""
+        message = MagicMock()
+        message.tool_calls = None
+        message.content = "ok"
+        response = MagicMock()
+        response.choices = [MagicMock(message=message)]
+        mock_completion.return_value = response
+
+        execute_litellm_completion(
+            provider="openai", message="hi", model_id="gpt-4o", api_key=None, base_url=None
+        )
+        assert "api_key" not in mock_completion.call_args.kwargs
+
+    @patch("litellm.completion")
+    def test_empty_choices_returns_empty_string(self, mock_completion):
+        """A response with no choices yields '' rather than raising an IndexError."""
+        response = MagicMock()
+        response.choices = []
+        mock_completion.return_value = response
+
+        result = execute_litellm_completion(
+            provider="openai", message="hi", model_id="gpt-4o", api_key="k", base_url=None
+        )
+        assert result == ""
+
+
+class TestExecuteLitellmCompletionThinking:
+    """Extended-thinking handling in execute_litellm_completion."""
+
+    def test_budget_tokens_not_less_than_max_raises(self):
+        """budget_tokens >= max_tokens is rejected before any API call."""
+        with pytest.raises(ValueError, match="budget_tokens must be less than max_tokens"):
+            execute_litellm_completion(
+                provider="anthropic",
+                message="x",
+                model_id="claude-sonnet-4",
+                api_key="k",
+                base_url=None,
+                max_tokens=100,
+                enable_thinking=True,
+                budget_tokens=100,
+            )
+
+    @patch("litellm.completion")
+    def test_google_thinking_sets_thinking_config(self, mock_completion):
+        """Google extended thinking is forwarded as thinking_config, not the
+        Anthropic-style 'thinking' kwarg."""
+        message = MagicMock()
+        message.tool_calls = None
+        message.content = "ok"
+        response = MagicMock()
+        response.choices = [MagicMock(message=message)]
+        mock_completion.return_value = response
+
+        execute_litellm_completion(
+            provider="google",
+            message="x",
+            model_id="gemini-2.5-flash",
+            api_key="k",
+            base_url=None,
+            max_tokens=1024,
+            enable_thinking=True,
+            budget_tokens=500,
+        )
+        kwargs = mock_completion.call_args.kwargs
+        assert kwargs["thinking_config"] == {"thinking_budget": 500}
+        assert "thinking" not in kwargs
+
+    @patch("litellm.completion")
+    def test_anthropic_thinking_returns_content_blocks(self, mock_completion):
+        """For Anthropic thinking, a list-typed message.content (thinking + text
+        blocks) is returned verbatim rather than coerced to a string."""
+        blocks = [
+            {"type": "thinking", "thinking": "reasoning..."},
+            {"type": "text", "text": "answer"},
+        ]
+        choice = MagicMock()
+        choice.message.content = blocks
+        response = MagicMock()
+        response.choices = [choice]
+        mock_completion.return_value = response
+
+        result = execute_litellm_completion(
+            provider="anthropic",
+            message="x",
+            model_id="claude-sonnet-4",
+            api_key="k",
+            base_url=None,
+            max_tokens=1024,
+            enable_thinking=True,
+            budget_tokens=500,
+        )
+        assert result == blocks
+
+    @patch("litellm.completion")
+    def test_thinking_ignored_for_non_anthropic_google_provider(self, mock_completion):
+        """enable_thinking is only wired for anthropic/google. For any other
+        provider (e.g. ds4) the thinking request is silently dropped — no
+        'thinking' or 'thinking_config' kwarg leaks into the completion call."""
+        message = MagicMock()
+        message.tool_calls = None
+        message.content = "ok"
+        response = MagicMock()
+        response.choices = [MagicMock(message=message)]
+        mock_completion.return_value = response
+
+        result = execute_litellm_completion(
+            provider="ds4",
+            message="x",
+            model_id="deepseek-v4-flash",
+            api_key="EMPTY",
+            base_url=None,
+            max_tokens=1024,
+            enable_thinking=True,
+            budget_tokens=500,
+        )
+        assert result == "ok"
+        kwargs = mock_completion.call_args.kwargs
+        assert "thinking" not in kwargs
+        assert "thinking_config" not in kwargs
+
+    @patch("litellm.completion")
+    def test_anthropic_thinking_empty_choices_falls_through(self, mock_completion):
+        """When the thinking branch is taken but the response has no choices, it
+        falls through the block without indexing and ends up returning ''."""
+        response = MagicMock()
+        response.choices = []
+        mock_completion.return_value = response
+
+        result = execute_litellm_completion(
+            provider="anthropic",
+            message="x",
+            model_id="claude-sonnet-4",
+            api_key="k",
+            base_url=None,
+            max_tokens=1024,
+            enable_thinking=True,
+            budget_tokens=500,
+        )
+        assert result == ""
+
 
 class TestCheckLitellmHealth:
     """Guard rails and litellm-exception mapping in check_litellm_health."""
@@ -479,6 +743,17 @@ class TestCheckLitellmHealth:
         assert check_litellm_health(
             provider="openai", api_key="sk-real", base_url=None, model_id="gpt-4o"
         ) == (True, "API accessible and authenticated")
+
+    @patch("litellm.completion")
+    def test_ollama_healthy_without_api_key(self, mock_completion):
+        """ollama is exempt from the api-key guard, so a keyless health check
+        proceeds to the live call and the api_key is omitted from the kwargs."""
+        mock_completion.return_value = MagicMock()
+        ok, msg = check_litellm_health(
+            provider="ollama", api_key=None, base_url="http://localhost:11434", model_id="llama3.1"
+        )
+        assert (ok, msg) == (True, "API accessible and authenticated")
+        assert "api_key" not in mock_completion.call_args.kwargs
 
     @patch("litellm.completion")
     def test_authentication_error_is_unhealthy(self, mock_completion):
