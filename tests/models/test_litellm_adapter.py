@@ -695,8 +695,14 @@ class TestExecuteLitellmCompletionThinking:
 
     @patch("litellm.completion")
     def test_anthropic_thinking_empty_choices_falls_through(self, mock_completion):
-        """When the thinking branch is taken but the response has no choices, it
-        falls through the block without indexing and ends up returning ''."""
+        """When the thinking branch IS entered (anthropic + enable_thinking) but
+        the response has no choices, the inner choices-guard skips the content-block
+        return and falls through to ''.
+
+        Not redundant with test_empty_choices_returns_empty_string: that one uses
+        provider='openai' and never enters the thinking block, so only this test
+        covers the thinking-block-with-empty-choices branch (litellm_adapter line
+        241 -> 247). Deleting it drops branch coverage to 99%."""
         response = MagicMock()
         response.choices = []
         mock_completion.return_value = response
