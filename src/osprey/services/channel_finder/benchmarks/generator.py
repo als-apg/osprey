@@ -218,7 +218,7 @@ class TierSpec:
 TIER_1 = TierSpec(
     name="tier1",
     rings=frozenset({"SR"}),
-    families=frozenset({"DIPOLE", "QF", "HCM", "VCM", "BPM", "DCCT", "CAVITY"}),
+    families=frozenset({"DIPOLE", "QF", "HCM", "VCM", "BPM", "DCCT", "CAVITY", "GAUGE"}),
     allowed_subfields=frozenset({"SP", "RB", "X", "Y"}),
     allowed_fields_by_family={
         "DIPOLE": frozenset({"CURRENT"}),
@@ -228,8 +228,9 @@ TIER_1 = TierSpec(
         "BPM": frozenset({"POSITION"}),
         "DCCT": frozenset({"CURRENT"}),
         "CAVITY": frozenset({"VOLTAGE"}),
+        "GAUGE": frozenset({"PRESSURE"}),
     },
-    target_count=205,
+    target_count=217,
 )
 
 TIER_2 = TierSpec(

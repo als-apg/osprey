@@ -259,6 +259,7 @@ class TestTierSpecs:
             "BPM",
             "DCCT",
             "CAVITY",
+            "GAUGE",
         }
 
     def test_tier1_no_status(self, all_channels: list[dict]) -> None:

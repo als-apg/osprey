@@ -57,7 +57,7 @@ def sample_run() -> BenchmarkRun:
         tier=1,
         model="anthropic/claude-haiku",
         results=results,
-        channel_count=205,
+        channel_count=217,
     )
 
 
@@ -168,7 +168,7 @@ class TestBenchmarkRun:
         assert run.paradigm == "in_context"
         assert run.tier == 1
         assert run.model == "anthropic/claude-haiku"
-        assert run.channel_count == 205
+        assert run.channel_count == 217
         assert len(run.query_results) == 2
 
         # Aggregates: mean of [1.0, 0.5] = 0.75
