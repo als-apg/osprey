@@ -196,6 +196,62 @@ class TestSafetyPreservation:
         manager.regenerate_claude_code(project_dir)
         return project_dir
 
+    @pytest.fixture()
+    def regen_project_writes_off(self, tmp_path):
+        """Create a project, disable control-system writes, regenerate."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="safety-writes-off",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+        config_path = project_dir / "config.yml"
+        config = yaml.safe_load(config_path.read_text())
+        config["control_system"]["writes_enabled"] = False
+        config_path.write_text(yaml.dump(config, default_flow_style=False))
+        manager.regenerate_claude_code(project_dir)
+        return project_dir
+
+    def test_writes_off_kill_switch_covers_python_execute(self, regen_project_writes_off):
+        """Kill-switch parity for the python-executor write path.
+
+        When control-system writes are disabled, neither write entry point may
+        reach Claude Code's ``permissions.ask`` -> ``can_use_tool`` approval
+        path:
+
+        - ``mcp__controls__channel_write`` is hard-denied via ``permissions.deny``.
+        - ``mcp__python__execute`` cannot be denied wholesale (it has a
+          legitimate read-only path), so it is instead removed from
+          ``permissions.ask``; the ``osprey_writes_check`` PreToolUse hook then
+          denies the read-write case with nothing forcing an approval prompt.
+
+        Regression guard: under ``claude-agent-sdk==0.2.93`` a static
+        ``permissions.ask`` entry drives a read-write ``execute`` to
+        ``can_use_tool`` even when the writes_check hook denies it in parallel,
+        so leaving ``mcp__python__execute`` in ``ask`` silently bypasses the
+        kill switch (the operator is prompted instead of the call being blocked).
+        """
+        claude = regen_project_writes_off / ".claude"
+        settings = json.loads((claude / "settings.json").read_text())
+        perms = settings["permissions"]
+        hook_config = json.loads((claude / "hooks" / "hook_config.json").read_text())
+
+        # Anti-vacuous guard: the python executor IS active and write-gated.
+        assert "mcp__python__execute" in hook_config["write_tools"]
+
+        # channel_write: declarative hard block.
+        assert "mcp__controls__channel_write" in perms["deny"]
+
+        # python execute: must NOT sit in the ask list while writes are off,
+        # or a read-write execute reaches the approval path and bypasses the
+        # kill switch.
+        assert "mcp__python__execute" not in perms["ask"], (
+            "mcp__python__execute is in permissions.ask while writes are "
+            "disabled — a read-write execute would reach the can_use_tool "
+            "approval path, bypassing the kill switch."
+        )
+
     def test_always_includes_safety_hooks(self, regen_project):
         """After regen, settings.json still has PreToolUse/PostToolUse hook chains."""
         settings = json.loads((regen_project / ".claude" / "settings.json").read_text())
