@@ -57,6 +57,7 @@ from tests.e2e.sdk_helpers import (
     HAS_SDK,
     _default_opus_model,
     activate_scenarios,
+    ariel_db_skip_reason,
     init_project,
     run_sdk_query,
 )
@@ -107,6 +108,15 @@ async def test_rf_cavity_c1_correlation_flow(tmp_path: Path) -> None:
     stochastic miss where the agent gathers the evidence but fails to commit to
     cavity C1.
     """
+    # Prerequisite: this scenario's logbook-search sub-agent needs a live,
+    # seeded ARIEL Postgres. Without it, ARIEL searches fail with a 5s pool
+    # timeout buried in the sub-agent and the test fails on a downstream
+    # tool-trace assertion that masquerades as a model-capability miss. Skip
+    # honestly instead.
+    db_reason = ariel_db_skip_reason()
+    if db_reason:
+        pytest.skip(db_reason)
+
     # Use Opus for the planner: this scenario tests diagnostic reasoning
     # (decompose phenomenon → suspects → cross-correlate → commit to root
     # cause), which Haiku reliably bails on by dumping data and asking the

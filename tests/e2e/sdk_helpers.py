@@ -88,6 +88,45 @@ def has_als_apg_api_key() -> bool:
     return bool(os.environ.get("ALS_APG_API_KEY"))
 
 
+_DEFAULT_ARIEL_DB_URI = "postgresql://ariel:ariel@localhost:5432/ariel"
+
+
+def ariel_db_skip_reason(uri: str | None = None) -> str | None:
+    """Return an actionable skip reason if the ARIEL Postgres is not ready.
+
+    The scenario E2E tests (rf_cavity correlation, sector-7 vacuum burst,
+    corrector honest-refusal) drive the logbook-search sub-agent, which needs a
+    live, *seeded* ARIEL Postgres. When it is absent, every ARIEL search fails
+    with a 5-second pool-open timeout buried inside the sub-agent; the test then
+    fails on a downstream tool-trace assertion that *looks like* a model
+    capability miss ("the agent couldn't find the cavity"). That false signal
+    cost hours once. This guard converts the silent prerequisite into an
+    explicit, actionable skip.
+
+    Returns ``None`` when the DB is reachable and has at least one entry,
+    otherwise a human-readable reason string suitable for ``pytest.skip``.
+    Override the URI with ``OSPREY_ARIEL_DB_URI``.
+    """
+    uri = uri or os.environ.get("OSPREY_ARIEL_DB_URI", _DEFAULT_ARIEL_DB_URI)
+    try:
+        import psycopg
+    except ImportError:
+        return "psycopg not installed — cannot verify the ARIEL DB prerequisite"
+    try:
+        with psycopg.connect(uri, connect_timeout=3) as conn:
+            row = conn.execute("SELECT count(*) FROM enhanced_entries").fetchone()
+    except Exception as exc:  # noqa: BLE001 — any failure means "not ready"
+        return (
+            f"ARIEL Postgres not reachable ({exc.__class__.__name__}) — scenario "
+            "tests need a live, seeded ARIEL logbook DB. Bring it up with "
+            "`osprey deploy up && osprey ariel migrate && osprey ariel quickstart`."
+        )
+    count = row[0] if row else 0
+    if count == 0:
+        return "ARIEL Postgres is reachable but empty — seed it with `osprey ariel quickstart`."
+    return None
+
+
 def init_project(
     tmp_path: Path,
     name: str,
