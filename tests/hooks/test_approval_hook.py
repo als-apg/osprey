@@ -185,6 +185,72 @@ def test_per_tool_skip_allows_read(tmp_path, hook_runner, make_config):
 
 
 @pytest.mark.unit
+def test_channel_read_skip_emits_allow_decision(tmp_path, hook_runner, make_config):
+    """DETERMINISTIC contract pin for the e2e read test (test_safety_reads.py).
+
+    The default control_assistant config ships ``channel_read: skip``. This test
+    drives the approval hook directly (no LLM/SDK) and asserts the skip branch
+    emits an explicit ``permissionDecision: 'allow'`` — that is the decision the
+    SDK later surfaces through can_use_tool as a recorded `allow` hook event,
+    which is exactly why the e2e asserts "all read events are allow" (not zero).
+    Asserting `allow` here (not merely "not ask") locks the product contract so
+    any regression in the skip branch is caught without an API key.
+    """
+    config = make_config(
+        {
+            "approval": {
+                "enabled": True,
+                "default_policy": "always",
+                "tools": {"channel_read": "skip"},
+            },
+            "control_system": {"writes_enabled": True},
+        }
+    )
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__controls__channel_read",
+        {"channels": ["SR:BEAM:CURRENT"]},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    # Skip branch must emit an EXPLICIT allow (not None) so the SDK records it.
+    assert result is not None, "skip policy must emit an explicit allow decision"
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "allow"
+
+
+@pytest.mark.unit
+def test_channel_read_always_asks(tmp_path, hook_runner, make_config):
+    """Paired contract: with ``default_policy: always`` and no ``tools`` map,
+    even channel_read must `ask` — the fail-closed backstop (scenario 2d). This
+    guards against the lazy 'fix' of statically allowlisting channel_read, which
+    would short-circuit the PreToolUse hook and silently break default-always.
+    """
+    config = make_config(
+        {
+            "approval": {"enabled": True, "default_policy": "always"},
+            "control_system": {"writes_enabled": True},
+        }
+    )
+
+    result = hook_runner(
+        "osprey_approval.py",
+        "mcp__controls__channel_read",
+        {"channels": ["SR:BEAM:CURRENT"]},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=DEFAULT_APPROVAL_CONFIG,
+    )
+
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+
+
+@pytest.mark.unit
 def test_default_policy_always_blocks_all_tools(tmp_path, hook_runner, make_config):
     """`default_policy: always` (with no `tools` overrides) asks on every osprey tool."""
     config = make_config(
