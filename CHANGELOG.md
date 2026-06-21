@@ -67,6 +67,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Regen drift detection (`osprey claude status` and the auto-regen gate above) no longer reports phantom drift for user-owned artifacts (e.g. the create-only `facility.md`), which would have re-rendered and backed up artifacts on every web launch.
 - `lttb_downsample()` no longer crashes (`TypeError`) on archiver `None` gap values; gaps are treated as `0.0` for downsample selection and preserved as `null` in the returned data so charts render true gaps (#247).
 - `rules/data-visualization.md` is now gated on the data-visualizer subagent being disabled. When the subagent is enabled (the default), CLAUDE.md forbids the main agent from calling `create_static_plot` / `create_interactive_plot` / `create_dashboard` / `python_execute` / `Write`, so shipping a rule that teaches those tools was contradictory context. The file is now a `.md.j2` template that renders empty (and is auto-unlinked) when the subagent is enabled.
+- **Framework safety hooks were silently not launching on hosts without a `python` on `PATH`** (stock macOS, many Linux ship only `python3`). The approval, writes-kill-switch, limits, error-guidance, and feedback PreToolUse/PostToolUse hook commands were rendered as bare `python "..."`, so the whole hook layer failed to start and safety tests passed vacuously. Hooks now render via the project's resolved venv interpreter (`current_python_env`); a new regen test asserts every framework hook command launches via an absolute interpreter path.
 
 ### Removed
 

@@ -293,7 +293,14 @@ def _build_framework_hook_rules(
             "hooks": [
                 {
                     "type": "command",
-                    "command": f'python "$CLAUDE_PROJECT_DIR/.claude/hooks/{hook_path.name}"',
+                    # Invoke via ``python3``, not bare ``python``: stock macOS and
+                    # many Linux distros ship only ``python3``, so a bare ``python``
+                    # hook command silently fails to launch (Claude Code logs and
+                    # continues) — the entire PreToolUse/PostToolUse hook layer
+                    # (approval, writes kill-switch, feedback capture) goes dark.
+                    # settings.json.j2 rewrites this ``python3`` token to the
+                    # project's resolved venv interpreter (``current_python_env``).
+                    "command": f'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/{hook_path.name}"',
                     "timeout": meta["timeout"],
                 }
             ],

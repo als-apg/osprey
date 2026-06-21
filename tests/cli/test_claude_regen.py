@@ -242,6 +242,36 @@ class TestSafetyPreservation:
                 mode = os.stat(hook).st_mode
                 assert mode & 0o111, f"Hook {hook.name} should be executable after regen"
 
+    def test_framework_hooks_launch_via_resolved_interpreter(self, regen_project):
+        """Framework PreToolUse/PostToolUse hooks must launch via an absolute
+        interpreter path, never bare ``python``/``python3``.
+
+        Regression guard for the "dark hook layer" bug: framework hook commands
+        were rendered as bare ``python "..."``. On hosts without a ``python`` on
+        PATH (stock macOS, many Linux), the entire approval / writes-kill-switch
+        / feedback hook layer silently failed to launch and the safety tests
+        passed vacuously. The renderer now rewrites the interpreter token to the
+        project's resolved venv python (``current_python_env``), so every
+        framework hook command must invoke a real, absolute interpreter path.
+        """
+        settings = json.loads((regen_project / ".claude" / "settings.json").read_text())
+        framework_cmds = [
+            hook["command"]
+            for event in ("PreToolUse", "PostToolUse")
+            for entry in settings["hooks"].get(event, [])
+            for hook in entry["hooks"]
+            if "/.claude/hooks/osprey_" in hook["command"]
+        ]
+        assert framework_cmds, "expected framework osprey_*.py hook commands after regen"
+        for cmd in framework_cmds:
+            assert not cmd.startswith("python "), f"bare `python` re-introduces the dark-hook bug: {cmd}"
+            assert not cmd.startswith("python3 "), f"PATH-relative `python3` is not the resolved interpreter: {cmd}"
+            # Command must launch via a quoted, absolute interpreter path.
+            assert cmd.startswith('"/'), (
+                f"framework hook must launch via the resolved venv interpreter "
+                f"(absolute path), got: {cmd}"
+            )
+
 
 class TestUserFilePreservation:
     """Test that regeneration preserves user-maintained files."""

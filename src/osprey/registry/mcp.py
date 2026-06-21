@@ -68,23 +68,23 @@ class ServerDefinition:
 # ---------------------------------------------------------------------------
 
 _APPROVAL = HookEntry(
-    command='python "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_approval.py"',
+    command='python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_approval.py"',
     timeout=5,
 )
 _WRITES_CHECK = HookEntry(
-    command='python "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_writes_check.py"',
+    command='python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_writes_check.py"',
     timeout=5,
 )
 _LIMITS = HookEntry(
-    command='python "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_limits.py"',
+    command='python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_limits.py"',
     timeout=10,
 )
 _ERROR_GUIDANCE = HookEntry(
-    command='python "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_error_guidance.py"',
+    command='python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_error_guidance.py"',
     timeout=5,
 )
 _CF_FEEDBACK = HookEntry(
-    command='python "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_cf_feedback_capture.py"',
+    command='python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_cf_feedback_capture.py"',
     timeout=10,
 )
 
