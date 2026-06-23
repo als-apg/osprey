@@ -437,6 +437,17 @@ can be installed either globally or into a specific project's
      project-locally (into the profile repo's ``.claude/skills/``) by the
      last phase of the ``osprey-build-interview`` skill, so ``/osprey-build-deploy``
      is available wherever the profile repo is cloned.
+   * ``osprey-contribute`` — walks a contributor through the GitHub Flow
+     journey from a working-tree change to a merged PR on ``main`` (branching,
+     atomic commits, push, PR, rebase, merge).
+   * ``osprey-pre-commit`` — runs the quick / ci / premerge check scripts at
+     the right gate before committing, pushing, or opening a PR.
+   * ``osprey-release`` — cuts a CalVer release: opens the version-bump PR,
+     tags the merge commit, and verifies the automated PyPI publish.
+   * ``osprey-design-philosophy`` — OSPREY's design and architecture principles
+     for designing, adding, or reviewing a feature. Useful for framework
+     contributors; install globally to have it available when working on
+     ``src/osprey`` in any session.
 
 .. code-block:: bash
 

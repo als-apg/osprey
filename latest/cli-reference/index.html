@@ -798,6 +798,17 @@ release workflow for a facility profile repo. Typically installed
 project-locally (into the profile repo’s <code class="docutils literal notranslate"><span class="pre">.claude/skills/</span></code>) by the
 last phase of the <code class="docutils literal notranslate"><span class="pre">osprey-build-interview</span></code> skill, so <code class="docutils literal notranslate"><span class="pre">/osprey-build-deploy</span></code>
 is available wherever the profile repo is cloned.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey-contribute</span></code> — walks a contributor through the GitHub Flow
+journey from a working-tree change to a merged PR on <code class="docutils literal notranslate"><span class="pre">main</span></code> (branching,
+atomic commits, push, PR, rebase, merge).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey-pre-commit</span></code> — runs the quick / ci / premerge check scripts at
+the right gate before committing, pushing, or opening a PR.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey-release</span></code> — cuts a CalVer release: opens the version-bump PR,
+tags the merge commit, and verifies the automated PyPI publish.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey-design-philosophy</span></code> — OSPREY’s design and architecture principles
+for designing, adding, or reviewing a feature. Useful for framework
+contributors; install globally to have it available when working on
+<code class="docutils literal notranslate"><span class="pre">src/osprey</span></code> in any session.</p></li>
 </ul>
 </dd>
 </dl>

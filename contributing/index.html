@@ -554,6 +554,8 @@ contributing from a fork. It composes with the other bundled skills:</p>
 <li><p><code class="docutils literal notranslate"><span class="pre">osprey-pre-commit</span></code> – standalone validation runs</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">commit-organize</span></code> – splits a messy working tree into atomic commits</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">osprey-release</span></code> – the release-cutting flow for maintainers</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">osprey-design-philosophy</span></code> – OSPREY’s design and architecture principles,
+for designing or reviewing a feature before you open the PR</p></li>
 </ul>
 <p>List all installable skills with <code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">osprey</span> <span class="pre">skills</span> <span class="pre">install</span> <span class="pre">--help</span></code>.</p>
 </section>
@@ -561,6 +563,21 @@ contributing from a fork. It composes with the other bundled skills:</p>
 <hr class="docutils" />
 <section id="code-standards">
 <h2>Code Standards<a class="headerlink" href="#code-standards" title="Link to this heading">#</a></h2>
+<section id="design-principles">
+<h3>Design Principles<a class="headerlink" href="#design-principles" title="Link to this heading">#</a></h3>
+<p>Before designing a new connector, MCP server, provider, capability, or any
+non-trivial feature, consult OSPREY’s design and architecture principles – the
+safe-state default, facility-neutral core, measured symmetry with peer
+subsystems, swappable components, and discoverable user-facing features.
+Install the bundled skill so the Osprey agent applies them as you design and
+review:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>osprey<span class="w"> </span>skills<span class="w"> </span>install<span class="w"> </span>osprey-design-philosophy
+</pre></div>
+</div>
+<p>The principles guide decisions; they are not mechanical rules. When a change
+feels wrong but the reason is hard to name, they help you name the drift and
+correct it before you open the PR.</p>
+</section>
 <section id="python-style">
 <h3>Python Style<a class="headerlink" href="#python-style" title="Link to this heading">#</a></h3>
 <p>We follow PEP 8 with Ruff enforcement:</p>
@@ -733,6 +750,7 @@ The marker-based approach causes registry state leaks and service conflicts.</p>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#code-standards">Code Standards</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#design-principles">Design Principles</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#python-style">Python Style</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#linting-and-formatting">Linting and Formatting</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#testing">Testing</a></li>

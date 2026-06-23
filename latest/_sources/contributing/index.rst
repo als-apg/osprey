@@ -156,6 +156,8 @@ contributing from a fork. It composes with the other bundled skills:
 - ``osprey-pre-commit`` -- standalone validation runs
 - ``commit-organize`` -- splits a messy working tree into atomic commits
 - ``osprey-release`` -- the release-cutting flow for maintainers
+- ``osprey-design-philosophy`` -- OSPREY's design and architecture principles,
+  for designing or reviewing a feature before you open the PR
 
 List all installable skills with ``uv run osprey skills install --help``.
 
@@ -163,6 +165,24 @@ List all installable skills with ``uv run osprey skills install --help``.
 
 Code Standards
 --------------
+
+Design Principles
+^^^^^^^^^^^^^^^^^
+
+Before designing a new connector, MCP server, provider, capability, or any
+non-trivial feature, consult OSPREY's design and architecture principles -- the
+safe-state default, facility-neutral core, measured symmetry with peer
+subsystems, swappable components, and discoverable user-facing features.
+Install the bundled skill so the Osprey agent applies them as you design and
+review:
+
+.. code-block:: bash
+
+   uv run osprey skills install osprey-design-philosophy
+
+The principles guide decisions; they are not mechanical rules. When a change
+feels wrong but the reason is hard to name, they help you name the drift and
+correct it before you open the PR.
 
 Python Style
 ^^^^^^^^^^^^
