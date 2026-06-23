@@ -32,22 +32,39 @@ from collections import defaultdict
 #     translation, and CBORG's anthropic-direct path breaks safety/feedback tests
 #     als-apg passes — validated 2026-06-18). Ref ids are the exact als-apg strings.
 # weak -> strong within the open spread; qwen (CBORG-proxied) after the self-hosted.
-MODEL_ORDER = ["gpt-oss-20b", "gemma-4", "cborg-coder", "gpt-oss-120b",
-               "google/qwen-3-coder", "google/qwen-3",
-               "claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-6"]
+MODEL_ORDER = [
+    "gpt-oss-20b",
+    "gemma-4",
+    "cborg-coder",
+    "gpt-oss-120b",
+    "google/qwen-3-coder",
+    "google/qwen-3",
+    "claude-haiku-4-5-20251001",
+    "claude-sonnet-4-6",
+    "claude-opus-4-6",
+]
 # Anthropic Claude models as a control/ceiling reference, flagged "(ref)".
 # Ordered weak->strong (haiku < sonnet < opus) to bracket the open subjects.
 REFERENCE_MODELS = {"claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-6"}
 SEEDS = [1, 2, 3]
 EXPECTED_TESTS = 33  # full e2e kit minus the 6 config exclusions (benchmark dropped)
 OUTCOME_COLORS = {
-    "passed": "#1a7f37", "failed": "#cf222e", "skipped": "#9a6700",
-    "error": "#8250df", "timeout": "#bc4c00", "pending": "#8c959f",
+    "passed": "#1a7f37",
+    "failed": "#cf222e",
+    "skipped": "#9a6700",
+    "error": "#8250df",
+    "timeout": "#bc4c00",
+    "pending": "#8c959f",
 }
 
 
-_LIVE_KEY = {"passed": "passed", "failed": "failed", "timeout": "timeout",
-             "skipped": "skipped", "error": "errors"}
+_LIVE_KEY = {
+    "passed": "passed",
+    "failed": "failed",
+    "timeout": "timeout",
+    "skipped": "skipped",
+    "error": "errors",
+}
 
 
 def load(results_dir: str) -> dict:
@@ -92,9 +109,15 @@ def load(results_dir: str) -> dict:
         for t in tests:
             cnt[_LIVE_KEY.get(t.get("outcome"), "errors")] += 1
         runs[(model, seed)] = {
-            "model": model, "seed": seed, "route": "", "pytest_rc": None,
+            "model": model,
+            "seed": seed,
+            "route": "",
+            "pytest_rc": None,
             "total_duration_s": int(sum(t.get("duration_s", 0) for t in tests)),
-            **cnt, "total": len(tests), "tests": tests, "_partial": True,
+            **cnt,
+            "total": len(tests),
+            "tests": tests,
+            "_partial": True,
         }
     return runs
 
@@ -149,7 +172,7 @@ def heat(frac: float | None) -> str:
 
 
 def pct(n: int, d: int) -> str:
-    return f"{100*n/d:.0f}%" if d else "—"
+    return f"{100 * n / d:.0f}%" if d else "—"
 
 
 OUTCOME_ORDER = ["passed", "failed", "timeout", "skipped", "error"]
@@ -157,9 +180,13 @@ OUTCOME_GLYPH = {"passed": "✓", "failed": "✗", "timeout": "⧗", "skipped": 
 
 
 def run_counts(d: dict) -> dict:
-    return {"passed": d.get("passed", 0), "failed": d.get("failed", 0),
-            "timeout": d.get("timeout", 0), "skipped": d.get("skipped", 0),
-            "error": d.get("errors", 0)}
+    return {
+        "passed": d.get("passed", 0),
+        "failed": d.get("failed", 0),
+        "timeout": d.get("timeout", 0),
+        "skipped": d.get("skipped", 0),
+        "error": d.get("errors", 0),
+    }
 
 
 def conclusive(d: dict):
@@ -174,16 +201,24 @@ def stacked_bar(counts: dict, width: int = 130, height: int = 14) -> str:
     tot = sum(counts.values())
     if not tot:
         return f"<div style='width:{width}px;height:{height}px;background:#eaeef2;border-radius:3px'></div>"
-    seg = [f"<span title='{o}: {counts[o]}' style='display:inline-block;height:{height}px;"
-           f"width:{100*counts[o]/tot:.2f}%;background:{OUTCOME_COLORS[o]}'></span>"
-           for o in OUTCOME_ORDER if counts.get(o)]
-    return (f"<div style='width:{width}px;height:{height}px;border-radius:3px;overflow:hidden;"
-            f"font-size:0;white-space:nowrap;border:1px solid #d8dee4'>" + "".join(seg) + "</div>")
+    seg = [
+        f"<span title='{o}: {counts[o]}' style='display:inline-block;height:{height}px;"
+        f"width:{100 * counts[o] / tot:.2f}%;background:{OUTCOME_COLORS[o]}'></span>"
+        for o in OUTCOME_ORDER
+        if counts.get(o)
+    ]
+    return (
+        f"<div style='width:{width}px;height:{height}px;border-radius:3px;overflow:hidden;"
+        f"font-size:0;white-space:nowrap;border:1px solid #d8dee4'>" + "".join(seg) + "</div>"
+    )
 
 
 def counts_text(counts: dict) -> str:
-    return " ".join(f"<span style='color:{OUTCOME_COLORS[o]}'>{counts[o]}{OUTCOME_GLYPH[o]}</span>"
-                    for o in OUTCOME_ORDER if counts.get(o))
+    return " ".join(
+        f"<span style='color:{OUTCOME_COLORS[o]}'>{counts[o]}{OUTCOME_GLYPH[o]}</span>"
+        for o in OUTCOME_ORDER
+        if counts.get(o)
+    )
 
 
 def main() -> int:
@@ -213,7 +248,9 @@ def main() -> int:
 
     done = sum(1 for d in runs.values() if not d.get("_partial"))
     live_n = sum(1 for d in runs.values() if d.get("_partial"))
-    total_cells = sum(len(seeds_for(m, runs)) for m in models)  # subjects: 3 seeds; refs: the seeds actually run
+    total_cells = sum(
+        len(seeds_for(m, runs)) for m in models
+    )  # subjects: 3 seeds; refs: the seeds actually run
 
     css = """
     body{font:14px/1.45 -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
@@ -235,23 +272,36 @@ def main() -> int:
     """
 
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    status = ("✓ matrix complete" if matrix_done else
-              (f"● live — {len(running)} running" if running else "○ idle"))
+    status = (
+        "✓ matrix complete"
+        if matrix_done
+        else (f"● live — {len(running)} running" if running else "○ idle")
+    )
     refresh = "" if matrix_done else '<meta http-equiv="refresh" content="60">'
 
     H = []
-    H.append(f"<!doctype html><meta charset=utf-8>{refresh}"
-             f"<title>CBORG e2e model matrix</title><style>{css}</style>")
+    H.append(
+        f"<!doctype html><meta charset=utf-8>{refresh}"
+        f"<title>CBORG e2e model matrix</title><style>{css}</style>"
+    )
     H.append("<div class=wrap>")
     H.append("<h1>CBORG open models — full OSPREY e2e suite</h1>")
-    H.append(f"<p class=sub>Issue #259 · {len(models)} models × {len(SEEDS)} seeds · "
-             f"per-test hang-breaker 1800s · <b>{done}/{total_cells}</b> runs complete · "
-             + (f"<b>{live_n} filling live</b> · " if live_n else "")
-             + f"<b>{html.escape(status)}</b> · updated {now}"
-             + (" · auto-refresh 60s" if not matrix_done else "") + "</p>")
+    H.append(
+        f"<p class=sub>Issue #259 · {len(models)} models × {len(SEEDS)} seeds · "
+        f"per-test hang-breaker 1800s · <b>{done}/{total_cells}</b> runs complete · "
+        + (f"<b>{live_n} filling live</b> · " if live_n else "")
+        + f"<b>{html.escape(status)}</b> · updated {now}"
+        + (" · auto-refresh 60s" if not matrix_done else "")
+        + "</p>"
+    )
     if running:
-        H.append("<p class=sub>running now: " +
-                 ", ".join(f"<code>{html.escape(label(m))} seed{s}</code>" for (m, s) in sorted(running)) + "</p>")
+        H.append(
+            "<p class=sub>running now: "
+            + ", ".join(
+                f"<code>{html.escape(label(m))} seed{s}</code>" for (m, s) in sorted(running)
+            )
+            + "</p>"
+        )
 
     # legend
     H.append("<div class=legend style='margin-bottom:18px'>")
@@ -265,8 +315,10 @@ def main() -> int:
         m_seeds = seeds_for(m, runs)
         ds = [runs[(m, s)] for s in m_seeds if (m, s) in runs]
         if not ds:
-            H.append(f"<div class=card><div class=big>{html.escape(label(m))}</div>"
-                     f"<div class=muted>pending</div></div>")
+            H.append(
+                f"<div class=card><div class=big>{html.escape(label(m))}</div>"
+                f"<div class=muted>pending</div></div>"
+            )
             continue
         ps = sum(d["passed"] for d in ds)
         denom = sum(conclusive(d)[1] for d in ds)
@@ -282,29 +334,37 @@ def main() -> int:
                     f"<div style='display:flex;align-items:center;gap:6px;margin:2px 0'>"
                     f"<span class=muted style='width:36px'>seed{s}</span>"
                     f"{stacked_bar(run_counts(d), width=150, height=13)}"
-                    f"<span class=muted>{pct(p_s, den_s)}</span></div>")
+                    f"<span class=muted>{pct(p_s, den_s)}</span></div>"
+                )
             else:
                 state = "● running" if (m, s) in running else "· pending"
                 bars.append(
                     f"<div style='display:flex;align-items:center;gap:6px;margin:2px 0'>"
                     f"<span class=muted style='width:36px'>seed{s}</span>"
-                    f"<span class=muted>{state}</span></div>")
+                    f"<span class=muted>{state}</span></div>"
+                )
         H.append(
             f"<div class=card><div class=big>{html.escape(label(m))}</div>"
-            f"<div><b style='color:{OUTCOME_COLORS['passed']}'>{pct(ps,denom)}</b> pass "
+            f"<div><b style='color:{OUTCOME_COLORS['passed']}'>{pct(ps, denom)}</b> pass "
             f"<span class=muted>(conclusive; {ps}/{denom})</span></div>"
             f"<div style='margin:7px 0'>{''.join(bars)}</div>"
             f"<div class=muted>{counts_text(c)}</div>"
-            f"<div class=muted>~{dur/60:.0f} min/run</div></div>"
+            f"<div class=muted>~{dur / 60:.0f} min/run</div></div>"
         )
 
     # ---- model x seed matrix (full outcome breakdown per cell) ----
     H.append("<h2>Outcome breakdown by model × seed</h2>")
-    H.append("<p class=sub>Each cell shows the full mix for one run — pass% (of conclusive tests; "
-             "timeouts &amp; skips excluded from the denominator, so a slow test is never a false negative) "
-             "plus a stacked bar and counts (✓ pass · ✗ fail · ⧗ timeout · ∅ skip · ! error).</p>")
+    H.append(
+        "<p class=sub>Each cell shows the full mix for one run — pass% (of conclusive tests; "
+        "timeouts &amp; skips excluded from the denominator, so a slow test is never a false negative) "
+        "plus a stacked bar and counts (✓ pass · ✗ fail · ⧗ timeout · ∅ skip · ! error).</p>"
+    )
     H.append("<table>")
-    H.append("<tr><th class=l>model</th>" + "".join(f"<th>seed {s}</th>" for s in SEEDS) + "<th>mean pass</th></tr>")
+    H.append(
+        "<tr><th class=l>model</th>"
+        + "".join(f"<th>seed {s}</th>" for s in SEEDS)
+        + "<th>mean pass</th></tr>"
+    )
     for m in models:
         H.append(f"<tr><td class=l>{html.escape(label(m))}</td>")
         fracs = []
@@ -320,13 +380,17 @@ def main() -> int:
                 if fr is not None and not d.get("_partial"):
                     fracs.append(fr)  # mean is over COMPLETED seeds only
                 c = run_counts(d)
-                tag = (f"<div class=muted style='color:#9a6700'>● live · {d['total']}/{EXPECTED_TESTS} done</div>"
-                       if d.get("_partial")
-                       else f"<div class=muted>{d['total']}t · {d['total_duration_s']//60}m</div>")
-                H.append(f"<td><div style='font-weight:600'>{pct(p_s, den_s)}</div>"
-                         f"<div style='display:flex;justify-content:center;margin:3px 0'>{stacked_bar(c)}</div>"
-                         f"<div class=muted>{counts_text(c)}</div>"
-                         f"{tag}</td>")
+                tag = (
+                    f"<div class=muted style='color:#9a6700'>● live · {d['total']}/{EXPECTED_TESTS} done</div>"
+                    if d.get("_partial")
+                    else f"<div class=muted>{d['total']}t · {d['total_duration_s'] // 60}m</div>"
+                )
+                H.append(
+                    f"<td><div style='font-weight:600'>{pct(p_s, den_s)}</div>"
+                    f"<div style='display:flex;justify-content:center;margin:3px 0'>{stacked_bar(c)}</div>"
+                    f"<div class=muted>{counts_text(c)}</div>"
+                    f"{tag}</td>"
+                )
             elif d and not d["total"]:
                 H.append("<td style='background:#ffd8c2'>err<div class=muted>0 tests</div></td>")
             elif (m, s) in running:
@@ -334,17 +398,25 @@ def main() -> int:
             else:
                 H.append("<td style='background:#f6f8fa'>·<div class=muted>pending</div></td>")
         mean = sum(fracs) / len(fracs) if fracs else None
-        H.append(f"<td style='background:{heat(mean)}'><b>{(f'{100*mean:.0f}%' if mean is not None else '·')}</b></td></tr>")
+        H.append(
+            f"<td style='background:{heat(mean)}'><b>{(f'{100 * mean:.0f}%' if mean is not None else '·')}</b></td></tr>"
+        )
     H.append("</table>")
 
     # ---- per-test heatmap (one square per seed) ----
     H.append("<h2>Per-test outcomes — one square per seed</h2>")
-    H.append("<p class=sub>For every test, the three squares are seed 1·2·3 colored by outcome "
-             "(green pass · red fail · orange timeout · yellow skip · purple error · grey pending). "
-             "Lets you spot a test a model passes once but times out on another seed.</p>")
-    H.append("<table><tr><th class=l>test</th>" + "".join(f"<th>{html.escape(label(m))}</th>" for m in models) + "</tr>")
+    H.append(
+        "<p class=sub>For every test, the three squares are seed 1·2·3 colored by outcome "
+        "(green pass · red fail · orange timeout · yellow skip · purple error · grey pending). "
+        "Lets you spot a test a model passes once but times out on another seed.</p>"
+    )
+    H.append(
+        "<table><tr><th class=l>test</th>"
+        + "".join(f"<th>{html.escape(label(m))}</th>" for m in models)
+        + "</tr>"
+    )
     for file in sorted(all_tests):
-        H.append(f"<tr class=filerow><td colspan={len(models)+1}>{html.escape(file)}</td></tr>")
+        H.append(f"<tr class=filerow><td colspan={len(models) + 1}>{html.escape(file)}</td></tr>")
         for short in sorted(all_tests[file]):
             H.append(f"<tr><td class=l>{html.escape(short)}</td>")
             for m in models:
@@ -354,8 +426,10 @@ def main() -> int:
                 for s in m_seeds:  # ref models render a single square, not 3
                     o = seeds_map.get(s)
                     col = OUTCOME_COLORS[o] if o in OUTCOME_COLORS else "#eaeef2"
-                    dots.append(f"<span title='seed{s}: {o or 'pending'}' style='display:inline-block;"
-                                f"width:13px;height:13px;border-radius:2px;margin:1px;background:{col}'></span>")
+                    dots.append(
+                        f"<span title='seed{s}: {o or 'pending'}' style='display:inline-block;"
+                        f"width:13px;height:13px;border-radius:2px;margin:1px;background:{col}'></span>"
+                    )
                 H.append(f"<td>{''.join(dots)}</td>")
             H.append("</tr>")
     H.append("</table>")
@@ -380,7 +454,8 @@ def main() -> int:
         "<b>(ref)</b> columns — <code>claude-haiku-4-5</code> (the suite's literal default tier), "
         "<code>claude-sonnet-4-6</code>, and <code>claude-opus-4-6</code> — bracket the open models weak→strong "
         "as a control/ceiling, showing how they compare against the models the tests were written for. Open subjects "
-        "run on the Mac Studio via CBORG; the Anthropic <b>(ref)</b> columns route natively via als-apg.</footer>")
+        "run on the Mac Studio via CBORG; the Anthropic <b>(ref)</b> columns route natively via als-apg.</footer>"
+    )
     H.append("</div>")
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)

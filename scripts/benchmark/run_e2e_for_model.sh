@@ -120,13 +120,11 @@ START=$(date +%s)
 # the session CONTINUE — the thread method instead hard-kills the whole pytest
 # process on the first overrun, leaving an empty junit (total=0). The e2e async
 # tests run via pytest-asyncio in the main thread, so SIGALRM interrupts them.
-# Model-matrix scope (issue #259): only the 36 tests that call an LLM AND route
-# through the forced model-under-test. Excluded (measure nothing about the model):
-#   test_llm_providers.py      — own provider/model axis (parametrized), not ours
-#   test_ariel_search.py       — Postgres keyword/embedding search, no agent
-#   test_dockerfile_e2e.py     — pure `docker build` smoke, no LLM
-#   test_claude_code_build_integration.py — own init_project hardcoded to als-apg
-#   test_llm_channel_namer.py  — config/pattern + naming, doesn't honor override
+# Model-matrix scope (issue #259): run the LLM-driven e2e tests that route
+# through the forced model-under-test, excluding files that measure nothing
+# about the model (own provider axis, no-LLM smokes, hardcoded-model tests).
+# The exclusion list with per-file reasons is single-sourced in
+# matrix_e2e_config.json — do not enumerate it here (it drifts).
 # Still `pytest tests/e2e/` (path) for registry-safe collection; --ignore prunes.
 # Exclusions are single-sourced in scripts/benchmark/matrix_e2e_config.json (shared with the
 # als-apg runner) and validated at startup by check_e2e_coverage.py, which warns if

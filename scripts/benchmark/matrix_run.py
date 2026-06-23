@@ -65,7 +65,12 @@ def _resolve_key(key_file: str | None) -> str:
 def _claude_cli_ok() -> bool:
     try:
         env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
-        return subprocess.run(["claude", "--version"], capture_output=True, timeout=10, env=env).returncode == 0
+        return (
+            subprocess.run(
+                ["claude", "--version"], capture_output=True, timeout=10, env=env
+            ).returncode
+            == 0
+        )
     except Exception:
         return False
 
@@ -167,15 +172,17 @@ def main() -> int:
         result["tool_called"] = any("read_pv" in t for t in tool_calls)
         result["result_relayed"] = SENTINEL in final_text
         result["ok"] = result["tool_called"] and result["result_relayed"]
-    except asyncio.TimeoutError:
+    except TimeoutError:
         result["error"] = "timeout"
     except Exception as e:  # noqa: BLE001
         result["error"] = f"{type(e).__name__}: {e}"
     result["latency_s"] = round(time.monotonic() - t0, 1)
 
-    _log(f"[{args.model}] ok={result['ok']} tool_called={result['tool_called']} "
-         f"relayed={result['result_relayed']} turns={result['num_turns']} "
-         f"latency={result['latency_s']}s err={result['error']}")
+    _log(
+        f"[{args.model}] ok={result['ok']} tool_called={result['tool_called']} "
+        f"relayed={result['result_relayed']} turns={result['num_turns']} "
+        f"latency={result['latency_s']}s err={result['error']}"
+    )
     print(json.dumps(result))
     return 0 if result["ok"] else 2
 

@@ -25,7 +25,6 @@ Emits scripts/benchmark/canonical_models.json and prints a summary of what colla
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -34,8 +33,18 @@ OUT = Path(__file__).resolve().parent / "canonical_models.json"
 
 # Substrings that mark a model as NOT a text chat/tool model -> dropped.
 NON_CHAT = (
-    "embed", "nomic", "titan", "cohere-embed", "text-embedding", "gemini-embedding",
-    "ocr", "vision", "-vl", "safeguard", "privacy-filter", "rerank",
+    "embed",
+    "nomic",
+    "titan",
+    "cohere-embed",
+    "text-embedding",
+    "gemini-embedding",
+    "ocr",
+    "vision",
+    "-vl",
+    "safeguard",
+    "privacy-filter",
+    "rerank",
 )
 
 ROUTING_PREFIXES = ("amazon/", "google/", "anthropic/", "meta/", "xai/", "lbl/")
@@ -45,8 +54,7 @@ EFFORT_SUFFIXES = ("-high-priority", "-priority", "-xhigh", "-max", "-high", "-m
 
 def fetch_ids() -> list[str]:
     cmd = (
-        "curl -s https://api.cborg.lbl.gov/v1/models "
-        '-H "Authorization: Bearer $(cat ~/.cborg_key)"'
+        'curl -s https://api.cborg.lbl.gov/v1/models -H "Authorization: Bearer $(cat ~/.cborg_key)"'
     )
     out = subprocess.run(["ssh", "macstudio", cmd], capture_output=True, text=True, timeout=60)
     if out.returncode != 0:
@@ -58,7 +66,7 @@ def fetch_ids() -> list[str]:
 def strip_prefix(mid: str) -> str:
     for p in ROUTING_PREFIXES:
         if mid.startswith(p):
-            return mid[len(p):]
+            return mid[len(p) :]
     return mid
 
 
@@ -84,12 +92,14 @@ def is_self_hosted(group_ids: list[str]) -> bool:
 
 def canonical_id(group_ids: list[str]) -> str:
     """Pick the most canonical EXISTING id for the API call."""
+
     def rank(mid: str):
         has_slash = "/" in mid
         # prefer no-slash; among slashed, prefer lbl/
         slash_rank = 0 if not has_slash else (1 if mid.startswith("lbl/") else 2)
         has_effort = strip_effort(strip_prefix(mid)) != strip_prefix(mid)
         return (slash_rank, has_effort, len(mid), mid)
+
     return min(group_ids, key=rank)
 
 
@@ -113,13 +123,15 @@ def main() -> int:
         cid = canonical_id(members)
         self_hosted = is_self_hosted(members)
         protocol = "anthropic" if key.startswith("claude-") or key in ("claude",) else "openai"
-        models.append({
-            "api_id": cid,
-            "family_key": key,
-            "category": "self_hosted_open" if self_hosted else "commercial_proxy",
-            "protocol": protocol,
-            "collapsed_from": sorted(members),
-        })
+        models.append(
+            {
+                "api_id": cid,
+                "family_key": key,
+                "category": "self_hosted_open" if self_hosted else "commercial_proxy",
+                "protocol": protocol,
+                "collapsed_from": sorted(members),
+            }
+        )
 
     models.sort(key=lambda m: (m["category"] != "self_hosted_open", m["family_key"]))
     n_open = sum(m["category"] == "self_hosted_open" for m in models)

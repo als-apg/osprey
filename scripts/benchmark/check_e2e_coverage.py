@@ -53,9 +53,7 @@ def main() -> int:
     baseline_min = int(cfg.get("baseline_expected_run_min", 0))
 
     # Every test file actually present in the suite (recursive).
-    all_files = sorted(
-        str(p.relative_to(root)) for p in suite_root.rglob("test_*.py")
-    )
+    all_files = sorted(str(p.relative_to(root)) for p in suite_root.rglob("test_*.py"))
 
     run_files = [f for f in all_files if f not in excluded]
     warnings: list[str] = []
@@ -63,9 +61,7 @@ def main() -> int:
     # Tripwire 1: stale exclusions (configured to exclude a file that's gone).
     for path in excluded:
         if not (root / path).exists():
-            warnings.append(
-                f"stale exclusion in config — file does not exist: {path}"
-            )
+            warnings.append(f"stale exclusion in config — file does not exist: {path}")
 
     # Tripwire 2: silent coverage loss.
     if len(run_files) < baseline_min:
@@ -88,8 +84,7 @@ def main() -> int:
     for w in warnings:
         print(f"WARNING: [e2e-coverage] {w}", file=sys.stderr)
     if not warnings:
-        print("[e2e-coverage] OK — full kit covered except explicit exclusions.",
-              file=sys.stderr)
+        print("[e2e-coverage] OK — full kit covered except explicit exclusions.", file=sys.stderr)
 
     if args.print_ignore_args:
         for path in excluded:
