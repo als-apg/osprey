@@ -14,6 +14,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 ### Added
 
 - `osprey skills install osprey-design-philosophy` — bundle OSPREY's design and architecture principles as an installable skill for framework contributors.
+- `scripts/benchmark/` — model-capability benchmark toolchain: runs the full e2e suite across a model × provider matrix and renders a per-test pass-rate dashboard. The provider is never hard-wired — the portable layer is the e2e harness's environment-variable contract; the shell/ssh orchestration scripts are documented copy-and-adapt examples for one operator's setup (#259).
+
+### Changed
+
+- ARIEL `capabilities` MCP tool now documents that it is *not* a health check (it reads config only and never touches the database); use the `status` tool or `osprey ariel status` for live database connectivity.
 
 ## [2026.6.1] - 2026-06-17
 
