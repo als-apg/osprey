@@ -19,7 +19,7 @@ DEADLINE=$(( $(date +%s) + MAX_SECONDS ))
 
 render() {
   rsync -az --delete "$REMOTE:$REMOTE_REPO/results/" "$RESULTS/" 2>>"$LOG"
-  python3 "$REPO/scripts/benchmark/cborg_dashboard.py" --results-dir "$RESULTS" --out "$OUT" >>"$LOG" 2>&1
+  python3 "$REPO/scripts/benchmark/matrix_dashboard.py" --results-dir "$RESULTS" --out "$OUT" >>"$LOG" 2>&1
 }
 
 echo "=== live updater start $(date) -> $OUT ===" >> "$LOG"

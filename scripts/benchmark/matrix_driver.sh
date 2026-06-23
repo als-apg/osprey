@@ -4,8 +4,8 @@
 # results/<safe>__seed<seed>.{xml,json}. RESUMABLE: combos whose summary json
 # already exists are skipped, so a re-launch picks up where it left off.
 #
-#   scripts/benchmark/cborg_matrix_driver.sh           # defaults below
-#   MATRIX_PARALLEL=6 scripts/benchmark/cborg_matrix_driver.sh
+#   scripts/benchmark/matrix_driver.sh           # defaults below
+#   MATRIX_PARALLEL=6 scripts/benchmark/matrix_driver.sh
 set -uo pipefail
 cd "$(dirname "$0")/../.." || exit 2
 REPO="$PWD"

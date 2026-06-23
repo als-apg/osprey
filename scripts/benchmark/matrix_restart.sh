@@ -6,7 +6,7 @@
 # prior results first.
 #
 # Run from the worktree (drives the remote over ssh):
-#   bash scripts/benchmark/cborg_matrix_restart.sh
+#   bash scripts/benchmark/matrix_restart.sh
 #
 # Host/layout overrides (defaults match the macstudio benchmark box):
 #   OSPREY_BENCH_REMOTE        ssh host                       (default: macstudio)
@@ -48,7 +48,7 @@ done
 tmux new-session -d -s matrix_subjects \
   "cd '$REPO' && OSPREY_E2E_PRERUN_HOOK='$HOOK' \
    MATRIX_MODELS='gpt-oss-20b gemma-4 cborg-coder gpt-oss-120b google/qwen-3-coder google/qwen-3' \
-   MATRIX_SEEDS='1 2 3' MATRIX_PARALLEL=${MATRIX_PARALLEL_SUBJ:-4} bash scripts/benchmark/cborg_matrix_driver.sh"
+   MATRIX_SEEDS='1 2 3' MATRIX_PARALLEL=${MATRIX_PARALLEL_SUBJ:-4} bash scripts/benchmark/matrix_driver.sh"
 
 # References: haiku/sonnet/opus x 1 seed, 1-wide (Anthropic ceiling bracket).
 # Routed via als-apg (MATRIX_PROVIDER=als-apg), NOT CBORG: CBORG routing degrades
@@ -59,7 +59,7 @@ tmux new-session -d -s matrix_subjects \
 tmux new-session -d -s matrix_refs \
   "cd '$REPO' && OSPREY_E2E_PRERUN_HOOK='$HOOK' MATRIX_PROVIDER=als-apg \
    MATRIX_MODELS='claude-haiku-4-5-20251001 claude-sonnet-4-6 claude-opus-4-6' \
-   MATRIX_SEEDS='1' MATRIX_PARALLEL=${MATRIX_PARALLEL_REF:-1} bash scripts/benchmark/cborg_matrix_driver.sh"
+   MATRIX_SEEDS='1' MATRIX_PARALLEL=${MATRIX_PARALLEL_REF:-1} bash scripts/benchmark/matrix_driver.sh"
 
 sleep 3
 echo "=== sessions ==="; tmux ls | grep -E "matrix_|ariel_refresher"

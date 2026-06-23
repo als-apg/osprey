@@ -12,7 +12,7 @@ external deps) with:
     holds up on weak -> strong.
 
 Partial-data friendly: missing (model,seed) runs render as "pending". Usage:
-    scripts/benchmark/cborg_dashboard.py --results-dir results --out results/dashboard.html
+    scripts/benchmark/matrix_dashboard.py --results-dir results --out results/dashboard.html
 """
 
 from __future__ import annotations

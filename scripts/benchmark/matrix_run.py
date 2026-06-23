@@ -10,8 +10,8 @@ tests/experimental/test_e2e_open_model_harness.py: one model per process so the
 proxy's per-process singleton gets its own OS-allocated port (parallel-safe).
 
 Usage:
-    .venv/bin/python scripts/benchmark/cborg_matrix_run.py --model cborg-coder
-    .venv/bin/python scripts/benchmark/cborg_matrix_run.py --model lbl/gpt-oss-120b --timeout 300
+    .venv/bin/python scripts/benchmark/matrix_run.py --model cborg-coder
+    .venv/bin/python scripts/benchmark/matrix_run.py --model lbl/gpt-oss-120b --timeout 300
 
 Key resolution (first hit wins): --key-file, $CBORG_API_KEY, ~/.cborg_key
 Emits exactly one JSON object as the LAST line of stdout (machine-parseable);

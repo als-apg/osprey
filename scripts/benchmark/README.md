@@ -33,10 +33,10 @@ All default to inert, so CI behaviour is byte-for-byte unchanged when unset.
 | Script | Role |
 | --- | --- |
 | `run_e2e_for_model.sh <model> [seed]` | run the full e2e suite for ONE model; emits `results/<model>__seed<n>.{xml,json,live.jsonl}`. Routes open models through the proxy, `claude-*` direct, `MATRIX_PROVIDER=als-apg` for the Anthropic references. |
-| `cborg_matrix_driver.sh` | loop `run_e2e_for_model.sh` over a `MATRIX_MODELS` × `MATRIX_SEEDS` grid with bounded `MATRIX_PARALLEL`. **Resumable** — combos whose summary json exists are skipped. |
-| `cborg_matrix_restart.sh` | one-shot clean restart on the benchmark box over ssh: archive prior results, clear stale bytecode, verify Postgres, launch subjects + reference tmux sessions. |
-| `cborg_dashboard.py --results-dir DIR --out FILE` | render `results/*.json` → a self-contained `dashboard.html` (per-model summary + per-test heatmap). |
-| `cborg_dashboard_live.sh [max_seconds]` | local loop: rsync results from the remote every `DASH_INTERVAL`s and re-render until the matrix signals done. |
+| `matrix_driver.sh` | loop `run_e2e_for_model.sh` over a `MATRIX_MODELS` × `MATRIX_SEEDS` grid with bounded `MATRIX_PARALLEL`. **Resumable** — combos whose summary json exists are skipped. |
+| `matrix_restart.sh` | one-shot clean restart on the benchmark box over ssh: archive prior results, clear stale bytecode, verify Postgres, launch subjects + reference tmux sessions. |
+| `matrix_dashboard.py --results-dir DIR --out FILE` | render `results/*.json` → a self-contained `dashboard.html` (per-model summary + per-test heatmap). |
+| `matrix_dashboard_live.sh [max_seconds]` | local loop: rsync results from the remote every `DASH_INTERVAL`s and re-render until the matrix signals done. |
 | `check_e2e_coverage.py` | derive the pytest `--ignore` list from `matrix_e2e_config.json` and warn if the run stops covering the full e2e kit minus the explicit, documented exclusions. |
 | `matrix_e2e_config.json` | single source of truth for the excluded e2e files (each with a reason). |
 | `ariel_refresh_timestamps.sh` | re-anchor the demo-logbook arc (DEMO-026 → `NOW() - 1h`) so the scenario columns don't drift out of "today"; wired via `OSPREY_E2E_PRERUN_HOOK` (the restart script points `OSPREY_BENCH_HOOK` here by default). |
@@ -49,11 +49,11 @@ scripts/benchmark/run_e2e_for_model.sh cborg-coder 1
 
 # A grid:
 MATRIX_MODELS="gpt-oss-20b gemma-4" MATRIX_SEEDS="1 2" MATRIX_PARALLEL=4 \
-  scripts/benchmark/cborg_matrix_driver.sh
+  scripts/benchmark/matrix_driver.sh
 
 # Full clean restart on the benchmark box + live local dashboard:
-bash scripts/benchmark/cborg_matrix_restart.sh
-scripts/benchmark/cborg_dashboard_live.sh
+bash scripts/benchmark/matrix_restart.sh
+scripts/benchmark/matrix_dashboard_live.sh
 ```
 
 ## Prerequisites
@@ -65,7 +65,7 @@ scripts/benchmark/cborg_dashboard_live.sh
   scenario test skips with an actionable message if it is absent.
 - The scenario logbook timestamps drift out of "today" in a static DB;
   `ariel_refresh_timestamps.sh` re-anchors them. The matrix wires it via
-  `OSPREY_E2E_PRERUN_HOOK` automatically (`cborg_matrix_restart.sh` defaults
+  `OSPREY_E2E_PRERUN_HOOK` automatically (`matrix_restart.sh` defaults
   `OSPREY_BENCH_HOOK` to the committed copy). The fully self-contained form
   (an autouse pytest fixture) is PR_PLAN Fix 4, still to do.
 
