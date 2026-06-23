@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 import os
-from functools import lru_cache
+from functools import cache
 
 import httpx
 import pytest
@@ -48,7 +48,7 @@ UPSTREAMS = {
 }
 
 
-@lru_cache(maxsize=None)
+@cache
 def _usable(name: str) -> bool:
     """Real minimal probe: True only if the upstream returns a 200 completion.
 
@@ -61,7 +61,11 @@ def _usable(name: str) -> bool:
         r = httpx.post(
             u["base_url"].rstrip("/") + "/chat/completions",
             headers={"Authorization": f"Bearer {u['key']}", "Content-Type": "application/json"},
-            json={"model": u["model"], "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5},
+            json={
+                "model": u["model"],
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 5,
+            },
             timeout=120.0,  # first Ollama call may load a large model
         )
         return r.status_code == 200

@@ -17,7 +17,6 @@ from osprey.infrastructure.proxy.translator import (
     openai_to_anthropic_response,
 )
 
-
 # ── Request translation: Anthropic → OpenAI ──────────────────────────
 
 
@@ -31,7 +30,10 @@ def test_system_and_user_text_request():
     out = anthropic_to_openai_request(body)
     assert out["model"] == "cborg-coder"
     assert out["max_tokens"] == 64
-    assert out["messages"][0] == {"role": "system", "content": "You are a control-system assistant."}
+    assert out["messages"][0] == {
+        "role": "system",
+        "content": "You are a control-system assistant.",
+    }
     assert out["messages"][1] == {"role": "user", "content": "What is a PV?"}
 
 
@@ -105,9 +107,7 @@ def test_assistant_tool_use_and_user_tool_result_roundtrip():
             },
             {
                 "role": "user",
-                "content": [
-                    {"type": "tool_result", "tool_use_id": "toolu_abc", "content": "3.14"}
-                ],
+                "content": [{"type": "tool_result", "tool_use_id": "toolu_abc", "content": "3.14"}],
             },
         ],
     }
@@ -151,7 +151,9 @@ def test_thinking_blocks_are_stripped():
 
 def test_text_response_translation():
     openai_resp = {
-        "choices": [{"message": {"role": "assistant", "content": "A PV is..."}, "finish_reason": "stop"}],
+        "choices": [
+            {"message": {"role": "assistant", "content": "A PV is..."}, "finish_reason": "stop"}
+        ],
         "usage": {"prompt_tokens": 10, "completion_tokens": 5},
     }
     out = openai_to_anthropic_response(openai_resp, "cborg-coder")
@@ -201,7 +203,11 @@ def test_malformed_tool_arguments_dont_crash():
                     "role": "assistant",
                     "content": None,
                     "tool_calls": [
-                        {"id": "c1", "type": "function", "function": {"name": "f", "arguments": "{not json"}}
+                        {
+                            "id": "c1",
+                            "type": "function",
+                            "function": {"name": "f", "arguments": "{not json"},
+                        }
                     ],
                 },
                 "finish_reason": "tool_calls",

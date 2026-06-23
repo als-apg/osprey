@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 
 import httpx
-import pytest
 from fastapi.testclient import TestClient
 
 import osprey.infrastructure.proxy.app as app_module
@@ -30,7 +29,9 @@ class _FakeResp:
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
-            raise httpx.HTTPStatusError("upstream error", request=httpx.Request("POST", "http://x"), response=self)  # type: ignore[arg-type]
+            raise httpx.HTTPStatusError(
+                "upstream error", request=httpx.Request("POST", "http://x"), response=self
+            )  # type: ignore[arg-type]
 
 
 def _install_fake_upstream(monkeypatch, payload: dict):
@@ -68,7 +69,9 @@ def test_proxy_translates_text_request_end_to_end(monkeypatch):
     captured = _install_fake_upstream(
         monkeypatch,
         {
-            "choices": [{"message": {"role": "assistant", "content": "PONG"}, "finish_reason": "stop"}],
+            "choices": [
+                {"message": {"role": "assistant", "content": "PONG"}, "finish_reason": "stop"}
+            ],
             "usage": {"prompt_tokens": 3, "completion_tokens": 1},
         },
     )
