@@ -88,7 +88,10 @@ def test_full_chain_tool_call(running_proxy):
             "model": OLLAMA_MODEL,
             "max_tokens": 256,
             "messages": [
-                {"role": "user", "content": "Use read_pv to read PV BPM:01:X. You must call the tool."}
+                {
+                    "role": "user",
+                    "content": "Use read_pv to read PV BPM:01:X. You must call the tool.",
+                }
             ],
             "tools": [
                 {

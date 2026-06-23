@@ -50,7 +50,12 @@ CBORG_MODEL = os.environ.get("OSPREY_E2E_CBORG_MODEL", "cborg-coder")
 def _claude_cli() -> bool:
     try:
         env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
-        return subprocess.run(["claude", "--version"], capture_output=True, timeout=10, env=env).returncode == 0
+        return (
+            subprocess.run(
+                ["claude", "--version"], capture_output=True, timeout=10, env=env
+            ).returncode
+            == 0
+        )
     except Exception:
         return False
 
@@ -109,12 +114,16 @@ async def _drive_harness(upstream_base: str, upstream_key: str, model: str):
 
 
 @pytest.mark.skipif(
-    os.environ.get("OSPREY_E2E_OLLAMA") != "1" or not _claude_cli() or not _ollama_has(OLLAMA_MODEL),
+    os.environ.get("OSPREY_E2E_OLLAMA") != "1"
+    or not _claude_cli()
+    or not _ollama_has(OLLAMA_MODEL),
     reason="opt-in: set OSPREY_E2E_OLLAMA=1, install claude CLI, and create a large-num_ctx Ollama model",
 )
 async def test_open_model_drives_claude_code_harness_via_proxy_ollama():
     tool_calls, final_text = await _drive_harness(OLLAMA_BASE, "ollama", OLLAMA_MODEL)
-    assert any("read_pv" in t for t in tool_calls), f"no MCP tool call: {tool_calls} / {final_text!r}"
+    assert any("read_pv" in t for t in tool_calls), (
+        f"no MCP tool call: {tool_calls} / {final_text!r}"
+    )
     assert "3.14159" in final_text, f"tool result not relayed: {final_text!r}"
 
 
@@ -126,7 +135,11 @@ def _cborg_reachable() -> bool:
         r = httpx.post(
             CBORG_BASE + "/chat/completions",
             headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-            json={"model": CBORG_MODEL, "messages": [{"role": "user", "content": "hi"}], "max_tokens": 5},
+            json={
+                "model": CBORG_MODEL,
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 5,
+            },
             timeout=30.0,
         )
         return r.status_code == 200
@@ -139,6 +152,10 @@ def _cborg_reachable() -> bool:
     reason="opt-in: set OSPREY_E2E_CBORG=1, install claude CLI, and be on LBLnet/VPN",
 )
 async def test_cborg_coder_drives_claude_code_harness_via_proxy():
-    tool_calls, final_text = await _drive_harness(CBORG_BASE, os.environ["CBORG_API_KEY"], CBORG_MODEL)
-    assert any("read_pv" in t for t in tool_calls), f"no MCP tool call: {tool_calls} / {final_text!r}"
+    tool_calls, final_text = await _drive_harness(
+        CBORG_BASE, os.environ["CBORG_API_KEY"], CBORG_MODEL
+    )
+    assert any("read_pv" in t for t in tool_calls), (
+        f"no MCP tool call: {tool_calls} / {final_text!r}"
+    )
     assert "3.14159" in final_text, f"tool result not relayed: {final_text!r}"
