@@ -65,7 +65,11 @@
 {%- for entry in facility_permissions.get('ask', []) -%}
 {%- set _ = ask_entries.append('"' ~ entry ~ '"') -%}
 {%- endfor -%}
-{% for entry in ask_entries %}      {{ entry }}{% if not loop.last %},{% endif %}
+{#- Kill-switch: drop tools the renderer pulled out of ask (e.g. mcp__python__execute
+    when writes are disabled) so they can't reach the permissions.ask -> can_use_tool
+    approval path. Mirrors the remove_deny filter above. -#}
+{%- set remove_ask = facility_permissions.get('remove_ask', []) -%}
+{% for entry in ask_entries if entry.strip('"') not in remove_ask %}      {{ entry }}{% if not loop.last %},{% endif %}
 {% endfor %}    ]
   },
   "hooks": {
@@ -108,7 +112,7 @@
 {%- for h in rule.hooks %}
           {
             "type": "{{ h.type }}",
-            "command": {{ h.command | tojson }},
+            "command": {{ h.command | replace("python3 ", '"' ~ current_python_env ~ '" ') | tojson }},
             "timeout": {{ h.timeout }}
           }{% if not loop.last %},{% endif %}
 {%- endfor %}
@@ -133,7 +137,7 @@
 {%- for h in rule.hooks %}
           {
             "type": "{{ h.type }}",
-            "command": {{ h.command | tojson }},
+            "command": {{ h.command | replace("python3 ", '"' ~ current_python_env ~ '" ') | tojson }},
             "timeout": {{ h.timeout }}
           }{% if not loop.last %},{% endif %}
 {%- endfor %}

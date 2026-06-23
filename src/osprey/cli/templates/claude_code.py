@@ -180,16 +180,22 @@ def build_claude_code_context(
     # pure-write tools into permissions.deny so Claude Code's permissions layer
     # blocks the call before can_use_tool ever fires. The osprey_writes_check
     # PreToolUse hook is defense-in-depth but cannot suppress the permissions.ask
-    # → can_use_tool path when sibling hooks (limits, approval) participate in
-    # decision aggregation for the same tool. mcp__python__execute is NOT added
-    # here because it has a legitimate readonly path; its kill switch lives in
-    # the writes_check hook (which works in its 2-hook chain).
+    # → can_use_tool path: a static ask entry still drives the tool to the
+    # approval prompt even when the hook returns deny (observed under
+    # claude-agent-sdk 0.2.93). mcp__python__execute cannot be denied wholesale
+    # (it has a legitimate readonly path), so instead it is pulled OUT of
+    # permissions.ask — with no static ask entry, the writes_check hook's deny
+    # on a readwrite execute stands alone and blocks the call before the prompt.
     if not config.get("control_system", {}).get("writes_enabled", False):
         facility_perms = dict(ctx["facility_permissions"])
         deny = list(facility_perms.get("deny", []))
         if "mcp__controls__channel_write" not in deny:
             deny.append("mcp__controls__channel_write")
         facility_perms["deny"] = deny
+        remove_ask = list(facility_perms.get("remove_ask", []))
+        if "mcp__python__execute" not in remove_ask:
+            remove_ask.append("mcp__python__execute")
+        facility_perms["remove_ask"] = remove_ask
         ctx["facility_permissions"] = facility_perms
 
     return ctx
@@ -293,7 +299,14 @@ def _build_framework_hook_rules(
             "hooks": [
                 {
                     "type": "command",
-                    "command": f'python "$CLAUDE_PROJECT_DIR/.claude/hooks/{hook_path.name}"',
+                    # Invoke via ``python3``, not bare ``python``: stock macOS and
+                    # many Linux distros ship only ``python3``, so a bare ``python``
+                    # hook command silently fails to launch (Claude Code logs and
+                    # continues) — the entire PreToolUse/PostToolUse hook layer
+                    # (approval, writes kill-switch, feedback capture) goes dark.
+                    # settings.json.j2 rewrites this ``python3`` token to the
+                    # project's resolved venv interpreter (``current_python_env``).
+                    "command": f'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/{hook_path.name}"',
                     "timeout": meta["timeout"],
                 }
             ],
