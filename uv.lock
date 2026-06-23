@@ -17,7 +17,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2099-01-02T08:00:00Z"
+exclude-newer = "2026-06-13T12:00:00Z"
 
 [[package]]
 name = "accelerator-toolbox"
@@ -436,15 +436,6 @@ wheels = [
 ]
 
 [[package]]
-name = "caproto"
-version = "1.3.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/5b/0a/6d6cb9d632b283e6215da216d5987763c043fe2a8d9c48a3ea7ab91b77b4/caproto-1.3.0.tar.gz", hash = "sha256:ea74f433297e895695c80a706a2389f745a94d756b5835c80af73af3df585cba", size = 452074, upload-time = "2025-09-03T21:02:00.662Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/21/bd/4d1f59c9287ec5f93f9d879db3ac06785ba7c4d04a7120678d894e0c53d0/caproto-1.3.0-py3-none-any.whl", hash = "sha256:fa623c4a7d7c3537fc41ce023b7c72922b8819ab88bf9abc527e3ac594634180", size = 407021, upload-time = "2025-09-03T21:01:59.169Z" },
-]
-
-[[package]]
 name = "certifi"
 version = "2026.1.4"
 source = { registry = "https://pypi.org/simple" }
@@ -607,20 +598,20 @@ wheels = [
 
 [[package]]
 name = "claude-agent-sdk"
-version = "0.2.87"
+version = "0.2.101"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
     { name = "mcp" },
     { name = "sniffio" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/26/dc/e2afd59a1dd6484b6500245fa2331a0d8c0b68e6c180bc29d8ce9540f38a/claude_agent_sdk-0.2.87.tar.gz", hash = "sha256:56f02a49a97f7be37e0cd7323494d1c09e52fb0db7ab94f53bba8a230bb4bd0e", size = 252063, upload-time = "2026-05-23T04:19:25Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/88/df/c60107c0b5f246017ab81d628b50d0b4d7a8f43230a3a978085829754cef/claude_agent_sdk-0.2.101.tar.gz", hash = "sha256:f9663e3b8b3a79c20bffd3196525fa5734a1908c1a69ea01aea4de877901a097", size = 255630, upload-time = "2026-06-13T01:37:22.255Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/6c/4e/b83c4c6ec1e0b63e9d4d58ba9a5abfd9936c55b8ee4c06b88f5e93bdfd70/claude_agent_sdk-0.2.87-py3-none-macosx_11_0_arm64.whl", hash = "sha256:52204a9609dec3aa96032afd48c07d72e05d13311faf614978f17b61326e6e31", size = 63037960, upload-time = "2026-05-23T04:19:29.056Z" },
-    { url = "https://files.pythonhosted.org/packages/13/d7/5fb02260c5b95c66e108c35e046d4d66011921251f7896274b6b21594f14/claude_agent_sdk-0.2.87-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:1713e34e50b830ecac54386d39af14e3a2775f833f1ef715eb53566eaa1b6325", size = 65095745, upload-time = "2026-05-23T04:19:32.533Z" },
-    { url = "https://files.pythonhosted.org/packages/1d/84/1061f6580bbbc78de629467abf051cdbbabe71b982297b401e3fde65c7e0/claude_agent_sdk-0.2.87-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:e9e23119d2a02ad1ea1a2707214db98f5baf2c8809577186629843ddfcb8ec18", size = 72725120, upload-time = "2026-05-23T04:19:36.539Z" },
-    { url = "https://files.pythonhosted.org/packages/04/50/449f5044d76d9de18cf6a9f4b1c9386a74f41b4e2da5312df245d9dd23ef/claude_agent_sdk-0.2.87-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:5ac525d9ae3481296df5639d005e12ce2b6b0427426991f35da64db30be25c6e", size = 72875504, upload-time = "2026-05-23T04:19:40.839Z" },
-    { url = "https://files.pythonhosted.org/packages/80/dd/3f9d7c491d5a98138d293192b31cc9ed792d3552b3a7e276163d7fe2d43a/claude_agent_sdk-0.2.87-py3-none-win_amd64.whl", hash = "sha256:f34973669a1efaeb1543e7b22d7b22feefd8af2fae3adfd39181635077dae432", size = 73514880, upload-time = "2026-05-23T04:19:44.65Z" },
+    { url = "https://files.pythonhosted.org/packages/29/3e/f4dacad00720da9362675faaf08f0c3d5e9abab09ed1b21590279f1cb16c/claude_agent_sdk-0.2.101-py3-none-macosx_11_0_arm64.whl", hash = "sha256:c07981e7fbf0cdbf2944a19f852f784c72de9764ea510cf602480eaf8749c969", size = 66210240, upload-time = "2026-06-13T01:37:25.7Z" },
+    { url = "https://files.pythonhosted.org/packages/24/00/61213b804921325d378b27a1fbd1864775a136713d87873a321fce2b50c4/claude_agent_sdk-0.2.101-py3-none-macosx_11_0_x86_64.whl", hash = "sha256:3c03f59de5d7a78509be4f804fd73a2ff67935f13b159b1d89becb3a21ff2d78", size = 68255953, upload-time = "2026-06-13T01:37:29.082Z" },
+    { url = "https://files.pythonhosted.org/packages/52/ea/88e793dcadd7f3b429156f6a648bc191d1f1800aa059e309848b2b7c6bc0/claude_agent_sdk-0.2.101-py3-none-manylinux_2_17_aarch64.whl", hash = "sha256:97019d8db2d0aad5632d2f121ea88fb0310e27fc9181cf9f6bc758de640a4c35", size = 75795256, upload-time = "2026-06-13T01:37:32.628Z" },
+    { url = "https://files.pythonhosted.org/packages/40/04/768545299593e963605e99b4a97cb43565e742e994992e69b74999e126ab/claude_agent_sdk-0.2.101-py3-none-manylinux_2_17_x86_64.whl", hash = "sha256:ac43f1e0cb7980b447bcbaef7614f6cd068cfd4653c555e3dead2d72d9117133", size = 75968983, upload-time = "2026-06-13T01:37:36.072Z" },
+    { url = "https://files.pythonhosted.org/packages/00/8b/b4c906d8b18aa39afdf6f4a32f94040b9eaf2ef0481b9cd54591bab24d0d/claude_agent_sdk-0.2.101-py3-none-win_amd64.whl", hash = "sha256:9d994518a4939e17c389ae063f06c236528b4ddc23557d22f1a2685a6dc8d7a6", size = 76570206, upload-time = "2026-06-13T01:37:39.593Z" },
 ]
 
 [[package]]
@@ -2989,7 +2980,6 @@ dependencies = [
     { name = "aiohttp-socks" },
     { name = "anthropic" },
     { name = "bokeh" },
-    { name = "caproto" },
     { name = "certifi" },
     { name = "charset-normalizer" },
     { name = "claude-agent-sdk" },
@@ -3057,6 +3047,7 @@ all = [
     { name = "pytest-order" },
     { name = "pytest-rerunfailures" },
     { name = "python-xlib" },
+    { name = "rdflib" },
     { name = "ruff" },
     { name = "sphinx", version = "9.0.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "sphinx", version = "9.1.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -3104,6 +3095,9 @@ docs = [
     { name = "sphinxcontrib-jsmath" },
     { name = "sphinxcontrib-mermaid" },
 ]
+knowledge = [
+    { name = "rdflib" },
+]
 screen-capture-linux = [
     { name = "mss" },
     { name = "python-xlib" },
@@ -3123,10 +3117,9 @@ requires-dist = [
     { name = "bokeh", specifier = ">=3.0" },
     { name = "build", marker = "extra == 'all'" },
     { name = "build", marker = "extra == 'dev'" },
-    { name = "caproto" },
     { name = "certifi", specifier = ">=2025.4.26" },
     { name = "charset-normalizer", specifier = ">=3.4.2" },
-    { name = "claude-agent-sdk", specifier = "==0.2.87" },
+    { name = "claude-agent-sdk", specifier = "==0.2.101" },
     { name = "click", specifier = ">=8.1.0" },
     { name = "docker", marker = "extra == 'all'", specifier = ">=7.0.0" },
     { name = "docker", marker = "extra == 'dev'", specifier = ">=7.0.0" },
@@ -3193,6 +3186,8 @@ requires-dist = [
     { name = "python-xlib", marker = "extra == 'screen-capture-linux'", specifier = ">=0.33" },
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "questionary", specifier = ">=2.0.0" },
+    { name = "rdflib", marker = "extra == 'all'", specifier = ">=7.0" },
+    { name = "rdflib", marker = "extra == 'knowledge'", specifier = ">=7.0" },
     { name = "requests", specifier = ">=2.32.3" },
     { name = "rich", specifier = ">=14.0.0" },
     { name = "ruamel-yaml", specifier = ">=0.18.0" },
@@ -3225,7 +3220,7 @@ requires-dist = [
     { name = "watchdog", specifier = ">=3.0.0" },
     { name = "websocket-client", specifier = ">=1.7.0" },
 ]
-provides-extras = ["all", "archiver-mongodb", "ariel", "ariel-proxy", "dev", "docs", "screen-capture-linux", "sheets"]
+provides-extras = ["all", "archiver-mongodb", "ariel", "ariel-proxy", "dev", "docs", "knowledge", "screen-capture-linux", "sheets"]
 
 [[package]]
 name = "packaging"
@@ -4347,6 +4342,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f6/45/eafb0bba0f9988f6a2520f9ca2df2c82ddfa8d67c95d6625452e97b204a5/questionary-2.1.1.tar.gz", hash = "sha256:3d7e980292bb0107abaa79c68dd3eee3c561b83a0f89ae482860b181c8bd412d", size = 25845, upload-time = "2025-08-28T19:00:20.851Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/3c/26/1062c7ec1b053db9e499b4d2d5bc231743201b74051c973dadeac80a8f43/questionary-2.1.1-py3-none-any.whl", hash = "sha256:a51af13f345f1cdea62347589fbb6df3b290306ab8930713bfae4d475a7d4a59", size = 36753, upload-time = "2025-08-28T19:00:19.56Z" },
+]
+
+[[package]]
+name = "rdflib"
+version = "7.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyparsing" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/98/f5/18bb77b7af9526add0c727a3b2048959847dc5fb030913e2918bf384fec3/rdflib-7.6.0.tar.gz", hash = "sha256:6c831288d5e4a5a7ece85d0ccde9877d512a3d0f02d7c06455d00d6d0ea379df", size = 4943826, upload-time = "2026-02-13T07:15:55.938Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/10/c2/6604a71269e0c1bd75656d5a001432d16f2cc5b8c057140ec797155c295e/rdflib-7.6.0-py3-none-any.whl", hash = "sha256:30c0a3ebf4c0e09215f066be7246794b6492e054e782d7ac2a34c9f70a15e0dd", size = 615416, upload-time = "2026-02-13T07:15:46.487Z" },
 ]
 
 [[package]]

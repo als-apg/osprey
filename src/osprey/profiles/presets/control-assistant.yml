@@ -34,6 +34,7 @@ hooks:
   - memory-guard      # Warn when context window approaches threshold
   - notebook-update   # Sync CLAUDE.md notebook after each session
   - cf-feedback-capture  # Capture channel-finder accuracy feedback for tuning
+  - config-drift      # Warn at session start when config.yml drifted from generated artifacts
 
 rules:
   - safety              # Core safety rules: never write without approval
@@ -57,6 +58,7 @@ agents:
   - data-visualizer         # Produce strip charts and correlation plots
   - logbook-search          # Search facility logbook for historical entries
   - logbook-deep-research   # Multi-hop logbook research with synthesis
+  - facility-knowledge      # Look up facility documentation, procedures, and device specs
 
 output_styles:
   - control-operator  # Terse, actionable output style for control-room operators
@@ -65,6 +67,7 @@ web_panels:
   - ariel           # ARIEL search interface (past experiments, papers)
   - channel-finder  # Interactive channel-finder web UI
   - tuning          # Beam tuning dashboard
+  - events          # EVENTS dashboard tab (event dispatcher)
 
 # ── Config overrides ─────────────────────────────────────────────────────────
 # These key.path entries are written into config.yml after the template renders.
@@ -73,3 +76,33 @@ config:
   control_system.type: mock   # Change to "epics" for live hardware
   # system.timezone: America/Los_Angeles
   # system.facility_name: My Facility
+  # EVENTS panel — surfaces the event-dispatcher dashboard as an in-terminal tab.
+  # URL defaults to the host-run dispatcher (127.0.0.1:8020); override
+  # EVENT_DISPATCHER_URL for containerized/remote web terminals.
+  web.panels.events.label: EVENTS
+  web.panels.events.url: "${EVENT_DISPATCHER_URL:-http://localhost:8020}"
+  web.panels.events.path: /dashboard
+  web.panels.events.health_endpoint: /health
+
+# ── Event dispatch (optional) ────────────────────────────────────────────────
+# Turns external events (webhooks) into headless agent runs. This ships a set of
+# control-system-free tutorial triggers so you can exercise the pipeline with a
+# single `curl` after `osprey deploy up`. Remove this block to disable dispatch.
+dispatch:
+  triggers: tutorial_triggers.yml   # bundled with OSPREY; resolved at build time
+  worker_count: 1
+  workspace_mode: isolated
+  max_concurrent_runs: 2
+  max_queue_depth: 50
+
+# ── Environment variables ────────────────────────────────────────────────────
+# Bearer tokens guarding the dispatcher's inbound webhook/dashboard auth
+# (EVENT_DISPATCHER_TOKEN) and the dispatcher→worker calls (DISPATCH_WORKER_TOKEN).
+# No defaults on purpose: the dispatch services fail closed on an unset token.
+# `osprey deploy up` auto-generates a strong random value for each unset token
+# into the project .env (and logs where), so a fresh deploy is secure by default
+# with zero editing. Set your own values in .env to override.
+env:
+  required:
+    - EVENT_DISPATCHER_TOKEN
+    - DISPATCH_WORKER_TOKEN

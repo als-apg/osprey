@@ -11,15 +11,66 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+## [2026.6.1] - 2026-06-17
+
 ### Added
 
+- **Event dispatch (opt-in).** New `osprey.dispatch` FastMCP server + `osprey.mcp_server.dispatch_worker` service turn external events into headless agent runs, with a live dashboard, an in-memory FIFO pool with backpressure, per-trigger tool allowlists, and a server-side tool denylist (shell + web/browser tools blocked regardless of a trigger's allowlist). All dispatcher and worker HTTP endpoints that carry agent output or accept writes are bearer-token gated (the in-terminal EVENTS tab injects the token server-side, so the browser never holds it); `osprey deploy up` auto-generates the tokens into the project `.env` so a fresh deploy is secure with zero editing. Enable per profile via a `dispatch:` block; the `control-assistant` preset ships four control-system-free tutorial triggers (fire `hello-dispatch` with a single `curl`). Trigger sources are pluggable via the `osprey.trigger_sources` entry-point group (built-in: `webhook`, `cron`). Worker containers mount the project `.env` read-only so dispatched agent runs can authenticate to the LLM provider. The pipeline is exercised end-to-end by real-token e2e tests — a subprocess sweep over the shipped triggers and a full Docker-stack deploy. `osprey deploy up` builds a shared local image for the dispatcher + worker from a bundled Dockerfile (no published image required); use `--dev` to bake in a local osprey checkout, or set `OSPREY_DISPATCH_IMAGE`/`OSPREY_WORKER_IMAGE` to use a prebuilt image.
+- The `control-assistant` preset now surfaces the event-dispatcher dashboard as an in-terminal **EVENTS** tab in `osprey web` (health-gated; repoint via `EVENT_DISPATCHER_URL`).
+- **Facility Knowledge (OKF).** Structured markdown bundle (`osprey_facility_knowledge` MCP server, `list_concepts` / `read_concept` / `search` tools) for on-demand retrieval of subsystem descriptions, device details, operational procedures, and facility-specific references. `facility.md` is thinned to facility identity only; deep content is fetched via the agent on demand. The `control_assistant` preset ships an Example Research Facility bundle. Includes `draft_concept` write tool (approval-gated) for authoring new concept docs directly from an agent session. See :doc:`/how-to/use-facility-knowledge`.
+- `osprey knowledge` CLI: `regen-index` (regenerate bundle indexes, idempotent), `validate` (collect-all frontmatter + index validation, exits 1 on any failure), `seed-from-ttl` (seed device stubs from a NARAD/als-ontology TTL; requires `knowledge` extra; `--force` to overwrite hand-edited stubs).
+- `facility-knowledge` subagent: specialist agent scoped to `list_concepts` / `read_concept` / `search`; enabled by default in `control_assistant`; delegates facility knowledge lookups out of the main agent's context.
+- Simulation engine: `at_time: "HH:MM:SS"` event anchor — daily local-time recurrence for archiver events (step/spike; width in seconds), complementing window-fraction `at` and activation-relative `at_offset`.
+- Simulation engine: optional per-channel `min`/`max` physical bounds clamp live reads and synthesized history on the way out (e.g. forward RF power floored at 0 saturates instead of going negative during a trip); overrides and writes are stored verbatim.
+- **Composable, self-contained simulation scenarios.** Scenarios are bundles under `data/simulation/scenarios/<name>/` — each owns its telemetry overlay (`scenario.json`) and, optionally, its logbook narrative (`logbook.json`). Several can be active at once as long as they touch disjoint channel sets (overlapping channels are a hard error). The `control_assistant` preset ships `vacuum-burst` (telemetry-only) and `rf-thermal` (with its DEMO-026/027/028 incident arc).
+- **`osprey sim` CLI** — `osprey sim list | status | apply NAME...` composes and applies one or more scenarios: it writes the simulator state (with a shared apply-time anchor) and purges + reseeds the ARIEL logbook from the active bundles, so the narrative the agent searches matches the telemetry it reads, against one clock. `apply` confirms before purging (`--yes` to skip, `--no-seed` for telemetry only).
+- **Relative timestamps for demo/seed logbooks** (`osprey.utils.relative_time`) — demo and seed entries express timestamps as `{days_ago, time}` and resolve to concrete datetimes when data enters the system (`osprey sim apply` for scenario bundles; `osprey ariel ingest`/`quickstart` for the generic JSON adapter, which now accepts a relative `when` alongside absolute `timestamp`). The data lands at a recent, deterministic position with no build-time file mutation.
+- Deterministic statistical-contract tests (`tests/simulation/test_control_assistant_scenarios.py`, `test_scenario_composition.py`) pin the scenarios' signatures (anti-correlation, excursion positions, derived-channel consistency) and the disjoint-composition contract, so the LLM-judge e2e tests run against a known-good data substrate.
+
+### Changed
+
+- Hello-world tutorial now launches via `osprey claude chat` instead of bare `claude`, so the provider configured under `claude_code` is actually used (bare `claude` silently falls back to the shell's provider); links the CLI-chat how-to (#261).
+- The control_assistant scenario e2e tests (`test_vacuum_burst_scenario` and `test_rf_cavity_correlation_scenario`) drive their archiver ground truth from the simulation engine via `activate_scenarios`, which also seeds the matching ARIEL logbook deterministically at setup (replacing the manual `purge && ingest` pre-seed and its stale-DB footgun). They build at tier 3 so every simulated channel is discoverable through the channel finder.
+
+### Fixed
+
+- Drop the unused `ANTHROPIC_API_KEY` forwarding from the `python` executor MCP server env; nothing in the executor stack reads it (#264).
+- `osprey deploy up --dev` now passes `--build` so the freshly-rendered local wheel is actually baked into the image; previously compose reused the cached image and ran stale code after the first build.
+- `osprey deploy up --dev` now builds the local wheel with the active interpreter (`sys.executable`) instead of bare `python3`. In a non-activated virtualenv, PATH `python3` is the system/pyenv interpreter, which lacks the `build` package — so the wheel build silently failed and containers fell back to the released PyPI version (missing any unreleased local code).
+- `osprey build` no longer aborts when a profile removes a framework agent (e.g. dropping the logbook agents) while also disabling the MCP server those agents depended on. OSPREY's two-pass `.claude/` render left the dropped agents' `.md` files orphaned on disk with their original `mcp__*` tool frontmatter, which the agent tool/permission drift check then flagged as a false positive and aborted the build. Files outside the active manifest selection are now deleted on re-render instead of left behind. (#266)
+
+### Removed
+
+- The build-time logbook timestamp rebase (`rebase_logbook_timestamps`) is gone: demo/seed logbooks now carry declarative relative timestamps resolved at ingest/apply time instead of being mutated in place during `osprey build` (which no longer requires a running Postgres for logbook setup).
+- **BREAKING:** the mock archiver no longer emits the built-in Sector-7 vacuum-burst and RF cavity-C1 thermal-excursion demo events from hard-coded source. That physics is now data-driven (ship it as a `machine.json` scenario, e.g. the `control_assistant` preset's `vacuum-burst`/`rf-thermal`). Without a `simulation_file`, the mock archiver synthesizes only generic per-PV-type waveforms.
+
+## [2026.6.0] - 2026-06-12
+
+### Added
+
+- **`ds4` provider** — local DwarfStar/DeepSeek-V4 inference server (OpenAI-compatible, keyless, default `http://127.0.0.1:8000/v1`). Introduces a per-provider `supports_native_structured_output` capability flag (`True`/`False`/`None`=auto-detect via LiteLLM) replacing the hardcoded structured-output whitelist; ds4 declares `False` because the server accepts but ignores `response_format: json_schema`, so OSPREY's prompt-based JSON fallback is used. Also fixes URL mangling in the vLLM/ds4 health checks (`rstrip('/v1')` stripped characters, breaking ports ending in `1`).
+- **Data-driven simulation engine** (`osprey.simulation`) backing the mock control-system and archiver connectors: a `machine.json` defines channels (baseline values or derived expressions), scenarios (override sets), and archiver event scripts (step/ramp/spike, window-fraction or wall-clock anchored), so corrective writes propagate through physics couplings and archived history correlates with live values. Ships with a generic `sim-scenarios` skill for listing/switching scenarios.
+- **Generated reference Dockerfile.** `osprey build` now renders a self-documenting `Dockerfile` + `.dockerignore` into every project root — install Claude Code + OSPREY, copy the project, relocate paths, serve the web terminal on 8087 as a non-root user. Generated once and user-owned (`regen` never touches them); site extension via exactly three build ARGs (`OSPREY_PIP_SPEC`, `PIP_NO_PROXY`, `OSPREY_OFFLINE`). Profile pip `dependencies:` are baked into the install line. New how-to: `docs/source/how-to/containerize-project.rst`. Guarded by unit content tests, a CLI cross-check (every `osprey` invocation in the rendered Dockerfile must resolve against the real click tree), and a docker-build e2e (`dockerfile-e2e` CI job, advisory).
+- **`osprey claude regen --runtime-root PATH`.** Rewrites `project_root` in `config.yml` (comment-preserving) and re-renders Claude Code artifacts against the new root; a recorded `execution.python_env_path` that doesn't exist on the current filesystem is replaced with the current interpreter. Supersedes the manual "clear python_env_path + regen" container fix; used by the generated Dockerfile.
 - New e2e scenario `tests/e2e/test_corrector_limit_honest_refusal_scenario.py` — asserts the agent's *behavior under refusal* (no channel-shopping, no intent-splitting, no false success, clear safety-attribution, operator looped in), complementing the existing mechanism-level safety tests. Two-layer grading (deterministic + LLM judge).
 
 ### Changed
 
+- **`claude-agent-sdk` upgraded to 0.2.93** (bundles CLI 2.1.167); als-apg routing re-verified (hello-world canonical flow + approval-hook e2e).
+- `data-visualizer` subagent now defaults to `create_interactive_plot` when the caller does not explicitly request a static figure. Fixes the case where vague requests (e.g. "3D waterfall plot") produced an unreadable fixed-viewpoint matplotlib image instead of a rotatable Plotly view.
+
 ### Fixed
 
+- `ariel search` CLI now renders keyword-search entries when no composed answer is available, instead of printing an empty result.
+- `osprey build` re-anchors profile-overlaid logbook seeds to the current date (overlays land after the in-template timestamp rebase).
+- Editing `config.yml` no longer leaves the agent running stale settings (#244). Config changes via the web settings panel and `osprey config set-*` now auto-regenerate the Claude Code artifacts (so e.g. flipping `control_system.writes_enabled` actually takes effect), the web server re-syncs them on launch, and a SessionStart guard warns when a hand-edited `config.yml` has drifted from the generated `.claude/` artifacts. The hello-world tutorial documents the `osprey claude regen` + relaunch step.
+- Regen drift detection (`osprey claude status` and the auto-regen gate above) no longer reports phantom drift for user-owned artifacts (e.g. the create-only `facility.md`), which would have re-rendered and backed up artifacts on every web launch.
+- `lttb_downsample()` no longer crashes (`TypeError`) on archiver `None` gap values; gaps are treated as `0.0` for downsample selection and preserved as `null` in the returned data so charts render true gaps (#247).
+- `rules/data-visualization.md` is now gated on the data-visualizer subagent being disabled. When the subagent is enabled (the default), CLAUDE.md forbids the main agent from calling `create_static_plot` / `create_interactive_plot` / `create_dashboard` / `python_execute` / `Write`, so shipping a rule that teaches those tools was contradictory context. The file is now a `.md.j2` template that renders empty (and is auto-unlinked) when the subagent is enabled.
+
 ### Removed
+
+- Unused `caproto` dependency and stale `osprey generate soft-ioc` hints (command removed in the LangGraph-era cleanup).
 
 ## [2026.5.2] - 2026-05-27
 
@@ -54,7 +105,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 ### Added
 - **Paradigm-agnostic channel finder.** `in_context` / `hierarchical` / `middle_layer` share one tier-resolved query set; `control_assistant` ships all 9 tier DBs so you switch tier per run instead of re-initialising.
 - **ARIEL standalone preset.** Logbook deployment without the control-system stack (no channel finder, no archiver, no Python executor). See `docs/source/how-to/ariel/standalone-deployment.rst`.
-- **Virtual-accelerator scenarios.** Mock archiver emits seeded correlated events (Sector-7 vacuum burst, RF-cavity-C1 thermal runaway) for operator-style investigation tests.
+- **Virtual-accelerator scenarios.** Mock archiver emits seeded correlated events (Sector-7 vacuum burst, RF-cavity-C1 thermal runaway) for operator-style investigation tests. *(Superseded — these are now data-driven simulation scenarios; see the Unreleased "Removed" entry.)*
 - **Profile-mode builds.** `osprey build --emit-profile DIR --preset X` scaffolds an editable profile; `extends:` accepts bundled preset names.
 
 ### Changed

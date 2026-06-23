@@ -108,7 +108,15 @@ From your project directory:
 
 .. code-block:: bash
 
-   claude
+   osprey claude chat
+
+.. note::
+
+   ``osprey claude chat`` is the recommended way to launch: it reads
+   ``config.yml`` and points the agent at your configured LLM provider.
+   Launching the bare agent CLI skips this, so it silently uses whatever
+   provider your shell environment points at --- see
+   :doc:`../how-to/use-cli-chat`.
 
 .. note::
 
@@ -175,6 +183,22 @@ Edit ``config.yml`` to allow write operations:
    control_system:
      type: mock
      writes_enabled: true   # Changed from false
+
+``config.yml`` is a *build-time* input. Safety-critical fields like
+``writes_enabled`` are baked into the agent's generated configuration (the
+``.claude/`` artifacts), so editing ``config.yml`` alone does not change the
+agent's behavior. Regenerate the artifacts and relaunch:
+
+.. code-block:: bash
+
+   osprey claude regen
+   osprey claude chat
+
+.. note::
+
+   You can check whether your artifacts are in sync at any time with
+   ``osprey claude status``. If you forget to regenerate, the agent warns you at
+   startup that ``config.yml`` has drifted from its generated configuration.
 
 **2. Write within limits** (succeeds with approval)
 
@@ -281,3 +305,6 @@ Here's where to go from here:
 - **Architecture deep dive**: The :doc:`conceptual-tutorial` explains the
   MCP server architecture, connector system, and safety mechanisms
 - **CLI reference**: See :doc:`../cli-reference/index` for all ``osprey`` commands
+- **Launch options & providers**: :doc:`../how-to/use-cli-chat` explains what
+  ``osprey claude chat`` sets up and how to point the agent at a non-default LLM
+  provider via ``config.yml``

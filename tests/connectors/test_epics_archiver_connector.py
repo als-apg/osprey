@@ -542,6 +542,61 @@ class TestMetadataMethods:
         await connector.disconnect()
 
 
+class TestConnectSideEffects:
+    """connect() must be metadata-only: no third-party client, no stdout.
+
+    Historical context (als-profiles GitLab #8): an earlier implementation
+    constructed ``archivertools.ArchiverClient`` inside ``connect()``, whose
+    ``__init__`` ICMP-pinged the server (fails in containers where ICMP is
+    blocked but HTTP 17668 is open) and printed to stdout (corrupts MCP
+    stdio transport). The connector now talks direct HTTP at fetch time;
+    these tests pin that ``connect()`` never regresses to connect-time
+    side effects.
+    """
+
+    @pytest.mark.asyncio
+    async def test_connect_needs_no_archiver_client_library(self):
+        """connect() succeeds with archivertools entirely absent."""
+        with patch.dict("sys.modules", {"archivertools": None}):
+            connector = EPICSArchiverConnector()
+            await connector.connect({"url": "http://archiver.example.com:17668"})
+
+            assert connector._connected is True
+            await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_connect_does_not_pollute_stdout(self):
+        """Nothing may print to stdout during connect() — MCP stdio safety."""
+        import io
+        import sys
+
+        connector = EPICSArchiverConnector()
+
+        captured = io.StringIO()
+        old_stdout = sys.stdout
+        sys.stdout = captured
+        try:
+            await connector.connect({"url": "http://archiver.example.com:17668"})
+        finally:
+            sys.stdout = old_stdout
+
+        assert captured.getvalue() == "", (
+            f"stdout was polluted during connect(): {captured.getvalue()!r}"
+        )
+        assert connector._connected is True
+        await connector.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_connect_performs_no_network_io(self):
+        """connect() must not open HTTP connections (fetch-time only)."""
+        with patch("urllib.request.urlopen", side_effect=AssertionError("network I/O in connect")):
+            connector = EPICSArchiverConnector()
+            await connector.connect({"url": "http://archiver.example.com:17668"})
+
+            assert connector._connected is True
+            await connector.disconnect()
+
+
 class TestFactoryIntegration:
     """Tests for factory integration."""
 

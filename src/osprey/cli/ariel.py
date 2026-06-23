@@ -345,6 +345,15 @@ def search_command(query: str, mode: str, limit: int, output_json: bool) -> None
             click.echo(result["answer"])
             if result["sources"]:
                 click.echo(f"\nSources: {', '.join(result['sources'])}")
+        elif result.get("entries"):
+            # Direct (non-RAG) modes return entries without a composed answer.
+            for idx, entry in enumerate(result["entries"], 1):
+                timestamp = entry.get("timestamp", "")[:16].replace("T", " ")
+                header = f"{idx}. [{entry.get('entry_id', '?')}] {entry.get('title', '')}"
+                click.echo(header)
+                byline = "   ".join(part for part in (timestamp, entry.get("author", "")) if part)
+                if byline:
+                    click.echo(f"   {byline}")
         else:
             click.echo("No results found.")
 

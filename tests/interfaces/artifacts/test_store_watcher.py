@@ -31,8 +31,14 @@ def _make_watcher(tmp_path):
     return watcher, broadcaster, artifact_store
 
 
-def _wait_for_broadcast(broadcaster, expected_calls=1, timeout=3.0):
-    """Wait until the broadcaster has been called at least expected_calls times."""
+def _wait_for_broadcast(broadcaster, expected_calls=1, timeout=10.0):
+    """Wait until the broadcaster has been called at least expected_calls times.
+
+    The timeout is generous (10s) because this polls for a filesystem watcher to
+    fire — debounce + OS event latency varies widely on loaded CI runners, and
+    the loop returns the instant the broadcast arrives, so a high ceiling adds
+    headroom for slow runners without slowing the happy path.
+    """
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if broadcaster.broadcast.call_count >= expected_calls:

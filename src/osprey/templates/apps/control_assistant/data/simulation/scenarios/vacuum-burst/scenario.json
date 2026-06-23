@@ -1,0 +1,27 @@
+{
+  "description": "Sector-7 vacuum burst with correlated beam loss at 14:32:08 local time, recurring daily.",
+  "archiver": [
+    {
+      "channel": "SR:VAC:GAUGE:SR07:PRESSURE:RB",
+      "events": [
+        {
+          "shape": "spike",
+          "at_time": "14:32:08",
+          "amplitude": 1.5e-07,
+          "width": 15
+        }
+      ]
+    },
+    {
+      "channel": "SR:DIAG:DCCT:01:CURRENT:RB",
+      "events": [
+        {
+          "shape": "spike",
+          "at_time": "14:32:08",
+          "amplitude": -5.0,
+          "width": 30
+        }
+      ]
+    }
+  ]
+}

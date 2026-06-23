@@ -5,7 +5,8 @@ replacing Osprey's custom provider implementations with a single adapter layer.
 
 Key features:
 - Model name mapping using provider-declared attributes (litellm_prefix, is_openai_compatible)
-- Structured output detection via LiteLLM's supports_response_schema()
+- Structured output routing via the provider-declared supports_native_structured_output
+  flag, falling back to LiteLLM's supports_response_schema() when the flag is None
 - Extended thinking support via LiteLLM's standardized interface
 - HTTP proxy configuration
 - Health check utilities
@@ -14,13 +15,13 @@ Provider Integration:
     Providers declare their LiteLLM routing behavior via class attributes:
     - litellm_prefix: The LiteLLM prefix (e.g., "anthropic", "gemini")
     - is_openai_compatible: True for OpenAI-compatible endpoints (CBORG, vLLM, etc.)
+    - supports_native_structured_output: True=native json_schema, False=prompt fallback, None=auto-detect
 
-    This eliminates hardcoded provider checks and allows custom providers to integrate
+    This prefers provider-declared attributes over the hardcoded fallback maps and allows custom providers to integrate
     without modifying this adapter.
 """
 
 import json
-import os
 import warnings
 from typing import TYPE_CHECKING, Any
 
@@ -48,6 +49,9 @@ warnings.filterwarnings(
 
 logger = get_logger("litellm_adapter")
 
+# Max characters of an error or response string to surface in user-facing messages.
+_ERR_SNIPPET = 200
+
 
 def get_litellm_model_name(
     provider: str,
@@ -64,7 +68,7 @@ def get_litellm_model_name(
     - openai/{model} with api_base for OpenAI-compatible endpoints
 
     This function reads provider-declared attributes (litellm_prefix, is_openai_compatible)
-    to determine the correct routing, eliminating hardcoded provider checks.
+    to determine the correct routing, preferring them over the hardcoded fallback maps below.
 
     :param provider: Osprey provider name
     :param model_id: Model identifier
@@ -72,6 +76,14 @@ def get_litellm_model_name(
     :param provider_class: Optional provider class with LiteLLM configuration attributes
     :return: LiteLLM-formatted model string
     """
+    if provider_class is None:
+        # Lazy import avoids an import cycle: provider_registry imports provider
+        # modules, which import this adapter. Resolving the class here makes routing
+        # driven by provider-declared attributes instead of the hardcoded maps below.
+        from osprey.models.provider_registry import get_provider_registry
+
+        provider_class = get_provider_registry().get_provider(provider)
+
     # If provider class is available, use its declared attributes
     if provider_class is not None:
         # OpenAI-compatible providers use openai/ prefix with custom api_base
@@ -86,15 +98,16 @@ def get_litellm_model_name(
                 return model_id
             return f"{litellm_prefix}/{model_id}"
 
-    # Fallback for backwards compatibility when provider_class is not provided
-    # This allows the adapter to work even without the provider class
+    # Last-resort fallback for providers the registry can't resolve (unregistered
+    # names that have no provider class). Registered providers are routed above via
+    # their declared attributes, so these maps no longer drive normal routing.
     _fallback_prefixes = {
         "anthropic": "anthropic",
         "google": "gemini",
         "openai": "",  # No prefix for OpenAI
         "ollama": "ollama",
     }
-    _openai_compatible = {"cborg", "stanford", "argo", "vllm", "amsc", "als-apg"}
+    _openai_compatible = {"cborg", "stanford", "argo", "vllm", "amsc-i2", "als-apg", "ds4"}
 
     if provider in _openai_compatible:
         return f"openai/{model_id}"
@@ -169,12 +182,8 @@ def execute_litellm_completion(
         completion_kwargs["tools"] = tools
         completion_kwargs["tool_choice"] = tool_choice if tool_choice is not None else "auto"
 
-    # Handle HTTP proxy from environment
-    proxy_url = os.environ.get("HTTP_PROXY")
-    if proxy_url:
-        # LiteLLM respects standard proxy environment variables
-        # No additional configuration needed
-        pass
+    # HTTP proxy needs no handling here: LiteLLM honors the standard
+    # HTTP_PROXY / HTTPS_PROXY environment variables automatically.
 
     # Handle extended thinking
     enable_thinking = kwargs.get("enable_thinking", False)
@@ -354,30 +363,33 @@ def _handle_structured_output(
     except Exception as e:
         raise ValueError(
             f"Failed to parse structured output from {provider}: {e}\n"
-            f"Response: {response_text[:200]}"
+            f"Response: {response_text[:_ERR_SNIPPET]}"
         ) from e
 
 
 def _supports_native_structured_output(litellm_model: str, provider: str) -> bool:
-    """Check if a model supports native structured outputs.
+    """Decide whether to use native response_format json_schema for *provider*.
 
-    Uses LiteLLM's built-in supports_response_schema() for detection, with
-    fallback handling for OpenAI-compatible providers (CBORG, AMSC, Stanford, ARGO, vLLM)
-    that support structured outputs via their proxy but aren't recognized by LiteLLM.
+    Reads the provider class's ``supports_native_structured_output`` flag:
+      - True/False  -> use it directly (explicit assertion)
+      - None        -> defer to litellm.supports_response_schema(litellm_model)
 
-    :param litellm_model: LiteLLM-formatted model string (e.g., "anthropic/claude-sonnet-4")
+    :param litellm_model: LiteLLM-formatted model string (e.g. "anthropic/claude-sonnet-4")
     :param provider: Osprey provider name
-    :return: True if native structured output is supported
+    :return: True if native structured output should be used
     """
-    # OpenAI-compatible providers support structured outputs via their API
-    # LiteLLM can't detect this since it sees the openai/ prefix, not the actual model
-    if provider in ("cborg", "stanford", "argo", "vllm", "amsc"):
-        return True
+    # Lazy import avoids an import cycle: provider_registry imports provider
+    # modules, which import this adapter.
+    from osprey.models.provider_registry import get_provider_registry
+
+    provider_class = get_provider_registry().get_provider(provider)
+    declared = getattr(provider_class, "supports_native_structured_output", None)
+    if declared is not None:
+        return declared
 
     try:
         return litellm.supports_response_schema(model=litellm_model)
     except Exception:
-        # If LiteLLM can't determine support, fall back to False (use prompt-based)
         return False
 
 
@@ -520,7 +532,7 @@ Respond ONLY with the JSON object, no additional text."""
         return result
     except Exception as e:
         raise ValueError(
-            f"Failed to parse structured output from Ollama: {e}\nResponse: {content[:200]}"
+            f"Failed to parse structured output from Ollama: {e}\nResponse: {content[:_ERR_SNIPPET]}"
         ) from e
 
 
@@ -579,12 +591,12 @@ def check_litellm_health(
     except litellm.NotFoundError:
         return False, f"Model '{model_id}' not found (check model ID)"
     except litellm.BadRequestError as e:
-        return False, f"Bad request: {str(e)[:50]}"
+        return False, f"Bad request: {str(e)[:_ERR_SNIPPET]}"
     except litellm.Timeout:
         return False, "Request timeout"
     except litellm.APIConnectionError as e:
-        return False, f"Connection failed: {str(e)[:50]}"
+        return False, f"Connection failed: {str(e)[:_ERR_SNIPPET]}"
     except litellm.APIError as e:
-        return False, f"API error: {str(e)[:50]}"
+        return False, f"API error: {str(e)[:_ERR_SNIPPET]}"
     except Exception as e:
-        return False, f"Unexpected error: {str(e)[:50]}"
+        return False, f"Unexpected error: {str(e)[:_ERR_SNIPPET]}"

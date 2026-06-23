@@ -18,7 +18,7 @@ Usage:
 from typing import Any
 
 from .base import BaseProvider
-from .litellm_adapter import check_litellm_health, execute_litellm_completion
+from .litellm_adapter import _ERR_SNIPPET, check_litellm_health, execute_litellm_completion
 
 
 class VLLMProviderAdapter(BaseProvider):
@@ -63,6 +63,9 @@ class VLLMProviderAdapter(BaseProvider):
 
     # LiteLLM integration - vLLM is an OpenAI-compatible server
     is_openai_compatible = True
+    supports_native_structured_output = (
+        True  # vLLM enforces response_format json_schema via constrained decoding
+    )
 
     def execute_completion(
         self,
@@ -135,7 +138,7 @@ class VLLMProviderAdapter(BaseProvider):
             try:
                 import httpx
 
-                models_url = f"{effective_base_url.rstrip('/v1')}/v1/models"
+                models_url = f"{effective_base_url.rstrip('/').removesuffix('/v1')}/v1/models"
                 response = httpx.get(models_url, timeout=timeout)
                 if response.status_code == 200:
                     data = response.json()
@@ -149,7 +152,7 @@ class VLLMProviderAdapter(BaseProvider):
             except httpx.ConnectError:
                 return False, f"Cannot connect to vLLM server at {effective_base_url}"
             except Exception as e:
-                return False, f"Error querying vLLM: {str(e)[:50]}"
+                return False, f"Error querying vLLM: {str(e)[:_ERR_SNIPPET]}"
 
         if not model_id:
             return False, "No model available for health check"

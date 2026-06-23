@@ -34,6 +34,24 @@ models:
         assert builder.raw_config["registry_path"] == "./my_app/registry.py"
         assert builder.raw_config["models"]["orchestrator"]["provider"] == "openai"
 
+    def test_config_path_is_a_directory_raises_clear_error(self, tmp_path):
+        """A directory at the config path (e.g. a missing bind-mount source the
+        container runtime materialized as an empty dir) fails fast with an
+        actionable IsADirectoryError, not a raw loader error."""
+        config_dir = tmp_path / "config.yml"
+        config_dir.mkdir()
+
+        with pytest.raises(IsADirectoryError, match="is a directory, not a file"):
+            ConfigBuilder(str(config_dir))
+
+    def test_missing_explicit_config_path_raises_file_not_found(self, tmp_path):
+        """An explicitly provided path that does not exist fails fast with a
+        clear FileNotFoundError rather than a later open() error."""
+        missing = tmp_path / "does_not_exist" / "config.yml"
+
+        with pytest.raises(FileNotFoundError, match="Config file not found"):
+            ConfigBuilder(str(missing))
+
     def test_environment_variable_resolution(self, tmp_path, monkeypatch):
         """Test that environment variables are resolved in config."""
         # Set environment variables

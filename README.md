@@ -7,7 +7,7 @@
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
-**🎉 Latest Release: v2026.5.2** - Reliability & integrations: SDK sub-agent trace collection restored, e2e suite stabilized, MongoDB archiver connector, and per-project Claude Code CLI pinning
+**🎉 Latest Release: v2026.6.1** - Event dispatch & facility knowledge: turn external events into headless agent runs, serve subsystem knowledge on demand, plus composable data-driven simulation scenarios
 
 > **🚧 Early Access Release**
 > This is an early access version of the Osprey Framework. While the core functionality is stable and ready for experimentation, documentation and APIs may still evolve. We welcome feedback and contributions!

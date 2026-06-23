@@ -419,16 +419,24 @@ def create_claude_code_integration(
                 if str(output_rel) == "rules/facility.md":
                     continue
 
-                # Skip files not in manifest (when manifest is active)
-                if allowed_outputs is not None and dst_rel not in allowed_outputs:
-                    continue
-
                 # Skip user-owned files
                 if is_user_owned(dst_rel, ctx):
                     continue
 
-                # Render Jinja2 template, strip .j2 extension
                 dst_file = project_dir / ".claude" / output_rel
+
+                # Not in manifest (when manifest is active): remove any stale
+                # file left by an earlier render pass with a wider manifest
+                # (e.g. an agent dropped from the profile's artifact
+                # selection) instead of orphaning it on disk.
+                if allowed_outputs is not None and dst_rel not in allowed_outputs:
+                    if dst_file.exists():
+                        dst_file.unlink()
+                        if dst_file.parent != project_dir and not any(dst_file.parent.iterdir()):
+                            dst_file.parent.rmdir()
+                    continue
+
+                # Render Jinja2 template, strip .j2 extension
                 dst_file.parent.mkdir(parents=True, exist_ok=True)
                 template_path = f"claude_code/claude/{rel_path}"
                 render_template(jinja_env, template_path, ctx, dst_file)
@@ -443,15 +451,19 @@ def create_claude_code_integration(
             else:
                 dst_rel = f".claude/{rel_path}"
 
-                # Skip files not in manifest (when manifest is active)
-                if allowed_outputs is not None and dst_rel not in allowed_outputs:
-                    continue
-
                 # Skip user-owned files
                 if is_user_owned(dst_rel, ctx):
                     continue
 
                 dst_file = project_dir / ".claude" / rel_path
+
+                # Not in manifest: remove any stale file from an earlier,
+                # wider render pass instead of orphaning it on disk.
+                if allowed_outputs is not None and dst_rel not in allowed_outputs:
+                    if dst_file.exists():
+                        dst_file.unlink()
+                    continue
+
                 dst_file.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src_file, dst_file)
             files_created += 1
@@ -652,6 +664,19 @@ def regenerate_claude_code(
             tmp_dir = Path(tmp)
             # Create necessary subdirectories
             (tmp_dir / ".claude").mkdir(parents=True, exist_ok=True)
+            # Mirror a real regen's skip semantics: user-owned (ejected)
+            # artifacts and the create-only facility.md are never rewritten
+            # when they already exist, so seed the project's copies into the
+            # comparison dir. Without this the fresh render leaves them missing
+            # and every dry run reports a phantom "would be removed" diff.
+            for rel_path in claude_code_files:
+                src = project_dir / rel_path
+                if not src.exists():
+                    continue
+                if rel_path == ".claude/rules/facility.md" or is_user_owned(rel_path, ctx):
+                    dst = tmp_dir / rel_path
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dst)
             create_claude_code_integration(template_root, jinja_env, tmp_dir, ctx, allowed_outputs)
 
             changed = []
@@ -707,6 +732,8 @@ def regenerate_claude_code(
                 changed.append(rel_path)
             else:
                 unchanged.append(rel_path)
+        elif rel_path in old_checksums:
+            changed.append(rel_path)  # Removed (e.g. dropped from manifest)
 
     # Check for newly created files (e.g., new agents)
     new_agents_dir = project_dir / ".claude" / "agents"

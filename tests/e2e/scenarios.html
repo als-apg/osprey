@@ -39,16 +39,16 @@
 <h3>Seeded event</h3>
 <table>
   <tr><th>When</th><td>Wall-clock anchor <code>14:32:08</code> on the day before today (re-fires each day inside the window)</td></tr>
-  <tr><th>SR07 gauge</th><td>baseline 5&times;10<sup>&minus;8</sup>&nbsp;Torr + Gaussian spike, width 0.025, amplitude 1.5&times;10<sup>&minus;7</sup></td></tr>
-  <tr><th>SR01&ndash;06,08&ndash;12</th><td>flat baseline + small noise (max |r| vs DCCT ≤ 0.08)</td></tr>
-  <tr><th>DCCT</th><td>500&nbsp;mA baseline &minus; 5&nbsp;mA Gaussian dip (width 0.05) at same instant + 0.3&nbsp;mA step residual</td></tr>
+  <tr><th>SR07 gauge</th><td>baseline 5&times;10<sup>&minus;8</sup>&nbsp;Torr + Gaussian spike, width 15&nbsp;s, amplitude 1.5&times;10<sup>&minus;7</sup></td></tr>
+  <tr><th>SR01&ndash;06,08&ndash;12</th><td>flat baseline + small noise (SR07 leads the field in anti-correlation by &gt;0.7)</td></tr>
+  <tr><th>DCCT</th><td>500&nbsp;mA baseline &minus; 5&nbsp;mA Gaussian dip (width 30&nbsp;s) at the same instant</td></tr>
   <tr><th>Target r</th><td>SR07 vs DCCT &asymp; &minus;0.88 over a 10-min window</td></tr>
 </table>
-<p class="meta">Source: <code>src/osprey/connectors/archiver/mock_archiver_connector.py:332&ndash;356</code></p>
+<p class="meta">Source: <code>data/simulation/machine.json</code> (<code>vacuum-burst</code> scenario), synthesized by <code>osprey.simulation.SimulationEngine</code>.</p>
 
 <h3>Pass criteria</h3>
 <ul>
-  <li><strong>Tool-routing:</strong> ≥1 <code>mcp__channel-finder__*</code>, ≥1 <code>mcp__controls__archiver_read</code>, archiver inputs reference both <code>dcct</code>/<code>current</code> AND <code>gauge</code>/<code>vac</code>.</li>
+  <li><strong>Tool-routing:</strong> ≥1 <code>mcp__channel-finder__*</code>, ≥1 <code>mcp__controls__archiver_read</code> whose inputs reference a vacuum gauge (<code>gauge</code>/<code>vac</code>). DCCT is <em>not</em> required &mdash; the operator already reported the loss event with a timestamp.</li>
   <li><strong>Judge:</strong> names "Sector 7" or "SR07" explicitly. Vague "a vacuum gauge somewhere" / "no anomaly" / a different sector = fail.</li>
 </ul>
 
@@ -74,7 +74,7 @@
   <tr><th>C1 frequency</th><td>499.654&nbsp;MHz &minus; envelope &times; 0.001 (thermal detuning)</td></tr>
   <tr><th>C2 (stable ref)</th><td>single minor blip (0.55, 0.25) on all fields, baseline ~26.5&nbsp;&deg;C</td></tr>
 </table>
-<p class="meta">Source: <code>src/osprey/connectors/archiver/mock_archiver_connector.py:230&ndash;233</code>. Primary detection: PV contains <code>c1</code>, <code>k1</code>, or <code>:01:</code>.</p>
+<p class="meta">Source: <code>data/simulation/machine.json</code> (<code>rf-thermal</code> scenario; events on the <code>SR:RF:CAVITY:01</code> / <code>SR:RF:KLYSTRON:01</code> channels), synthesized by <code>osprey.simulation.SimulationEngine</code>.</p>
 
 <h3>Seeded logbook (rebased to "now")</h3>
 <table>
@@ -86,11 +86,11 @@
 <h3>Pass criteria</h3>
 <ul>
   <li><strong>Tool-routing:</strong> ≥1 <code>mcp__ariel__*</code>, ≥1 <code>mcp__channel-finder__*</code>, ≥1 <code>mcp__controls__archiver_read</code>, archiver inputs reference <code>cavity</code> or <code>rf</code>, ≥1 plot tool (<code>create_static_plot</code>/<code>create_interactive_plot</code>/<code>create_dashboard</code>).</li>
-  <li><strong>Judge (all three required):</strong>
+  <li><strong>Judge (a and b required, c is bonus):</strong>
     <ul>
       <li>(a) commits to cavity C1 / cavity 01 / first cavity</li>
       <li>(b) names the mechanism (thermal/cooling &rarr; reflected-power rise &rarr; forward-power trip)</li>
-      <li>(c) contrasts with C2 (stable)</li>
+      <li>(c) <em>bonus, not required:</em> contrasts with C2 (stable)</li>
     </ul>
   </li>
 </ul>
@@ -102,7 +102,7 @@
   <li><strong>C1 &harr; "01" bridge is natural-language only.</strong> No alias table; channel description says "cavity 01", logbook says "C1".</li>
 </ul>
 
-<div class="warn"><strong>Tier setting (critical).</strong> <code>tests/e2e/sdk_helpers.py:88</code> defaults <code>tier=1</code>. Tier 1 contains no <code>SR:VAC:GAUGE</code> channels and no C1/C2 temperature/power/frequency channels in <strong>any</strong> paradigm (in_context, hierarchical, middle_layer) &mdash; the generator produces identical PV sets across paradigms at every tier. Both scenarios require tier ≥ 2. Bump the default or override per-test.</div>
+<div class="warn"><strong>Tier setting (critical).</strong> <code>init_project</code> in <code>tests/e2e/sdk_helpers.py</code> defaults <code>tier=1</code>, which contains no <code>SR:VAC:GAUGE</code> channels &mdash; the vacuum agent cannot discover the gauges and spins without retrieving data. Both scenario tests therefore pass <code>tier=3</code> explicitly so the full simulated facility is discoverable. If you clone these scenarios, do the same.</div>
 
 </body>
 </html>

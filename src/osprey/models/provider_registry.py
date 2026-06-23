@@ -39,13 +39,14 @@ PROVIDER_API_KEYS: dict[str, str | None] = {
     "openai": "OPENAI_API_KEY",
     "google": "GOOGLE_API_KEY",
     "cborg": "CBORG_API_KEY",
-    "amsc": "AMSC_I2_API_KEY",
+    "amsc-i2": "AMSC_I2_API_KEY",
     "argo": "ARGO_API_KEY",
     "stanford": "STANFORD_API_KEY",
     "als-apg": "ALS_APG_API_KEY",
     "ollama": None,
     "asksage": None,  # uses different auth
     "vllm": None,  # local, no key
+    "ds4": None,  # local DwarfStar server, no key
 }
 
 
@@ -58,10 +59,11 @@ _BUILTIN_PROVIDERS: dict[str, _ProviderEntry] = {
     "cborg": _ProviderEntry("osprey.models.providers.cborg", "CBorgProviderAdapter"),
     "stanford": _ProviderEntry("osprey.models.providers.stanford", "StanfordProviderAdapter"),
     "argo": _ProviderEntry("osprey.models.providers.argo", "ArgoProviderAdapter"),
-    "amsc": _ProviderEntry("osprey.models.providers.amsc", "AMSCProviderAdapter"),
+    "amsc-i2": _ProviderEntry("osprey.models.providers.amsc_i2", "AMSCI2ProviderAdapter"),
     "als-apg": _ProviderEntry("osprey.models.providers.als_apg", "ALSAPGProviderAdapter"),
     "asksage": _ProviderEntry("osprey.models.providers.asksage", "AskSageProviderAdapter"),
     "vllm": _ProviderEntry("osprey.models.providers.vllm", "VLLMProviderAdapter"),
+    "ds4": _ProviderEntry("osprey.models.providers.ds4", "DS4ProviderAdapter"),
 }
 
 

@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from datetime import datetime
 
+    from osprey.services.ariel_search.models import EnhancedLogbookEntry
+
 
 # ---------------------------------------------------------------------------
 # Result dataclasses
@@ -520,6 +522,24 @@ async def list_models(config_dict: dict) -> list[dict]:
         ]
 
 
+def _entry_summary(entry: dict) -> dict:
+    """Compact, JSON-safe summary of a search-result entry for CLI display."""
+    from datetime import datetime
+
+    timestamp = entry.get("timestamp")
+    if isinstance(timestamp, datetime):
+        timestamp = timestamp.isoformat()
+    raw_text = (entry.get("raw_text") or "").strip()
+    title = raw_text.splitlines()[0][:100] if raw_text else ""
+    return {
+        "entry_id": entry.get("entry_id", ""),
+        "timestamp": str(timestamp or ""),
+        "author": entry.get("author", ""),
+        "title": title,
+        "score": entry.get("_score"),
+    }
+
+
 async def run_search(config_dict: dict, query: str, mode: str, limit: int) -> dict:
     """Execute a search query and return the result as a dict."""
     from osprey.services.ariel_search import ARIELConfig, SearchMode, create_ariel_service
@@ -546,6 +566,7 @@ async def run_search(config_dict: dict, query: str, mode: str, limit: int) -> di
                 "sources": list(result.sources),
                 "search_modes": [m.value for m in result.search_modes_used],
                 "reasoning": result.reasoning,
+                "entries": [_entry_summary(e) for e in result.entries],
             }
     except Exception as e:
         msg = str(e)
@@ -899,3 +920,49 @@ async def execute_purge(config_dict: dict, embeddings_only: bool, progress: _Pro
                         progress("\n✓ All ARIEL data purged.")
     finally:
         await pool.close()
+
+
+async def seed_logbook_entries(
+    config_dict: dict,
+    entries: list[EnhancedLogbookEntry],
+    progress: _ProgressCb = None,
+) -> int:
+    """Bulk-upsert pre-built logbook entries into the ARIEL database.
+
+    A thin seeder for deterministic, locally-authored entries (e.g. simulation
+    scenario bundles): unlike :func:`run_ingest` it skips the adapter fetch and
+    the enhancement passes and just upserts the given entries inside one
+    ingestion run. Keyword search (Postgres trigram/FTS) needs no embeddings, so
+    semantic enrichment is left to an optional follow-up. Migrations must
+    already have run (call :func:`run_migrate` first).
+
+    Args:
+        config_dict: ARIEL config dict (``ARIELConfig.from_dict`` shape).
+        entries: Fully-built :class:`EnhancedLogbookEntry` records to upsert.
+        progress: Optional progress callback.
+
+    Returns:
+        The number of entries seeded.
+    """
+    from osprey.services.ariel_search import ARIELConfig, create_ariel_service
+
+    config = ARIELConfig.from_dict(config_dict)
+    service = await create_ariel_service(config)
+    count = 0
+    async with service:
+        run_id = await service.repository.start_ingestion_run("Simulation")
+        try:
+            for entry in entries:
+                await service.repository.upsert_entry(entry)
+                count += 1
+                if count % 100 == 0 and progress:
+                    progress(f"  Seeded {count} entries...")
+            await service.repository.complete_ingestion_run(
+                run_id, entries_added=count, entries_updated=0, entries_failed=0
+            )
+        except Exception as exc:
+            await service.repository.fail_ingestion_run(run_id, str(exc))
+            raise
+    if progress:
+        progress(f"✓ Seeded {count} logbook entries.")
+    return count

@@ -29,9 +29,10 @@ Overview
 ``osprey deploy`` renders each service's Jinja2 Docker Compose template,
 copies source and configuration into a per-service build directory, and
 hands the result to Docker or Podman Compose. A new project built from the
-``control-assistant`` preset deploys exactly one service out of the box
-(``postgresql``); the ``hello-world`` preset deploys none. You only need
-this page when you add or customize a containerized service.
+``control-assistant`` preset deploys three services out of the box
+(``postgresql``, ``event-dispatcher``, and ``dispatch-worker`` — the latter
+two from the preset's ``dispatch:`` block); the ``hello-world`` preset deploys
+none. You only need this page when you add or customize a containerized service.
 
 Service Configuration
 =====================
@@ -227,3 +228,8 @@ service build directory; check ``DEV_MODE`` env var inside the container.
 
    :ref:`profile-services`
        Authoritative ``services:`` schema for build profiles.
+
+   :doc:`containerize-project`
+       The *project image* (assistant + web terminal in one container) built
+       from the generated ``Dockerfile`` — distinct from the service
+       containers this page covers.

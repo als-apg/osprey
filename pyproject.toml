@@ -62,11 +62,11 @@ dependencies = [
     "google-generativeai",
     "ollama>=0.5.1",
     # Advanced code generation
-    # Claude Code SDK - pinned. Bundles CLI 2.1.150 (verified to work with CBORG,
-    # als-apg, and anthropic-direct). >=0.1.46 needed for list_subagents/
+    # Claude Code SDK - pinned. Bundles CLI 2.1.167 (verified to work with
+    # als-apg routing). >=0.1.46 needed for list_subagents/
     # get_subagent_messages, which the e2e trace collector uses to read sub-agent
     # transcripts (CLI >=2.1.x no longer streams them through query()).
-    "claude-agent-sdk==0.2.87",
+    "claude-agent-sdk==0.2.101",
     # Data processing - required for archiver connectors and data handling
     # Archiver connectors return pandas DataFrames for time-series data
     "pandas>=2.2.3",
@@ -99,8 +99,6 @@ dependencies = [
     "uvicorn[standard]>=0.27.0",
     # Utilities
     "unique-namer>=0.1.0",
-    # Control system simulation (soft IOC generation)
-    "caproto",
     # EPICS Channel Access client (used by control_system connector,
     # limits_validator, and python_executor wrapper).
     "pyepics",
@@ -181,6 +179,11 @@ archiver-questdb = [
     "asyncpg>=0.29",
 ]
 
+# Facility knowledge / ontology support (OKF markdown bundles, RDF reasoning)
+knowledge = [
+    "rdflib>=7.0",
+]
+
 # Screen capture on Linux (X11) — not needed on macOS
 screen-capture-linux = [
     "mss>=9.0.0",
@@ -189,7 +192,7 @@ screen-capture-linux = [
 
 # All optional dependencies for complete installation
 all = [
-    "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,archiver-mongodb]"
+    "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,archiver-mongodb,knowledge]"
 ]
 
 [project.urls]
@@ -204,6 +207,13 @@ Changelog = "https://github.com/als-apg/osprey/blob/main/CHANGELOG.md"
 [project.scripts]
 # Main CLI entry point (Click group with subcommands)
 osprey = "osprey.cli.main:cli"
+
+# Built-in trigger sources for the event dispatcher, discovered by
+# osprey.dispatch.source_registry.SourceRegistry at startup.
+[project.entry-points."osprey.trigger_sources"]
+webhook = "osprey.dispatch.sources.webhook:WebhookSource"
+cron = "osprey.dispatch.sources.cron:CronSource"
+epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 
 # Hatchling build configuration
 [tool.hatch.version]
@@ -279,6 +289,7 @@ markers = [
     "asyncio: Async test marker",
     "flaky: Rerun on failure to absorb rare LLM nondeterminism (pytest-rerunfailures)",
     "e2e_services: E2E tests requiring local MCP service infrastructure (PostgreSQL, AccelPapers, etc.)",
+    "dockerbuild: E2E tests that run a real docker build (skipped when docker is unavailable)",
 ]
 
 # Ruff configuration for modern Python linting

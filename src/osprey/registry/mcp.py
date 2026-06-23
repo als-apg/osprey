@@ -138,7 +138,6 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         env={
             "OSPREY_CONFIG": "{project_root}/config.yml",
             "CONFIG_FILE": "{project_root}/config.yml",
-            "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}",
         },
         permissions_allow=[],
         permissions_ask=["execute"],
@@ -155,6 +154,10 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         module="osprey.mcp_server.workspace",
         env={
             "OSPREY_CONFIG": "{project_root}/config.yml",
+            # osprey.utils.config reads CONFIG_FILE (not OSPREY_CONFIG); set both
+            # so the server resolves config even when launched with a CWD other
+            # than the project dir (e.g. the dispatch worker's /app WORKDIR).
+            "CONFIG_FILE": "{project_root}/config.yml",
         },
         permissions_allow=[
             "facility_description",
@@ -201,6 +204,8 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         module="osprey.mcp_server.ariel",
         env={
             "OSPREY_CONFIG": "{project_root}/config.yml",
+            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            "CONFIG_FILE": "{project_root}/config.yml",
             "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}",
         },
         permissions_allow=[
@@ -223,11 +228,29 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         ],
         hooks_post=[_post_error("mcp__ariel__.*")],
     ),
+    "osprey_facility_knowledge": ServerDefinition(
+        name="osprey_facility_knowledge",
+        module="osprey.mcp_server.facility_knowledge",
+        env={
+            "OSPREY_CONFIG": "{project_root}/config.yml",
+        },
+        permissions_allow=["capabilities", "list_concepts", "read_concept", "search"],
+        permissions_ask=["draft_concept"],
+        hooks_pre=[
+            HookRule(
+                matcher="mcp__osprey_facility_knowledge__draft_concept",
+                hooks=[_APPROVAL],
+            ),
+        ],
+        hooks_post=[_post_error("mcp__osprey_facility_knowledge__.*")],
+    ),
     "channel-finder": ServerDefinition(
         name="channel-finder",
         module="osprey.mcp_server.channel_finder_{channel_finder_pipeline}",
         env={
             "OSPREY_CONFIG": "{project_root}/config.yml",
+            # See osprey_workspace: osprey.utils.config reads CONFIG_FILE.
+            "CONFIG_FILE": "{project_root}/config.yml",
         },
         condition="channel_finder_pipeline",
         # permissions_allow is populated dynamically from
@@ -300,6 +323,15 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
         description=(
             "Creates plots, dashboards, and compiles LaTeX documents. "
             "You do NOT have visualization tools."
+        ),
+    ),
+    "facility-knowledge": AgentDefinition(
+        name="facility-knowledge",
+        description=(
+            "Answers questions about facility design, accelerator physics concepts, "
+            "and operational knowledge from the facility knowledge bundle. Delegate to "
+            "this agent when the user asks about facility layout, terminology, beam "
+            "parameters, or any documented facility knowledge."
         ),
     ),
 }

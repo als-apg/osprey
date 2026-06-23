@@ -1,5 +1,7 @@
 """Tests for LiteLLM adapter module."""
 
+import pytest
+
 from osprey.models.providers.litellm_adapter import (
     _clean_json_response,
     _supports_native_structured_output,
@@ -45,10 +47,58 @@ class TestGetLiteLLMModelName:
         result = get_litellm_model_name("argo", "claudesonnet45")
         assert result == "openai/claudesonnet45"
 
-    def test_amsc_model(self):
-        """AMSC uses openai/ prefix (OpenAI-compatible)."""
-        result = get_litellm_model_name("amsc", "anthropic/claude-haiku")
+    def test_amsc_i2_model(self):
+        """AMSC i2 uses openai/ prefix (OpenAI-compatible)."""
+        result = get_litellm_model_name("amsc-i2", "anthropic/claude-haiku")
         assert result == "openai/anthropic/claude-haiku"
+
+    def test_vllm_model(self):
+        """vLLM uses openai/ prefix (OpenAI-compatible)."""
+        result = get_litellm_model_name("vllm", "some-model")
+        assert result == "openai/some-model"
+
+    def test_als_apg_model(self):
+        """als-apg uses openai/ prefix (OpenAI-compatible)."""
+        result = get_litellm_model_name("als-apg", "some-model")
+        assert result == "openai/some-model"
+
+    def test_ds4_model(self):
+        """ds4 uses openai/ prefix (OpenAI-compatible)."""
+        result = get_litellm_model_name("ds4", "some-model")
+        assert result == "openai/some-model"
+
+    def test_registry_class_attributes_drive_routing(self, monkeypatch):
+        """A registry-resolved provider class drives routing even when the
+        provider name is absent from the hardcoded fallback maps."""
+        import osprey.models.provider_registry as registry_module
+
+        class _StubProvider:
+            is_openai_compatible = True
+
+        class _StubRegistry:
+            def get_provider(self, name):
+                return _StubProvider if name == "synthetic_oai" else None
+
+        monkeypatch.setattr(registry_module, "get_provider_registry", lambda: _StubRegistry())
+        result = get_litellm_model_name("synthetic_oai", "m")
+        assert result == "openai/m"
+
+    def test_registry_prefix_attribute_drives_routing(self, monkeypatch):
+        """A registry-resolved provider class's litellm_prefix drives routing
+        even when the provider name is absent from the hardcoded fallback maps."""
+        import osprey.models.provider_registry as registry_module
+
+        class _StubProvider:
+            litellm_prefix = "xprefix"
+            is_openai_compatible = False
+
+        class _StubRegistry:
+            def get_provider(self, name):
+                return _StubProvider if name == "synthetic_prefixed" else None
+
+        monkeypatch.setattr(registry_module, "get_provider_registry", lambda: _StubRegistry())
+        result = get_litellm_model_name("synthetic_prefixed", "m")
+        assert result == "xprefix/m"
 
     def test_unknown_provider(self):
         """Unknown providers use provider/model format (LiteLLM's default routing)."""
@@ -88,8 +138,12 @@ class TestSupportsNativeStructuredOutput:
 
     def test_openai_compatible_providers_return_true(self):
         """OpenAI-compatible providers (CBORG, etc.) always support structured output."""
-        # These providers proxy to models that support structured output
-        for provider in ("cborg", "stanford", "argo", "vllm", "amsc"):
+        # These providers proxy to models that support structured output.
+        # NOTE: ds4 is the intentional counterexample — it is OpenAI-compatible
+        # (is_openai_compatible=True) but declares supports_native_structured_output=False
+        # because it accepts but ignores response_format json_schema. ds4 is therefore
+        # excluded from this loop; its False override is tested in TestStructuredOutputCapabilityFlag.
+        for provider in ("cborg", "stanford", "argo", "vllm", "amsc-i2"):
             result = _supports_native_structured_output("openai/some-model", provider)
             assert result is True, f"Provider {provider} should support structured output"
 
@@ -121,3 +175,54 @@ class TestCleanJsonResponse:
         """Handles only trailing markdown."""
         result = _clean_json_response('{"key": "value"}```')
         assert result == '{"key": "value"}'
+
+
+class TestStructuredOutputCapabilityFlag:
+    """The capability attribute drives the structured-output path."""
+
+    @pytest.mark.unit
+    def test_base_default_is_none(self):
+        from osprey.models.providers.base import BaseProvider
+
+        assert BaseProvider.supports_native_structured_output is None
+
+    @pytest.mark.unit
+    def test_openai_compatible_providers_declare_true(self):
+        from osprey.models.providers.amsc_i2 import AMSCI2ProviderAdapter
+        from osprey.models.providers.argo import ArgoProviderAdapter
+        from osprey.models.providers.cborg import CBorgProviderAdapter
+        from osprey.models.providers.stanford import StanfordProviderAdapter
+        from osprey.models.providers.vllm import VLLMProviderAdapter
+
+        for cls in (
+            CBorgProviderAdapter,
+            StanfordProviderAdapter,
+            ArgoProviderAdapter,
+            VLLMProviderAdapter,
+            AMSCI2ProviderAdapter,
+        ):
+            assert cls.supports_native_structured_output is True, cls.name
+
+    @pytest.mark.unit
+    def test_flag_true_takes_native_path(self):
+        assert _supports_native_structured_output("openai/anything", "vllm") is True
+
+    @pytest.mark.unit
+    def test_flag_none_defers_to_litellm(self):
+        # openai provider has supports_native_structured_output = None, so defers to litellm.
+        # Use a model string litellm knows natively (gpt-4o returns True).
+        assert _supports_native_structured_output("gpt-4o", "openai") is True
+
+    @pytest.mark.unit
+    def test_unknown_provider_defers_and_is_safe(self):
+        assert _supports_native_structured_output("unknown/nonexistent-xyz", "unknown") is False
+
+    @pytest.mark.unit
+    def test_ds4_declares_false_end_to_end(self):
+        # gpt-4o is known to litellm as supporting response_schema (True for "openai").
+        # ds4 overrides this to False because it ignores json_schema despite being
+        # OpenAI-compatible — so a False result here can ONLY come from ds4's registered flag.
+        assert _supports_native_structured_output("openai/gpt-4o", "ds4") is False
+        # Sanity: same model string under "openai" returns True, proving the difference
+        # is the ds4 registration + flag, not the model string.
+        assert _supports_native_structured_output("openai/gpt-4o", "openai") is True

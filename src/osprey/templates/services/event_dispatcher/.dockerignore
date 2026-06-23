@@ -1,0 +1,17 @@
+# Build-context hygiene for the shared dispatch image.
+#
+# The Dockerfile only needs the locally-built osprey wheel (*.whl) from this
+# context; everything else here is either build metadata or bind-mounted into
+# the container at runtime (config.yml, triggers.yml). Keeping them out of the
+# build context speeds the build and avoids baking stale config — or a .env —
+# into the image.
+**/__pycache__/
+*.pyc
+.git/
+.env
+# Compose files + templates are runtime/deploy artifacts, not image inputs.
+docker-compose.yml
+*.j2
+# Bind-mounted read-only at runtime; must not be baked into the image.
+config.yml
+triggers.yml

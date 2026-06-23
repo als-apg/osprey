@@ -33,7 +33,7 @@ Available Providers
      - Stanford AI Playground
      - ``STANFORD_API_KEY``
      - OpenAI (proxied)
-   * - ``amsc``
+   * - ``amsc-i2``
      - American Science Cloud proxy
      - ``AMSC_I2_API_KEY``
      - OpenAI (proxied)

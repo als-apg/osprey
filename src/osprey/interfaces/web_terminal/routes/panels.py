@@ -30,7 +30,8 @@ async def health(request: Request):
 async def artifact_server_config(request: Request):
     """Return the artifact gallery server URL for iframe embedding."""
     url = getattr(request.app.state, "artifact_server_url", None)
-    return {"url": "/panel/artifacts" if url else "http://127.0.0.1:8086"}
+    proxy_url = "/panel/artifacts" if url else None
+    return {"url": proxy_url, "available": proxy_url is not None}
 
 
 @router.get("/api/type-registry")

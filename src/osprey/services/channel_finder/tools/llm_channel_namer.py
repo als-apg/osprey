@@ -40,7 +40,7 @@ class LLMChannelNamer:
 
         Args:
             provider: LLM provider (keyword-only, required — one of
-                'als-apg', 'cborg', 'amsc', 'anthropic', 'argo', 'openai')
+                'als-apg', 'cborg', 'amsc-i2', 'anthropic', 'argo', 'openai')
             model_id: Model identifier
             max_tokens: Maximum tokens per request
             batch_size: Number of channels to process per batch
@@ -348,7 +348,7 @@ def create_namer_from_config(config_path: str | None = None) -> LLMChannelNamer:
         raise ValueError(
             "channel_finder.channel_name_generation.llm_model.provider is "
             "required in config.yml (must be one of "
-            "als-apg|cborg|amsc|anthropic|argo|openai)."
+            "als-apg|cborg|amsc-i2|anthropic|argo|openai)."
         )
 
     api_config = config.get("api", {}).get("providers", {}).get(provider, {})

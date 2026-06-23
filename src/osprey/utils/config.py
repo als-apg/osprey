@@ -157,6 +157,30 @@ class ConfigBuilder:
                 )
 
         self.config_path = Path(config_path)
+
+        # Fail fast with an actionable message when the config path is not a
+        # regular file. A common cause: a container bind-mount whose host source
+        # did not exist at container-create time, which the runtime silently
+        # materializes as an empty directory on both ends — so config_path
+        # resolves to a directory and the YAML loader would otherwise surface a
+        # bare "[Errno 21] Is a directory". Treat a missing explicit path the
+        # same way rather than failing later in open().
+        if self.config_path.is_dir():
+            raise IsADirectoryError(
+                f"Config path is a directory, not a file: {self.config_path}\n\n"
+                f"config.yml is expected to be a file here. This usually means it "
+                f"was meant to be provided at runtime (e.g. a bind-mount whose "
+                f"source was missing, so the container runtime created an empty "
+                f"directory) or was not baked into the image. Ensure config.yml "
+                f"exists as a file at this path."
+            )
+        if not self.config_path.exists():
+            raise FileNotFoundError(
+                f"Config file not found: {self.config_path}\n\n"
+                f"Set the CONFIG_FILE environment variable to a valid config.yml, "
+                f"or run from a project directory that contains one."
+            )
+
         self.raw_config, self._unexpanded_config = self._load_config()
 
         # Pre-compute nested structures for efficient runtime access

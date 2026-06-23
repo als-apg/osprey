@@ -1,0 +1,199 @@
+{
+  "description": "Recurring cavity-1 thermal excursions: body temperature rises, reflected power spikes, and forward power trips from thermal detuning. Cavity 2 shows one minor excursion for contrast.",
+  "archiver": [
+    {
+      "channel": "SR:RF:CAVITY:01:TEMPERATURE:RB",
+      "events": [
+        {
+          "shape": "spike",
+          "at": 0.2,
+          "amplitude": 7.0,
+          "width": 0.024
+        },
+        {
+          "shape": "spike",
+          "at": 0.55,
+          "amplitude": 4.9,
+          "width": 0.024
+        },
+        {
+          "shape": "spike",
+          "at": 0.85,
+          "amplitude": 8.4,
+          "width": 0.024
+        }
+      ]
+    },
+    {
+      "channel": "SR:RF:CAVITY:01:POWER:REV",
+      "events": [
+        {
+          "shape": "spike",
+          "at": 0.2,
+          "amplitude": 80.0,
+          "width": 0.024
+        },
+        {
+          "shape": "spike",
+          "at": 0.55,
+          "amplitude": 56.0,
+          "width": 0.024
+        },
+        {
+          "shape": "spike",
+          "at": 0.85,
+          "amplitude": 96.0,
+          "width": 0.024
+        }
+      ]
+    },
+    {
+      "channel": "SR:RF:CAVITY:01:POWER:FWD",
+      "events": [
+        {
+          "shape": "spike",
+          "at": 0.2,
+          "amplitude": -440.0,
+          "width": 0.024
+        },
+        {
+          "shape": "spike",
+          "at": 0.55,
+          "amplitude": -308.0,
+          "width": 0.024
+        },
+        {
+          "shape": "spike",
+          "at": 0.85,
+          "amplitude": -528.0,
+          "width": 0.024
+        }
+      ]
+    },
+    {
+      "channel": "SR:RF:CAVITY:01:VOLTAGE:RB",
+      "events": [
+        {
+          "shape": "spike",
+          "at": 0.2,
+          "amplitude": -2.4,
+          "width": 0.024
+        },
+        {
+          "shape": "spike",
+          "at": 0.55,
+          "amplitude": -1.68,
+          "width": 0.024
+        },
+        {
+          "shape": "spike",
+          "at": 0.85,
+          "amplitude": -2.88,
+          "width": 0.024
+        }
+      ]
+    },
+    {
+      "channel": "SR:RF:CAVITY:01:FREQUENCY:RB",
+      "events": [
+        {
+          "shape": "spike",
+          "at": 0.2,
+          "amplitude": -0.001,
+          "width": 0.024
+        },
+        {
+          "shape": "spike",
+          "at": 0.55,
+          "amplitude": -0.0007,
+          "width": 0.024
+        },
+        {
+          "shape": "spike",
+          "at": 0.85,
+          "amplitude": -0.0012,
+          "width": 0.024
+        }
+      ]
+    },
+    {
+      "channel": "SR:RF:CAVITY:01:TUNER:RB",
+      "events": [
+        {
+          "shape": "spike",
+          "at": 0.2,
+          "amplitude": 0.05,
+          "width": 0.024
+        },
+        {
+          "shape": "spike",
+          "at": 0.55,
+          "amplitude": 0.035,
+          "width": 0.024
+        },
+        {
+          "shape": "spike",
+          "at": 0.85,
+          "amplitude": 0.06,
+          "width": 0.024
+        }
+      ]
+    },
+    {
+      "channel": "SR:RF:KLYSTRON:01:POWER:RB",
+      "events": [
+        {
+          "shape": "spike",
+          "at": 0.2,
+          "amplitude": -390.0,
+          "width": 0.024
+        },
+        {
+          "shape": "spike",
+          "at": 0.55,
+          "amplitude": -273.0,
+          "width": 0.024
+        },
+        {
+          "shape": "spike",
+          "at": 0.85,
+          "amplitude": -468.0,
+          "width": 0.024
+        }
+      ]
+    },
+    {
+      "channel": "SR:RF:CAVITY:02:TEMPERATURE:RB",
+      "events": [
+        {
+          "shape": "spike",
+          "at": 0.55,
+          "amplitude": 1.75,
+          "width": 0.024
+        }
+      ]
+    },
+    {
+      "channel": "SR:RF:CAVITY:02:POWER:REV",
+      "events": [
+        {
+          "shape": "spike",
+          "at": 0.55,
+          "amplitude": 20.0,
+          "width": 0.024
+        }
+      ]
+    },
+    {
+      "channel": "SR:RF:CAVITY:02:POWER:FWD",
+      "events": [
+        {
+          "shape": "spike",
+          "at": 0.55,
+          "amplitude": -110.0,
+          "width": 0.024
+        }
+      ]
+    }
+  ]
+}

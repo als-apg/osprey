@@ -12,6 +12,31 @@ from osprey.cli.styles import Styles, console
 from osprey.connectors.types import CLI_CONTROL_SYSTEM_TYPES
 
 
+def _regen_claude_artifacts(project_dir: Path) -> None:
+    """Re-render Claude Code artifacts after a config.yml edit, if they drifted.
+
+    Safety-critical config fields (control-system type → safety rules, the
+    writes_enabled kill-switch → permissions.deny) are baked into the rendered
+    ``.claude/`` artifacts at build time, so editing config.yml alone leaves them
+    stale. Regenerating here keeps ``osprey config set-*`` consistent with
+    ``osprey build`` / ``osprey claude regen``. Best-effort: a regen failure must
+    not fail the config command (the write already succeeded).
+    """
+    try:
+        from osprey.cli.templates.manager import TemplateManager
+
+        changed = TemplateManager().regen_if_drift(project_dir)
+        if changed:
+            console.print(
+                f"   ✓ Regenerated {len(changed)} Claude Code artifact(s)", style=Styles.DIM
+            )
+    except Exception:  # noqa: BLE001 — config write already succeeded; do not fail the command
+        console.print(
+            "   ⚠ Could not regenerate Claude Code artifacts — run `osprey claude regen`",
+            style=Styles.DIM,
+        )
+
+
 @click.group(name="config", invoke_without_command=True)
 @click.option(
     "--project",
@@ -344,6 +369,7 @@ def set_control_system(system_type: str, project: str):
 
         console.print(f"✅ Control system type updated to: [bold]{system_type}[/bold]")
         console.print(f"   Configuration: {config_path}", style=Styles.DIM)
+        _regen_claude_artifacts(config_path.parent)
 
     except Exception as e:
         console.print(f"❌ Failed to update control system: {e}", style=Styles.ERROR)
@@ -428,6 +454,7 @@ def set_epics_gateway(facility: str, address: str, port: int, project: str):
 
         console.print("✅ EPICS gateway updated")
         console.print(f"   Configuration: {config_path}", style=Styles.DIM)
+        _regen_claude_artifacts(config_path.parent)
 
     except Exception as e:
         console.print(f"❌ Failed to update EPICS gateway: {e}", style=Styles.ERROR)

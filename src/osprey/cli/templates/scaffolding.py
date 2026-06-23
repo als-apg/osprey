@@ -8,11 +8,9 @@ flat locations (``data/channel_databases/<paradigm>.json`` and
 ``benchmarks/cross_paradigm/`` subtrees.
 """
 
-import json
 import logging
 import os
 import shutil
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from osprey.cli.styles import console
@@ -136,6 +134,8 @@ def create_project_structure(
         ("config.yml.j2", "config.yml"),
         ("env.example.j2", ".env.example"),
         ("README.md.j2", "README.md"),
+        # Reference container image — rendered once at build; regen never touches it
+        ("Dockerfile.j2", "Dockerfile"),
     ]
 
     # Copy static files
@@ -186,6 +186,12 @@ def create_project_structure(
     gitignore_source = project_template_dir / "gitignore"
     if gitignore_source.exists():
         shutil.copy(gitignore_source, project_dir / ".gitignore")
+
+    # Copy dockerignore (renamed to '.dockerignore') — keeps .env/.venv/.git
+    # out of the image built from the generated Dockerfile
+    dockerignore_source = project_template_dir / "dockerignore"
+    if dockerignore_source.exists():
+        shutil.copy(dockerignore_source, project_dir / ".dockerignore")
 
 
 def copy_services(template_root: Path, project_dir: Path):
@@ -460,63 +466,6 @@ def prune_csv_build_artifacts(project_dir: Path, channel_finder_mode: str) -> No
         f"  [success]✓[/success] Removed [path]{raw_dir}[/path] "
         f"(no CSV build path for {channel_finder_mode!r} paradigm)"
     )
-
-
-def rebase_logbook_timestamps(project_dir: Path) -> None:
-    """Shift demo logbook timestamps so the most recent entry is near 'now'.
-
-    The bundled demo logbook has fixed timestamps (e.g. March 2024).  When a
-    user runs ``osprey build`` months or years later, the logbook entries look
-    stale and won't align with mock archiver data (which is generated relative
-    to the current time).
-
-    This loads the copied demo logbook, finds the latest entry timestamp,
-    computes the offset needed to place it 2 days before the current time,
-    and shifts every entry by that offset.  Relative gaps between entries
-    are preserved.
-    """
-    logbook_path = project_dir / "data" / "logbook_seed" / "demo_logbook.json"
-    if not logbook_path.exists():
-        return
-
-    try:
-        data = json.loads(logbook_path.read_text())
-        entries = data.get("entries", [])
-        if not entries:
-            return
-
-        timestamps = []
-        for entry in entries:
-            ts_str = entry.get("timestamp", "")
-            if ts_str:
-                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                timestamps.append(ts)
-
-        if not timestamps:
-            return
-
-        latest = max(timestamps)
-        target = datetime.now(UTC) - timedelta(days=2)
-        # Round to whole days so time-of-day is preserved -- entry text
-        # contains hardcoded clock times (e.g. "tripped at 03:15") that
-        # we can't programmatically adjust.
-        offset = timedelta(days=(target - latest).days)
-
-        for entry in entries:
-            ts_str = entry.get("timestamp", "")
-            if ts_str:
-                ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                new_ts = ts + offset
-                entry["timestamp"] = new_ts.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-        logbook_path.write_text(json.dumps(data, indent=2) + "\n")
-        span_days = (max(timestamps) - min(timestamps)).days
-        console.print(
-            f"  [success]✓[/success] Rebased {len(entries)} logbook entries "
-            f"(spanning {span_days} days) to current date"
-        )
-    except (json.JSONDecodeError, ValueError, KeyError):
-        pass  # Non-fatal -- leave the file as-is if anything goes wrong
 
 
 def create_application_code(

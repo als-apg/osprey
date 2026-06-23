@@ -57,17 +57,42 @@ def build_system_prompt(
     return {"type": "preset", "preset": "claude_code", "append": append}
 
 
-def make_tool_allowlist(allowed: Iterable[str]) -> CanUseTool:
+def make_tool_allowlist(
+    allowed: Iterable[str],
+    denied: Iterable[str] = (),
+) -> CanUseTool:
     """Build a ``CanUseTool`` callback enforcing a closed tool allowlist.
 
     Any tool whose name is not in ``allowed`` is denied with a message
     naming the blocked tool. Dispatch runs use this to enforce per-trigger
     allowlists at the SDK permission layer, because
     ``permission_mode="bypassPermissions"`` makes ``allowed_tools`` advisory.
+
+    ``denied`` is an optional hard denylist evaluated BEFORE the allowlist, so a
+    denied tool is rejected even if it somehow slips into ``allowed`` (denied AND
+    allowed → deny). Entries ending in ``*`` match by prefix (e.g. a
+    ``mcp__plugin_playwright_playwright__*`` entry blocks every playwright tool);
+    all other entries match exactly. The dispatch worker threads its
+    server-side ``DENIED_TOOLS`` here as defense-in-depth; the default empty
+    denylist leaves other call sites unaffected.
     """
     allowed_set = frozenset(allowed)
+    denied_tuple = tuple(denied)
+
+    def _denied(tool_name: str) -> bool:
+        for entry in denied_tuple:
+            if entry.endswith("*"):
+                if tool_name.startswith(entry[:-1]):
+                    return True
+            elif tool_name == entry:
+                return True
+        return False
 
     async def can_use_tool(tool_name, tool_input, context):  # type: ignore[no-untyped-def]
+        if _denied(tool_name):
+            return PermissionResultDeny(
+                message=f"Tool {tool_name!r} is blocked by the dispatch server denylist",
+            )
         if tool_name in allowed_set:
             return PermissionResultAllow()
         return PermissionResultDeny(

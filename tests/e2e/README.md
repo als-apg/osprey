@@ -107,11 +107,45 @@ locally with the right backend stack:
 | ``claude_code/test_agent_delegation.py`` | All 6 sub-agents need backend services | ARIEL Postgres @ 5432, AccelPapers SQLite (``$ACCELPAPERS_DB``), DePlot @ 8095, Confluence (``$CONFLUENCE_ACCESS_TOKEN``), MML SQLite (``$MATLAB_MML_DB``) |
 | ``test_ariel_search.py`` | RAG sub-tests need Ollama embeddings | Postgres @ 5433, Ollama @ 11434 with ``nomic-embed-text`` pulled |
 | ``test_ariel_e2e_pipeline.py`` | Postgres ingestion pipeline | Postgres @ 5432/5433 (config-dependent) |
+| ``test_rf_cavity_correlation_scenario.py`` | Logbook arc needs a running ARIEL DB | ARIEL Postgres @ 5432 (seeded automatically at setup from the scenario bundle; see below) |
+| ``test_vacuum_burst_scenario.py`` | Skipped on CI alongside its sibling | ARIEL Postgres @ 5432 (seeded automatically at setup with the ambient logbook) |
 
 Each file's docstring lists the precise requirements; missing backends
 yield a `skipped` not a `failed`. To run them locally, bring up the
 relevant service via the OSPREY ``docker-compose`` services tree
 (``services/postgres``, etc.) and re-run with ``pytest tests/e2e/<file> -v``.
+
+## Scenario tests & the simulation engine
+
+The control_assistant scenario tests (``test_vacuum_burst_scenario.py`` and
+``test_rf_cavity_correlation_scenario.py``) get
+their archiver ground truth from the **data-driven simulation engine**, not from
+hard-coded connector code. Scenarios are **self-contained bundles** under
+``data/simulation/scenarios/<name>/`` — each owns its telemetry overlay
+(``scenario.json``) and, optionally, its logbook narrative (``logbook.json``).
+Each test builds a project from the ``control_assistant`` preset and calls
+``activate_scenarios(project, "<name>"...)`` to compose and apply one or more
+fault bundles (``vacuum-burst`` / ``rf-thermal``) before running the operator
+prompt. They build at **tier 3** so every simulated channel is discoverable
+through the channel finder — the vacuum gauges live only in tier 2+.
+
+The scenarios' statistical signatures (SR07/DCCT anti-correlation, the C1
+excursion positions, derived-channel consistency) are pinned deterministically
+and cheaply — no LLM — by ``tests/simulation/test_control_assistant_scenarios.py``
+and ``test_scenario_composition.py``. Run those first when a scenario e2e
+regresses: if the contract tests pass, the data substrate is sound and the miss
+is the agent's (the scenario tests are ``flaky(reruns=2)`` to absorb the rare
+stochastic bail-out); if they fail, fix the scenario bundle — never the e2e
+prompts.
+
+**Logbook seeding (automatic).** ``activate_scenarios`` calls
+``apply_scenarios(seed_logbook=True)``: it composes the active scenarios, writes
+the simulator state with a shared apply-time anchor, and **purges + reseeds**
+the ARIEL logbook from the active bundles' own entries — so the narrative the
+agent searches always matches the telemetry it reads, against one clock. No
+manual ``purge && ingest`` step, and no stale/wrong-preset DB footgun: each test
+reseeds deterministically at setup. A running ARIEL Postgres at 5432 is still
+required (the seed has to land somewhere); only the seeding is automatic.
 
 ## Per-PR LLM cost expectation
 

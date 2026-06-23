@@ -1,5 +1,6 @@
 """TemplateManager facade: thin orchestrator delegating to submodules."""
 
+import os
 import shutil
 from pathlib import Path
 from typing import Any
@@ -295,10 +296,7 @@ class TemplateManager:
                 f"  [success]✓[/success] Copied machine data to [path]{machine_data_dst}[/path]"
             )
 
-        # 6b. Rebase demo logbook timestamps to current date
-        scaffolding.rebase_logbook_timestamps(project_dir)
-
-        # 6c. Flatten the preset's tier-routed channel DBs into the canonical
+        # 6b. Flatten the preset's tier-routed channel DBs into the canonical
         # data/channel_databases/<paradigm>.json locations. Must run before the
         # Claude Code hierarchy probe below, which reads the flat path. Only
         # relevant when channel-finder is selected — builds that skip the
@@ -438,6 +436,49 @@ class TemplateManager:
             dry_run,
             project_root_override=project_root_override,
         )
+
+    def regen_if_drift(self, project_dir: Path) -> list[str]:
+        """Regenerate Claude Code artifacts only if they have drifted from config.
+
+        Runs a dry-run first and performs a real regeneration only when something
+        would actually change. This keeps no-op launches free (no backup-dir spam
+        under ``_agent_data/backup/``) while ensuring a stale ``settings.json`` /
+        ``.mcp.json`` is brought back in sync after a ``config.yml`` edit.
+
+        Args:
+            project_dir: Root directory of the project (contains ``config.yml``
+                and ``.claude/``).
+
+        Returns:
+            The list of regenerated artifact paths (empty when already in sync,
+            or when the project has no rendered ``.claude/`` to re-sync — this is
+            a re-sync operation, never a from-scratch bootstrap).
+            Exceptions from the underlying regeneration propagate to the caller,
+            which decides whether to fail open (web) or surface the error (CLI).
+        """
+        # Resolve symlinks so the rendered project_root matches what `osprey build`
+        # baked in (build resolves the path). Without this, a project built under a
+        # symlinked path (e.g. /tmp → /private/tmp on macOS, or a container bind
+        # mount) reports a phantom .mcp.json diff and churns a backup on first regen.
+        project_dir = Path(project_dir).resolve()
+        settings_path = project_dir / ".claude" / "settings.json"
+        if not settings_path.exists():
+            return []
+        preview = self.regenerate_claude_code(project_dir, dry_run=True)
+        if not preview.get("changed"):
+            # Verified in sync — stamp settings.json so the SessionStart drift
+            # hook's mtime signal clears. Without this, a config.yml edit that
+            # changes no artifact (a comment, a runtime-read field) would warn
+            # at every session start until a full `osprey claude regen`.
+            config_path = project_dir / "config.yml"
+            try:
+                if config_path.stat().st_mtime > settings_path.stat().st_mtime:
+                    os.utime(settings_path)
+            except OSError:
+                pass
+            return []
+        result = self.regenerate_claude_code(project_dir)
+        return list(result.get("changed", []))
 
     def generate_manifest(
         self,

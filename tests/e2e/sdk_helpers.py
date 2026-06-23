@@ -8,7 +8,6 @@ Extracted from test_claude_code_sdk_e2e.py to avoid circular imports.
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 import sys
@@ -159,13 +158,13 @@ def enable_writes_in_project(project_dir: Path) -> None:
     ``osprey_approval.py`` gets to return ``ask``, so the SDK's
     ``can_use_tool`` callback never fires when writes are disabled.
 
-    Also drops ``mcp__controls__channel_write`` from ``.claude/settings.json``'s
-    ``permissions.deny`` list. The kill-switch hard-block in
-    ``cli/templates/claude_code.py`` bakes that deny entry into ``settings.json``
+    The kill-switch hard-block in ``cli/templates/claude_code.py`` bakes
+    ``mcp__controls__channel_write`` into ``settings.json``'s ``permissions.deny``
     at build time when ``writes_enabled`` is false (so Claude Code's permissions
     layer short-circuits before the PreToolUse hook chain runs). Flipping
-    ``config.yml`` alone leaves the rendered ``settings.json`` stale, so the
-    settings layer still denies and no hook ever fires.
+    ``config.yml`` alone leaves the rendered ``settings.json`` stale, so after the
+    flip we regenerate the Claude Code artifacts — exactly the production fix
+    (``osprey claude regen`` / the web + CLI auto-regen) rather than a hand-patch.
 
     Idempotent: presets like ``control_assistant`` already ship with
     ``writes_enabled: true``; only ``hello_world`` defaults to false.
@@ -180,13 +179,45 @@ def enable_writes_in_project(project_dir: Path) -> None:
             )
         config_path.write_text(updated, encoding="utf-8")
 
-    settings_path = project_dir / ".claude" / "settings.json"
-    if settings_path.exists():
-        data = json.loads(settings_path.read_text(encoding="utf-8"))
-        deny = data.get("permissions", {}).get("deny", [])
-        if "mcp__controls__channel_write" in deny:
-            deny.remove("mcp__controls__channel_write")
-            settings_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    # Re-render artifacts so the stale settings.json deny entry is dropped.
+    from osprey.cli.templates.manager import TemplateManager
+
+    TemplateManager().regen_if_drift(project_dir)
+
+
+def activate_scenario(project_dir: Path, scenario: str) -> None:
+    """Activate a single scenario's telemetry overlay (no logbook seeding).
+
+    Writes the scenario name into ``data/simulation/active_scenarios``; the
+    simulation engine re-reads the state file on mtime change and clears any
+    session writes (fresh machine state). Telemetry only — for scenarios whose
+    diagnosis needs a seeded logbook, use :func:`activate_scenarios`, which also
+    purges and reseeds ARIEL deterministically.
+    """
+    state_file = project_dir / "data" / "simulation" / "active_scenarios"
+    assert state_file.exists(), (
+        f"active_scenarios state file missing at {state_file} — "
+        "template simulation overlay incomplete?"
+    )
+    state_file.write_text(scenario + "\n", encoding="utf-8")
+
+
+def activate_scenarios(project_dir: Path, *names: str, now=None):
+    """Compose and apply scenarios, seeding their logbook into ARIEL.
+
+    Calls :func:`osprey.simulation.apply.apply_scenarios` with
+    ``seed_logbook=True``: it writes the active-scenario state (with a shared
+    apply-time anchor) and purges + reseeds the ARIEL logbook from the active
+    scenarios' own entries. This replaces the manual ``purge && ingest``
+    pre-seed and removes the stale-DB footgun (the logbook always matches the
+    active telemetry, against one clock). ``nominal`` is always implicit, so its
+    ambient entries are present even for telemetry-only faults.
+
+    Returns the :class:`~osprey.simulation.apply.ApplyResult`.
+    """
+    from osprey.simulation.apply import apply_scenarios
+
+    return apply_scenarios(project_dir, list(names), seed_logbook=True, now=now)
 
 
 def _resolve_project_spec(project_dir: Path):
@@ -229,7 +260,7 @@ def provider_env_for_project(project_dir: Path) -> dict[str, str]:
     if spec is None:
         raise RuntimeError(
             f"Project at {project_dir} has no resolvable provider in "
-            "config.yml — pass provider=<als-apg|cborg|anthropic|amsc|argo> "
+            "config.yml — pass provider=<als-apg|cborg|anthropic|amsc-i2|argo> "
             "to init_project()."
         )
     env: dict[str, str] = dict(spec.env_block)

@@ -177,6 +177,9 @@ class TestHelloWorldBuildOutput:
         assert (hooks_dir / "osprey_writes_check.py").exists()
         assert (hooks_dir / "osprey_approval.py").exists()
         assert (hooks_dir / "osprey_limits.py").exists()
+        # The config-drift SessionStart guard ships in every preset so a
+        # hand-edited config.yml never silently runs stale settings (#244).
+        assert (hooks_dir / "osprey_config_drift.py").exists()
 
 
 @pytest.mark.unit

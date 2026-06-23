@@ -1,0 +1,90 @@
+# tutorial_triggers.yml
+#
+# Four control-system-free demonstration triggers shipped with the
+# control-assistant preset. Each illustrates one event-dispatch concept so a
+# new user can exercise the pipeline end-to-end without any facility hardware:
+#
+#   1. hello-dispatch    — anatomy of a trigger + first successful round-trip
+#   2. triage-event      — a webhook payload becomes the agent's context
+#   3. save-report       — tool use, a short multi-turn loop, and persistence
+#   4. denied-tool-demo  — the worker's server-side tool denylist (safety)
+#
+# Fire one with (osprey deploy up generates EVENT_DISPATCHER_TOKEN in .env;
+# load it first: export $(grep -E '^EVENT_DISPATCHER_TOKEN=' .env | xargs)):
+#   curl -X POST http://localhost:8020/webhook/hello-dispatch \
+#     -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \
+#     -H "Content-Type: application/json" -d '{}'
+#
+# Watch progress stream in the dashboard at http://localhost:8020/dashboard
+#
+# (Retries fire on *dispatch failure* — i.e. when the dispatcher cannot reach
+# the worker — via the per-trigger `on_error: retry` policy. That path is not
+# exercised by a curl against a healthy stack; see the docs and the unit test
+# tests/unit/dispatch/test_server_routes.py for the retry/backoff behaviour.)
+
+dispatcher:
+  # The dispatcher forwards each fired trigger to this worker. The compose
+  # template names the single tutorial worker "dispatch-worker-1" on port 9190.
+  # (Multi-worker load distribution is not yet implemented — see docs.)
+  dispatch_target: http://dispatch-worker-1:9190
+  max_concurrent_runs: 2
+  max_queue_depth: 50
+
+triggers:
+  # 1. Anatomy + minimal end-to-end check: webhook in, one sentence out, no tools.
+  - name: hello-dispatch
+    source: webhook
+    action:
+      prompt: >-
+        Reply with a single friendly sentence confirming the event-dispatch
+        pipeline is working end to end. Do not use any tools.
+      allowed_tools: []
+
+  # 2. The webhook JSON body arrives as the agent's context. Zero tools keeps
+  #    this cheap and focused on the payload lesson. Try it with a realistic
+  #    event body, e.g.:
+  #      curl -X POST http://localhost:8020/webhook/triage-event \
+  #        -H "Authorization: Bearer $EVENT_DISPATCHER_TOKEN" \
+  #        -H "Content-Type: application/json" \
+  #        -d '{"signal":"demo:vacuum:pressure","value":4.2,"threshold":3.0,"severity":"warning"}'
+  - name: triage-event
+    source: webhook
+    action:
+      prompt: >-
+        An automated monitor fired this event and handed you its JSON payload as
+        context. In plain language: summarize what the event reports, say whether
+        it looks normal or concerning given any threshold in the payload, and
+        outline what you would investigate first. Do not use any tools — reason
+        only from the payload.
+      allowed_tools: []
+
+  # 3. Tool use + a short multi-turn loop + persistence via the workspace MCP
+  #    artifact tool. Artifacts land in _agent_data/artifacts/ — the worker's
+  #    mounted workspace volume — so they survive the run. This is the sanctioned
+  #    persistence channel: the preset's memory guard intentionally blocks
+  #    arbitrary file writes, so the agent persists through the artifact tool.
+  - name: save-report
+    source: webhook
+    action:
+      prompt: >-
+        Investigate this event and save a short status report. First take a
+        quick look at the working directory (Glob/Read) to ground yourself, then
+        use the workspace artifact tool to save a concise markdown report
+        summarizing the event payload and what you would do next. Confirm the
+        artifact you created.
+      allowed_tools:
+        - Glob
+        - Read
+        - mcp__osprey_workspace__artifact_save
+        - mcp__osprey_workspace__create_document
+
+  # 4. Requests a tool the worker blocks server-side; teaches the denylist.
+  - name: denied-tool-demo
+    source: webhook
+    action:
+      prompt: >-
+        Attempt to fetch https://example.com with WebFetch and report what
+        happens. WebFetch is on the worker's server-side denylist, so the run is
+        rejected regardless of the tools this trigger requests — demonstrating
+        that the denylist is enforced independently of the trigger config.
+      allowed_tools: [WebFetch]

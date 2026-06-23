@@ -11,7 +11,8 @@ tool results — never fabricated.
 {% set logbook_search_enabled = agents | selectattr("name", "equalto", "logbook-search") | selectattr("enabled") | list | length > 0 -%}
 {% set logbook_deep_enabled = agents | selectattr("name", "equalto", "logbook-deep-research") | selectattr("enabled") | list | length > 0 -%}
 {% set data_visualizer_enabled = agents | selectattr("name", "equalto", "data-visualizer") | selectattr("enabled") | list | length > 0 -%}
-{% set in_core_agents = ["channel-finder", "logbook-search", "logbook-deep-research", "data-visualizer"] -%}
+{% set facility_knowledge_enabled = agents | selectattr("name", "equalto", "facility-knowledge") | selectattr("enabled") | list | length > 0 -%}
+{% set in_core_agents = ["channel-finder", "logbook-search", "logbook-deep-research", "data-visualizer", "facility-knowledge"] -%}
 ## Agents
 
 Your specialized agents handle domain-specific tasks. Delegate to them —
@@ -33,6 +34,10 @@ do not attempt their work with your own tools.
 {%- if data_visualizer_enabled %}
 - **data-visualizer** — Creates plots, dashboards, and compiles LaTeX documents. You do NOT have visualization tools.
   For ANY plot, chart, dashboard, report, or slide — even a one-liner like sin(x) — delegate to **data-visualizer**. Do NOT call `create_static_plot`, `create_interactive_plot`, `create_dashboard`, `create_document`, `python_execute`, `python_execute_file`, or `Write` yourself; only the subagent has the sandboxed environment for control-room-ready output.
+{% endif -%}
+{%- if facility_knowledge_enabled %}
+- **facility-knowledge** — Looks up facility-specific documented knowledge: subsystem descriptions, device specifications, operational procedures, safety rules, physics references, and terminology.
+  For ANY question about documented facility content — procedures, subsystem descriptions, device specs, safety rules, or facility-specific terminology — delegate to **facility-knowledge**. Do NOT call `list_concepts`, `read_concept`, or `search` yourself; use **facility-knowledge** to retrieve and synthesize bundle content.
 {% endif -%}
 {%- for a in agents if a.enabled and a.name not in in_core_agents %}
 - **{{ a.name }}** — {{ a.description }}

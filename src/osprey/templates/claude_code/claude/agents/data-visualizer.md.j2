@@ -162,6 +162,11 @@ When asked to create an interactive dashboard (multi-panel, widgets, linked view
 - **`create_dashboard` (Bokeh)**: Multi-panel monitoring, parameter sweeps with
   widgets, linked comparative views, operational dashboards
 
+**Default**: when the calling agent does not explicitly request a static figure
+(e.g. for LaTeX inclusion or a printed report), prefer `create_interactive_plot`.
+Operators and analysts benefit from hover/zoom/pan, and 3D views in particular
+are only readable when the viewer can rotate them.
+
 ## Document Workflow
 
 When asked to create a report or presentation:
