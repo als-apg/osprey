@@ -6,6 +6,7 @@ and forwards to the real OpenAI-compatible upstream provider.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 
@@ -41,7 +42,28 @@ def create_proxy_app(
         upstream_base_url: OpenAI-compatible endpoint (e.g. https://aiapi-prod.stanford.edu/v1).
         upstream_api_key: API key for the upstream provider.
     """
-    app = FastAPI(title="osprey-proxy", docs_url=None, redoc_url=None)
+    # One pooled client for the app's lifetime. Creating a fresh AsyncClient per
+    # request (the old behaviour) opened and tore down an upstream TCP connection
+    # every call; at matrix volume that exhausted the host's ephemeral port pool
+    # via tens of thousands of TIME_WAIT sockets (issue #259 outage, 2026-06-18).
+    # Construction is safe without a running loop — httpx connects lazily.
+    upstream_client = httpx.AsyncClient(
+        timeout=300.0,
+        limits=httpx.Limits(
+            max_keepalive_connections=20,
+            max_connections=100,
+            keepalive_expiry=30.0,
+        ),
+    )
+
+    @contextlib.asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        try:
+            yield
+        finally:
+            await upstream_client.aclose()
+
+    app = FastAPI(title="osprey-proxy", docs_url=None, redoc_url=None, lifespan=lifespan)
 
     @app.get("/health")
     async def health():
@@ -73,22 +95,21 @@ def create_proxy_app(
 
         if is_stream:
             return StreamingResponse(
-                _stream_proxy(url, headers, openai_body, model),
+                _stream_proxy(upstream_client, url, headers, openai_body, model),
                 media_type="text/event-stream",
                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"},
             )
         else:
-            async with httpx.AsyncClient(timeout=300.0) as client:
-                try:
-                    resp = await client.post(url, json=openai_body, headers=headers)
-                    resp.raise_for_status()
-                except httpx.HTTPStatusError as exc:
-                    return _translate_error(exc.response)
-                except httpx.RequestError as exc:
-                    return JSONResponse(
-                        {"type": "error", "error": {"type": "api_error", "message": str(exc)}},
-                        status_code=502,
-                    )
+            try:
+                resp = await upstream_client.post(url, json=openai_body, headers=headers)
+                resp.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                return _translate_error(exc.response)
+            except httpx.RequestError as exc:
+                return JSONResponse(
+                    {"type": "error", "error": {"type": "api_error", "message": str(exc)}},
+                    status_code=502,
+                )
 
             anthropic_resp = openai_to_anthropic_response(resp.json(), model)
             return JSONResponse(anthropic_resp)
@@ -97,132 +118,136 @@ def create_proxy_app(
 
 
 async def _stream_proxy(
+    client: httpx.AsyncClient,
     url: str,
     headers: dict,
     openai_body: dict,
     model: str,
 ):
-    """Forward streaming request and translate OpenAI SSE to Anthropic SSE."""
+    """Forward streaming request and translate OpenAI SSE to Anthropic SSE.
+
+    Uses the app's shared, pooled ``client`` (do not close it here — it is reused
+    across requests and closed once at app shutdown).
+    """
     msg_id = _gen_id("msg_")
     block_index = 0
     in_text = False
     tool_blocks: dict[int, dict] = {}  # openai tool_call index → {block_index, id, name}
     output_tokens = 0
 
-    async with httpx.AsyncClient(timeout=300.0) as client:
-        try:
-            async with client.stream("POST", url, json=openai_body, headers=headers) as resp:
-                if resp.status_code != 200:
-                    error_body = b""
-                    async for chunk in resp.aiter_bytes():
-                        error_body += chunk
-                    yield format_sse(
-                        "error",
-                        {
-                            "type": "error",
-                            "error": {
-                                "type": "api_error",
-                                "message": error_body.decode(errors="replace"),
-                            },
+    try:
+        async with client.stream("POST", url, json=openai_body, headers=headers) as resp:
+            if resp.status_code != 200:
+                error_body = b""
+                async for chunk in resp.aiter_bytes():
+                    error_body += chunk
+                yield format_sse(
+                    "error",
+                    {
+                        "type": "error",
+                        "error": {
+                            "type": "api_error",
+                            "message": error_body.decode(errors="replace"),
                         },
-                    )
-                    return
+                    },
+                )
+                return
 
-                # Emit message_start
-                yield make_message_start(model, msg_id)
+            # Emit message_start
+            yield make_message_start(model, msg_id)
 
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    data_str = line[6:].strip()
-                    if data_str == "[DONE]":
-                        break
+            async for line in resp.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                data_str = line[6:].strip()
+                if data_str == "[DONE]":
+                    break
 
-                    try:
-                        chunk = json.loads(data_str)
-                    except json.JSONDecodeError:
-                        continue
+                try:
+                    chunk = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
 
-                    choice = (chunk.get("choices") or [{}])[0]
-                    delta = choice.get("delta", {})
-                    finish = choice.get("finish_reason")
+                choice = (chunk.get("choices") or [{}])[0]
+                delta = choice.get("delta", {})
+                finish = choice.get("finish_reason")
 
-                    # Track usage if provided
-                    usage = chunk.get("usage")
-                    if usage and "completion_tokens" in usage:
-                        output_tokens = usage["completion_tokens"]
+                # Track usage if provided
+                usage = chunk.get("usage")
+                if usage and "completion_tokens" in usage:
+                    output_tokens = usage["completion_tokens"]
 
-                    # Text content
-                    text = delta.get("content")
-                    if text:
-                        if not in_text:
-                            yield make_content_block_start(block_index, "text")
-                            in_text = True
-                        yield make_text_delta(block_index, text)
+                # Text content
+                text = delta.get("content")
+                if text:
+                    if not in_text:
+                        yield make_content_block_start(block_index, "text")
+                        in_text = True
+                    yield make_text_delta(block_index, text)
 
-                    # Tool calls
-                    for tc_delta in delta.get("tool_calls") or []:
-                        tc_idx = tc_delta.get("index", 0)
-                        func = tc_delta.get("function", {})
+                # Tool calls
+                for tc_delta in delta.get("tool_calls") or []:
+                    tc_idx = tc_delta.get("index", 0)
+                    func = tc_delta.get("function", {})
 
-                        if tc_idx not in tool_blocks:
-                            # New tool call — close text block if open
-                            if in_text:
-                                yield make_content_block_stop(block_index)
-                                block_index += 1
-                                in_text = False
-
-                            tool_id = tc_delta.get("id", _gen_id("toolu_"))
-                            tool_name = func.get("name", "")
-                            tool_blocks[tc_idx] = {
-                                "block_index": block_index,
-                                "id": tool_id,
-                                "name": tool_name,
-                            }
-                            yield make_content_block_start(
-                                block_index,
-                                "tool_use",
-                                tool_id=tool_id,
-                                tool_name=tool_name,
-                            )
-                            block_index += 1
-
-                        # Argument fragment
-                        args_fragment = func.get("arguments", "")
-                        if args_fragment:
-                            tb = tool_blocks[tc_idx]
-                            yield make_tool_input_delta(tb["block_index"], args_fragment)
-
-                    # Finish reason
-                    if finish:
-                        # Close any open blocks
+                    if tc_idx not in tool_blocks:
+                        # New tool call — close text block if open
                         if in_text:
                             yield make_content_block_stop(block_index)
+                            block_index += 1
                             in_text = False
-                        for tb in tool_blocks.values():
-                            yield make_content_block_stop(tb["block_index"])
 
-                        stop_reason = _FINISH_REASON_MAP.get(finish, "end_turn")
-                        yield make_message_delta(stop_reason, output_tokens)
-                        yield make_message_stop()
-                        return
+                        tool_id = tc_delta.get("id", _gen_id("toolu_"))
+                        tool_name = func.get("name", "")
+                        tool_blocks[tc_idx] = {
+                            "block_index": block_index,
+                            "id": tool_id,
+                            "name": tool_name,
+                        }
+                        yield make_content_block_start(
+                            block_index,
+                            "tool_use",
+                            tool_id=tool_id,
+                            tool_name=tool_name,
+                        )
+                        block_index += 1
 
-                # Stream ended without explicit finish_reason
-                if in_text:
-                    yield make_content_block_stop(block_index)
-                for tb in tool_blocks.values():
-                    yield make_content_block_stop(tb["block_index"])
-                yield make_message_delta("end_turn", output_tokens)
-                yield make_message_stop()
+                    # Argument fragment
+                    args_fragment = func.get("arguments", "")
+                    if args_fragment:
+                        tb = tool_blocks[tc_idx]
+                        yield make_tool_input_delta(tb["block_index"], args_fragment)
 
-        except httpx.RequestError as exc:
-            yield format_sse(
-                "error",
-                {
-                    "type": "error",
-                    "error": {"type": "api_error", "message": str(exc)},
-                },
-            )
+                # Finish reason
+                if finish:
+                    # Close any open blocks
+                    if in_text:
+                        yield make_content_block_stop(block_index)
+                        in_text = False
+                    for tb in tool_blocks.values():
+                        yield make_content_block_stop(tb["block_index"])
+
+                    stop_reason = _FINISH_REASON_MAP.get(finish, "end_turn")
+                    yield make_message_delta(stop_reason, output_tokens)
+                    yield make_message_stop()
+                    return
+
+            # Stream ended without explicit finish_reason
+            if in_text:
+                yield make_content_block_stop(block_index)
+            for tb in tool_blocks.values():
+                yield make_content_block_stop(tb["block_index"])
+            yield make_message_delta("end_turn", output_tokens)
+            yield make_message_stop()
+
+    except httpx.RequestError as exc:
+        yield format_sse(
+            "error",
+            {
+                "type": "error",
+                "error": {"type": "api_error", "message": str(exc)},
+            },
+        )
 
 
 def _translate_error(response: httpx.Response) -> JSONResponse:

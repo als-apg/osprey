@@ -61,6 +61,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The Claude Code translation proxy (used to route OpenAI-protocol providers through `osprey claude` and the web terminal) now pools a single upstream `httpx` client for the app's lifetime and closes it via a FastAPI lifespan handler, instead of opening and tearing down a connection per request. Under sustained load the per-request client exhausted the host's ephemeral-port pool via accumulated `TIME_WAIT` sockets; the pooled client (20 keepalive / 100 max connections, 30s expiry) fixes the exhaustion.
 - `ariel search` CLI now renders keyword-search entries when no composed answer is available, instead of printing an empty result.
 - `osprey build` re-anchors profile-overlaid logbook seeds to the current date (overlays land after the in-template timestamp rebase).
 - Editing `config.yml` no longer leaves the agent running stale settings (#244). Config changes via the web settings panel and `osprey config set-*` now auto-regenerate the Claude Code artifacts (so e.g. flipping `control_system.writes_enabled` actually takes effect), the web server re-syncs them on launch, and a SessionStart guard warns when a hand-edited `config.yml` has drifted from the generated `.claude/` artifacts. The hello-world tutorial documents the `osprey claude regen` + relaunch step.
