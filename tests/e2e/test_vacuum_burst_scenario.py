@@ -58,6 +58,7 @@ from tests.e2e.sdk_helpers import (
     HAS_SDK,
     _default_opus_model,
     activate_scenarios,
+    ariel_db_skip_reason,
     init_project,
     run_sdk_query,
 )
@@ -102,6 +103,15 @@ async def test_sector7_vacuum_burst_flow(tmp_path: Path) -> None:
     Marked ``flaky(reruns=2)`` to absorb the rare stochastic miss where the
     agent retrieves the data but bails before committing to the sector.
     """
+    # Prerequisite: ``activate_scenarios`` below purges and reseeds the ARIEL
+    # logbook, so this scenario needs a live, seeded ARIEL Postgres. Without it
+    # the seeding (or a downstream ARIEL search) fails with a 5s pool timeout
+    # buried in a sub-agent and the test fails on an assertion that masquerades
+    # as a model-capability miss. Skip honestly instead.
+    db_reason = ariel_db_skip_reason()
+    if db_reason:
+        pytest.skip(db_reason)
+
     # Use Opus for the planner: this scenario tests diagnostic reasoning
     # (subsystem decomposition → discovery → cross-channel correlation →
     # localized root cause), which Haiku has been observed to bail on by
