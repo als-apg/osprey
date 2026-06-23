@@ -7,7 +7,7 @@ external deps) with:
 
   * run metadata + methodology footer (override mechanism, proxy, cap, drops),
   * a model x seed summary matrix (pass-rate heatmap + counts + wall-clock),
-  * a per-test heatmap (92 test rows x model cols; cell = passes across seeds),
+  * a per-test heatmap (one row per model-driving test x model cols; cell = passes across seeds),
     grouped by test file, so you can see exactly which capabilities each model
     holds up on weak -> strong.
 
@@ -47,7 +47,6 @@ MODEL_ORDER = [
 # Ordered weak->strong (haiku < sonnet < opus) to bracket the open subjects.
 REFERENCE_MODELS = {"claude-haiku-4-5-20251001", "claude-sonnet-4-6", "claude-opus-4-6"}
 SEEDS = [1, 2, 3]
-EXPECTED_TESTS = 33  # full e2e kit minus the 6 config exclusions (benchmark dropped)
 OUTCOME_COLORS = {
     "passed": "#1a7f37",
     "failed": "#cf222e",
@@ -65,6 +64,20 @@ _LIVE_KEY = {
     "skipped": "skipped",
     "error": "errors",
 }
+
+
+def load_exclusions(config_path: str) -> list[tuple[str, str]]:
+    """(basename, reason) for every file the matrix excludes, read live from
+    matrix_e2e_config.json. The footer lists the real, current exclusion set this
+    way instead of a hand-kept prose list that silently drifts when an e2e file
+    is added or excluded."""
+    try:
+        cfg = json.load(open(config_path))
+    except Exception:
+        return []
+    return [
+        (os.path.basename(e["path"]), e.get("reason", "")) for e in cfg.get("excluded_files", [])
+    ]
 
 
 def load(results_dir: str) -> dict:
@@ -225,6 +238,11 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--results-dir", default="results")
     ap.add_argument("--out", default="results/dashboard.html")
+    ap.add_argument(
+        "--config",
+        default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "matrix_e2e_config.json"),
+        help="matrix_e2e_config.json — source of the excluded-file list shown in the footer",
+    )
     args = ap.parse_args()
 
     runs = load(args.results_dir)
@@ -251,6 +269,19 @@ def main() -> int:
     total_cells = sum(
         len(seeds_for(m, runs)) for m in models
     )  # subjects: 3 seeds; refs: the seeds actually run
+
+    # Model-driving test count, DERIVED (never frozen): a completed run collects
+    # exactly the model-driving subset, so its `total` is authoritative — take the
+    # max across completed runs (a run that errored at collection can't undercut
+    # it). Before any run completes, fall back to the union of tests seen so far,
+    # so the live progress denominator can never be exceeded (the old hardcoded
+    # constant could, e.g. 53/33). None only when there is no data at all.
+    completed_totals = [
+        d["total"] for d in runs.values() if not d.get("_partial") and d.get("total")
+    ]
+    union_n = sum(len(v) for v in all_tests.values())
+    model_driving_n = max(completed_totals) if completed_totals else (union_n or None)
+    exclusions = load_exclusions(args.config)
 
     css = """
     body{font:14px/1.45 -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
@@ -381,7 +412,7 @@ def main() -> int:
                     fracs.append(fr)  # mean is over COMPLETED seeds only
                 c = run_counts(d)
                 tag = (
-                    f"<div class=muted style='color:#9a6700'>● live · {d['total']}/{EXPECTED_TESTS} done</div>"
+                    f"<div class=muted style='color:#9a6700'>● live · {d['total']}/{model_driving_n or '?'} done</div>"
                     if d.get("_partial")
                     else f"<div class=muted>{d['total']}t · {d['total_duration_s'] // 60}m</div>"
                 )
@@ -435,10 +466,27 @@ def main() -> int:
     H.append("</table>")
 
     # ---- methodology ----
+    # Scope sentence is DERIVED: the model-driving count from the run data and the
+    # excluded-file list (with reasons) from matrix_e2e_config.json — so it tracks
+    # the suite instead of asserting frozen totals (was "36 of 92", long stale).
+    n_txt = str(model_driving_n) if model_driving_n is not None else "—"
+    if exclusions:
+        excl_html = ", ".join(
+            f"<code title='{html.escape(reason)}'>{html.escape(name)}</code>"
+            for name, reason in exclusions
+        )
+        scope = (
+            f"The <b>{n_txt}</b> model-driving e2e tests — the full <code>tests/e2e/</code> suite "
+            f"minus the {len(exclusions)} files that don't call an LLM and/or don't route through the "
+            f"model under test (hover for the reason: {excl_html}) — are forced"
+        )
+    else:
+        scope = (
+            f"The <b>{n_txt}</b> model-driving e2e tests (the full <code>tests/e2e/</code> suite minus "
+            f"the files that don't call an LLM and/or don't route through the model under test) are forced"
+        )
     H.append(
-        "<footer><b>Methodology.</b> The 36 model-driving e2e tests (of 92 collected — docker-build, "
-        "ariel-search, provider-plumbing, and build-integration tests are excluded because they don't call "
-        "an LLM and/or don't route through the model under test) are forced onto each "
+        "<footer><b>Methodology.</b> " + scope + " onto each "
         "CBORG model suite-wide via <code>OSPREY_E2E_FORCE_PROVIDER=cborg</code> + "
         "<code>OSPREY_E2E_FORCE_MODEL</code> (all tiers collapse to one model). Open models route through "
         "OSPREY's Anthropic↔OpenAI translation proxy. The per-test timeout is 1800s and serves only as a "
