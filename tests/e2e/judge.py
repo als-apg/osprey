@@ -91,9 +91,7 @@ class LLMJudge:
         self.provider = provider
         # Model overridable via env so a redirected provider (e.g. cborg) can use
         # a valid model id. Explicit arg wins; unset env -> unchanged default.
-        self.model = model or os.environ.get(
-            "OSPREY_E2E_JUDGE_MODEL", "claude-haiku-4-5-20251001"
-        )
+        self.model = model or os.environ.get("OSPREY_E2E_JUDGE_MODEL", "claude-haiku-4-5-20251001")
         self.verbose = verbose
         self.provider_config = provider_config or _default_provider_config(provider)
 

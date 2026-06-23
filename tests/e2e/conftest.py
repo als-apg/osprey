@@ -22,15 +22,29 @@ def pytest_runtest_logreport(report):
     if not live:
         return
     # one record per test: skips/setup-errors on 'setup', pass/fail on 'call'
-    if report.when == "call" or (report.when == "setup" and report.outcome in ("skipped", "failed")):
+    if report.when == "call" or (
+        report.when == "setup" and report.outcome in ("skipped", "failed")
+    ):
         outcome = report.outcome
         if outcome == "failed":
             text = str(getattr(report, "longrepr", "")).lower()
-            outcome = "timeout" if "timeout" in text else ("error" if report.when == "setup" else "failed")
+            outcome = (
+                "timeout"
+                if "timeout" in text
+                else ("error" if report.when == "setup" else "failed")
+            )
         try:
             with open(live, "a") as f:
-                f.write(json.dumps({"name": report.nodeid, "outcome": outcome,
-                                    "duration_s": round(getattr(report, "duration", 0.0), 2)}) + "\n")
+                f.write(
+                    json.dumps(
+                        {
+                            "name": report.nodeid,
+                            "outcome": outcome,
+                            "duration_s": round(getattr(report, "duration", 0.0), 2),
+                        }
+                    )
+                    + "\n"
+                )
         except Exception:
             pass
 
