@@ -116,7 +116,15 @@ def init_project(
     raising ``ValueError: I/O operation on closed file`` at fixture
     setup. ``CliRunner`` is also a unit-test harness; an e2e fixture
     should exercise the same entry point real users invoke.
+
+    Suite-wide override (CBORG model-matrix, issue #259): when
+    ``OSPREY_E2E_FORCE_PROVIDER`` is set it replaces the per-callsite
+    ``provider`` so the *entire* tests/e2e/ suite can be pointed at one
+    provider without editing each fixture. Paired with
+    ``OSPREY_E2E_FORCE_MODEL`` (honored in ``_resolve_project_spec``), which
+    collapses all tiers onto a single model id.
     """
+    provider = os.environ.get("OSPREY_E2E_FORCE_PROVIDER", provider)
     args = [
         name,
         "--preset",
@@ -235,10 +243,57 @@ def _resolve_project_spec(project_dir: Path):
     from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
 
     cfg = yaml.safe_load((project_dir / "config.yml").read_text()) or {}
-    return ClaudeCodeModelResolver.resolve(
+    spec = ClaudeCodeModelResolver.resolve(
         cfg.get("claude_code", {}),
         cfg.get("api", {}).get("providers", {}),
     )
+    return _apply_e2e_overrides(spec)
+
+
+def _apply_e2e_overrides(spec):
+    """Apply suite-wide CBORG model-matrix overrides to a resolved spec (#259).
+
+    This is the single chokepoint every routing consumer goes through
+    (``provider_env_for_project``, ``_default_haiku_model``,
+    ``_default_opus_model``, and ``run_sdk_query``'s default model), so
+    forcing the spec here keeps the build env, the SDK ``model=`` argument,
+    and the proxy base URL mutually consistent.
+
+    * ``OSPREY_E2E_FORCE_MODEL`` — collapse every tier onto one model id and
+      rewrite the tier-model env vars to match.
+    * ``OSPREY_E2E_PROXY_BASE_URL`` — point ``ANTHROPIC_BASE_URL`` at the
+      in-process translation proxy (set by the session fixture in
+      tests/e2e/conftest.py for OpenAI-protocol / open models). Anthropic-
+      protocol CBORG models (``claude-*``) leave this unset and route direct.
+
+    Inert (returns the spec unchanged) when neither var is set, so normal
+    e2e runs are unaffected.
+    """
+    if spec is None:
+        return None
+    force_model = os.environ.get("OSPREY_E2E_FORCE_MODEL")
+    proxy_base = os.environ.get("OSPREY_E2E_PROXY_BASE_URL")
+    if not force_model and not proxy_base:
+        return spec
+
+    import dataclasses
+
+    tier_to_model = dict(spec.tier_to_model)
+    env_block = dict(spec.env_block)
+    if force_model:
+        for tier in tier_to_model:
+            tier_to_model[tier] = force_model
+        for key in (
+            "ANTHROPIC_MODEL",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        ):
+            if key in env_block:
+                env_block[key] = force_model
+    if proxy_base:
+        env_block["ANTHROPIC_BASE_URL"] = proxy_base
+    return dataclasses.replace(spec, tier_to_model=tier_to_model, env_block=env_block)
 
 
 def provider_env_for_project(project_dir: Path) -> dict[str, str]:
@@ -494,6 +549,26 @@ def _harvest_subagent_traces(
                         matched.is_error = bool(block.get("is_error"))
 
 
+def e2e_budget_scale() -> float:
+    """Per-query budget multiplier for the model under test.
+
+    The base ``max_budget_usd`` caps across the e2e suite are tuned for the
+    haiku-tier default model. Pricier reference models (Sonnet, Opus) cost
+    several times more per token, so the same multi-step task blows the cap and
+    hard-errors mid-query (``Reached maximum budget``) — a cost artifact that
+    deflates their benchmark score for reasons unrelated to capability. The
+    model matrix runner (``scripts/run_e2e_for_model.sh``) sets
+    ``OSPREY_E2E_BUDGET_SCALE`` per model so the cap **and** the cost-ceiling
+    assertions scale together. Defaults to 1.0, so CI and ordinary local runs
+    are byte-for-byte unchanged.
+    """
+    try:
+        scale = float(os.environ.get("OSPREY_E2E_BUDGET_SCALE", "1.0"))
+    except ValueError:
+        return 1.0
+    return scale if scale > 0 else 1.0
+
+
 async def run_sdk_query(
     project_dir: Path,
     prompt: str,
@@ -531,7 +606,7 @@ async def run_sdk_query(
         cwd=str(project_dir),
         permission_mode="bypassPermissions",
         max_turns=max_turns,
-        max_budget_usd=max_budget_usd,
+        max_budget_usd=max_budget_usd * e2e_budget_scale(),
         env=sdk_env(project_dir),
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
@@ -680,7 +755,7 @@ async def run_sdk_query_with_hooks(
         cwd=str(project_dir),
         permission_mode="default",
         max_turns=max_turns,
-        max_budget_usd=max_budget_usd,
+        max_budget_usd=max_budget_usd * e2e_budget_scale(),
         env=sdk_env(project_dir),
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],

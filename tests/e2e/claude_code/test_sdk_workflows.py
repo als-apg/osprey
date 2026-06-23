@@ -23,6 +23,7 @@ import pytest
 
 from tests.e2e.judge import LLMJudge
 from tests.e2e.sdk_helpers import (
+    e2e_budget_scale,
     find_png_files,
     init_project,
     run_sdk_query,
@@ -90,8 +91,9 @@ class TestClaudeCodeSDKIntegration:
 
         # Cost should be reasonable for a simple query
         if result.cost_usd is not None:
-            assert result.cost_usd < 0.25, (
-                f"Smoke test cost ${result.cost_usd:.4f} — exceeded $0.25 budget"
+            budget = 0.25 * e2e_budget_scale()
+            assert result.cost_usd < budget, (
+                f"Smoke test cost ${result.cost_usd:.4f} — exceeded ${budget:.2f} budget"
             )
 
     # -------------------------------------------------------------------
@@ -194,8 +196,9 @@ class TestClaudeCodeSDKIntegration:
 
         # -- Cost ceiling --
         if result.cost_usd is not None:
-            assert result.cost_usd < 1.0, (
-                f"Test cost ${result.cost_usd:.4f} — exceeded $1.00 budget"
+            budget = 1.0 * e2e_budget_scale()
+            assert result.cost_usd < budget, (
+                f"Test cost ${result.cost_usd:.4f} — exceeded ${budget:.2f} budget"
             )
 
     # -------------------------------------------------------------------
@@ -312,8 +315,9 @@ class TestClaudeCodeSDKIntegration:
 
         # -- Cost + turn ceilings --
         if result.cost_usd is not None:
-            assert result.cost_usd < 2.0, (
-                f"Test cost ${result.cost_usd:.4f} — exceeded $2.00 budget"
+            budget = 2.0 * e2e_budget_scale()
+            assert result.cost_usd < budget, (
+                f"Test cost ${result.cost_usd:.4f} — exceeded ${budget:.2f} budget"
             )
 
         if result.num_turns is not None:
@@ -421,8 +425,9 @@ class TestClaudeCodeSDKIntegration:
 
         # Cost should be under budget
         if result.cost_usd is not None:
-            assert result.cost_usd < 2.0, (
-                f"Test cost ${result.cost_usd:.4f} — exceeded $2.00 budget"
+            budget = 2.0 * e2e_budget_scale()
+            assert result.cost_usd < budget, (
+                f"Test cost ${result.cost_usd:.4f} — exceeded ${budget:.2f} budget"
             )
 
         print(f"  viz calls: {len(viz_calls)}")

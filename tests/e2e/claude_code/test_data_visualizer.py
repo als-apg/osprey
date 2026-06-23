@@ -16,6 +16,7 @@ from __future__ import annotations
 import pytest
 
 from tests.e2e.sdk_helpers import (
+    e2e_budget_scale,
     find_html_files,
     init_project,
     run_sdk_query,
@@ -144,8 +145,9 @@ class TestDataVisualizerAgent:
 
         # Cost should be under budget
         if result.cost_usd is not None:
-            assert result.cost_usd < 2.0, (
-                f"Test cost ${result.cost_usd:.4f} — exceeded $2.00 budget"
+            budget = 2.0 * e2e_budget_scale()
+            assert result.cost_usd < budget, (
+                f"Test cost ${result.cost_usd:.4f} — exceeded ${budget:.2f} budget"
             )
 
         print(f"  viz calls: {len(viz_calls)} (errors: {len(viz_errors)})")
@@ -239,8 +241,9 @@ class TestDataVisualizerAgent:
         assert len(html_files) > 0, "No HTML artifact found — interactive plot not produced."
 
         if result.cost_usd is not None:
-            assert result.cost_usd < 2.0, (
-                f"Test cost ${result.cost_usd:.4f} — exceeded $2.00 budget"
+            budget = 2.0 * e2e_budget_scale()
+            assert result.cost_usd < budget, (
+                f"Test cost ${result.cost_usd:.4f} — exceeded ${budget:.2f} budget"
             )
 
         print(f"  viz calls: {len(viz_calls)} (errors: {len(viz_errors)})")

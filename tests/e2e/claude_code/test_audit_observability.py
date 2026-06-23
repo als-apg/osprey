@@ -20,6 +20,7 @@ import warnings
 import pytest
 
 from tests.e2e.sdk_helpers import (
+    e2e_budget_scale,
     find_png_files,
     init_project,
     read_audit_events,
@@ -212,6 +213,7 @@ class TestAuditObservability:
 
         # -- Cost guard --
         if result.cost_usd is not None:
-            assert result.cost_usd < 2.00, (
-                f"Test cost ${result.cost_usd:.4f} — exceeded $2.00 budget"
+            budget = 2.0 * e2e_budget_scale()
+            assert result.cost_usd < budget, (
+                f"Test cost ${result.cost_usd:.4f} — exceeded ${budget:.2f} budget"
             )

@@ -25,7 +25,10 @@ def _default_provider_config(provider: str) -> dict[str, str] | None:
         api_key = os.environ.get("ALS_APG_API_KEY")
         if not api_key:
             return None
-        return {"api_key": api_key, "base_url": "https://llm.gianlucamartino.com/v1"}
+        # base_url overridable so the judge can follow a redirected provider
+        # (e.g. a cborg-only box). Unset -> unchanged default, so CI is unaffected.
+        base_url = os.environ.get("ALS_APG_BASE_URL", "https://llm.gianlucamartino.com/v1")
+        return {"api_key": api_key, "base_url": base_url}
     return None
 
 
@@ -71,7 +74,7 @@ class LLMJudge:
         self,
         *,
         provider: str,
-        model: str = "claude-haiku-4-5-20251001",
+        model: str | None = None,
         verbose: bool = False,
         provider_config: dict[str, str] | None = None,
     ):
@@ -86,7 +89,11 @@ class LLMJudge:
                 known ``als-apg`` provider.
         """
         self.provider = provider
-        self.model = model
+        # Model overridable via env so a redirected provider (e.g. cborg) can use
+        # a valid model id. Explicit arg wins; unset env -> unchanged default.
+        self.model = model or os.environ.get(
+            "OSPREY_E2E_JUDGE_MODEL", "claude-haiku-4-5-20251001"
+        )
         self.verbose = verbose
         self.provider_config = provider_config or _default_provider_config(provider)
 
