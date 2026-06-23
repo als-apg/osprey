@@ -123,6 +123,28 @@
           }
         }
       },
+      "VAC": {
+        "_description": "Vacuum System (VAC): Maintains ultra-high vacuum (UHV) in the beam chamber to minimize beam-gas scattering and maximize beam lifetime. Includes ion pumps, pressure gauges, and vacuum valves. Typical operating pressure: 10^-9 to 10^-10 Torr.",
+        "GAUGE": {
+          "_description": "Cold cathode ionization gauges, one per storage-ring sector.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "SR{:02d}",
+              "_range": [
+                1,
+                12
+              ]
+            },
+            "PRESSURE": {
+              "_description": "Measured Pressure (Torr): Direct pressure reading from ionization gauge.",
+              "RB": {
+                "_description": "Pressure Readback (read-only): Direct gauge measurement of local vacuum pressure."
+              }
+            }
+          }
+        }
+      },
       "RF": {
         "_description": "Radio Frequency System (RF): Provides energy to the circulating beam to compensate for synchrotron radiation losses. RF cavities accelerate the beam using high-power electromagnetic waves. Klystrons provide RF power amplification.",
         "CAVITY": {

@@ -1012,6 +1012,111 @@
           2
         ]
       }
+    },
+    "GAUGE": {
+      "_description": "vacuum gauge",
+      "PRESSURE": {
+        "_description": "pressure",
+        "RB": {
+          "_description": "readback",
+          "ChannelNames": [
+            "SR:VAC:GAUGE:SR01:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR02:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR03:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR04:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR05:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR06:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR07:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR08:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR09:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR10:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR11:PRESSURE:RB",
+            "SR:VAC:GAUGE:SR12:PRESSURE:RB"
+          ],
+          "DataType": "double",
+          "HWUnits": "Pa"
+        }
+      },
+      "_setup": {
+        "CommonNames": [
+          "GAUGE SR01",
+          "GAUGE SR02",
+          "GAUGE SR03",
+          "GAUGE SR04",
+          "GAUGE SR05",
+          "GAUGE SR06",
+          "GAUGE SR07",
+          "GAUGE SR08",
+          "GAUGE SR09",
+          "GAUGE SR10",
+          "GAUGE SR11",
+          "GAUGE SR12"
+        ],
+        "DeviceList": [
+          [
+            1,
+            1
+          ],
+          [
+            2,
+            1
+          ],
+          [
+            3,
+            1
+          ],
+          [
+            4,
+            1
+          ],
+          [
+            5,
+            1
+          ],
+          [
+            6,
+            1
+          ],
+          [
+            7,
+            1
+          ],
+          [
+            8,
+            1
+          ],
+          [
+            9,
+            1
+          ],
+          [
+            10,
+            1
+          ],
+          [
+            11,
+            1
+          ],
+          [
+            12,
+            1
+          ]
+        ],
+        "ElementList": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12
+        ]
+      }
     }
   }
 }
