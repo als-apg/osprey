@@ -20,7 +20,7 @@ against a strict allow-list pattern before being interpolated into SQL.
 
 import asyncio
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import pandas as pd
@@ -47,8 +47,8 @@ def _validate_identifier(name: str, label: str) -> str:
 def _to_utc(dt: datetime) -> datetime:
     """Normalize a datetime to UTC, assuming naive datetimes are already UTC."""
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def _ms_to_sample_unit(precision_ms: int) -> str:
@@ -301,7 +301,7 @@ class QuestDBArchiverConnector(ArchiverConnector):
 
         try:
             records = await asyncio.wait_for(fetch(), timeout=float(timeout))
-        except asyncio.TimeoutError as e:
+        except TimeoutError as e:
             raise TimeoutError(f"QuestDB query timed out after {timeout}s") from e
         except Exception as e:
             # Network/connection issues surface here distinctly from a
