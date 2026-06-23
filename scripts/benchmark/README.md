@@ -11,11 +11,13 @@ whole-stack integration test. (It surfaced the hook-interpreter dark-layer
 safety bug, the python-execute kill-switch bypass, the tier-1 VAC data gap, and
 the ARIEL Postgres prerequisite, among others.)
 
-## How a run is forced onto a model
+## The portable contract: environment variables
 
-There is **no per-test edit**. The chokepoint lives in the production e2e
-harness (`tests/e2e/sdk_helpers.py`, `tests/e2e/conftest.py`, `tests/e2e/judge.py`),
-driven entirely by environment variables:
+There is **no per-test edit**, and **no provider is hard-wired**. The chokepoint
+lives in the production e2e harness (`tests/e2e/sdk_helpers.py`,
+`tests/e2e/conftest.py`, `tests/e2e/judge.py`), driven entirely by environment
+variables. This table is the real, provider-agnostic API; the scripts below are
+just one way to drive it.
 
 | Env var | Effect | Read in |
 | --- | --- | --- |
@@ -28,17 +30,36 @@ driven entirely by environment variables:
 
 All default to inert, so CI behaviour is byte-for-byte unchanged when unset.
 
-## Toolchain
+## Layer A — portable mechanism
+
+Provider- and host-agnostic. These work anywhere the env-var contract above is
+set; nothing in them assumes a particular provider, key file, or machine.
 
 | Script | Role |
 | --- | --- |
-| `run_e2e_for_model.sh <model> [seed]` | run the full e2e suite for ONE model; emits `results/<model>__seed<n>.{xml,json,live.jsonl}`. Routes open models through the proxy, `claude-*` direct, `MATRIX_PROVIDER=als-apg` for the Anthropic references. |
 | `matrix_driver.sh` | loop `run_e2e_for_model.sh` over a `MATRIX_MODELS` × `MATRIX_SEEDS` grid with bounded `MATRIX_PARALLEL`. **Resumable** — combos whose summary json exists are skipped. |
-| `matrix_restart.sh` | one-shot clean restart on the benchmark box over ssh: archive prior results, clear stale bytecode, verify Postgres, launch subjects + reference tmux sessions. |
 | `matrix_dashboard.py --results-dir DIR --out FILE` | render `results/*.json` → a self-contained `dashboard.html` (per-model summary + per-test heatmap). |
-| `matrix_dashboard_live.sh [max_seconds]` | local loop: rsync results from the remote every `DASH_INTERVAL`s and re-render until the matrix signals done. |
 | `check_e2e_coverage.py` | derive the pytest `--ignore` list from `matrix_e2e_config.json` and warn if the run stops covering the full e2e kit minus the explicit, documented exclusions. |
 | `matrix_e2e_config.json` | single source of truth for the excluded e2e files (each with a reason). |
+
+## Layer B — operator/site glue (examples to copy & adapt)
+
+These encode how *one* operator wired the matrix for the macstudio benchmark box
+and the CBORG / als-apg providers. They are **working examples, not a turnkey
+public interface** — the ssh host, `~/.cborg_key`, Postgres paths, and model
+lists are specific to that setup (overridable via `OSPREY_BENCH_*` / `MATRIX_*`,
+see [Host / layout overrides](#host--layout-overrides)). Copy and adapt them for
+your own box and provider.
+
+| Script | Role |
+| --- | --- |
+| `run_e2e_for_model.sh <model> [seed]` | run the full e2e suite for ONE model; emits `results/<model>__seed<n>.{xml,json,live.jsonl}`. Routes open models through the CBORG translation proxy, `claude-*` direct; reads `~/.cborg_key`. Defaults to the CBORG subject lane (`MATRIX_PROVIDER=als-apg` switches it to the native-Anthropic reference lane). |
+| `run_e2e_alsapg.sh <model> [seed]` | sibling per-model runner for the Anthropic reference bracket via native als-apg (no proxy). |
+| `run_alsapg_refs.sh` | drive the 3-model als-apg reference bracket end-to-end, writing the same `results/matrix.log` completion markers the dashboard updater watches. |
+| `matrix_curate_models.py` | curate CBORG's model catalogue into the canonical, chat-capable subject set (fetched via `ssh macstudio`, which is on-network). |
+| `matrix_restart.sh` | one-shot clean restart on the benchmark box over ssh: archive prior results, clear stale bytecode, verify Postgres, launch subjects + reference tmux sessions. |
+| `matrix_dashboard_live.sh [max_seconds]` | local loop: rsync results from the remote every `DASH_INTERVAL`s and re-render until the matrix signals done. |
+| `matrix_run.py` | minimal single-tool harness probe (claude CLI → proxy → one model → in-process `read_pv` MCP tool); a fast "does this model call a tool at all" smoke check. |
 
 ## Running it
 
