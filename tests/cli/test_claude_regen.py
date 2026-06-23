@@ -320,8 +320,12 @@ class TestSafetyPreservation:
         ]
         assert framework_cmds, "expected framework osprey_*.py hook commands after regen"
         for cmd in framework_cmds:
-            assert not cmd.startswith("python "), f"bare `python` re-introduces the dark-hook bug: {cmd}"
-            assert not cmd.startswith("python3 "), f"PATH-relative `python3` is not the resolved interpreter: {cmd}"
+            assert not cmd.startswith("python "), (
+                f"bare `python` re-introduces the dark-hook bug: {cmd}"
+            )
+            assert not cmd.startswith("python3 "), (
+                f"PATH-relative `python3` is not the resolved interpreter: {cmd}"
+            )
             # Command must launch via a quoted, absolute interpreter path.
             assert cmd.startswith('"/'), (
                 f"framework hook must launch via the resolved venv interpreter "
