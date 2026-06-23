@@ -8,9 +8,12 @@ Extracted from test_claude_code_sdk_e2e.py to avoid circular imports.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import os
 import subprocess
 import sys
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -31,7 +34,6 @@ try:
         ToolResultBlock,
         ToolUseBlock,
         UserMessage,
-        query,
     )
 
     HAS_SDK = True
@@ -88,6 +90,45 @@ def has_als_apg_api_key() -> bool:
     return bool(os.environ.get("ALS_APG_API_KEY"))
 
 
+_DEFAULT_ARIEL_DB_URI = "postgresql://ariel:ariel@localhost:5432/ariel"
+
+
+def ariel_db_skip_reason(uri: str | None = None) -> str | None:
+    """Return an actionable skip reason if the ARIEL Postgres is not ready.
+
+    The scenario E2E tests (rf_cavity correlation, sector-7 vacuum burst,
+    corrector honest-refusal) drive the logbook-search sub-agent, which needs a
+    live, *seeded* ARIEL Postgres. When it is absent, every ARIEL search fails
+    with a 5-second pool-open timeout buried inside the sub-agent; the test then
+    fails on a downstream tool-trace assertion that *looks like* a model
+    capability miss ("the agent couldn't find the cavity"). That false signal
+    cost hours once. This guard converts the silent prerequisite into an
+    explicit, actionable skip.
+
+    Returns ``None`` when the DB is reachable and has at least one entry,
+    otherwise a human-readable reason string suitable for ``pytest.skip``.
+    Override the URI with ``OSPREY_ARIEL_DB_URI``.
+    """
+    uri = uri or os.environ.get("OSPREY_ARIEL_DB_URI", _DEFAULT_ARIEL_DB_URI)
+    try:
+        import psycopg
+    except ImportError:
+        return "psycopg not installed — cannot verify the ARIEL DB prerequisite"
+    try:
+        with psycopg.connect(uri, connect_timeout=3) as conn:
+            row = conn.execute("SELECT count(*) FROM enhanced_entries").fetchone()
+    except Exception as exc:  # noqa: BLE001 — any failure means "not ready"
+        return (
+            f"ARIEL Postgres not reachable ({exc.__class__.__name__}) — scenario "
+            "tests need a live, seeded ARIEL logbook DB. Bring it up with "
+            "`osprey deploy up && osprey ariel migrate && osprey ariel quickstart`."
+        )
+    count = row[0] if row else 0
+    if count == 0:
+        return "ARIEL Postgres is reachable but empty — seed it with `osprey ariel quickstart`."
+    return None
+
+
 def init_project(
     tmp_path: Path,
     name: str,
@@ -116,7 +157,15 @@ def init_project(
     raising ``ValueError: I/O operation on closed file`` at fixture
     setup. ``CliRunner`` is also a unit-test harness; an e2e fixture
     should exercise the same entry point real users invoke.
+
+    Suite-wide override (CBORG model-matrix, issue #259): when
+    ``OSPREY_E2E_FORCE_PROVIDER`` is set it replaces the per-callsite
+    ``provider`` so the *entire* tests/e2e/ suite can be pointed at one
+    provider without editing each fixture. Paired with
+    ``OSPREY_E2E_FORCE_MODEL`` (honored in ``_resolve_project_spec``), which
+    collapses all tiers onto a single model id.
     """
+    provider = os.environ.get("OSPREY_E2E_FORCE_PROVIDER", provider)
     args = [
         name,
         "--preset",
@@ -235,10 +284,57 @@ def _resolve_project_spec(project_dir: Path):
     from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
 
     cfg = yaml.safe_load((project_dir / "config.yml").read_text()) or {}
-    return ClaudeCodeModelResolver.resolve(
+    spec = ClaudeCodeModelResolver.resolve(
         cfg.get("claude_code", {}),
         cfg.get("api", {}).get("providers", {}),
     )
+    return _apply_e2e_overrides(spec)
+
+
+def _apply_e2e_overrides(spec):
+    """Apply suite-wide CBORG model-matrix overrides to a resolved spec (#259).
+
+    This is the single chokepoint every routing consumer goes through
+    (``provider_env_for_project``, ``_default_haiku_model``,
+    ``_default_opus_model``, and ``run_sdk_query``'s default model), so
+    forcing the spec here keeps the build env, the SDK ``model=`` argument,
+    and the proxy base URL mutually consistent.
+
+    * ``OSPREY_E2E_FORCE_MODEL`` — collapse every tier onto one model id and
+      rewrite the tier-model env vars to match.
+    * ``OSPREY_E2E_PROXY_BASE_URL`` — point ``ANTHROPIC_BASE_URL`` at the
+      in-process translation proxy (set by the session fixture in
+      tests/e2e/conftest.py for OpenAI-protocol / open models). Anthropic-
+      protocol CBORG models (``claude-*``) leave this unset and route direct.
+
+    Inert (returns the spec unchanged) when neither var is set, so normal
+    e2e runs are unaffected.
+    """
+    if spec is None:
+        return None
+    force_model = os.environ.get("OSPREY_E2E_FORCE_MODEL")
+    proxy_base = os.environ.get("OSPREY_E2E_PROXY_BASE_URL")
+    if not force_model and not proxy_base:
+        return spec
+
+    import dataclasses
+
+    tier_to_model = dict(spec.tier_to_model)
+    env_block = dict(spec.env_block)
+    if force_model:
+        for tier in tier_to_model:
+            tier_to_model[tier] = force_model
+        for key in (
+            "ANTHROPIC_MODEL",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        ):
+            if key in env_block:
+                env_block[key] = force_model
+    if proxy_base:
+        env_block["ANTHROPIC_BASE_URL"] = proxy_base
+    return dataclasses.replace(spec, tier_to_model=tier_to_model, env_block=env_block)
 
 
 def provider_env_for_project(project_dir: Path) -> dict[str, str]:
@@ -366,11 +462,72 @@ class SDKWorkflowResult:
     text_blocks: list[str] = field(default_factory=list)
     system_messages: list[SystemMessage] = field(default_factory=list)
     result: ResultMessage | None = None
+    # Authoritative MCP server snapshot from ``ClaudeSDKClient.get_mcp_status()``
+    # captured just before the prompt is sent (see ``_await_mcp_ready``). Each entry
+    # is the raw ``McpServerStatus`` dict: {name, status, tools, ...}. Empty when the
+    # runner used the one-shot ``query()`` path with no client to poll. This is the
+    # ground-truth infra-vs-model discriminator: a failure where the expected tool is
+    # absent here is INFRA (server never registered); present-but-unused is MODEL.
+    mcp_servers: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def tool_names(self) -> list[str]:
         """Ordered list of tool names that were called."""
         return [t.name for t in self.tool_traces]
+
+    @property
+    def mcp_server_status(self) -> dict[str, str]:
+        """``{'controls': 'connected', 'python': 'connected', ...}`` from the
+        captured ``get_mcp_status()`` snapshot. Empty if no snapshot was taken."""
+        return {s.get("name", "?"): s.get("status", "unknown") for s in self.mcp_servers}
+
+    @property
+    def registered_tools(self) -> list[str]:
+        """Flattened ``mcp__<server>__<tool>`` names that the MCP handshake exposed.
+
+        Built from the captured snapshot, so it reflects what the model could
+        actually call — not what it chose to call (that is ``tool_names``)."""
+        out: list[str] = []
+        for s in self.mcp_servers:
+            server = s.get("name", "")
+            for t in s.get("tools", []) or []:
+                tname = t.get("name") if isinstance(t, dict) else t
+                if tname:
+                    out.append(f"mcp__{server}__{tname}")
+        return out
+
+    def tool_was_registered(self, tool: str) -> bool | None:
+        """Was *tool* (e.g. ``mcp__controls__channel_write``) exposed by the MCP
+        handshake? ``None`` if no snapshot is available (cannot tell)."""
+        if not self.mcp_servers:
+            return None
+        return tool in self.registered_tools
+
+    @property
+    def repeated_tool_calls(self) -> dict[str, int]:
+        """``{'<tool>::<input-digest>': count}`` for any call issued more than
+        once. A high count on a delegation tool is the fingerprint of a
+        non-convergence loop."""
+        from collections import Counter
+
+        keys = [
+            f"{t.name}::{json.dumps(t.input, sort_keys=True, default=str)}"
+            for t in self.tool_traces
+        ]
+        return {k: n for k, n in Counter(keys).items() if n > 1}
+
+    @property
+    def has_redelegation_loop(self) -> bool:
+        """True if a subagent-spawning tool (``Agent``/``Task*``) was re-issued
+        with identical input 3+ times — model non-convergence (a MODEL timeout),
+        distinct from slow-but-progressing proxy latency (INFRA). Lets a
+        ``resource_timeout`` failure be bucketed from the recorded artifact
+        instead of guessed."""
+        for key, n in self.repeated_tool_calls.items():
+            name = key.split("::", 1)[0]
+            if n >= 3 and (name == "Agent" or name.startswith("Task")):
+                return True
+        return False
 
     @property
     def cost_usd(self) -> float | None:
@@ -385,6 +542,99 @@ class SDKWorkflowResult:
     def tools_matching(self, substring: str) -> list[ToolTrace]:
         """Return all tool traces whose name contains *substring*."""
         return [t for t in self.tool_traces if substring in t.name]
+
+
+# ---------------------------------------------------------------------------
+# MCP readiness barrier + instrumentation
+# ---------------------------------------------------------------------------
+#
+# OSPREY MCP servers register ASYNCHRONOUSLY: the controls stdio subprocess does
+# heavyweight cold-start work (config prime, connector registration, tool-module
+# imports) and only finishes its MCP handshake ~1–1.5s after the CLI launches —
+# noticeably slower than the python/osprey_workspace servers. If the agent's first
+# turn fires before that handshake completes, the controls tools are simply not in
+# its toolset, and a less-persistent agent reports "no controls server connected"
+# and gives up. That is a cold-start race, NOT a model capability gap — yet it is
+# scored as a failure, and it cannot be distinguished from a genuine model give-up
+# from the persisted transcript (which does not record MCP status).
+#
+# Both problems are solved with the SDK's own ``ClaudeSDKClient.get_mcp_status()``:
+#   * READINESS — poll it until the expected servers are ``connected`` before sending
+#     the prompt, so every agent gets a ready toolset (the harness-enforced equivalent
+#     of the CLI's ``WaitForMcpServers`` tool, independent of whether the model thinks
+#     to call it).
+#   * INSTRUMENTATION — persist the final snapshot so a missing tool is provably INFRA
+#     (server never registered) vs MODEL (tool was there, agent ignored it).
+
+# The default ceiling generously covers the measured ~1.5s controls cold start with
+# headroom for a loaded box. Overridable via env for slow CI hosts.
+_MCP_READY_TIMEOUT_S = float(os.environ.get("OSPREY_E2E_MCP_READY_TIMEOUT", "20"))
+_MCP_READY_POLL_S = 0.3
+
+
+def _expected_mcp_servers(project_dir: Path) -> set[str]:
+    """The MCP server names a project declares in ``.mcp.json`` — the set the
+    readiness barrier waits for. Returns an empty set if the file is unreadable."""
+    try:
+        cfg = json.loads((project_dir / ".mcp.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return set()
+    return set(cfg.get("mcpServers", {}).keys())
+
+
+async def _await_mcp_ready(
+    client: ClaudeSDKClient,
+    expected: set[str],
+    *,
+    timeout_s: float = _MCP_READY_TIMEOUT_S,
+    poll_s: float = _MCP_READY_POLL_S,
+) -> list[dict[str, Any]]:
+    """Poll ``get_mcp_status()`` until every server in *expected* reports
+    ``connected`` (or *timeout_s* elapses), then return the final snapshot.
+
+    Resilient to ``get_mcp_status()`` raising early in startup (before the stream
+    is live). Never raises: on timeout it returns the last snapshot seen so the
+    caller can record a genuine registration failure rather than masking it.
+    """
+    deadline = time.monotonic() + timeout_s
+    servers: list[dict[str, Any]] = []
+    while True:
+        try:
+            status = await client.get_mcp_status()
+            servers = status.get("mcpServers", []) if isinstance(status, dict) else (status or [])
+        except Exception:  # noqa: BLE001 — status not queryable yet; keep polling
+            servers = servers or []
+        if expected:
+            connected = {s.get("name") for s in servers if s.get("status") == "connected"}
+            if expected <= connected:
+                return servers
+        if time.monotonic() >= deadline:
+            return servers
+        await asyncio.sleep(poll_s)
+
+
+def _persist_mcp_sidecar(workflow: SDKWorkflowResult, project_dir: Path) -> None:
+    """Write the MCP-status snapshot to a per-test sidecar when
+    ``OSPREY_E2E_INIT_SIDECAR`` is set. Off by default, so ordinary CI/local runs
+    are byte-for-byte unchanged. The sidecar turns the infra-vs-model question
+    into a recorded fact for post-hoc benchmark forensics."""
+    if not os.environ.get("OSPREY_E2E_INIT_SIDECAR"):
+        return
+    try:
+        out_dir = project_dir / ".osprey_e2e"
+        out_dir.mkdir(exist_ok=True)
+        payload = {
+            "mcp_server_status": workflow.mcp_server_status,
+            "registered_tools": workflow.registered_tools,
+            "tools_called": workflow.tool_names,
+            "num_turns": workflow.num_turns,
+            "cost_usd": workflow.cost_usd,
+            "repeated_tool_calls": workflow.repeated_tool_calls,
+            "has_redelegation_loop": workflow.has_redelegation_loop,
+        }
+        (out_dir / "mcp_status.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    except OSError:
+        pass  # instrumentation must never fail a test
 
 
 # ---------------------------------------------------------------------------
@@ -494,6 +744,26 @@ def _harvest_subagent_traces(
                         matched.is_error = bool(block.get("is_error"))
 
 
+def e2e_budget_scale() -> float:
+    """Per-query budget multiplier for the model under test.
+
+    The base ``max_budget_usd`` caps across the e2e suite are tuned for the
+    haiku-tier default model. Pricier reference models (Sonnet, Opus) cost
+    several times more per token, so the same multi-step task blows the cap and
+    hard-errors mid-query (``Reached maximum budget``) — a cost artifact that
+    deflates their benchmark score for reasons unrelated to capability. The
+    model matrix runner (``scripts/run_e2e_for_model.sh``) sets
+    ``OSPREY_E2E_BUDGET_SCALE`` per model so the cap **and** the cost-ceiling
+    assertions scale together. Defaults to 1.0, so CI and ordinary local runs
+    are byte-for-byte unchanged.
+    """
+    try:
+        scale = float(os.environ.get("OSPREY_E2E_BUDGET_SCALE", "1.0"))
+    except ValueError:
+        return 1.0
+    return scale if scale > 0 else 1.0
+
+
 async def run_sdk_query(
     project_dir: Path,
     prompt: str,
@@ -531,7 +801,7 @@ async def run_sdk_query(
         cwd=str(project_dir),
         permission_mode="bypassPermissions",
         max_turns=max_turns,
-        max_budget_usd=max_budget_usd,
+        max_budget_usd=max_budget_usd * e2e_budget_scale(),
         env=sdk_env(project_dir),
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
@@ -544,35 +814,44 @@ async def run_sdk_query(
     pending_tools: dict[str, ToolTrace] = {}
 
     try:
-        async for message in query(prompt=prompt, options=options):
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        workflow.text_blocks.append(block.text)
-                    elif isinstance(block, ToolUseBlock):
-                        trace = ToolTrace(
-                            name=block.name,
-                            input=block.input,
-                            tool_use_id=block.id,
-                            parent_tool_use_id=message.parent_tool_use_id,
-                        )
-                        workflow.tool_traces.append(trace)
-                        pending_tools[block.id] = trace
-                    elif isinstance(block, ToolResultBlock):
-                        _ingest_tool_result(block, pending_tools)
-
-            elif isinstance(message, UserMessage):
-                # Tool results land here per the Anthropic API contract.
-                if isinstance(message.content, list):
+        # ClaudeSDKClient (streaming) rather than the one-shot ``query()`` so we can
+        # poll ``get_mcp_status()`` and wait out async MCP registration before the
+        # first turn — eliminating the controls cold-start race (see _await_mcp_ready).
+        # Message handling is identical to the query() iterator.
+        async with ClaudeSDKClient(options=options) as client:
+            workflow.mcp_servers = await _await_mcp_ready(
+                client, _expected_mcp_servers(project_dir)
+            )
+            await client.query(prompt)
+            async for message in client.receive_response():
+                if isinstance(message, AssistantMessage):
                     for block in message.content:
-                        if isinstance(block, ToolResultBlock):
+                        if isinstance(block, TextBlock):
+                            workflow.text_blocks.append(block.text)
+                        elif isinstance(block, ToolUseBlock):
+                            trace = ToolTrace(
+                                name=block.name,
+                                input=block.input,
+                                tool_use_id=block.id,
+                                parent_tool_use_id=message.parent_tool_use_id,
+                            )
+                            workflow.tool_traces.append(trace)
+                            pending_tools[block.id] = trace
+                        elif isinstance(block, ToolResultBlock):
                             _ingest_tool_result(block, pending_tools)
 
-            elif isinstance(message, SystemMessage):
-                workflow.system_messages.append(message)
+                elif isinstance(message, UserMessage):
+                    # Tool results land here per the Anthropic API contract.
+                    if isinstance(message.content, list):
+                        for block in message.content:
+                            if isinstance(block, ToolResultBlock):
+                                _ingest_tool_result(block, pending_tools)
 
-            elif isinstance(message, ResultMessage):
-                workflow.result = message
+                elif isinstance(message, SystemMessage):
+                    workflow.system_messages.append(message)
+
+                elif isinstance(message, ResultMessage):
+                    workflow.result = message
     except Exception as exc:
         stderr_output = "\n".join(stderr_lines) if stderr_lines else "(no stderr captured)"
         raise RuntimeError(f"SDK query failed: {exc}\n\nCLI stderr:\n{stderr_output}") from exc
@@ -581,6 +860,7 @@ async def run_sdk_query(
     # them from the on-disk transcripts so delegation tests can observe them.
     _harvest_subagent_traces(workflow, pending_tools, project_dir)
 
+    _persist_mcp_sidecar(workflow, project_dir)
     return workflow
 
 
@@ -680,7 +960,7 @@ async def run_sdk_query_with_hooks(
         cwd=str(project_dir),
         permission_mode="default",
         max_turns=max_turns,
-        max_budget_usd=max_budget_usd,
+        max_budget_usd=max_budget_usd * e2e_budget_scale(),
         env=sdk_env(project_dir),
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
@@ -696,6 +976,12 @@ async def run_sdk_query_with_hooks(
         # ClaudeSDKClient is required for can_use_tool (streaming mode).
         # The simple query() function does not support permission callbacks.
         async with ClaudeSDKClient(options=options) as client:
+            # Wait out async MCP registration (controls cold-starts ~1.5s) so the
+            # agent never races a half-built toolset. Snapshot is the authoritative
+            # infra-vs-model record.
+            workflow.mcp_servers = await _await_mcp_ready(
+                client, _expected_mcp_servers(project_dir)
+            )
             await client.query(prompt)
             async for message in client.receive_response():
                 if isinstance(message, AssistantMessage):
@@ -733,4 +1019,5 @@ async def run_sdk_query_with_hooks(
     _harvest_subagent_traces(workflow, pending_tools, project_dir)
 
     workflow.hook_events = hook_events
+    _persist_mcp_sidecar(workflow, project_dir)
     return workflow

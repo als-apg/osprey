@@ -37,6 +37,7 @@ from __future__ import annotations
 import pytest
 
 from tests.e2e.sdk_helpers import (
+    e2e_budget_scale,
     init_project,
     run_sdk_query,
 )
@@ -225,8 +226,9 @@ class TestAgentDelegation:
 
         # Cost under budget (always asserted).
         if result.cost_usd is not None:
-            assert result.cost_usd < 1.0, (
-                f"Test cost ${result.cost_usd:.4f} — exceeded $1.00 budget"
+            budget = 1.0 * e2e_budget_scale()
+            assert result.cost_usd < budget, (
+                f"Test cost ${result.cost_usd:.4f} — exceeded ${budget:.2f} budget"
             )
 
     # -------------------------------------------------------------------
@@ -298,8 +300,9 @@ class TestAgentDelegation:
 
         # Cost under budget.
         if result.cost_usd is not None:
-            assert result.cost_usd < 1.0, (
-                f"Test cost ${result.cost_usd:.4f} — exceeded $1.00 budget"
+            budget = 1.0 * e2e_budget_scale()
+            assert result.cost_usd < budget, (
+                f"Test cost ${result.cost_usd:.4f} — exceeded ${budget:.2f} budget"
             )
 
     # -------------------------------------------------------------------
@@ -381,6 +384,7 @@ class TestAgentDelegation:
 
         # Cost under budget
         if result.cost_usd is not None:
-            assert result.cost_usd < 1.0, (
-                f"Test cost ${result.cost_usd:.4f} — exceeded $1.00 budget"
+            budget = 1.0 * e2e_budget_scale()
+            assert result.cost_usd < budget, (
+                f"Test cost ${result.cost_usd:.4f} — exceeded ${budget:.2f} budget"
             )
