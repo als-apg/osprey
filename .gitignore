@@ -80,6 +80,9 @@ Thumbs.db
 !models/.gitkeep
 results/
 !results/.gitkeep
+# Benchmark model-matrix run exhaust (#259) — regenerable from scripts/benchmark/
+results_box/
+dashboard.html
 *.h5
 *.pkl
 *.pt

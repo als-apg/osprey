@@ -1,0 +1,35 @@
+{
+  "_comment": "Single source of truth for the model-matrix e2e scope (issue #259). The custom matrix runners (run_e2e_for_model.sh) build their pytest --ignore list from `excluded_files` here, and check_e2e_coverage.py validates at startup that the runner covers the FULL tests/e2e/ kit except these explicit exclusions — emitting a warning otherwise. Edit exclusions HERE, not in the runner scripts.",
+  "suite_root": "tests/e2e",
+  "excluded_files": [
+    {
+      "path": "tests/e2e/test_llm_providers.py",
+      "reason": "Own provider/model axis (parametrized) — not the matrix's model-under-test."
+    },
+    {
+      "path": "tests/e2e/test_ariel_search.py",
+      "reason": "Postgres keyword/embedding search, no agent — measures nothing about the model."
+    },
+    {
+      "path": "tests/e2e/test_dockerfile_e2e.py",
+      "reason": "Pure `docker build` smoke, no LLM."
+    },
+    {
+      "path": "tests/e2e/test_claude_code_build_integration.py",
+      "reason": "Own init_project hardcoded to als-apg; doesn't honor the model override."
+    },
+    {
+      "path": "tests/e2e/test_llm_channel_namer.py",
+      "reason": "Config/pattern + naming; doesn't honor the model override."
+    },
+    {
+      "path": "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py",
+      "reason": "BenchmarkRunner hardcodes a fixed als-apg/haiku model (bypasses OSPREY_E2E_FORCE_MODEL), so it measures nothing about the model-under-test; also 401s when forced through CBORG routing. Excluded for matrix parity."
+    },
+    {
+      "path": "tests/e2e/test_mcp_readiness.py",
+      "reason": "Pure-logic unit tests for the MCP readiness barrier in sdk_helpers (no LLM, model-independent). Excluded so it doesn't inflate the per-model total/pass counts the dashboard expects."
+    }
+  ],
+  "baseline_expected_run_min": 15
+}
