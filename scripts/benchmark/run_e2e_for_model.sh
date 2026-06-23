@@ -113,16 +113,6 @@ export OSPREY_E2E_LIVE="$REPO/results/${SAFE}__seed${SEED}.live.jsonl"
 echo ">> model=$MODEL seed=$SEED route=$ROUTE" >&2
 echo ">> junit=$XML" >&2
 
-# Optional pre-run hook: e.g. re-anchor the ARIEL demo-logbook timestamps to "now"
-# so the scenario tests' "this morning" searches hit (the shared Postgres ingest is
-# static and drifts out of "today"). Portable: only runs if the env var points at an
-# executable. Ships as scripts/benchmark/ariel_refresh_timestamps.sh, e.g.
-# OSPREY_E2E_PRERUN_HOOK="$REPO/scripts/benchmark/ariel_refresh_timestamps.sh".
-if [ -n "${OSPREY_E2E_PRERUN_HOOK:-}" ] && [ -x "${OSPREY_E2E_PRERUN_HOOK}" ]; then
-  echo ">> prerun hook: ${OSPREY_E2E_PRERUN_HOOK}" >&2
-  "${OSPREY_E2E_PRERUN_HOOK}" >&2 || echo ">> WARN: prerun hook failed (rc=$?)" >&2
-fi
-
 START=$(date +%s)
 # MUST be `pytest tests/e2e/` (path), NEVER `-m e2e` (causes registry leaks).
 # --timeout (pytest-timeout): bound slow tests so a weak model can't stall the

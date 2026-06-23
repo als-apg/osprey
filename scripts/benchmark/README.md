@@ -39,7 +39,6 @@ All default to inert, so CI behaviour is byte-for-byte unchanged when unset.
 | `matrix_dashboard_live.sh [max_seconds]` | local loop: rsync results from the remote every `DASH_INTERVAL`s and re-render until the matrix signals done. |
 | `check_e2e_coverage.py` | derive the pytest `--ignore` list from `matrix_e2e_config.json` and warn if the run stops covering the full e2e kit minus the explicit, documented exclusions. |
 | `matrix_e2e_config.json` | single source of truth for the excluded e2e files (each with a reason). |
-| `ariel_refresh_timestamps.sh` | re-anchor the demo-logbook arc (DEMO-026 → `NOW() - 1h`) so the scenario columns don't drift out of "today"; wired via `OSPREY_E2E_PRERUN_HOOK` (the restart script points `OSPREY_BENCH_HOOK` here by default). |
 
 ## Running it
 
@@ -60,14 +59,11 @@ scripts/benchmark/matrix_dashboard_live.sh
 
 - A CBORG key (`~/.cborg_key`) for open models; an als-apg key for the Anthropic
   reference bracket (`MATRIX_PROVIDER=als-apg`).
-- A live, seeded **ARIEL Postgres** for the scenario columns (rf_cavity);
-  `osprey deploy up && osprey ariel migrate && osprey ariel quickstart`. The
-  scenario test skips with an actionable message if it is absent.
-- The scenario logbook timestamps drift out of "today" in a static DB;
-  `ariel_refresh_timestamps.sh` re-anchors them. The matrix wires it via
-  `OSPREY_E2E_PRERUN_HOOK` automatically (`matrix_restart.sh` defaults
-  `OSPREY_BENCH_HOOK` to the committed copy). The fully self-contained form
-  (an autouse pytest fixture) is PR_PLAN Fix 4, still to do.
+- A live, seeded **ARIEL Postgres** for the scenario columns (rf_cavity,
+  vacuum_burst); `osprey deploy up && osprey ariel migrate && osprey ariel
+  quickstart`. Those tests skip with an actionable message if it is absent. The
+  scenario tests re-anchor the demo-logbook to "now" themselves at setup (via
+  `activate_scenarios`), so no external timestamp-refresh cron is needed.
 
 ## Host / layout overrides
 
@@ -78,4 +74,3 @@ The ssh-orchestration scripts default to the macstudio benchmark box. Override:
 | `OSPREY_BENCH_REMOTE` | `macstudio` | local (ssh host) |
 | `OSPREY_BENCH_REMOTE_REPO` | `$HOME/projects/osprey` | remote |
 | `OSPREY_BENCH_PG_BIN` | `$HOME/bin/pg16-edb/pgsql/bin` | remote |
-| `OSPREY_BENCH_HOOK` | `$REPO/scripts/benchmark/ariel_refresh_timestamps.sh` | remote |

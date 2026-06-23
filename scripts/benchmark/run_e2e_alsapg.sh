@@ -63,12 +63,6 @@ echo ">> model=$MODEL seed=$SEED route=als-apg-direct base=$ALS_APG_BASE_URL" >&
 IGNORE_ARGS="$("$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
   --repo-root "$REPO" --config "$REPO/scripts/benchmark/matrix_e2e_config.json" --print-ignore-args | tr '\n' ' ')"
 
-# Optional pre-run hook (e.g. re-anchor ARIEL demo-logbook timestamps to "now").
-if [ -n "${OSPREY_E2E_PRERUN_HOOK:-}" ] && [ -x "${OSPREY_E2E_PRERUN_HOOK}" ]; then
-  echo ">> prerun hook: ${OSPREY_E2E_PRERUN_HOOK}" >&2
-  "${OSPREY_E2E_PRERUN_HOOK}" >&2 || echo ">> WARN: prerun hook failed (rc=$?)" >&2
-fi
-
 export E2E_TEST_TIMEOUT="${E2E_TEST_TIMEOUT:-1800}"
 START=$(date +%s)
 # MUST be `pytest tests/e2e/` (path), NEVER `-m e2e` (registry leaks). --ignore
