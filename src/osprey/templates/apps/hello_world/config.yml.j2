@@ -137,7 +137,11 @@ execution:
 # ============================================================
 
 system:
-  timezone: ${TZ:-UTC}
+  # Pinned to UTC for reproducibility — set your real facility zone in
+  # production. Avoid ${TZ:-...}: inheriting the host $TZ makes archiver
+  # queries and simulated events non-deterministic. Governs how the agent
+  # interprets operator times and renders all timestamps.
+  timezone: UTC
 
 file_paths:
   agent_data_dir: _agent_data

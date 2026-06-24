@@ -419,7 +419,12 @@ cli:
 # ============================================================
 
 system:
-  timezone: ${TZ:-UTC}
+  # Facility timezone: how the agent interprets operator-provided times
+  # (parsed as facility-local) and renders all timestamps (with an explicit
+  # offset). Pinned to UTC for reproducibility — set your real facility zone
+  # (e.g. America/Los_Angeles) in production. Avoid ${TZ:-...}: inheriting the
+  # host $TZ makes archiver queries and simulated events non-deterministic.
+  timezone: UTC
 
 # File paths - Data storage organization
 file_paths:

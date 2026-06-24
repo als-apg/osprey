@@ -34,14 +34,14 @@ facility:
   name: "Advanced Light Source"          # full human-readable name
   prefix: "als"                           # short slug; used in profile filenames (als-prod.yml, als-client.yml)
                                           # and container names (als-mcp-matlab, als-web-thellert)
-  timezone: "America/Los_Angeles"         # IANA timezone for log timestamps and schedules
+  timezone: "America/Los_Angeles"         # facility timezone — drives container TZ and the agent's system.timezone
 ```
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
 | `name` | string | yes | Free text, shown in dashboards and Claude context |
 | `prefix` | string (lowercase, alnum + hyphens, 2–6 chars) | yes | Drives generated filenames and container names; choose carefully — changing later requires renaming many files |
-| `timezone` | IANA TZ | no | Default: `UTC` if omitted |
+| `timezone` | IANA TZ | no | The facility timezone. Drives container `TZ`; mirror it into the profile's `system.timezone`. Default: `UTC` if omitted |
 
 ---
 

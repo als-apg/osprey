@@ -458,6 +458,9 @@ web_panels: []        # e.g. ariel, channel-finder, tuning — only if web dashb
 config:
   project_name: "<project-name>"
   control_system.type: mock   # or "epics"
+  # Default <facility_timezone> from facility-config.yml's facility.timezone if
+  # that file exists at the repo root (one facility, one timezone); only ask
+  # cold when it's absent. system.timezone is what the agent reads at runtime.
   system.timezone: "<facility_timezone>"
 
 overlay:

@@ -64,7 +64,7 @@ Validate: lowercase, alphanumeric + hyphens only, 2–6 chars. If invalid, expla
 > "Which control system do you connect to? OSPREY ships built-in support for **EPICS** and **Mock** today. DOOCS and TANGO are roadmap values — picking one writes the config but there is no working connector yet, so live control-system access won't work. If your site runs DOOCS/TANGO/Custom, pick `mock` for now so you can exercise the rest of the deploy pipeline; switch to the real value once a connector lands."
 
 **Q1.4 Timezone** (in a follow-up question or the same group if room):
-> "What IANA timezone should logs and schedules use? Default: `UTC`. ALS uses `America/Los_Angeles`."
+> "What timezone is your facility in? Drives container clocks and the assistant's time handling (how it reads operator times and stamps output). Default: `UTC`. ALS uses `America/Los_Angeles`."
 
 **EPICS-only follow-up.** If `control_system.type == "epics"`:
 > "Do you have an EPICS Channel Access broadcast address list (`EPICS_CA_ADDR_LIST`)? This is space-separated IPs/hostnames for CA discovery on your control network."
@@ -398,7 +398,7 @@ Tell the user what to do next:
 > Next steps:
 >
 > 1. **Fill in `.env`** with your actual secrets (it's gitignored, so it never leaves your machine).
-> 2. **Author your build profile**: run `/osprey-build-interview` to walk through creating a `profile.yml`. That's a separate skill — different concerns.
+> 2. **Author your build profile**: run `/osprey-build-interview` to walk through creating a `profile.yml`. That's a separate skill — different concerns. Use the same timezone you gave here so the agent and containers agree (it sets `system.timezone`).
 > 3. **Scaffold deploy infrastructure**: tell me 'scaffold the deploy infra' and I'll generate `docker-compose.yml`, `.gitlab-ci.yml`, `scripts/deploy.sh`, and `scripts/verify.sh` from the templates, parameterized by your config.
 > 4. **Review the generated files** — they're plain text, fully editable. The skill regenerates them from `facility-config.yml` whenever you change values.
 > 5. **First push and deploy**: `git push`, watch CI, trigger the release job, run `deploy.sh` on the server."

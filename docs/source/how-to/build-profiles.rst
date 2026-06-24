@@ -241,6 +241,9 @@ The ``config:`` section uses **dot notation** to override any key in the generat
      archiver.epics_archiver.url: https://archiver.facility.org
 
      # System
+     # Set your real facility zone: it governs how the agent reads operator
+     # times (parsed as facility-local) and renders every timestamp (with an
+     # explicit offset) — not just a display label.
      system.timezone: America/Los_Angeles
 
      # Channel finder

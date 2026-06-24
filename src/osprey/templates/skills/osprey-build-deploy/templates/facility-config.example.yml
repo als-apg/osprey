@@ -30,7 +30,7 @@ schema_version: 1
 facility:
   name: "Demo Light Source"
   prefix: "dls"                          # 2-6 chars, lowercase, alphanumeric + hyphens
-  timezone: "America/Los_Angeles"        # IANA tz; affects log timestamps + scheduled jobs
+  timezone: "America/Los_Angeles"        # facility timezone — drives container TZ and the agent's system.timezone
 
 # -----------------------------------------------------------------------------
 # Control system — determines which connectors and modules are available.

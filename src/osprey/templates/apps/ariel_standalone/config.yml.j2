@@ -78,6 +78,17 @@ api:
 container_runtime: auto
 
 # ============================================================
+# SYSTEM CONFIGURATION
+# ============================================================
+system:
+  # Facility timezone: ARIEL parses operator-provided times as facility-local
+  # and renders all logbook timestamps in this zone (with an explicit offset).
+  # Pinned to UTC for reproducibility — set your real facility zone
+  # (e.g. America/Los_Angeles) in production. Avoid ${TZ:-...}: inheriting the
+  # host $TZ makes logbook queries and rendered timestamps non-deterministic.
+  timezone: UTC
+
+# ============================================================
 # SERVICE CONFIGURATION
 # ============================================================
 # Only PostgreSQL is needed for ARIEL logbook search

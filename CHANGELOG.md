@@ -20,6 +20,14 @@ Compatibility is documented in release notes, not encoded in the version string.
 ### Changed
 
 - ARIEL `capabilities` MCP tool now documents that it is *not* a health check (it reads config only and never touches the database); use the `status` tool or `osprey ariel status` for live database connectivity.
+- All agent-facing timestamps now share one configurable facility timezone (`system.timezone`): archiver queries, live channel reads, simulated events, ARIEL logbook timestamps, and executed-script run times are interpreted and rendered in that zone, and outputs carry an explicit UTC offset. Operator-provided times ("today", "14:32") are read as facility-local. The shipped presets now pin `system.timezone: UTC` explicitly (previously inherited the host `$TZ`, or — for `ariel_standalone` — had no setting at all) for reproducible runs — set your real facility zone in production.
+- OSPREY now logs a one-time warning at startup when the container `$TZ` disagrees with the configured `system.timezone`, surfacing a misconfigured deploy where OS-level log timestamps would differ from agent-reported times (`system.timezone` stays authoritative).
+
+### Fixed
+
+- Simulation `at_time` events now fire at the facility wall-clock time-of-day regardless of the deploy host's `$TZ` (previously placed in the box's local zone, so daily archiver events landed at the wrong time on non-UTC machines).
+- Seeded and ingested logbook entries now resolve their relative time-of-day in the facility timezone, so on a non-UTC facility the narrative lands at the same wall-clock time as the telemetry it describes (previously anchored in UTC, drifting hours from the archiver event).
+- The ARIEL web **API** now returns entry timestamps as facility-local ISO with an explicit offset, matching the MCP path (previously the web API emitted raw UTC while the agent saw facility-local). The web and MCP paths now share one rendering helper, and the MCP single-entry `get` is localized to match search/browse. (The web UI still renders in the viewer's browser timezone; the wire format now carries the facility offset.)
 
 ## [2026.6.1] - 2026-06-17
 

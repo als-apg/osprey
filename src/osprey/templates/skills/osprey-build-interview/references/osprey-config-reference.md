@@ -218,7 +218,12 @@ cli:
 # SYSTEM
 # ============================================================
 system:
-  timezone: ${TZ:-UTC}
+  # Facility timezone: governs how the agent interprets operator-provided times
+  # (parsed as facility-local) and renders all timestamps (with an explicit
+  # offset). Set your real facility zone (e.g. America/Los_Angeles); use UTC for
+  # reproducible demos. Avoid ${TZ:-...}: inheriting the host $TZ makes archiver
+  # queries and simulated events non-deterministic.
+  timezone: UTC
 
 file_paths:
   agent_data_dir: _agent_data
