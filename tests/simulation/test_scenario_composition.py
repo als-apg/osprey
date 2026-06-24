@@ -8,7 +8,7 @@ silently wrong. These tests pin both halves: (1) the disjoint target combo
 (2) ``validate_composition`` hard-errors on a hand-built same-channel collision.
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pytest
@@ -22,7 +22,7 @@ RF_SERIES_N = 2016  # 7-day window at 5-minute resolution
 
 def _yesterday_1432_window(minutes: int = 10) -> list[datetime]:
     """Per-second window straddling yesterday 14:32:08 (the vacuum at_time anchor)."""
-    center = (datetime.now() - timedelta(days=1)).replace(
+    center = (datetime.now(UTC) - timedelta(days=1)).replace(
         hour=14, minute=32, second=8, microsecond=0
     )
     start = center - timedelta(minutes=minutes / 2)

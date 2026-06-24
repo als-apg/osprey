@@ -17,12 +17,12 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from osprey.simulation.engine import SimulationEngine
-from osprey.utils.config import load_config
+from osprey.utils.config import get_facility_timezone, load_config
 from osprey.utils.logger import get_logger
 from osprey.utils.relative_time import resolve_relative_timestamp
 
@@ -79,7 +79,8 @@ def apply_scenarios(
             purge and reseed the ARIEL logbook from the active scenarios'
             entries so the narrative matches the telemetry.
         now: Apply-time anchor T0 (injectable for tests). Defaults to the
-            current UTC time.
+            current time in the facility timezone, so seeded logbook entries
+            resolve their time-of-day on the same clock as the telemetry.
 
     Returns:
         :class:`ApplyResult` with the resolved active set and seed/purge status.
@@ -105,7 +106,12 @@ def apply_scenarios(
         machine_path = project_dir / machine_path
     engine = SimulationEngine.from_file(machine_path)
 
-    t0 = now or datetime.now(UTC)
+    # Default anchor in the FACILITY zone (not UTC): the anchor's tzinfo is the
+    # zone each seeded logbook entry's relative time-of-day resolves into, and it
+    # must match where the simulation engine places the telemetry it narrates
+    # (daily ``at_time`` events are facility-local). A UTC default silently shifts
+    # the narrative hours away from its archiver evidence on a non-UTC facility.
+    t0 = now or datetime.now(get_facility_timezone())
     # set_active_scenarios validates composition and raises on collisions/unknowns.
     active = engine.set_active_scenarios(names, anchor=t0)
     logger.info(f"Activated scenarios {list(active)!r} with anchor {t0.isoformat()}")

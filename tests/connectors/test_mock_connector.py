@@ -49,6 +49,22 @@ class TestMockConnector:
             await connector.disconnect()
 
     @pytest.mark.asyncio
+    async def test_read_returns_tz_aware_timestamps(self):
+        """Live-read timestamps carry an explicit offset (facility zone), not a
+        naive datetime — guards the connector render sites against silent
+        reversion to ``datetime.now()``."""
+        with patch("osprey.utils.config.get_config_value", return_value=True):
+            connector = MockConnector()
+            await connector.connect({"response_delay_ms": 0})
+
+            result = await connector.read_channel("ANY:CHANNEL")
+            assert result.timestamp.tzinfo is not None
+            assert result.timestamp.utcoffset() is not None
+            assert result.metadata.timestamp.tzinfo is not None
+
+            await connector.disconnect()
+
+    @pytest.mark.asyncio
     async def test_read_pv_infers_units(self):
         """Test that connector infers units from PV names."""
         with patch("osprey.utils.config.get_config_value", return_value=True):

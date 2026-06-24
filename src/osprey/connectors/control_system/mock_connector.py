@@ -25,6 +25,7 @@ from osprey.connectors.control_system.base import (
 )
 from osprey.connectors.pv_taxonomy import classify_pv
 from osprey.simulation import engine_serves
+from osprey.utils.config import get_facility_timezone
 from osprey.utils.logger import get_logger
 
 logger = get_logger("mock_connector")
@@ -119,7 +120,7 @@ class MockConnector(ControlSystemConnector):
         # Simulation engine serves its channels; unknown PVs fall back to legacy
         if engine_serves(self._sim_engine, channel_address):
             reading = self._sim_engine.read(channel_address)
-            now = datetime.now()
+            now = datetime.now(get_facility_timezone())
             return ChannelValue(
                 value=reading.value,
                 timestamp=now,
@@ -141,10 +142,10 @@ class MockConnector(ControlSystemConnector):
 
         return ChannelValue(
             value=value,
-            timestamp=datetime.now(),
+            timestamp=datetime.now(get_facility_timezone()),
             metadata=ChannelMetadata(
                 units=self._infer_units(channel_address),
-                timestamp=datetime.now(),
+                timestamp=datetime.now(get_facility_timezone()),
                 description=f"Mock channel: {channel_address}",
             ),
         )
@@ -336,12 +337,12 @@ class MockConnector(ControlSystemConnector):
             return ChannelMetadata(
                 units=reading.units,
                 description=reading.description,
-                timestamp=datetime.now(),
+                timestamp=datetime.now(get_facility_timezone()),
             )
         return ChannelMetadata(
             units=self._infer_units(channel_address),
             description=f"Mock channel: {channel_address}",
-            timestamp=datetime.now(),
+            timestamp=datetime.now(get_facility_timezone()),
         )
 
     async def validate_channel(self, channel_address: str) -> bool:

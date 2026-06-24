@@ -20,6 +20,7 @@ from osprey.connectors.control_system.base import (
     ControlSystemConnector,
     WriteVerification,
 )
+from osprey.utils.config import get_facility_timezone
 from osprey.utils.logger import get_logger
 
 logger = get_logger("epics_connector")
@@ -217,11 +218,11 @@ class EPICSConnector(ControlSystemConnector):
         # context needs extra time to receive the first value.
         value = pv.get(timeout=timeout)
 
-        # Get timestamp from EPICS (seconds since epoch)
+        # Get timestamp from EPICS (seconds since epoch), rendered in facility tz
         if pv.timestamp:
-            timestamp = datetime.fromtimestamp(pv.timestamp)
+            timestamp = datetime.fromtimestamp(pv.timestamp, get_facility_timezone())
         else:
-            timestamp = datetime.now()
+            timestamp = datetime.now(get_facility_timezone())
 
         # Extract metadata
         metadata = ChannelMetadata(
@@ -450,7 +451,11 @@ class EPICSConnector(ControlSystemConnector):
             """Wrapper to convert EPICS callback to our format."""
             pv_value = ChannelValue(
                 value=value,
-                timestamp=datetime.fromtimestamp(timestamp) if timestamp else datetime.now(),
+                timestamp=(
+                    datetime.fromtimestamp(timestamp, get_facility_timezone())
+                    if timestamp
+                    else datetime.now(get_facility_timezone())
+                ),
                 metadata=ChannelMetadata(
                     units=kwargs.get("units", ""), alarm_status=kwargs.get("status")
                 ),

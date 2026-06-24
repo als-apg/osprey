@@ -10,9 +10,12 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
+
+if TYPE_CHECKING:
+    from zoneinfo import ZoneInfo
 
 # Use standard logging (not get_logger) to avoid circular imports with logger.py
 # The short name 'CONFIG' enables easy filtering: quiet_logger(['registry', 'CONFIG'])
@@ -675,16 +678,85 @@ def get_config_value(path: str, default: Any = None, config_path: str | None = N
     return value
 
 
-def get_facility_timezone():
+_tz_drift_warned = False
+
+
+def get_facility_timezone() -> "ZoneInfo":
     """Get the facility timezone from config as a ZoneInfo object.
+
+    This is the safe default resolver for every simulation synthesis primitive
+    and timestamp render site, so it must never raise: an unloaded config (no
+    ``config.yml`` and no ``CONFIG_FILE``) or a misconfigured/typo'd zone name
+    degrades to UTC with a logged warning rather than propagating to callers.
 
     Returns:
         ZoneInfo for the configured facility timezone, defaulting to UTC.
     """
     from zoneinfo import ZoneInfo
 
-    tz_name = get_config_value("facility_timezone", "UTC")
-    return ZoneInfo(tz_name)
+    try:
+        tz_name = get_config_value("facility_timezone", "UTC")
+        zone = ZoneInfo(tz_name)
+    except Exception as exc:  # noqa: BLE001 - any failure must degrade to UTC, not raise
+        logger.warning(f"Falling back to UTC facility timezone ({type(exc).__name__}: {exc})")
+        return ZoneInfo("UTC")
+
+    _warn_on_tz_drift(tz_name)
+    return zone
+
+
+def _warn_on_tz_drift(tz_name: str) -> None:
+    """Warn once if the container ``$TZ`` disagrees with an explicit system.timezone.
+
+    Agent-facing timestamps key off ``system.timezone``, not ``$TZ``, so a
+    divergence only mis-stamps OS-level container logs — but it signals a
+    misconfigured deploy (container clock != agent zone). We surface it as a
+    one-time warning rather than enforcing equality: ``system.timezone`` stays the
+    single source of truth, and this check never changes the returned value or
+    raises. Skips the implicit-UTC default (config absent) so CI/tests with
+    ``$TZ`` set but no configured ``system.timezone`` stay quiet.
+    """
+    global _tz_drift_warned
+    if _tz_drift_warned:
+        return
+    host_tz = os.environ.get("TZ")
+    if not host_tz or host_tz == tz_name:
+        return
+    # Only meaningful when system.timezone was explicitly configured (the alias
+    # default would otherwise make every $TZ-set environment look divergent).
+    if get_config_value("system.timezone", None) is None:
+        return
+    _tz_drift_warned = True
+    logger.warning(
+        f"Container $TZ={host_tz!r} differs from the facility system.timezone={tz_name!r}; "
+        f"OS-level log timestamps will differ from agent-reported times. Set both to "
+        f"the same zone (system.timezone is authoritative for what the agent reports)."
+    )
+
+
+def to_facility_iso(value: Any) -> "str | None":
+    """Render a value as a facility-local ISO-8601 string with explicit offset.
+
+    The single shared timestamp-egress transform for agent- and operator-facing
+    output (the ARIEL MCP ``serialize_entry``/``entry_get`` and the ARIEL web
+    responses). Centralizing it here is deliberate: the input side was already
+    mirrored (``parse_date_filters`` / ``_localize_facility``), and the original
+    web/MCP output drift came from a copy-pasted localizer, so both paths now call
+    one function. An aware datetime is converted to the facility zone; a naive
+    datetime is assumed to already be facility-local wall-clock and is stamped with
+    the facility zone (mirroring the parse-side ``_localize_facility`` contract —
+    never the box ``$TZ``, which ``astimezone`` would otherwise impose); ``None``
+    passes through; anything else degrades to ``str(value)`` so callers never crash
+    on an unexpected shape (e.g. a value already serialized upstream).
+    """
+    if value is None:
+        return None
+    if hasattr(value, "astimezone"):  # a datetime
+        tz = get_facility_timezone()
+        if value.tzinfo is None:
+            return str(value.replace(tzinfo=tz).isoformat())
+        return str(value.astimezone(tz).isoformat())
+    return str(value)
 
 
 def get_full_configuration(config_path: str | None = None) -> dict[str, Any]:

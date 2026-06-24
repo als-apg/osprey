@@ -1,6 +1,6 @@
 """Tests for synthesize_series(): archiver event shapes and pointwise exprs."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pytest
@@ -330,7 +330,7 @@ class TestDailyTimeAnchor:
             make_machine_file,
             [{"shape": "spike", "at_time": "14:32:08", "amplitude": 1.5e-7, "width": 15}],
         )
-        day = datetime.now().replace(hour=14, minute=30, second=0, microsecond=0)
+        day = datetime.now(UTC).replace(hour=14, minute=30, second=0, microsecond=0)
         ts = [day + timedelta(seconds=i) for i in range(600)]  # 14:30-14:40
         series = engine.synthesize_series("T:VAC", ts)
         peak_idx = max(range(len(series)), key=lambda i: series[i])
@@ -343,7 +343,7 @@ class TestDailyTimeAnchor:
             make_machine_file,
             [{"shape": "spike", "at_time": "14:32:08", "amplitude": 1.5e-7, "width": 15}],
         )
-        day = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0)
+        day = datetime.now(UTC).replace(hour=9, minute=0, second=0, microsecond=0)
         ts = [day + timedelta(seconds=i) for i in range(600)]
         series = engine.synthesize_series("T:VAC", ts)
         assert max(series) < 1.0e-7  # flat baseline
@@ -356,7 +356,7 @@ class TestDailyTimeAnchor:
             make_machine_file,
             [{"shape": "spike", "at_time": "14:32:08", "amplitude": 1.5e-7, "width": 600}],
         )
-        start = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         ts = [start + timedelta(minutes=10 * i) for i in range(288)]  # 2 days @ 10 min
         series = engine.synthesize_series("T:VAC", ts)
         peaks = [i for i in range(1, 287) if series[i] > 1.0e-7]
@@ -369,7 +369,7 @@ class TestDailyTimeAnchor:
             make_machine_file,
             [{"shape": "spike", "at_time": "14:32:08", "amplitude": 1.5e-7, "width": 15}],
         )
-        day = datetime.now().replace(hour=14, minute=30, second=0, microsecond=0)
+        day = datetime.now(UTC).replace(hour=14, minute=30, second=0, microsecond=0)
         ts = [(day + timedelta(seconds=i)).timestamp() for i in range(600)]
         series = engine.synthesize_series("T:VAC", ts)
         assert max(series) > 1.0e-7
@@ -381,7 +381,7 @@ class TestDailyTimeAnchor:
             [{"shape": "step", "at_time": "14:32:08", "to": "FAULT"}],
             channel="T:MODE",
         )
-        day = datetime.now().replace(hour=14, minute=30, second=0, microsecond=0)
+        day = datetime.now(UTC).replace(hour=14, minute=30, second=0, microsecond=0)
         ts = [day + timedelta(seconds=i) for i in range(600)]
         series = engine.synthesize_series("T:MODE", ts)
         for value, t in zip(series, ts, strict=True):

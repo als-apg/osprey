@@ -48,6 +48,11 @@ async def sql_query(
         query: Read-only SQL query (SELECT or WITH only).
         max_rows: Maximum rows to return (1-200, default 100).
 
+    Note: timestamp columns (timestamp, created_at, updated_at) are returned as
+    stored — UTC with a +00:00 offset. Unlike the other ARIEL tools, this raw
+    query path does not convert them to the facility timezone (the columns a query
+    selects are arbitrary), so convert client-side if you need facility-local.
+
     Returns:
         JSON with query results as a list of row objects.
     """

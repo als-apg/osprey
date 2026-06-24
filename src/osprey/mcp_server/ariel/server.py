@@ -73,12 +73,9 @@ def serialize_entry(entry: dict, text_limit: int = 300) -> dict:
     Returns:
         Serialized dict suitable for JSON response.
     """
-    from osprey.utils.config import get_facility_timezone
+    from osprey.utils.config import to_facility_iso
 
-    ts = entry["timestamp"]
-    if hasattr(ts, "astimezone"):
-        tz = get_facility_timezone()
-        ts = ts.astimezone(tz).isoformat()
+    ts = to_facility_iso(entry["timestamp"])
 
     result = {
         "entry_id": entry["entry_id"],

@@ -29,6 +29,7 @@ from osprey.interfaces.ariel.api.schemas import (
     SearchResponse,
     StatusResponse,
 )
+from osprey.utils.config import to_facility_iso
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search import ARIELSearchService
@@ -45,6 +46,20 @@ def _parse_metadata_form(raw: str | None) -> dict[str, Any]:
         return parsed if isinstance(parsed, dict) else {}
     except (ValueError, TypeError):
         return {}
+
+
+def _localize_facility(dt: datetime | None) -> datetime | None:
+    """Attach the facility timezone to a naive operator-provided datetime.
+
+    Mirrors the MCP ``parse_date_filters`` contract so the web UI interprets
+    operator-supplied dates as facility-local (not box-local / UTC) before they
+    drive a ``TIMESTAMPTZ`` query. Aware datetimes pass through unchanged.
+    """
+    if dt is not None and dt.tzinfo is None:
+        from osprey.utils.config import get_facility_timezone
+
+        return dt.replace(tzinfo=get_facility_timezone())
+    return dt
 
 
 def _require_service(request: Request) -> ARIELSearchService:
@@ -73,16 +88,20 @@ def _entry_to_response(
         if not att.get("type") and att.get("filename"):
             att["type"] = guess_mime_type(att["filename"])
 
+    # Render the three timestamp fields facility-local (ISO with offset) via the
+    # shared egress helper, so the web wire format matches the MCP path
+    # (serialize_entry) instead of leaking the DB's raw UTC. The schema fields are
+    # ``str`` so Pydantic passes these pre-formatted strings through unchanged.
     return EntryResponse(
         entry_id=entry["entry_id"],
         source_system=entry["source_system"],
-        timestamp=entry["timestamp"],
+        timestamp=to_facility_iso(entry["timestamp"]),
         author=entry.get("author", ""),
         raw_text=entry["raw_text"],
         attachments=attachments,
         metadata=entry.get("metadata", {}),
-        created_at=entry["created_at"],
-        updated_at=entry["updated_at"],
+        created_at=to_facility_iso(entry["created_at"]),
+        updated_at=to_facility_iso(entry["updated_at"]),
         summary=entry.get("summary"),
         keywords=entry.get("keywords", []),
         score=score,
@@ -161,9 +180,9 @@ async def search(request: Request, search_req: SearchRequest) -> SearchResponse:
         source_system = adv.pop("source_system", None) or search_req.source_system
 
         if isinstance(start_date, str) and start_date:
-            start_date = datetime.fromisoformat(start_date)
+            start_date = _localize_facility(datetime.fromisoformat(start_date))
         if isinstance(end_date, str) and end_date:
-            end_date = datetime.fromisoformat(end_date)
+            end_date = _localize_facility(datetime.fromisoformat(end_date))
 
         time_range = None
         if start_date or end_date:
@@ -230,10 +249,12 @@ async def list_entries(
     try:
         total = await service.repository.count_entries()
 
+        # Operator-supplied query params are parsed naive by FastAPI; interpret
+        # them as facility-local before they hit the TIMESTAMPTZ column.
         # TODO: add offset pagination when repository supports it
         entries = await service.repository.search_by_time_range(
-            start=start_date,
-            end=end_date,
+            start=_localize_facility(start_date),
+            end=_localize_facility(end_date),
             limit=page_size,
         )
 
