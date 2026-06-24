@@ -17,6 +17,13 @@ Framework & Infrastructure
       Set up and switch between supported LLM providers — Anthropic, OpenAI, Google,
       CBORG, AMSC i2, Ollama, and others — via ``config.yml``.
 
+   .. grid-item-card:: Run Open & Local Models
+      :link: run-open-models
+      :link-type: doc
+
+      Drive the Osprey agent with open-weight or self-hosted models via the
+      translation proxy, and benchmark their capability with ``scripts/benchmark/``.
+
    .. grid-item-card:: Deploy a Project
       :link: deploy-project
       :link-type: doc
@@ -119,6 +126,7 @@ Services & Connectors
    :hidden:
 
    configure-providers
+   run-open-models
    deploy-project
    containerize-project
    build-profiles

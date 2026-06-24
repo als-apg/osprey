@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Getting Started &#8212; Osprey Framework 2026.6.1 documentation</title>
+    <title>Run Open &amp; Local Models &#8212; Osprey Framework 2026.6.1 documentation</title>
   
   
   
@@ -49,7 +49,7 @@
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../_static/copybutton.js?v=30646c52"></script>
     <script src="../_static/design-tabs.js?v=f930bc37"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'getting-started/index';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/run-open-models';</script>
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
@@ -60,8 +60,8 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Installation &amp; Setup" href="installation.html" />
-    <link rel="prev" title="Osprey Framework Documentation" href="../index.html" />
+    <link rel="next" title="Container Deployment" href="deploy-project.html" />
+    <link rel="prev" title="Configure LLM Providers" href="configure-providers.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -141,8 +141,8 @@
 <nav>
   <ul class="bd-navbar-elements navbar-nav">
     
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="#">
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
     Getting Started
   </a>
 </li>
@@ -155,8 +155,8 @@
 </li>
 
 
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../how-to/index.html">
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
     How-To Guides
   </a>
 </li>
@@ -277,8 +277,8 @@
 <nav>
   <ul class="bd-navbar-elements navbar-nav">
     
-<li class="nav-item current active">
-  <a class="nav-link nav-internal" href="#">
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
     Getting Started
   </a>
 </li>
@@ -291,8 +291,8 @@
 </li>
 
 
-<li class="nav-item ">
-  <a class="nav-link nav-internal" href="../how-to/index.html">
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
     How-To Guides
   </a>
 </li>
@@ -367,12 +367,33 @@
 <nav class="bd-docs-nav bd-links"
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
-  <div class="bd-toc-item navbar-nav"><ul class="nav bd-sidenav">
-<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation &amp; Setup</a></li>
-<li class="toctree-l1"><a class="reference internal" href="conceptual-tutorial.html">Conceptual Tutorial</a></li>
-<li class="toctree-l1"><a class="reference internal" href="hello-world-tutorial.html">Hello World Tutorial</a></li>
-<li class="toctree-l1"><a class="reference internal" href="osprey-build-interview.html">Guided Project Setup</a></li>
-<li class="toctree-l1"><a class="reference internal" href="control-assistant.html">Production Control Systems Tutorial</a></li>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Run Open &amp; Local Models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-web-terminal.html">Use the Web Terminal</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
+
+
+
+
+<li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
 </nav></div>
@@ -413,7 +434,10 @@
         <i class="fa-solid fa-home"></i>
       </a>
     </li>
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Getting Started</span></li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">How-To Guides</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Run Open &amp; Local Models</span></li>
   </ul>
 </nav>
 </div>
@@ -430,122 +454,89 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="getting-started">
-<h1>Getting Started<a class="headerlink" href="#getting-started" title="Link to this heading">#</a></h1>
-<p>Welcome to Osprey Framework! This comprehensive guide will take you from zero to building production-ready control system agents, with working results at every step.</p>
-<section id="what-you-ll-accomplish">
-<h2><strong>What You’ll Accomplish</strong><a class="headerlink" href="#what-you-ll-accomplish" title="Link to this heading">#</a></h2>
-<p>By following this comprehensive learning path, you’ll have:</p>
+  <section id="run-open-local-models">
+<h1>Run Open &amp; Local Models<a class="headerlink" href="#run-open-local-models" title="Link to this heading">#</a></h1>
+<p>OSPREY is built so the volatile pieces — the model and the agent harness — can be
+swapped without touching the framework. This guide covers what already works
+today: running the Osprey agent on <strong>open-weight and locally hostable models</strong>.</p>
+<section id="two-independent-axes">
+<h2>Two independent axes<a class="headerlink" href="#two-independent-axes" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p>A fully functional development environment</p></li>
-<li><p>Your first working agent (weather assistant)</p></li>
-<li><p>Production-grade control system patterns (control assistant)</p></li>
-<li><p>Framework mastery through essential development patterns</p></li>
-<li><p>Complete API reference for daily development</p></li>
+<li><p><strong>The agent harness</strong> (the program that drives the model through tool calls) is
+swappable in <em>intent</em>. Today there is one, Claude Code; support for additional
+coding-agent harnesses is planned.</p></li>
+<li><p><strong>The model</strong> is already swappable. The Osprey agent speaks the Anthropic
+Messages API; any OpenAI-protocol endpoint — remote or self-hosted — is reached
+through a local translation proxy that OSPREY starts automatically. Open models
+are a configuration choice, not a code change.</p></li>
 </ul>
-<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
-<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
-<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-list-unordered" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.75 2.5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm1-6a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM2 4a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text"><strong>Prerequisites</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+</section>
+<section id="how-open-models-are-routed">
+<h2>How open models are routed<a class="headerlink" href="#how-open-models-are-routed" title="Link to this heading">#</a></h2>
+<p>Open models are most often served behind an <strong>OpenAI-compatible</strong> API — that is how
+CBORG, Ollama, and vLLM all expose them — while the Osprey agent emits <strong>Anthropic
+Messages</strong> calls. When the endpoint speaks the OpenAI protocol, OSPREY bridges the
+two with a local <code class="docutils literal notranslate"><span class="pre">Anthropic</span> <span class="pre">↔</span> <span class="pre">OpenAI</span></code> translation proxy that starts automatically
+once you select an OpenAI-protocol provider — you never invoke it yourself. This is
+identical whether the model is self-hosted (<code class="docutils literal notranslate"><span class="pre">ollama</span></code>, <code class="docutils literal notranslate"><span class="pre">vllm</span></code>, no API key) or
+served by a remote aggregator. The provider list and <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> keys are in
+<a class="reference internal" href="configure-providers.html"><span class="doc">Configure LLM Providers</span></a>.</p>
+</section>
+<section id="which-models-are-known-to-work">
+<h2>Which models are known to work<a class="headerlink" href="#which-models-are-known-to-work" title="Link to this heading">#</a></h2>
+<p>For an agentic system “runs” means sustaining a multi-step tool-calling loop across
+the <strong>full OSPREY end-to-end suite</strong>, not just emitting plausible text. The
+following open families were verified to complete that suite end-to-end:</p>
 <ul class="simple">
-<li><p class="sd-card-text">Python 3.11+ installed</p></li>
-<li><p class="sd-card-text">Basic Python knowledge</p></li>
-<li><p class="sd-card-text">Terminal/command line familiarity</p></li>
-<li><p class="sd-card-text">Text editor or IDE</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gpt-oss</span></code> (20B and 120B)</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">gemma</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">cborg-coder</span></code></p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">qwen-3</span></code> / <code class="docutils literal notranslate"><span class="pre">qwen-3-coder</span></code></p></li>
 </ul>
+<p>This set was chosen from the open models <strong>available on the CBORG provider</strong> — it
+reflects CBORG’s catalogue at benchmark time, not an exhaustive survey of open
+models. Capability varies widely across the set; the snapshot below is the real
+signal, not the bare “it runs” list.</p>
+</section>
+<section id="benchmark-it-yourself">
+<h2>Benchmark it yourself<a class="headerlink" href="#benchmark-it-yourself" title="Link to this heading">#</a></h2>
+<p>The numbers are reproducible. OSPREY ships the benchmark toolchain under
+<code class="docutils literal notranslate"><span class="pre">scripts/benchmark/</span></code> (see its <code class="docutils literal notranslate"><span class="pre">README.md</span></code>): it runs the entire <code class="docutils literal notranslate"><span class="pre">tests/e2e/</span></code>
+suite against a matrix of models and renders a per-test pass-rate dashboard. The
+portable layer is the e2e harness’s environment-variable contract
+(<code class="docutils literal notranslate"><span class="pre">OSPREY_E2E_FORCE_PROVIDER</span></code>, <code class="docutils literal notranslate"><span class="pre">OSPREY_E2E_FORCE_MODEL</span></code>, …) — no per-test edits,
+no hard-wired provider; the shell/ssh scripts are copy-and-adapt operator examples.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># one model, locally</span>
+scripts/benchmark/run_e2e_for_model.sh<span class="w"> </span>&lt;model-id&gt;<span class="w"> </span><span class="m">1</span>
+
+<span class="c1"># a grid, then render the dashboard</span>
+<span class="nv">MATRIX_MODELS</span><span class="o">=</span><span class="s2">&quot;gpt-oss-20b gemma-4&quot;</span><span class="w"> </span><span class="nv">MATRIX_SEEDS</span><span class="o">=</span><span class="s2">&quot;1 2&quot;</span><span class="w"> </span><span class="nv">MATRIX_PARALLEL</span><span class="o">=</span><span class="m">4</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>scripts/benchmark/matrix_driver.sh
+scripts/benchmark/matrix_dashboard.py<span class="w"> </span>--results-dir<span class="w"> </span>results<span class="w"> </span>--out<span class="w"> </span>dashboard.html
+</pre></div>
 </div>
-</details></section>
-<section id="your-learning-path">
-<h2><strong>Your Learning Path</strong><a class="headerlink" href="#your-learning-path" title="Link to this heading">#</a></h2>
-<div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
-<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-📦 1. Fresh Installation</div>
-<p class="sd-card-text">Install the <code class="docutils literal notranslate"><span class="pre">osprey</span></code> CLI and configure a provider. A container runtime (Docker or Podman) is optional and only needed for deployable services.</p>
-<p class="sd-card-text"><strong>Outcome:</strong>
-Working dev environment</p>
+<p>The dashboard derives every count from the run data at render time — it never
+hard-codes a number, so it stays honest as the suite grows.</p>
+<div class="important admonition">
+<p class="admonition-title">Benchmark snapshot — OSPREY 2026.6.2 (pending release re-run)</p>
+<p><em>Results table held until the</em> <code class="docutils literal notranslate"><span class="pre">v2026.6.2</span></code> <em>release re-run.</em> Once the tag is
+cut, the full matrix is re-run against it and pinned here with provenance:</p>
+<ul class="simple">
+<li><p><strong>Measured against:</strong> OSPREY <code class="docutils literal notranslate"><span class="pre">v2026.6.2</span></code> (commit <code class="docutils literal notranslate"><span class="pre">&lt;sha&gt;</span></code>)</p></li>
+<li><p><strong>Run:</strong> <code class="docutils literal notranslate"><span class="pre">&lt;date&gt;</span></code> · open subjects via CBORG, Anthropic reference columns via
+als-apg</p></li>
+<li><p><strong>Scope:</strong> the model-driving subset of <code class="docutils literal notranslate"><span class="pre">tests/e2e/</span></code></p></li>
+</ul>
+<p>These figures are a point-in-time snapshot and <em>will</em> drift — they describe the
+pinned version only. Regenerate with <code class="docutils literal notranslate"><span class="pre">scripts/benchmark/</span></code> for any later release.</p>
+<p><em>(Inline pass-rate table + downloadable dashboard land here at release.)</em></p>
 </div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="installation.html"><span class="doc">Installation &amp; Setup</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-🧠 1a. Conceptual Tutorial</div>
-<p class="sd-card-text">Build a mental model of how Osprey and its applications work, before diving into code.</p>
-<p class="sd-card-text"><strong>Outcome:</strong>
-Prepared mind for your Osprey journey</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="conceptual-tutorial.html"><span class="doc">Conceptual Tutorial</span></a></div>
-</div>
-</div>
-</div>
-<div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
-<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-🔧 2. Hello World</div>
-<p class="sd-card-text">Build your first agent with a mock control system — one MCP server, zero complexity.</p>
-<p class="sd-card-text"><strong>Outcome:</strong>
-Your first working agent</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="hello-world-tutorial.html"><span class="doc">Hello World Tutorial</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-🎯 3. Guided Build Interview</div>
-<p class="sd-card-text">Generate a project profile for your own detector, beamline, or accelerator subsystem through a guided conversation.</p>
-<p class="sd-card-text"><strong>Outcome:</strong>
-A tailored project for your facility</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="osprey-build-interview.html"><span class="doc">Guided Project Setup</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-🎛️ 4. Control Systems</div>
-<p class="sd-card-text">Production control system patterns with channel finding pipelines and comprehensive tooling.</p>
-<p class="sd-card-text"><strong>Outcome:</strong>
-Enterprise integration patterns</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="control-assistant.html"><span class="doc">Production Control Systems Tutorial</span></a></div>
-</div>
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-💡 5. How-To Guides</div>
-<p class="sd-card-text">Task-oriented guides for connectors, MCP servers, providers, and more.</p>
-<p class="sd-card-text"><strong>Outcome:</strong>
-Practical recipes</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="../how-to/index.html"><span class="doc">How-To Guides</span></a></div>
-</div>
-</div>
-</div>
-<div class="sd-container-fluid sd-sphinx-override sd-mb-4 docutils">
-<div class="sd-row sd-row-cols-1 sd-row-cols-xs-1 sd-row-cols-sm-1 sd-row-cols-md-2 sd-row-cols-lg-2 sd-g-3 sd-g-xs-3 sd-g-sm-3 sd-g-md-3 sd-g-lg-3 docutils">
-<div class="sd-col sd-d-flex-row docutils">
-<div class="sd-card sd-sphinx-override sd-w-100 sd-shadow-sm sd-card-hover docutils">
-<div class="sd-card-body docutils">
-<div class="sd-card-title sd-font-weight-bold docutils">
-⚡ 6. Architecture</div>
-<p class="sd-card-text">Understand the Osprey agent + MCP architecture, data flow, and key concepts.</p>
-<p class="sd-card-text"><strong>Outcome:</strong>
-Architecture understanding</p>
-</div>
-<a class="sd-stretched-link sd-hide-link-text reference internal" href="../architecture/index.html"><span class="doc">Architecture Overview</span></a></div>
-</div>
-</div>
-</div>
-<div class="toctree-wrapper compound">
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<ul class="simple">
+<li><p><a class="reference internal" href="configure-providers.html"><span class="doc">Configure LLM Providers</span></a> — providers, the translation proxy, model selection.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">scripts/benchmark/README.md</span></code> — the full benchmark contract.</p></li>
+</ul>
 </div>
 </section>
 </section>
@@ -561,20 +552,20 @@ Architecture understanding</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="../index.html"
+       href="configure-providers.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Osprey Framework Documentation</p>
+        <p class="prev-next-title">Configure LLM Providers</p>
       </div>
     </a>
     <a class="right-next"
-       href="installation.html"
+       href="deploy-project.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Installation &amp; Setup</p>
+        <p class="prev-next-title">Container Deployment</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -597,8 +588,10 @@ Architecture understanding</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-you-ll-accomplish"><strong>What You’ll Accomplish</strong></a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#your-learning-path"><strong>Your Learning Path</strong></a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#two-independent-axes">Two independent axes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#how-open-models-are-routed">How open models are routed</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#which-models-are-known-to-work">Which models are known to work</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#benchmark-it-yourself">Benchmark it yourself</a></li>
 </ul>
   </nav></div>
 
@@ -606,7 +599,7 @@ Architecture understanding</p>
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/getting-started/index.rst">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/run-open-models.rst">
       <i class="fa-solid fa-pencil"></i>
       
       
