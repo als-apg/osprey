@@ -161,6 +161,37 @@ def label(model: str) -> str:
     return f"{name} (ref)" if model in REFERENCE_MODELS else name
 
 
+def canon_name(name: str) -> tuple[str, str]:
+    """Normalize a test id to a canonical (file, qualname) regardless of source.
+
+    Completed runs are summarized from the JUnit XML, whose ``classname`` is the
+    DOTTED module path with the class folded in
+    (``tests.e2e.claude_code.test_agent_delegation.TestAgentDelegation::test_x``).
+    In-progress runs come from the live per-test stream, which uses the pytest
+    NODEID (``tests/e2e/claude_code/test_agent_delegation.py::TestAgentDelegation::test_x``).
+    Both name the same test; without normalization the per-test table lists every
+    test twice (once per format), which reads as two stacked tables. Collapse
+    both to ``("claude_code/test_agent_delegation.py", "TestAgentDelegation::test_x")``.
+    """
+    parts = name.split("::")
+    head, tail = parts[0], parts[1:]
+    if head.endswith(".py"):
+        file = head
+        qual = tail
+    else:
+        segs = head.split(".")
+        mod_idx = next((i for i in range(len(segs) - 1, -1, -1) if segs[i].startswith("test_")), None)
+        if mod_idx is None:
+            file = head.replace(".", "/") + ".py"
+            qual = tail
+        else:
+            file = "/".join(segs[: mod_idx + 1]) + ".py"
+            qual = segs[mod_idx + 1 :] + tail  # trailing class segment(s) + method
+    file = file.replace("tests/e2e/", "")
+    short = "::".join(qual) if qual else file
+    return file, short
+
+
 def seeds_for(model: str, runs: dict | None = None) -> list[int]:
     """Study subjects run all SEEDS (missing ones render 'pending'). Reference
     models are run on demand (one or more seeds) — show exactly the seeds that
@@ -258,9 +289,7 @@ def main() -> int:
     test_results: dict[tuple, dict] = defaultdict(lambda: defaultdict(dict))
     for (m, s), d in runs.items():
         for t in d.get("tests", []):
-            name = t["name"]
-            file = name.split("::")[0].replace("tests/e2e/", "")
-            short = "::".join(name.split("::")[1:]) or name
+            file, short = canon_name(t["name"])
             all_tests[file].add(short)
             test_results[(file, short)][m][s] = t["outcome"]
 
@@ -339,49 +368,6 @@ def main() -> int:
     for k, c in OUTCOME_COLORS.items():
         H.append(f"<span><span class=dot style='background:{c}'></span>{k}</span>")
     H.append("</div>")
-
-    # ---- model summary cards ----
-    H.append("<h2>Per-model summary (aggregated over seeds)</h2>")
-    for m in models:
-        m_seeds = seeds_for(m, runs)
-        ds = [runs[(m, s)] for s in m_seeds if (m, s) in runs]
-        if not ds:
-            H.append(
-                f"<div class=card><div class=big>{html.escape(label(m))}</div>"
-                f"<div class=muted>pending</div></div>"
-            )
-            continue
-        ps = sum(d["passed"] for d in ds)
-        denom = sum(conclusive(d)[1] for d in ds)
-        dur = sum(d["total_duration_s"] for d in ds) / max(len(ds), 1)
-        c = {o: sum(run_counts(d)[o] for d in ds) for o in OUTCOME_ORDER}
-        # one stacked bar PER SEED so seed-to-seed consistency is visible
-        bars = []
-        for s in m_seeds:
-            d = runs.get((m, s))
-            if d and d["total"]:
-                p_s, den_s = conclusive(d)
-                bars.append(
-                    f"<div style='display:flex;align-items:center;gap:6px;margin:2px 0'>"
-                    f"<span class=muted style='width:36px'>seed{s}</span>"
-                    f"{stacked_bar(run_counts(d), width=150, height=13)}"
-                    f"<span class=muted>{pct(p_s, den_s)}</span></div>"
-                )
-            else:
-                state = "● running" if (m, s) in running else "· pending"
-                bars.append(
-                    f"<div style='display:flex;align-items:center;gap:6px;margin:2px 0'>"
-                    f"<span class=muted style='width:36px'>seed{s}</span>"
-                    f"<span class=muted>{state}</span></div>"
-                )
-        H.append(
-            f"<div class=card><div class=big>{html.escape(label(m))}</div>"
-            f"<div><b style='color:{OUTCOME_COLORS['passed']}'>{pct(ps, denom)}</b> pass "
-            f"<span class=muted>(conclusive; {ps}/{denom})</span></div>"
-            f"<div style='margin:7px 0'>{''.join(bars)}</div>"
-            f"<div class=muted>{counts_text(c)}</div>"
-            f"<div class=muted>~{dur / 60:.0f} min/run</div></div>"
-        )
 
     # ---- model x seed matrix (full outcome breakdown per cell) ----
     H.append("<h2>Outcome breakdown by model × seed</h2>")

@@ -80,9 +80,10 @@ Thumbs.db
 !models/.gitkeep
 results/
 !results/.gitkeep
-# Benchmark model-matrix run exhaust (#259) — regenerable from scripts/benchmark/
-results_box/
-dashboard.html
+# Benchmark model-matrix run exhaust (#259) — regenerable from scripts/benchmark/.
+# All generated artifacts (dashboard.html, results_box/, live_updater.log) live
+# under one output dir co-located with the tooling, keeping the repo root clean.
+scripts/benchmark/_out/
 *.h5
 *.pkl
 *.pt

@@ -10,9 +10,13 @@ REPO="$(cd "$(dirname "$0")/../.." && pwd)"
 # login home unless absolute). Override for a different host/layout.
 REMOTE="${OSPREY_BENCH_REMOTE:-macstudio}"
 REMOTE_REPO="${OSPREY_BENCH_REMOTE_REPO:-projects/osprey}"
-RESULTS="$REPO/results_box"
-OUT="$REPO/dashboard.html"
-LOG="$REPO/_live_updater.log"          # outside RESULTS so rsync --delete can't nuke it
+# All regenerable run-exhaust lives under one gitignored output dir co-located
+# with the benchmark tooling, so the repo root stays clean (artifacts are
+# regenerable from scripts/benchmark/, never committed).
+ARTIFACTS="$REPO/scripts/benchmark/_out"
+RESULTS="$ARTIFACTS/results_box"
+OUT="$ARTIFACTS/dashboard.html"
+LOG="$ARTIFACTS/live_updater.log"      # outside RESULTS so rsync --delete can't nuke it
 mkdir -p "$RESULTS"
 MAX_SECONDS="${1:-115200}"             # 32h safety
 DEADLINE=$(( $(date +%s) + MAX_SECONDS ))
