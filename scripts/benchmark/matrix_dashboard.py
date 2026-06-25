@@ -180,7 +180,9 @@ def canon_name(name: str) -> tuple[str, str]:
         qual = tail
     else:
         segs = head.split(".")
-        mod_idx = next((i for i in range(len(segs) - 1, -1, -1) if segs[i].startswith("test_")), None)
+        mod_idx = next(
+            (i for i in range(len(segs) - 1, -1, -1) if segs[i].startswith("test_")), None
+        )
         if mod_idx is None:
             file = head.replace(".", "/") + ".py"
             qual = tail

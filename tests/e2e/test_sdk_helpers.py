@@ -17,10 +17,7 @@ _PER_CELL_URI = "postgresql://ariel:ariel@localhost:5432/ariel_gpt-oss-20b_seed1
 def _write_config(tmp_path, uri: str = _DEFAULT_ARIEL_DB_URI):
     """Write a minimal rendered config.yml with an ARIEL DB uri line."""
     (tmp_path / "config.yml").write_text(
-        "ariel:\n"
-        "  database:\n"
-        f"    uri: {uri}\n"
-        "  default_max_results: 10\n",
+        f"ariel:\n  database:\n    uri: {uri}\n  default_max_results: 10\n",
         encoding="utf-8",
     )
     return tmp_path / "config.yml"
