@@ -258,6 +258,31 @@ class TestLogbookSubmit:
         assert "/#create?draft=" in data["url"]
 
     @pytest.mark.unit
+    def test_submit_url_is_browser_resolvable(self, app_client, tmp_path, monkeypatch):
+        """Without ARIEL_WEB_URL, the submit URL must be a web-terminal-relative
+        proxy path — not an absolute container-internal address.
+
+        Regression: the default used to be ``http://127.0.0.1:8085`` which is
+        unreachable from the user's browser. The panel embeds via /panel/ariel
+        and resolves the URL with ``new URL(url, origin)``, so it must be
+        origin-relative to load through the proxy.
+        """
+        monkeypatch.delenv("ARIEL_WEB_URL", raising=False)
+        with (
+            patch(f"{_MODULE}.resolve_shared_data_root", return_value=tmp_path),
+            patch(f"{_MODULE}.notify_panel_focus"),
+        ):
+            resp = app_client.post(
+                "/api/logbook/submit",
+                json={"subject": "Test", "details": "Details."},
+            )
+
+        url = resp.json()["url"]
+        assert not url.startswith("http://127.0.0.1")
+        assert "8085" not in url
+        assert url.startswith("/panel/ariel")
+
+    @pytest.mark.unit
     def test_submit_calls_panel_focus(self, app_client, tmp_path):
         """Mock notify_panel_focus, verify called."""
         with (

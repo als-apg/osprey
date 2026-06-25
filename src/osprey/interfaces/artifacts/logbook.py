@@ -546,7 +546,13 @@ async def submit(req: SubmitRequest):
         filepath = drafts_dir / f"{draft_id}.json"
         filepath.write_text(json.dumps(draft_data, indent=2))
 
-        base_url = os.environ.get("ARIEL_WEB_URL", "http://127.0.0.1:8085")
+        # Default to the web terminal's origin-relative proxy path (see the
+        # matching note in mcp_server/ariel/tools/entry.py): the panel embeds at
+        # /panel/ariel and resolves this with `new URL(url, origin)`, so a
+        # relative path loads through the proxy. An absolute container-internal
+        # address (127.0.0.1:8085) is unreachable from the user's browser. Set
+        # ARIEL_WEB_URL for standalone (non-proxied) ARIEL deployments.
+        base_url = os.environ.get("ARIEL_WEB_URL", "/panel/ariel")
         url = f"{base_url}/#create?draft={draft_id}"
 
         # Notify web terminal to switch to ARIEL panel (non-fatal)

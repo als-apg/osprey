@@ -297,7 +297,7 @@ async def test_entry_create_draft_default(tmp_path, monkeypatch):
     assert data["draft_id"].startswith("draft-")
     assert "url" in data
     assert f"draft={data['draft_id']}" in data["url"]
-    assert "http://127.0.0.1:8085" in data["url"]
+    assert data["url"].startswith("/panel/ariel")
 
     # Verify file was written
     filepath = drafts_dir / f"{data['draft_id']}.json"
@@ -331,6 +331,38 @@ async def test_entry_create_draft_all_fields(tmp_path, monkeypatch):
     assert contents["logbook"] == "Operations"
     assert contents["shift"] == "Swing"
     assert contents["tags"] == ["injection", "kicker"]
+
+
+@pytest.mark.unit
+async def test_entry_create_draft_url_is_browser_resolvable(tmp_path, monkeypatch):
+    """Without ARIEL_WEB_URL, the draft URL must be a web-terminal-relative
+    proxy path — not an absolute container-internal address.
+
+    Regression: the default used to be ``http://127.0.0.1:8085`` which is
+    unreachable from the user's browser (nothing listens on 8085 in the
+    deployed container, and 127.0.0.1 points at the user's own machine). The
+    web terminal embeds the ARIEL panel via the relative proxy path
+    ``/panel/ariel`` and resolves draft URLs with ``new URL(url, origin)``, so
+    the URL must be origin-relative to load through the proxy in both the
+    clickable link and the auto-focus iframe.
+    """
+    import osprey.mcp_server.ariel.tools.entry as entry_mod
+
+    drafts_dir = tmp_path / "drafts"
+    monkeypatch.setattr(entry_mod, "_get_drafts_dir", lambda: drafts_dir)
+    monkeypatch.delenv("ARIEL_WEB_URL", raising=False)
+
+    fn = _get_entry_create()
+    result = await fn(subject="Beam lost", details="Beam lost at SR BM 4.3.2")
+
+    data = json.loads(result)
+    url = data["url"]
+    # Must NOT be an absolute container-internal URL the browser can't reach.
+    assert not url.startswith("http://127.0.0.1")
+    assert "8085" not in url
+    # Must be the origin-relative proxy path the iframe + link resolve against.
+    assert url.startswith("/panel/ariel")
+    assert f"draft={data['draft_id']}" in url
 
 
 @pytest.mark.unit

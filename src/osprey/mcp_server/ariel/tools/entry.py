@@ -312,7 +312,15 @@ async def entry_create(
             filepath = drafts_dir / f"{draft_id}.json"
             filepath.write_text(json.dumps(draft_data, indent=2))
 
-            base_url = os.environ.get("ARIEL_WEB_URL", "http://127.0.0.1:8085")
+            # Default to the web terminal's origin-relative proxy path for the
+            # ARIEL panel. The web terminal embeds the panel at /panel/ariel and
+            # resolves this URL with `new URL(url, origin)`, so a relative path
+            # loads through the proxy in both the clickable link and the
+            # auto-focus iframe. An absolute container-internal address (e.g.
+            # 127.0.0.1:8085) is unreachable from the user's browser. Set
+            # ARIEL_WEB_URL to an absolute base only for standalone (non-proxied)
+            # ARIEL deployments.
+            base_url = os.environ.get("ARIEL_WEB_URL", "/panel/ariel")
             url = f"{base_url}/#create?draft={draft_id}"
 
             logger.info("Draft %s created at %s", draft_id, filepath)
