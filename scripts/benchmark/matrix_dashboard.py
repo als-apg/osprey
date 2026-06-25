@@ -194,6 +194,32 @@ def canon_name(name: str) -> tuple[str, str]:
     return file, short
 
 
+def apply_exclusions(runs: dict, excluded_files: set[str]) -> None:
+    """Drop tests belonging to excluded files from each run, recomputing counts.
+
+    The matrix runner ignores excluded files at collection time, so a freshly run
+    cell never contains them. But results collected BEFORE a file was added to the
+    exclusion list still carry its tests — e.g. test_dispatch_tutorial, which is
+    pinned to als-apg/haiku and hangs to the worker timeout under CBORG cells, was
+    excluded only after the matrix had already run it. Honor the CURRENT exclusion
+    list retroactively so the per-cell counts and the per-test grid match the
+    footer's advertised exclusion set, without re-running the matrix. Mutates runs
+    in place; cells with no excluded tests are left untouched.
+    """
+    for d in runs.values():
+        tests = d.get("tests", [])
+        kept = [t for t in tests if canon_name(t["name"])[0] not in excluded_files]
+        if len(kept) == len(tests):
+            continue
+        cnt = {"passed": 0, "failed": 0, "timeout": 0, "skipped": 0, "errors": 0}
+        for t in kept:
+            cnt[_LIVE_KEY.get(t.get("outcome"), "errors")] += 1
+        d["tests"] = kept
+        d.update(cnt)
+        d["total"] = len(kept)
+        d["total_duration_s"] = int(sum(t.get("duration_s", 0) for t in kept))
+
+
 def seeds_for(model: str, runs: dict | None = None) -> list[int]:
     """Study subjects run all SEEDS (missing ones render 'pending'). Reference
     models are run on demand (one or more seeds) — show exactly the seeds that
@@ -279,6 +305,10 @@ def main() -> int:
     args = ap.parse_args()
 
     runs = load(args.results_dir)
+    # Honor the exclusion list retroactively: results collected before a file was
+    # excluded still carry its tests, so strip them here to match the footer.
+    exclusions = load_exclusions(args.config)
+    apply_exclusions(runs, {p.replace("tests/e2e/", "", 1) for p, _ in exclusions})
     started, ended, matrix_done = parse_progress(args.results_dir)
     running = started - ended  # combos in flight
     models = list(MODEL_ORDER)
@@ -312,7 +342,6 @@ def main() -> int:
     ]
     union_n = sum(len(v) for v in all_tests.values())
     model_driving_n = max(completed_totals) if completed_totals else (union_n or None)
-    exclusions = load_exclusions(args.config)
 
     css = """
     body{font:14px/1.45 -apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;

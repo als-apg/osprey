@@ -49,6 +49,10 @@
     {
       "path": "tests/e2e/claude_code/test_proxy_open_model_harness_e2e.py",
       "reason": "Opt-in proxy harness tests requiring OSPREY_E2E_OLLAMA/OSPREY_E2E_CBORG flags; skip on bench box."
+    },
+    {
+      "path": "tests/e2e/test_dispatch_tutorial.py",
+      "reason": "Exercises the dispatch pipeline (webhook -> dispatcher -> worker -> SDK round-trip -> persistence), not model capability — the agent task is hello-world level (one-sentence reply, summarize a payload, save a stub report), so any responding model passes and it measures nothing about the model-under-test. Compounding this, its build fixture is pinned to als-apg/haiku and ignores OSPREY_E2E_FORCE_MODEL; under CBORG cells the als-apg key is shimmed to CBORG, so the worker agent hits the real als-apg endpoint with a wrong credential and hangs to the 300s worker timeout — a fixed ~3-test infra penalty per cell."
     }
   ],
   "baseline_expected_run_min": 15
