@@ -359,6 +359,55 @@ The recommended pattern for facility MCP servers:
          allow: ["phoebus_launch"]
 
 
+.. _profile-tool-permissions:
+
+Tool Permissions
+================
+
+By default OSPREY writes a deny list into ``.claude/settings.json`` that blocks a
+handful of general-purpose tools — ``Bash``, ``Edit``, ``WebFetch``, ``WebSearch``,
+and the Playwright/Context7 plugins — so a stock control-operator agent cannot shell
+out or browse the web. These defaults are **overridable per facility** through the
+``claude_code.permissions`` block in your profile (merged on top of the framework
+defaults at build time):
+
+.. code-block:: yaml
+
+   claude_code:
+     permissions:
+       remove_deny: ["Bash", "WebSearch"]   # drop these from the default deny list
+       allow: ["WebSearch"]                  # then allow them outright
+       ask: ["Bash"]                          # or route to human approval instead
+
+Supported keys:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 80
+
+   * - Key
+     - Effect
+   * - ``remove_deny``
+     - Remove entries from the built-in deny defaults (e.g. unblock ``Bash``)
+   * - ``deny``
+     - Add facility-specific deny entries
+   * - ``allow``
+     - Add allow entries (no approval prompt)
+   * - ``ask``
+     - Add entries that route through human approval
+   * - ``remove_ask``
+     - Remove entries from the ask list
+
+.. admonition:: Deny wins, and it wins at runtime too
+   :class: important
+
+   Claude Code resolves permissions as **deny > ask > allow**, and a static ``deny``
+   entry cannot be overridden during a session. While a tool sits in the deny list,
+   an in-session ``/permissions`` "allow once" will **not** unblock it — you must
+   ``remove_deny`` it and rebuild. Use ``ask`` instead of ``deny`` for tools you want
+   gated but still reachable on a per-call basis.
+
+
 .. _profile-services:
 
 Services

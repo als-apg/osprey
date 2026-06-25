@@ -1262,6 +1262,60 @@ the build adds <code class="docutils literal notranslate"><span class="pre">mcp_
 </pre></div>
 </div>
 </section>
+<section id="tool-permissions">
+<span id="profile-tool-permissions"></span><h2>Tool Permissions<a class="headerlink" href="#tool-permissions" title="Link to this heading">#</a></h2>
+<p>By default OSPREY writes a deny list into <code class="docutils literal notranslate"><span class="pre">.claude/settings.json</span></code> that blocks a
+handful of general-purpose tools — <code class="docutils literal notranslate"><span class="pre">Bash</span></code>, <code class="docutils literal notranslate"><span class="pre">Edit</span></code>, <code class="docutils literal notranslate"><span class="pre">WebFetch</span></code>, <code class="docutils literal notranslate"><span class="pre">WebSearch</span></code>,
+and the Playwright/Context7 plugins — so a stock control-operator agent cannot shell
+out or browse the web. These defaults are <strong>overridable per facility</strong> through the
+<code class="docutils literal notranslate"><span class="pre">claude_code.permissions</span></code> block in your profile (merged on top of the framework
+defaults at build time):</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">claude_code</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">permissions</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">remove_deny</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Bash&quot;</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="s">&quot;WebSearch&quot;</span><span class="p p-Indicator">]</span><span class="w">   </span><span class="c1"># drop these from the default deny list</span>
+<span class="w">    </span><span class="nt">allow</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;WebSearch&quot;</span><span class="p p-Indicator">]</span><span class="w">                  </span><span class="c1"># then allow them outright</span>
+<span class="w">    </span><span class="nt">ask</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">&quot;Bash&quot;</span><span class="p p-Indicator">]</span><span class="w">                          </span><span class="c1"># or route to human approval instead</span>
+</pre></div>
+</div>
+<p>Supported keys:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 20.0%" />
+<col style="width: 80.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Effect</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">remove_deny</span></code></p></td>
+<td><p>Remove entries from the built-in deny defaults (e.g. unblock <code class="docutils literal notranslate"><span class="pre">Bash</span></code>)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">deny</span></code></p></td>
+<td><p>Add facility-specific deny entries</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">allow</span></code></p></td>
+<td><p>Add allow entries (no approval prompt)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ask</span></code></p></td>
+<td><p>Add entries that route through human approval</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">remove_ask</span></code></p></td>
+<td><p>Remove entries from the ask list</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="important admonition">
+<p class="admonition-title">Deny wins, and it wins at runtime too</p>
+<p>Claude Code resolves permissions as <strong>deny &gt; ask &gt; allow</strong>, and a static <code class="docutils literal notranslate"><span class="pre">deny</span></code>
+entry cannot be overridden during a session. While a tool sits in the deny list,
+an in-session <code class="docutils literal notranslate"><span class="pre">/permissions</span></code> “allow once” will <strong>not</strong> unblock it — you must
+<code class="docutils literal notranslate"><span class="pre">remove_deny</span></code> it and rebuild. Use <code class="docutils literal notranslate"><span class="pre">ask</span></code> instead of <code class="docutils literal notranslate"><span class="pre">deny</span></code> for tools you want
+gated but still reachable on a per-call basis.</p>
+</div>
+</section>
 <section id="services">
 <span id="profile-services"></span><h2>Services<a class="headerlink" href="#services" title="Link to this heading">#</a></h2>
 <p>The <code class="docutils literal notranslate"><span class="pre">services</span></code> section defines facility-specific containers that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code>
@@ -1616,6 +1670,7 @@ directory must contain a <code class="docutils literal notranslate"><span class=
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-overrides">Configuration Overrides</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#file-overlays">File Overlays</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-server-injection">MCP Server Injection</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#tool-permissions">Tool Permissions</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#services">Services</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#lifecycle-commands">Lifecycle Commands</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#environment-templates">Environment Templates</a></li>
