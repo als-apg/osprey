@@ -155,6 +155,64 @@ async def test_error_path_does_not_raise(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
+# Inactivity watchdog (fast-fail on a silently hung provider, e.g. bad cred)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_inactivity_timeout_aborts_with_clear_error(monkeypatch):
+    """A provider that never responds (bad/expired credential, unreachable base
+    URL) is aborted at the inactivity window with a clear message, instead of
+    stalling silently to the outer dispatch timeout."""
+    monkeypatch.setattr(sdk_runner, "_INACTIVITY_TIMEOUT_SEC", 0.2, raising=False)
+
+    async def fake_query(prompt, options):
+        await asyncio.sleep(30)  # hang — never yields a message
+        yield  # pragma: no cover - never reached
+
+    monkeypatch.setattr(sdk_runner, "query", fake_query)
+
+    queue: asyncio.Queue = asyncio.Queue()
+    # Outer guard so a regression (no watchdog) fails fast instead of hanging
+    # the whole suite for 30s.
+    result = await asyncio.wait_for(
+        sdk_runner.run_dispatch("do it", ["Read"], event_queue=queue),
+        timeout=5,
+    )
+
+    assert result["status"] == "error"
+    assert "No response from the model provider" in result["error"]
+    assert "credential" in result["error"].lower()
+    # Aborted at the inactivity window, not the full 30s hang.
+    assert result["duration_sec"] < 5
+
+    events = await _drain(queue)
+    assert any(e["type"] == "error" for e in events)
+
+
+@pytest.mark.asyncio
+async def test_inactivity_timeout_after_partial_progress(monkeypatch):
+    """The watchdog resets on each streamed message: a run that emits output and
+    then stalls is still aborted, with the partial text preserved."""
+    monkeypatch.setattr(sdk_runner, "_INACTIVITY_TIMEOUT_SEC", 0.2, raising=False)
+
+    async def fake_query(prompt, options):
+        yield AssistantMessage(content=[TextBlock(text="working...")], model="m")
+        await asyncio.sleep(30)  # then hang
+        yield  # pragma: no cover - never reached
+
+    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    result = await asyncio.wait_for(
+        sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue()),
+        timeout=5,
+    )
+
+    assert result["status"] == "error"
+    assert result["text_output"] == "working..."  # partial output retained
+    assert "No response from the model provider" in result["error"]
+
+
+# ---------------------------------------------------------------------------
 # Per-run memory caps + secret scrubbing (lifecycle robustness)
 # ---------------------------------------------------------------------------
 
