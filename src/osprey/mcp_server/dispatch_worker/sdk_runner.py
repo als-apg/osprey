@@ -48,6 +48,18 @@ _MAX_TOOL_CALLS = 200  # number of tool calls retained
 _SECRET_ENV_NAME_HINTS = ("TOKEN", "SECRET", "PASSWORD", "API_KEY")
 _MIN_SECRET_LEN = 12
 
+# Inactivity watchdog: max seconds to wait for the *next* SDK message before
+# treating the run as silently hung. A healthy run emits an init SystemMessage
+# within seconds of CLI startup and then streams text/tool events continuously,
+# so each message resets this clock — only a true stall trips it. The classic
+# trigger is a bad/expired provider credential or an unreachable base URL: the
+# bundled CLI does not fast-fail on those, it simply produces no output. Without
+# this guard such a run stalls all the way to the dispatch worker's outer
+# DISPATCH_TIMEOUT_SEC (default 300s) and surfaces only a generic "timed out"
+# error that masks the auth cause. Generous default so legitimately slow single
+# turns are not cut off; raise via DISPATCH_INACTIVITY_SEC for slow providers.
+_INACTIVITY_TIMEOUT_SEC = float(os.environ.get("DISPATCH_INACTIVITY_SEC", "120"))
+
 
 def _secret_values() -> list[str]:
     """Collect non-trivial secret env values to scrub from run output."""
@@ -200,7 +212,42 @@ async def run_dispatch(
     t0 = time.monotonic()
     agen = query(prompt=_prompt_stream(), options=options)
     try:
-        async for message in agen:
+        # Drive the generator manually (rather than ``async for``) so each
+        # ``__anext__`` is bounded by the inactivity watchdog. A full-window
+        # silence means the provider never responded — fail fast with a clear
+        # message instead of stalling to the worker's outer DISPATCH_TIMEOUT_SEC.
+        while True:
+            try:
+                message = await asyncio.wait_for(agen.__anext__(), timeout=_INACTIVITY_TIMEOUT_SEC)
+            except StopAsyncIteration:
+                break
+            except TimeoutError:
+                try:
+                    await agen.aclose()
+                except Exception:
+                    logger.debug("agen.aclose() raised after inactivity timeout", exc_info=True)
+                duration_sec = time.monotonic() - t0
+                msg = (
+                    f"No response from the model provider for "
+                    f"{_INACTIVITY_TIMEOUT_SEC:.0f}s — dispatch aborted. This usually "
+                    "means an invalid or expired provider credential, or an "
+                    "unreachable provider base URL."
+                )
+                logger.error("Dispatch aborted after %.1fs: %s", duration_sec, msg)
+                await _push({"type": "error", "message": msg})
+                return _finalize(
+                    {
+                        "status": "error",
+                        "text_output": "".join(text_parts),
+                        "tool_calls": tool_calls,
+                        "error": msg,
+                        "stderr": "\n".join(stderr_lines) if stderr_lines else None,
+                        "duration_sec": round(duration_sec, 2),
+                        "cost_usd": cost_usd,
+                        "num_turns": num_turns,
+                    }
+                )
+
             if isinstance(message, AssistantMessage):
                 for block in message.content:
                     if isinstance(block, TextBlock):
