@@ -50,6 +50,70 @@ def test_system_as_block_list_is_flattened():
     assert out["messages"][0] == {"role": "system", "content": "Line one.\nLine two."}
 
 
+def test_embedded_system_message_is_hoisted_not_dropped():
+    """A ``role: system`` entry *inside* ``messages`` must be preserved as an
+    OpenAI system message, not silently dropped (issue #285).
+
+    The Anthropic Messages API places the system prompt in the top-level
+    ``system`` field, so a strict gateway rejects a ``role: system`` entry in
+    the array. The proxy used to drop it on the floor, silently losing the
+    instruction; it must hoist it into an OpenAI system message instead.
+    """
+    body = {
+        "model": "cborg-coder",
+        "messages": [
+            {"role": "system", "content": "You are the channel-finder subagent."},
+            {"role": "user", "content": "find PV X"},
+        ],
+    }
+    out = anthropic_to_openai_request(body)
+    roles = [m["role"] for m in out["messages"]]
+    assert roles == ["system", "user"]
+    assert out["messages"][0] == {
+        "role": "system",
+        "content": "You are the channel-finder subagent.",
+    }
+    assert out["messages"][1] == {"role": "user", "content": "find PV X"}
+
+
+def test_embedded_system_block_list_is_flattened():
+    """A ``role: system`` message whose content is a block list is flattened
+    to text, mirroring how the top-level ``system`` field is handled."""
+    body = {
+        "model": "cborg-coder",
+        "messages": [
+            {
+                "role": "system",
+                "content": [
+                    {"type": "text", "text": "Line one."},
+                    {"type": "text", "text": "Line two."},
+                ],
+            },
+            {"role": "user", "content": "hi"},
+        ],
+    }
+    out = anthropic_to_openai_request(body)
+    assert out["messages"][0] == {"role": "system", "content": "Line one.\nLine two."}
+    assert out["messages"][1] == {"role": "user", "content": "hi"}
+
+
+def test_top_level_and_embedded_system_both_preserved():
+    """When both a top-level ``system`` and an embedded ``role: system`` message
+    are present, both survive, with the top-level prompt first."""
+    body = {
+        "model": "cborg-coder",
+        "system": "Top-level system.",
+        "messages": [
+            {"role": "system", "content": "Embedded system."},
+            {"role": "user", "content": "go"},
+        ],
+    }
+    out = anthropic_to_openai_request(body)
+    assert [m["role"] for m in out["messages"]] == ["system", "system", "user"]
+    assert out["messages"][0]["content"] == "Top-level system."
+    assert out["messages"][1]["content"] == "Embedded system."
+
+
 def test_tool_definitions_become_openai_functions():
     body = {
         "model": "cborg-coder",
