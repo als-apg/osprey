@@ -162,7 +162,19 @@ class ARIELRepository:
                         timestamp = EXCLUDED.timestamp,
                         author = EXCLUDED.author,
                         raw_text = EXCLUDED.raw_text,
-                        attachments = EXCLUDED.attachments,
+                        -- Preserve existing attachments when the incoming upsert
+                        -- carries none. A background re-ingestion poll re-fetches an
+                        -- already-published entry from the upstream logbook, which has
+                        -- no attachments (the OLOG write API cannot accept file
+                        -- uploads), so a blind overwrite would erase ARIEL-native
+                        -- web-uploaded attachments and orphan their stored blobs. A
+                        -- non-empty incoming list still replaces (upstream wins when it
+                        -- actually has data).
+                        attachments = CASE
+                            WHEN EXCLUDED.attachments = '[]'::jsonb
+                            THEN enhanced_entries.attachments
+                            ELSE EXCLUDED.attachments
+                        END,
                         metadata = EXCLUDED.metadata
                     """,
                     [

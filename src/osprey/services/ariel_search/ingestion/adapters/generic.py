@@ -56,6 +56,11 @@ class GenericJSONAdapter(FacilityAdapter):
         """Write is supported only for local file sources, not HTTP."""
         return not self.source_url.startswith(("http://", "https://"))
 
+    @property
+    def requires_write_auth(self) -> bool:
+        """No-auth logbook: a local JSON file publishes without credentials."""
+        return False
+
     async def fetch_entries(
         self,
         since: datetime | None = None,

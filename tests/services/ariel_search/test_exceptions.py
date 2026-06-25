@@ -202,6 +202,37 @@ class TestIngestionError:
         assert exc.technical_details["entries_affected"] == 42
 
 
+class TestAuthenticationRequiredError:
+    """Tests for AuthenticationRequiredError."""
+
+    def test_basic_creation(self) -> None:
+        """Test basic exception creation."""
+        from osprey.services.ariel_search.exceptions import AuthenticationRequiredError
+
+        exc = AuthenticationRequiredError(
+            "Credentials required to publish",
+            source_system="ALS eLog",
+        )
+        assert exc.message == "Credentials required to publish"
+        assert exc.category == ErrorCategory.INGESTION
+        assert exc.is_retriable is False
+        assert exc.source_system == "ALS eLog"
+        assert exc.technical_details["source_system"] == "ALS eLog"
+
+    def test_is_not_an_ingestion_error(self) -> None:
+        """Must NOT subclass IngestionError, so routes can distinguish the two.
+
+        The API layer catches IngestionError to fall back to a local-only save.
+        If AuthenticationRequiredError were a subclass, that broad except would
+        swallow the credential signal and silently save local-only again.
+        """
+        from osprey.services.ariel_search.exceptions import AuthenticationRequiredError
+
+        exc = AuthenticationRequiredError("creds", source_system="ALS eLog")
+        assert isinstance(exc, ARIELException)
+        assert not isinstance(exc, IngestionError)
+
+
 class TestAdapterNotFoundError:
     """Tests for AdapterNotFoundError."""
 

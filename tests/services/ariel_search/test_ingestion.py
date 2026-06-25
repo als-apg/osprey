@@ -1166,6 +1166,16 @@ class TestGenericJSONAdapterWrite:
         adapter = GenericJSONAdapter(config)
         assert adapter.supports_write is False
 
+    def test_requires_write_auth_false(self):
+        """Generic JSON is a no-auth logbook: it publishes without credentials.
+
+        This is the concrete counterpart to ALS's fail-closed default — a no-auth
+        adapter declares requires_write_auth=False and never prompts for credentials.
+        """
+        config = self._make_config("/tmp/test.json")
+        adapter = GenericJSONAdapter(config)
+        assert adapter.requires_write_auth is False
+
     @pytest.mark.asyncio
     async def test_create_entry_appends_to_json_file(self, tmp_path):
         """create_entry appends to existing JSON file."""
@@ -1401,9 +1411,23 @@ class TestALSLogbookAdapterWrite:
         call_kwargs = mock_session.post.call_args
         assert call_kwargs.kwargs["headers"]["Content-Type"] == "application/xml"
 
+    def test_requires_write_auth_default_true(self):
+        """ALS adapter requires credentials to publish (inherits fail-closed default)."""
+        config = self._make_config(
+            write_enabled=True,
+            write_url="https://elog.als.lbl.gov/olog/rpc.php",
+        )
+        adapter = ALSLogbookAdapter(config)
+        assert adapter.requires_write_auth is True
+
     @pytest.mark.asyncio
     async def test_create_entry_missing_credentials(self):
-        """create_entry raises when credentials not set."""
+        """create_entry raises AuthenticationRequiredError when credentials not set.
+
+        This is distinct from IngestionError so the API layer can prompt the
+        operator for credentials (HTTP 401) instead of silently saving local-only.
+        """
+        from osprey.services.ariel_search.exceptions import AuthenticationRequiredError
         from osprey.services.ariel_search.models import FacilityEntryCreateRequest
 
         config = self._make_config(
@@ -1418,5 +1442,5 @@ class TestALSLogbookAdapterWrite:
             details="Details",
         )
 
-        with pytest.raises(IngestionError, match="credentials"):
+        with pytest.raises(AuthenticationRequiredError, match="credentials"):
             await adapter.create_entry(request)

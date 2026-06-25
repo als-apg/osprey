@@ -51,6 +51,19 @@ class FacilityAdapter(ABC):
         """
         return False
 
+    @property
+    def requires_write_auth(self) -> bool:
+        """Whether ``create_entry`` requires operator credentials to publish.
+
+        Fail-closed default: ``True``. An adapter that publishes without
+        credentials (e.g. a local file logbook) must explicitly override this to
+        ``False`` — so a misconfigured adapter prompts for credentials rather
+        than silently publishing unauthenticated. Adapters that require auth
+        raise :class:`AuthenticationRequiredError` from ``create_entry`` when
+        credentials are absent.
+        """
+        return True
+
     @abstractmethod
     def fetch_entries(
         self,

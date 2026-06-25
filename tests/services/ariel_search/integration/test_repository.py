@@ -320,6 +320,65 @@ class TestRepositoryMetadata:
         assert retrieved.get("metadata", {}).get("title") == "Test Title"
 
 
+class TestRepositoryAttachmentPreservation:
+    """Re-ingestion must not erase ARIEL-native (web-uploaded) attachments.
+
+    ARIEL-native attachments (URL ``/api/attachments/{id}``) live in ARIEL only —
+    the OLOG write API cannot accept file uploads. A background re-ingestion poll
+    re-fetches an already-published entry and upserts the upstream copy, which has
+    *no* attachments. Without preservation, that upsert would overwrite the entry's
+    attachment references to ``[]`` and orphan the stored blobs.
+    """
+
+    async def test_reingest_with_no_attachments_preserves_ariel_native(
+        self, repository, seed_entry_factory
+    ):
+        """An upsert carrying no attachments keeps the existing ARIEL-native ones."""
+        ariel_native = [
+            {"url": "/api/attachments/abc123", "type": "image/png", "filename": "shot.png"}
+        ]
+        entry = seed_entry_factory(
+            entry_id="integ-attach-preserve-001",
+            raw_text="Published entry with an ARIEL-only attachment",
+            attachments=ariel_native,
+        )
+        await repository.upsert_entry(entry)
+
+        # Simulate the background poller re-ingesting the upstream entry, which has
+        # no attachments (the logbook API never received the file).
+        reingested = seed_entry_factory(
+            entry_id="integ-attach-preserve-001",
+            raw_text="Published entry with an ARIEL-only attachment",
+            attachments=[],
+        )
+        await repository.upsert_entry(reingested)
+
+        retrieved = await repository.get_entry("integ-attach-preserve-001")
+        assert retrieved is not None
+        assert retrieved["attachments"] == ariel_native
+
+    async def test_reingest_with_attachments_replaces(self, repository, seed_entry_factory):
+        """A non-empty incoming attachment list still replaces (upstream wins when it has data)."""
+        entry = seed_entry_factory(
+            entry_id="integ-attach-preserve-002",
+            raw_text="Entry",
+            attachments=[{"url": "/api/attachments/old", "type": "image/png", "filename": "a.png"}],
+        )
+        await repository.upsert_entry(entry)
+
+        upstream = [{"url": "https://elog.example/img/1", "type": "image/png", "filename": "b.png"}]
+        replacement = seed_entry_factory(
+            entry_id="integ-attach-preserve-002",
+            raw_text="Entry",
+            attachments=upstream,
+        )
+        await repository.upsert_entry(replacement)
+
+        retrieved = await repository.get_entry("integ-attach-preserve-002")
+        assert retrieved is not None
+        assert retrieved["attachments"] == upstream
+
+
 class TestRepositoryBulkOperations:
     """Test ARIELRepository bulk operations."""
 

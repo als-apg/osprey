@@ -203,6 +203,37 @@ class IngestionError(ARIELException):
         self.entries_affected = entries_affected
 
 
+class AuthenticationRequiredError(ARIELException):
+    """Logbook credentials are required to publish but were not provided.
+
+    Deliberately NOT a subclass of :class:`IngestionError`. The API layer catches
+    ``IngestionError`` to fall back to a local-only save when an adapter cannot
+    publish; if this were a subclass, that broad ``except`` would swallow the
+    credential signal and silently save local-only instead of prompting the
+    operator. Keeping it a direct sibling lets the route return HTTP 401 and ask
+    for credentials. A no-auth adapter (``requires_write_auth=False``) never
+    raises it.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        source_system: str,
+        technical_details: dict | None = None,
+    ) -> None:
+        """Initialize AuthenticationRequiredError.
+
+        Args:
+            message: Human-readable error description
+            source_system: The facility logbook that requires credentials
+            technical_details: Additional debugging information
+        """
+        details = technical_details or {}
+        details["source_system"] = source_system
+        super().__init__(message, ErrorCategory.INGESTION, details)
+        self.source_system = source_system
+
+
 class AdapterNotFoundError(ARIELException):
     """Ingestion adapter not found.
 

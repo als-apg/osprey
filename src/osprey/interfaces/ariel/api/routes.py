@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from osprey.interfaces.ariel.api.schemas import (
@@ -30,11 +30,13 @@ from osprey.interfaces.ariel.api.schemas import (
     StatusResponse,
 )
 from osprey.utils.config import to_facility_iso
+from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
     from osprey.services.ariel_search import ARIELSearchService
 
 router = APIRouter(prefix="/api")
+logger = get_logger("ariel")
 
 
 def _parse_metadata_form(raw: str | None) -> dict[str, Any]:
@@ -120,6 +122,35 @@ async def get_capabilities(request: Request) -> dict:
 
     service = _require_service(request)
     return _get_caps(service.config)
+
+
+@router.get("/publish-info")
+async def get_publish_info(request: Request) -> dict:
+    """Describe the configured logbook's write capability for the create form.
+
+    Lets the UI adapt its credential prompt to the actual adapter instead of
+    showing fixed text: a logbook that requires authentication asks for
+    credentials, a no-auth logbook publishes without them, and a read-only
+    adapter saves to ARIEL only. ``requires_auth`` is reported as
+    ``supports_write and requires_write_auth`` — a read-only adapter cannot
+    publish, so credentials are irrelevant there.
+    """
+    service = _require_service(request)
+
+    from osprey.services.ariel_search.exceptions import AdapterNotFoundError
+    from osprey.services.ariel_search.ingestion import get_adapter
+
+    try:
+        adapter = get_adapter(service.config)
+    except AdapterNotFoundError:
+        # No ingestion adapter configured — entries can only be saved locally.
+        return {"supports_write": False, "requires_auth": False, "source_system": None}
+
+    return {
+        "supports_write": adapter.supports_write,
+        "requires_auth": adapter.supports_write and adapter.requires_write_auth,
+        "source_system": adapter.source_system_name,
+    }
 
 
 @router.get("/filter-options/{field_name}")
@@ -292,49 +323,49 @@ async def get_entry(request: Request, entry_id: str) -> EntryResponse:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/entries", response_model=EntryCreateResponse)
-async def create_entry(
-    request: Request,
-    entry_req: EntryCreateRequest,
-) -> EntryCreateResponse:
-    """Create a new logbook entry.
+def _auth_required_response(exc: Exception) -> JSONResponse:
+    """Build a 401 that asks the operator for logbook credentials.
 
-    Delegates to the facility adapter when write support is available.
-    Falls back to direct database insert if the adapter doesn't support writes.
+    The ``code`` discriminator lets the frontend show a credential prompt
+    instead of a generic error, and keep the form populated for resubmission.
     """
-    service = _require_service(request)
+    return JSONResponse(
+        status_code=401,
+        content={"detail": str(exc), "code": "auth_required"},
+    )
 
+
+async def _publish_or_local(
+    service: ARIELSearchService,
+    facility_request: Any,
+    *,
+    fallback_metadata: dict[str, Any],
+) -> tuple[str, str, str, str]:
+    """Publish an entry via the facility adapter, or save local-only if read-only.
+
+    Returns ``(entry_id, source_system, sync_status, message)`` for the text
+    entry. Only ``NotImplementedError`` (the adapter genuinely cannot write)
+    falls back to a direct local DB insert — this is the legitimate use of the
+    fallback. ``AuthenticationRequiredError`` (credentials needed) and
+    ``IngestionError`` (the publish attempt failed) propagate to the caller so
+    nothing is silently saved.
+
+    Args:
+        service: The ARIEL search service.
+        facility_request: A ``FacilityEntryCreateRequest`` for the text entry.
+        fallback_metadata: Fields for the local-only insert (``author``,
+            ``raw_text``, ``metadata``) used when the adapter is read-only.
+    """
     try:
-        from osprey.services.ariel_search.exceptions import IngestionError
-        from osprey.services.ariel_search.models import FacilityEntryCreateRequest
-
-        facility_request = FacilityEntryCreateRequest(
-            subject=entry_req.subject,
-            details=entry_req.details,
-            author=entry_req.author,
-            logbook=entry_req.logbook,
-            shift=entry_req.shift,
-            tags=entry_req.tags,
-            auth_user=entry_req.auth_user,
-            auth_password=entry_req.auth_password,
-        )
-
         result = await service.create_entry(facility_request)
-
-        return EntryCreateResponse(
-            entry_id=result.entry_id,
-            message=result.message,
-            sync_status=result.sync_status.value,
-            source_system=result.source_system,
+        return (
+            result.entry_id,
+            result.source_system,
+            result.sync_status.value,
+            result.message,
         )
-
-    except (NotImplementedError, IngestionError):
-        # Adapter doesn't support writes — fall back to direct DB insert
-        import logging
-
-        logging.getLogger("ariel").warning(
-            "Facility adapter does not support writes, falling back to direct DB insert"
-        )
+    except NotImplementedError:
+        logger.warning("Facility adapter does not support writes, falling back to direct DB insert")
 
         entry_id = f"ariel-{uuid.uuid4().hex[:12]}"
         now = datetime.now(UTC)
@@ -343,31 +374,84 @@ async def create_entry(
             "entry_id": entry_id,
             "source_system": "ARIEL Web",
             "timestamp": now,
-            "author": entry_req.author or "Anonymous",
-            "raw_text": f"{entry_req.subject}\n\n{entry_req.details}",
+            "author": fallback_metadata.get("author") or "Anonymous",
+            "raw_text": fallback_metadata["raw_text"],
             "attachments": [],
-            "metadata": {
-                "logbook": entry_req.logbook,
-                "shift": entry_req.shift,
-                "tags": entry_req.tags,
-                "created_via": "ariel-web",
-                **(entry_req.metadata or {}),
-            },
+            "metadata": fallback_metadata["metadata"],
             "created_at": now,
             "updated_at": now,
         }
 
         await service.repository.upsert_entry(entry)
 
-        return EntryCreateResponse(
-            entry_id=entry_id,
-            message=f"Entry {entry_id} created (saved locally, not published to external logbook)",
-            sync_status="local_only",
-            source_system="ARIEL Web",
+        return (
+            entry_id,
+            "ARIEL Web",
+            "local_only",
+            f"Entry {entry_id} created (saved locally, not published to external logbook)",
         )
 
+
+@router.post("/entries", response_model=EntryCreateResponse)
+async def create_entry(
+    request: Request,
+    entry_req: EntryCreateRequest,
+) -> EntryCreateResponse | JSONResponse:
+    """Create a new logbook entry.
+
+    Delegates to the facility adapter when write support is available. A
+    read-only adapter falls back to a local-only save; a logbook that requires
+    credentials returns 401 (so the UI can prompt) and a genuine publish failure
+    returns 502 — neither silently saves local-only.
+    """
+    service = _require_service(request)
+
+    from osprey.services.ariel_search.exceptions import (
+        AuthenticationRequiredError,
+        IngestionError,
+    )
+    from osprey.services.ariel_search.models import FacilityEntryCreateRequest
+
+    facility_request = FacilityEntryCreateRequest(
+        subject=entry_req.subject,
+        details=entry_req.details,
+        author=entry_req.author,
+        logbook=entry_req.logbook,
+        shift=entry_req.shift,
+        tags=entry_req.tags,
+        auth_user=entry_req.auth_user,
+        auth_password=entry_req.auth_password,
+    )
+
+    try:
+        entry_id, source_system, sync_status, message = await _publish_or_local(
+            service,
+            facility_request,
+            fallback_metadata={
+                "author": entry_req.author,
+                "raw_text": f"{entry_req.subject}\n\n{entry_req.details}",
+                "metadata": {
+                    "logbook": entry_req.logbook,
+                    "shift": entry_req.shift,
+                    "tags": entry_req.tags,
+                    "created_via": "ariel-web",
+                    **(entry_req.metadata or {}),
+                },
+            },
+        )
+    except AuthenticationRequiredError as e:
+        return _auth_required_response(e)
+    except IngestionError as e:
+        raise HTTPException(status_code=502, detail=f"Publish failed: {e}") from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+    return EntryCreateResponse(
+        entry_id=entry_id,
+        message=message,
+        sync_status=sync_status,
+        source_system=source_system,
+    )
 
 
 @router.get("/attachments/{attachment_id}")
@@ -397,6 +481,50 @@ async def get_attachment(request: Request, attachment_id: str) -> Response:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+async def _store_and_link_attachments(
+    service: ARIELSearchService,
+    entry_id: str,
+    staged: list[tuple[str, str | None, bytes]],
+) -> int:
+    """Persist staged ``(filename, mime_type, data)`` files and link them on the entry.
+
+    Files are stored in ARIEL's own attachment store and referenced on the entry
+    record. Note: the OLOG write API cannot accept file uploads, so attachments
+    are never pushed to an external logbook — they live in ARIEL only.
+
+    Returns:
+        The number of attachments stored.
+    """
+    from osprey.services.ariel_search.attachments import generate_attachment_id
+
+    attachment_infos: list[dict[str, Any]] = []
+    for filename, mime_type, data in staged:
+        attachment_id = generate_attachment_id()
+        await service.repository.store_attachment(
+            entry_id=entry_id,
+            attachment_id=attachment_id,
+            filename=filename,
+            mime_type=mime_type,
+            data=data,
+            size_bytes=len(data),
+        )
+        attachment_infos.append(
+            {
+                "url": f"/api/attachments/{attachment_id}",
+                "type": mime_type,
+                "filename": filename,
+            }
+        )
+
+    if attachment_infos:
+        entry = await service.repository.get_entry(entry_id)
+        if entry is not None:
+            entry["attachments"] = attachment_infos
+            await service.repository.upsert_entry(entry)
+
+    return len(attachment_infos)
+
+
 @router.post("/entries/upload", response_model=EntryCreateResponse)
 async def create_entry_with_attachments(
     request: Request,
@@ -407,92 +535,104 @@ async def create_entry_with_attachments(
     shift: str | None = Form(None),
     tags: str = Form(""),
     metadata: str | None = Form(None),
+    auth_user: str | None = Form(None),
+    auth_password: str | None = Form(None),
     files: list[UploadFile] = File(default=[]),
-) -> EntryCreateResponse:
-    """Create a new logbook entry with file attachments via multipart form."""
+) -> EntryCreateResponse | JSONResponse:
+    """Create a new logbook entry with file attachments via multipart form.
+
+    The text body is published through the facility adapter with the same
+    semantics as ``POST /entries`` — a logbook that requires credentials returns
+    401, a genuine publish failure returns 502, and a read-only adapter falls
+    back to a local-only save. Attachments are then stored in ARIEL. Because the
+    OLOG write API cannot accept file uploads, attachments are never published to
+    an external logbook; when the text body does publish externally, the response
+    says so explicitly rather than silently dropping the files.
+    """
     service = _require_service(request)
 
     from osprey.services.ariel_search.attachments import (
         AttachmentValidationError,
-        generate_attachment_id,
         guess_mime_type,
         validate_file_size,
     )
+    from osprey.services.ariel_search.exceptions import (
+        AuthenticationRequiredError,
+        IngestionError,
+    )
+    from osprey.services.ariel_search.models import FacilityEntryCreateRequest
 
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+    parsed_metadata = _parse_metadata_form(metadata)
+
+    # Read and validate files up front — before any publish — so a rejected file
+    # can never leave a half-published entry behind.
+    staged: list[tuple[str, str | None, bytes]] = []
+    for upload_file in files:
+        if not upload_file.filename:
+            continue
+        data = await upload_file.read()
+        try:
+            validate_file_size(len(data), upload_file.filename)
+        except AttachmentValidationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        mime_type = upload_file.content_type or guess_mime_type(upload_file.filename)
+        staged.append((upload_file.filename, mime_type, data))
+
+    facility_request = FacilityEntryCreateRequest(
+        subject=subject,
+        details=details,
+        author=author,
+        logbook=logbook,
+        shift=shift,
+        tags=tag_list,
+        auth_user=auth_user,
+        auth_password=auth_password,
+        metadata=parsed_metadata,
+    )
+
+    # Publish the text body (or save local-only for a read-only adapter).
     try:
-        entry_id = f"ariel-{uuid.uuid4().hex[:12]}"
-        now = datetime.now(UTC)
-
-        tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
-
-        entry: dict[str, Any] = {
-            "entry_id": entry_id,
-            "source_system": "ARIEL Web",
-            "timestamp": now,
-            "author": author or "Anonymous",
-            "raw_text": f"{subject}\n\n{details}",
-            "attachments": [],
-            "metadata": {
-                "logbook": logbook,
-                "shift": shift,
-                "tags": tag_list,
-                "created_via": "ariel-web",
-                **_parse_metadata_form(metadata),
+        entry_id, source_system, sync_status, message = await _publish_or_local(
+            service,
+            facility_request,
+            fallback_metadata={
+                "author": author,
+                "raw_text": f"{subject}\n\n{details}",
+                "metadata": {
+                    "logbook": logbook,
+                    "shift": shift,
+                    "tags": tag_list,
+                    "created_via": "ariel-web",
+                    **parsed_metadata,
+                },
             },
-            "created_at": now,
-            "updated_at": now,
-        }
-
-        await service.repository.upsert_entry(entry)
-
-        attachment_count = 0
-        if files:
-            attachment_infos = []
-            for upload_file in files:
-                if not upload_file.filename:
-                    continue
-
-                data = await upload_file.read()
-                try:
-                    validate_file_size(len(data), upload_file.filename)
-                except AttachmentValidationError as exc:
-                    raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-                attachment_id = generate_attachment_id()
-                mime_type = upload_file.content_type or guess_mime_type(upload_file.filename)
-
-                await service.repository.store_attachment(
-                    entry_id=entry_id,
-                    attachment_id=attachment_id,
-                    filename=upload_file.filename,
-                    mime_type=mime_type,
-                    data=data,
-                    size_bytes=len(data),
-                )
-
-                attachment_infos.append(
-                    {
-                        "url": f"/api/attachments/{attachment_id}",
-                        "type": mime_type,
-                        "filename": upload_file.filename,
-                    }
-                )
-
-            if attachment_infos:
-                entry["attachments"] = attachment_infos
-                await service.repository.upsert_entry(entry)
-                attachment_count = len(attachment_infos)
-
-        return EntryCreateResponse(
-            entry_id=entry_id,
-            message=f"Entry {entry_id} created successfully",
-            attachment_count=attachment_count,
         )
-
-    except HTTPException:
-        raise
+    except AuthenticationRequiredError as e:
+        return _auth_required_response(e)
+    except IngestionError as e:
+        raise HTTPException(status_code=502, detail=f"Publish failed: {e}") from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+    # Store attachments in ARIEL and link them on the entry.
+    attachment_count = await _store_and_link_attachments(service, entry_id, staged)
+
+    # If the text published externally, be explicit that the files did not —
+    # the OLOG write API can't accept file uploads.
+    if attachment_count and sync_status != "local_only":
+        message = (
+            f"{message}. {attachment_count} attachment(s) saved to ARIEL only "
+            "(the logbook API cannot accept file uploads yet)."
+        )
+
+    return EntryCreateResponse(
+        entry_id=entry_id,
+        message=message,
+        sync_status=sync_status,
+        source_system=source_system,
+        attachment_count=attachment_count,
+    )
 
 
 @router.get("/status", response_model=StatusResponse)

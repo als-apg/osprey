@@ -7,6 +7,23 @@
 const API_BASE = '/api';
 
 /**
+ * Build an Error from a non-OK response.
+ *
+ * Preserves the HTTP `status` and any machine-readable `code` discriminator from
+ * the JSON body (e.g. "auth_required") so callers can branch on them — for
+ * example, to prompt for logbook credentials instead of showing a generic error.
+ * @param {Response} response - The failed fetch response
+ * @returns {Promise<Error>} An Error with `.status` and optional `.code`
+ */
+async function errorFromResponse(response) {
+  const body = await response.json().catch(() => ({}));
+  const error = new Error(body.detail || `HTTP ${response.status}`);
+  error.status = response.status;
+  if (body.code) error.code = body.code;
+  return error;
+}
+
+/**
  * API client with error handling and response parsing.
  */
 export const api = {
@@ -26,8 +43,7 @@ export const api = {
 
     const response = await fetch(url.toString());
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      throw await errorFromResponse(response);
     }
     return response.json();
   },
@@ -48,8 +64,7 @@ export const api = {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      throw await errorFromResponse(response);
     }
     return response.json();
   },
@@ -70,8 +85,7 @@ export const api = {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      throw await errorFromResponse(response);
     }
     return response.json();
   },
@@ -115,6 +129,15 @@ export const searchApi = {
  * Entries API functions.
  */
 export const entriesApi = {
+  /**
+   * Describe the configured logbook's write capability, so the create form can
+   * adapt its credential prompt.
+   * @returns {Promise<{supports_write: boolean, requires_auth: boolean, source_system: ?string}>}
+   */
+  async getPublishInfo() {
+    return api.get('/publish-info');
+  },
+
   /**
    * List entries with pagination.
    * @param {Object} params - List parameters
@@ -175,6 +198,10 @@ export const entriesApi = {
     if (data.shift) formData.append('shift', data.shift);
     formData.append('tags', (data.tags || []).join(','));
     if (data.metadata) formData.append('metadata', JSON.stringify(data.metadata));
+    // Forward logbook credentials so an attachment entry can answer a 401
+    // auth_required prompt on resubmit, matching the text-only `create` path.
+    if (data.auth_user) formData.append('auth_user', data.auth_user);
+    if (data.auth_password) formData.append('auth_password', data.auth_password);
 
     for (const file of files) {
       formData.append('files', file);
@@ -186,8 +213,7 @@ export const entriesApi = {
     });
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({}));
-      throw new Error(error.detail || `HTTP ${response.status}`);
+      throw await errorFromResponse(response);
     }
     return response.json();
   },

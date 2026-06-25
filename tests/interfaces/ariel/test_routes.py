@@ -291,6 +291,236 @@ def test_create_entry_endpoint_fallback(client, mock_ariel_service):
     mock_ariel_service.repository.upsert_entry.assert_called_once()
 
 
+def test_create_entry_auth_required_returns_401(client, mock_ariel_service):
+    """Missing logbook credentials surface as 401 auth_required, NOT a local save.
+
+    This is the core of the fix: AuthenticationRequiredError must not be conflated
+    with the read-only-adapter fallback, so nothing is saved and the UI can prompt.
+    """
+    from osprey.services.ariel_search.exceptions import AuthenticationRequiredError
+
+    mock_ariel_service.create_entry = AsyncMock(
+        side_effect=AuthenticationRequiredError(
+            "OLOG publishing requires credentials.",
+            source_system="ALS eLog",
+        )
+    )
+    mock_ariel_service.repository.upsert_entry = AsyncMock()
+
+    response = client.post(
+        "/api/entries",
+        json={"subject": "Test", "details": "Test details"},
+    )
+
+    assert response.status_code == 401
+    body = response.json()
+    assert body["code"] == "auth_required"
+    assert "credentials" in body["detail"].lower()
+    # Nothing was saved locally.
+    mock_ariel_service.repository.upsert_entry.assert_not_called()
+
+
+def test_create_entry_publish_failure_returns_502(client, mock_ariel_service):
+    """A genuine publish failure surfaces an error, NOT a silent local save."""
+    from osprey.services.ariel_search.exceptions import IngestionError
+
+    mock_ariel_service.create_entry = AsyncMock(
+        side_effect=IngestionError(
+            "ALS olog write failed with HTTP 403: bad password",
+            source_system="ALS eLog",
+        )
+    )
+    mock_ariel_service.repository.upsert_entry = AsyncMock()
+
+    response = client.post(
+        "/api/entries",
+        json={"subject": "Test", "details": "Test details"},
+    )
+
+    assert response.status_code == 502
+    assert "publish failed" in response.json()["detail"].lower()
+    mock_ariel_service.repository.upsert_entry.assert_not_called()
+
+
+def _upload_files():
+    """A single small file payload for multipart upload tests."""
+    return [("files", ("shot.png", b"\x89PNG\r\n\x1a\nfakeimage", "image/png"))]
+
+
+def test_upload_auth_required_returns_401(client, mock_ariel_service):
+    """Attachment-bearing submit also prompts for credentials instead of saving local."""
+    from osprey.services.ariel_search.exceptions import AuthenticationRequiredError
+
+    mock_ariel_service.create_entry = AsyncMock(
+        side_effect=AuthenticationRequiredError("creds required", source_system="ALS eLog")
+    )
+    mock_ariel_service.repository.upsert_entry = AsyncMock()
+    mock_ariel_service.repository.store_attachment = AsyncMock()
+
+    response = client.post(
+        "/api/entries/upload",
+        data={"subject": "Test", "details": "Body"},
+        files=_upload_files(),
+    )
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "auth_required"
+    # Nothing persisted: no entry, no attachment.
+    mock_ariel_service.repository.upsert_entry.assert_not_called()
+    mock_ariel_service.repository.store_attachment.assert_not_called()
+
+
+def test_upload_publish_failure_returns_502(client, mock_ariel_service):
+    """Upload route surfaces a real publish failure instead of saving local-only."""
+    from osprey.services.ariel_search.exceptions import IngestionError
+
+    mock_ariel_service.create_entry = AsyncMock(
+        side_effect=IngestionError("olog down", source_system="ALS eLog")
+    )
+    mock_ariel_service.repository.upsert_entry = AsyncMock()
+    mock_ariel_service.repository.store_attachment = AsyncMock()
+
+    response = client.post(
+        "/api/entries/upload",
+        data={"subject": "Test", "details": "Body"},
+        files=_upload_files(),
+    )
+
+    assert response.status_code == 502
+    mock_ariel_service.repository.store_attachment.assert_not_called()
+
+
+def test_upload_falls_back_local_with_attachments(client, mock_ariel_service):
+    """Read-only adapter: upload saves local AND stores its attachments."""
+    mock_ariel_service.create_entry = AsyncMock(
+        side_effect=NotImplementedError("Adapter does not support writes")
+    )
+    mock_ariel_service.repository.upsert_entry = AsyncMock()
+    mock_ariel_service.repository.store_attachment = AsyncMock()
+    mock_ariel_service.repository.get_entry = AsyncMock(
+        return_value={
+            "entry_id": "ariel-xyz",
+            "source_system": "ARIEL Web",
+            "timestamp": datetime.now(),
+            "author": "Anonymous",
+            "raw_text": "Test\n\nBody",
+            "attachments": [],
+            "metadata": {},
+        }
+    )
+
+    response = client.post(
+        "/api/entries/upload",
+        data={"subject": "Test", "details": "Body"},
+        files=_upload_files(),
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["sync_status"] == "local_only"
+    assert data["attachment_count"] == 1
+    mock_ariel_service.repository.store_attachment.assert_called_once()
+
+
+def test_upload_publish_success_stores_attachments_locally(client, mock_ariel_service):
+    """Published entry: text goes to OLOG, files stay in ARIEL (API can't take files)."""
+    from osprey.services.ariel_search.models import FacilityEntryCreateResult, SyncStatus
+
+    mock_ariel_service.create_entry = AsyncMock(
+        return_value=FacilityEntryCreateResult(
+            entry_id="99999",
+            source_system="ALS eLog",
+            sync_status=SyncStatus.PENDING_SYNC,
+            message="Entry 99999 created in ALS eLog",
+        )
+    )
+    mock_ariel_service.repository.store_attachment = AsyncMock()
+    mock_ariel_service.repository.upsert_entry = AsyncMock()
+    mock_ariel_service.repository.get_entry = AsyncMock(
+        return_value={
+            "entry_id": "99999",
+            "source_system": "ALS eLog",
+            "timestamp": datetime.now(),
+            "author": "op",
+            "raw_text": "Test\n\nBody",
+            "attachments": [],
+            "metadata": {},
+        }
+    )
+
+    response = client.post(
+        "/api/entries/upload",
+        data={"subject": "Test", "details": "Body", "auth_user": "op", "auth_password": "pw"},
+        files=_upload_files(),
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["entry_id"] == "99999"
+    assert data["sync_status"] == "pending_sync"
+    assert data["attachment_count"] == 1
+    # Files were stored in ARIEL and the operator is told they were not published.
+    mock_ariel_service.repository.store_attachment.assert_called_once()
+    assert "ariel" in data["message"].lower()
+
+
+def _mock_adapter(*, supports_write, requires_write_auth, source_system):
+    adapter = MagicMock()
+    adapter.supports_write = supports_write
+    adapter.requires_write_auth = requires_write_auth
+    adapter.source_system_name = source_system
+    return adapter
+
+
+def test_publish_info_requires_auth(client, mock_ariel_service):
+    """A write adapter that needs credentials reports requires_auth=True."""
+    adapter = _mock_adapter(supports_write=True, requires_write_auth=True, source_system="ALS eLog")
+    with patch("osprey.services.ariel_search.ingestion.get_adapter", return_value=adapter):
+        response = client.get("/api/publish-info")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["supports_write"] is True
+    assert data["requires_auth"] is True
+    assert data["source_system"] == "ALS eLog"
+
+
+def test_publish_info_no_auth(client, mock_ariel_service):
+    """A no-auth write adapter reports requires_auth=False (publishes without creds)."""
+    adapter = _mock_adapter(
+        supports_write=True, requires_write_auth=False, source_system="Generic JSON"
+    )
+    with patch("osprey.services.ariel_search.ingestion.get_adapter", return_value=adapter):
+        response = client.get("/api/publish-info")
+
+    data = response.json()
+    assert data["supports_write"] is True
+    assert data["requires_auth"] is False
+
+
+def test_publish_info_read_only(client, mock_ariel_service):
+    """A read-only adapter reports requires_auth=False — credentials are irrelevant."""
+    adapter = _mock_adapter(
+        supports_write=False, requires_write_auth=True, source_system="JLab Logbook"
+    )
+    with patch("osprey.services.ariel_search.ingestion.get_adapter", return_value=adapter):
+        response = client.get("/api/publish-info")
+
+    data = response.json()
+    assert data["supports_write"] is False
+    assert data["requires_auth"] is False
+
+
+def test_publish_info_no_adapter_configured(client, mock_ariel_service):
+    """No ingestion adapter configured degrades gracefully to read-only."""
+    response = client.get("/api/publish-info")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["supports_write"] is False
+    assert data["requires_auth"] is False
+
+
 def test_status_endpoint(client, mock_ariel_service):
     """Test status endpoint."""
     response = client.get("/api/status")

@@ -49,6 +49,42 @@ export function initEntries() {
   // File input preview
   const fileInput = document.getElementById('entry-files');
   fileInput?.addEventListener('change', handleFilePreview);
+
+  // Adapt the publishing section to the configured logbook adapter.
+  adaptPublishingSection();
+}
+
+/**
+ * Adapt the "Logbook Publishing" section to the configured adapter.
+ *
+ * The adapter declares whether publishing needs credentials, so the form shows
+ * the credential fields only when they can actually be used and tells the
+ * operator what leaving the form will do — instead of fixed, possibly-wrong text.
+ */
+async function adaptPublishingSection() {
+  const helper = document.getElementById('publish-helper');
+  const credentials = document.getElementById('publish-credentials');
+  if (!helper) return;
+
+  let info;
+  try {
+    info = await entriesApi.getPublishInfo();
+  } catch {
+    // Service/DB unavailable — keep the neutral default text.
+    return;
+  }
+
+  const where = info.source_system ? ` to ${info.source_system}` : '';
+  if (!info.supports_write) {
+    helper.textContent = 'Entries are saved to ARIEL only — this logbook is read-only.';
+    if (credentials) credentials.style.display = 'none';
+  } else if (info.requires_auth) {
+    helper.textContent = `Enter your logbook credentials to publish${where}.`;
+    if (credentials) credentials.style.display = '';
+  } else {
+    helper.textContent = `Publishes${where} — no credentials required.`;
+    if (credentials) credentials.style.display = 'none';
+  }
 }
 
 /**
@@ -409,7 +445,15 @@ async function handleCreateEntry(e) {
 
   } catch (error) {
     console.error('Failed to create entry:', error);
-    alert(`Failed to create entry: ${error.message}`);
+    if (error.code === 'auth_required') {
+      // The logbook needs credentials to publish. Keep the form populated (it is
+      // only reset on success) and focus the username field so the operator can
+      // type and resubmit.
+      alert('Logbook credentials required to publish. Please enter your username and password.');
+      document.getElementById('entry-auth-user')?.focus();
+    } else {
+      alert(`Failed to create entry: ${error.message}`);
+    }
   } finally {
     if (submitBtn) {
       submitBtn.disabled = false;
