@@ -113,6 +113,59 @@ export OSPREY_E2E_LIVE="$REPO/results/${SAFE}__seed${SEED}.live.jsonl"
 echo ">> model=$MODEL seed=$SEED route=$ROUTE" >&2
 echo ">> junit=$XML" >&2
 
+# --- per-cell ARIEL database isolation (issue #259) ----------------------
+# Concurrent matrix cells share one Postgres server. The scenario tests call
+# apply_scenarios(seed_logbook=True), which PURGES the logbook AND DROPS the
+# text_embeddings_* tables. With a single shared DB that races every other
+# cell's logbook tests: a purge in cell A drops the embedding table that cell
+# B's delegation/retrieval test is mid-way through using ("semantic search
+# module not enabled"). Give each (model,seed) cell its OWN database so a purge
+# can only affect its own cell. The built test projects honor OSPREY_ARIEL_DB_URI
+# via tests/e2e/sdk_helpers._override_ariel_db_uri (rewrites the rendered
+# config.yml so the agent's ARIEL MCP server and apply_scenarios both use it).
+#
+# Disable with OSPREY_BENCH_SHARED_DB=1 (falls back to the legacy shared DB).
+PG_BIN="${OSPREY_BENCH_PG_BIN:-$HOME/bin/pg16-edb/pgsql/bin}"
+PROV_DIR=""
+if [ "${OSPREY_BENCH_SHARED_DB:-0}" != "1" ]; then
+  # Postgres unquoted identifiers fold to lowercase and forbid '-'/'/'; sanitize.
+  CELL_DB="ariel_$(printf '%s' "${SAFE}_seed${SEED}" | tr -C 'a-zA-Z0-9' '_' | tr 'A-Z' 'a-z')"
+  CELL_DB="${CELL_DB%_}"
+  export OSPREY_ARIEL_DB_URI="postgresql://ariel:ariel@localhost:5432/${CELL_DB}"
+  echo ">> per-cell ARIEL DB: $CELL_DB" >&2
+
+  if "$PG_BIN/psql" -h localhost -p 5432 -U ariel -d postgres -v ON_ERROR_STOP=1 \
+       -c "DROP DATABASE IF EXISTS ${CELL_DB} WITH (FORCE);" \
+       -c "CREATE DATABASE ${CELL_DB} OWNER ariel;" >&2; then
+    # Provision schema + seeded (nominal) logbook + embeddings against the
+    # per-cell DB, using a throwaway project whose config points at it. Order
+    # matters: sim apply purges embeddings, so reembed must come last.
+    PROV_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ariel_prov_${CELL_DB}.XXXXXX")"
+    if "$PY" -m osprey.cli.main build prov --preset control-assistant \
+         --skip-deps --skip-lifecycle --output-dir "$PROV_DIR" \
+         --set provider=als-apg --set model=haiku >&2; then
+      PROV_CFG="$PROV_DIR/prov/config.yml"
+      "$PY" - "$PROV_CFG" "$OSPREY_ARIEL_DB_URI" <<'PYEOF' >&2
+import sys
+path, uri = sys.argv[1], sys.argv[2]
+default = "postgresql://ariel:ariel@localhost:5432/ariel"
+text = open(path).read()
+assert default in text, f"default ARIEL uri not found in {path}"
+open(path, "w").write(text.replace(default, uri))
+PYEOF
+      ( cd "$PROV_DIR/prov" \
+        && "$PY" -m osprey.cli.main ariel migrate \
+        && "$PY" -m osprey.cli.main sim apply nominal --yes \
+        && "$PY" -m osprey.cli.main ariel reembed --model nomic-embed-text --dimension 768 ) >&2 \
+        || echo ">> WARNING: per-cell ARIEL provisioning failed; logbook tests in this cell will skip/gate" >&2
+    else
+      echo ">> WARNING: provisioning project build failed; logbook tests will skip/gate" >&2
+    fi
+  else
+    echo ">> WARNING: could not create per-cell DB ${CELL_DB}; logbook tests will skip/gate" >&2
+  fi
+fi
+
 START=$(date +%s)
 # MUST be `pytest tests/e2e/` (path), NEVER `-m e2e` (causes registry leaks).
 # --timeout (pytest-timeout): bound slow tests so a weak model can't stall the
@@ -194,5 +247,14 @@ print(f">> summary: passed={summary['passed']} failed={summary['failed']} "
       f"timeout={summary['timeout']} skipped={summary['skipped']} errors={summary['errors']} "
       f"total={summary['total']} wall={summary['total_duration_s']}s -> {jsonp}")
 PYEOF
+
+# --- per-cell cleanup ----------------------------------------------------
+# Drop the per-cell database and provisioning project so 21 cells don't leave
+# 21 stale DBs behind. Keep them for post-mortem with OSPREY_BENCH_KEEP_CELL_DB=1.
+if [ "${OSPREY_BENCH_KEEP_CELL_DB:-0}" != "1" ] && [ -n "${CELL_DB:-}" ]; then
+  "$PG_BIN/psql" -h localhost -p 5432 -U ariel -d postgres \
+    -c "DROP DATABASE IF EXISTS ${CELL_DB} WITH (FORCE);" >&2 2>/dev/null || true
+  [ -n "$PROV_DIR" ] && rm -rf "$PROV_DIR"
+fi
 
 exit 0

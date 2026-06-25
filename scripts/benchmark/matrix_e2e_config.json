@@ -29,6 +29,26 @@
     {
       "path": "tests/e2e/test_mcp_readiness.py",
       "reason": "Pure-logic unit tests for the MCP readiness barrier in sdk_helpers (no LLM, model-independent). Excluded so it doesn't inflate the per-model total/pass counts the dashboard expects."
+    },
+    {
+      "path": "tests/e2e/test_sdk_helpers.py",
+      "reason": "Pure-logic unit tests for the per-cell ARIEL DB-uri override in sdk_helpers (no LLM, model-independent). Excluded so it doesn't inflate the per-model total/pass counts the dashboard expects."
+    },
+    {
+      "path": "tests/e2e/test_dispatch_deploy.py",
+      "reason": "Docker-dependent deploy smoke; skips on bench box (no Docker). No LLM call."
+    },
+    {
+      "path": "tests/e2e/claude_code/test_proxy_full_chain_e2e.py",
+      "reason": "Proxy integration test requiring local Ollama; skips on bench box. Own proxy/CLI axis, not the model-under-test."
+    },
+    {
+      "path": "tests/e2e/claude_code/test_proxy_live_roundtrip_e2e.py",
+      "reason": "Proxy upstream roundtrip tests (parametrized ollama/cborg/openai); all skip on bench box. Own provider axis."
+    },
+    {
+      "path": "tests/e2e/claude_code/test_proxy_open_model_harness_e2e.py",
+      "reason": "Opt-in proxy harness tests requiring OSPREY_E2E_OLLAMA/OSPREY_E2E_CBORG flags; skip on bench box."
     }
   ],
   "baseline_expected_run_min": 15

@@ -25,6 +25,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Benchmark matrix runs now provision an isolated ARIEL database per model×seed cell, so concurrent cells can no longer drop each other's logbook embedding tables mid-test (the shared database made delegation and scenario tests fail intermittently) (#259).
 - Simulation `at_time` events now fire at the facility wall-clock time-of-day regardless of the deploy host's `$TZ` (previously placed in the box's local zone, so daily archiver events landed at the wrong time on non-UTC machines).
 - Seeded and ingested logbook entries now resolve their relative time-of-day in the facility timezone, so on a non-UTC facility the narrative lands at the same wall-clock time as the telemetry it describes (previously anchored in UTC, drifting hours from the archiver event).
 - The ARIEL web **API** now returns entry timestamps as facility-local ISO with an explicit offset, matching the MCP path (previously the web API emitted raw UTC while the agent saw facility-local). The web and MCP paths now share one rendering helper, and the MCP single-entry `get` is localized to match search/browse. (The web UI still renders in the viewer's browser timezone; the wire format now carries the facility offset.)

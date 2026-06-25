@@ -129,6 +129,37 @@ def ariel_db_skip_reason(uri: str | None = None) -> str | None:
     return None
 
 
+def _override_ariel_db_uri(project_dir: Path) -> None:
+    """Point a freshly built project at the per-cell ARIEL database.
+
+    When ``OSPREY_ARIEL_DB_URI`` is set (the matrix runner provisions one
+    database per (model, seed) cell), rewrite the rendered ``config.yml`` so the
+    agent's ARIEL MCP server *and* ``apply_scenarios`` both talk to the per-cell
+    DB instead of the shared default. This is what makes concurrent cells
+    isolated: a scenario test in one cell purges only its own DB and can no
+    longer drop another cell's ``text_embeddings_*`` tables mid-test.
+
+    The default URI is a hardcoded literal in the template (not a profile
+    variable), so ``--set ariel.database.uri`` would not reach the rendered
+    config — a post-build text substitution is the reliable hook.
+
+    Projects that do not use a real ARIEL Postgres DB (e.g. the ``hello_world``
+    preset renders ``ariel: {enabled: false}`` and no DB URI) have nothing to
+    redirect, so the default URI is simply absent and this is a no-op. Template
+    *drift* for ARIEL-using presets is caught loudly elsewhere: the matrix
+    runner's per-cell provisioning patches a freshly built control-assistant
+    config and asserts the default URI is present before it can seed the DB.
+    """
+    override = os.environ.get("OSPREY_ARIEL_DB_URI")
+    if not override or override == _DEFAULT_ARIEL_DB_URI:
+        return
+    config_path = project_dir / "config.yml"
+    text = config_path.read_text(encoding="utf-8")
+    if _DEFAULT_ARIEL_DB_URI not in text:
+        return
+    config_path.write_text(text.replace(_DEFAULT_ARIEL_DB_URI, override), encoding="utf-8")
+
+
 def init_project(
     tmp_path: Path,
     name: str,
@@ -196,6 +227,7 @@ def init_project(
     )
     project_dir = tmp_path / name
     assert project_dir.exists(), f"Project directory not created: {project_dir}"
+    _override_ariel_db_uri(project_dir)
     return project_dir
 
 
