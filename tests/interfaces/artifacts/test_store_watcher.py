@@ -83,7 +83,9 @@ class TestStoreWatcher:
         finally:
             watcher.stop()
 
-    @pytest.mark.flaky(reruns=2, reruns_delay=1)  # same inotify-miss risk as test_detects_new_artifact_entry
+    @pytest.mark.flaky(
+        reruns=2, reruns_delay=1
+    )  # same inotify-miss risk as test_detects_new_artifact_entry
     def test_detects_deleted_entry(self, tmp_path):
         """Removing an entry from the index externally triggers delete broadcast."""
         # Pre-populate with an artifact

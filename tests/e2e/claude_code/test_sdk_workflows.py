@@ -38,7 +38,9 @@ class TestClaudeCodeSDKIntegration:
     # Test 1 — Smoke test: single tool call observability
     # -------------------------------------------------------------------
 
-    @pytest.mark.flaky(reruns=2, reruns_delay=5)  # live SDK/provider smoke; absorb rare transient query errors
+    @pytest.mark.flaky(
+        reruns=2, reruns_delay=5
+    )  # live SDK/provider smoke; absorb rare transient query errors
     @pytest.mark.requires_api
     @pytest.mark.requires_als_apg
     @pytest.mark.asyncio
