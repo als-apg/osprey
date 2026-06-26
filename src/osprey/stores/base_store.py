@@ -13,9 +13,11 @@ from __future__ import annotations
 import fcntl
 import json
 import logging
+import os
+import tempfile
 import threading
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Generic, TypeVar
@@ -156,12 +158,38 @@ class BaseStore(Generic[T]):
                 pass
 
     def _save_index(self) -> None:
-        """Persist the index to disk."""
+        """Persist the index to disk atomically.
+
+        Serializes to a temporary file in the index directory, then
+        ``os.replace``s it over the canonical file. ``os.replace`` is atomic on
+        POSIX (same filesystem), so a concurrent reader — notably the gallery's
+        cross-process ``StoreIndexWatcher``, which reloads without taking the
+        file ``flock`` — always observes either the previous or the new complete
+        index, never a half-written truncation. Writing in place with
+        ``open(path, "w")`` left a window where a reader saw an empty/partial
+        file and logged "Could not load ... index; starting fresh", blanking the
+        gallery until the next refresh.
+        """
         with self._thread_lock:
             self._ensure_dirs()
             index_data = self._build_index_data()
-            with open(self._index_file, "w") as f:
-                json.dump(_sanitize_for_json(index_data), f, indent=2, default=str)
+            payload = _sanitize_for_json(index_data)
+            fd, tmp_name = tempfile.mkstemp(
+                dir=self._index_file.parent,
+                prefix=f".{self._index_file.name}.",
+                suffix=".tmp",
+            )
+            try:
+                with os.fdopen(fd, "w") as f:
+                    json.dump(payload, f, indent=2, default=str)
+                    f.flush()
+                    with suppress(OSError):
+                        os.fsync(f.fileno())
+                os.replace(tmp_name, self._index_file)
+            except BaseException:
+                with suppress(OSError):
+                    os.unlink(tmp_name)
+                raise
             self._index_mtime = self._index_file.stat().st_mtime
 
     def _build_index_data(self) -> dict:

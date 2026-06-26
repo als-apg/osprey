@@ -1054,3 +1054,46 @@ class TestArtifactStoreConcurrency:
         assert store.get_entry(target.id).pinned is True
         reloaded = ArtifactStore(workspace_root=tmp_path)
         assert reloaded.get_entry(target.id).pinned is True
+
+    def test_concurrent_reader_never_sees_truncated_index(self, tmp_path):
+        """A reader opening the index file mid-write must never see partial JSON.
+
+        The Artifact Gallery's ``StoreIndexWatcher`` reloads the index in a
+        *different process* from the MCP tool that writes it, and that reader
+        takes no file ``flock``. If ``_save_index()`` truncates the canonical
+        file in place (``open(path, "w")``), a reader landing mid-write reads
+        empty/partial bytes; the reload raises and is swallowed as "Could not
+        load artifacts index; starting fresh", blanking the gallery until the
+        next refresh. An atomic write (temp file + ``os.replace``) keeps the
+        canonical path valid at every instant, so the concurrent reader always
+        parses a complete index.
+        """
+        from osprey.stores import base_store
+        from osprey.stores.artifact_store import ArtifactStore
+
+        store = ArtifactStore(workspace_root=tmp_path)
+        store.save_object("# First", title="First")  # index file now exists and is valid
+
+        index_file = store._index_file
+        observed: dict[str, bool] = {}
+        real_dump = base_store.json.dump
+
+        def dump_observing_canonical(*args, **kwargs):
+            # Runs while the new index is being serialized. Simulate the
+            # watcher (in another process) reading the canonical path with no
+            # lock at exactly this instant.
+            try:
+                with open(index_file) as fh:
+                    json.load(fh)
+                observed["valid"] = True
+            except Exception:
+                observed["valid"] = False
+            return real_dump(*args, **kwargs)
+
+        with patch.object(base_store.json, "dump", dump_observing_canonical):
+            store.save_object("# Second", title="Second")
+
+        assert observed.get("valid") is True, (
+            "a concurrent reader saw a truncated/invalid index during "
+            "_save_index(); the write is not atomic"
+        )
