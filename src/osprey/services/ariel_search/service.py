@@ -92,26 +92,50 @@ class ARIELSearchService:
         return self._embedder
 
     @staticmethod
+    def _diagnostic_result(
+        *,
+        reasoning: str,
+        level: DiagnosticLevel,
+        source: str,
+        category: str,
+        message: str | None = None,
+        modes: tuple[SearchMode, ...] = (),
+    ) -> ARIELSearchResult:
+        """Build an empty result carrying a single diagnostic.
+
+        Shared shape for the non-result outcomes -- error, timeout, and
+        graceful degradation -- which all return no entries, one diagnostic,
+        and a human-readable ``reasoning``. ``message`` defaults to
+        ``reasoning`` when the diagnostic text matches the caller-facing text.
+        """
+        return ARIELSearchResult(
+            entries=(),
+            answer=None,
+            sources=(),
+            search_modes_used=modes,
+            reasoning=reasoning,
+            diagnostics=(
+                SearchDiagnostic(
+                    level=level,
+                    source=source,
+                    message=reasoning if message is None else message,
+                    category=category,
+                ),
+            ),
+        )
+
+    @staticmethod
     def _error_result(
         mode: SearchMode,
         source: str,
         error: Exception,
     ) -> ARIELSearchResult:
-        msg = f"{mode.value.capitalize()} search failed: {error}"
-        return ARIELSearchResult(
-            entries=(),
-            answer=None,
-            sources=(),
-            search_modes_used=(mode,),
-            reasoning=msg,
-            diagnostics=(
-                SearchDiagnostic(
-                    level=DiagnosticLevel.ERROR,
-                    source=source,
-                    message=msg,
-                    category="search",
-                ),
-            ),
+        return ARIELSearchService._diagnostic_result(
+            reasoning=f"{mode.value.capitalize()} search failed: {error}",
+            level=DiagnosticLevel.ERROR,
+            source=source,
+            category="search",
+            modes=(mode,),
         )
 
     async def _validate_search_model(self) -> None:
@@ -205,25 +229,15 @@ class ARIELSearchService:
 
         except SearchTimeoutError as e:
             # Return graceful timeout result instead of propagating exception
-            return ARIELSearchResult(
-                entries=(),
-                answer=None,
-                sources=(),
-                search_modes_used=(),
+            return self._diagnostic_result(
                 reasoning=(
                     f"Search timed out before completion. "
                     f"{e.operation} timeout ({e.timeout_seconds}s) exceeded"
                 ),
-                diagnostics=(
-                    SearchDiagnostic(
-                        level=DiagnosticLevel.ERROR,
-                        source="service.timeout",
-                        message=(
-                            f"Search timed out: {e.operation} exceeded {e.timeout_seconds}s limit"
-                        ),
-                        category="timeout",
-                    ),
-                ),
+                level=DiagnosticLevel.ERROR,
+                source="service.timeout",
+                category="timeout",
+                message=f"Search timed out: {e.operation} exceeded {e.timeout_seconds}s limit",
             )
         except ARIELException:
             raise
@@ -300,9 +314,20 @@ class ARIELSearchService:
             ARIELSearchResult with matching entries
         """
         if not self.config.is_search_module_enabled("semantic"):
-            raise ConfigurationError(
-                "Semantic search module not enabled",
-                config_key="search_modules.semantic.enabled",
+            # Contract: semantic search "degrades gracefully to keyword-only"
+            # when embeddings are unavailable -- whether disabled in config or
+            # auto-disabled at runtime by _validate_search_model (missing
+            # pgvector table / Ollama). Return a non-error result that steers
+            # the caller to keyword search rather than raising, which would
+            # otherwise surface as a hard MCP tool error (#276).
+            return self._diagnostic_result(
+                reasoning=(
+                    "Semantic search is unavailable (embeddings not configured). "
+                    "Use keyword search instead."
+                ),
+                level=DiagnosticLevel.INFO,
+                source="service.semantic",
+                category="search",
             )
 
         from osprey.services.ariel_search.search.semantic import semantic_search
