@@ -15,7 +15,6 @@ from osprey.deployment.compose_generator import (  # noqa: F401
     clean_deployment,
     find_existing_compose_files,
     find_service_config,
-    get_templates,
     prepare_compose_files,
     render_kernel_templates,
     render_template,

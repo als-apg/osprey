@@ -386,7 +386,7 @@ print(f"Container working directory: {{Path.cwd()}}")
                 try:
                     import plotly.graph_objects as _go
                     if isinstance(obj, _go.Figure):
-                        content = obj.to_html(include_plotlyjs="cdn", full_html=True).encode()
+                        content = obj.to_html(include_plotlyjs=False, full_html=True).encode()
                         detected_type = "plot_html"
                         filename = f"{art_id}_{_slug}.html"
                         mime_type = "text/html"

@@ -1,12 +1,15 @@
 """Build command — assemble a facility-specific assistant from a build profile.
 
-Reads a YAML build profile that specifies a base template, config overrides,
-file overlays, and MCP server definitions. Produces a standalone, self-contained
-project directory (wipe-and-rebuild safe).
+Reads a YAML build profile (or a bundled ``--preset``) that specifies a base
+template, config overrides, file overlays, and MCP server definitions.
+Produces a standalone, self-contained project directory (wipe-and-rebuild
+safe).
 
 Usage:
     osprey build my-assistant profile.yml
-    osprey build my-assistant profile.yml --force
+    osprey build my-assistant --preset hello-world
+    osprey build my-assistant --preset education -O override.yml --set model=claude-sonnet-4-6
+    osprey build --list-presets
 """
 
 from __future__ import annotations
@@ -30,9 +33,54 @@ from .templates.manager import TemplateManager
 logger = get_logger("build")
 
 
+def _list_presets_callback(ctx: click.Context, param: click.Parameter, value: bool) -> None:
+    """Eager --list-presets: print bundled presets and exit before any args parse."""
+    if not value or ctx.resilient_parsing:
+        return
+    from .build_profile import list_presets
+
+    for name in list_presets():
+        click.echo(name)
+    ctx.exit(0)
+
+
 @click.command()
-@click.argument("project_name")
-@click.argument("profile", type=click.Path(exists=True, dir_okay=False))
+@click.argument("project_name", required=False)
+@click.argument(
+    "profile",
+    required=False,
+    default=None,
+    type=click.Path(exists=False, dir_okay=False),
+)
+@click.option(
+    "--preset",
+    default=None,
+    metavar="NAME",
+    help="Use a bundled preset profile (see --list-presets).",
+)
+@click.option(
+    "--override",
+    "-O",
+    "overrides",
+    multiple=True,
+    type=click.Path(exists=False, dir_okay=False, path_type=Path),
+    help="Layer a YAML file on top of the base profile/preset (repeatable).",
+)
+@click.option(
+    "--set",
+    "set_pairs",
+    multiple=True,
+    metavar="KEY.PATH=VALUE",
+    help="Inline scalar/list override (repeatable). RHS parsed as YAML.",
+)
+@click.option(
+    "--list-presets",
+    is_flag=True,
+    is_eager=True,
+    expose_value=False,
+    callback=_list_presets_callback,
+    help="List bundled preset names and exit.",
+)
 @click.option(
     "--output-dir",
     "-o",
@@ -56,8 +104,11 @@ logger = get_logger("build")
     "build path differs from the runtime path, e.g. --runtime-root /app/als-assistant)",
 )
 def build(
-    project_name: str,
-    profile: str,
+    project_name: str | None,
+    profile: str | None,
+    preset: str | None,
+    overrides: tuple[Path, ...],
+    set_pairs: tuple[str, ...],
     output_dir: str,
     force: bool,
     stream: bool,
@@ -65,34 +116,57 @@ def build(
     skip_deps: bool,
     runtime_root: str | None,
 ) -> None:
-    """Build a facility-specific assistant from a profile.
+    """Build a facility-specific assistant from a profile or bundled preset.
 
     Assembles a standalone project by rendering a base template, applying
     config overrides, copying overlay files, and injecting MCP servers.
 
     PROJECT_NAME: Name of the project directory to create
 
-    PROFILE: Path to a YAML build profile
+    PROFILE: Optional path to a YAML build profile (mutually exclusive with --preset)
 
     Examples:
 
     \b
-      # Build from profile
+      # Build from a bundled preset
+      $ osprey build my-assistant --preset hello-world
+
+      # Build from a profile file
       $ osprey build als-test ~/profiles/als-dev.yml
 
-      # Force overwrite
-      $ osprey build als-test ~/profiles/als-dev.yml --force
+      # Layer overrides on top of a preset
+      $ osprey build als-test --preset control-assistant -O als-overrides.yml \\
+            --set model=claude-sonnet-4-6
+
+      # List available presets
+      $ osprey build --list-presets
     """
-    from .build_profile import load_profile
-    from .init_cmd import _clear_claude_code_project_state
+    from .build_profile import resolve_build_profile
+    from .project_utils import _clear_claude_code_project_state
+
+    if not project_name:
+        raise click.UsageError("PROJECT_NAME is required. Run 'osprey build --help' for usage.")
 
     logger.info("Building project: %s", project_name)
 
     try:
-        # 1. Load and validate profile
-        profile_path = Path(profile).resolve()
-        profile_dir = profile_path.parent
-        build_profile = load_profile(profile_path)
+        # 1. Resolve profile from any combination of preset / file / overlays.
+        #    resolve_build_profile() enforces mutual exclusion (preset XOR profile)
+        #    and merges layers in order: base -> override file(s) -> --set values.
+        profile_arg = Path(profile).resolve() if profile else None
+        try:
+            build_profile, profile_dir = resolve_build_profile(
+                profile_arg, preset, tuple(overrides), tuple(set_pairs)
+            )
+        except BuildProfileError as e:
+            # Mutual-exclusion / missing-input / unknown-preset errors are
+            # user errors, not bugs — promote to UsageError so the outer
+            # except chain produces exit code 2.
+            msg = str(e)
+            lower = msg.lower()
+            if "either" in lower or "not both" in lower or lower.startswith("unknown preset"):
+                raise click.UsageError(msg) from e
+            raise
 
         logger.info("  Profile: %s", build_profile.name)
         logger.info("  Data bundle: %s", build_profile.data_bundle)
@@ -114,6 +188,12 @@ def build(
                 total,
                 ", ".join(f"{len(v)} {k}" for k, v in artifacts.items()),
             )
+
+        # web_panels is validated at manifest load time (warn-only) — not file-backed,
+        # so it bypasses validate_artifacts. Flow it into the template context via the
+        # same dict the manager consumes.
+        if build_profile.web_panels:
+            artifacts["web_panels"] = list(build_profile.web_panels)
 
         # 1d. Check OSPREY version requirement
         if build_profile.requires_osprey_version:
@@ -188,8 +268,14 @@ def build(
         # 6d. Resolve python_env for template context
         python_env = build_profile.python_env or "project"
         if skip_deps:
-            # No venv created — use bare "python" resolved from PATH at runtime
-            resolved_python_env = "python"
+            # No venv created — pin to the python running osprey-build, which is
+            # guaranteed to have osprey importable (else this command couldn't
+            # run). Bare "python" gambles on PATH and breaks for subprocess
+            # contexts that don't inherit the venv's PATH (Claude Code SDK,
+            # containerized launchers).
+            import sys
+
+            resolved_python_env = sys.executable
         elif python_env == "project":
             resolved_python_env = str(project_path / ".venv" / "bin" / "python")
         elif python_env == "build":
@@ -210,7 +296,6 @@ def build(
             project_name=project_name,
             output_dir=output_path,
             data_bundle=build_profile.data_bundle,
-            registry_style="extend",
             context=context,
             force=True,  # Directory already exists from step 6b (venv created there)
             artifacts=artifacts or None,
@@ -265,8 +350,6 @@ def build(
         if build_profile.env.required or build_profile.env.defaults:
             _generate_env_template(project_path, build_profile.env)
 
-        # 15. (moved to step 6c — venv created before template rendering)
-
         # 16. Generate manifest
         manifest_context = {
             "default_provider": build_profile.provider or "anthropic",
@@ -274,13 +357,25 @@ def build(
         }
         if build_profile.channel_finder_mode:
             manifest_context["channel_finder_mode"] = build_profile.channel_finder_mode
+        # Carry the invocation source forward so build_reproducible_command
+        # renders the matching --preset or positional form (C12).
+        if preset:
+            from .build_profile import _normalize_preset_name
+
+            manifest_preset = _normalize_preset_name(preset)
+            manifest_profile_path = None
+        else:
+            manifest_preset = None
+            manifest_profile_path = profile  # the original CLI string
+
         manager.generate_manifest(
             project_dir=project_path,
             project_name=project_name,
             data_bundle=build_profile.data_bundle,
-            registry_style="extend",
             context=manifest_context,
             artifacts=artifacts or None,
+            preset_name=manifest_preset,
+            profile_path=manifest_profile_path,
         )
 
         # 16b. Re-render Claude Code files with complete config
@@ -319,6 +414,8 @@ def build(
         logger.info("✓ Project built successfully at: %s", project_path)
 
     except click.Abort:
+        raise
+    except click.UsageError:
         raise
     except BuildProfileError as e:
         logger.error("✗ Build error: %s", e)
@@ -492,8 +589,8 @@ def _run_lifecycle_phase(
                 )
                 assert proc.stdout is not None  # noqa: S101
 
-                def _drain_stdout() -> None:
-                    for line in proc.stdout:  # type: ignore[union-attr]
+                def _drain_stdout(stdout=proc.stdout) -> None:
+                    for line in stdout:
                         print(f"    {line}", end="", flush=True)
 
                 reader = threading.Thread(target=_drain_stdout, daemon=True)
@@ -578,7 +675,7 @@ def _run_lifecycle_phase(
             if abort_on_failure:
                 logger.error("  ✗ %s", msg)
                 _format_junit_summary(project_path / "check_results.xml")
-                raise BuildProfileError(msg)
+                raise BuildProfileError(msg) from None
             else:
                 logger.warning("  ! %s", msg)
             _format_junit_summary(project_path / "check_results.xml")
@@ -631,7 +728,7 @@ def _create_project_venv(project_path: Path, profile: Any) -> None:
     The ``osprey_install`` profile field controls where osprey comes from:
       - ``"local"`` (default): install from the source tree running this build
       - ``"pip"``: install ``osprey-framework`` from PyPI
-      - anything else: treated as a PEP 508 spec (e.g. ``"osprey-framework==0.11.5"``)
+      - anything else: treated as a PEP 508 spec (e.g. ``"osprey-framework==2026.5.0"``)
     """
     import sys
 
@@ -850,10 +947,6 @@ def _copy_service_templates(project_path: Path) -> int:
     with open(config_path) as fh:
         config = yaml.load(fh)
 
-    deployed = config.get("deployed_services", [])
-    if not deployed:
-        return 0
-
     # Locate the package's service templates directory
     try:
         import osprey.templates
@@ -866,14 +959,21 @@ def _copy_service_templates(project_path: Path) -> int:
         logger.warning("Service templates directory not found — skipping")
         return 0
 
-    services_config = config.get("services", {})
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
 
-    # Copy the root services compose template (shared network definition)
+    # Always copy the root compose template so `osprey deploy up` works even
+    # for presets with no deployed_services (the renderer references it
+    # unconditionally; without it deploy fails with TemplateNotFound).
     root_template = pkg_services / "docker-compose.yml.j2"
     if root_template.exists():
         shutil.copy2(root_template, dest_services_root / "docker-compose.yml.j2")
+
+    deployed = config.get("deployed_services", [])
+    if not deployed:
+        return 0
+
+    services_config = config.get("services", {})
 
     count = 0
     for service_name in deployed:

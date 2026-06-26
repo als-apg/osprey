@@ -4,7 +4,7 @@ MCP Servers
 OSPREY exposes control system operations, data retrieval, and workspace
 management as tools through `FastMCP <https://github.com/jlowin/fastmcp>`_
 servers. Claude Code discovers servers from ``.mcp.json`` at startup and calls
-tools via stdio JSON-RPC. There are **8 in-tree MCP servers**; build profiles
+tools via stdio JSON-RPC. There are **7 in-tree MCP servers**; build profiles
 can inject additional servers beyond the core set below.
 
 

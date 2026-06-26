@@ -22,32 +22,12 @@ control system channels using Claude Code.
 Step 1: Create the Project
 ---------------------------
 
-.. tab-set::
+Create a ready-to-run project in one command:
 
-   .. tab-item:: Quick Start (Recommended)
+.. code-block:: bash
 
-      Create a ready-to-run project in one command:
-
-      .. code-block:: bash
-
-         osprey init my-first-agent --quick hello-world
-         cd my-first-agent
-
-   .. tab-item:: Profile-Based Workflow
-
-      Create a project from an example profile, customize, then build:
-
-      .. code-block:: bash
-
-         osprey init my-project --example hello-world
-
-      Edit ``my-project/profile.yml`` to adjust settings (provider, model,
-      control system type), then build the workspace:
-
-      .. code-block:: bash
-
-         cd my-project
-         osprey build
+   osprey build my-first-agent --preset hello-world
+   cd my-first-agent
 
 .. note::
 
@@ -111,7 +91,7 @@ responses. Edit this file to customize your agent's personality and behavior.
 
 .. note::
 
-   The ``--quick hello-world`` profile also installs Claude Code **hooks** for
+   The ``hello_world`` template also installs Claude Code **hooks** for
    safety enforcement. These hooks run automatically before each tool call to
    check limits and require human approval for writes. You don't need to
    configure them manually.

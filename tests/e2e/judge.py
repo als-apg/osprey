@@ -42,7 +42,7 @@ class LLMJudge:
     using an LLM to make flexible, context-aware judgments.
 
     Example:
-        >>> judge = LLMJudge(provider="cborg", model="anthropic/claude-haiku")
+        >>> judge = LLMJudge(provider="als-apg", model="claude-haiku-4-5-20251001")
         >>> evaluation = await judge.evaluate(
         ...     result=workflow_result,
         ...     expectations="Should generate two plots and complete without errors"
@@ -51,7 +51,10 @@ class LLMJudge:
     """
 
     def __init__(
-        self, provider: str = "cborg", model: str = "anthropic/claude-haiku", verbose: bool = False
+        self,
+        provider: str = "als-apg",
+        model: str = "claude-haiku-4-5-20251001",
+        verbose: bool = False,
     ):
         """Initialize the LLM judge.
 

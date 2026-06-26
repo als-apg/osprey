@@ -3,7 +3,7 @@ name: Release to PyPI
 on:
   push:
     tags:
-      - 'v*.*.*'  # Triggers on version tags like v0.9.8
+      - 'v*.*.*'  # Triggers on version tags like v2026.5.0
 
 permissions:
   contents: write  # Required for creating GitHub releases
@@ -55,9 +55,14 @@ jobs:
         name: python-package-distributions
         path: dist/
 
+  validate-install-docs:
+    name: Validate Install Docs
+    needs: [build]
+    uses: ./.github/workflows/validate-install-docs.yml
+
   publish-to-pypi:
     name: Publish to PyPI
-    needs: [build]
+    needs: [build, validate-install-docs]
     runs-on: ubuntu-latest
     environment:
       name: pypi

@@ -13,7 +13,6 @@ from osprey.cli.config_cmd import (
     export,
     set_control_system,
     set_epics_gateway,
-    set_models,
     show,
 )
 
@@ -230,77 +229,6 @@ class TestConfigSetEpicsGatewayCommand:
             # Should fail without address and port
             assert result.exit_code == 1
             assert "requires" in result.output.lower() or "❌" in result.output
-
-
-class TestConfigSetModelsCommand:
-    """Test config set-models subcommand."""
-
-    def test_set_models_help(self, cli_runner):
-        """Verify set-models command help is displayed."""
-        result = cli_runner.invoke(set_models, ["--help"])
-
-        assert result.exit_code == 0
-        assert "model" in result.output.lower() or "AI" in result.output
-
-    def test_set_models_with_provider_and_model(self, cli_runner, tmp_path):
-        """Test setting models with provider and model specified."""
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("models:\n  orchestrator: {}\n")
-
-        with patch("osprey.cli.project_utils.resolve_config_path") as mock_resolve:
-            with patch("osprey.cli.interactive_menu.get_provider_metadata") as mock_metadata:
-                with patch("osprey.utils.config_writer.update_all_models") as mock_update:
-                    mock_resolve.return_value = str(config_file)
-                    mock_metadata.return_value = {
-                        "anthropic": {"models": ["claude-sonnet-4", "claude-haiku"]}
-                    }
-                    mock_update.return_value = ("new content", "preview")
-
-                    result = cli_runner.invoke(
-                        set_models, ["--provider", "anthropic", "--model", "claude-sonnet-4"]
-                    )
-
-                    # Should call update function
-                    assert mock_update.called
-                    assert result.exit_code == 0
-
-    def test_set_models_without_options_launches_interactive(self, cli_runner, tmp_path):
-        """Test that set-models without options launches interactive mode."""
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("models: {}\n")
-
-        with patch("osprey.cli.project_utils.resolve_config_path") as mock_resolve:
-            with patch("osprey.cli.interactive_menu.handle_set_models") as mock_interactive:
-                mock_resolve.return_value = str(config_file)
-
-                result = cli_runner.invoke(set_models, [])
-
-                # Should call interactive handler
-                assert mock_interactive.called
-                assert result.exit_code == 0
-
-    def test_set_models_invalid_provider(self, cli_runner, tmp_path):
-        """Test that invalid provider is rejected."""
-        config_file = tmp_path / "config.yml"
-        config_file.write_text("models: {}\n")
-
-        with patch("osprey.cli.project_utils.resolve_config_path") as mock_resolve:
-            with patch("osprey.cli.interactive_menu.get_provider_metadata") as mock_metadata:
-                mock_resolve.return_value = str(config_file)
-                mock_metadata.return_value = {"anthropic": {"models": []}}
-
-                result = cli_runner.invoke(
-                    set_models, ["--provider", "invalid", "--model", "some-model"]
-                )
-
-                # Should fail (exit code 2 is Click parameter error, 1 is abort)
-                assert result.exit_code in [1, 2]
-                # May error during parameter validation or during execution
-                assert (
-                    "Invalid" in result.output
-                    or "❌" in result.output
-                    or "not found" in result.output.lower()
-                )
 
 
 class TestConfigErrorHandling:

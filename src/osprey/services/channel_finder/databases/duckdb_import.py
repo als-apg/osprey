@@ -19,8 +19,7 @@ import argparse
 import json
 import logging
 import os
-import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
@@ -129,7 +128,7 @@ def _import_families(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) ->
 
 def _import_channels(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) -> int:
     """Import channels from the flattened channel_map. Returns row count."""
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     # Only delete MML-sourced rows, preserving runtime additions
     con.execute("DELETE FROM channels WHERE source = 'mml'")
@@ -146,20 +145,22 @@ def _import_channels(con: duckdb.DuckDBPyConnection, db: MiddleLayerDatabase) ->
         if isinstance(member_of, list):
             member_of = ", ".join(str(m) for m in member_of)
 
-        rows.append((
-            ch_name,
-            meta.get("system", ""),
-            meta.get("family", ""),
-            meta.get("field", ""),
-            subfield,
-            meta.get("Description", meta.get("description", "")),
-            meta.get("Units", meta.get("HWUnits", "")),
-            meta.get("DataType", ""),
-            meta.get("Mode", ""),
-            member_of,
-            "mml",
-            now,
-        ))
+        rows.append(
+            (
+                ch_name,
+                meta.get("system", ""),
+                meta.get("family", ""),
+                meta.get("field", ""),
+                subfield,
+                meta.get("Description", meta.get("description", "")),
+                meta.get("Units", meta.get("HWUnits", "")),
+                meta.get("DataType", ""),
+                meta.get("Mode", ""),
+                member_of,
+                "mml",
+                now,
+            )
+        )
 
     if rows:
         con.executemany(
@@ -260,15 +261,20 @@ def import_to_duckdb(json_path: str, output_path: str) -> dict:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Import Middle Layer JSON into DuckDB",
     )
     parser.add_argument(
-        "--json", required=True, help="Path to middle_layer.json",
+        "--json",
+        required=True,
+        help="Path to middle_layer.json",
     )
     parser.add_argument(
-        "--output", required=True, help="Path for output .duckdb file",
+        "--output",
+        required=True,
+        help="Path for output .duckdb file",
     )
     args = parser.parse_args()
 

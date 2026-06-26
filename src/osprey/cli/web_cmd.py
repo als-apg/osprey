@@ -61,9 +61,32 @@ def _write_pid(project_dir: Path, pid: int) -> None:
     (project_dir / PID_FILE).write_text(str(pid))
 
 
-def _wait_for_server(
-    host: str, port: int, proc: subprocess.Popen, timeout: float = 10.0
-) -> bool:
+def _preflight_vendor_check() -> None:
+    """In offline mode, fail fast if ``static/vendor/`` assets are missing.
+
+    Only relevant when ``OSPREY_OFFLINE=1`` (or ``offline: true`` in
+    ``config.yml``). In default CDN mode there's nothing local to verify —
+    the browser loads assets straight from jsDelivr / cdn.plot.ly.
+    """
+    from osprey.interfaces.vendor import is_offline, verify_all
+
+    if not is_offline():
+        return
+
+    _, problems = verify_all()
+    if not problems:
+        return
+
+    click.echo("ERROR: offline mode is on but vendor assets are missing or corrupt:", err=True)
+    for p in problems[:5]:
+        click.echo(f"  {p}", err=True)
+    if len(problems) > 5:
+        click.echo(f"  ... and {len(problems) - 5} more", err=True)
+    click.echo("\nFix:  uv run osprey vendor fetch", err=True)
+    raise SystemExit(1)
+
+
+def _wait_for_server(host: str, port: int, proc: subprocess.Popen, timeout: float = 10.0) -> bool:
     """Poll server port until connection succeeds or timeout.
 
     Also checks proc.poll() each iteration to detect early crashes
@@ -127,6 +150,8 @@ def web(
     if ctx.invoked_subcommand is not None:
         return
 
+    _preflight_vendor_check()
+
     wt_config = get_config_value("web_terminal", {})
     host = host or wt_config.get("host", "127.0.0.1")
     port = port or wt_config.get("port", 8087)
@@ -137,7 +162,7 @@ def web(
         shell = resolve_shell_command(shell_raw)
     except FileNotFoundError as e:
         click.echo(f"ERROR: {e}", err=True)
-        raise SystemExit(1)
+        raise SystemExit(1) from e
 
     if detach:
         _start_detached(host, port, shell, project)
@@ -192,9 +217,7 @@ def web(
         click.echo("\nShutting down...")
 
 
-def _start_detached(
-    host: str, port: int, shell: str | None, project: str | None
-) -> None:
+def _start_detached(host: str, port: int, shell: str | None, project: str | None) -> None:
     """Spawn the web server as a background process."""
     project_dir = Path(project).resolve() if project else Path.cwd()
 

@@ -7,6 +7,7 @@ overlay files, config overrides, and MCP server definitions.
 
 from __future__ import annotations
 
+import importlib.resources
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -178,7 +179,7 @@ class BuildProfile:
     dependencies: list[str] = field(default_factory=list)
     requires_osprey_version: str | None = None  # PEP 440 specifier, e.g. ">=0.12.0"
     osprey_install: str = (
-        "local"  # "local" | "pip" | PEP 508 spec (e.g. "osprey-framework==0.11.5")
+        "local"  # "local" | "pip" | PEP 508 spec (e.g. "osprey-framework==2026.5.0")
     )
     python_env: str = "project"  # "project" | "build" | absolute path to Python executable
     hooks: list[str] = field(default_factory=list)
@@ -195,19 +196,6 @@ class BuildProfile:
 
         if not self.name:
             errors.append("Profile 'name' is required")
-
-        # Validate data_bundle names a valid bundle directory
-        from importlib.resources import files
-
-        bundles_path = Path(str(files("osprey").joinpath("templates/apps")))
-        if not (bundles_path / self.data_bundle).is_dir():
-            valid = sorted(
-                p.name for p in bundles_path.iterdir() if p.is_dir() and not p.name.startswith("_")
-            )
-            errors.append(
-                f"data_bundle '{self.data_bundle}' not found in templates/apps"
-                f" (valid: {', '.join(valid)})"
-            )
 
         # Validate overlay source paths exist
         for src, _dst in self.overlay.items():
@@ -285,6 +273,22 @@ class BuildProfile:
                     f"'{self.requires_osprey_version}' (must be PEP 440, e.g. '>=0.12.0')"
                 )
 
+        # Validate web_panels: each entry must either be a built-in (rendered
+        # by the framework) or a custom panel backed by a ``web.panels.<id>.url``
+        # config override (rendered as an iframe by the web terminal). Catches
+        # typos in shipped presets and missing URL backing for facility panels.
+        from osprey.profiles.web_panels import BUILTIN_PANELS
+
+        for panel in self.web_panels:
+            if panel in BUILTIN_PANELS:
+                continue
+            url_key = f"web.panels.{panel}.url"
+            if url_key not in self.config:
+                errors.append(
+                    f"Unknown web_panel {panel!r}: not in BUILTIN_PANELS "
+                    f"({sorted(BUILTIN_PANELS)}) and no '{url_key}' config override"
+                )
+
         # Validate custom category definitions
         import re
 
@@ -336,8 +340,58 @@ def load_profile(path: Path) -> BuildProfile:
     return profile
 
 
+# Top-level keys recognized by BuildProfile. Anything else is almost certainly
+# a typo of one of these (e.g. mcp_server vs mcp_servers).
+_KNOWN_PROFILE_KEYS = frozenset(
+    {
+        "name",
+        "extends",
+        "data_bundle",
+        "provider",
+        "model",
+        "channel_finder_mode",
+        "config",
+        "overlay",
+        "mcp_servers",
+        "services",
+        "lifecycle",
+        "env",
+        "dependencies",
+        "requires_osprey_version",
+        "osprey_install",
+        "python_env",
+        "hooks",
+        "rules",
+        "skills",
+        "agents",
+        "output_styles",
+        "web_panels",
+        "categories",
+    }
+)
+
+
+def _warn_unknown_keys(raw: dict[str, Any]) -> None:
+    """Warn (don't abort) on unknown top-level profile keys.
+
+    Lenient first; promote to a hard error after one release cycle if it
+    stays clean. See cleanup item C11.
+    """
+    import logging
+
+    logger = logging.getLogger("osprey.cli.build_profile")
+    unknown = sorted(set(raw.keys()) - _KNOWN_PROFILE_KEYS)
+    for key in unknown:
+        logger.warning(
+            "Unknown profile key %r — ignored. Did you mean one of: %s?",
+            key,
+            ", ".join(sorted(_KNOWN_PROFILE_KEYS)),
+        )
+
+
 def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     """Parse raw YAML dict into a BuildProfile."""
+    _warn_unknown_keys(raw)
     mcp_servers: dict[str, McpServerDef] = {}
     for name, sdef in raw.get("mcp_servers", {}).items():
         if not isinstance(sdef, dict):
@@ -411,3 +465,154 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         web_panels=raw.get("web_panels", []),
         categories=raw.get("categories", {}),
     )
+
+
+# ---------------------------------------------------------------------------
+# Bundled-preset helpers
+# ---------------------------------------------------------------------------
+
+
+_PRESETS_PACKAGE = "osprey.profiles.presets"
+
+
+def _normalize_preset_name(name: str) -> str:
+    """Normalize CLI preset spelling to the on-disk filename form.
+
+    CLI accepts both ``control-assistant`` and ``control_assistant``;
+    bundled YAML files are hyphenated.
+    """
+    return name.replace("_", "-")
+
+
+def list_presets() -> list[str]:
+    """Return the sorted list of bundled preset names (hyphenated)."""
+    presets_root = importlib.resources.files(_PRESETS_PACKAGE)
+    return sorted(
+        p.name.removesuffix(".yml")
+        for p in presets_root.iterdir()
+        if p.name.endswith(".yml") and not p.name.startswith("_")
+    )
+
+
+def _load_preset_raw(name: str) -> tuple[dict[str, Any], Path]:
+    """Read a bundled preset YAML; return (raw_dict, preset_file_path).
+
+    Raises ``BuildProfileError`` if the preset is unknown or invalid YAML.
+    """
+    normalized = _normalize_preset_name(name)
+    presets_root = importlib.resources.files(_PRESETS_PACKAGE)
+    presets_dir = Path(str(presets_root))
+    target = presets_dir / f"{normalized}.yml"
+    if not target.exists():
+        available = ", ".join(list_presets()) or "(none)"
+        raise BuildProfileError(f"Unknown preset {name!r}. Available: {available}")
+    try:
+        raw = yaml.safe_load(target.read_text(encoding="utf-8"))
+    except yaml.YAMLError as e:
+        raise BuildProfileError(f"Invalid YAML in preset {name!r}: {e}") from e
+    if not isinstance(raw, dict):
+        raise BuildProfileError(f"Preset {name!r} must be a YAML mapping")
+    return raw, target
+
+
+def _parse_set_pairs(pairs: tuple[str, ...]) -> dict[str, Any]:
+    """Parse ``--set KEY.PATH=VALUE`` pairs into a nested dict.
+
+    The right-hand side is parsed with ``yaml.safe_load`` so callers get
+    type coercion for free: ``true``/``false`` -> bool, ``[a,b]`` -> list,
+    bare ints/floats -> numeric, anything else -> string.
+    """
+    result: dict[str, Any] = {}
+    for pair in pairs:
+        if "=" not in pair:
+            raise BuildProfileError(f"--set expects KEY=VALUE (with '='), got: {pair!r}")
+        key, _, raw_value = pair.partition("=")
+        key = key.strip()
+        if not key:
+            raise BuildProfileError(f"--set key must be non-empty: {pair!r}")
+        try:
+            value = yaml.safe_load(raw_value)
+        except yaml.YAMLError as e:
+            raise BuildProfileError(f"--set value for {key!r} is not valid YAML: {e}") from e
+        target: dict[str, Any] = result
+        parts = key.split(".")
+        for part in parts[:-1]:
+            existing = target.get(part)
+            if existing is None:
+                existing = {}
+                target[part] = existing
+            elif not isinstance(existing, dict):
+                raise BuildProfileError(
+                    f"--set key {key!r} conflicts with earlier scalar at {part!r}"
+                )
+            target = existing
+        target[parts[-1]] = value
+    return result
+
+
+def resolve_build_profile(
+    profile_path: Path | None,
+    preset: str | None,
+    overrides: tuple[Path, ...] = (),
+    set_pairs: tuple[str, ...] = (),
+) -> tuple[BuildProfile, Path]:
+    """Resolve a build profile from any combination of preset / file / overlays.
+
+    Mode is determined by which of ``profile_path`` and ``preset`` is given;
+    they are mutually exclusive and exactly one is required.
+
+    Layers are applied in order: base -> override file(s) -> --set values.
+    All layers are merged via :func:`_deep_merge` (string lists union-dedup,
+    other lists concatenate) before ``extends:`` is resolved.
+
+    Returns:
+        ``(profile, profile_dir)``. ``profile_dir`` anchors overlay/services
+        path lookups in :meth:`BuildProfile.validate`. For preset mode it is
+        the bundled ``profiles/presets/`` package directory.
+
+    Raises:
+        BuildProfileError: For mutual-exclusion violations, missing files,
+        invalid YAML, or validation failures.
+    """
+    if profile_path is not None and preset is not None:
+        raise BuildProfileError("Pass either a profile path or --preset, not both.")
+    if profile_path is None and preset is None:
+        raise BuildProfileError("Either a profile path or --preset is required.")
+
+    if preset is not None:
+        raw, base_anchor = _load_preset_raw(preset)
+        profile_dir = base_anchor.parent
+    else:
+        assert profile_path is not None  # narrows for type-checkers
+        if not profile_path.exists():
+            raise BuildProfileError(f"Profile not found: {profile_path}")
+        try:
+            raw = yaml.safe_load(profile_path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as e:
+            raise BuildProfileError(f"Invalid YAML in {profile_path}: {e}") from e
+        if not isinstance(raw, dict):
+            raise BuildProfileError(f"Profile must be a YAML mapping, got {type(raw).__name__}")
+        base_anchor = profile_path.resolve()
+        profile_dir = profile_path.parent
+
+    for override_path in overrides:
+        if not override_path.exists():
+            raise BuildProfileError(f"Override not found: {override_path}")
+        try:
+            override_raw = yaml.safe_load(override_path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as e:
+            raise BuildProfileError(f"Invalid YAML in {override_path}: {e}") from e
+        if override_raw is None:
+            continue
+        if not isinstance(override_raw, dict):
+            raise BuildProfileError(f"Override must be a YAML mapping: {override_path}")
+        raw = _deep_merge(raw, override_raw)
+
+    if set_pairs:
+        raw = _deep_merge(raw, _parse_set_pairs(set_pairs))
+
+    raw = _resolve_extends(raw, base_anchor)
+
+    profile = _parse_profile(raw)
+    profile.validate(profile_dir)
+    return profile, profile_dir

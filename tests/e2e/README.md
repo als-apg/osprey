@@ -96,6 +96,35 @@ Tests hierarchical channel finder performance and accuracy:
 - Benchmark validation against known test datasets
 - Performance metrics for large-scale channel queries
 
+## Local-only tests (skipped in CI)
+
+The default GitHub Actions runner has Docker, Python, and ``ALS_APG_API_KEY``
+— but no Postgres, no Ollama, no Confluence access, and no SQLite-backed
+research databases. These tests skip cleanly in CI but are runnable
+locally with the right backend stack:
+
+| File | Skip reason in CI | Local requirements |
+| --- | --- | --- |
+| ``claude_code/test_agent_delegation.py`` | All 6 sub-agents need backend services | ARIEL Postgres @ 5432, AccelPapers SQLite (``$ACCELPAPERS_DB``), DePlot @ 8095, Confluence (``$CONFLUENCE_ACCESS_TOKEN``), MML SQLite (``$MATLAB_MML_DB``) |
+| ``test_ariel_search.py`` | RAG sub-tests need Ollama embeddings | Postgres @ 5433, Ollama @ 11434 with ``nomic-embed-text`` pulled |
+| ``test_ariel_e2e_pipeline.py`` | Postgres ingestion pipeline | Postgres @ 5432/5433 (config-dependent) |
+
+Each file's docstring lists the precise requirements; missing backends
+yield a `skipped` not a `failed`. To run them locally, bring up the
+relevant service via the OSPREY ``docker-compose`` services tree
+(``services/postgres``, etc.) and re-run with ``pytest tests/e2e/<file> -v``.
+
+## Per-PR LLM cost expectation
+
+The ``e2e-tests`` job is now a hard-fail gate (was advisory through
+2026-04). Per PR, expect ~90 channel-finder MCP queries from
+``test_channel_finder_mcp_benchmarks.py`` (30 queries × 3 pipelines:
+hierarchical, middle-layer, in-context) plus ~14 SDK-driven safety
+scenario runs. At als-apg/haiku rates the channel-finder pass is the
+dominant cost; the safety pass is cheap. Channel-finder thresholds were
+re-tuned against als-apg/haiku in 2026-04 — if the model or provider
+changes, re-tune (see test docstrings for the calibration date stamp).
+
 ## Configuration
 
 ### API Keys
@@ -103,7 +132,10 @@ Tests hierarchical channel finder performance and accuracy:
 E2E tests require API access. Set the appropriate environment variable:
 
 ```bash
-# For CBORG (default)
+# For ALS-APG (CI default — AWS Bedrock proxy reachable from anywhere)
+export ALS_APG_API_KEY="your-key"
+
+# For CBORG (local dev only — IP allowlist blocks GitHub Actions runners)
 export CBORG_API_KEY="your-key"
 
 # Or for Anthropic
@@ -118,8 +150,7 @@ Some E2E tests require additional dependencies:
 # For MCP capability generation tests
 pip install fastmcp
 
-# Claude Code generator is included in core (v0.9.6+)
-# No additional installation needed
+# Claude Code generator is included in core — no additional installation needed
 ```
 
 ### Test Options
@@ -144,7 +175,7 @@ import pytest
 
 @pytest.mark.e2e
 @pytest.mark.slow
-@pytest.mark.requires_cborg
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_my_workflow(e2e_project_factory):
     """Test description."""
@@ -191,7 +222,7 @@ jobs:
     steps:
       - run: pytest tests/e2e/ -v
     env:
-      CBORG_API_KEY: ${{ secrets.CBORG_API_KEY }}
+      ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
 ```
 
 ## Troubleshooting

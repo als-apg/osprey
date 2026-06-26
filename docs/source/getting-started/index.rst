@@ -52,7 +52,7 @@ By following this comprehensive learning path, you'll have:
       **Outcome:**
       Prepared mind for your Osprey journey
 
-.. grid:: 1 1 3 3
+.. grid:: 1 1 2 2
    :gutter: 3
 
    .. grid-item-card:: 🔧 2. Hello World
@@ -65,7 +65,17 @@ By following this comprehensive learning path, you'll have:
       **Outcome:**
       Your first working agent
 
-   .. grid-item-card:: 🎛️ 3. Control Systems
+   .. grid-item-card:: 🎯 3. Guided Build Interview
+      :link: osprey-build-interview
+      :link-type: doc
+      :class-header: bg-success text-white
+
+      Generate a project profile for your own detector, beamline, or accelerator subsystem through a guided conversation.
+
+      **Outcome:**
+      A tailored project for your facility
+
+   .. grid-item-card:: 🎛️ 4. Control Systems
       :link: control-assistant
       :link-type: doc
       :class-header: bg-info text-white
@@ -75,7 +85,7 @@ By following this comprehensive learning path, you'll have:
       **Outcome:**
       Enterprise integration patterns
 
-   .. grid-item-card:: 💡 4. How-To Guides
+   .. grid-item-card:: 💡 5. How-To Guides
       :link: ../how-to/index
       :link-type: doc
       :class-header: bg-primary text-white
@@ -105,4 +115,5 @@ By following this comprehensive learning path, you'll have:
    installation
    conceptual-tutorial
    hello-world-tutorial
+   osprey-build-interview
    control-assistant

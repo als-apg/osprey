@@ -355,4 +355,3 @@ See Also
 
 :doc:`/cli-reference/index`
     CLI reference for ``osprey ariel web`` and all other ARIEL commands
-

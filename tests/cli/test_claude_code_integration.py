@@ -1,6 +1,6 @@
 """Tests for Claude Code integration file generation.
 
-Tests that `osprey init` generates Claude Code integration files
+Tests that ``osprey build`` generates Claude Code integration files
 (.mcp.json, CLAUDE.md, .claude/ hooks).
 """
 
@@ -11,8 +11,10 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from osprey.cli.init_cmd import init
+from osprey.cli.build_cmd import build
 from osprey.cli.templates.manager import TemplateManager
+
+_BUILD_FLAGS = ["--preset", "hello-world", "--skip-deps", "--skip-lifecycle"]
 
 
 class TestClaudeCodeIntegrationDefault:
@@ -255,26 +257,26 @@ class TestClaudeCodeGitignore:
 class TestClaudeCodeCLI:
     """Test CLI Claude Code generation."""
 
-    def test_default_init_includes_claude_hint(self, tmp_path):
-        """Default init shows 'claude' in next steps."""
+    def test_build_logs_claude_code_creation(self, tmp_path):
+        """osprey build logs that it created Claude Code integration files."""
         runner = CliRunner()
         result = runner.invoke(
-            init,
-            ["cc-project", "--output-dir", str(tmp_path)],
+            build,
+            ["cc-project", *_BUILD_FLAGS, "--output-dir", str(tmp_path)],
         )
 
-        assert result.exit_code == 0
-        assert "claude" in result.output
+        assert result.exit_code == 0, result.output
+        assert "Claude Code integration file" in result.output
 
-    def test_init_always_creates_claude_code_files(self, tmp_path):
-        """Init always generates Claude Code integration files."""
+    def test_build_always_creates_claude_code_files(self, tmp_path):
+        """osprey build always generates Claude Code integration files."""
         runner = CliRunner()
         result = runner.invoke(
-            init,
-            ["cc-full-project", "--output-dir", str(tmp_path)],
+            build,
+            ["cc-full-project", *_BUILD_FLAGS, "--output-dir", str(tmp_path)],
         )
 
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
         project_dir = tmp_path / "cc-full-project"
         assert (project_dir / ".mcp.json").exists()
         assert (project_dir / "CLAUDE.md").exists()
@@ -285,24 +287,24 @@ class TestClaudeCodeManifest:
     """Test that manifest tracks settings."""
 
     def test_manifest_reproducible_command(self, tmp_path):
-        """Default manifest reproducible_command uses init command."""
+        """Manifest reproducible_command uses the current ``osprey build`` form."""
         runner = CliRunner()
         runner.invoke(
-            init,
-            ["manifest-default", "--output-dir", str(tmp_path)],
+            build,
+            ["manifest-default", *_BUILD_FLAGS, "--output-dir", str(tmp_path)],
         )
 
         manifest_path = tmp_path / "manifest-default" / ".osprey-manifest.json"
         manifest = json.loads(manifest_path.read_text())
-        assert manifest["reproducible_command"].startswith("osprey init ")
-        assert "--no-claude-code" not in manifest["reproducible_command"]
+        assert manifest["reproducible_command"].startswith("osprey build ")
+        assert "--preset" in manifest["reproducible_command"]
 
     def test_claude_code_files_in_manifest_checksums(self, tmp_path):
         """Claude Code files appear in manifest checksums."""
         runner = CliRunner()
         runner.invoke(
-            init,
-            ["checksum-test", "--output-dir", str(tmp_path)],
+            build,
+            ["checksum-test", *_BUILD_FLAGS, "--output-dir", str(tmp_path)],
         )
 
         manifest_path = tmp_path / "checksum-test" / ".osprey-manifest.json"

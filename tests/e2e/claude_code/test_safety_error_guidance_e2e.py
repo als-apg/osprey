@@ -33,26 +33,13 @@ ERROR_REPORT_KEYWORDS = [
     "not reachable",
 ]
 
-# Anti-patterns: Claude should NOT do these in response to errors
-RETRY_KEYWORDS = [
-    "let me try again",
-    "retrying",
-    "attempt again",
-    "try a different",
-    "let me retry",
-    "trying again",
-    "let me fix",
-    "let me install",
-]
-
-
 # ---------------------------------------------------------------------------
 # 3a: Execution error -> error_guidance hook fires
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.requires_api
-@pytest.mark.requires_anthropic
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_execution_error_triggers_guidance(safety_project):
     """Scenario 3a: execute tool error -> error guidance hook fires.
@@ -108,10 +95,15 @@ async def test_execution_error_triggers_guidance(safety_project):
         f"Expected Claude to report an error.\n  Text: {combined[:500]}"
     )
 
-    # Claude should NOT attempt debugging or retry
-    assert not any(kw in combined for kw in RETRY_KEYWORDS), (
-        f"Claude attempted retry/debug, violating error-handling protocol.\n"
-        f"  Text: {combined[:500]}"
+    # Tool-trace assertion: the agent must NOT invoke the failed tool again
+    # after seeing the error. (Replaces a brittle keyword check on Claude's
+    # text response — "let me retry"/"trying again"/etc. — which the
+    # error-guidance hook surfaced reliably for some phrasings and missed
+    # others. The behavioral invariant we actually care about is "no second
+    # execute call", which the tool trace records exactly.)
+    assert len(py_calls) == 1, (
+        f"Agent invoked execute {len(py_calls)} times; expected exactly 1 "
+        f"(no retry after the first error). Tool sequence: {result.tool_names}"
     )
 
 
@@ -121,7 +113,7 @@ async def test_execution_error_triggers_guidance(safety_project):
 
 
 @pytest.mark.requires_api
-@pytest.mark.requires_anthropic
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_error_response_no_retry_protocol(safety_project):
     """Scenario 3b: Error guidance should prevent retry behavior.
@@ -176,8 +168,9 @@ async def test_error_response_no_retry_protocol(safety_project):
         f"Expected Claude to report the connection error.\n  Text: {combined[:500]}"
     )
 
-    # Claude should NOT attempt to "fix" or retry
-    assert not any(kw in combined for kw in RETRY_KEYWORDS), (
-        f"Claude attempted retry/workaround, violating error-handling protocol.\n"
-        f"  Text: {combined[:500]}"
+    # Tool-trace assertion: no retry of the failing execute call.
+    # See test_execution_error_triggers_guidance for the rationale.
+    assert len(py_calls) == 1, (
+        f"Agent invoked execute {len(py_calls)} times; expected exactly 1 "
+        f"(no retry after the first error). Tool sequence: {result.tool_names}"
     )

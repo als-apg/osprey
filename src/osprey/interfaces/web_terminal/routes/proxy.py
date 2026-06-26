@@ -8,11 +8,12 @@ server and rewrites root-absolute paths in HTML/JS/CSS responses.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 
 import httpx
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,23 @@ router = APIRouter()
 # Paths that companion servers commonly use as root-absolute references.
 # Only these prefixes are rewritten inside string delimiters to avoid
 # false positives on arbitrary ``/`` characters.
-_REWRITE_PREFIXES = ("/static/", "/api/", "/files/", "/health", "/checks", "/ws/", "/assets/")
+_REWRITE_PREFIXES = (
+    "/static/",
+    "/api/",
+    "/files/",
+    "/health",
+    "/checks",
+    "/ws/",
+    "/assets/",
+    "/dashboard/",
+    # Event dispatcher endpoints. Without these, the dashboard served through
+    # /panel/events/* would call `/webhook/...` at the browser origin (the web
+    # terminal) instead of going through this proxy — the dispatcher never
+    # sees the request and the user gets a 404.
+    "/webhook/",
+    "/retry/",
+    "/trigger/",
+)
 
 # Content types eligible for path rewriting.
 _REWRITABLE_TYPES = {
@@ -33,18 +50,20 @@ _REWRITABLE_TYPES = {
 }
 
 # Hop-by-hop headers that must not be forwarded.
-_HOP_BY_HOP = frozenset({
-    "connection",
-    "keep-alive",
-    "proxy-authenticate",
-    "proxy-authorization",
-    "te",
-    "trailers",
-    "transfer-encoding",
-    "upgrade",
-    "content-encoding",
-    "content-length",
-})
+_HOP_BY_HOP = frozenset(
+    {
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailers",
+        "transfer-encoding",
+        "upgrade",
+        "content-encoding",
+        "content-length",
+    }
+)
 
 # Panel ID → app.state attribute name
 _PANEL_STATE_MAP = {
@@ -126,6 +145,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
         for k, v in request.headers.items()
         if k.lower() not in _HOP_BY_HOP and k.lower() != "host"
     }
+    fwd_headers["x-forwarded-prefix"] = f"/panel/{panel_id}"
 
     try:
         body = await request.body()
@@ -138,6 +158,9 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
                     url=target,
                     headers=fwd_headers,
                     content=body if body else None,
+                    # SSE streams idle between events — disable the read
+                    # timeout so quiet periods don't kill the connection.
+                    timeout=httpx.Timeout(None, connect=5.0),
                 ),
                 stream=True,
             )
@@ -150,9 +173,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
                     await upstream.aclose()
 
             resp_headers = {
-                k: v
-                for k, v in upstream.headers.items()
-                if k.lower() not in _HOP_BY_HOP
+                k: v for k, v in upstream.headers.items() if k.lower() not in _HOP_BY_HOP
             }
             return StreamingResponse(
                 _stream(),
@@ -176,17 +197,14 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
         )
 
     # Filter response headers.
-    resp_headers = {
-        k: v
-        for k, v in resp.headers.items()
-        if k.lower() not in _HOP_BY_HOP
-    }
+    resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in _HOP_BY_HOP}
 
     content_type = resp.headers.get("content-type", "")
     base_type = content_type.split(";")[0].strip().lower()
 
-    # Rewrite root-absolute paths in HTML/JS/CSS.
-    if base_type in _REWRITABLE_TYPES:
+    # Rewrite root-absolute paths in HTML/JS/CSS — skip vendor assets
+    # (large, immutable, no OSPREY paths to rewrite).
+    if base_type in _REWRITABLE_TYPES and "/vendor/" not in path:
         text = resp.text
         text = _rewrite_content(text, panel_id)
         return Response(
@@ -212,3 +230,66 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
 async def proxy_panel_root(panel_id: str, request: Request):
     """Proxy the root path of a companion panel (no trailing path segment)."""
     return await proxy_panel(panel_id, "", request)
+
+
+@router.websocket("/panel/{panel_id}/{path:path}")
+async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
+    """Forward a WebSocket connection to the companion panel server."""
+    backend_url = _resolve_panel_url(websocket, panel_id)
+    if not backend_url:
+        await websocket.close(code=4004, reason=f"Panel '{panel_id}' not available")
+        return
+
+    # Convert http(s) backend URL to ws(s)
+    ws_url = backend_url.rstrip("/").replace("http://", "ws://").replace("https://", "wss://")
+    target = f"{ws_url}/{path}"
+
+    try:
+        import websockets
+    except ImportError:
+        logger.error("websockets package not installed — cannot proxy WebSocket")
+        await websocket.close(code=4500, reason="WebSocket proxy unavailable")
+        return
+
+    await websocket.accept()
+
+    try:
+        async with websockets.connect(target) as upstream:
+
+            async def client_to_upstream():
+                try:
+                    while True:
+                        data = await websocket.receive_text()
+                        await upstream.send(data)
+                except WebSocketDisconnect:
+                    pass
+
+            async def upstream_to_client():
+                try:
+                    async for msg in upstream:
+                        if isinstance(msg, str):
+                            await websocket.send_text(msg)
+                        else:
+                            await websocket.send_bytes(msg)
+                except websockets.ConnectionClosed:
+                    pass
+
+            # Run both directions concurrently; when either side closes,
+            # cancel the other.
+            done, pending = await asyncio.wait(
+                [
+                    asyncio.create_task(client_to_upstream()),
+                    asyncio.create_task(upstream_to_client()),
+                ],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            for task in pending:
+                task.cancel()
+
+    except Exception as exc:
+        logger.warning("WebSocket proxy error for panel %s: %s", panel_id, exc)
+    finally:
+        try:
+            await websocket.close()
+        except Exception:
+            pass

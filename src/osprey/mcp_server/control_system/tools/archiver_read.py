@@ -172,9 +172,7 @@ async def archiver_read(
                 "example_row": {
                     "timestamp": str(df.index[0]) if len(df) > 0 else None,
                     "values": (
-                        {ch: _safe_stat(df[ch].iloc[0]) for ch in df.columns}
-                        if len(df) > 0
-                        else {}
+                        {ch: _safe_stat(df[ch].iloc[0]) for ch in df.columns} if len(df) > 0 else {}
                     ),
                 },
                 "row_count": len(df),

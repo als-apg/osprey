@@ -7,7 +7,6 @@ import pytest
 from osprey.services.ariel_search.models import (
     FacilityEntryCreateRequest,
     FacilityEntryCreateResult,
-    SyncStatus,
 )
 
 

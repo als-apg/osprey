@@ -29,7 +29,8 @@ def _setup_config(project: str | None):
     if not os.path.exists(config_path):
         raise click.ClickException(
             f"Configuration file not found: {config_path}\n"
-            "Run 'osprey init' to create a project, or use --project to specify the project directory."
+            "Run 'osprey build my-project --preset hello-world' to create a project, "
+            "or use --project to specify the project directory."
         )
     os.environ["CONFIG_FILE"] = str(config_path)
 

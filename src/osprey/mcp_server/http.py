@@ -17,12 +17,21 @@ def gallery_url() -> str:
 
 
 def web_terminal_url() -> str:
-    """Build the web terminal base URL from config."""
+    """Build the web terminal base URL from config.
+
+    In containerized deployments the actual port is set via OSPREY_WEB_PORT
+    (docker-compose env), which may differ from the default in config.yml.
+    The env var takes precedence when present.
+    """
+    import os
+
     from osprey.utils.workspace import load_osprey_config
 
     config = load_osprey_config()
     wt = config.get("web_terminal", {})
-    return f"http://{wt.get('host', '127.0.0.1')}:{wt.get('port', 8087)}"
+    host = wt.get("host", "127.0.0.1")
+    port = int(os.environ.get("OSPREY_WEB_PORT", wt.get("port", 8087)))
+    return f"http://{host}:{port}"
 
 
 def post_json(url: str, payload: dict, *, timeout: int = 3) -> None:

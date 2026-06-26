@@ -6,7 +6,7 @@
 repos:
   # Ruff - Fast Python linter and formatter
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.14.3
+    rev: v0.15.1
     hooks:
       # Run the linter
       - id: ruff
@@ -20,14 +20,15 @@ repos:
     hooks:
       # Remove trailing whitespace
       - id: trailing-whitespace
-        exclude: ^tests/cassettes/
       # Ensure files end with a newline
       - id: end-of-file-fixer
-        exclude: ^tests/cassettes/
       # Check for merge conflict markers
       - id: check-merge-conflict
       # Check YAML syntax
       - id: check-yaml
+        # Skill scaffolds contain Jinja-templated YAML (`${var}`, `# IF/FOR`)
+        # that's rendered at install time and isn't valid standalone YAML.
+        exclude: ^src/osprey/templates/skills/osprey-build-deploy/templates/core/
       # Check TOML syntax
       - id: check-toml
       # Prevent large files from being committed
@@ -39,7 +40,6 @@ repos:
       - id: detect-private-key
       # Check JSON syntax
       - id: check-json
-        exclude: ^tests/cassettes/
       # Check for debugger imports
       - id: debug-statements
 

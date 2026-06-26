@@ -46,6 +46,7 @@ def create_server() -> FastMCP:
         initialize_workspace_singletons,
         prime_config_builder,
     )
+
     prime_config_builder()
 
     from osprey.mcp_server.channel_finder_in_context.server_context import (

@@ -9,12 +9,18 @@ from typing import Any
 
 import yaml
 
+from osprey.profiles.web_panels import BUILTIN_PANELS
 from osprey.services.prompts.catalog import PromptCatalog
 
 logger = logging.getLogger("osprey.cli.templates")
 
+
+class ManifestError(ValueError):
+    """Raised when a template manifest references unknown artifacts or panels."""
+
+
 # Manifest schema version for future compatibility
-MANIFEST_SCHEMA_VERSION = "1.1.0"
+MANIFEST_SCHEMA_VERSION = "1.2.0"
 
 # File used to store project manifest
 MANIFEST_FILENAME = ".osprey-manifest.json"
@@ -59,13 +65,6 @@ REGEN_TRACKED_FILES = [
     ".claude/skills/demo-gallery/SKILL.md",
     ".claude/rules/timezone.md",
     ".claude/output-styles/control-operator.md",
-    # lattice_design skills and rules (render empty for other templates)
-    ".claude/skills/load-lattice/SKILL.md",
-    ".claude/skills/compute-optics/SKILL.md",
-    ".claude/skills/fit-tune/SKILL.md",
-    ".claude/skills/fit-chromaticity/SKILL.md",
-    ".claude/skills/compare-optics/SKILL.md",
-    ".claude/rules/lattice-physics.md",
 ]
 
 
@@ -103,19 +102,19 @@ def load_template_manifest(
                         return {"artifacts": stored_artifacts}
                 except (json.JSONDecodeError, OSError):
                     pass
-        # Fall back to the bundled example profile (manifest.yml was removed; example
+        # Fall back to the bundled preset profile (manifest.yml was removed; preset
         # profiles are now the canonical source of artifact declarations per data bundle)
-        _example_name = template_name.replace("_", "-") + ".yml"
+        _preset_name = template_name.replace("_", "-") + ".yml"
         try:
             import importlib.resources
 
             profile_text = (
-                importlib.resources.files("osprey.profiles.examples")
-                .joinpath(_example_name)
+                importlib.resources.files("osprey.profiles.presets")
+                .joinpath(_preset_name)
                 .read_text(encoding="utf-8")
             )
             profile_data = yaml.safe_load(profile_text) or {}
-            artifact_keys = ("hooks", "rules", "skills", "agents", "output_styles")
+            artifact_keys = ("hooks", "rules", "skills", "agents", "output_styles", "web_panels")
             artifacts = {k: profile_data.get(k, []) for k in artifact_keys if k in profile_data}
             if artifacts:
                 return {"artifacts": artifacts}
@@ -153,11 +152,15 @@ def load_template_manifest(
                     template_name,
                 )
 
-    # Validate web_panels entries
-    valid_panel_ids = {"ariel", "channel-finder", "tuning", "lattice"}
+    # Validate web_panels entries against the shared registry. Unreachable for
+    # presets today (they short-circuit at the artifacts wrapper above) but the
+    # load-bearing gate for any future template manifest.
     for panel_id in manifest.get("web_panels", []):
-        if panel_id not in valid_panel_ids:
-            logger.warning("Unknown web_panel '%s' in template '%s'", panel_id, template_name)
+        if panel_id not in BUILTIN_PANELS:
+            raise ManifestError(
+                f"Unknown web_panel {panel_id!r} in template {template_name!r} "
+                f"(valid: {sorted(BUILTIN_PANELS)})"
+            )
 
     return manifest
 
@@ -244,14 +247,16 @@ def get_framework_version() -> str:
     """Get current osprey version.
 
     Returns:
-        Version string (e.g., "0.7.0")
+        Version string (e.g., "0.7.0") or ``"unknown"`` if the version
+        symbol cannot be imported (broken environment / partial install).
+        Manifest readers can branch on the sentinel.
     """
     try:
         from osprey import __version__
 
         return __version__
     except (ImportError, AttributeError):
-        return "0.7.0"
+        return "unknown"
 
 
 def sha256_file(file_path: Path) -> str:
@@ -271,76 +276,85 @@ def sha256_file(file_path: Path) -> str:
     return sha256_hash.hexdigest()
 
 
-def extract_init_args(
+def extract_build_args(
     project_name: str,
-    template_name: str,
-    registry_style: str,
+    preset_name: str | None,
+    profile_path: str | None,
+    data_bundle: str,
     context: dict[str, Any],
 ) -> dict[str, Any]:
-    """Extract init arguments from context for manifest storage.
+    """Extract build invocation arguments for manifest storage.
 
-    This extracts the user-facing init options from the full template context,
-    filtering out derived values and internal state.
+    Captures both the user-facing options (provider/model/etc.) and the
+    invocation source (preset vs. positional profile path) so that
+    ``build_reproducible_command`` can render the matching CLI form.
+
+    Exactly one of ``preset_name`` and ``profile_path`` must be set.
 
     Args:
-        project_name: Name of the project
-        template_name: Template used
-        registry_style: Registry style
-        context: Full template context
+        project_name: Name of the project.
+        preset_name: Hyphenated preset name (e.g. "hello-world") if the build
+            was invoked via ``--preset``; otherwise ``None``.
+        profile_path: Path string to the positional profile YAML if the build
+            was invoked positionally; otherwise ``None``.
+        data_bundle: The underlying app bundle resolved from the profile
+            (e.g. "hello_world", "control_assistant").
+        context: Full template context.
 
     Returns:
-        Dictionary of init arguments that can be used to recreate the project
+        Dictionary of build arguments suitable for round-trip reproduction.
     """
-    # Base arguments that are always present
-    init_args = {
+    build_args: dict[str, Any] = {
         "project_name": project_name,
-        "template": template_name,
-        "registry_style": registry_style,
+        "source": "preset" if preset_name else "profile",
+        "data_bundle": data_bundle,
     }
+    if preset_name:
+        build_args["preset"] = preset_name
+    if profile_path:
+        build_args["profile_path"] = profile_path
 
-    # Optional arguments that may be in context
     optional_keys = [
         ("default_provider", "provider"),
         ("default_model", "model"),
         ("channel_finder_mode", "channel_finder_mode"),
     ]
-
     for context_key, arg_key in optional_keys:
         if context_key in context and context[context_key] is not None:
-            # For boolean keys, include even when False; for strings, skip empty
             value = context[context_key]
             if isinstance(value, bool) or value:
-                init_args[arg_key] = value
+                build_args[arg_key] = value
 
-    return init_args
+    return build_args
 
 
-def build_reproducible_command(init_args: dict[str, Any]) -> str:
-    """Build a reproducible CLI command from init arguments.
+def build_reproducible_command(build_args: dict[str, Any]) -> str:
+    """Render a reproducible ``osprey build`` command from build args.
+
+    Branches on ``build_args["source"]``:
+      * ``"preset"``  -> ``osprey build NAME --preset PRESET [--set ...]``
+      * ``"profile"`` -> ``osprey build NAME PROFILE_PATH [--set ...]``
 
     Args:
-        init_args: Dictionary of init arguments
+        build_args: Output of :func:`extract_build_args`.
 
     Returns:
-        CLI command string that can recreate the project
+        CLI command string that recreates the project.
     """
-    parts = ["osprey", "init", init_args["project_name"]]
+    parts = ["osprey", "build", build_args["project_name"]]
 
-    # Always include template for reproducibility (default may change)
-    if init_args.get("template"):
-        parts.extend(["--template", init_args["template"]])
+    source = build_args.get("source", "preset")
+    if source == "preset" and build_args.get("preset"):
+        parts.extend(["--preset", build_args["preset"]])
+    elif source == "profile" and build_args.get("profile_path"):
+        parts.append(build_args["profile_path"])
+    elif build_args.get("data_bundle"):
+        # Defensive fallback: legacy manifests without source/preset/profile_path.
+        parts.extend(["--preset", build_args["data_bundle"].replace("_", "-")])
 
-    # Add provider if specified
-    if init_args.get("provider"):
-        parts.extend(["--provider", init_args["provider"]])
-
-    # Add model if specified
-    if init_args.get("model"):
-        parts.extend(["--model", init_args["model"]])
-
-    # Add channel_finder_mode if specified
-    if init_args.get("channel_finder_mode"):
-        parts.extend(["--channel-finder-mode", init_args["channel_finder_mode"]])
+    for key in ("provider", "model", "channel_finder_mode"):
+        if build_args.get(key):
+            parts.extend(["--set", f"{key}={build_args[key]}"])
 
     return " ".join(parts)
 
@@ -481,74 +495,66 @@ def generate_manifest(
     project_dir: Path,
     project_name: str,
     template_name: str,
-    registry_style: str,
     context: dict[str, Any],
+    *,
     artifacts: dict[str, list[str]] | None = None,
+    preset_name: str | None = None,
+    profile_path: str | None = None,
 ) -> dict[str, Any]:
-    """Generate a project manifest for migration support.
-
-    The manifest captures all information needed to recreate the project
-    with the same OSPREY version and settings. This enables future migrations
-    by providing a baseline for three-way diffs.
+    """Generate ``.osprey-manifest.json`` for a freshly built project.
 
     Args:
-        template_root: Path to osprey's bundled templates directory
-        jinja_env: Jinja2 environment for template rendering
-        project_dir: Root directory of the created project
-        project_name: Name of the project
-        template_name: Template (data bundle) used to create the project
-        registry_style: Registry style ("extend" or "standalone")
-        context: Full context dict used during template rendering
-        artifacts: Profile-driven artifact selection (hooks, rules, skills,
-            agents, output_styles, web_panels). When provided, stored in the
-            manifest so ``regenerate_claude_code`` can read artifact lists
-            from the project manifest instead of loading template manifest.yml.
+        template_root: Root of the bundled templates package.
+        jinja_env: The Jinja2 environment used during rendering.
+        project_dir: Project root directory (where the manifest is written).
+        project_name: Name of the project.
+        template_name: Underlying app bundle (data_bundle) used to render.
+        context: Full template-render context.
+        artifacts: Profile-driven artifact selection.
+        preset_name: Hyphenated preset name if invoked via ``--preset``.
+        profile_path: Path string to the positional profile, if any.
 
     Returns:
-        Dictionary containing the manifest data that was written to file
+        The manifest dict written to disk.
     """
-    # Build init_args from context - extract the user-facing options
-    init_args = extract_init_args(project_name, template_name, registry_style, context)
-
-    # Build reproducible command string
-    reproducible_command = build_reproducible_command(init_args)
-
-    # Calculate file checksums for trackable files
+    build_args = extract_build_args(
+        project_name=project_name,
+        preset_name=preset_name,
+        profile_path=profile_path,
+        data_bundle=template_name,
+        context=context,
+    )
+    reproducible_command = build_reproducible_command(build_args)
     file_checksums = calculate_file_checksums(project_dir)
-
-    # Get framework version
     framework_version = get_framework_version()
-
-    # Build user_owned section from context
     user_owned_manifest = build_user_owned_manifest(template_root, jinja_env, project_dir, context)
 
-    # Build manifest
+    # The 'template' field carries the original preset name (hyphenated) when
+    # the user invoked --preset; otherwise it carries the bundle name as a
+    # best-effort fallback. 'data_bundle' is always the underlying app bundle.
+    template_field = preset_name if preset_name else template_name
+
     creation_block: dict[str, Any] = {
         "osprey_version": framework_version,
         "timestamp": datetime.now(UTC).isoformat(),
-        "template": template_name,
+        "template": template_field,
         "data_bundle": template_name,
-        "registry_style": registry_style,
         "claude_code_only": True,
     }
 
     manifest_data: dict[str, Any] = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "creation": creation_block,
-        "init_args": init_args,
+        "build_args": build_args,
         "reproducible_command": reproducible_command,
         "file_checksums": file_checksums,
     }
 
-    # Persist artifact selection so regen can reconstruct allowed_outputs
-    # without loading the template-level manifest.yml
     if artifacts:
         manifest_data["artifacts"] = artifacts
-
     if user_owned_manifest:
         manifest_data["user_owned"] = user_owned_manifest
 
-    # Write manifest to file
     manifest_path = project_dir / MANIFEST_FILENAME
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest_data, f, indent=2, sort_keys=False)

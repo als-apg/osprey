@@ -164,63 +164,86 @@ MIDDLE_LAYER_QUERIES = [
     },
 ]
 
+# InContext expected entries are alias groups: each inner list enumerates
+# every acceptable surface form for one logical channel (descriptive name
+# from in_context.json AND its rendered control-system address). The agent
+# scores a hit as long as it surfaces any one of them — InContext's whole
+# point is that the descriptive name is a usable affordance, but the address
+# is the canonical underlying identifier and equally correct.
 IN_CONTEXT_QUERIES = [
     {
         "id": "ic_01_beam_current",
         "user_query": "What's the beam current right now?",
-        "expected": ["StorageRing_BeamCurrent_ReadBack"],
+        "expected": [
+            ["StorageRing_BeamCurrent_ReadBack", "SR:DIAG:DCCT:MAIN:CURRENT:RB"],
+        ],
     },
     {
         "id": "ic_02_beam_lifetime",
         "user_query": "Check the beam lifetime",
-        "expected": ["StorageRing_BeamLifetime_ReadBack"],
+        "expected": [
+            ["StorageRing_BeamLifetime_ReadBack", "SR:DIAG:DCCT:MAIN:LIFETIME:RB"],
+        ],
     },
     {
         "id": "ic_03_dipole_sp",
         "user_query": "What's the setpoint for dipole magnet 5?",
-        "expected": ["DipoleMagnet05CurrentSetPoint"],
+        "expected": [
+            ["DipoleMagnet05CurrentSetPoint", "SR:MAG:DIPOLE:B05:CURRENT:SP"],
+        ],
     },
     {
         "id": "ic_04_corrector_axis",
         "user_query": "Give me horizontal corrector 7 setpoint",
-        "expected": ["HorizontalCorrectorMagnet07CurrentSetPoint"],
+        "expected": [
+            ["HorizontalCorrectorMagnet07CurrentSetPoint", "SR:MAG:HCM:H07:CURRENT:SP"],
+        ],
     },
     {
         "id": "ic_05_bpm_position",
         "user_query": "What's beam position at BPM 5?",
-        "expected": ["BPM_Position05X", "BPM_Position05Y"],
+        "expected": [
+            ["BPM_Position05X", "SR:DIAG:BPM:BPM05:POSITION:X"],
+            ["BPM_Position05Y", "SR:DIAG:BPM:BPM05:POSITION:Y"],
+        ],
     },
     {
         "id": "ic_06_vacuum_synonym",
         "user_query": "What are the vacuum levels in the storage ring?",
         "expected": [
-            "VacuumIonPump01_Pressure_ReadBack",
-            "VacuumIonPump02_Pressure_ReadBack",
-            "VacuumIonPump03_Pressure_ReadBack",
+            ["VacuumIonPump01_Pressure_ReadBack", "SR:VAC:ION-PUMP:SR01:PRESSURE:RB"],
+            ["VacuumIonPump02_Pressure_ReadBack", "SR:VAC:ION-PUMP:SR02:PRESSURE:RB"],
+            ["VacuumIonPump03_Pressure_ReadBack", "SR:VAC:ION-PUMP:SR03:PRESSURE:RB"],
         ],
     },
     {
         "id": "ic_07_rf_voltage",
         "user_query": "What's the RF cavity 2 voltage?",
-        "expected": ["RF_Cavity2_Voltage_ReadBack"],
+        "expected": [
+            ["RF_Cavity2_Voltage_ReadBack", "SR:RF:CAVITY:C2:VOLTAGE:RB"],
+        ],
     },
     {
         "id": "ic_08_cavity_temps",
         "user_query": "Show me the cavity temperatures",
         "expected": [
-            "RF_Cavity1_Temperature_ReadBack",
-            "RF_Cavity2_Temperature_ReadBack",
+            ["RF_Cavity1_Temperature_ReadBack", "SR:RF:CAVITY:C1:TEMPERATURE:RB"],
+            ["RF_Cavity2_Temperature_ReadBack", "SR:RF:CAVITY:C2:TEMPERATURE:RB"],
         ],
     },
     {
         "id": "ic_09_quad_readback",
         "user_query": "Give me quadrupole magnet 3 readback",
-        "expected": ["FocusingQuad03CurrentReadBack"],
+        "expected": [
+            ["FocusingQuad03CurrentReadBack", "SR:MAG:QF:QF03:CURRENT:RB"],
+        ],
     },
     {
         "id": "ic_10_dcct_valid",
         "user_query": "Is the DCCT measurement valid?",
-        "expected": ["StorageRing_DCCT_Valid"],
+        "expected": [
+            ["StorageRing_DCCT_Valid", "SR:DIAG:DCCT:MAIN:STATUS:VALID"],
+        ],
     },
 ]
 
@@ -243,17 +266,44 @@ def get_response_text(result: SDKWorkflowResult) -> str:
     return "\n".join(parts)
 
 
-def programmatic_recall_check(text: str, expected: list[str]) -> tuple[list[str], list[str]]:
+# Expected entries are either a plain channel string or an "alias group"
+# (list of equivalent surface forms — descriptive name + address). Hierarchical
+# and middle-layer queries use the plain form; in-context queries use alias
+# groups so a hit on either the descriptive name or the address counts.
+ExpectedEntry = str | list[str]
+
+
+def _aliases(entry: ExpectedEntry) -> list[str]:
+    """Normalize an expected entry to its list of acceptable surface forms."""
+    return [entry] if isinstance(entry, str) else list(entry)
+
+
+def _canonical(entry: ExpectedEntry) -> str:
+    """Return the canonical (first) surface form for display and set arithmetic."""
+    return entry if isinstance(entry, str) else entry[0]
+
+
+def programmatic_recall_check(
+    text: str, expected: list[ExpectedEntry]
+) -> tuple[list[str], list[str]]:
     """Check which expected channels appear in the response text.
 
-    Case-insensitive substring match.
+    Case-insensitive substring match. For alias-group entries, the channel
+    is "found" if ANY alias appears in the text. Returns canonical forms
+    (the first alias, or the plain string) so callers can present and
+    set-compare consistently.
 
     Returns:
-        (found, missing) — lists of channel names.
+        (found, missing) — canonical channel forms.
     """
     text_lower = text.lower()
-    found = [ch for ch in expected if ch.lower() in text_lower]
-    missing = [ch for ch in expected if ch.lower() not in text_lower]
+    found: list[str] = []
+    missing: list[str] = []
+    for entry in expected:
+        if any(alias.lower() in text_lower for alias in _aliases(entry)):
+            found.append(_canonical(entry))
+        else:
+            missing.append(_canonical(entry))
     return found, missing
 
 
@@ -264,7 +314,7 @@ class ChannelExtractionResult(BaseModel):
     reasoning: str
 
 
-def llm_extract_channels(response_text: str, expected: list[str]) -> list[str]:
+def llm_extract_channels(response_text: str, expected: list[ExpectedEntry]) -> list[str]:
     """Use an LLM judge to extract the agent's final recommended channels.
 
     Calls Haiku via OSPREY's LiteLLM adapter with structured output to
@@ -273,7 +323,10 @@ def llm_extract_channels(response_text: str, expected: list[str]) -> list[str]:
     """
     from osprey.models.providers.litellm_adapter import execute_litellm_completion
 
-    expected_json = json.dumps(expected, indent=2)
+    # Flatten alias groups for the judge — it just needs reference samples
+    # of what valid channel names look like, not the group structure.
+    expected_flat = [alias for entry in expected for alias in _aliases(entry)]
+    expected_json = json.dumps(expected_flat, indent=2)
     prompt = (
         "You are evaluating a control system channel finder agent's response.\n"
         "Extract the list of channels that the agent presents as its FINAL\n"
@@ -290,13 +343,27 @@ def llm_extract_channels(response_text: str, expected: list[str]) -> list[str]:
         f"Agent's full response:\n{response_text}"
     )
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    # Pick whichever Anthropic-compatible endpoint has a key configured.
+    # ALS_APG_API_KEY is the CI-default (AWS Bedrock proxy reachable from
+    # GitHub Actions). ANTHROPIC_API_KEY direct is the developer fallback
+    # for local runs without ALS group access.
+    if os.environ.get("ALS_APG_API_KEY"):
+        provider = "als-apg"
+        api_key = os.environ["ALS_APG_API_KEY"]
+        base_url = "https://llm.gianlucamartino.com"
+    elif os.environ.get("ANTHROPIC_API_KEY"):
+        provider = "anthropic"
+        api_key = os.environ["ANTHROPIC_API_KEY"]
+        base_url = None
+    else:
+        raise RuntimeError("llm_extract_channels needs ALS_APG_API_KEY or ANTHROPIC_API_KEY")
+
     result = execute_litellm_completion(
-        provider="anthropic",
+        provider=provider,
         message=prompt,
         model_id="claude-haiku-4-5-20251001",
         api_key=api_key,
-        base_url=None,
+        base_url=base_url,
         max_tokens=1024,
         temperature=0.0,
         output_format=ChannelExtractionResult,
@@ -309,7 +376,7 @@ def llm_extract_channels(response_text: str, expected: list[str]) -> list[str]:
 
 
 def evaluate_channel_response(
-    result: SDKWorkflowResult, expected: list[str]
+    result: SDKWorkflowResult, expected: list[ExpectedEntry]
 ) -> tuple[list[str], dict]:
     """Two-stage evaluation of a channel finder response.
 
@@ -349,19 +416,32 @@ def evaluate_channel_response(
     return predicted, meta
 
 
-def compute_f1(predicted: list[str], expected: list[str]) -> tuple[float, float, float]:
-    """Compute precision, recall, F1 from predicted and expected channel lists."""
-    pred_set = set(predicted)
-    exp_set = set(expected)
+def compute_f1(predicted: list[str], expected: list[ExpectedEntry]) -> tuple[float, float, float]:
+    """Compute precision, recall, F1 from predicted channels vs. expected groups.
 
-    if not pred_set and not exp_set:
+    A predicted channel matches an expected group if it equals any alias in
+    that group (case-insensitive). Each expected group can be matched at most
+    once — two predicted aliases for the same logical channel count as one TP
+    on the recall side and as one matched item on the precision side, with
+    any extras counted against precision.
+    """
+    pred_set = {p.lower() for p in predicted}
+    if not pred_set and not expected:
         return 1.0, 1.0, 1.0
-    if not pred_set or not exp_set:
+    if not pred_set or not expected:
         return 0.0, 0.0, 0.0
 
-    tp = len(pred_set & exp_set)
-    precision = tp / len(pred_set)
-    recall = tp / len(exp_set)
+    matched_groups = 0
+    matched_preds: set[str] = set()
+    for entry in expected:
+        aliases_lower = {a.lower() for a in _aliases(entry)}
+        hits = pred_set & aliases_lower
+        if hits:
+            matched_groups += 1
+            matched_preds |= hits
+
+    precision = len(matched_preds) / len(pred_set)
+    recall = matched_groups / len(expected)
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
     return precision, recall, f1
 
@@ -403,6 +483,45 @@ def score_benchmark(
 _results_cache: dict[str, dict] = {}
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _dump_benchmark_results():
+    """Persist per-query results + per-pipeline aggregates as JSON at session
+    end so the run produces a real artifact, not just stdout. Path is
+    overridable via OSPREY_BENCHMARK_RESULTS_PATH; default is
+    tests/e2e/claude_code/benchmark_results/<UTC-timestamp>.json.
+    """
+    yield
+    if not _results_cache:
+        return
+    import datetime
+    from pathlib import Path
+
+    pipelines = {
+        "hierarchical": [q["id"] for q in HIERARCHICAL_QUERIES],
+        "middle_layer": [q["id"] for q in MIDDLE_LAYER_QUERIES],
+        "in_context": [q["id"] for q in IN_CONTEXT_QUERIES],
+    }
+    aggregates = {
+        name: score_benchmark([_results_cache[qid] for qid in ids if qid in _results_cache])
+        for name, ids in pipelines.items()
+    }
+    payload = {
+        "run_timestamp_utc": datetime.datetime.now(datetime.UTC).isoformat(),
+        "aggregates": aggregates,
+        "results": _results_cache,
+    }
+
+    override = os.environ.get("OSPREY_BENCHMARK_RESULTS_PATH")
+    if override:
+        out_path = Path(override)
+    else:
+        ts = datetime.datetime.now(datetime.UTC).strftime("%Y%m%dT%H%M%SZ")
+        out_path = Path(__file__).parent / "benchmark_results" / f"{ts}.json"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(payload, indent=2, default=str))
+    print(f"\n  Benchmark results written to: {out_path}")
+
+
 # ---------------------------------------------------------------------------
 # Shared runner
 # ---------------------------------------------------------------------------
@@ -424,12 +543,16 @@ async def _run_single_query(project_dir, query_entry: dict, *, use_cache: bool =
 
     prompt = f"Find the following channels: {user_query}"
 
+    # Don't override the model — let run_sdk_query resolve the project's
+    # configured haiku tier (als-apg/haiku in CI, cborg/anthropic/claude-haiku
+    # locally if cborg is configured). The earlier hardcoded
+    # "anthropic/claude-haiku" string is CBORG-namespace and 404s under
+    # als-apg, which was a Cluster A blocker until 2026-04.
     result = await run_sdk_query(
         project_dir,
         prompt,
         max_turns=30,
         max_budget_usd=0.20,
-        model="anthropic/claude-haiku",
     )
 
     predicted, eval_meta = evaluate_channel_response(result, expected)
@@ -447,17 +570,26 @@ async def _run_single_query(project_dir, query_entry: dict, *, use_cache: bool =
         "num_turns": result.num_turns,
         "eval_meta": eval_meta,
     }
+    # Attach the full agent response on non-perfect queries so the JSON
+    # artifact is self-sufficient for diagnosing MISSes / PARTIALs without
+    # re-running. Perfect queries skip this to keep the artifact lean.
+    if f1 < 1.0:
+        entry["response_text"] = get_response_text(result)
 
-    # Diagnostic output
+    # Diagnostic output. With alias groups, "missing" is per-group (canonical
+    # form) and "extra" is any predicted channel that didn't land in any group.
     status = "PERFECT" if f1 == 1.0 else ("PARTIAL" if f1 > 0 else "MISS")
     print(f"\n  [{status}] {query_entry['id']}: F1={f1:.2f} P={precision:.2f} R={recall:.2f}")
-    if predicted != expected:
-        missing = set(expected) - set(predicted)
-        extra = set(predicted) - set(expected)
-        if missing:
-            print(f"    Missing: {sorted(missing)}")
-        if extra:
-            print(f"    Extra:   {sorted(extra)}")
+    pred_lower = {p.lower() for p in predicted}
+    missing_groups = [
+        _canonical(e) for e in expected if not (pred_lower & {a.lower() for a in _aliases(e)})
+    ]
+    all_aliases_lower = {a.lower() for e in expected for a in _aliases(e)}
+    extra = [p for p in predicted if p.lower() not in all_aliases_lower]
+    if missing_groups:
+        print(f"    Missing: {sorted(missing_groups)}")
+    if extra:
+        print(f"    Extra:   {sorted(extra)}")
 
     _results_cache[qid] = entry
     return entry

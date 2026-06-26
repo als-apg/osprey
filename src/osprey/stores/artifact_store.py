@@ -106,7 +106,7 @@ def _serialize_object(obj: Any, title: str) -> tuple[bytes, str, str, str]:
         import plotly.graph_objects as go  # type: ignore[import-untyped]
 
         if isinstance(obj, go.Figure):
-            html = obj.to_html(include_plotlyjs="cdn", full_html=True)
+            html = obj.to_html(include_plotlyjs=False, full_html=True)
             return html.encode(), "plot_html", f"{slug}.html", "text/html"
     except ImportError:
         pass

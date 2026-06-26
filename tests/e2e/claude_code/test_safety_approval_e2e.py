@@ -14,24 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from tests.e2e.sdk_helpers import combined_text, run_sdk_query_with_hooks
-
-# Keywords that indicate a hook denied the tool call
-DENY_KEYWORDS = [
-    "deny",
-    "denied",
-    "violation",
-    "blocked",
-    "exceed",
-    "limit",
-    "not writable",
-    "read-only",
-    "read only",
-    "cannot write",
-    "not allowed",
-    "refused",
-]
-
+from tests.e2e.sdk_helpers import run_sdk_query_with_hooks
 
 # ---------------------------------------------------------------------------
 # 2a: channel_write triggers approval callback (selective + auto-approve)
@@ -39,7 +22,7 @@ DENY_KEYWORDS = [
 
 
 @pytest.mark.requires_api
-@pytest.mark.requires_anthropic
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_channel_write_triggers_approval_callback(safety_project_selective):
     """Scenario 2a: channel_write should trigger the approval hook callback.
@@ -99,7 +82,7 @@ async def test_channel_write_triggers_approval_callback(safety_project_selective
 
 
 @pytest.mark.requires_api
-@pytest.mark.requires_anthropic
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_approval_denial_propagates_to_claude(safety_project_selective):
     """Scenario 2c: Denying approval should propagate to Claude's response.
@@ -143,10 +126,20 @@ async def test_approval_denial_propagates_to_claude(safety_project_selective):
     )
     assert write_events[0].decision == "deny"
 
-    # Claude should reference the denial in its response
-    combined = combined_text(result)
-    assert any(kw in combined for kw in DENY_KEYWORDS), (
-        f"Expected Claude to reference denial in response.\n  Text: {combined[:500]}"
+    # Tool-trace assertion: when the approval callback denies the write,
+    # the tool call must not produce a successful result. (Replaces a
+    # brittle DENY_KEYWORDS check on Claude's text response — the actual
+    # safety-relevant invariant is "no successful write reached the
+    # control system", which the trace records exactly. The
+    # already-asserted hook_events check above confirms the deny path
+    # was traversed; this complements it by confirming the side effect
+    # was suppressed.)
+    write_calls = result.tools_matching("channel_write")
+    successful_writes = [t for t in write_calls if not t.is_error]
+    assert len(successful_writes) == 0, (
+        f"Approval denial breached: {len(successful_writes)} write(s) succeeded.\n"
+        f"  Tools: {result.tool_names}\n"
+        f"  Successful results: {[(t.result or '')[:100] for t in successful_writes]}"
     )
 
 
@@ -156,7 +149,7 @@ async def test_approval_denial_propagates_to_claude(safety_project_selective):
 
 
 @pytest.mark.requires_api
-@pytest.mark.requires_anthropic
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_all_capabilities_asks_for_reads(safety_project_all_capabilities):
     """Scenario 2d: all_capabilities mode should ask for read operations too.
@@ -202,7 +195,7 @@ async def test_all_capabilities_asks_for_reads(safety_project_all_capabilities):
 
 
 @pytest.mark.requires_api
-@pytest.mark.requires_anthropic
+@pytest.mark.requires_als_apg
 @pytest.mark.asyncio
 async def test_limits_deny_blocks_before_approval(safety_project_selective):
     """Scenario 2e: Limits violation should deny before approval hook fires.
@@ -244,8 +237,13 @@ async def test_limits_deny_blocks_before_approval(safety_project_selective):
         f"{[(e.tool_name, e.decision) for e in result.hook_events]}"
     )
 
-    # Claude should report the denial
-    combined = combined_text(result)
-    assert any(kw in combined for kw in DENY_KEYWORDS), (
-        f"Expected Claude to report limits violation.\n  Text: {combined[:500]}"
+    # Tool-trace assertion: limits hook denied before the approval
+    # callback fired (asserted above via empty hook_events). The
+    # safety-relevant complement is "no successful write tool result".
+    write_calls = result.tools_matching("channel_write")
+    successful_writes = [t for t in write_calls if not t.is_error]
+    assert len(successful_writes) == 0, (
+        f"Limits-deny breached: {len(successful_writes)} write(s) succeeded.\n"
+        f"  Tools: {result.tool_names}\n"
+        f"  Successful results: {[(t.result or '')[:100] for t in successful_writes]}"
     )

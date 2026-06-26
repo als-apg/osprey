@@ -154,9 +154,7 @@ control_system:
             await connector.connect({"response_delay_ms": 1})
 
             # Explicitly request 'none' verification
-            result = await connector.write_channel(
-                "TEST:CHANNEL", 100.0, verification_level="none"
-            )
+            result = await connector.write_channel("TEST:CHANNEL", 100.0, verification_level="none")
 
             assert result.success is True
             assert result.verification is not None

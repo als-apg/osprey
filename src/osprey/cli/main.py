@@ -32,7 +32,7 @@ if sys.platform == "win32":
 try:
     from osprey import __version__
 except ImportError:
-    __version__ = "0.11.5"
+    __version__ = "2026.5.0"
 
 
 class LazyGroup(click.Group):
@@ -42,12 +42,10 @@ class LazyGroup(click.Group):
         """Lazily import and return the command when it's invoked."""
         # Map command names to their module paths
         commands = {
-            "init": "osprey.cli.init_cmd",
             "build": "osprey.cli.build_cmd",
             "deploy": "osprey.cli.deploy_cmd",
             "config": "osprey.cli.config_cmd",
             "health": "osprey.cli.health_cmd",
-            "migrate": "osprey.cli.migrate_cmd",
             "claude": "osprey.cli.claude_cmd",
             "eject": "osprey.cli.eject_cmd",
             "channel-finder": "osprey.cli.channel_finder_cmd",
@@ -56,6 +54,8 @@ class LazyGroup(click.Group):
             "web": "osprey.cli.web_cmd",  # Web Terminal
             "prompts": "osprey.cli.prompts_cmd",  # Prompt artifact overrides
             "audit": "osprey.cli.audit_cmd",  # Safety auditor
+            "skills": "osprey.cli.skills_cmd",  # Bundled skill management
+            "vendor": "osprey.cli.vendor_cmd",  # Vendor asset management
         }
 
         if cmd_name not in commands:
@@ -85,11 +85,9 @@ class LazyGroup(click.Group):
     def list_commands(self, ctx):
         """Return list of available commands (for --help)."""
         return [
-            "init",
             "build",
             "config",
             "deploy",
-            "migrate",
             "health",
             "channel-finder",
             "claude",
@@ -99,6 +97,8 @@ class LazyGroup(click.Group):
             "web",
             "prompts",
             "audit",
+            "skills",
+            "vendor",
         ]
 
 
@@ -117,7 +117,8 @@ def cli(ctx):
 
     \b
       osprey                          Launch interactive menu
-      osprey init my-project          Create new project
+      osprey build my-project --preset hello-world
+                                      Create new project from a bundled preset
       osprey config                   Manage configuration (show, export, set)
       osprey deploy up                Start services
       osprey claude regen             Regenerate Claude Code artifacts

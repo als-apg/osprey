@@ -2,10 +2,14 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop, release-*, feature/** ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, develop, release-* ]
+    branches: [ main ]
   workflow_dispatch:
+  schedule:
+    # Nightly at 07:00 UTC (midnight Pacific). Tier 4 (provider matrix,
+    # benchmarks) gates on github.event_name == 'schedule'.
+    - cron: '0 7 * * *'
 
 # Note: This workflow runs tests, linting, docs build, and package checks
 # For documentation deployment to GitHub Pages, see .github/workflows/docs.yml
@@ -153,6 +157,131 @@ jobs:
         path: dist/
         retention-days: 7
 
+  static-checks:
+    name: Tier 0 — Static (preset YAML, skill ↔ MCP-tool consistency)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install dependencies
+      run: uv sync --extra dev
+
+    - name: Run Tier 0 static checks
+      run: uv run pytest tests/integration/test_preset_static.py -v --tb=short
+
+  build-boot-smoke:
+    name: Tier 1 — Build + MCP boot (${{ matrix.preset }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [hello-world, control-assistant]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install dependencies
+      run: uv sync --extra dev
+
+    - name: Cache uv project-venv downloads
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/uv
+        key: uv-buildboot-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+        restore-keys: |
+          uv-buildboot-${{ runner.os }}-
+
+    - name: Run Tier 1 boot smoke for preset
+      env:
+        PRESET: ${{ matrix.preset }}
+      run: |
+        uv run pytest tests/integration/test_build_boot.py -v --tb=short -k "$PRESET"
+
+  agentic-per-preset:
+    name: Tier 3 — Agentic flow (${{ matrix.preset }}) [advisory]
+    runs-on: ubuntu-latest
+    # Only run on PRs from same repo (ALS_APG_API_KEY unavailable on forks)
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        preset: [hello-world, control-assistant]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v6
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install dependencies
+      run: uv sync --extra dev
+
+    - name: Pre-flight LLM endpoint reachability check
+      env:
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      run: |
+        # Defense in depth: surface "secret unset" or "GitHub Actions IP not
+        # allowlisted" failures clearly here, instead of buried under confusing
+        # 4xx errors flooding pytest output 5+ minutes later.
+        # See CHANGELOG entry on the cborg → ALS-APG CI swap for full context.
+        if [ -z "${ALS_APG_API_KEY:-}" ]; then
+          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
+          echo "   (Check repo secrets; required for the agentic-per-preset job.)"
+          exit 1
+        fi
+        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
+          -X POST https://llm.gianlucamartino.com/v1/messages \
+          -H "Content-Type: application/json" \
+          -H "anthropic-version: 2023-06-01" \
+          -H "Authorization: Bearer $ALS_APG_API_KEY" \
+          -d '{"model":"claude-haiku-4-5-20251001","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+        if [ "$HTTP_CODE" != "200" ]; then
+          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
+          echo "   Body (first 500 chars):"
+          head -c 500 /tmp/probe.txt; echo
+          echo "   If 401/403: rotate ALS_APG_API_KEY or check IP allowlist."
+          echo "   If 5xx: ALS-APG outage — retry, or contact the proxy admin."
+          exit 1
+        fi
+        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+
+    - name: Run Tier 3 agentic test for preset
+      env:
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+        PRESET: ${{ matrix.preset }}
+      run: |
+        # template names use snake_case in init_project (e.g. hello_world);
+        # the matrix entry is the kebab-case preset id, which appears in the
+        # function name (test_hello_world_*) so -k matches both.
+        PRESET_K="${PRESET//-/_}"
+        uv run pytest tests/e2e/test_preset_agentic.py -v --tb=short -k "$PRESET_K"
+
   e2e-tests:
     name: E2E Tests
     runs-on: ubuntu-latest
@@ -176,14 +305,39 @@ jobs:
     - name: Install dependencies
       run: uv sync --extra dev
 
+    - name: Pre-flight LLM endpoint reachability check
+      env:
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      run: |
+        # Same probe as agentic-per-preset; see comment there for rationale.
+        if [ -z "${ALS_APG_API_KEY:-}" ]; then
+          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
+          exit 1
+        fi
+        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
+          -X POST https://llm.gianlucamartino.com/v1/messages \
+          -H "Content-Type: application/json" \
+          -H "anthropic-version: 2023-06-01" \
+          -H "Authorization: Bearer $ALS_APG_API_KEY" \
+          -d '{"model":"claude-haiku-4-5-20251001","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+        if [ "$HTTP_CODE" != "200" ]; then
+          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
+          head -c 500 /tmp/probe.txt; echo
+          exit 1
+        fi
+        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+
     - name: Run E2E tests
       env:
-        CBORG_API_KEY: ${{ secrets.CBORG_API_KEY }}
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
-        uv run pytest tests/e2e/ -v --tb=short
+        # Tier 3 per-preset agentic flows live in their own matrix job
+        # (agentic-per-preset). Exclude here to avoid double-execution.
+        uv run pytest tests/e2e/ -v --tb=short \
+          --ignore=tests/e2e/test_preset_agentic.py
 
   deploy-e2e:
-    name: Deploy E2E Test (Pipelines Container)
+    name: Deploy E2E Test (build + deploy pipeline)
     runs-on: ubuntu-latest
     # Only run on PRs from same repo (secrets unavailable on forks)
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
@@ -210,80 +364,28 @@ jobs:
 
     - name: Create hello_world project
       run: |
-        uv run osprey init hello-world-test --template hello_world --provider cborg --model anthropic/claude-haiku
-        ls -la hello-world-test/
+        # CI only has ALS_APG_API_KEY (cborg's IP allowlist excludes GitHub
+        # Actions runners). Drive provider selection through `osprey build
+        # --set` instead of post-build sed surgery — keeps the contract
+        # explicit and survives template re-formatting.
+        uv run osprey build hello-world-test --preset hello-world \
+          --skip-deps --skip-lifecycle \
+          --set provider=als-apg --set model=haiku
+        cd hello-world-test
+        uv run osprey skills install osprey-build-interview
+        ls -la
 
-    - name: Deploy pipelines container
+    - name: osprey deploy up (graceful no-op for hello-world)
       env:
-        CBORG_API_KEY: ${{ secrets.CBORG_API_KEY }}
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: |
         cd hello-world-test
+        # hello-world declares no deployed_services, so deploy up should
+        # exit 0 with a "no services configured" notice rather than
+        # crashing on TemplateNotFound.
         uv run osprey deploy up -d --dev
 
-    - name: Wait for pipelines to be ready
-      run: |
-        echo "Waiting for pipelines container to install packages and start..."
-        for i in {1..30}; do
-          # Check if container is responding
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            -X POST http://localhost:9099/v1/chat/completions \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer 0p3n-w3bu!" \
-            -d '{"model":"main","messages":[{"role":"user","content":"ping"}],"stream":false}' \
-            --max-time 10 || echo "000")
-
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "✅ Pipelines ready after $((i * 10)) seconds"
-            exit 0
-          fi
-
-          echo "Attempt $i/30: HTTP $HTTP_CODE - waiting 10s..."
-          sleep 10
-        done
-
-        echo "❌ Pipelines failed to become ready within 5 minutes"
-        docker logs pipelines || true
-        exit 1
-
-    - name: Test agent query
-      run: |
-        echo "Sending test query to agent..."
-        RESPONSE=$(curl -s -X POST http://localhost:9099/v1/chat/completions \
-          -H "Content-Type: application/json" \
-          -H "Authorization: Bearer 0p3n-w3bu!" \
-          -d '{"model":"main","messages":[{"role":"user","content":"What is the weather in San Francisco?"}],"stream":false}' \
-          --max-time 300)
-
-        echo "Response:"
-        echo "$RESPONSE" | head -c 2000
-
-        # Check for error in response
-        if echo "$RESPONSE" | grep -qi '"error"'; then
-          echo ""
-          echo "❌ Agent returned an error"
-          exit 1
-        fi
-
-        # Check we got some response content
-        if [ -z "$RESPONSE" ] || [ "$RESPONSE" = "{}" ]; then
-          echo ""
-          echo "❌ Empty response from agent"
-          exit 1
-        fi
-
-        echo ""
-        echo "✅ Agent responded successfully"
-
-    - name: Show container logs on failure
-      if: failure()
-      run: |
-        echo "=== Docker containers ==="
-        docker ps -a
-        echo ""
-        echo "=== Pipelines logs ==="
-        docker logs pipelines 2>&1 | tail -200 || true
-
-    - name: Cleanup
+    - name: osprey deploy down
       if: always()
       run: |
         cd hello-world-test
@@ -291,7 +393,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, lint, docs, package, e2e-tests, deploy-e2e]
+    needs: [test, lint, docs, package, static-checks, build-boot-smoke, e2e-tests, deploy-e2e, agentic-per-preset]
     runs-on: ubuntu-latest
     if: always()
 
@@ -313,6 +415,22 @@ jobs:
         if [[ "${{ needs.package.result }}" != "success" ]]; then
           echo "❌ Package build failed"
           exit 1
+        fi
+        if [[ "${{ needs.static-checks.result }}" != "success" ]]; then
+          echo "❌ Tier 0 static checks failed"
+          exit 1
+        fi
+        if [[ "${{ needs.build-boot-smoke.result }}" != "success" ]]; then
+          echo "❌ Tier 1 build + boot smoke failed"
+          exit 1
+        fi
+        # Tier 3 agentic-per-preset: advisory (continue-on-error in job)
+        if [[ "${{ needs.agentic-per-preset.result }}" == "failure" ]]; then
+          echo "⚠️  Agentic per-preset failed (non-blocking, LLM-dependent)"
+        elif [[ "${{ needs.agentic-per-preset.result }}" == "skipped" ]]; then
+          echo "⏭️  Agentic per-preset skipped (only run on PRs)"
+        else
+          echo "✅ Agentic per-preset passed"
         fi
         # E2E tests: advisory (LLM-dependent, may fail due to rate limits)
         if [[ "${{ needs.e2e-tests.result }}" == "failure" ]]; then

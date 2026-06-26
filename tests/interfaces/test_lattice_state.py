@@ -42,9 +42,9 @@ def _make_lindata(n_refpts: int):
 
 
 def _make_mock_at(ring, rd, ld):
-    """Create a mock 'at' module with load_m and get_optics."""
+    """Create a mock 'at' module with load_lattice and get_optics."""
     mock_at = MagicMock()
-    mock_at.load_m.return_value = ring
+    mock_at.load_lattice.return_value = ring
     mock_at.get_optics.return_value = (None, rd, ld)
     return mock_at
 

@@ -111,7 +111,7 @@ class TestSextupoleDetection:
         ld = SimpleNamespace(beta=np.array([[10.0, 5.0], [12.0, 6.0], [10.0, 5.0]]))
 
         mock_at = MagicMock()
-        mock_at.load_m.return_value = ring
+        mock_at.load_lattice.return_value = ring
         mock_at.get_optics.return_value = (None, rd, ld)
 
         with patch.dict(sys.modules, {"at": mock_at}):

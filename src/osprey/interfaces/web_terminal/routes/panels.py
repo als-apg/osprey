@@ -73,7 +73,6 @@ async def lattice_server_config(request: Request):
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
-
 @router.get("/api/panels")
 async def get_panels(request: Request):
     """Return panel configuration: enabled built-in panels + custom panels.

@@ -237,7 +237,11 @@ async def run_sync(
 
     # Step 3: Enhance cleanup — catch up previously-failed enhancements
     enhance_result = await run_enhance(
-        config_dict, module=None, force=False, limit=1000, progress=progress,
+        config_dict,
+        module=None,
+        force=False,
+        limit=1000,
+        progress=progress,
     )
 
     return SyncResult(

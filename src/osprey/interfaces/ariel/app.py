@@ -218,7 +218,10 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
             "message": "Database unavailable — drafts, UI, and settings work",
         }
 
-    from osprey.interfaces.common_middleware import ExceptionLoggingMiddleware, NoCacheStaticMiddleware
+    from osprey.interfaces.common_middleware import (
+        ExceptionLoggingMiddleware,
+        NoCacheStaticMiddleware,
+    )
 
     app.add_middleware(NoCacheStaticMiddleware)
     app.add_middleware(ExceptionLoggingMiddleware)

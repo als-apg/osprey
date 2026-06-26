@@ -23,9 +23,7 @@ _USER_BIN_CANDIDATES = [
 def user_bin_dirs() -> list[str]:
     """Return existing user-local bin directories not already on PATH."""
     current = set(os.environ.get("PATH", "").split(os.pathsep))
-    return [
-        str(d) for d in _USER_BIN_CANDIDATES if d.is_dir() and str(d) not in current
-    ]
+    return [str(d) for d in _USER_BIN_CANDIDATES if d.is_dir() and str(d) not in current]
 
 
 def resolve_shell_command(command: str) -> str:

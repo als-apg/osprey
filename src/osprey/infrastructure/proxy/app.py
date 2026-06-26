@@ -116,13 +116,16 @@ async def _stream_proxy(
                     error_body = b""
                     async for chunk in resp.aiter_bytes():
                         error_body += chunk
-                    yield format_sse("error", {
-                        "type": "error",
-                        "error": {
-                            "type": "api_error",
-                            "message": error_body.decode(errors="replace"),
+                    yield format_sse(
+                        "error",
+                        {
+                            "type": "error",
+                            "error": {
+                                "type": "api_error",
+                                "message": error_body.decode(errors="replace"),
+                            },
                         },
-                    })
+                    )
                     return
 
                 # Emit message_start
@@ -177,8 +180,10 @@ async def _stream_proxy(
                                 "name": tool_name,
                             }
                             yield make_content_block_start(
-                                block_index, "tool_use",
-                                tool_id=tool_id, tool_name=tool_name,
+                                block_index,
+                                "tool_use",
+                                tool_id=tool_id,
+                                tool_name=tool_name,
                             )
                             block_index += 1
 
@@ -211,10 +216,13 @@ async def _stream_proxy(
                 yield make_message_stop()
 
         except httpx.RequestError as exc:
-            yield format_sse("error", {
-                "type": "error",
-                "error": {"type": "api_error", "message": str(exc)},
-            })
+            yield format_sse(
+                "error",
+                {
+                    "type": "error",
+                    "error": {"type": "api_error", "message": str(exc)},
+                },
+            )
 
 
 def _translate_error(response: httpx.Response) -> JSONResponse:

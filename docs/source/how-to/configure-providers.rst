@@ -102,6 +102,13 @@ Providers are configured in two sections of ``config.yml``:
 
 **Declare providers** under ``api.providers``:
 
+.. note::
+
+   Model IDs change every few months as new Claude, GPT, and Gemini releases
+   ship. The IDs below were current at the time of writing — always check your
+   provider's documentation (Anthropic, OpenAI, Google, CBORG, etc.) for the
+   latest available model names before copying these values verbatim.
+
 .. code-block:: yaml
 
    api:
@@ -111,8 +118,8 @@ Providers are configured in two sections of ``config.yml``:
          base_url: https://api.anthropic.com
          models:
            haiku: claude-haiku-4-5-20251001
-           sonnet: claude-sonnet-4-5-20250929
-           opus: claude-opus-4-6
+           sonnet: claude-sonnet-4-6
+           opus: claude-opus-4-7
 
        cborg:
          api_key: ${CBORG_API_KEY}

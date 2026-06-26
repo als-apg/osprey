@@ -114,12 +114,9 @@ class TemplateManager:
         project_name: str,
         output_dir: Path,
         data_bundle: str = "control_assistant",
-        registry_style: str = "extend",
         context: dict[str, Any] | None = None,
         force: bool = False,
         artifacts: dict[str, list[str]] | None = None,
-        # Deprecated alias kept for backward compatibility
-        template_name: str | None = None,
     ) -> Path:
         """Create complete project from template.
 
@@ -134,11 +131,9 @@ class TemplateManager:
             project_name: Name of the project (e.g., "my-assistant")
             output_dir: Parent directory where project will be created
             data_bundle: Data bundle (app template) to use (default: "control_assistant")
-            registry_style: Registry style - "extend" (recommended) or "standalone" (advanced)
             context: Additional template context variables
             force: If True, skip existence check (used when caller already handled deletion)
             artifacts: Profile-driven artifact selection (hooks, rules, skills, agents, etc.)
-            template_name: Deprecated alias for data_bundle; use data_bundle instead.
 
         Returns:
             Path to created project directory
@@ -146,10 +141,6 @@ class TemplateManager:
         Raises:
             ValueError: If data bundle doesn't exist or project directory exists
         """
-        # Support deprecated template_name alias
-        if template_name is not None:
-            data_bundle = template_name
-
         # 1. Validate data bundle exists
         bundle_dir = self.template_root / "apps" / data_bundle
         if not bundle_dir.is_dir():
@@ -182,20 +173,17 @@ class TemplateManager:
         # Detect environment variables from the system
         detected_env_vars = scaffolding.detect_environment_variables()
 
-        # Fall back to example profile artifacts when none are explicitly provided,
-        # matching the regen fallback in build_claude_code_context().
-        if not artifacts:
+        # Fall back to preset profile artifacts when the caller didn't pass any
+        # (legacy code path). An explicit empty dict from `osprey build` means the
+        # profile deliberately selects nothing, and must not be overridden.
+        if artifacts is None:
             tmpl_manifest = manifest.load_template_manifest(self.template_root, data_bundle)
             if tmpl_manifest:
                 artifacts = tmpl_manifest.get("artifacts", {})
 
         # Derive feature flags from artifact selections.
-        # has_lattice_physics: from explicit artifacts list, or from data_bundle name (legacy)
-        _artifact_rules = (artifacts or {}).get("rules", [])
-        has_lattice_physics = (
-            "lattice-physics" in _artifact_rules or data_bundle == "lattice_design"
-        )
         selected_hooks = (artifacts or {}).get("hooks", [])
+        selected_web_panels = (artifacts or {}).get("web_panels", [])
 
         ctx = {
             "project_name": project_name,
@@ -212,8 +200,8 @@ class TemplateManager:
             "default_model": "haiku",
             "template_name": data_bundle,  # Make bundle name available in config.yml
             "data_bundle": data_bundle,
-            "has_lattice_physics": has_lattice_physics,
             "selected_hooks": selected_hooks,
+            "selected_web_panels": selected_web_panels,
             # Add detected environment variables
             "env": detected_env_vars,
             **(context or {}),
@@ -221,7 +209,7 @@ class TemplateManager:
 
         # Derive channel finder configuration:
         # - When called from build (artifacts provided): check if channel-finder agent is selected
-        # - When called from init (no artifacts): check if bundle config template declares it
+        # - When artifacts is None (programmatic caller): check if bundle config template declares it
         _profile_agents = (artifacts or {}).get("agents", [])
         _bundle_has_channel_finder = (bundle_dir / "config.yml.j2").exists() and not artifacts
         if "channel-finder" in _profile_agents or _bundle_has_channel_finder:
@@ -445,28 +433,25 @@ class TemplateManager:
         project_dir: Path,
         project_name: str,
         data_bundle: str | None = None,
-        registry_style: str = "extend",
         context: dict[str, Any] | None = None,
         artifacts: dict[str, list[str]] | None = None,
-        # Deprecated alias kept for backward compatibility
-        template_name: str | None = None,
+        preset_name: str | None = None,
+        profile_path: str | None = None,
     ) -> dict[str, Any]:
         """Generate a project manifest for migration support.
 
         Args:
-            project_dir: Root directory of the created project
-            project_name: Name of the project
-            data_bundle: Data bundle used to create the project
-            registry_style: Registry style ("extend" or "standalone")
-            context: Full context dict used during template rendering
-            artifacts: Profile-driven artifact selection (hooks, rules, skills, agents, etc.)
-            template_name: Deprecated alias for data_bundle; use data_bundle instead.
+            project_dir: Root directory of the created project.
+            project_name: Name of the project.
+            data_bundle: Underlying app bundle (default: "control_assistant").
+            context: Full context dict used during template rendering.
+            artifacts: Profile-driven artifact selection.
+            preset_name: Hyphenated preset name (if --preset was used).
+            profile_path: Path string to positional profile (if used).
 
         Returns:
-            Dictionary containing the manifest data that was written to file
+            Dictionary containing the manifest data that was written to file.
         """
-        if template_name is not None:
-            data_bundle = template_name
         if data_bundle is None:
             data_bundle = "control_assistant"
         if context is None:
@@ -477,9 +462,10 @@ class TemplateManager:
             project_dir,
             project_name,
             data_bundle,
-            registry_style,
             context,
             artifacts=artifacts,
+            preset_name=preset_name,
+            profile_path=profile_path,
         )
 
     def copy_services(self, project_dir: Path):

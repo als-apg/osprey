@@ -4,11 +4,11 @@ This package contains Jinja2 templates for creating new projects from the
 Osprey Framework. Templates are organized into:
 
 - project/ : Base project structure (config, pyproject.toml, README, etc.)
-- apps/ : Application code templates (hello_world, control_assistant, lattice_design)
+- apps/ : Application code templates (hello_world, control_assistant)
 - services/ : Docker/Podman service configurations (Jupyter, web-terminal)
 
 Templates are bundled with the pip-installed framework package and used by
-the CLI scaffolding commands (osprey init, osprey create-example, etc.).
+the CLI scaffolding command (osprey build).
 """
 
 __all__ = []

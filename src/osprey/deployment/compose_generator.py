@@ -78,7 +78,6 @@ def find_service_config(config, service_name):
        naming patterns for new services.
 
     .. seealso::
-       :func:`get_templates` : Uses this function to build template lists
        :func:`setup_build_dir` : Processes discovered services for deployment
     """
     # Handle full path notation (osprey.jupyter, applications.als_assistant.mongo)
@@ -109,71 +108,6 @@ def find_service_config(config, service_name):
         return service_config, os.path.join(service_config["path"], TEMPLATE_FILENAME)
 
     return None, None
-
-
-def get_templates(config):
-    """Collect template paths for all deployed services in the configuration.
-
-    This function builds a comprehensive list of Docker Compose template paths
-    based on the services specified in the deployed_services configuration.
-    It processes both the root services template and individual service templates,
-    providing the complete set of templates needed for deployment.
-
-    The function always includes the root services template (services/docker-compose.yml.j2)
-    which defines the shared network configuration and other global service settings.
-    Individual service templates are then discovered through the service discovery
-    system and added to the template list.
-
-    :param config: Configuration containing deployed_services list
-    :type config: dict
-    :return: List of template file paths for processing
-    :rtype: list[str]
-    :raises Warning: Prints warning if deployed_services is not configured
-
-    Examples:
-        Template collection for mixed services::
-
-            >>> config = {
-            ...     'deployed_services': ['osprey.jupyter', 'applications.als_assistant.mongo'],
-            ...     'osprey': {'services': {'jupyter': {'path': 'services/osprey/jupyter'}}},
-            ...     'applications': {'als_assistant': {'services': {'mongo': {'path': 'services/applications/als_assistant/mongo'}}}}
-            ... }
-            >>> templates = get_templates(config)
-            >>> print(templates)
-            ['services/docker-compose.yml.j2',
-             'services/osprey/jupyter/docker-compose.yml.j2',
-             'services/applications/als_assistant/mongo/docker-compose.yml.j2']
-
-    .. warning::
-       If deployed_services is not configured or empty, only the root services
-       template will be returned, which may not provide functional services.
-
-    .. seealso::
-       :func:`find_service_config` : Service discovery used by this function
-       :func:`render_template` : Processes the templates returned by this function
-    """
-    templates = []
-
-    # Add the services root template
-    templates.append(os.path.join(SERVICES_DIR, TEMPLATE_FILENAME))
-
-    # Get deployed services list
-    deployed_services = config.get("deployed_services", [])
-    if deployed_services:
-        deployed_service_names = [str(service) for service in deployed_services]
-    else:
-        logger.warning("No deployed_services list found, no service templates will be processed")
-        return templates
-
-    # Add templates for deployed services
-    for service_name in deployed_service_names:
-        service_config, template_path = find_service_config(config, service_name)
-        if template_path:
-            templates.append(template_path)
-        else:
-            logger.warning(f"Service '{service_name}' not found in configuration")
-
-    return templates
 
 
 def _inject_project_metadata(config):

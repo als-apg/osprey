@@ -1,15 +1,21 @@
-"""MCP tools: lattice dashboard — init, state, params, refresh, baseline.
+"""MCP tools: lattice dashboard — init, state, params, figures, baseline, settings.
 
-Five tools for interacting with the lattice dashboard server:
+Ten tools wrapping the lattice dashboard HTTP surface:
   - ``lattice_init``: Load a lattice file into the dashboard.
   - ``lattice_state``: Get the current lattice state.
   - ``lattice_set_param``: Set a magnet family parameter.
   - ``lattice_refresh``: Trigger figure recomputation.
+  - ``lattice_get_figure``: Fetch rendered Plotly figure JSON.
+  - ``lattice_get_data``: Fetch raw numerical data behind a figure.
   - ``lattice_set_baseline``: Snapshot current state as baseline.
+  - ``lattice_clear_baseline``: Remove the baseline snapshot.
+  - ``lattice_get_settings``: Fetch computation/display settings.
+  - ``lattice_update_settings``: Deep-merge new settings (partial update).
 """
 
 import json
 import logging
+import os
 
 import httpx
 
@@ -28,7 +34,7 @@ def _get_dashboard_url() -> str:
     config = load_osprey_config()
     ld = config.get("lattice_dashboard", {})
     host = ld.get("host", _DEFAULT_HOST)
-    port = ld.get("port", _DEFAULT_PORT)
+    port = int(os.environ.get("OSPREY_LATTICE_DASHBOARD_PORT", ld.get("port", _DEFAULT_PORT)))
     return f"http://{host}:{port}"
 
 
@@ -42,6 +48,8 @@ async def _dashboard_request(
             resp = await client.get(url)
         elif method == "POST":
             resp = await client.post(url, json=json_body)
+        elif method == "PUT":
+            resp = await client.put(url, json=json_body)
         elif method == "DELETE":
             resp = await client.delete(url)
         else:
@@ -242,4 +250,179 @@ async def lattice_set_baseline() -> str:
         )
     except Exception as exc:
         logger.exception("lattice_set_baseline failed")
+        return json.dumps(make_error("lattice_error", str(exc)))
+
+
+@mcp.tool()
+async def lattice_get_figure(name: str) -> str:
+    """Fetch the rendered Plotly figure JSON for a named figure.
+
+    Valid figure names: ``optics``, ``resonance``, ``chromaticity``,
+    ``footprint``, ``da``, ``lma``. Returns a ``lattice_error`` if the
+    figure hasn't been computed yet (call ``lattice_refresh`` first) or
+    the name is unknown.
+
+    Args:
+        name: Figure name.
+
+    Returns:
+        JSON-serialized Plotly figure dict (data + layout), suitable
+        for rendering or inspection.
+    """
+    try:
+        result = await _dashboard_request("GET", f"/api/figures/{name}")
+        return json.dumps(result, default=str)
+    except httpx.HTTPStatusError as exc:
+        return json.dumps(
+            make_error(
+                "lattice_error",
+                f"Failed to fetch figure '{name}': {exc.response.text}",
+                [
+                    "Valid names: optics, resonance, chromaticity, footprint, da, lma.",
+                    "If the figure status is 'idle' or 'stale', call lattice_refresh first.",
+                ],
+            )
+        )
+    except httpx.ConnectError:
+        return json.dumps(
+            make_error(
+                "service_unavailable",
+                "Lattice dashboard server is not running.",
+            )
+        )
+    except Exception as exc:
+        logger.exception("lattice_get_figure failed")
+        return json.dumps(make_error("lattice_error", str(exc)))
+
+
+@mcp.tool()
+async def lattice_get_data(name: str) -> str:
+    """Fetch the raw numerical arrays behind a figure.
+
+    Returns the unprocessed JSON the figure builder consumes — useful
+    when you need the underlying arrays (e.g. s-positions, beta values,
+    survival mask) rather than the Plotly rendering. Valid names match
+    ``lattice_get_figure``.
+
+    Args:
+        name: Figure name.
+
+    Returns:
+        JSON-serialized raw data dict.
+    """
+    try:
+        result = await _dashboard_request("GET", f"/api/data/{name}")
+        return json.dumps(result, default=str)
+    except httpx.HTTPStatusError as exc:
+        return json.dumps(
+            make_error(
+                "lattice_error",
+                f"Failed to fetch data for '{name}': {exc.response.text}",
+                [
+                    "Valid names: optics, resonance, chromaticity, footprint, da, lma.",
+                    "If the figure status is 'idle' or 'stale', call lattice_refresh first.",
+                ],
+            )
+        )
+    except httpx.ConnectError:
+        return json.dumps(
+            make_error(
+                "service_unavailable",
+                "Lattice dashboard server is not running.",
+            )
+        )
+    except Exception as exc:
+        logger.exception("lattice_get_data failed")
+        return json.dumps(make_error("lattice_error", str(exc)))
+
+
+@mcp.tool()
+async def lattice_get_settings() -> str:
+    """Fetch the current computation and display settings.
+
+    Returns the merged settings dict — defaults overlaid with any
+    updates made via ``lattice_update_settings``. Groups include ``da``
+    (dynamic aperture resolution, bisect count, etc.) and ``lma``
+    (momentum aperture scan parameters).
+
+    Returns:
+        JSON-serialized settings dict.
+    """
+    try:
+        result = await _dashboard_request("GET", "/api/settings")
+        return json.dumps(result, default=str)
+    except httpx.ConnectError:
+        return json.dumps(
+            make_error(
+                "service_unavailable",
+                "Lattice dashboard server is not running.",
+            )
+        )
+    except Exception as exc:
+        logger.exception("lattice_get_settings failed")
+        return json.dumps(make_error("lattice_error", str(exc)))
+
+
+@mcp.tool()
+async def lattice_update_settings(settings: dict) -> str:
+    """Deep-merge new settings into the dashboard state (partial update).
+
+    Only the keys you pass are changed — missing keys keep their
+    current value. The server validates and clamps values, so the
+    response echoes the actually applied settings. Any figure touched
+    by a changed key flips to ``stale`` and must be refreshed.
+
+    Args:
+        settings: Nested dict keyed by group (e.g. ``da``, ``lma``),
+            each holding the keys to update. Example:
+            ``{"da": {"n_angles": 25}}``.
+
+    Returns:
+        JSON with the applied (post-validation) settings dict.
+    """
+    try:
+        result = await _dashboard_request("PUT", "/api/settings", json_body={"settings": settings})
+        return json.dumps(result, default=str)
+    except httpx.HTTPStatusError as exc:
+        return json.dumps(
+            make_error(
+                "lattice_error",
+                f"Failed to update settings: {exc.response.text}",
+                ["Check the settings shape — nested dict keyed by group name."],
+            )
+        )
+    except httpx.ConnectError:
+        return json.dumps(
+            make_error(
+                "service_unavailable",
+                "Lattice dashboard server is not running.",
+            )
+        )
+    except Exception as exc:
+        logger.exception("lattice_update_settings failed")
+        return json.dumps(make_error("lattice_error", str(exc)))
+
+
+@mcp.tool()
+async def lattice_clear_baseline() -> str:
+    """Remove the comparison baseline.
+
+    After clearing, figure refreshes stop rendering baseline overlays.
+    No-op if no baseline is set.
+
+    Returns:
+        JSON confirming the clear.
+    """
+    try:
+        result = await _dashboard_request("DELETE", "/api/baseline")
+        return json.dumps(result, default=str)
+    except httpx.ConnectError:
+        return json.dumps(
+            make_error(
+                "service_unavailable",
+                "Lattice dashboard server is not running.",
+            )
+        )
+    except Exception as exc:
+        logger.exception("lattice_clear_baseline failed")
         return json.dumps(make_error("lattice_error", str(exc)))

@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 TEST_DATA_PATH = Path(__file__).parent.parent / "fixtures" / "ariel" / "test_logbook_entries.jsonl"
 
 # Path to config file for LLM access (RAG tests need this)
-# Uses minimal test config with CBORG API access
+# Uses minimal test config with ALS-APG API access (AWS Bedrock proxy)
 CONFIG_FILE_PATH = Path(__file__).parent.parent / "fixtures" / "ariel" / "test_config.yml"
 
 # Dev database URL - uses port 5432 (ariel-postgres container)
@@ -167,8 +167,8 @@ def e2e_ariel_config(e2e_database_url: str) -> ARIELConfig:
             # LLM config for RAG answer generation
             # provider references api.providers for credentials
             "reasoning": {
-                "provider": "cborg",
-                "model_id": "anthropic/claude-haiku",
+                "provider": "als-apg",
+                "model_id": "claude-haiku-4-5-20251001",
                 "temperature": 0.1,
             },
         }
@@ -209,7 +209,7 @@ def e2e_config_file():
     """Module-scoped config file setup (used during data seeding).
 
     Required for RAG tests which call get_chat_completion.
-    Uses my-control-assistant config which has CBORG configured.
+    Uses my-control-assistant config which has ALS-APG configured.
     """
     if not CONFIG_FILE_PATH.exists():
         pytest.skip(f"Config file not found: {CONFIG_FILE_PATH}")
@@ -493,7 +493,7 @@ class TestRAGSearchE2E:
     """RAG search with deterministic grounding evaluation.
 
     Note: These tests verify RAG retrieval and answer generation.
-    Requires CBORG_API_KEY environment variable for LLM calls.
+    Requires ALS_APG_API_KEY environment variable for LLM calls.
     """
 
     async def test_factual_qa(self, seeded_ariel_db, rag_config_env):

@@ -168,10 +168,8 @@ Access patterns: ``{{services.<name>.<key>}}``, ``{{file_paths.<key>}}``,
 Network Binding and Security
 ============================
 
-.. versionchanged:: 0.10.7
-   Services now bind to ``127.0.0.1`` by default (previously ``0.0.0.0``).
-
-Use ``--expose`` only when you have authentication and firewalling in place.
+Services bind to ``127.0.0.1`` by default. Use ``--expose`` only when you
+have authentication and firewalling in place.
 You can also set ``deployment.bind_address`` in ``config.yml``.
 
 Container networking uses service names as hostnames (e.g.,
@@ -238,4 +236,3 @@ build directory; check ``DEV_MODE`` env var inside the container.
 
    :doc:`../cli-reference/index`
        CLI command reference
-

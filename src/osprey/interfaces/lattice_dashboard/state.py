@@ -188,7 +188,7 @@ class LatticeState:
         import at
         import numpy as np
 
-        ring = at.load_m(lattice_path)
+        ring = at.load_lattice(lattice_path)
         refpts = range(len(ring) + 1)
         ld0, rd, ld = at.get_optics(ring, refpts=refpts, get_chrom=True)
 
@@ -305,7 +305,7 @@ class LatticeState:
         if not lattice_path:
             raise ValueError("No lattice loaded — call initialize() first")
 
-        ring = at.load_m(lattice_path)
+        ring = at.load_lattice(lattice_path)
         overrides = state.get("overrides", {})
 
         for fam_name, value in overrides.items():

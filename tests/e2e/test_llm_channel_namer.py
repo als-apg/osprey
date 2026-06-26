@@ -38,6 +38,12 @@ def get_available_providers() -> dict[str, dict]:
             "claude-haiku",
         ),
         ("anthropic", ["ANTHROPIC_API_KEY"], None, "claude-haiku-4-5-20251001"),
+        (
+            "als-apg",
+            ["ALS_APG_API_KEY"],
+            "https://llm.gianlucamartino.com",
+            "claude-haiku-4-5-20251001",
+        ),
     ]
 
     for provider_name, env_vars, default_base_url, default_model in providers_to_check:
@@ -66,7 +72,7 @@ pytestmark = [
     pytest.mark.e2e,
     pytest.mark.skipif(
         len(_AVAILABLE_PROVIDERS) == 0,
-        reason="Requires CBORG_API_KEY or ANTHROPIC_API_KEY",
+        reason="Requires CBORG_API_KEY, AMSC_I2_API_KEY, ANTHROPIC_API_KEY, or ALS_APG_API_KEY",
     ),
 ]
 

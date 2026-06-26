@@ -60,7 +60,9 @@ def query_channels(sql: str) -> str:
                 make_error(
                     "not_configured",
                     "DuckDB database is not configured for the channel finder.",
-                    ["Ensure channel_finder.pipelines.middle_layer.database.duckdb_path is set in config.yml."],
+                    [
+                        "Ensure channel_finder.pipelines.middle_layer.database.duckdb_path is set in config.yml."
+                    ],
                 )
             )
 
@@ -84,10 +86,15 @@ def query_channels(sql: str) -> str:
             row_count = len(rows)
 
             # Convert to list of dicts for JSON serialisation
-            data = [dict(zip(columns, row)) for row in rows]
+            data = [dict(zip(columns, row, strict=True)) for row in rows]
 
             return json.dumps(
-                {"columns": columns, "rows": data, "row_count": row_count, "truncated": row_count >= _MAX_ROWS},
+                {
+                    "columns": columns,
+                    "rows": data,
+                    "row_count": row_count,
+                    "truncated": row_count >= _MAX_ROWS,
+                },
                 default=str,
             )
         finally:
@@ -99,7 +106,10 @@ def query_channels(sql: str) -> str:
             make_error(
                 "sql_error",
                 f"SQL error: {exc}",
-                ["Check your SQL syntax.", "Use 'SELECT * FROM channels LIMIT 10' to explore the schema."],
+                [
+                    "Check your SQL syntax.",
+                    "Use 'SELECT * FROM channels LIMIT 10' to explore the schema.",
+                ],
             )
         )
     except Exception as exc:

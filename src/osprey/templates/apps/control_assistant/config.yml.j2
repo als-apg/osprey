@@ -25,9 +25,9 @@ api:
       api_key: ${CBORG_API_KEY}
       base_url: https://api.cborg.lbl.gov/v1
       models:                        # Model IDs as named by this provider
-        haiku: anthropic/claude-haiku
-        sonnet: anthropic/claude-sonnet
-        opus: anthropic/claude-opus
+        haiku: claude-haiku-4-5
+        sonnet: claude-sonnet-4-6
+        opus: claude-opus-4-7
     amsc:
       api_key: ${AMSC_I2_API_KEY}
       base_url: https://api.i2-core.american-science-cloud.org/v1
@@ -587,18 +587,23 @@ claude_code:
 # Domain-specific panels are listed here — remove or disable as needed.
 
 web:
+{%- set _BUILTIN_PANELS = ["ariel", "channel-finder", "tuning"] %}
+{%- set _enabled_builtin_panels = selected_web_panels | select("in", _BUILTIN_PANELS) | list %}
+{%- if _enabled_builtin_panels %}
   panels:
-    ariel:
+{%- for panel in _enabled_builtin_panels %}
+    {{ panel }}:
       enabled: true
-    channel-finder:
-      enabled: true
-    tuning:
-      enabled: true
-    # Custom panels can be added here:
-    # my-grafana:
-    #   label: "GRAFANA"
-    #   url: "http://grafana.local:3000"
-    #   health_endpoint: "/api/health"
+{%- endfor %}
+    # Custom panels are declared via `config:` dotted overrides, e.g.:
+    # config:
+    #   web.panels.my-grafana.label: "GRAFANA"
+    #   web.panels.my-grafana.url: "http://grafana.local:3000"
+    #   web.panels.my-grafana.health_endpoint: "/api/health"
+    #   web.panels.my-grafana.path: "/"
+{%- else %}
+  panels: {}  # No builtin panels enabled; custom panels (if any) added via config overrides
+{%- endif %}
 
 # ──────────────────────────────────────────────────────────────────────
 # User-Owned Prompt Artifacts

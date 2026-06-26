@@ -91,6 +91,7 @@ export async function initPanelManager(panelId) {
           configEndpoint: null,
           healthEndpoint: cp.healthEndpoint,  // null = skip health polling
           statusBarId: null,
+          path: cp.path || '/',             // subpath for iframe (e.g. "/panel/")
         });
       }
     }
@@ -141,16 +142,16 @@ export async function initPanelManager(panelId) {
   }
 
   // Listen for panel_focus events via SSE (uses raw EventSource to avoid
-  // conflicts with the module-level sseState in api.js)
+  // conflicts with the module-level sseState in api.js).
+  // These events originate from explicit switch_panel MCP tool calls —
+  // always honor them since the user asked the agent to switch.
   const es = new EventSource('/api/files/events');
   es.onmessage = (e) => {
     try {
       const data = JSON.parse(e.data);
       if (data.type === 'panel_focus' && data.panel) {
         if (data.url) navigatePanel(data.panel, data.url);
-        if (!userSelectedTab) {
-          activateTab(data.panel);
-        }
+        activateTab(data.panel);
       }
     } catch { /* ignore parse errors */ }
   };
@@ -404,12 +405,18 @@ function createIframe(panelId) {
   const iframe = document.createElement('iframe');
   iframe.className = 'panel-iframe';
   iframe.dataset.panelId = panelId;
-  // Use pendingUrl (from navigatePanel) if available, otherwise base URL
-  const targetUrl = state.pendingUrl || state.url;
+  // Use pendingUrl (from navigatePanel) if available, otherwise base URL.
+  // For custom panels with a subpath (e.g. path: "/panel/"), append it so
+  // the iframe loads the UI root rather than the API root.
+  const panel = PANELS.find(p => p.id === panelId);
+  const panelPath = panel?.path && panel.path !== '/' ? panel.path : '';
+  const baseUrl = state.pendingUrl || (state.url + panelPath);
+  const targetUrl = baseUrl;
   state.pendingUrl = null;
   const embedUrl = new URL(targetUrl, window.location.origin);
   embedUrl.searchParams.set('embedded', 'true');
   embedUrl.searchParams.set('theme', getTheme());
+  embedUrl.searchParams.set('basePath', state.url);
   if (state.project) {
     embedUrl.hash = `#/sessions?project=${encodeURIComponent(state.project)}`;
   }

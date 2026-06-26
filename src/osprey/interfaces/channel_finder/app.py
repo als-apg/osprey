@@ -180,7 +180,10 @@ def create_app(project_cwd: str | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    from osprey.interfaces.common_middleware import ExceptionLoggingMiddleware, NoCacheStaticMiddleware
+    from osprey.interfaces.common_middleware import (
+        ExceptionLoggingMiddleware,
+        NoCacheStaticMiddleware,
+    )
 
     app.add_middleware(NoCacheStaticMiddleware)
     app.add_middleware(ExceptionLoggingMiddleware)

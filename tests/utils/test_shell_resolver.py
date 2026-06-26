@@ -7,7 +7,6 @@ are missing from the default PATH.
 
 import os
 import stat
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest

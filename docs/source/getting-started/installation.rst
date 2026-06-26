@@ -9,8 +9,8 @@ Get OSPREY running in five steps. The whole process takes about 10 minutes.
 
    - Node.js, Claude Code, and ``uv`` installed
    - An API key configured for your AI provider
-   - OSPREY cloned and ready to use
-   - The ability to create projects with ``osprey init`` or ``osprey build``
+   - The ``osprey`` CLI installed and on your ``PATH``
+   - The ability to create projects with ``osprey build``
 
 
 Step 1: Install Node.js
@@ -151,24 +151,55 @@ so it's always available.
    Using ``bash`` instead of ``zsh``? Replace ``~/.zshrc`` with ``~/.bashrc``.
 
 
-Step 5: Clone and install OSPREY
----------------------------------
+Step 5: Install OSPREY
+-----------------------
 
-.. code-block:: bash
+.. tab-set::
 
-   git clone https://github.com/als-apg/osprey.git
-   cd osprey
-   uv sync --extra dev
+   .. tab-item:: Recommended (PyPI)
 
-This downloads OSPREY and installs all dependencies into a ``.venv`` virtual
-environment. It may take a minute or two on first run.
+      Install OSPREY as a standalone CLI tool. ``uv`` creates an isolated
+      environment for OSPREY and puts the ``osprey`` command on your ``PATH``.
+
+      .. code-block:: bash
+
+         uv tool install osprey-framework
+
+      This is the right choice for most users. Your own projects stay separate
+      from the tool — you'll create them in their own directories with
+      ``osprey build``.
+
+      To upgrade later:
+
+      .. code-block:: bash
+
+         uv tool upgrade osprey-framework
+
+   .. tab-item:: From source
+
+      Clone the repository if you want to pin to a specific git ref, track
+      ``main`` for unreleased changes, or contribute back to OSPREY.
+
+      .. code-block:: bash
+
+         git clone https://github.com/als-apg/osprey.git
+         cd osprey
+         uv sync --extra dev
+
+      This creates a ``.venv`` inside the clone with OSPREY installed in
+      editable mode plus dev dependencies. Commands in the rest of the docs
+      that show ``osprey ...`` should be run as ``uv run osprey ...`` from
+      inside the clone, or activate the venv with ``source .venv/bin/activate``.
 
 Verify:
 
 .. code-block:: bash
 
-   uv run osprey --version
+   osprey --version
 
+OSPREY versions follow the ``YYYY.MM.MICRO`` `CalVer <https://calver.org/>`_
+scheme — the first two segments identify the release window, the micro
+segment increments for hotfixes. See ``CHANGELOG.md`` for details.
 
 You're done! 🎉
 -----------------
@@ -185,103 +216,13 @@ OSPREY is installed and ready to use. Here's what to do next:
       Build your first agent with a mock control system. One MCP server, zero
       complexity. Takes about 10 minutes.
 
-   .. grid-item-card:: **Control Assistant**
-      :link: control-assistant
+   .. grid-item-card:: **Guided Build Interview**
+      :link: osprey-build-interview
       :link-type: doc
 
-      Production control system patterns with channel finder, logbook search, and
-      comprehensive tooling.
-
-
-.. _guided-project-setup:
-
-.. dropdown:: **Guided Project Setup (Build Interview)**
-   :color: success
-   :icon: comment-discussion
-
-   If you're setting up OSPREY for a specific detector, beamline, or accelerator
-   subsystem, the **build interview** walks you through a guided conversation that
-   generates a ready-to-build project profile tailored to your system. It also
-   handles **migration from existing OSPREY projects** — point it at your old
-   project directory and it will scan, classify, and extract everything reusable.
-
-   **Install the interview skill**
-
-   Copy the interview skill to your Claude Code skills directory:
-
-   .. code-block:: bash
-
-      mkdir -p ~/.claude/skills
-      cp -r ~/osprey/tools/build-interview ~/.claude/skills/build-interview
-
-   This makes the ``/build-interview`` command available in any Claude Code session.
-
-   **Run the interview**
-
-   Create a working directory for your project and start Claude Code:
-
-   .. code-block:: bash
-
-      mkdir -p ~/my-osprey-project
-      cd ~/my-osprey-project
-      claude
-
-   In the Claude Code session, type:
-
-   .. code-block:: text
-
-      /build-interview
-
-   Claude will walk you through:
-
-   1. What system you work with and what you need the AI for
-   2. Whether you're starting fresh or **migrating from an existing OSPREY project**
-      (if migrating, just point it to the directory and it will scan and reuse what it can)
-   3. Your EPICS PV names (if you have them — it's OK if you don't yet)
-   4. Whether you need read-only or write access
-   5. How to connect (simulated data is recommended for starting out)
-   6. Whether you'd like a custom monitoring panel in the web dashboard
-   7. A review step that checks for anything missing
-
-   The whole interview takes about 10--15 minutes.
-
-   **Tips during the interview:**
-
-   - If you're not sure about a question, say "I'm not sure" — it'll pick a safe default
-   - If you have a spreadsheet of PV names handy, that's helpful but not required
-   - If you're migrating, have the path to your existing project directory ready
-   - You can always re-run the interview later to adjust things
-
-   **Build your project**
-
-   When the interview is done, Claude generates a ``build-profile/`` directory. Then:
-
-   .. code-block:: bash
-
-      uv run osprey build my-project build-profile/profile.yml
-
-   One command. OSPREY reads your profile, validates your selections, copies your
-   channel database into the right place, and produces a ready-to-use project.
-
-   To start using it:
-
-   .. code-block:: bash
-
-      cd my-project && claude
-
-   Or for the web dashboard:
-
-   .. code-block:: bash
-
-      uv run osprey web
-
-   **Send feedback**
-
-   After you've tested your project, you can send feedback to the OSPREY team by
-   starting a Claude Code session and typing ``/build-interview feedback``. It takes
-   about 30 seconds and helps us improve the process.
-
-   See :doc:`/how-to/build-profiles` for the full build profile reference.
+      Set OSPREY up for your own detector, beamline, or accelerator subsystem.
+      A guided conversation generates a ready-to-build project profile tailored
+      to your system. Takes about 10--15 minutes.
 
 
 .. dropdown:: **Advanced: Container runtime, services & detailed configuration**
@@ -325,14 +266,6 @@ OSPREY is installed and ready to use. Here's what to do next:
             podman machine init
             podman machine start
 
-   **Installing from PyPI** (instead of from source)
-
-   If you prefer to install OSPREY as a package rather than cloning the repo:
-
-   .. code-block:: bash
-
-      uv pip install osprey-framework
-
    **Deploying Services**
 
    See :doc:`/how-to/deploy-project` for setting up containerized services like Jupyter
@@ -355,8 +288,11 @@ Troubleshooting
       Install Claude Code: ``npm install -g @anthropic-ai/claude-code``
 
    **"osprey: command not found"**
-      Make sure you're in the OSPREY directory with the venv active, or prefix with
-      ``uv run``: ``uv run osprey --version``
+      If you installed via ``uv tool install osprey-framework``, make sure uv's
+      tool bin directory is on your ``PATH`` — run ``uv tool update-shell`` once
+      and open a new terminal. If you installed from source, either activate the
+      venv (``source .venv/bin/activate``) or prefix commands with ``uv run``
+      from inside the clone.
 
    **MCP connection failed**
       Ensure you're running ``claude`` from your project root where ``.mcp.json`` lives.
@@ -373,7 +309,7 @@ Troubleshooting
 
    .. code-block:: bash
 
-      node --version          # Should be 18+
-      claude --version        # Should print version
-      uv --version            # Should print version
-      uv run osprey --version # Should print version
+      node --version       # Should be 18+
+      claude --version     # Should print version
+      uv --version         # Should print version
+      osprey --version     # Should print version

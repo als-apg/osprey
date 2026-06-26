@@ -14,8 +14,10 @@ from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+
+from osprey.interfaces.vendor import vendor_url
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -23,6 +25,9 @@ if TYPE_CHECKING:
 logger = __import__("logging").getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent / "static"
+
+templates = Jinja2Templates(directory=str(STATIC_DIR))
+templates.env.globals["vendor_url"] = vendor_url
 
 
 def _resolve_tuning_api_url(explicit: str | None = None) -> str | None:
@@ -95,8 +100,8 @@ def create_app(tuning_api_url: str | None = None) -> FastAPI:
         return {"status": "healthy", "service": "tuning"}
 
     @app.get("/")
-    async def root():
-        return FileResponse(STATIC_DIR / "index.html")
+    async def root(request: Request):
+        return templates.TemplateResponse(request, "index.html", {})
 
     @app.get("/api/config")
     async def api_config(request: Request):
@@ -148,7 +153,10 @@ def create_app(tuning_api_url: str | None = None) -> FastAPI:
                 media_type="application/json",
             )
 
-    from osprey.interfaces.common_middleware import ExceptionLoggingMiddleware, NoCacheStaticMiddleware
+    from osprey.interfaces.common_middleware import (
+        ExceptionLoggingMiddleware,
+        NoCacheStaticMiddleware,
+    )
 
     app.add_middleware(NoCacheStaticMiddleware)
     app.add_middleware(ExceptionLoggingMiddleware)

@@ -4,7 +4,7 @@ Claude Code does not read ``.env`` files — it only passes through shell
 environment variables via ``${VAR:-}`` references in ``.mcp.json``.
 
 This module bridges the gap so that API keys written to ``.env`` by
-``osprey init`` are available to every MCP server at startup, without
+``osprey build`` are available to every MCP server at startup, without
 requiring users to manually ``source .env`` or export keys in their
 shell profile.
 
