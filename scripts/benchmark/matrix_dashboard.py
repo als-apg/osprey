@@ -193,9 +193,10 @@ def load(results_dir: str) -> dict:
         cnt = {"passed": 0, "failed": 0, "timeout": 0, "skipped": 0, "errors": 0}
         for t in tests:
             cnt[_LIVE_KEY.get(t.get("outcome"), "errors")] += 1
-        stalled = run_is_dead(f[: -len(".live.jsonl")] + ".run.log") or (
-            time.time() - os.path.getmtime(f)
-        ) > STALE_SECS
+        stalled = (
+            run_is_dead(f[: -len(".live.jsonl")] + ".run.log")
+            or (time.time() - os.path.getmtime(f)) > STALE_SECS
+        )
         runs[(model, seed)] = {
             "model": model,
             "seed": seed,
@@ -502,13 +503,16 @@ def main() -> int:
     # Auto-refresh only for the LIVE monitor (never the static artifact), and
     # only while something is filling — a dead page that reloads every 60s reads
     # as "still working" when nothing is.
-    refresh = "" if args.artifact else ('<meta http-equiv="refresh" content="60">' if running_active else "")
+    refresh = (
+        ""
+        if args.artifact
+        else ('<meta http-equiv="refresh" content="60">' if running_active else "")
+    )
     title = "OSPREY model-capability benchmark" if args.artifact else "CBORG e2e model matrix"
 
     H = []
     H.append(
-        f"<!doctype html><meta charset=utf-8>{refresh}"
-        f"<title>{title}</title><style>{css}</style>"
+        f"<!doctype html><meta charset=utf-8>{refresh}<title>{title}</title><style>{css}</style>"
     )
     H.append("<div class=wrap>")
     if args.artifact:
@@ -533,7 +537,8 @@ def main() -> int:
             H.append(
                 "<p class=sub>running now: "
                 + ", ".join(
-                    f"<code>{html.escape(label(m))} seed{s}</code>" for (m, s) in sorted(running_active)
+                    f"<code>{html.escape(label(m))} seed{s}</code>"
+                    for (m, s) in sorted(running_active)
                 )
                 + "</p>"
             )

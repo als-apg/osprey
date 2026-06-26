@@ -29,7 +29,9 @@ _CONFIG = _BENCH / "matrix_e2e_config.json"
 
 
 def _load_dashboard():
-    spec = importlib.util.spec_from_file_location("benchmark_dashboard", _BENCH / "matrix_dashboard.py")
+    spec = importlib.util.spec_from_file_location(
+        "benchmark_dashboard", _BENCH / "matrix_dashboard.py"
+    )
     mod = importlib.util.module_from_spec(spec)
     sys.modules["benchmark_dashboard"] = mod
     spec.loader.exec_module(mod)
@@ -62,14 +64,23 @@ def test_apply_exclusions_strips_every_configured_file(fmt):
     # two genuinely model-driving tests that must SURVIVE the strip
     kept_tests = [
         {"name": _name("test_agent_delegation.py", fmt), "outcome": "passed", "duration_s": 2.0},
-        {"name": _name("claude_code/test_agent_safety.py", fmt), "outcome": "passed", "duration_s": 3.0},
+        {
+            "name": _name("claude_code/test_agent_safety.py", fmt),
+            "outcome": "passed",
+            "duration_s": 3.0,
+        },
     ]
     runs = {
         ("m", 1): {
-            "model": "m", "seed": 1,
+            "model": "m",
+            "seed": 1,
             "tests": excluded_tests + kept_tests,
-            "passed": 2, "failed": len(excluded_tests), "timeout": 0, "skipped": 0,
-            "errors": 0, "total": len(excluded_tests) + 2,
+            "passed": 2,
+            "failed": len(excluded_tests),
+            "timeout": 0,
+            "skipped": 0,
+            "errors": 0,
+            "total": len(excluded_tests) + 2,
         }
     }
     excl_set = {rel for rel, _ in dash.load_exclusions(str(_CONFIG))}
