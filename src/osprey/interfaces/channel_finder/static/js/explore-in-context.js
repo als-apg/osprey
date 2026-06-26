@@ -1,8 +1,14 @@
 /**
  * OSPREY Channel Finder — In-Context Explore (Chunk-Paginated Table)
  *
- * Loads channels in chunks with client-side filtering on name/description.
- * Inline CRUD: add and delete channels.
+ * Loads the FULL in-context database once, filters client-side over the whole
+ * set, then re-chunks the FILTERED results for pagination. This is safe because
+ * the in-context pipeline is bounded to fit an LLM context window (small DBs),
+ * and the endpoint 404s for the large-DB pipelines. Filtering and pagination
+ * derive from one shared filtered set (see chunk-filter.js) so a search match on
+ * any page is always found — fixing the disjoint-scope bug in issue #299.
+ *
+ * Inline CRUD: add, edit, and delete channels.
  */
 
 import { fetchJSON, postJSON, putJSON, deleteJSON } from './api.js';
@@ -10,13 +16,19 @@ import { showToast } from './app.js';
 import { esc } from './utils.js';
 import { formModal, confirmModal } from './modal.js';
 import { refreshStatsBadges } from './stats-badges.js';
+import { filterChannels, totalChunksFor, clampChunkIdx, pageSlice } from './chunk-filter.js';
 
 let containerEl = null;
-let allChannels = [];   // full loaded set
+let allChannels = [];   // the ENTIRE in-context database (loaded once)
 let filterText = '';
 let chunkIdx = 0;
-let totalChunks = 0;
 const CHUNK_SIZE = 50;
+
+// Single source of truth: every render derives the filtered set from here, so
+// the table page-slice and the pager can never operate on different scopes.
+function getFiltered() {
+  return filterChannels(allChannels, filterText);
+}
 
 export async function mountInContext(container) {
   containerEl = container;
@@ -37,12 +49,16 @@ export async function mountInContext(container) {
 
   document.getElementById('ic-filter')?.addEventListener('input', (e) => {
     filterText = e.target.value.toLowerCase();
+    // Reset to the first page of the NEW filtered set, and re-render the pager:
+    // the filtered set (and thus the chunk count) changes on every keystroke.
+    chunkIdx = 0;
     renderTable();
+    renderPagination();
   });
 
   document.getElementById('ic-add-channel')?.addEventListener('click', handleAddChannel);
 
-  await loadChunk(0);
+  await loadAll();
 }
 
 export function unmountInContext() {
@@ -53,20 +69,13 @@ export function unmountInContext() {
   editingRow = null;
 }
 
-async function loadChunk(idx) {
+async function loadAll() {
   try {
-    const data = await fetchJSON(`/api/channels?chunk_idx=${idx}&chunk_size=${CHUNK_SIZE}`);
-
-    chunkIdx = data.chunk_idx ?? idx;
-    totalChunks = data.total_chunks ?? 1;
-
-    // Parse channels from chunk
-    if (data.channels) {
-      allChannels = data.channels;
-    } else if (data.formatted) {
-      // Chunk mode returns formatted text; parse as best we can
-      allChannels = parseFormattedChannels(data.formatted);
-    }
+    // Omitting chunk_idx returns the entire in-context DB: {channels, total}.
+    const data = await fetchJSON('/api/channels');
+    allChannels = data.channels || [];
+    // Keep the current page valid if a CRUD refresh shrank the (filtered) set.
+    chunkIdx = clampChunkIdx(chunkIdx, getFiltered().length, CHUNK_SIZE);
 
     renderTable();
     renderPagination();
@@ -76,24 +85,6 @@ async function loadChunk(idx) {
   }
 }
 
-function parseFormattedChannels(text) {
-  // The formatted output contains channel info as lines
-  return text.split('\n')
-    .filter(line => line.trim())
-    .map(line => {
-      const trimmed = line.trim();
-      // Try to parse as "name: description" or "name (address)"
-      const colonIdx = trimmed.indexOf(':');
-      if (colonIdx > 0) {
-        return {
-          name: trimmed.substring(0, colonIdx).trim(),
-          description: trimmed.substring(colonIdx + 1).trim(),
-        };
-      }
-      return { name: trimmed, description: '' };
-    });
-}
-
 let editingRow = null;
 
 function renderTable() {
@@ -101,16 +92,15 @@ function renderTable() {
   const countEl = document.getElementById('ic-count');
   if (!area) return;
 
-  const filtered = filterText
-    ? allChannels.filter(ch => {
-        const name = (ch.name || ch.channel_name || ch.channel || '').toLowerCase();
-        const addr = (ch.address || ch.pv_address || '').toLowerCase();
-        const desc = (ch.description || '').toLowerCase();
-        return name.includes(filterText) || addr.includes(filterText) || desc.includes(filterText);
-      })
-    : allChannels;
+  const filtered = getFiltered();
+  // Page-slice the FILTERED set. `start` also offsets the row-number column so
+  // the index stays continuous across pages.
+  const start = chunkIdx * CHUNK_SIZE;
+  const pageItems = pageSlice(filtered, chunkIdx, CHUNK_SIZE);
 
   if (countEl) {
+    // Truthful only because allChannels holds the ENTIRE DB: "matches of total".
+    // Do not reintroduce chunked loading without revisiting this.
     countEl.textContent = `${filtered.length} of ${allChannels.length}`;
   }
 
@@ -132,7 +122,7 @@ function renderTable() {
           </tr>
         </thead>
         <tbody>
-          ${filtered.map((ch, i) => {
+          ${pageItems.map((ch, i) => {
             const name = ch.name || ch.channel_name || ch.channel || '—';
             const addr = ch.address || ch.pv_address || '';
             const desc = ch.description || '';
@@ -141,7 +131,7 @@ function renderTable() {
             if (isEditing) {
               return `
                 <tr class="ic-editing-row" data-channel="${esc(name)}">
-                  <td>${i + 1}</td>
+                  <td>${start + i + 1}</td>
                   <td>
                     <input type="text" class="ic-inline-input" id="ic-edit-name"
                            value="${esc(name)}" placeholder="Channel name">
@@ -166,7 +156,7 @@ function renderTable() {
 
             return `
               <tr>
-                <td>${i + 1}</td>
+                <td>${start + i + 1}</td>
                 <td class="pv-cell">${esc(name)}</td>
                 <td class="pv-cell">${esc(addr)}</td>
                 <td>${esc(desc)}</td>
@@ -242,6 +232,9 @@ function renderTable() {
 
 function renderPagination() {
   const pag = document.getElementById('ic-pagination');
+  // Chunk count is derived from the FILTERED set, so the pager re-chunks with
+  // every query change rather than reflecting the whole unfiltered DB.
+  const totalChunks = totalChunksFor(getFiltered().length, CHUNK_SIZE);
   if (!pag || totalChunks <= 1) {
     if (pag) pag.innerHTML = '';
     return;
@@ -257,11 +250,12 @@ function renderPagination() {
     </button>
   `;
 
+  // Page flips are pure client-side over the already-loaded set — no network.
   document.getElementById('ic-prev')?.addEventListener('click', () => {
-    if (chunkIdx > 0) loadChunk(chunkIdx - 1);
+    if (chunkIdx > 0) { chunkIdx -= 1; renderTable(); renderPagination(); }
   });
   document.getElementById('ic-next')?.addEventListener('click', () => {
-    if (chunkIdx < totalChunks - 1) loadChunk(chunkIdx + 1);
+    if (chunkIdx < totalChunks - 1) { chunkIdx += 1; renderTable(); renderPagination(); }
   });
 }
 
@@ -288,7 +282,7 @@ async function handleSaveEdit(origName, newName, newAddr, newDesc) {
     }
 
     editingRow = null;
-    await loadChunk(chunkIdx);
+    await loadAll();
     if (renamed) refreshStatsBadges();
   } catch (e) {
     showToast(`Failed to update: ${e.message}`, 'error');
@@ -314,7 +308,7 @@ async function handleAddChannel() {
       description: result.description,
     });
     showToast(`Added "${result.channel_name}"`, 'success');
-    await loadChunk(chunkIdx);
+    await loadAll();
     refreshStatsBadges();
   } catch (e) {
     showToast(`Failed to add channel: ${e.message}`, 'error');
@@ -334,7 +328,7 @@ async function handleDeleteChannel(channelName) {
   try {
     await deleteJSON(`/api/channels/${encodeURIComponent(channelName)}`);
     showToast(`Deleted "${channelName}"`, 'success');
-    await loadChunk(chunkIdx);
+    await loadAll();
     refreshStatsBadges();
   } catch (e) {
     showToast(`Failed to delete: ${e.message}`, 'error');
