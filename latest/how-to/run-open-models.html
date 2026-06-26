@@ -501,35 +501,141 @@ signal, not the bare “it runs” list.</p>
 <section id="benchmark-it-yourself">
 <h2>Benchmark it yourself<a class="headerlink" href="#benchmark-it-yourself" title="Link to this heading">#</a></h2>
 <p>The numbers are reproducible. OSPREY ships the benchmark toolchain under
-<code class="docutils literal notranslate"><span class="pre">scripts/benchmark/</span></code> (see its <code class="docutils literal notranslate"><span class="pre">README.md</span></code>): it runs the entire <code class="docutils literal notranslate"><span class="pre">tests/e2e/</span></code>
-suite against a matrix of models and renders a per-test pass-rate dashboard. The
-portable layer is the e2e harness’s environment-variable contract
-(<code class="docutils literal notranslate"><span class="pre">OSPREY_E2E_FORCE_PROVIDER</span></code>, <code class="docutils literal notranslate"><span class="pre">OSPREY_E2E_FORCE_MODEL</span></code>, …) — no per-test edits,
-no hard-wired provider; the shell/ssh scripts are copy-and-adapt operator examples.</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># one model, locally</span>
-scripts/benchmark/run_e2e_for_model.sh<span class="w"> </span>&lt;model-id&gt;<span class="w"> </span><span class="m">1</span>
+<code class="docutils literal notranslate"><span class="pre">scripts/benchmark/</span></code> (see its <code class="docutils literal notranslate"><span class="pre">README.md</span></code>): it runs the model-driving part of
+<code class="docutils literal notranslate"><span class="pre">tests/e2e/</span></code> — the tests that actually exercise the model under test — across a
+matrix of models and renders a per-test pass-rate dashboard. The
+whole run is declared in one file, <code class="docutils literal notranslate"><span class="pre">scripts/benchmark/matrix.yaml</span></code> — each row
+names a <code class="docutils literal notranslate"><span class="pre">provider</span></code> and a model <code class="docutils literal notranslate"><span class="pre">id</span></code>; the launcher resolves credentials,
+derives the route (proxy for OpenAI-protocol models, direct for Anthropic),
+wires the judge, and runs one isolated worker per (model, seed) cell. Adding a
+model — or a provider like the local DeepSeek (<code class="docutils literal notranslate"><span class="pre">ds4</span></code>) server — is a config
+edit, not a script edit.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># see the resolved plan without running anything</span>
+scripts/benchmark/matrix.py<span class="w"> </span>--dry-run
 
-<span class="c1"># a grid, then render the dashboard</span>
-<span class="nv">MATRIX_MODELS</span><span class="o">=</span><span class="s2">&quot;gpt-oss-20b gemma-4&quot;</span><span class="w"> </span><span class="nv">MATRIX_SEEDS</span><span class="o">=</span><span class="s2">&quot;1 2&quot;</span><span class="w"> </span><span class="nv">MATRIX_PARALLEL</span><span class="o">=</span><span class="m">4</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>scripts/benchmark/matrix_driver.sh
+<span class="c1"># one model (substring filter), serially</span>
+scripts/benchmark/matrix.py<span class="w"> </span>--only<span class="w"> </span>gpt-oss-20b<span class="w"> </span>--parallel<span class="w"> </span><span class="m">1</span>
+
+<span class="c1"># the whole grid, then render the dashboard</span>
+scripts/benchmark/matrix.py<span class="w"> </span>--parallel<span class="w"> </span><span class="m">4</span>
 scripts/benchmark/matrix_dashboard.py<span class="w"> </span>--results-dir<span class="w"> </span>results<span class="w"> </span>--out<span class="w"> </span>dashboard.html
 </pre></div>
 </div>
 <p>The dashboard derives every count from the run data at render time — it never
 hard-codes a number, so it stays honest as the suite grows.</p>
 <div class="important admonition">
-<p class="admonition-title">Benchmark snapshot — OSPREY 2026.6.2 (pending release re-run)</p>
-<p><em>Results table held until the</em> <code class="docutils literal notranslate"><span class="pre">v2026.6.2</span></code> <em>release re-run.</em> Once the tag is
-cut, the full matrix is re-run against it and pinned here with provenance:</p>
+<p class="admonition-title">Benchmark snapshot — OSPREY 2026.6.1 (interim)</p>
+<p>Interim figures, measured against the current <code class="docutils literal notranslate"><span class="pre">2026.6.1</span></code> line — <strong>not</strong> the
+pinned <code class="docutils literal notranslate"><span class="pre">v2026.6.2</span></code> release run. They are provisional and will be replaced by
+a clean full-matrix re-run once <code class="docutils literal notranslate"><span class="pre">v2026.6.2</span></code> is tagged.</p>
 <ul class="simple">
-<li><p><strong>Measured against:</strong> OSPREY <code class="docutils literal notranslate"><span class="pre">v2026.6.2</span></code> (commit <code class="docutils literal notranslate"><span class="pre">&lt;sha&gt;</span></code>)</p></li>
-<li><p><strong>Run:</strong> <code class="docutils literal notranslate"><span class="pre">&lt;date&gt;</span></code> · open subjects via CBORG, Anthropic reference columns via
-als-apg</p></li>
-<li><p><strong>Scope:</strong> the model-driving subset of <code class="docutils literal notranslate"><span class="pre">tests/e2e/</span></code></p></li>
+<li><p><strong>Measured against:</strong> OSPREY <code class="docutils literal notranslate"><span class="pre">2026.6.1</span></code></p></li>
+<li><p><strong>Run:</strong> 2026-06-25 · open subjects via CBORG · Anthropic reference columns via als-apg · <code class="docutils literal notranslate"><span class="pre">deepseek-v4</span></code> self-hosted on a Mac Studio (keyless <code class="docutils literal notranslate"><span class="pre">ds4</span></code> server, single seed)</p></li>
+<li><p><strong>Scope:</strong> the model-driving subset of <code class="docutils literal notranslate"><span class="pre">tests/e2e/</span></code> — 36 tests per seed</p></li>
+<li><p><strong>Scoring:</strong> pass rate = passed / (passed + failed + timeout); a timeout counts as a failure (the model did not finish within the 1800s cap). Mean is over completed seeds.</p></li>
 </ul>
-<p>These figures are a point-in-time snapshot and <em>will</em> drift — they describe the
-pinned version only. Regenerate with <code class="docutils literal notranslate"><span class="pre">scripts/benchmark/</span></code> for any later release.</p>
-<p><em>(Inline pass-rate table + downloadable dashboard land here at release.)</em></p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 32.5%" />
+<col style="width: 15.0%" />
+<col style="width: 12.5%" />
+<col style="width: 12.5%" />
+<col style="width: 12.5%" />
+<col style="width: 15.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Model</p></th>
+<th class="head"><p>Provider</p></th>
+<th class="head"><p>Seed 1</p></th>
+<th class="head"><p>Seed 2</p></th>
+<th class="head"><p>Seed 3</p></th>
+<th class="head"><p>Mean</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">cborg-coder</span></code></p></td>
+<td><p>CBORG</p></td>
+<td><p>94%</p></td>
+<td><p>97%</p></td>
+<td><p>92%</p></td>
+<td><p><strong>94%</strong></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">gemma-4</span></code></p></td>
+<td><p>CBORG</p></td>
+<td><p>89%</p></td>
+<td><p>94%</p></td>
+<td><p>92%</p></td>
+<td><p><strong>92%</strong></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">qwen-3-coder</span></code></p></td>
+<td><p>CBORG</p></td>
+<td><p>94%</p></td>
+<td><p>83%</p></td>
+<td><p>94%</p></td>
+<td><p><strong>91%</strong></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">gpt-oss-120b</span></code></p></td>
+<td><p>CBORG</p></td>
+<td><p>92%</p></td>
+<td><p>81%</p></td>
+<td><p>81%</p></td>
+<td><p><strong>84%</strong></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">qwen-3</span></code></p></td>
+<td><p>CBORG</p></td>
+<td><p>89%</p></td>
+<td><p>78%</p></td>
+<td><p>83%</p></td>
+<td><p><strong>83%</strong></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">gpt-oss-20b</span></code></p></td>
+<td><p>CBORG</p></td>
+<td><p>67%</p></td>
+<td><p>67%</p></td>
+<td><p>56%</p></td>
+<td><p><strong>63%</strong></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">deepseek-v4-flash</span></code></p></td>
+<td><p>ds4 · macstudio</p></td>
+<td><p>94%</p></td>
+<td><p>N/A</p></td>
+<td><p>N/A</p></td>
+<td><p><strong>94%</strong></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">deepseek-v4-pro</span></code></p></td>
+<td><p>ds4 · macstudio</p></td>
+<td><p>97%</p></td>
+<td><p>N/A</p></td>
+<td><p>N/A</p></td>
+<td><p><strong>97%</strong></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">claude-haiku-4-5</span></code> <em>(ref)</em></p></td>
+<td><p>als-apg</p></td>
+<td><p>100%</p></td>
+<td><p>—</p></td>
+<td><p>—</p></td>
+<td><p><strong>100%</strong></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">claude-sonnet-4-6</span></code> <em>(ref)</em></p></td>
+<td><p>als-apg</p></td>
+<td><p>100%</p></td>
+<td><p>—</p></td>
+<td><p>—</p></td>
+<td><p><strong>100%</strong></p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">claude-opus-4-6</span></code> <em>(ref)</em></p></td>
+<td><p>als-apg</p></td>
+<td><p>100%</p></td>
+<td><p>—</p></td>
+<td><p>—</p></td>
+<td><p><strong>100%</strong></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>Anthropic columns are single-seed control/ceiling references. These figures are
+a point-in-time snapshot and <em>will</em> drift — regenerate with <code class="docutils literal notranslate"><span class="pre">scripts/benchmark/</span></code>.</p>
+<p><a class="reference download internal" download="" href="../_downloads/47edaef578c6c38a82b2ffeafb3b3fc5/benchmark-dashboard.html"><code class="xref download docutils literal notranslate"><span class="pre">Download</span> <span class="pre">the</span> <span class="pre">full</span> <span class="pre">interactive</span> <span class="pre">dashboard</span> <span class="pre">(HTML)</span></code></a></p>
 </div>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
