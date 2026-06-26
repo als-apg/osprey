@@ -49,40 +49,113 @@ Benchmark it yourself
 ---------------------
 
 The numbers are reproducible. OSPREY ships the benchmark toolchain under
-``scripts/benchmark/`` (see its ``README.md``): it runs the entire ``tests/e2e/``
-suite against a matrix of models and renders a per-test pass-rate dashboard. The
-portable layer is the e2e harness's environment-variable contract
-(``OSPREY_E2E_FORCE_PROVIDER``, ``OSPREY_E2E_FORCE_MODEL``, …) — no per-test edits,
-no hard-wired provider; the shell/ssh scripts are copy-and-adapt operator examples.
+``scripts/benchmark/`` (see its ``README.md``): it runs the model-driving part of
+``tests/e2e/`` — the tests that actually exercise the model under test — across a
+matrix of models and renders a per-test pass-rate dashboard. The
+whole run is declared in one file, ``scripts/benchmark/matrix.yaml`` — each row
+names a ``provider`` and a model ``id``; the launcher resolves credentials,
+derives the route (proxy for OpenAI-protocol models, direct for Anthropic),
+wires the judge, and runs one isolated worker per (model, seed) cell. Adding a
+model — or a provider like the local DeepSeek (``ds4``) server — is a config
+edit, not a script edit.
 
 .. code-block:: bash
 
-   # one model, locally
-   scripts/benchmark/run_e2e_for_model.sh <model-id> 1
+   # see the resolved plan without running anything
+   scripts/benchmark/matrix.py --dry-run
 
-   # a grid, then render the dashboard
-   MATRIX_MODELS="gpt-oss-20b gemma-4" MATRIX_SEEDS="1 2" MATRIX_PARALLEL=4 \
-     scripts/benchmark/matrix_driver.sh
+   # one model (substring filter), serially
+   scripts/benchmark/matrix.py --only gpt-oss-20b --parallel 1
+
+   # the whole grid, then render the dashboard
+   scripts/benchmark/matrix.py --parallel 4
    scripts/benchmark/matrix_dashboard.py --results-dir results --out dashboard.html
 
 The dashboard derives every count from the run data at render time — it never
 hard-codes a number, so it stays honest as the suite grows.
 
-.. admonition:: Benchmark snapshot — OSPREY 2026.6.2 (pending release re-run)
+.. admonition:: Benchmark snapshot — OSPREY 2026.6.1 (interim)
    :class: important
 
-   *Results table held until the* ``v2026.6.2`` *release re-run.* Once the tag is
-   cut, the full matrix is re-run against it and pinned here with provenance:
+   Interim figures, measured against the current ``2026.6.1`` line — **not** the
+   pinned ``v2026.6.2`` release run. They are provisional and will be replaced by
+   a clean full-matrix re-run once ``v2026.6.2`` is tagged.
 
-   - **Measured against:** OSPREY ``v2026.6.2`` (commit ``<sha>``)
-   - **Run:** ``<date>`` · open subjects via CBORG, Anthropic reference columns via
-     als-apg
-   - **Scope:** the model-driving subset of ``tests/e2e/``
+   - **Measured against:** OSPREY ``2026.6.1``
+   - **Run:** 2026-06-25 · open subjects via CBORG, Anthropic reference columns via als-apg
+   - **Scope:** the model-driving subset of ``tests/e2e/`` — 36 tests
 
-   These figures are a point-in-time snapshot and *will* drift — they describe the
-   pinned version only. Regenerate with ``scripts/benchmark/`` for any later release.
+   Pass rate per seed. Mean is over completed seeds.
 
-   *(Inline pass-rate table + downloadable dashboard land here at release.)*
+   .. list-table::
+      :header-rows: 1
+      :widths: 26 12 10 10 10 12
+
+      * - Model
+        - Provider
+        - Seed 1
+        - Seed 2
+        - Seed 3
+        - Mean
+      * - ``cborg-coder``
+        - CBORG
+        - 94%
+        - 97%
+        - 92%
+        - **94%**
+      * - ``gemma-4``
+        - CBORG
+        - 89%
+        - 94%
+        - 94%
+        - **93%**
+      * - ``qwen-3-coder``
+        - CBORG
+        - 94%
+        - 83%
+        - 94%
+        - **91%**
+      * - ``gpt-oss-120b``
+        - CBORG
+        - 92%
+        - 81%
+        - 81%
+        - **84%**
+      * - ``qwen-3``
+        - CBORG
+        - 89%
+        - 78%
+        - 83%
+        - **83%**
+      * - ``gpt-oss-20b``
+        - CBORG
+        - 67%
+        - 67%
+        - 56%
+        - **63%**
+      * - ``claude-haiku-4-5`` *(ref)*
+        - als-apg
+        - 100%
+        - —
+        - —
+        - **100%**
+      * - ``claude-sonnet-4-6`` *(ref)*
+        - als-apg
+        - 100%
+        - —
+        - —
+        - **100%**
+      * - ``claude-opus-4-6`` *(ref)*
+        - als-apg
+        - 100%
+        - —
+        - —
+        - **100%**
+
+   Anthropic columns are single-seed control/ceiling references. These figures are
+   a point-in-time snapshot and *will* drift — regenerate with ``scripts/benchmark/``.
+
+   :download:`Download the full interactive dashboard (HTML) <../_static/benchmark-dashboard.html>`
 
 .. seealso::
 
