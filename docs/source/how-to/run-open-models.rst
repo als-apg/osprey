@@ -82,10 +82,9 @@ hard-codes a number, so it stays honest as the suite grows.
    a clean full-matrix re-run once ``v2026.6.2`` is tagged.
 
    - **Measured against:** OSPREY ``2026.6.1``
-   - **Run:** 2026-06-25 · open subjects via CBORG, Anthropic reference columns via als-apg
-   - **Scope:** the model-driving subset of ``tests/e2e/`` — 36 tests
-
-   Pass rate per seed. Mean is over completed seeds.
+   - **Run:** 2026-06-25 · open subjects via CBORG · Anthropic reference columns via als-apg · ``deepseek-v4`` self-hosted on a Mac Studio (keyless ``ds4`` server, single seed)
+   - **Scope:** the model-driving subset of ``tests/e2e/`` — 36 tests per seed
+   - **Scoring:** pass rate = passed / (passed + failed + timeout); a timeout counts as a failure (the model did not finish within the 1800s cap). Mean is over completed seeds.
 
    .. list-table::
       :header-rows: 1
@@ -107,8 +106,8 @@ hard-codes a number, so it stays honest as the suite grows.
         - CBORG
         - 89%
         - 94%
-        - 94%
-        - **93%**
+        - 92%
+        - **92%**
       * - ``qwen-3-coder``
         - CBORG
         - 94%
@@ -133,6 +132,18 @@ hard-codes a number, so it stays honest as the suite grows.
         - 67%
         - 56%
         - **63%**
+      * - ``deepseek-v4-flash``
+        - ds4 · macstudio
+        - 94%
+        - N/A
+        - N/A
+        - **94%**
+      * - ``deepseek-v4-pro``
+        - ds4 · macstudio
+        - 97%
+        - N/A
+        - N/A
+        - **97%**
       * - ``claude-haiku-4-5`` *(ref)*
         - als-apg
         - 100%

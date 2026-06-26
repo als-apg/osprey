@@ -364,11 +364,15 @@ def run_counts(d: dict) -> dict:
 
 
 def conclusive(d: dict):
-    """Pass rate denominator EXCLUDES timeouts and skips, so a 'too slow' result
-    is never scored as a failure (no false negatives from the timeout). Returns
-    (passed, conclusive_total)."""
-    p, f, e = d.get("passed", 0), d.get("failed", 0), d.get("errors", 0)
-    return p, p + f + e
+    """Pass rate = passed / (passed + failed + timeout + errors). A timeout counts
+    as a failure: the model did not complete the task within the per-test cap, so
+    it is scored against it. Only genuine skips (tests gated off as not-applicable)
+    are excluded from the denominator. Returns (passed, denominator)."""
+    p = d.get("passed", 0)
+    f = d.get("failed", 0)
+    e = d.get("errors", 0)
+    t = d.get("timeout", 0)
+    return p, p + f + e + t
 
 
 def stacked_bar(counts: dict, width: int = 130, height: int = 14) -> str:
@@ -554,9 +558,9 @@ def main() -> int:
     # ---- model x seed matrix (full outcome breakdown per cell) ----
     H.append("<h2>Outcome breakdown by model × seed</h2>")
     H.append(
-        "<p class=sub>Each cell shows the full mix for one run — pass% (of conclusive tests; "
-        "timeouts &amp; skips excluded from the denominator, so a slow test is never a false negative) "
-        "plus a stacked bar and counts (✓ pass · ✗ fail · ⧗ timeout · ∅ skip · ! error).</p>"
+        "<p class=sub>Each cell shows the full mix for one run — pass% "
+        "(passed / passed+failed+timeout+error; a <b>timeout counts as a failure</b>, only skips "
+        "are excluded) plus a stacked bar and counts (✓ pass · ✗ fail · ⧗ timeout · ∅ skip · ! error).</p>"
     )
     H.append("<table>")
     H.append(
@@ -578,11 +582,16 @@ def main() -> int:
         fracs = []
         m_seeds = seeds_for(m, runs)
         for s in SEEDS:
-            if s not in m_seeds:  # ref models: seed not planned, not "pending"
-                H.append("<td style='background:#fafbfc'><span class=muted>n/a</span></td>")
+            if s not in m_seeds:  # seed not planned for this model (e.g. single-seed)
+                H.append("<td style='background:#fafbfc'><span class=muted>N/A</span></td>")
                 continue
             d = runs.get((m, s))
             if d and d["total"]:
+                if args.artifact and d.get("_partial"):
+                    # Static artifact: never show a partial cell's interim pass%
+                    # as if it were final — mark it as still running.
+                    H.append("<td style='background:#fafbfc'><span class=muted>running</span></td>")
+                    continue
                 p_s, den_s = conclusive(d)
                 fr = (p_s / den_s) if den_s else None
                 if fr is not None and not d.get("_partial"):
@@ -607,7 +616,7 @@ def main() -> int:
             elif (m, s) in running_active:
                 H.append("<td style='background:#fff3cd'>●<div class=muted>running</div></td>")
             else:
-                H.append("<td style='background:#f6f8fa'>·<div class=muted>pending</div></td>")
+                H.append("<td style='background:#fafbfc'><span class=muted>N/A</span></td>")
         mean = sum(fracs) / len(fracs) if fracs else None
         H.append(
             f"<td style='background:{heat(mean)}'><b>{(f'{100 * mean:.0f}%' if mean is not None else '·')}</b></td></tr>"
@@ -669,10 +678,10 @@ def main() -> int:
         "<footer><b>Methodology.</b> " + scope + " onto each "
         "CBORG model suite-wide via <code>OSPREY_E2E_FORCE_PROVIDER=cborg</code> + "
         "<code>OSPREY_E2E_FORCE_MODEL</code> (all tiers collapse to one model). Open models route through "
-        "OSPREY's Anthropic↔OpenAI translation proxy. The per-test timeout is 1800s and serves only as a "
-        "deadlock-breaker (~5× the slowest legitimate test observed); a timeout is recorded as its own "
-        "<b>inconclusive</b> category and EXCLUDED from the pass-rate denominator, so a slow-but-capable "
-        "model is never scored a false negative. Models were chosen from a 14-model lightweight probe to span "
+        "OSPREY's Anthropic↔OpenAI translation proxy. The per-test timeout is 1800s; a timeout "
+        "<b>counts as a failure</b> (the model did not complete the task within the cap) and is shown as a "
+        "distinct category so it can be told apart from a logic failure. Models were chosen from a 14-model "
+        "lightweight probe to span "
         "weak/fast→big/slow across distinct open families (gpt-oss, gemma, cborg). "
         "<code>qwen-3</code> / <code>qwen-3-coder</code> are open-weight but CBORG-proxied "
         "(<code>google/</code> route, not <code>lbl/</code> self-hosted), included as an additional open "

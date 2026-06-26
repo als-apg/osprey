@@ -74,8 +74,9 @@ models:
   - { id: claude-opus-4-6,           provider: als-apg, seeds: 1, budget_scale: 6 }
 
   # ---- local DeepSeek V4 on the shared ds4 server (keyless localhost) -------
-  # Local inference is free (budget_scale stays 1) but slow on the shared GPU —
-  # run this lane on its own at `--parallel 1` (matrix_restart.sh launches it as
-  # the matrix_ds4 tmux session). The judge stays remote (via: cborg).
-  - { id: deepseek-v4-flash, provider: ds4 }
-  - { id: deepseek-v4-pro,   provider: ds4 }
+  # Local inference is free (budget_scale stays 1) but slow on the shared GPU, so
+  # run a SINGLE seed (seeds: 1) — a full 3-seed lane takes ~1.5 days. Run this
+  # lane on its own at `--parallel 1` (matrix_restart.sh launches it as the
+  # matrix_ds4 tmux session). The judge stays remote (via: cborg).
+  - { id: deepseek-v4-flash, provider: ds4, seeds: 1 }
+  - { id: deepseek-v4-pro,   provider: ds4, seeds: 1 }
