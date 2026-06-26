@@ -24,6 +24,8 @@ import html
 import json
 import os
 import re
+import sys
+import time
 from collections import defaultdict
 
 # Two provider lanes in one matrix:
@@ -39,6 +41,8 @@ MODEL_ORDER = [
     "gpt-oss-120b",
     "google/qwen-3-coder",
     "google/qwen-3",
+    "deepseek-v4-flash",
+    "deepseek-v4-pro",
     "claude-haiku-4-5-20251001",
     "claude-sonnet-4-6",
     "claude-opus-4-6",
@@ -65,19 +69,84 @@ _LIVE_KEY = {
     "error": "errors",
 }
 
+# A partial run whose live stream has not advanced for longer than this is a
+# dead/killed run, not one still filling. 2× the 1800s per-test hang-breaker, so
+# a single legitimately-slow test can never trip it. Used as a backstop only —
+# the authoritative dead-run signal is run_is_dead() below, since mtime alone
+# cannot distinguish "died 5 min ago" from "a slow test 5 min into its budget".
+STALE_SECS = 3600
+
+_TIMEOUT_BANNER = re.compile(r"\+{3,}\s*Timeout\s*\+{3,}")
+
+
+def run_is_dead(run_log_path: str) -> bool:
+    """True when the per-test hang-breaker fired and aborted the session.
+
+    pytest-timeout prints a ``+++ Timeout +++`` banner when it kills a hung
+    test; if that banner is the last thing in the log with no further
+    ``[run ...]`` line after it, the session was taken down mid-run and will
+    never write its finalizing .json. This is deterministic — unlike a time
+    threshold it does not depend on how soon after death the dashboard is
+    rendered."""
+    try:
+        txt = open(run_log_path, errors="ignore").read()
+    except OSError:
+        return False
+    banners = list(_TIMEOUT_BANNER.finditer(txt))
+    if not banners:
+        return False
+    return banners[-1].start() > txt.rfind("[run")
+
+
+def collapse_reruns(tests: list[dict]) -> list[dict]:
+    """One entry per test (keyed by nodeid), keeping the LAST line seen.
+
+    pytest-rerunfailures emits a ``rerun`` line for every failed attempt of a
+    flaky test, then a terminal line (passed/failed/...); the live stream
+    contains both. Without collapsing, each retry is counted as a separate
+    result — inflating ``total`` past the suite size and (since ``rerun`` is not
+    in ``_LIVE_KEY``) miscounting every retry as a purple "error". Keeping the
+    last line per nodeid folds retries into the final outcome, matching the
+    junit-derived completed-run summary. A test seen ONLY as ``rerun`` — the run
+    was killed mid-retry before any terminal line — is dropped, since it never
+    reached a conclusive outcome."""
+    last: dict[str, dict] = {}
+    for t in tests:
+        last[t.get("name")] = t  # live stream is chronological; terminal wins
+    return [t for t in last.values() if t.get("outcome") != "rerun"]
+
 
 def load_exclusions(config_path: str) -> list[tuple[str, str]]:
-    """(basename, reason) for every file the matrix excludes, read live from
-    matrix_e2e_config.json. The footer lists the real, current exclusion set this
-    way instead of a hand-kept prose list that silently drifts when an e2e file
-    is added or excluded."""
+    """(rel_path, reason) for every file the matrix excludes, read live from
+    matrix_e2e_config.json. ``rel_path`` is the path RELATIVE TO ``tests/e2e/``
+    (e.g. ``test_dispatch_tutorial.py`` or ``claude_code/test_proxy_full_chain_e2e.py``)
+    — the EXACT key ``canon_name`` produces, so ``apply_exclusions`` matches nested
+    files too. (Basenaming here is what historically let ``claude_code/*`` excluded
+    tests leak into the grid: the basename ``test_x.py`` never equals canon_name's
+    ``claude_code/test_x.py``.) The footer basenames these only for display."""
     try:
         cfg = json.load(open(config_path))
-    except Exception:
+    except Exception as exc:
+        # LOUD failure: silently returning [] disables EVERY exclusion and the
+        # grid fills with non-model tests (dispatch_tutorial, proxy smokes, ...)
+        # with no hint why. A missing/renamed config must not look like "clean".
+        print(
+            f"WARNING: could not read exclusion config {config_path!r} ({exc}); "
+            "rendering with NO exclusions — every e2e file will show in the grid.",
+            file=sys.stderr,
+        )
         return []
-    return [
-        (os.path.basename(e["path"]), e.get("reason", "")) for e in cfg.get("excluded_files", [])
+    excluded = [
+        (e["path"].replace("tests/e2e/", "", 1), e.get("reason", ""))
+        for e in cfg.get("excluded_files", [])
     ]
+    if not excluded:
+        print(
+            f"WARNING: exclusion config {config_path!r} has no 'excluded_files'; "
+            "every e2e file will show in the grid.",
+            file=sys.stderr,
+        )
+    return excluded
 
 
 def load(results_dir: str) -> dict:
@@ -108,19 +177,25 @@ def load(results_dir: str) -> dict:
             continue
         if (model, seed) in runs:
             continue
-        tests = []
+        raw = []
         for line in open(f):
             line = line.strip()
             if line:
                 try:
-                    tests.append(json.loads(line))
+                    raw.append(json.loads(line))
                 except Exception:
                     pass
+        if not raw:
+            continue
+        tests = collapse_reruns(raw)
         if not tests:
             continue
         cnt = {"passed": 0, "failed": 0, "timeout": 0, "skipped": 0, "errors": 0}
         for t in tests:
             cnt[_LIVE_KEY.get(t.get("outcome"), "errors")] += 1
+        stalled = run_is_dead(f[: -len(".live.jsonl")] + ".run.log") or (
+            time.time() - os.path.getmtime(f)
+        ) > STALE_SECS
         runs[(model, seed)] = {
             "model": model,
             "seed": seed,
@@ -131,6 +206,7 @@ def load(results_dir: str) -> dict:
             "total": len(tests),
             "tests": tests,
             "_partial": True,
+            "_stalled": stalled,
         }
     return runs
 
@@ -155,10 +231,35 @@ def parse_progress(results_dir: str):
 def label(model: str) -> str:
     """Display name: strip the CBORG routing prefix (google/, lbl/, ...) so a
     proxied id like 'google/qwen-3-coder' renders as 'qwen-3-coder'. Data keys
-    keep the full id; this only affects what the reader sees. Reference models
-    get a '(ref)' suffix so a baseline column is unmistakable."""
-    name = model.split("/", 1)[1] if "/" in model else model
-    return f"{name} (ref)" if model in REFERENCE_MODELS else name
+    keep the full id; this only affects what the reader sees. (The provider line
+    under each model now distinguishes references, so no '(ref)' suffix.)"""
+    return model.split("/", 1)[1] if "/" in model else model
+
+
+def provider_of(model: str, runs: dict) -> str:
+    """The provider that ran this model, for the lighter [provider] line under
+    each model name. Authoritative source is the run's recorded ``provider``
+    field (written by run_e2e_for_model.sh). Legacy results predate that field;
+    fall back to the only mapping the matrix used then — references via als-apg,
+    everything else (proxied subjects) via cborg — so old dashboards still label.
+    """
+    for (mm, _s), d in runs.items():
+        if mm == model and d.get("provider"):
+            return d["provider"]
+    if model in REFERENCE_MODELS:
+        return "als-apg"
+    if model.startswith("deepseek"):  # local ds4 server; labeled before its first json lands
+        return "ds4"
+    return "cborg"
+
+
+def provider_display(provider: str) -> str:
+    """Render the canonical provider for the [provider] line. ds4 is fully
+    self-hosted (local DeepSeek V4 on the Mac Studio, no external API), so flag
+    the host to distinguish it from the proxied/remote providers."""
+    if provider == "ds4":
+        return "ds4 · macstudio (self-hosted)"
+    return provider
 
 
 def canon_name(name: str) -> tuple[str, str]:
@@ -302,19 +403,43 @@ def main() -> int:
         default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "matrix_e2e_config.json"),
         help="matrix_e2e_config.json — source of the excluded-file list shown in the footer",
     )
+    ap.add_argument(
+        "--artifact",
+        action="store_true",
+        help="render a timeless static artifact (for docs/download): drop the issue "
+        "ref, progress counters, live status, timestamp, auto-refresh and running-now "
+        "line — keep only the title and the data.",
+    )
     args = ap.parse_args()
 
     runs = load(args.results_dir)
     # Honor the exclusion list retroactively: results collected before a file was
     # excluded still carry its tests, so strip them here to match the footer.
-    exclusions = load_exclusions(args.config)
-    apply_exclusions(runs, {p.replace("tests/e2e/", "", 1) for p, _ in exclusions})
+    exclusions = load_exclusions(args.config)  # (rel_path, reason); rel_path == canon_name key
+    apply_exclusions(runs, {rel for rel, _ in exclusions})
     started, ended, matrix_done = parse_progress(args.results_dir)
-    running = started - ended  # combos in flight
+    running = started - ended  # combos START-ed but not END-ed in matrix.log
+    # A combo with a finalized .json is done even if the driver died before
+    # writing its END marker — so a wedged-then-finalized cell isn't "running".
+    running -= {c for c, dd in runs.items() if not dd.get("_partial")}
+    # A combo can be START-ed-but-not-END-ed yet have a dead process (killed
+    # before it wrote END / its finalizing .json). Split on live-stream
+    # staleness so the dashboard never advertises a dead run as "running".
+    stalled_combos = {c for c, d in runs.items() if d.get("_stalled")}
+    running_active = running - stalled_combos
+    # matrix.log can carry a MATRIX_EXIT_0 from an earlier batch while a later
+    # batch left combos START-ed but never END-ed. "Complete" must mean nothing
+    # is still in flight, so AND it with an empty running set.
+    matrix_done = matrix_done and not running
     models = list(MODEL_ORDER)
     for m in sorted({m for (m, _) in runs} | {m for (m, _) in started}):
         if m not in models:
             models.append(m)
+    if args.artifact:
+        # A published artifact shows only models that actually have results — no
+        # empty "pending" rows for models in MODEL_ORDER that weren't part of this run.
+        with_data = {m for (m, _s) in runs}
+        models = [m for m in models if m in with_data]
 
     # union of all test names, grouped by file; (file,test) -> model -> {seed: outcome}
     all_tests: dict[str, set] = defaultdict(set)
@@ -326,7 +451,8 @@ def main() -> int:
             test_results[(file, short)][m][s] = t["outcome"]
 
     done = sum(1 for d in runs.values() if not d.get("_partial"))
-    live_n = sum(1 for d in runs.values() if d.get("_partial"))
+    live_n = sum(1 for d in runs.values() if d.get("_partial") and not d.get("_stalled"))
+    stalled_n = sum(1 for d in runs.values() if d.get("_stalled"))
     total_cells = sum(
         len(seeds_for(m, runs)) for m in models
     )  # subjects: 3 seeds; refs: the seeds actually run
@@ -353,8 +479,10 @@ def main() -> int:
     th,td{padding:7px 10px;border-bottom:1px solid #eaeef2;text-align:center;font-variant-numeric:tabular-nums}
     th{background:#f6f8fa;font-weight:600;position:sticky;top:0}
     td.l,th.l{text-align:left}
+    tr.sep td{padding:0;height:0;border-bottom:2px solid #c8d1da}
     .card{display:inline-block;background:#fff;border:1px solid #d0d7de;border-radius:8px;padding:14px 18px;margin:0 12px 12px 0;vertical-align:top}
     .big{font-size:26px;font-weight:700} .muted{color:#636c76;font-size:12px}
+    .prov{color:#8c959f;font-weight:400;font-size:11px;margin-top:1px}
     .pill{display:inline-block;padding:1px 7px;border-radius:10px;font-size:11px;color:#fff}
     .legend span{margin-right:14px} .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:4px;vertical-align:middle}
     .filerow td{background:#eef1f4;font-weight:600;text-align:left}
@@ -363,40 +491,58 @@ def main() -> int:
     """
 
     now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    status = (
-        "✓ matrix complete"
-        if matrix_done
-        else (f"● live — {len(running)} running" if running else "○ idle")
-    )
-    refresh = "" if matrix_done else '<meta http-equiv="refresh" content="60">'
+    if matrix_done:
+        status = "✓ matrix complete"
+    elif running_active:
+        status = f"● live — {len(running_active)} running"
+    elif stalled_n:
+        status = "⚠ incomplete"  # the "N stalled" clause carries the count
+    else:
+        status = "○ idle"
+    # Auto-refresh only for the LIVE monitor (never the static artifact), and
+    # only while something is filling — a dead page that reloads every 60s reads
+    # as "still working" when nothing is.
+    refresh = "" if args.artifact else ('<meta http-equiv="refresh" content="60">' if running_active else "")
+    title = "OSPREY model-capability benchmark" if args.artifact else "CBORG e2e model matrix"
 
     H = []
     H.append(
         f"<!doctype html><meta charset=utf-8>{refresh}"
-        f"<title>CBORG e2e model matrix</title><style>{css}</style>"
+        f"<title>{title}</title><style>{css}</style>"
     )
     H.append("<div class=wrap>")
-    H.append("<h1>CBORG open models — full OSPREY e2e suite</h1>")
-    H.append(
-        f"<p class=sub>Issue #259 · {len(models)} models × {len(SEEDS)} seeds · "
-        f"per-test hang-breaker 1800s · <b>{done}/{total_cells}</b> runs complete · "
-        + (f"<b>{live_n} filling live</b> · " if live_n else "")
-        + f"<b>{html.escape(status)}</b> · updated {now}"
-        + (" · auto-refresh 60s" if not matrix_done else "")
-        + "</p>"
-    )
-    if running:
+    if args.artifact:
+        # Timeless artifact: no issue ref, progress counters, live status,
+        # timestamp, auto-refresh or running-now line — just title and data.
+        H.append("<h1>OSPREY model-capability benchmark</h1>")
         H.append(
-            "<p class=sub>running now: "
-            + ", ".join(
-                f"<code>{html.escape(label(m))} seed{s}</code>" for (m, s) in sorted(running)
-            )
+            f"<p class=sub>Open-weight &amp; self-hosted models across the full "
+            f"<code>tests/e2e/</code> suite · {len(models)} models × {len(SEEDS)} seeds</p>"
+        )
+    else:
+        H.append("<h1>CBORG open models — full OSPREY e2e suite</h1>")
+        H.append(
+            f"<p class=sub>Issue #259 · {len(models)} models × {len(SEEDS)} seeds · "
+            f"per-test hang-breaker 1800s · <b>{done}/{total_cells}</b> runs complete · "
+            + (f"<b>{live_n} filling live</b> · " if live_n else "")
+            + f"<b>{html.escape(status)}</b> · updated {now}"
+            + (" · auto-refresh 60s" if running_active else "")
             + "</p>"
         )
+        if running_active:
+            H.append(
+                "<p class=sub>running now: "
+                + ", ".join(
+                    f"<code>{html.escape(label(m))} seed{s}</code>" for (m, s) in sorted(running_active)
+                )
+                + "</p>"
+            )
 
-    # legend
+    # legend (drop the live-only "pending" state in the static artifact)
     H.append("<div class=legend style='margin-bottom:18px'>")
     for k, c in OUTCOME_COLORS.items():
+        if args.artifact and k == "pending":
+            continue
         H.append(f"<span><span class=dot style='background:{c}'></span>{k}</span>")
     H.append("</div>")
 
@@ -413,8 +559,17 @@ def main() -> int:
         + "".join(f"<th>seed {s}</th>" for s in SEEDS)
         + "<th>mean pass</th></tr>"
     )
+    sep_done = False
     for m in models:
-        H.append(f"<tr><td class=l>{html.escape(label(m))}</td>")
+        # Light divider between the self-hosted/open models and the Anthropic
+        # reference bracket (drawn once, before the first reference row).
+        if not sep_done and m in REFERENCE_MODELS:
+            H.append(f"<tr class=sep><td colspan='{len(SEEDS) + 2}'></td></tr>")
+            sep_done = True
+        H.append(
+            f"<tr><td class=l>{html.escape(label(m))}"
+            f"<div class=prov>[{html.escape(provider_display(provider_of(m, runs)))}]</div></td>"
+        )
         fracs = []
         m_seeds = seeds_for(m, runs)
         for s in SEEDS:
@@ -428,11 +583,14 @@ def main() -> int:
                 if fr is not None and not d.get("_partial"):
                     fracs.append(fr)  # mean is over COMPLETED seeds only
                 c = run_counts(d)
-                tag = (
-                    f"<div class=muted style='color:#9a6700'>● live · {d['total']}/{model_driving_n or '?'} done</div>"
-                    if d.get("_partial")
-                    else f"<div class=muted>{d['total']}t · {d['total_duration_s'] // 60}m</div>"
-                )
+                if d.get("_partial"):
+                    # Incomplete cell (still filling, or interrupted before all
+                    # tests ran): show its REAL partial bar + pass% with a plain
+                    # progress count. No live/died/stalled ops-language on a
+                    # shared dashboard — just "<ran>/<total>".
+                    tag = f"<div class=muted>{d['total']}/{model_driving_n or '?'}</div>"
+                else:
+                    tag = f"<div class=muted>{d['total']}t · {d['total_duration_s'] // 60}m</div>"
                 H.append(
                     f"<td><div style='font-weight:600'>{pct(p_s, den_s)}</div>"
                     f"<div style='display:flex;justify-content:center;margin:3px 0'>{stacked_bar(c)}</div>"
@@ -441,7 +599,7 @@ def main() -> int:
                 )
             elif d and not d["total"]:
                 H.append("<td style='background:#ffd8c2'>err<div class=muted>0 tests</div></td>")
-            elif (m, s) in running:
+            elif (m, s) in running_active:
                 H.append("<td style='background:#fff3cd'>●<div class=muted>running</div></td>")
             else:
                 H.append("<td style='background:#f6f8fa'>·<div class=muted>pending</div></td>")
@@ -489,8 +647,8 @@ def main() -> int:
     n_txt = str(model_driving_n) if model_driving_n is not None else "—"
     if exclusions:
         excl_html = ", ".join(
-            f"<code title='{html.escape(reason)}'>{html.escape(name)}</code>"
-            for name, reason in exclusions
+            f"<code title='{html.escape(reason)}'>{html.escape(os.path.basename(rel))}</code>"
+            for rel, reason in exclusions
         )
         scope = (
             f"The <b>{n_txt}</b> model-driving e2e tests — the full <code>tests/e2e/</code> suite "
@@ -516,10 +674,11 @@ def main() -> int:
         "family. Dropped at probe: <code>cborg-instant</code>, <code>cborg-instant-short</code> (could not "
         "relay a tool result; short context truncates the harness prompt). Closed-weight commercial models "
         "(GPT/Gemini/…) are out of scope as study subjects, but single-seed Anthropic Claude "
-        "<b>(ref)</b> columns — <code>claude-haiku-4-5</code> (the suite's literal default tier), "
+        "reference models — <code>claude-haiku-4-5</code> (the suite's literal default tier), "
         "<code>claude-sonnet-4-6</code>, and <code>claude-opus-4-6</code> — bracket the open models weak→strong "
         "as a control/ceiling, showing how they compare against the models the tests were written for. Open subjects "
-        "run on the Mac Studio via CBORG; the Anthropic <b>(ref)</b> columns route natively via als-apg.</footer>"
+        "run on the Mac Studio via CBORG; the Anthropic reference rows route natively via als-apg (see the "
+        "<code>[provider]</code> line under each model).</footer>"
     )
     H.append("</div>")
 

@@ -14,7 +14,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 ### Added
 
 - `osprey skills install osprey-design-philosophy` — bundle OSPREY's design and architecture principles as an installable skill for framework contributors.
-- `scripts/benchmark/` — model-capability benchmark toolchain: runs the full e2e suite across a model × provider matrix and renders a per-test pass-rate dashboard. The provider is never hard-wired — the portable layer is the e2e harness's environment-variable contract; the shell/ssh orchestration scripts are documented copy-and-adapt examples for one operator's setup (#259).
+- `scripts/benchmark/` — model-capability benchmark toolchain: runs the model-driving subset of `tests/e2e/` (the tests that route through the model under test) across a model × provider matrix and renders a per-test pass-rate dashboard. The whole run is declared in one config (`scripts/benchmark/matrix.yaml`) — each row names a `provider` and a model `id`, and the launcher (`matrix.py`) resolves credentials, derives the route (proxy for OpenAI-protocol models, direct for Anthropic), wires the LLM judge, and runs one isolated worker per (model, seed) cell. Adding a model — or a new provider such as a local DeepSeek (`ds4`) / Ollama / vLLM server — is a config edit, not a script edit. The provider is never hard-wired (#259).
 - How-to guide for running the Osprey agent on open-weight / self-hosted models and reproducing the model-capability benchmark (`docs/how-to/run-open-models`).
 - Documented the `claude_code.permissions` profile block (`remove_deny`/`deny`/`allow`/`ask`/`remove_ask`) for overriding the default tool deny list — e.g. unblocking `Bash`/`WebSearch` per facility (#292).
 

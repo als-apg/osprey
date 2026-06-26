@@ -1,25 +1,31 @@
 #!/usr/bin/env bash
-# Run the FULL OSPREY e2e suite (tests/e2e/) against ONE CBORG model id and
-# emit machine-readable results. Part of the issue #259 model matrix.
+# Worker: run the FULL OSPREY e2e suite (tests/e2e/) for ONE (model, seed) cell
+# and emit machine-readable results. Part of the issue #259 model matrix.
 #
 #   scripts/benchmark/run_e2e_for_model.sh <MODEL_ID> [SEED]
 #
-# Examples:
-#   scripts/benchmark/run_e2e_for_model.sh cborg-coder 1     # open model -> via proxy
-#   scripts/benchmark/run_e2e_for_model.sh claude-haiku 1    # anthropic-protocol -> direct
+# This is a DUMB worker: every routing decision (provider, proxy-vs-direct,
+# credentials, judge endpoint, budget scale) is made by the launcher
+# scripts/benchmark/matrix.py and handed in via the environment below. The
+# worker recomputes nothing — it just isolates the ARIEL DB, runs pytest, and
+# summarizes. To run a single cell for debugging, use the launcher's filter:
 #
-# Mechanism (no per-test edits — see tests/e2e/sdk_helpers.py + conftest.py):
-#   OSPREY_E2E_FORCE_PROVIDER=cborg   build every project with the cborg provider
-#   OSPREY_E2E_FORCE_MODEL=<id>       collapse all tiers (haiku/sonnet/opus)->id
-#   OSPREY_E2E_PROXY_UPSTREAM=...     (open models only) session fixture starts
-#                                     the translation proxy + rewrites base URL
-#   ALS_APG_API_KEY/ANTHROPIC_API_KEY shimmed so requires_* gates don't skip;
-#                                     real routing still goes to CBORG.
+#   scripts/benchmark/matrix.py --only <model> --parallel 1
+#
+# Environment contract (all set by matrix.py / cell_env):
+#   OSPREY_E2E_FORCE_PROVIDER   build every project with this provider   (required)
+#   OSPREY_E2E_FORCE_MODEL      collapse all tiers (haiku/sonnet/opus)->id (required)
+#   OSPREY_E2E_PROXY_UPSTREAM   (proxy route only) upstream OpenAI endpoint;
+#                               its presence selects proxy vs direct routing
+#   OSPREY_E2E_PROXY_KEY        upstream auth for the proxy ("" for local servers)
+#   ALS_APG_API_KEY / ALS_APG_BASE_URL / OSPREY_E2E_JUDGE_MODEL   LLM judge wiring
+#   ANTHROPIC_API_KEY           collection-gate shim (real routing overridden)
+#   OSPREY_E2E_BUDGET_SCALE     per-query max_budget_usd multiplier (default 1)
 #
 # Outputs (under results/, relative to repo root):
 #   results/<safe_model>__seed<seed>.xml    JUnit XML (per-test outcomes)
-#   results/<safe_model>__seed<seed>.json   summary {model,seed,passed,failed,
-#       skipped,errors,total,total_duration_s,tests:[{name,outcome,duration_s}]}
+#   results/<safe_model>__seed<seed>.json   summary {model,seed,passed,failed,...}
+#   results/<safe_model>__seed<seed>.live.jsonl  one JSON line per test as it ends
 #
 # NEVER `uv run` — invoke the venv python directly (per macstudio convention).
 set -uo pipefail
@@ -32,73 +38,16 @@ REPO="$PWD"
 PY="$REPO/.venv/bin/python"
 [ -x "$PY" ] || { echo "no venv python at $PY" >&2; exit 2; }
 
-# --- provider selection: subjects via CBORG, refs via als-apg ------------
-# Anthropic reference models route through als-apg (their clean Anthropic home),
-# NOT CBORG. CBORG routing systematically degrades the agent's channel-finder /
-# scenario behaviour (feedback_hook + sector7 fail on CBORG yet pass 7/7 on
-# als-apg with the identical project) — a provider-routing artifact, not an
-# OSPREY bug. Open-model subjects stay on CBORG. Select with MATRIX_PROVIDER.
-PROVIDER="${MATRIX_PROVIDER:-cborg}"
-
-if [ "$PROVIDER" = "als-apg" ]; then
-  # --- als-apg route (Anthropic references) ---
-  if [ -z "${ALS_APG_API_KEY:-}" ] && [ -f "$HOME/.als_apg_key" ]; then
-    ALS_APG_API_KEY="$(cat "$HOME/.als_apg_key")"
-  fi
-  [ -n "${ALS_APG_API_KEY:-}" ] || { echo "ALS_APG_API_KEY unset and ~/.als_apg_key missing" >&2; exit 2; }
-  export ALS_APG_API_KEY
-  export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-$ALS_APG_API_KEY}"  # satisfy requires_* gates
-  export ALS_APG_BASE_URL="${ALS_APG_BASE_URL:-https://llm.gianlucamartino.com}"
-  export OSPREY_E2E_JUDGE_MODEL="${OSPREY_E2E_JUDGE_MODEL:-claude-haiku-4-5-20251001}"
-  export OSPREY_E2E_FORCE_PROVIDER=als-apg
-  export OSPREY_E2E_FORCE_MODEL="$MODEL"
-  unset OSPREY_E2E_PROXY_UPSTREAM
-  ROUTE="als-apg"
-else
-  # --- credentials (cborg) ---
-  if [ -z "${CBORG_API_KEY:-}" ] && [ -f "$HOME/.cborg_key" ]; then
-    CBORG_API_KEY="$(cat "$HOME/.cborg_key")"
-  fi
-  [ -n "${CBORG_API_KEY:-}" ] || { echo "CBORG_API_KEY unset and ~/.cborg_key missing" >&2; exit 2; }
-  export CBORG_API_KEY
-  # Shims: satisfy the requires_als_apg / requires_anthropic collection gates so
-  # the suite is COLLECTED, not skipped. Routing is overridden to CBORG regardless,
-  # and both vars are in MANAGED_ENV_VARS (scrubbed before the CLI launches).
-  export ALS_APG_API_KEY="${ALS_APG_API_KEY:-$CBORG_API_KEY}"
-  export ANTHROPIC_API_KEY="${ANTHROPIC_API_KEY:-$CBORG_API_KEY}"
-  # Scenario tests run an als-apg LLM judge (tests/e2e/judge.py) which otherwise
-  # targets an als-apg-only endpoint + a dated model id CBORG rejects. On this
-  # cborg-only box, route the judge to CBORG with a valid model id. Env-gated, so
-  # CI/als-apg behavior is unchanged when these are unset.
-  export ALS_APG_BASE_URL="${ALS_APG_BASE_URL:-https://api.cborg.lbl.gov/v1}"
-  export OSPREY_E2E_JUDGE_MODEL="${OSPREY_E2E_JUDGE_MODEL:-google/claude-haiku-4-5}"
-
-  export OSPREY_E2E_FORCE_PROVIDER=cborg
-  export OSPREY_E2E_FORCE_MODEL="$MODEL"
-
-  # --- routing: proxy for open models, direct for anthropic-protocol -------
-  # CBORG serves claude-*/*claude* on the Anthropic /v1/messages route (no proxy);
-  # everything else (cborg-coder, gemma-*, gpt-oss-*, ...) is OpenAI-protocol and
-  # must be translated by the proxy.
-  case "$MODEL" in
-    *claude*) ROUTE="direct"; unset OSPREY_E2E_PROXY_UPSTREAM ;;
-    *)        ROUTE="proxy";  export OSPREY_E2E_PROXY_UPSTREAM="https://api.cborg.lbl.gov/v1" ;;
-  esac
+# --- launcher-set routing (no credential/case logic lives here anymore) --
+if [ -z "${OSPREY_E2E_FORCE_PROVIDER:-}" ] || [ -z "${OSPREY_E2E_FORCE_MODEL:-}" ]; then
+  echo "FATAL: OSPREY_E2E_FORCE_PROVIDER/OSPREY_E2E_FORCE_MODEL unset." >&2
+  echo "       This worker is driven by scripts/benchmark/matrix.py — run that," >&2
+  echo "       e.g.  scripts/benchmark/matrix.py --only $MODEL --parallel 1" >&2
+  exit 2
 fi
-
-# --- per-query budget scales with model price ----------------------------
-# The e2e suite's max_budget_usd caps (0.25/1.0/2.0) are tuned for the haiku
-# default model. Pricier reference models cost several times more per token, so
-# a multi-step task blows the cap and hard-errors mid-query ("Reached maximum
-# budget") — a cost artifact that deflates the model's score for reasons
-# unrelated to capability. Scale the cap (and the matching cost-ceiling
-# assertions) by model. Honored by e2e_budget_scale() in tests/e2e/sdk_helpers.py.
-# Default 1.0 (open/haiku-tier models). Overridable from the environment.
-case "$MODEL" in
-  *opus*)   export OSPREY_E2E_BUDGET_SCALE="${OSPREY_E2E_BUDGET_SCALE:-6}" ;;
-  *sonnet*) export OSPREY_E2E_BUDGET_SCALE="${OSPREY_E2E_BUDGET_SCALE:-3}" ;;
-  *)        export OSPREY_E2E_BUDGET_SCALE="${OSPREY_E2E_BUDGET_SCALE:-1}" ;;
-esac
+# Route is implied by whether the launcher provided a proxy upstream.
+if [ -n "${OSPREY_E2E_PROXY_UPSTREAM:-}" ]; then ROUTE="proxy"; else ROUTE="direct"; fi
+export OSPREY_E2E_BUDGET_SCALE="${OSPREY_E2E_BUDGET_SCALE:-1}"
 echo ">> budget_scale=$OSPREY_E2E_BUDGET_SCALE" >&2
 
 SAFE="${MODEL//\//__}"
@@ -110,7 +59,7 @@ JSON="$REPO/results/${SAFE}__seed${SEED}.json"
 export OSPREY_E2E_LIVE="$REPO/results/${SAFE}__seed${SEED}.live.jsonl"
 : > "$OSPREY_E2E_LIVE"
 
-echo ">> model=$MODEL seed=$SEED route=$ROUTE" >&2
+echo ">> model=$MODEL seed=$SEED provider=$OSPREY_E2E_FORCE_PROVIDER route=$ROUTE" >&2
 echo ">> junit=$XML" >&2
 
 # --- per-cell ARIEL database isolation (issue #259) ----------------------
@@ -179,10 +128,6 @@ START=$(date +%s)
 # The exclusion list with per-file reasons is single-sourced in
 # matrix_e2e_config.json — do not enumerate it here (it drifts).
 # Still `pytest tests/e2e/` (path) for registry-safe collection; --ignore prunes.
-# Exclusions are single-sourced in scripts/benchmark/matrix_e2e_config.json (shared with the
-# als-apg runner) and validated at startup by check_e2e_coverage.py, which warns if
-# the run stops covering the full e2e kit minus explicit removals. macOS bash 3.2 has
-# no `mapfile`; the --ignore tokens are space-free, so word-split a plain string.
 IGNORE_ARGS="$("$PY" "$REPO/scripts/benchmark/check_e2e_coverage.py" \
   --repo-root "$REPO" --config "$REPO/scripts/benchmark/matrix_e2e_config.json" --print-ignore-args | tr '\n' ' ')"
 # shellcheck disable=SC2086  # intentional word-split of space-free --ignore tokens
@@ -197,7 +142,8 @@ END=$(date +%s)
 WALL=$((END - START))
 
 # --- summarize JUnit XML -> summary JSON ---------------------------------
-MODEL="$MODEL" SEED="$SEED" ROUTE="$ROUTE" XML="$XML" JSON="$JSON" \
+MODEL="$MODEL" SEED="$SEED" ROUTE="$ROUTE" PROVIDER="$OSPREY_E2E_FORCE_PROVIDER" \
+XML="$XML" JSON="$JSON" \
 WALL="$WALL" PYTEST_RC="$PYTEST_RC" "$PY" - <<'PYEOF'
 import json, os, xml.etree.ElementTree as ET
 
@@ -205,6 +151,7 @@ xml, jsonp = os.environ["XML"], os.environ["JSON"]
 summary = {
     "model": os.environ["MODEL"],
     "seed": int(os.environ["SEED"]),
+    "provider": os.environ.get("PROVIDER", ""),
     "route": os.environ["ROUTE"],
     "pytest_rc": int(os.environ["PYTEST_RC"]),
     "total_duration_s": int(os.environ["WALL"]),

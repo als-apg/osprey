@@ -23,7 +23,13 @@ DEADLINE=$(( $(date +%s) + MAX_SECONDS ))
 
 render() {
   rsync -az --delete "$REMOTE:$REMOTE_REPO/results/" "$RESULTS/" 2>>"$LOG"
-  python3 "$REPO/scripts/benchmark/matrix_dashboard.py" --results-dir "$RESULTS" --out "$OUT" >>"$LOG" 2>&1
+  # Prefer the venv python (stock macOS python3 is 3.9 and can choke); pass the
+  # exclusion config EXPLICITLY so a wrong cwd can't silently disable exclusions
+  # and let non-model tests (dispatch_tutorial, proxy smokes) back into the grid.
+  PY="$REPO/.venv/bin/python"; [ -x "$PY" ] || PY="python3"
+  "$PY" "$REPO/scripts/benchmark/matrix_dashboard.py" \
+    --results-dir "$RESULTS" --out "$OUT" \
+    --config "$REPO/scripts/benchmark/matrix_e2e_config.json" >>"$LOG" 2>&1
 }
 
 echo "=== live updater start $(date) -> $OUT ===" >> "$LOG"

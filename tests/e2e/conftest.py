@@ -104,7 +104,12 @@ def _e2e_translation_proxy():
         return
     from osprey.infrastructure.proxy.lifecycle import start_proxy, stop_proxy
 
-    key = os.environ.get("CBORG_API_KEY", "")
+    # Upstream auth: the matrix launcher sets OSPREY_E2E_PROXY_KEY per cell — and
+    # "" is an intentional value for keyless local servers (ds4/ollama), so honor
+    # presence, not truthiness (an `or` fallback would send a stray key to a
+    # keyless server). Provider-agnostic: the launcher exposes whichever provider's
+    # key the cell needs; the proxy var is never tied to one provider name.
+    key = os.environ.get("OSPREY_E2E_PROXY_KEY", "")
     port = start_proxy(upstream, key)
     os.environ["OSPREY_E2E_PROXY_BASE_URL"] = f"http://127.0.0.1:{port}"
     try:
