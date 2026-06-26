@@ -89,7 +89,9 @@ def test_ariel_standalone_is_curated_subset():
     curated = frozenset(_api_providers(CURATED_TEMPLATE))
     full = frozenset(_api_providers(FULL_TEMPLATES[1]))  # control_assistant
     extra = curated - full
-    assert not extra, f"{CURATED_TEMPLATE} declares providers absent from the full menu: {sorted(extra)}"
+    assert not extra, (
+        f"{CURATED_TEMPLATE} declares providers absent from the full menu: {sorted(extra)}"
+    )
 
 
 @pytest.mark.parametrize("rel", FULL_TEMPLATES + (CURATED_TEMPLATE,))
