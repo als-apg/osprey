@@ -24,6 +24,18 @@ BUILTIN_PANELS: set[str] = {
 # would make ``_load_panel_config`` discard that url and the frontend has no
 # builtin ``events`` tab, so the tab would never render.
 
+# Canonical display labels for built-in panels.  This is the single source of
+# truth consumed by the /api/panels endpoint and by MCP panel tools — do not
+# duplicate these strings elsewhere in the framework.  ``events`` is omitted on
+# purpose: it is a URL-backed custom panel (see above) and carries its own label.
+BUILTIN_PANEL_LABELS: dict[str, str] = {
+    "artifacts": "WORKSPACE",
+    "ariel": "ARIEL",
+    "tuning": "TUNING",
+    "channel-finder": "CHANNELS",
+    "lattice": "LATTICE",
+}
+
 # Frontend fallback when a profile/config doesn't pin a default tab.
 # The web terminal opens this tab first on cold load.
 DEFAULT_PANEL_FALLBACK: str = "artifacts"

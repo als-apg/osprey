@@ -620,6 +620,11 @@ web:
     #   web.panels.my-grafana.url: "http://grafana.local:3000"
     #   web.panels.my-grafana.health_endpoint: "/api/health"
     #   web.panels.my-grafana.path: "/"
+    #   web.panels.my-grafana.hidden: true   # launch the panel but keep its tab hidden until the agent shows it
+    #
+    # Runtime panel control by the agent (optional; OFF by default):
+    #   web.allow_runtime_panels: true                       # let the agent register ad-hoc URL panels at runtime
+    #   web.runtime_panel_allowlist: ["grafana.local:3000"]  # restrict registration targets to these host[:port]
 {%- else %}
   panels: {}  # No builtin panels enabled; custom panels (if any) added via config overrides
 {%- endif %}

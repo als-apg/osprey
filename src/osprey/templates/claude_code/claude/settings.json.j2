@@ -80,6 +80,11 @@
             "type": "command",
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_config_drift.py\" 2>/dev/null || true",
             "timeout": 5
+          },
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_panels_context.py\" 2>/dev/null || true",
+            "timeout": 5
           }
         ]
       }

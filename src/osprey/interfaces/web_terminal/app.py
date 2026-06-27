@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import httpx
 import yaml
@@ -182,6 +182,65 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
     return enabled, custom, default_panel
 
 
+class _PanelRuntimeConfig(NamedTuple):
+    """Runtime-panel settings derived from config, plus the computed visible list."""
+
+    allow_runtime_panels: bool
+    runtime_panel_allowlist: list[str] | None
+    visible_panels: list[str]
+
+
+def _load_panel_runtime_config(
+    enabled_panels: set[str], custom_panels: list[dict]
+) -> _PanelRuntimeConfig:
+    """Read runtime-panel settings and compute the visible-panel list.
+
+    Honors per-panel ``hidden: true`` flags and the ``web.allow_runtime_panels`` /
+    ``web.runtime_panel_allowlist`` knobs.  The raw config is re-read here rather
+    than threaded through ``_load_panel_config``'s 3-tuple contract (which is
+    relied on elsewhere, including tests).  Built-in panel specs are not retained
+    by ``_load_panel_config`` — only the id lands in ``enabled`` — so hidden
+    built-ins are tracked in a parallel set.
+
+    ``visible_panels`` is the flat list of ids shown in the UI: enabled built-ins
+    (minus hidden ones) followed by custom panels (minus hidden ones).  With no
+    ``hidden`` flags it equals all enabled panels — backward compatible.
+
+    Fails open: any config-read error yields the permissive defaults (nothing
+    hidden, runtime registration off).
+    """
+    hidden_builtins: set[str] = set()
+    hidden_custom_ids: set[str] = set()
+    allow_runtime_panels = False
+    runtime_panel_allowlist: list[str] | None = None
+    try:
+        from osprey.utils.workspace import load_osprey_config
+
+        web_cfg = load_osprey_config().get("web", {})
+        allow_runtime_panels = bool(web_cfg.get("allow_runtime_panels", False))
+        allowlist_raw = web_cfg.get("runtime_panel_allowlist")
+        if isinstance(allowlist_raw, list):
+            # Lowercase at parse time so matching in _validate_panel_url is case-insensitive.
+            runtime_panel_allowlist = [str(e).lower() for e in allowlist_raw]
+        for pid, spec in web_cfg.get("panels", {}).items():
+            if isinstance(spec, dict) and spec.get("hidden", False):
+                if pid in BUILTIN_PANELS:
+                    hidden_builtins.add(pid)
+                else:
+                    hidden_custom_ids.add(pid)
+    except Exception:
+        pass
+
+    visible_panels = [p for p in enabled_panels if p not in hidden_builtins] + [
+        cp["id"] for cp in custom_panels if cp["id"] not in hidden_custom_ids
+    ]
+    return _PanelRuntimeConfig(
+        allow_runtime_panels=allow_runtime_panels,
+        runtime_panel_allowlist=runtime_panel_allowlist,
+        visible_panels=visible_panels,
+    )
+
+
 def _load_web_config(config_path: str | Path | None = None) -> dict:
     """Load web_terminal config section from config.yml."""
     config_paths = [
@@ -342,6 +401,18 @@ def _create_lifespan(
         app.state.enabled_panels = enabled_panels
         app.state.custom_panels = custom_panels
         app.state.default_panel = default_panel
+
+        # Runtime-panel settings + visibility (honors hidden: true,
+        # allow_runtime_panels, runtime_panel_allowlist).
+        panel_runtime = _load_panel_runtime_config(enabled_panels, custom_panels)
+        app.state.allow_runtime_panels = panel_runtime.allow_runtime_panels
+        app.state.runtime_panel_allowlist = panel_runtime.runtime_panel_allowlist
+        app.state.visible_panels = panel_runtime.visible_panels
+        if panel_runtime.allow_runtime_panels and not panel_runtime.runtime_panel_allowlist:
+            logger.warning(
+                "web.allow_runtime_panels is enabled without a runtime_panel_allowlist — "
+                "any http/https host on the internal network can be registered as a panel proxy."
+            )
 
         # Universal servers — always launched
         _launch_artifact_server(app)

@@ -249,6 +249,10 @@ web:
 {%- else %}
   panels: {}
 {%- endif %}
+  # Optional panel controls (off by default; uncomment to use):
+  #   web.panels.<id>.hidden: true                          # launch the panel but keep its tab hidden until shown
+  #   web.allow_runtime_panels: true                        # let the agent register ad-hoc URL panels at runtime
+  #   web.runtime_panel_allowlist: ["dashboard.local:3000"] # restrict registration targets to these host[:port]
 
 # ──────────────────────────────────────────────────────────────────────
 # User-Owned Prompt Artifacts

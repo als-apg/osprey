@@ -226,6 +226,11 @@
   pointer-events: none;
 }
 
+/* Tab hidden by server visibility config; toggled by SSE show/hide events */
+.header-tab.tab-hidden {
+  display: none;
+}
+
 .header-tab .tab-led {
   width: 5px;
   height: 5px;

@@ -45,7 +45,13 @@ class TestListPanels:
         fn = _get_list_panels()
 
         api_response = json.dumps(
-            {"enabled": ["artifacts", "ariel", "tuning"], "custom": []}
+            {
+                "enabled": ["artifacts", "ariel", "tuning"],
+                "custom": [],
+                "labels": {"artifacts": "WORKSPACE", "ariel": "ARIEL", "tuning": "TUNING"},
+                "visible": ["artifacts", "tuning"],
+                "active": None,
+            }
         ).encode()
 
         mock_resp = MagicMock()
@@ -57,12 +63,17 @@ class TestListPanels:
             result = extract_response_dict(await fn())
 
         assert result["status"] == "success"
+        assert result["active"] is None
         ids = [p["id"] for p in result["panels"]]
         assert ids == ["artifacts", "ariel", "tuning"]
         labels = {p["id"]: p["label"] for p in result["panels"]}
         assert labels["artifacts"] == "WORKSPACE"
         assert labels["ariel"] == "ARIEL"
         assert labels["tuning"] == "TUNING"
+        visible = {p["id"]: p["visible"] for p in result["panels"]}
+        assert visible["artifacts"] is True
+        assert visible["ariel"] is False
+        assert visible["tuning"] is True
 
     @pytest.mark.unit
     @pytest.mark.asyncio
@@ -74,6 +85,9 @@ class TestListPanels:
             {
                 "enabled": ["artifacts"],
                 "custom": [{"id": "my-panel", "label": "MY PANEL", "url": "/panel/my-panel"}],
+                "labels": {"artifacts": "WORKSPACE"},
+                "visible": ["artifacts", "my-panel"],
+                "active": None,
             }
         ).encode()
 
@@ -101,6 +115,9 @@ class TestListPanels:
             {
                 "enabled": ["artifacts"],
                 "custom": [{"id": "my-grafana", "url": "/panel/my-grafana"}],
+                "labels": {"artifacts": "WORKSPACE"},
+                "visible": ["artifacts"],
+                "active": "artifacts",
             }
         ).encode()
 
@@ -168,3 +185,234 @@ class TestSwitchPanel:
         assert result["status"] == "success"
         assert result["panel"] == "my-grafana"
         mock_focus.assert_called_once_with("my-grafana", url=None)
+
+
+# ---- Helpers for show/hide/register tests ----
+
+
+def _get_show_panel():
+    from osprey.mcp_server.workspace.tools.panel_tools import show_panel
+
+    return get_tool_fn(show_panel)
+
+
+def _get_hide_panel():
+    from osprey.mcp_server.workspace.tools.panel_tools import hide_panel
+
+    return get_tool_fn(hide_panel)
+
+
+def _get_register_panel():
+    from osprey.mcp_server.workspace.tools.panel_tools import register_panel
+
+    return get_tool_fn(register_panel)
+
+
+def _make_api_mock(enabled, custom=None, visible=None, active=None, labels=None):
+    """Build a urllib urlopen mock for GET /api/panels with the given fields."""
+    import json
+    from unittest.mock import MagicMock
+
+    payload = {
+        "enabled": list(enabled),
+        "custom": custom or [],
+        "visible": visible if visible is not None else list(enabled),
+        "active": active,
+        "labels": labels or {},
+    }
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = json.dumps(payload).encode()
+    mock_resp.__enter__ = lambda s: s
+    mock_resp.__exit__ = MagicMock(return_value=False)
+    return mock_resp
+
+
+# ---- show_panel ----
+
+
+class TestShowPanel:
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_show_panel_calls_notify_visibility_with_true(self, _mock_web_terminal_url):
+        """show_panel for a known id calls notify_panel_visibility(id, True) and returns success."""
+        # Arrange
+        fn = _get_show_panel()
+        mock_resp = _make_api_mock(enabled=["artifacts", "ariel"])
+
+        # Act
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            with patch(f"{_MODULE}.notify_panel_visibility") as mock_notify:
+                result = extract_response_dict(await fn("ariel"))
+
+        # Assert
+        assert result["status"] == "success"
+        assert result["panel"] == "ariel"
+        mock_notify.assert_called_once_with("ariel", True)
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_show_panel_unknown_id_returns_error_and_does_not_notify(
+        self, _mock_web_terminal_url
+    ):
+        """show_panel for an unknown panel id returns a structured error and skips notify."""
+        # Arrange
+        fn = _get_show_panel()
+        mock_resp = _make_api_mock(enabled=["artifacts"])
+
+        # Act
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            with patch(f"{_MODULE}.notify_panel_visibility") as mock_notify:
+                result = extract_response_dict(await fn("nonexistent"))
+
+        # Assert
+        assert result["status"] == "error"
+        assert "nonexistent" in result["message"]
+        mock_notify.assert_not_called()
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_show_panel_web_terminal_unreachable_returns_error(self, _mock_web_terminal_url):
+        """show_panel returns an error dict when the web terminal is not reachable."""
+        # Arrange
+        fn = _get_show_panel()
+
+        # Act
+        with patch("urllib.request.urlopen", side_effect=ConnectionRefusedError("refused")):
+            result = extract_response_dict(await fn("artifacts"))
+
+        # Assert
+        assert result["status"] == "error"
+        assert "not running" in result["message"]
+
+
+# ---- hide_panel ----
+
+
+class TestHidePanel:
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_hide_panel_calls_notify_visibility_with_false(self, _mock_web_terminal_url):
+        """hide_panel for a known id calls notify_panel_visibility(id, False) and returns success."""
+        # Arrange
+        fn = _get_hide_panel()
+        mock_resp = _make_api_mock(enabled=["artifacts", "ariel"])
+
+        # Act
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            with patch(f"{_MODULE}.notify_panel_visibility") as mock_notify:
+                result = extract_response_dict(await fn("ariel"))
+
+        # Assert
+        assert result["status"] == "success"
+        assert result["panel"] == "ariel"
+        assert result["visible"] is False
+        mock_notify.assert_called_once_with("ariel", False)
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_hide_panel_unknown_id_returns_error_and_does_not_notify(
+        self, _mock_web_terminal_url
+    ):
+        """hide_panel for an unknown panel id returns a structured error and skips notify."""
+        # Arrange
+        fn = _get_hide_panel()
+        mock_resp = _make_api_mock(enabled=["artifacts"])
+
+        # Act
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            with patch(f"{_MODULE}.notify_panel_visibility") as mock_notify:
+                result = extract_response_dict(await fn("unknown-panel"))
+
+        # Assert
+        assert result["status"] == "error"
+        mock_notify.assert_not_called()
+
+
+# ---- register_panel ----
+
+
+class TestRegisterPanel:
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_register_panel_success_returns_panel_url(self):
+        """register_panel returns status:success and the proxy URL when notify returns ok=True."""
+        # Arrange
+        fn = _get_register_panel()
+        ok_result = {"ok": True, "status": 200, "data": {"url": "/panel/grafana"}}
+
+        # Act
+        with patch(f"{_MODULE}.notify_panel_register", return_value=ok_result):
+            result = extract_response_dict(
+                await fn("grafana", "GRAFANA", "http://grafana.lan:3000")
+            )
+
+        # Assert
+        assert result["status"] == "success"
+        assert result["panel"] == "grafana"
+        assert result["url"] == "/panel/grafana"
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_register_panel_disabled_returns_disabled_message(self):
+        """register_panel surfaces a human-readable 'disabled' message on HTTP 403."""
+        # Arrange
+        fn = _get_register_panel()
+        disabled_result = {
+            "ok": False,
+            "status": 403,
+            "detail": "Runtime panel registration is disabled.",
+        }
+
+        # Act
+        with patch(f"{_MODULE}.notify_panel_register", return_value=disabled_result):
+            result = extract_response_dict(
+                await fn("grafana", "GRAFANA", "http://grafana.lan:3000")
+            )
+
+        # Assert
+        assert result["status"] == "error"
+        assert "disabled" in result["message"].lower()
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_register_panel_validation_error_surfaces_detail(self):
+        """register_panel forwards the server detail string on HTTP 422."""
+        # Arrange
+        fn = _get_register_panel()
+        rejected_result = {
+            "ok": False,
+            "status": 422,
+            "detail": "Resolved address '127.0.0.1' is not permitted",
+        }
+
+        # Act
+        with patch(f"{_MODULE}.notify_panel_register", return_value=rejected_result):
+            result = extract_response_dict(
+                await fn("grafana", "GRAFANA", "http://grafana.lan:3000")
+            )
+
+        # Assert
+        assert result["status"] == "error"
+        assert "127.0.0.1" in result["message"]
+
+    @pytest.mark.unit
+    @pytest.mark.asyncio
+    async def test_register_panel_web_terminal_down_returns_down_message(self):
+        """register_panel returns a 'not running' message when notify returns status=None."""
+        # Arrange
+        fn = _get_register_panel()
+        down_result = {
+            "ok": False,
+            "status": None,
+            "detail": "Web Terminal is not running.",
+        }
+
+        # Act
+        with patch(f"{_MODULE}.notify_panel_register", return_value=down_result):
+            result = extract_response_dict(
+                await fn("grafana", "GRAFANA", "http://grafana.lan:3000")
+            )
+
+        # Assert
+        assert result["status"] == "error"
+        assert "not running" in result["message"].lower()

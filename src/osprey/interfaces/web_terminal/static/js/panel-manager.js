@@ -57,6 +57,10 @@ let userSelectedTab = false;
 // Per-panel state: { url, healthy, iframe, pollTimer, configLoaded }
 const panelState = {};
 
+// Visible panel ids — seeded from /api/panels at init; controls tab-hidden visibility.
+// Task 3.2 toggles individual ids here and flips .tab-hidden on the button.
+const visiblePanels = new Set();
+
 // Default panel to activate first. The hardcoded value is the fallback used
 // when /api/panels doesn't pin one (kept in sync with
 // osprey.profiles.web_panels.DEFAULT_PANEL_FALLBACK on the backend).
@@ -136,6 +140,14 @@ export async function initPanelManager(panelId) {
     };
   }
 
+  // Seed visiblePanels from server config ('visible' field added by Task 1.1).
+  // Fall back to all enabled panel ids for backward compat when field is absent.
+  if (panelConfig?.visible) {
+    for (const id of panelConfig.visible) visiblePanels.add(id);
+  } else {
+    for (const panel of PANELS) visiblePanels.add(panel.id);
+  }
+
   // Render tab buttons
   renderTabs();
 
@@ -162,37 +174,154 @@ export async function initPanelManager(panelId) {
     }
   }
 
-  // Listen for panel_focus events via SSE (uses raw EventSource to avoid
-  // conflicts with the module-level sseState in api.js).
-  // These events originate from explicit switch_panel MCP tool calls —
-  // always honor them since the user asked the agent to switch.
+  // Listen for SSE events (uses raw EventSource to avoid conflicts with the
+  // module-level sseState in api.js). Three event types are handled:
+  //
+  //   panel_focus      {type, panel, url?}      — explicit switch_panel MCP call;
+  //                                               always honor (user asked for it).
+  //   panel_visibility {type, panel, visible}   — show/hide a tab; if the active
+  //                                               tab is hidden, switch to the next
+  //                                               visible+healthy panel or empty state.
+  //   panel_register   {type, id, label, url, healthEndpoint, path}
+  //                                             — add a runtime panel; do NOT
+  //                                               auto-activate (URL may not be ready).
   const es = new EventSource('/api/files/events');
   es.onmessage = (e) => {
     try {
       const data = JSON.parse(e.data);
+
       if (data.type === 'panel_focus' && data.panel) {
+        // Agent asked the panel to switch — honor unconditionally
         if (data.url) navigatePanel(data.panel, data.url);
         activateTab(data.panel);
+
+      } else if (data.type === 'panel_visibility' && data.panel) {
+        const { panel, visible } = data;
+        // Update the visibility set and flip .tab-hidden on the button
+        if (visible) {
+          visiblePanels.add(panel);
+        } else {
+          visiblePanels.delete(panel);
+        }
+        const btn = tabsEl.querySelector(`[data-panel-id="${panel}"]`);
+        if (btn) btn.classList.toggle('tab-hidden', !visible);
+
+        // CC-1: if we just hid the currently active tab, switch away from it
+        if (!visible && panel === activeTabId) {
+          // Conceal the outgoing iframe immediately so it doesn't bleed through
+          panelState[panel]?.iframe?.classList.add('hidden');
+          // Find the first panel that is visible, healthy, and not the one being hidden
+          const fallback = PANELS.find(
+            p => p.id !== panel && visiblePanels.has(p.id) && panelState[p.id]?.healthy
+          );
+          if (fallback) {
+            activateTab(fallback.id);
+          } else {
+            // No usable panel remains — strand-proof: clear active state and show empty pane
+            activeTabId = null;
+            renderEmptyState('No panels visible');
+          }
+        }
+
+      } else if (data.type === 'panel_register' && data.id) {
+        // Seed visibility before addPanel so buildTabButton produces a visible tab
+        visiblePanels.add(data.id);
+        addPanel(data);
+        // Guarantee no .tab-hidden in case the set was already populated (re-register path)
+        const btn = tabsEl.querySelector(`[data-panel-id="${data.id}"]`);
+        if (btn) btn.classList.remove('tab-hidden');
+        // CC-3: do NOT call activateTab — the new panel's URL may not be ready yet;
+        // the user activates when they want it.
       }
+
     } catch { /* ignore parse errors */ }
   };
 }
 
 // ---- Tab Rendering ----
 
+/**
+ * Build a single tab button element for a given panel spec.
+ * Shared by renderTabs() (initial render) and addPanel() (runtime additions)
+ * so both paths produce byte-identical DOM nodes.
+ *
+ * Applies .tab-hidden when the panel id is absent from visiblePanels.
+ * Task 3.2 toggles that class (and the visiblePanels set) on show/hide SSE events.
+ */
+function buildTabButton(panel) {
+  const tab = document.createElement('button');
+  tab.className = 'header-tab disabled';
+  tab.dataset.panelId = panel.id;
+  tab.title = panel.label;
+  // Build children via DOM to avoid XSS — panel.label comes from server JSON / SSE
+  const led = document.createElement('span');
+  led.className = 'tab-led offline';
+  tab.appendChild(led);
+  tab.appendChild(document.createTextNode(panel.label));
+  tab.addEventListener('click', () => activateTab(panel.id, { userInitiated: true }));
+  if (!visiblePanels.has(panel.id)) {
+    tab.classList.add('tab-hidden');
+  }
+  return tab;
+}
+
 function renderTabs() {
   tabsEl.innerHTML = '';
   for (const panel of PANELS) {
-    const tab = document.createElement('button');
-    tab.className = 'header-tab disabled';
-    tab.dataset.panelId = panel.id;
-    tab.title = panel.label;
-    tab.innerHTML = `
-      <span class="tab-led offline"></span>
-      ${panel.label}
-    `;
-    tab.addEventListener('click', () => activateTab(panel.id, { userInitiated: true }));
-    tabsEl.appendChild(tab);
+    tabsEl.appendChild(buildTabButton(panel));
+  }
+}
+
+/**
+ * Register a runtime panel and append its tab without wiping existing tabs.
+ *
+ * spec shape (matches the panel_register SSE broadcast payload):
+ *   { id, label, url, healthEndpoint, path }
+ *
+ * Guard: if panelState[id] already exists (re-register), refresh the url
+ * in-place rather than duplicating the tab or state.
+ */
+function addPanel(spec) {
+  if (panelState[spec.id]) {
+    // Re-registration: update url so subsequent navigation stays consistent
+    if (spec.url) panelState[spec.id].url = spec.url;
+    return;
+  }
+
+  const normalized = {
+    id: spec.id,
+    label: spec.label || spec.id.toUpperCase(),
+    configEndpoint: null,
+    healthEndpoint: spec.healthEndpoint || null,
+    statusBarId: null,
+    path: spec.path || '/',
+  };
+  PANELS.push(normalized);
+
+  panelState[spec.id] = {
+    url: null,
+    healthy: false,
+    iframe: null,
+    pollTimer: null,
+    polling: false,
+    configLoaded: false,
+  };
+
+  // Append exactly one tab. NEVER call renderTabs() here — it does
+  // innerHTML='' which wipes every live tab's active/disabled/LED state.
+  tabsEl.appendChild(buildTabButton(normalized));
+
+  // Seed url and health, mirroring the custom-panel block in initPanelManager
+  if (spec.url) {
+    const ps = panelState[spec.id];
+    ps.url = spec.url;
+    ps.configLoaded = true;
+    if (!spec.healthEndpoint) {
+      ps.healthy = true;
+      enableTab(spec.id);
+    } else {
+      startHealthPolling(normalized);
+    }
   }
 }
 
