@@ -132,6 +132,7 @@ Create a minimal profile and build:
    data_bundle: control_assistant
    provider: anthropic
    model: sonnet
+   channel_finder_mode: in_context
    requires_osprey_version: ">=2026.5.0"
 
    config:
@@ -224,8 +225,10 @@ Configuration Overrides
 =======================
 
 The ``config:`` section uses **dot notation** to override any key in the generated
-``config.yml``. Available keys are defined in the config template
-(``src/osprey/templates/project/config.yml.j2``).
+``config.yml``. The base set of keys is in
+``src/osprey/templates/project/config.yml.j2``; presets add further
+sections (e.g. ``archiver``, ``channel_finder``) in their own
+``config.yml.j2``.
 
 .. code-block:: yaml
 
@@ -233,7 +236,7 @@ The ``config:`` section uses **dot notation** to override any key in the generat
      # Control system
      control_system.type: epics
      control_system.writes_enabled: true
-     control_system.limits_checking: true
+     control_system.limits_checking.enabled: true
      control_system.connector.epics.timeout: 10.0
 
      # Archiver
@@ -692,11 +695,13 @@ After building, the project contains:
    ├── _mcp_servers/         # Custom server code (from overlays)
    └── ...
 
-Which agents, rules, hooks, and skills are included is controlled by the
-bundled preset profile (``src/osprey/profiles/presets/<bundle>.yml``) — not
-by your user profile. Your profile can override **data and config** but not
-the set of Osprey agent artifacts. To change the artifact set, edit the
-preset profile for that data bundle directly.
+Which agents, rules, hooks, and skills are included starts from the
+bundled preset profile (``src/osprey/profiles/presets/<preset>.yml``),
+but your user profile can customize it: ``agents:``, ``rules:``,
+``hooks:``, and ``skills:`` are first-class profile fields, and
+``extends:`` union-merges your additions with the preset's set. To
+drop a preset artifact entirely, build from a standalone profile or
+edit the preset directly.
 
 
 Troubleshooting
@@ -710,11 +715,8 @@ profile YAML's directory, not the current working directory.
 **"Overlay destination must be relative without '..'"** — Destination paths cannot
 be absolute or contain ``..``.
 
-**"MCP server 'X' missing 'command'"** — Every MCP server definition needs a
-``command`` field.
-
-**"MCP server 'X' already exists in .mcp.json"** — The server name conflicts with
-a built-in. Choose a different name.
+**"MCP server 'X' missing 'command' or 'url'"** — Every MCP server definition
+needs a ``command`` (stdio) or a ``url`` (HTTP) field.
 
 **"Directory 'X' already exists"** — Use ``--force`` to overwrite, or pick a
 different project name.

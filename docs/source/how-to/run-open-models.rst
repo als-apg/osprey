@@ -25,7 +25,9 @@ Messages** calls. When the endpoint speaks the OpenAI protocol, OSPREY bridges t
 two with a local ``Anthropic ↔ OpenAI`` translation proxy that starts automatically
 once you select an OpenAI-protocol provider — you never invoke it yourself. This is
 identical whether the model is self-hosted (``ollama``, ``vllm``, no API key) or
-served by a remote aggregator. The provider list and ``config.yml`` keys are in
+served by an OpenAI-only remote aggregator. (CBORG is the exception: it exposes an
+Anthropic-compatible endpoint, so the agent reaches it directly without the local
+proxy.) The provider list and ``config.yml`` keys are in
 :doc:`configure-providers`.
 
 Which models are known to work

@@ -45,7 +45,7 @@ side panels:
 
 - **Artifact gallery** (port 8086) — workspace artifact browser
 
-Domain-specific servers are launched when their config section is present:
+Domain-specific servers are launched when their panel is enabled in ``web.panels`` (see Side Panels below):
 
 - **ARIEL** (port 8085) — logbook search
 - **Tuning panel** (port 8090) — parameter tuning UI

@@ -73,11 +73,11 @@ delegated to the Osprey agent layer.
       .. tab-item:: 1. Configure
 
          The easiest way to get started is to create a new project from the
-         ``control_assistant`` template, which includes ARIEL pre-configured:
+         ``ariel-standalone`` template, which includes ARIEL pre-configured:
 
          .. code-block:: bash
 
-            osprey build my-project --preset control-assistant
+            osprey build my-project --preset ariel-standalone
             cd my-project
 
          This generates a ready-to-use ``config.yml`` with PostgreSQL, the ARIEL
@@ -93,7 +93,7 @@ delegated to the Osprey agent layer.
 
          .. code-block:: bash
 
-            osprey deploy up
+            osprey deploy up -d
 
          Once the containers are running, connect to PostgreSQL, run database
          migrations, then ingest the demo logbook data and generate embeddings:

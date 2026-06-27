@@ -87,7 +87,7 @@ on their corpus before committing to the full deployment.
 
          .. code-block:: bash
 
-            osprey deploy up
+            osprey deploy up -d
 
          Once the container is running, run database migrations and
          ingest the bundled demo logbook with embeddings:
@@ -144,12 +144,13 @@ Quick edits (one-off tweaks)
 For small in-place adjustments to a project you just built, edit files
 directly:
 
-1. **Edit** ``.claude/rules/facility.md``. The default ships with a
-   placeholder for the "Example Research Facility" (Primary Source /
-   Transport & Delivery / Experimental Stations, with an EPICS channel
-   pattern table). Replace this content with your facility's real
-   terminology, system names, and naming conventions so the agent uses
-   the right vocabulary when interpreting user questions.
+1. **Edit** ``.claude/rules/facility.md``. The default ships with a thin
+   placeholder for the "Example Research Facility (ERF)" --- a facility-identity
+   stub (name, type, mission) plus a pointer to the ``facility_knowledge`` tools
+   (``list_concepts``/``read_concept``/``search``) for deeper content. Replace
+   this with your facility's real terminology, system names, and naming
+   conventions so the agent uses the right vocabulary when interpreting user
+   questions.
 
    .. note::
 

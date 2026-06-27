@@ -31,7 +31,7 @@ The interface has four views, accessible via the navigation bar. All views are r
 
    .. tab-item:: Search
 
-      The primary view. A search bar with mode tabs (Keyword, Semantic --- only enabled modes are shown) and an expandable advanced options panel. Results display as entry cards with relevance scores and highlights. Press ``Enter`` to submit a query; ``Ctrl+Enter`` submits with the current advanced options.
+      The primary view. A search bar with mode tabs (Keyword, Semantic --- only enabled modes are shown) and an expandable advanced options panel. Results display as entry cards with relevance scores and highlights. Press ``Enter`` to submit a query; searches always include the current advanced options and filters.
 
       .. figure:: /_static/screenshots/ariel_search.png
          :alt: ARIEL Search View
@@ -42,7 +42,7 @@ The interface has four views, accessible via the navigation bar. All views are r
 
    .. tab-item:: Browse
 
-      Paginated chronological listing of all logbook entries. Each entry shows its timestamp, author, and a text preview. Click an entry to view its full content. Filter by date range, author, or source system.
+      Chronological, paginated listing of logbook entries (newest first) -- use Previous/Next to page back through older entries. Each entry shows its timestamp, author, and a text preview. Click an entry to view its full content.
 
       .. figure:: /_static/screenshots/ariel_browse.png
          :alt: ARIEL Browse View
@@ -53,7 +53,7 @@ The interface has four views, accessible via the navigation bar. All views are r
 
    .. tab-item:: New Entry
 
-      Form for creating new logbook entries directly from the interface. Fields include subject, details, author, logbook, shift, and tags. New entries are stored with ``source_system: "ARIEL Web"`` and receive a generated ``entry_id`` in the format ``ariel-web-<uuid>``. Created entries are searchable immediately.
+      Form for creating new logbook entries directly from the interface. Fields include subject, details, author, logbook, shift, and tags. When the configured logbook adapter is read-only (the common case for the standalone interface), entries are saved locally with ``source_system: "ARIEL Web"`` and a generated ``entry_id`` of the form ``ariel-<12-hex>``. When a write-capable facility adapter is configured, the entry is published to that logbook and takes the facility's ``source_system`` and ``entry_id``. Created entries are searchable immediately.
 
       .. figure:: /_static/screenshots/ariel_create.png
          :alt: ARIEL New Entry View
@@ -184,38 +184,43 @@ The web interface discovers its search modes and tunable parameters dynamically 
 
       .. tab-item:: Capabilities
 
-         The ``/api/capabilities`` endpoint returns a JSON structure describing every enabled search module, along with its parameters:
+         The ``/api/capabilities`` endpoint returns a JSON structure that groups enabled search modes under category objects (currently a single ``direct`` category), along with shared parameters:
 
          .. code-block:: json
 
             {
-              "modes": [
-                {
-                  "name": "keyword",
-                  "label": "Keyword",
-                  "description": "Full-text PostgreSQL search...",
-                  "parameters": [
+              "categories": {
+                "direct": {
+                  "label": "Direct",
+                  "modes": [
                     {
-                      "name": "fuzzy_fallback",
-                      "label": "Fuzzy Fallback",
-                      "param_type": "bool",
-                      "default": true,
-                      "section": "Search"
+                      "name": "keyword",
+                      "label": "Keyword",
+                      "description": "Full-text PostgreSQL search...",
+                      "parameters": [
+                        {
+                          "name": "fuzzy_fallback",
+                          "label": "Fuzzy Fallback",
+                          "type": "bool",
+                          "default": true,
+                          "section": "Search"
+                        }
+                      ]
+                    },
+                    {
+                      "name": "semantic",
+                      "label": "Semantic",
+                      "description": "Embedding-based similarity search...",
+                      "parameters": []
                     }
                   ]
-                },
-                {
-                  "name": "semantic",
-                  "label": "Semantic",
-                  "description": "Embedding-based similarity search...",
-                  "parameters": []
                 }
-              ],
+              },
               "shared_parameters": [
-                {"name": "max_results", "param_type": "int", "default": 10},
-                {"name": "start_date", "param_type": "date"},
-                {"name": "author", "param_type": "text"},
-                {"name": "source_system", "param_type": "dynamic_select",
+                {"name": "max_results", "type": "int", "default": 10},
+                {"name": "start_date", "type": "date"},
+                {"name": "author", "type": "text"},
+                {"name": "source_system", "type": "dynamic_select",
                  "options_endpoint": "/api/filter-options/source_systems"}
               ]
             }
@@ -266,7 +271,7 @@ The web interface discovers its search modes and tunable parameters dynamically 
             * - ``api.js``
               - REST client wrapping ``fetch()`` for all API endpoints
             * - ``search.js``
-              - Search form, mode tabs, results rendering
+              - Search form, query submission, results rendering
             * - ``advanced-options.js``
               - Capabilities-driven advanced options panel (dynamic parameter controls)
             * - ``entries.js``

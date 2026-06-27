@@ -118,8 +118,9 @@ Services & Connectors
       :link: ariel/index
       :link-type: doc
 
-      Intelligent search over facility electronic logbooks with keyword, semantic,
-      RAG, and agentic retrieval modes.
+      Intelligent search over facility electronic logbooks with keyword and
+      semantic retrieval modes, plus multi-step reasoning delegated to the
+      Osprey agent.
 
    .. grid-item-card:: Facility Knowledge
       :link: use-facility-knowledge
