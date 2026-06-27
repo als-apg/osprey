@@ -435,17 +435,275 @@
                   
   <section id="production-control-systems-tutorial">
 <h1>Production Control Systems Tutorial<a class="headerlink" href="#production-control-systems-tutorial" title="Link to this heading">#</a></h1>
-<div class="note admonition">
-<p class="admonition-title">Coming soon</p>
-<p>The production control systems tutorial is being rewritten to match the current Osprey agent + MCP architecture. The previous version, written for the legacy orchestration layer, has been taken offline while the new walkthrough is prepared.</p>
-<p>In the meantime:</p>
+<p>The <a class="reference internal" href="hello-world-tutorial.html"><span class="doc">Hello World Tutorial</span></a> built a single-server agent
+that reads channels by their exact PV name. A production control room needs more:
+operators think in terms of <em>devices and physics</em> — “the booster’s defocusing
+quadrupole” — not PV strings; they need to search the electronic logbook, pull
+historical trends, and produce shift reports. This tutorial builds the
+<strong>control-assistant</strong> agent, which adds those capabilities on top of the same
+mock control system and the same safety model.</p>
+<p>By the end you’ll have an agent that finds channels from natural-language
+descriptions, searches a seeded operations logbook, plots archived data, and runs
+control-room operator skills.</p>
+<details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
+<summary class="sd-summary-title sd-card-header sd-bg-info sd-bg-text-info">
+<span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-list-unordered" viewBox="0 0 16 16" aria-hidden="true"><path d="M5.75 2.5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5Zm0 5h8.5a.75.75 0 0 1 0 1.5h-8.5a.75.75 0 0 1 0-1.5ZM2 14a1 1 0 1 1 0-2 1 1 0 0 1 0 2Zm1-6a1 1 0 1 1-2 0 1 1 0 0 1 2 0ZM2 4a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg></span><span class="sd-summary-text"><strong>Prerequisites</strong></span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
+<p class="sd-card-text"><strong>Required:</strong></p>
 <ul class="simple">
-<li><p><strong>For a hands-on introduction</strong>, follow the <a class="reference internal" href="hello-world-tutorial.html"><span class="doc">Hello World Tutorial</span></a> — a single MCP server against a mock control system, end to end.</p></li>
-<li><p><strong>For conceptual background</strong>, see the <a class="reference internal" href="conceptual-tutorial.html"><span class="doc">Conceptual Tutorial</span></a> and the <a class="reference internal" href="../architecture/index.html"><span class="doc">Architecture</span></a> section.</p></li>
-<li><p><strong>For task-oriented recipes</strong>, the <a class="reference internal" href="../how-to/index.html"><span class="doc">How-To Guides</span></a> cover adding connectors, configuring providers, deploying projects, and customizing MCP servers.</p></li>
+<li><p class="sd-card-text">Python 3.11+</p></li>
+<li><p class="sd-card-text"><a class="reference external" href="https://docs.anthropic.com/en/docs/claude-code/overview">Claude Code</a> CLI installed</p></li>
+<li><p class="sd-card-text">Osprey framework installed (<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">tool</span> <span class="pre">install</span> <span class="pre">osprey-framework</span></code>, or
+<code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">sync</span> <span class="pre">--extra</span> <span class="pre">dev</span></code> if working from a clone)</p></li>
+<li><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">ANTHROPIC_API_KEY</span></code> set in your environment</p></li>
 </ul>
-<p>Check back — or watch the repository — for the rewritten tutorial.</p>
+<p class="sd-card-text"><strong>Recommended:</strong></p>
+<ul class="simple">
+<li><p class="sd-card-text">Finish the <a class="reference internal" href="hello-world-tutorial.html"><span class="doc">Hello World Tutorial</span></a> first. This
+tutorial assumes you already understand the mock connector, the safety
+limits system, and the human-approval flow, and it does <strong>not</strong> re-teach
+them.</p></li>
+</ul>
 </div>
+</details><div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>New to Osprey? Start with the <a class="reference internal" href="hello-world-tutorial.html"><span class="doc">Hello World Tutorial</span></a>.
+It covers project layout, the <code class="docutils literal notranslate"><span class="pre">controls</span></code> MCP server, and the safety model
+in detail — everything below builds directly on it.</p>
+</div>
+<section id="step-1-build-the-project">
+<h2>Step 1: Build the Project<a class="headerlink" href="#step-1-build-the-project" title="Link to this heading">#</a></h2>
+<p>Create a project from the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-control-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant
+<span class="nb">cd</span><span class="w"> </span>my-control-assistant
+</pre></div>
+</div>
+<p>Like <code class="docutils literal notranslate"><span class="pre">hello-world</span></code>, this project starts in <strong>mock</strong> mode with writes disabled,
+so every example below is safe to run with no hardware attached. Unlike
+<code class="docutils literal notranslate"><span class="pre">hello-world</span></code>, the preset ships a <strong>channel database</strong>, a <strong>seeded electronic
+logbook</strong>, and a <strong>mock archiver</strong>, plus a set of sub-agents and operator skills.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>First run may take 1–2 minutes to create a virtual environment and install
+dependencies. Subsequent builds are near-instant.</p>
+</div>
+</section>
+<section id="step-2-what-s-different-from-hello-world">
+<h2>Step 2: What’s Different from Hello World<a class="headerlink" href="#step-2-what-s-different-from-hello-world" title="Link to this heading">#</a></h2>
+<p>The <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset keeps the same <code class="docutils literal notranslate"><span class="pre">controls</span></code> MCP server and the
+same safety hooks, then adds production capabilities. The most visible additions:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 28.0%" />
+<col style="width: 72.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Capability</p></th>
+<th class="head"><p>What it adds</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>Channel finder</strong> (sub-agent)</p></td>
+<td><p>Resolve channels from a natural-language description by exploring a channel
+database — no need to know PV names.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Logbook search</strong> (sub-agents)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">logbook-search</span></code> and <code class="docutils literal notranslate"><span class="pre">logbook-deep-research</span></code> query a seeded operations
+logbook for past events.</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Archiver + visualization</strong></p></td>
+<td><p>A mock archiver serves historical data; the <code class="docutils literal notranslate"><span class="pre">data-visualizer</span></code> sub-agent
+turns it into interactive and publication-quality plots.</p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Operator skills</strong></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">/diagnose</span></code>, <code class="docutils literal notranslate"><span class="pre">/session-report</span></code>, <code class="docutils literal notranslate"><span class="pre">setup-mode</span></code>, and <code class="docutils literal notranslate"><span class="pre">demo-gallery</span></code>
+support common control-room workflows.</p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Web terminal</strong></p></td>
+<td><p>A browser split-pane UI with logbook, channel-finder, and tuning panels
+(documented separately — see <a class="reference internal" href="../how-to/use-web-terminal.html"><span class="doc">Use the Web Terminal</span></a>).</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The <strong>safety model is unchanged</strong>: limits checking, the pre-write check, and the
+human-approval prompt all behave exactly as in the Hello World Tutorial. Refer
+back to that tutorial’s “Safety &amp; Limits” step for the write-approval walkthrough
+— we won’t repeat it here.</p>
+<p>Start the agent the same way as before, from the project directory:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>claude
+</pre></div>
+</div>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>On first run, the Osprey agent will ask you to trust the MCP servers in this
+project. Accept to allow the agent to use the control system and channel-finder
+tools.</p>
+</div>
+</section>
+<section id="step-3-find-channels-by-description">
+<h2>Step 3: Find Channels by Description<a class="headerlink" href="#step-3-find-channels-by-description" title="Link to this heading">#</a></h2>
+<p>This is the headline capability. In Hello World you had to know the exact PV:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Read channel SR:BEAM:CURRENT
+</pre></div>
+</div>
+<p>With the control assistant, you describe the channel in plain language and the
+agent figures out the PV for you:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Read the current in the booster&#39;s defocusing quadrupole
+</pre></div>
+</div>
+<p>The main agent delegates to the <strong>channel-finder</strong> sub-agent, which explores the
+channel database and resolves your description to a real PV before reading it.
+The exact wording depends on your <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code> and output style, but you’ll see
+something like:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Resolved &quot;booster defocusing quadrupole current&quot; → BR:MAG:QD:01:CURRENT:RB
+
+Channel: BR:MAG:QD:01:CURRENT:RB
+Value:   142.7 A
+Status:  OK
+</pre></div>
+</div>
+<p>Try a few more descriptions — none of them require you to know the PV naming
+scheme:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: What&#39;s the storage-ring beam current?
+</pre></div>
+</div>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Show me the horizontal corrector magnet setpoints in the storage ring
+</pre></div>
+</div>
+<p>The first resolves to <code class="docutils literal notranslate"><span class="pre">SR:DIAG:DCCT:01:CURRENT:RB</span></code> (the storage-ring DC current
+transformer); the second resolves to the <code class="docutils literal notranslate"><span class="pre">SR:MAG:HCM:*:CURRENT:SP</span></code> family.</p>
+<p><strong>How it works.</strong> The channel database is organized as a hierarchy
+(<code class="docutils literal notranslate"><span class="pre">ring</span> <span class="pre">:</span> <span class="pre">system</span> <span class="pre">:</span> <span class="pre">family</span> <span class="pre">:</span> <span class="pre">device</span> <span class="pre">:</span> <span class="pre">field</span> <span class="pre">:</span> <span class="pre">subfield</span></code>), and the channel-finder
+agent navigates it systematically: it checks prior examples
+(<code class="docutils literal notranslate"><span class="pre">view_examples</span></code>), explores the available options at each level
+(<code class="docutils literal notranslate"><span class="pre">get_options</span></code>), then constructs and validates the final addresses
+(<code class="docutils literal notranslate"><span class="pre">build_channels</span></code>). It <strong>never fabricates PV names</strong> — every channel it returns
+comes from the database. For a deeper look at the finder and its other search
+strategies, see <a class="reference internal" href="../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a>.</p>
+</section>
+<section id="step-4-search-the-electronic-logbook">
+<h2>Step 4: Search the Electronic Logbook<a class="headerlink" href="#step-4-search-the-electronic-logbook" title="Link to this heading">#</a></h2>
+<p>The control-assistant bundle seeds an electronic logbook with realistic
+operations entries — RF trips, vacuum maintenance, beam-recovery shifts,
+radiation surveys, and more. Ask the agent about past events in natural language:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Search the logbook for RF cavity temperature trips
+</pre></div>
+</div>
+<p>The agent delegates to the <strong>logbook-search</strong> sub-agent, which matches the query
+against the logbook and summarizes what it finds:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Found 3 related entries:
+- &quot;Beam dump — RF cavity C1 reflected power trip (thermal excursion)&quot;
+- &quot;Investigation: Recurring cavity C1 thermal excursions&quot;
+- &quot;RF cavity C1 cooling manifold repair&quot;
+
+Summary: Cavity C1 tripped on reflected power after its temperature climbed;
+a follow-up investigation traced it to reduced cooling-water flow, later fixed
+by a manifold repair.
+</pre></div>
+</div>
+<p>For questions that span several entries and need synthesis (for example, <em>“trace
+the root cause of the recurring C1 trips and what finally resolved them”</em>), the
+agent can use the <strong>logbook-deep-research</strong> sub-agent, which performs a multi-hop
+search and stitches the entries into a single narrative.</p>
+</section>
+<section id="step-5-pull-historical-data-and-plot-it">
+<h2>Step 5: Pull Historical Data and Plot It<a class="headerlink" href="#step-5-pull-historical-data-and-plot-it" title="Link to this heading">#</a></h2>
+<p>The bundle also configures a <strong>mock archiver</strong> that serves synthetic historical
+data, so you can exercise the trend-and-plot workflow without a real archive
+appliance. Ask for a trend:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: Plot the storage-ring beam current over the last 24 hours
+</pre></div>
+</div>
+<p>The agent finds the channel (<code class="docutils literal notranslate"><span class="pre">SR:DIAG:DCCT:01:CURRENT:RB</span></code>), reads its history
+from the archiver, and delegates to the <strong>data-visualizer</strong> sub-agent to render
+the result. The visualizer produces a self-contained figure artifact:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Read 1440 samples for SR:DIAG:DCCT:01:CURRENT:RB (last 24h).
+Created interactive plot: beam_current_24h.html (artifact)
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">data-visualizer</span></code> can produce interactive Plotly figures, publication-quality
+matplotlib images, dashboards, and LaTeX reports. In development everything runs
+against the mock archiver; in production the same query hits your real archiver
+(see Step 7).</p>
+</section>
+<section id="step-6-run-operator-skills">
+<h2>Step 6: Run Operator Skills<a class="headerlink" href="#step-6-run-operator-skills" title="Link to this heading">#</a></h2>
+<p>The preset installs control-room <strong>skills</strong> you invoke directly. A few worth
+trying:</p>
+<p><strong>Generate a shift report</strong> — summarize the session’s actions into a polished,
+self-contained HTML report:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: /session-report
+</pre></div>
+</div>
+<p>The skill asks what kind of report you want (chronological log, technical
+analysis, or executive briefing), gathers the session’s artifacts, and saves an
+HTML report to the artifact gallery.</p>
+<p><strong>Triage an infrastructure failure</strong> — when a tool call or server misbehaves:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>You: /diagnose
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">/diagnose</span></code> investigates Osprey infrastructure problems (failed tool calls,
+connection errors, configuration drift) and produces a structured root-cause
+report — it is for diagnosing the <em>assistant</em>, not the accelerator.</p>
+<p><strong>Other skills:</strong> <code class="docutils literal notranslate"><span class="pre">demo-gallery</span></code> generates a showcase of plot and report
+artifacts to explore the gallery’s capabilities, and <code class="docutils literal notranslate"><span class="pre">setup-mode</span></code> inspects and
+repairs the project’s configuration when something looks misconfigured.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>This project also ships a browser-based <strong>web terminal</strong> with logbook,
+channel-finder, and tuning panels. It has its own guide —
+see <a class="reference internal" href="../how-to/use-web-terminal.html"><span class="doc">Use the Web Terminal</span></a> to launch it with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>.</p>
+</div>
+</section>
+<section id="step-7-tune-the-assistant-and-go-to-production">
+<h2>Step 7: Tune the Assistant and Go to Production<a class="headerlink" href="#step-7-tune-the-assistant-and-go-to-production" title="Link to this heading">#</a></h2>
+<p><strong>Choose a channel-finder strategy.</strong> The preset defaults to <code class="docutils literal notranslate"><span class="pre">hierarchical</span></code>
+mode, which scales to large facilities with thousands of channels. For a small
+facility (under ~1,000 channels) the <code class="docutils literal notranslate"><span class="pre">in_context</span></code> strategy can be simpler and
+faster. The strategy is a build-time choice, so select it when you build:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-control-assistant<span class="w"> </span>--preset<span class="w"> </span>control-assistant<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--set<span class="w"> </span><span class="nv">channel_finder_mode</span><span class="o">=</span>in_context
+</pre></div>
+</div>
+<p>See <a class="reference internal" href="../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a> for a comparison of the strategies.</p>
+<p><strong>Switch to real hardware.</strong> As in Hello World, moving to production is a
+configuration change, not a code change. Point the connectors at your facility in
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">control_system</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics</span><span class="w">            </span><span class="c1"># was: mock</span>
+
+<span class="nt">archiver</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics_archiver</span><span class="w">   </span><span class="c1"># was: mock_archiver</span>
+</pre></div>
+</div>
+<p>Because these are build-time inputs, regenerate the agent’s artifacts and relaunch:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>claude<span class="w"> </span>regen
+claude
+</pre></div>
+</div>
+<p>Your queries don’t change — “Read the current in the booster’s defocusing
+quadrupole” and “Plot the storage-ring beam current over the last 24 hours” now
+run against live EPICS and your real archiver. The connectors handle the
+difference; the agent, the channel finder, and your prompts stay the same.</p>
+<section id="next-steps">
+<h3>Next Steps<a class="headerlink" href="#next-steps" title="Link to this heading">#</a></h3>
+<p>You’ve built a production-shaped control assistant with channel finding, logbook
+search, historical plotting, and operator skills. Where to go next:</p>
+<ul class="simple">
+<li><p><strong>Channel finder in depth</strong>: <a class="reference internal" href="../how-to/use-channel-finder.html"><span class="doc">How to Use the Channel Finder</span></a> compares the
+hierarchical, in-context, and middle-layer strategies and explains the database
+format.</p></li>
+<li><p><strong>Web terminal</strong>: <a class="reference internal" href="../how-to/use-web-terminal.html"><span class="doc">Use the Web Terminal</span></a> launches the browser UI and
+its panels with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code>.</p></li>
+<li><p><strong>Tailor a preset to your facility</strong>: <a class="reference internal" href="../how-to/build-profiles.html"><span class="doc">Build Profiles</span></a> shows how
+to extend <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> with your own overrides and overlays.</p></li>
+<li><p><strong>Architecture deep dive</strong>: the <a class="reference internal" href="conceptual-tutorial.html"><span class="doc">Conceptual Tutorial</span></a> and the
+<a class="reference internal" href="../architecture/index.html"><span class="doc">Architecture</span></a> section explain the agent + MCP
+design, the connector system, and the safety mechanisms.</p></li>
+<li><p><strong>CLI reference</strong>: see <a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a> for all <code class="docutils literal notranslate"><span class="pre">osprey</span></code> commands.</p></li>
+</ul>
+</section>
+</section>
 </section>
 
 
@@ -486,6 +744,27 @@
                 <dialog id="pst-secondary-sidebar-modal"></dialog>
                 <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
 
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-1-build-the-project">Step 1: Build the Project</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-what-s-different-from-hello-world">Step 2: What’s Different from Hello World</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-find-channels-by-description">Step 3: Find Channels by Description</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-search-the-electronic-logbook">Step 4: Search the Electronic Logbook</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-5-pull-historical-data-and-plot-it">Step 5: Pull Historical Data and Plot It</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-6-run-operator-skills">Step 6: Run Operator Skills</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-7-tune-the-assistant-and-go-to-production">Step 7: Tune the Assistant and Go to Production</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#next-steps">Next Steps</a></li>
+</ul>
+</li>
+</ul>
+  </nav></div>
 
   <div class="sidebar-secondary-item">
 
