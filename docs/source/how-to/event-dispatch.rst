@@ -168,8 +168,8 @@ The EVENTS Panel
 Projects built from the ``control-assistant`` preset surface this dashboard as
 an **EVENTS** tab inside the web terminal, so ``osprey web`` exposes it without a
 separate browser window. The tab health-gates itself: while the dispatcher is
-down it shows *unavailable* rather than a broken frame, and turns live once the
-dispatcher answers ``/health``.
+down the tab is disabled with an offline indicator rather than showing a broken
+frame, and it turns live once the dispatcher answers ``/health``.
 
 The panel points at ``${EVENT_DISPATCHER_URL:-http://localhost:8020}``, which
 works out of the box for the host-run flow above. When the web terminal runs in
@@ -216,8 +216,9 @@ Authoring Triggers
    ``KillShell``). This sits on top of the per-trigger allowlist, so a trigger
    can never widen its way to a shell or the open network.
 
-   **Retry policy.** ``on_error: retry`` fires only when the dispatcher *cannot
-   reach the worker* (connection error or timeout) — it re-dispatches up to
+   **Retry policy.** ``on_error: retry`` fires only when the *dispatch itself*
+   fails — the worker being unreachable (connection error or timeout), returning
+   an HTTP error, or rejecting the dispatcher's token — and it re-dispatches up to
    ``max_retries`` with ``backoff_sec`` between attempts. It does *not* retry a
    run that the agent itself ends in error, so firing a trigger against a healthy
    stack never exercises it; the behaviour is covered by

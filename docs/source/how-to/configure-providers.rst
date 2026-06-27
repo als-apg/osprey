@@ -43,7 +43,7 @@ Available Providers
      - OpenAI (proxied)
    * - ``asksage``
      - AskSage proxy
-     - ``ASKSAGE_API_KEY``
+     - *(custom auth)*
      - OpenAI (proxied)
    * - ``openai``
      - OpenAI (GPT models)
@@ -59,6 +59,10 @@ Available Providers
      - OpenAI (proxied)
    * - ``vllm``
      - vLLM inference server
+     - *(none)*
+     - OpenAI (proxied)
+   * - ``ds4``
+     - DwarfStar local server
      - *(none)*
      - OpenAI (proxied)
 
@@ -150,8 +154,9 @@ that assigns provider-specific model IDs to tiers (``haiku``, ``sonnet``,
      default_model: sonnet
 
 ``provider`` picks one of the entries in ``api.providers``.
-``default_model`` selects the tier for the main conversation (defaults to
-``sonnet`` for most providers).
+``default_model`` selects the tier for the main conversation. If omitted, it
+falls back to the provider's own default tier — ``sonnet`` for ``anthropic``,
+``haiku`` for ``cborg`` and ``als-apg``, and ``opus`` for custom providers.
 
 Model Tier Mapping
 ------------------
@@ -164,7 +169,7 @@ The resolver applies model IDs in this priority order:
 
 1. ``claude_code.models`` — explicit per-tier overrides (highest priority).
 2. ``api.providers.<name>.models`` — the provider's own model naming.
-3. Built-in defaults — Anthropic direct model IDs (fallback).
+3. Built-in defaults — the provider's bundled fallback model IDs (Anthropic direct IDs only as a last resort).
 
 For example, to override the opus tier for a specific project:
 
