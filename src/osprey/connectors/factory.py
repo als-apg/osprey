@@ -257,3 +257,14 @@ def register_builtin_connectors() -> None:
     ConnectorFactory.register_archiver(types.EPICS_ARCHIVER, EPICSArchiverConnector)
     if _mongo_available:
         ConnectorFactory.register_archiver(types.MONGODB_ARCHIVER, MongoDBArchiverConnector)
+
+
+try:
+    from osprey.connectors.archiver.questdb_archiver_connector import QuestDBArchiverConnector
+
+    _questdb_available = True
+except ImportError:
+    _questdb_available = False
+
+if _questdb_available:
+    ConnectorFactory.register_archiver(types.QUESTDB_ARCHIVER, QuestDBArchiverConnector)
