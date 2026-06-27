@@ -524,13 +524,13 @@ Osprey agent selects the appropriate tool based on the user’s query.</p>
 <td><p>Browse entries with pagination and filters</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">filter_options</span></code></p></td>
-<td><p>Get available filter values (tags, authors, date ranges)</p></td>
+<td><p>Get distinct values for a filterable field (authors or source systems)</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">status</span></code></p></td>
 <td><p>Check ARIEL service health and configuration</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">entry_publish</span></code></p></td>
-<td><p>Publish a new logbook entry</p></td>
+<td><p>Publish an existing ARIEL entry to the facility logbook</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">capabilities</span></code></p></td>
 <td><p>List available search capabilities and their status</p></td>
@@ -587,7 +587,7 @@ Osprey agent selects the appropriate tool based on the user’s query.</p>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">diagnostics</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">tuple[SearchDiagnostic,</span> <span class="pre">...]</span></code></p></td>
-<td><p>Per-mode timing and result counts</p></td>
+<td><p>Structured diagnostics (level, source, message) from search execution</p></td>
 </tr>
 </tbody>
 </table>

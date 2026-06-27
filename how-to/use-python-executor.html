@@ -564,8 +564,9 @@ process is never exposed to user code.</p>
 </section>
 <section id="local-subprocess-execution">
 <h3>Local Subprocess Execution<a class="headerlink" href="#local-subprocess-execution" title="Link to this heading">#</a></h3>
-<p>When containers are unavailable, the service falls back to local subprocess
-execution. The <code class="docutils literal notranslate"><span class="pre">ExecutionWrapper</span></code> wraps user code with safety
+<p>Local mode is selected explicitly by setting <code class="docutils literal notranslate"><span class="pre">execution_method:</span> <span class="pre">local</span></code>
+(there is no automatic fallback from container mode). The <code class="docutils literal notranslate"><span class="pre">ExecutionWrapper</span></code>
+wraps user code with safety
 monkeypatches (e.g., <code class="docutils literal notranslate"><span class="pre">epics.caput()</span></code> validation against the limits
 database), writes the wrapped script to an execution folder, and runs it
 as a subprocess:</p>

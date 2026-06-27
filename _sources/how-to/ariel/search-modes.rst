@@ -4,7 +4,7 @@ Search Modes
 
 ARIEL's search system is built around **search modules** --- leaf-level functions that each implement a single retrieval strategy against the logbook database. The framework ships two modules out of the box: keyword full-text search and embedding-based semantic similarity. At query time, the ``ARIELSearchService`` routes each request to the requested module. All modes share the same underlying :ref:`database <database>` and produce a common ``ARIELSearchResult``. Higher-level reasoning over results --- multi-step retrieval, answer synthesis, custom prompting --- lives in the Osprey agent layer, which calls these search modules through ARIEL's MCP tools. A raw ``sql_query`` MCP tool is also available for direct database access by power users and the agent.
 
-Search modules are discovered through Osprey's central registry, so you can add your own without modifying any framework code. A custom search module only needs to export a ``get_tool_descriptor()`` function. Once registered, it is automatically available to the Osprey agent through the ARIEL MCP server and in the web interface.
+Search modules are discovered through Osprey's central registry, so you can register your own and have it surface in the web interface's capabilities API without modifying any framework code. A custom search module only needs to export a ``get_tool_descriptor()`` function. Once registered and enabled, it is discovered through the registry and surfaced in the web interface's capabilities API. Exposing it as an MCP tool the Osprey agent can call additionally requires adding a matching ARIEL MCP tool and ``SearchMode`` routing (contributions welcome).
 
 Search Architecture
 -------------------
@@ -35,7 +35,7 @@ The ``--mode`` option accepts ``keyword`` (default) or ``semantic``.
 Search Modules
 ==============
 
-Search modules are leaf-level functions that execute a single search strategy against the database. Each module exports a ``get_tool_descriptor()`` function that describes its capabilities, input schema, and execution function so the rest of the system --- the ARIEL MCP server and the web interface --- can discover and use it automatically. The framework ships with the following built-in search modules:
+Search modules are leaf-level functions that execute a single search strategy against the database. Each module exports a ``get_tool_descriptor()`` function that describes its capabilities, input schema, and execution function. The web interface discovers modules through this descriptor via ARIEL's capabilities API; the built-in keyword and semantic modules are exposed to the Osprey agent through dedicated ARIEL MCP tools. The framework ships with the following built-in search modules:
 
 .. tab-set::
 
@@ -145,7 +145,7 @@ To add your own search module, create a Python module that exports ``get_tool_de
        ],
    )
 
-Once registered and enabled in ``config.yml`` (``search_modules.my_search.enabled: true``), the module is automatically available as an ARIEL MCP tool that the Osprey agent can call, and as a search option in the web interface. The ``get_tool_descriptor()`` function must return a ``SearchToolDescriptor``:
+Once registered and enabled in ``config.yml`` (``search_modules.my_search.enabled: true``), the module is automatically surfaced as a search option in the web interface's capabilities API. Making it callable by the Osprey agent additionally requires a matching ARIEL MCP tool and ``SearchMode`` routing in ``ARIELSearchService`` (contributions welcome). The ``get_tool_descriptor()`` function must return a ``SearchToolDescriptor``:
 
 :class:`~osprey.services.ariel_search.search.base.SearchToolDescriptor` — a frozen dataclass whose key fields are ``execute`` (the async search function), ``format_result`` (formats results for agent consumption), and ``args_schema`` (a Pydantic model for input validation). See the class definition in the source for the full field list.
 

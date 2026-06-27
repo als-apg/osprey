@@ -434,7 +434,7 @@
 <p>OSPREY exposes control system operations, data retrieval, and workspace
 management as tools through <a class="reference external" href="https://github.com/jlowin/fastmcp">FastMCP</a>
 servers. The Osprey agent discovers servers from <code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code> at startup and calls
-tools via stdio JSON-RPC. There are <strong>7 in-tree MCP servers</strong>; build profiles
+tools via stdio JSON-RPC. There are <strong>8 in-tree MCP servers</strong>; build profiles
 can inject additional servers beyond the core set below.</p>
 <section id="control-system">
 <h2>Control System<a class="headerlink" href="#control-system" title="Link to this heading">#</a></h2>
@@ -609,6 +609,23 @@ and entry creation with attachments.</p>
 </ul>
 </section>
 </section>
+<section id="facility-knowledge">
+<h2>Facility Knowledge<a class="headerlink" href="#facility-knowledge" title="Link to this heading">#</a></h2>
+<section id="osprey-facility-knowledge">
+<h3><code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code><a class="headerlink" href="#osprey-facility-knowledge" title="Link to this heading">#</a></h3>
+<p>Package: <code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.facility_knowledge</span></code></p>
+<p>Serves a facility’s curated knowledge bundle (OKF §2 concept documents) so the
+agent can look up operational know-how and draft new concepts for human review.</p>
+<p><strong>Tools:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">capabilities</span></code> – Report facility knowledge bundle capabilities.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">list_concepts</span></code> – List all concepts in the facility knowledge bundle.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">read_concept</span></code> – Read a concept document by its OKF §2 concept ID.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">search</span></code> – Search the facility knowledge bundle for a query string.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">draft_concept</span></code> – Draft a new concept document for human review and approval.</p></li>
+</ul>
+</section>
+</section>
 </section>
 
 
@@ -678,6 +695,10 @@ and entry creation with attachments.</p>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#ariel">ARIEL</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#id4"><code class="docutils literal notranslate"><span class="pre">ariel</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#facility-knowledge">Facility Knowledge</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-facility-knowledge"><code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code></a></li>
 </ul>
 </li>
 </ul>

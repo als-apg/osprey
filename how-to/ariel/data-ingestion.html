@@ -472,7 +472,7 @@
 <h2>Ingestion Architecture<a class="headerlink" href="#ingestion-architecture" title="Link to this heading">#</a></h2>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Source System (HTTP API / JSONL file)
         ↓
-Facility Adapter (BaseAdapter)
+Facility Adapter (FacilityAdapter)
         ↓
 EnhancedLogbookEntry (TypedDict)
         ↓
@@ -494,8 +494,8 @@ See <a class="reference internal" href="#live-ingestion">Live Ingestion</a> belo
 </div>
 <section id="facility-adapters">
 <span id="id2"></span><h3>Facility Adapters<a class="headerlink" href="#facility-adapters" title="Link to this heading">#</a></h3>
-<p>Every logbook system has its own API, data format, and naming conventions. Facility adapters encapsulate these differences behind a uniform interface so that the rest of ARIEL — storage, enhancement, search — never needs to know where the data came from. Each adapter connects to one source system, fetches entries within an optional time range, and yields them as <code class="docutils literal notranslate"><span class="pre">EnhancedLogbookEntry</span></code> TypedDicts that the repository can store directly. All adapters inherit from <code class="docutils literal notranslate"><span class="pre">BaseAdapter</span></code> and implement two required members:</p>
-<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">BaseAdapter</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
+<p>Every logbook system has its own API, data format, and naming conventions. Facility adapters encapsulate these differences behind a uniform interface so that the rest of ARIEL — storage, enhancement, search — never needs to know where the data came from. Each adapter connects to one source system, fetches entries within an optional time range, and yields them as <code class="docutils literal notranslate"><span class="pre">EnhancedLogbookEntry</span></code> TypedDicts that the repository can store directly. All adapters inherit from <code class="docutils literal notranslate"><span class="pre">FacilityAdapter</span></code> and implement two required members:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="k">class</span><span class="w"> </span><span class="nc">FacilityAdapter</span><span class="p">(</span><span class="n">ABC</span><span class="p">):</span>
     <span class="nd">@property</span>
     <span class="nd">@abstractmethod</span>
     <span class="k">def</span><span class="w"> </span><span class="nf">source_system_name</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
@@ -539,13 +539,13 @@ See <a class="reference internal" href="#live-ingestion">Live Ingestion</a> belo
 </tr>
 <tr class="row-odd"><td><p><strong>Generic JSON</strong></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">generic_json</span></code></p></td>
-<td><p>Reads from a JSON or JSONL file with flexible field mapping. Useful for demos, testing, and facilities without a custom API.</p></td>
+<td><p>Reads from a JSON file with flexible field mapping. Useful for demos, testing, and facilities without a custom API.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
 <p><strong>Registering a custom adapter:</strong></p>
-<p>To add your own facility adapter, subclass <code class="docutils literal notranslate"><span class="pre">BaseAdapter</span></code>, implement <code class="docutils literal notranslate"><span class="pre">source_system_name</span></code> and <code class="docutils literal notranslate"><span class="pre">fetch_entries()</span></code>, and register it through your application’s registry configuration:</p>
+<p>To add your own facility adapter, subclass <code class="docutils literal notranslate"><span class="pre">FacilityAdapter</span></code>, implement <code class="docutils literal notranslate"><span class="pre">source_system_name</span></code> and <code class="docutils literal notranslate"><span class="pre">fetch_entries()</span></code>, and register it through your application’s registry configuration:</p>
 <div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry.helpers</span><span class="w"> </span><span class="kn">import</span> <span class="n">extend_framework_registry</span>
 <span class="kn">from</span><span class="w"> </span><span class="nn">osprey.registry.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">ArielIngestionAdapterRegistration</span>
 
@@ -561,7 +561,7 @@ See <a class="reference internal" href="#live-ingestion">Live Ingestion</a> belo
 <span class="p">)</span>
 </pre></div>
 </div>
-<p>Once registered, you can use your adapter by setting <code class="docutils literal notranslate"><span class="pre">ariel.ingestion.adapter:</span> <span class="pre">my_facility</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. See <code class="xref py py-class docutils literal notranslate"><span class="pre">BaseAdapter</span></code> for the full interface (including the optional <code class="docutils literal notranslate"><span class="pre">count_entries()</span></code> method) and <code class="xref py py-class docutils literal notranslate"><span class="pre">EnhancedLogbookEntry</span></code> for the field reference.</p>
+<p>Once registered, you can use your adapter by setting <code class="docutils literal notranslate"><span class="pre">ariel.ingestion.adapter:</span> <span class="pre">my_facility</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. See <code class="xref py py-class docutils literal notranslate"><span class="pre">FacilityAdapter</span></code> for the full interface (including the optional <code class="docutils literal notranslate"><span class="pre">count_entries()</span></code> method) and <code class="xref py py-class docutils literal notranslate"><span class="pre">EnhancedLogbookEntry</span></code> for the field reference.</p>
 <div class="outreach admonition">
 <p class="admonition-title">Collaboration Welcome</p>
 <p>The adapters above reflect the logbook schemas we have had access to so far. If you implement an adapter for your facility and test it successfully, we encourage you to open a pull request to make it natively available in Osprey — this makes it easier for other sites running similar logbook systems to get started.</p>
@@ -724,7 +724,7 @@ in the <code class="docutils literal notranslate"><span class="pre">watch</span>
 </section>
 <section id="database-schema">
 <span id="database"></span><h3>Database Schema<a class="headerlink" href="#database-schema" title="Link to this heading">#</a></h3>
-<p>All ingested and enhanced data lives in PostgreSQL. The core <code class="docutils literal notranslate"><span class="pre">enhanced_entries</span></code> table stores one row per logbook entry with the normalized fields that every adapter produces — entry ID, timestamp, author, raw text, and a JSONB metadata column for facility-specific extras. Enhancement modules write their results either into columns on this same table (keywords, summaries) or into dedicated per-model tables (vector embeddings). The pgvector extension provides the <code class="docutils literal notranslate"><span class="pre">vector</span></code> column type and cosine-distance operators that power semantic search. All tables are created and updated automatically by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">migrate</span></code>, which reads the current configuration to determine which embedding tables need to exist.</p>
+<p>All ingested and enhanced data lives in PostgreSQL. The core <code class="docutils literal notranslate"><span class="pre">enhanced_entries</span></code> table stores one row per logbook entry with the normalized fields that every adapter produces — entry ID, timestamp, author, raw text, and a JSONB metadata column for facility-specific extras. Enhancement modules write their results either into columns on this same table (keywords, summaries) or into dedicated per-model tables (vector embeddings). The pgvector extension provides the <code class="docutils literal notranslate"><span class="pre">vector</span></code> column type and cosine-distance operators that power semantic search. Core tables and an embedding table for each configured model are created automatically by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">migrate</span></code>, which reads <code class="docutils literal notranslate"><span class="pre">enhancement_modules.text_embedding.models</span></code> to determine which embedding tables to create. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">reembed</span></code> (re)creates and backfills a single model’s table on demand.</p>
 <div class="important admonition">
 <p class="admonition-title">pgvector requirement</p>
 <p>The <strong>pgvector</strong> extension is required for semantic search. It is automatically installed in the Osprey-managed PostgreSQL container (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>). For external databases, install it manually: <code class="docutils literal notranslate"><span class="pre">CREATE</span> <span class="pre">EXTENSION</span> <span class="pre">IF</span> <span class="pre">NOT</span> <span class="pre">EXISTS</span> <span class="pre">vector;</span></code></p>
@@ -796,11 +796,15 @@ in the <code class="docutils literal notranslate"><span class="pre">watch</span>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">entry_id</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">TEXT</span> <span class="pre">PRIMARY</span> <span class="pre">KEY</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">id</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">SERIAL</span> <span class="pre">PRIMARY</span> <span class="pre">KEY</span></code></p></td>
+<td><p>Auto-incrementing primary key</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">entry_id</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">TEXT</span> <span class="pre">UNIQUE</span></code></p></td>
 <td><p>Foreign key to enhanced_entries</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">embedding</span></code></p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">embedding</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">vector(&lt;dim&gt;)</span></code></p></td>
 <td><p>pgvector embedding column</p></td>
 </tr>
@@ -833,9 +837,17 @@ in the <code class="docutils literal notranslate"><span class="pre">watch</span>
 <td><p><code class="docutils literal notranslate"><span class="pre">TIMESTAMPTZ</span></code></p></td>
 <td><p>Ingestion completion time</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">entries_processed</span></code></p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">entries_added</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">INTEGER</span></code></p></td>
-<td><p>Number of entries ingested</p></td>
+<td><p>Number of new entries added</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">entries_updated</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">INTEGER</span></code></p></td>
+<td><p>Number of existing entries updated</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">entries_failed</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">INTEGER</span></code></p></td>
+<td><p>Number of entries that failed</p></td>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">source_system</span></code></p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">TEXT</span></code></p></td>
@@ -847,7 +859,7 @@ in the <code class="docutils literal notranslate"><span class="pre">watch</span>
 </section>
 <section id="migration-system">
 <h2>Migration System<a class="headerlink" href="#migration-system" title="Link to this heading">#</a></h2>
-<p>Migrations are run via <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">migrate</span></code> and managed by the <code class="docutils literal notranslate"><span class="pre">run_migrations()</span></code> function in <code class="docutils literal notranslate"><span class="pre">database/migrations.py</span></code>. The migration system automatically creates embedding tables based on the <code class="docutils literal notranslate"><span class="pre">enhancement_modules.text_embedding.models</span></code> configuration.</p>
+<p>Migrations are run via <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">migrate</span></code> and managed by the <code class="docutils literal notranslate"><span class="pre">run_migrations()</span></code> function in <code class="docutils literal notranslate"><span class="pre">database/migrations.py</span></code>. When <code class="docutils literal notranslate"><span class="pre">text_embedding</span></code> is enabled, <code class="docutils literal notranslate"><span class="pre">migrate</span></code> creates an embedding table for each model listed in <code class="docutils literal notranslate"><span class="pre">enhancement_modules.text_embedding.models</span></code> (falling back to <code class="docutils literal notranslate"><span class="pre">nomic-embed-text</span></code>, 768, if none is configured); <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">ariel</span> <span class="pre">reembed</span></code> (re)creates and backfills a single model’s table on demand.</p>
 <div class="outreach admonition">
 <p class="admonition-title">Schema Evolution</p>
 <p>The current schema was designed around three facility logbook formats (ALS, JLab, ORNL) and may not capture every field your facility needs. The <code class="docutils literal notranslate"><span class="pre">metadata</span></code> JSONB column provides flexibility for facility-specific extras, but if your logbook requires a fundamentally different table structure, please open a pull request or contact us — the ingestion and storage layers are designed to accommodate new schemas without disrupting existing ones.</p>

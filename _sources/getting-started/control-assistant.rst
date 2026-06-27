@@ -49,8 +49,9 @@ Create a project from the ``control-assistant`` preset:
    osprey build my-control-assistant --preset control-assistant
    cd my-control-assistant
 
-Like ``hello-world``, this project starts in **mock** mode with writes disabled,
-so every example below is safe to run with no hardware attached. Unlike
+Like ``hello-world``, this project starts in **mock** mode, so every example
+below is safe to run with no hardware attached; hardware writes are still gated
+behind the human-approval prompt. Unlike
 ``hello-world``, the preset ships a **channel database**, a **seeded electronic
 logbook**, and a **mock archiver**, plus a set of sub-agents and operator skills.
 

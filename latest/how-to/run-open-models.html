@@ -487,7 +487,9 @@ Messages</strong> calls. When the endpoint speaks the OpenAI protocol, OSPREY br
 two with a local <code class="docutils literal notranslate"><span class="pre">Anthropic</span> <span class="pre">↔</span> <span class="pre">OpenAI</span></code> translation proxy that starts automatically
 once you select an OpenAI-protocol provider — you never invoke it yourself. This is
 identical whether the model is self-hosted (<code class="docutils literal notranslate"><span class="pre">ollama</span></code>, <code class="docutils literal notranslate"><span class="pre">vllm</span></code>, no API key) or
-served by a remote aggregator. The provider list and <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> keys are in
+served by an OpenAI-only remote aggregator. (CBORG is the exception: it exposes an
+Anthropic-compatible endpoint, so the agent reaches it directly without the local
+proxy.) The provider list and <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> keys are in
 <a class="reference internal" href="configure-providers.html"><span class="doc">Configure LLM Providers</span></a>.</p>
 </section>
 <section id="which-models-are-known-to-work">

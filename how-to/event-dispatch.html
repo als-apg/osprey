@@ -1039,8 +1039,8 @@ in the <strong>EVENTS</strong> tab of <code class="docutils literal notranslate"
 <p>Projects built from the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> preset surface this dashboard as
 an <strong>EVENTS</strong> tab inside the web terminal, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> exposes it without a
 separate browser window. The tab health-gates itself: while the dispatcher is
-down it shows <em>unavailable</em> rather than a broken frame, and turns live once the
-dispatcher answers <code class="docutils literal notranslate"><span class="pre">/health</span></code>.</p>
+down the tab is disabled with an offline indicator rather than showing a broken
+frame, and it turns live once the dispatcher answers <code class="docutils literal notranslate"><span class="pre">/health</span></code>.</p>
 <p>The panel points at <code class="docutils literal notranslate"><span class="pre">${EVENT_DISPATCHER_URL:-http://localhost:8020}</span></code>, which
 works out of the box for the host-run flow above. When the web terminal runs in
 a container, repoint it at the dispatcher service:</p>
@@ -1080,8 +1080,9 @@ denylist regardless of what a trigger requests: <code class="docutils literal no
 the Playwright browser tools, and all shell tools (<code class="docutils literal notranslate"><span class="pre">Bash</span></code>, <code class="docutils literal notranslate"><span class="pre">BashOutput</span></code>,
 <code class="docutils literal notranslate"><span class="pre">KillShell</span></code>). This sits on top of the per-trigger allowlist, so a trigger
 can never widen its way to a shell or the open network.</p>
-<p class="sd-card-text"><strong>Retry policy.</strong> <code class="docutils literal notranslate"><span class="pre">on_error:</span> <span class="pre">retry</span></code> fires only when the dispatcher <em>cannot
-reach the worker</em> (connection error or timeout) — it re-dispatches up to
+<p class="sd-card-text"><strong>Retry policy.</strong> <code class="docutils literal notranslate"><span class="pre">on_error:</span> <span class="pre">retry</span></code> fires only when the <em>dispatch itself</em>
+fails — the worker being unreachable (connection error or timeout), returning
+an HTTP error, or rejecting the dispatcher’s token — and it re-dispatches up to
 <code class="docutils literal notranslate"><span class="pre">max_retries</span></code> with <code class="docutils literal notranslate"><span class="pre">backoff_sec</span></code> between attempts. It does <em>not</em> retry a
 run that the agent itself ends in error, so firing a trigger against a healthy
 stack never exercises it; the behaviour is covered by

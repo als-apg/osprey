@@ -490,7 +490,7 @@
 <input checked="checked" id="sd-tab-item-0" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-0">
 Search</label><div class="sd-tab-content docutils">
-<p>The primary view. A search bar with mode tabs (Keyword, Semantic — only enabled modes are shown) and an expandable advanced options panel. Results display as entry cards with relevance scores and highlights. Press <code class="docutils literal notranslate"><span class="pre">Enter</span></code> to submit a query; <code class="docutils literal notranslate"><span class="pre">Ctrl+Enter</span></code> submits with the current advanced options.</p>
+<p>The primary view. A search bar with mode tabs (Keyword, Semantic — only enabled modes are shown) and an expandable advanced options panel. Results display as entry cards with relevance scores and highlights. Press <code class="docutils literal notranslate"><span class="pre">Enter</span></code> to submit a query; searches always include the current advanced options and filters.</p>
 <figure class="align-center" id="id1">
 <a class="reference internal image-reference" href="../../_images/ariel_search.png"><img alt="ARIEL Search View" src="../../_images/ariel_search.png" style="width: 90%;" />
 </a>
@@ -502,7 +502,7 @@ Search</label><div class="sd-tab-content docutils">
 <input id="sd-tab-item-1" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-1">
 Browse</label><div class="sd-tab-content docutils">
-<p>Paginated chronological listing of all logbook entries. Each entry shows its timestamp, author, and a text preview. Click an entry to view its full content. Filter by date range, author, or source system.</p>
+<p>Chronological, paginated listing of logbook entries (newest first) – use Previous/Next to page back through older entries. Each entry shows its timestamp, author, and a text preview. Click an entry to view its full content.</p>
 <figure class="align-center" id="id2">
 <a class="reference internal image-reference" href="../../_images/ariel_browse.png"><img alt="ARIEL Browse View" src="../../_images/ariel_browse.png" style="width: 90%;" />
 </a>
@@ -514,7 +514,7 @@ Browse</label><div class="sd-tab-content docutils">
 <input id="sd-tab-item-2" name="sd-tab-set-0" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-2">
 New Entry</label><div class="sd-tab-content docutils">
-<p>Form for creating new logbook entries directly from the interface. Fields include subject, details, author, logbook, shift, and tags. New entries are stored with <code class="docutils literal notranslate"><span class="pre">source_system:</span> <span class="pre">&quot;ARIEL</span> <span class="pre">Web&quot;</span></code> and receive a generated <code class="docutils literal notranslate"><span class="pre">entry_id</span></code> in the format <code class="docutils literal notranslate"><span class="pre">ariel-web-&lt;uuid&gt;</span></code>. Created entries are searchable immediately.</p>
+<p>Form for creating new logbook entries directly from the interface. Fields include subject, details, author, logbook, shift, and tags. When the configured logbook adapter is read-only (the common case for the standalone interface), entries are saved locally with <code class="docutils literal notranslate"><span class="pre">source_system:</span> <span class="pre">&quot;ARIEL</span> <span class="pre">Web&quot;</span></code> and a generated <code class="docutils literal notranslate"><span class="pre">entry_id</span></code> of the form <code class="docutils literal notranslate"><span class="pre">ariel-&lt;12-hex&gt;</span></code>. When a write-capable facility adapter is configured, the entry is published to that logbook and takes the facility’s <code class="docutils literal notranslate"><span class="pre">source_system</span></code> and <code class="docutils literal notranslate"><span class="pre">entry_id</span></code>. Created entries are searchable immediately.</p>
 <figure class="align-center" id="id3">
 <a class="reference internal image-reference" href="../../_images/ariel_create.png"><img alt="ARIEL New Entry View" src="../../_images/ariel_create.png" style="width: 90%;" />
 </a>
@@ -661,35 +661,40 @@ REST API</label><div class="sd-tab-content docutils">
 <input id="sd-tab-item-5" name="sd-tab-set-1" type="radio">
 <label class="sd-tab-label" for="sd-tab-item-5">
 Capabilities</label><div class="sd-tab-content docutils">
-<p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">/api/capabilities</span></code> endpoint returns a JSON structure describing every enabled search module, along with its parameters:</p>
+<p class="sd-card-text">The <code class="docutils literal notranslate"><span class="pre">/api/capabilities</span></code> endpoint returns a JSON structure that groups enabled search modes under category objects (currently a single <code class="docutils literal notranslate"><span class="pre">direct</span></code> category), along with shared parameters:</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;modes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">    </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;keyword&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Keyword&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Full-text PostgreSQL search...&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;parameters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">  </span><span class="nt">&quot;categories&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;direct&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">      </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Direct&quot;</span><span class="p">,</span>
+<span class="w">      </span><span class="nt">&quot;modes&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
 <span class="w">        </span><span class="p">{</span>
-<span class="w">          </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;fuzzy_fallback&quot;</span><span class="p">,</span>
-<span class="w">          </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Fuzzy Fallback&quot;</span><span class="p">,</span>
-<span class="w">          </span><span class="nt">&quot;param_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;bool&quot;</span><span class="p">,</span>
-<span class="w">          </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
-<span class="w">          </span><span class="nt">&quot;section&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Search&quot;</span>
+<span class="w">          </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;keyword&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Keyword&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Full-text PostgreSQL search...&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;parameters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+<span class="w">            </span><span class="p">{</span>
+<span class="w">              </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;fuzzy_fallback&quot;</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Fuzzy Fallback&quot;</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;bool&quot;</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span>
+<span class="w">              </span><span class="nt">&quot;section&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Options&quot;</span>
+<span class="w">            </span><span class="p">}</span>
+<span class="w">          </span><span class="p">]</span>
+<span class="w">        </span><span class="p">},</span>
+<span class="w">        </span><span class="p">{</span>
+<span class="w">          </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;semantic&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Semantic&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Embedding-based similarity search...&quot;</span><span class="p">,</span>
+<span class="w">          </span><span class="nt">&quot;parameters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
 <span class="w">        </span><span class="p">}</span>
 <span class="w">      </span><span class="p">]</span>
-<span class="w">    </span><span class="p">},</span>
-<span class="w">    </span><span class="p">{</span>
-<span class="w">      </span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;semantic&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Semantic&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Embedding-based similarity search...&quot;</span><span class="p">,</span>
-<span class="w">      </span><span class="nt">&quot;parameters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[]</span>
 <span class="w">    </span><span class="p">}</span>
-<span class="w">  </span><span class="p">],</span>
+<span class="w">  </span><span class="p">},</span>
 <span class="w">  </span><span class="nt">&quot;shared_parameters&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;max_results&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;param_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;int&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">},</span>
-<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;start_date&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;param_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;date&quot;</span><span class="p">},</span>
-<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;author&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;param_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;text&quot;</span><span class="p">},</span>
-<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;source_system&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;param_type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;dynamic_select&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;max_results&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;int&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;default&quot;</span><span class="p">:</span><span class="w"> </span><span class="mi">10</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;start_date&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;date&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;author&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;text&quot;</span><span class="p">},</span>
+<span class="w">    </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;source_system&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;dynamic_select&quot;</span><span class="p">,</span>
 <span class="w">     </span><span class="nt">&quot;options_endpoint&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;/api/filter-options/source_systems&quot;</span><span class="p">}</span>
 <span class="w">  </span><span class="p">]</span>
 <span class="p">}</span>
@@ -753,7 +758,7 @@ Frontend</label><div class="sd-tab-content docutils">
 <td><p class="sd-card-text">REST client wrapping <code class="docutils literal notranslate"><span class="pre">fetch()</span></code> for all API endpoints</p></td>
 </tr>
 <tr class="row-even"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">search.js</span></code></p></td>
-<td><p class="sd-card-text">Search form, mode tabs, results rendering</p></td>
+<td><p class="sd-card-text">Search form, query submission, results rendering</p></td>
 </tr>
 <tr class="row-odd"><td><p class="sd-card-text"><code class="docutils literal notranslate"><span class="pre">advanced-options.js</span></code></p></td>
 <td><p class="sd-card-text">Capabilities-driven advanced options panel (dynamic parameter controls)</p></td>

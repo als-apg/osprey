@@ -69,9 +69,12 @@ example content with your own facility's documents.
 
 .. note::
 
-   The bundle path is required.  If it is missing or the directory does not
-   exist, the ``osprey_facility_knowledge`` server will refuse to start with
-   a clear error message.
+   If ``facility_knowledge.bundle_path`` is missing, or points to a directory
+   that does not exist, the ``osprey_facility_knowledge`` server still starts
+   but logs a warning (missing key) or error (missing directory) and leaves the
+   bundle uninitialised.  Its ``list_concepts``, ``read_concept``, ``search``,
+   and ``draft_concept`` tools then return a ``server_not_initialised`` error on
+   every call until the path is fixed.
 
 
 Authoring Concept Documents
@@ -82,7 +85,7 @@ Each concept document is a markdown file with YAML frontmatter at the top:
 .. code-block:: markdown
 
    ---
-   type: subsystem
+   type: Subsystem
    title: Power Supply System
    description: DC power supplies for all storage-ring magnets.
    tags: [magnets, power-supplies, PSS]
@@ -253,7 +256,9 @@ Example agent prompt:
 
 The agent will call ``draft_concept`` with a proposed path, frontmatter, and
 body.  You review and approve in the standard approval dialog; the document
-is written into the bundle and the index is regenerated.
+is written into the bundle.  ``draft_concept`` does not rebuild the index, so
+run ``osprey knowledge regen-index`` afterwards for the new document to appear
+in ``list_concepts`` and ``search``.
 
 
 The ``facility-knowledge`` Subagent
@@ -267,13 +272,15 @@ and follows a fixed retrieval strategy: list first to orient, search to narrow,
 read to synthesize, then submit the result.
 
 The subagent is enabled by default in the ``control_assistant`` preset.  To
-enable or disable it in another preset, set the ``agents.facility-knowledge``
-flag in ``config.yml``:
+enable or disable it in a generated project, set the agent's ``enabled`` flag
+under ``claude_code.agents`` in ``config.yml``:
 
 .. code-block:: yaml
 
-   agents:
-     facility-knowledge: true   # set to false to disable
+   claude_code:
+     agents:
+       facility-knowledge:
+         enabled: false   # disable the subagent (omit to keep it enabled)
 
 .. note::
 

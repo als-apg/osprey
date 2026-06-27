@@ -103,8 +103,9 @@ process is never exposed to user code.
 Local Subprocess Execution
 --------------------------
 
-When containers are unavailable, the service falls back to local subprocess
-execution. The ``ExecutionWrapper`` wraps user code with safety
+Local mode is selected explicitly by setting ``execution_method: local``
+(there is no automatic fallback from container mode). The ``ExecutionWrapper``
+wraps user code with safety
 monkeypatches (e.g., ``epics.caput()`` validation against the limits
 database), writes the wrapped script to an execution folder, and runs it
 as a subprocess:

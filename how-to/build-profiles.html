@@ -1020,6 +1020,7 @@ resolution runs.</p>
 <span class="nt">data_bundle</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control_assistant</span>
 <span class="nt">provider</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">anthropic</span>
 <span class="nt">model</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">sonnet</span>
+<span class="nt">channel_finder_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_context</span>
 <span class="nt">requires_osprey_version</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;&gt;=2026.5.0&quot;</span>
 
 <span class="nt">config</span><span class="p">:</span>
@@ -1133,13 +1134,15 @@ a complete Osprey agent project at <code class="docutils literal notranslate"><s
 <section id="configuration-overrides">
 <h2>Configuration Overrides<a class="headerlink" href="#configuration-overrides" title="Link to this heading">#</a></h2>
 <p>The <code class="docutils literal notranslate"><span class="pre">config:</span></code> section uses <strong>dot notation</strong> to override any key in the generated
-<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. Available keys are defined in the config template
-(<code class="docutils literal notranslate"><span class="pre">src/osprey/templates/project/config.yml.j2</span></code>).</p>
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. The base set of keys is in
+<code class="docutils literal notranslate"><span class="pre">src/osprey/templates/project/config.yml.j2</span></code>; presets add further
+sections (e.g. <code class="docutils literal notranslate"><span class="pre">archiver</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_finder</span></code>) in their own
+<code class="docutils literal notranslate"><span class="pre">config.yml.j2</span></code>.</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">config</span><span class="p">:</span>
 <span class="w">  </span><span class="c1"># Control system</span>
 <span class="w">  </span><span class="nt">control_system.type</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">epics</span>
 <span class="w">  </span><span class="nt">control_system.writes_enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
-<span class="w">  </span><span class="nt">control_system.limits_checking</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">  </span><span class="nt">control_system.limits_checking.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
 <span class="w">  </span><span class="nt">control_system.connector.epics.timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10.0</span>
 
 <span class="w">  </span><span class="c1"># Archiver</span>
@@ -1584,11 +1587,13 @@ the profiles repository at runtime.</p>
 └── ...
 </pre></div>
 </div>
-<p>Which agents, rules, hooks, and skills are included is controlled by the
-bundled preset profile (<code class="docutils literal notranslate"><span class="pre">src/osprey/profiles/presets/&lt;bundle&gt;.yml</span></code>) — not
-by your user profile. Your profile can override <strong>data and config</strong> but not
-the set of Osprey agent artifacts. To change the artifact set, edit the
-preset profile for that data bundle directly.</p>
+<p>Which agents, rules, hooks, and skills are included starts from the
+bundled preset profile (<code class="docutils literal notranslate"><span class="pre">src/osprey/profiles/presets/&lt;preset&gt;.yml</span></code>),
+but your user profile can customize it: <code class="docutils literal notranslate"><span class="pre">agents:</span></code>, <code class="docutils literal notranslate"><span class="pre">rules:</span></code>,
+<code class="docutils literal notranslate"><span class="pre">hooks:</span></code>, and <code class="docutils literal notranslate"><span class="pre">skills:</span></code> are first-class profile fields, and
+<code class="docutils literal notranslate"><span class="pre">extends:</span></code> union-merges your additions with the preset’s set. To
+drop a preset artifact entirely, build from a standalone profile or
+edit the preset directly.</p>
 </section>
 <section id="troubleshooting">
 <h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h2>
@@ -1597,10 +1602,8 @@ preset profile for that data bundle directly.</p>
 profile YAML’s directory, not the current working directory.</p>
 <p><strong>“Overlay destination must be relative without ‘..’”</strong> — Destination paths cannot
 be absolute or contain <code class="docutils literal notranslate"><span class="pre">..</span></code>.</p>
-<p><strong>“MCP server ‘X’ missing ‘command’”</strong> — Every MCP server definition needs a
-<code class="docutils literal notranslate"><span class="pre">command</span></code> field.</p>
-<p><strong>“MCP server ‘X’ already exists in .mcp.json”</strong> — The server name conflicts with
-a built-in. Choose a different name.</p>
+<p><strong>“MCP server ‘X’ missing ‘command’ or ‘url’”</strong> — Every MCP server definition
+needs a <code class="docutils literal notranslate"><span class="pre">command</span></code> (stdio) or a <code class="docutils literal notranslate"><span class="pre">url</span></code> (HTTP) field.</p>
 <p><strong>“Directory ‘X’ already exists”</strong> — Use <code class="docutils literal notranslate"><span class="pre">--force</span></code> to overwrite, or pick a
 different project name.</p>
 <p><strong>“OSPREY X does not satisfy requires_osprey_version”</strong> — Upgrade OSPREY to a

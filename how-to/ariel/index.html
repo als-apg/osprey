@@ -534,8 +534,8 @@ re-run <code class="docutils literal notranslate"><span class="pre">osprey</span
 <label class="sd-tab-label" for="sd-tab-item-2">
 1. Configure</label><div class="sd-tab-content docutils">
 <p class="sd-card-text">The easiest way to get started is to create a new project from the
-<code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> template, which includes ARIEL pre-configured:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-project<span class="w"> </span>--preset<span class="w"> </span>control-assistant
+<code class="docutils literal notranslate"><span class="pre">ariel-standalone</span></code> template, which includes ARIEL pre-configured:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>build<span class="w"> </span>my-project<span class="w"> </span>--preset<span class="w"> </span>ariel-standalone
 <span class="nb">cd</span><span class="w"> </span>my-project
 </pre></div>
 </div>
@@ -549,7 +549,7 @@ web interface, and all search modules enabled — skip to Step 2.</p>
 so it may take a few minutes depending on your internet connection.</p>
 <p class="sd-card-text">Generate Docker Compose files from your <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, pull the
 container images, and start them in the background:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>-d
 </pre></div>
 </div>
 <p class="sd-card-text">Once the containers are running, connect to PostgreSQL, run database

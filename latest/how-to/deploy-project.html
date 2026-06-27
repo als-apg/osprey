@@ -514,9 +514,11 @@ deployment via <code class="docutils literal notranslate"><span class="pre">depl
 <p>Each service entry must point <code class="docutils literal notranslate"><span class="pre">path:</span></code> at a directory containing a
 <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code> template. Everything else under the service key is
 project-specific configuration exposed to the template as
-<code class="docutils literal notranslate"><span class="pre">{{services.&lt;name&gt;.&lt;key&gt;}}</span></code>. For the canonical schema (including
-<code class="docutils literal notranslate"><span class="pre">copy_src</span></code>, <code class="docutils literal notranslate"><span class="pre">additional_dirs</span></code>, <code class="docutils literal notranslate"><span class="pre">render_kernel_templates</span></code>, and
-<code class="docutils literal notranslate"><span class="pre">containers</span></code> for multi-container services), see <a class="reference internal" href="build-profiles.html#profile-services"><span class="std std-ref">Services</span></a>.</p>
+<code class="docutils literal notranslate"><span class="pre">{{services.&lt;name&gt;.&lt;key&gt;}}</span></code>. Beyond <code class="docutils literal notranslate"><span class="pre">path</span></code>, a service entry may also
+declare <code class="docutils literal notranslate"><span class="pre">copy_src</span></code>, <code class="docutils literal notranslate"><span class="pre">additional_dirs</span></code>, and <code class="docutils literal notranslate"><span class="pre">render_kernel_templates</span></code>
+(a multi-container service is expressed by the <code class="docutils literal notranslate"><span class="pre">docker-compose.yml.j2</span></code>
+template defining more than one compose service). For how facility services
+are declared inside a build profile, see <a class="reference internal" href="build-profiles.html#profile-services"><span class="std std-ref">Services</span></a>.</p>
 <section id="service-lookup-namespaces">
 <h3>Service lookup namespaces<a class="headerlink" href="#service-lookup-namespaces" title="Link to this heading">#</a></h3>
 <p><code class="docutils literal notranslate"><span class="pre">find_service_config</span></code> resolves a name from <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> in three

@@ -521,8 +521,13 @@
 <span class="w">  </span><span class="nt">connector</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">epics</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">gateways</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">read_only</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> address</span><span class="p">:</span><span class="w"> </span><span class="nv">cagw.facility.edu</span><span class="p p-Indicator">,</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">5064</span><span class="w"> </span><span class="p p-Indicator">}</span>
-<span class="w">        </span><span class="nt">write_access</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> address</span><span class="p">:</span><span class="w"> </span><span class="nv">cagw-rw.facility.edu</span><span class="p p-Indicator">,</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">5065</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="c1"># EPICS uses one process-wide CA context, so the connector points at a</span>
+<span class="w">        </span><span class="c1"># single gateway. When control_system.writes_enabled is true and a</span>
+<span class="w">        </span><span class="c1"># write_access gateway is set, writes route through it; otherwise the</span>
+<span class="w">        </span><span class="c1"># connector uses read_only (so a read-only deployment rejects writes at</span>
+<span class="w">        </span><span class="c1"># the network layer as well).</span>
+<span class="w">        </span><span class="nt">read_only</span><span class="p">:</span><span class="w">   </span><span class="p p-Indicator">{</span><span class="nt"> address</span><span class="p">:</span><span class="w"> </span><span class="nv">cagw.facility.edu</span><span class="p p-Indicator">,</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">5064</span><span class="w"> </span><span class="p p-Indicator">}</span>
+<span class="w">        </span><span class="nt">write_access</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> address</span><span class="p">:</span><span class="w"> </span><span class="nv">cagw.facility.edu</span><span class="p p-Indicator">,</span><span class="nt"> port</span><span class="p">:</span><span class="w"> </span><span class="nv">5084</span><span class="w"> </span><span class="p p-Indicator">}</span>
 <span class="w">      </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5.0</span>
 </pre></div>
 </div>
@@ -652,8 +657,11 @@ The connector requires the optional <code class="docutils literal notranslate"><
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">tolerance_absolute</span></code> takes priority over <code class="docutils literal notranslate"><span class="pre">tolerance_percent</span></code> (percentage of value).
-Channels inherit from <code class="docutils literal notranslate"><span class="pre">defaults</span></code> unless overridden. Set <code class="docutils literal notranslate"><span class="pre">&quot;writable&quot;:</span> <span class="pre">false</span></code> to block
-writes to a channel entirely.</p>
+Each channel inherits any field it does not set from the <code class="docutils literal notranslate"><span class="pre">defaults</span></code> block, and a
+channel’s own value always overrides it. <code class="docutils literal notranslate"><span class="pre">writable</span></code> defaults to <code class="docutils literal notranslate"><span class="pre">true</span></code>; a channel’s
+verification falls back to the <code class="docutils literal notranslate"><span class="pre">defaults</span></code> block’s verification and then to the global
+<code class="docutils literal notranslate"><span class="pre">control_system.write_verification.default_level</span></code>. Set <code class="docutils literal notranslate"><span class="pre">&quot;writable&quot;:</span> <span class="pre">false</span></code> – on a
+channel, or in <code class="docutils literal notranslate"><span class="pre">defaults</span></code> to lock everything down by default – to block writes.</p>
 <section id="write-safety-configuration">
 <span id="write-safety-config"></span><h2>Write Safety Configuration<a class="headerlink" href="#write-safety-configuration" title="Link to this heading">#</a></h2>
 <p>Write operations are disabled by default and must be explicitly enabled at two levels:</p>
@@ -672,7 +680,6 @@ writes to a channel entirely.</p>
 <span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">                     </span><span class="c1"># Enable limits validation</span>
 <span class="w">    </span><span class="nt">database_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./limits_db.json</span><span class="w">   </span><span class="c1"># Path to the channel limits JSON</span>
 <span class="w">    </span><span class="nt">allow_unlisted_channels</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">    </span><span class="c1"># Block writes to channels not in the database</span>
-<span class="w">    </span><span class="nt">on_violation</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;error&quot;</span><span class="w">             </span><span class="c1"># &quot;error&quot; (raise) or &quot;skip&quot; (warn and skip)</span>
 </pre></div>
 </div>
 <p>When enabled, every <code class="docutils literal notranslate"><span class="pre">write_channel()</span></code> call is validated against the limits database

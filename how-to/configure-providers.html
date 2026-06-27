@@ -517,7 +517,7 @@ how to configure providers for both.</p>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">asksage</span></code></p></td>
 <td><p>AskSage proxy</p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">ASKSAGE_API_KEY</span></code></p></td>
+<td><p><em>(custom auth)</em></p></td>
 <td><p>OpenAI (proxied)</p></td>
 </tr>
 <tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">openai</span></code></p></td>
@@ -537,6 +537,11 @@ how to configure providers for both.</p>
 </tr>
 <tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">vllm</span></code></p></td>
 <td><p>vLLM inference server</p></td>
+<td><p><em>(none)</em></p></td>
+<td><p>OpenAI (proxied)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">ds4</span></code></p></td>
+<td><p>DwarfStar local server</p></td>
 <td><p><em>(none)</em></p></td>
 <td><p>OpenAI (proxied)</p></td>
 </tr>
@@ -623,8 +628,9 @@ that assigns provider-specific model IDs to tiers (<code class="docutils literal
 </pre></div>
 </div>
 <p><code class="docutils literal notranslate"><span class="pre">provider</span></code> picks one of the entries in <code class="docutils literal notranslate"><span class="pre">api.providers</span></code>.
-<code class="docutils literal notranslate"><span class="pre">default_model</span></code> selects the tier for the main conversation (defaults to
-<code class="docutils literal notranslate"><span class="pre">sonnet</span></code> for most providers).</p>
+<code class="docutils literal notranslate"><span class="pre">default_model</span></code> selects the tier for the main conversation. If omitted, it
+falls back to the provider’s own default tier — <code class="docutils literal notranslate"><span class="pre">sonnet</span></code> for <code class="docutils literal notranslate"><span class="pre">anthropic</span></code>,
+<code class="docutils literal notranslate"><span class="pre">haiku</span></code> for <code class="docutils literal notranslate"><span class="pre">cborg</span></code> and <code class="docutils literal notranslate"><span class="pre">als-apg</span></code>, and <code class="docutils literal notranslate"><span class="pre">opus</span></code> for custom providers.</p>
 </section>
 <section id="model-tier-mapping">
 <h2>Model Tier Mapping<a class="headerlink" href="#model-tier-mapping" title="Link to this heading">#</a></h2>
@@ -635,7 +641,7 @@ IDs via the <code class="docutils literal notranslate"><span class="pre">models<
 <ol class="arabic simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">claude_code.models</span></code> — explicit per-tier overrides (highest priority).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">api.providers.&lt;name&gt;.models</span></code> — the provider’s own model naming.</p></li>
-<li><p>Built-in defaults — Anthropic direct model IDs (fallback).</p></li>
+<li><p>Built-in defaults — the provider’s bundled fallback model IDs (Anthropic direct IDs only as a last resort).</p></li>
 </ol>
 <p>For example, to override the opus tier for a specific project:</p>
 <div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">claude_code</span><span class="p">:</span>

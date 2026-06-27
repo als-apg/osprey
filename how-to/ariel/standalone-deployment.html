@@ -545,7 +545,7 @@ connection.</p>
 <p class="sd-card-text">Generate Docker Compose files from your <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, pull the
 PostgreSQL+pgvector container image, and start it in the
 background:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>-d
 </pre></div>
 </div>
 <p class="sd-card-text">Once the container is running, run database migrations and
@@ -601,12 +601,13 @@ need to be.</p>
 <p>For small in-place adjustments to a project you just built, edit files
 directly:</p>
 <ol class="arabic">
-<li><p><strong>Edit</strong> <code class="docutils literal notranslate"><span class="pre">.claude/rules/facility.md</span></code>. The default ships with a
-placeholder for the “Example Research Facility” (Primary Source /
-Transport &amp; Delivery / Experimental Stations, with an EPICS channel
-pattern table). Replace this content with your facility’s real
-terminology, system names, and naming conventions so the agent uses
-the right vocabulary when interpreting user questions.</p>
+<li><p><strong>Edit</strong> <code class="docutils literal notranslate"><span class="pre">.claude/rules/facility.md</span></code>. The default ships with a thin
+placeholder for the “Example Research Facility (ERF)” — a facility-identity
+stub (name, type, mission) plus a pointer to the <code class="docutils literal notranslate"><span class="pre">facility_knowledge</span></code> tools
+(<code class="docutils literal notranslate"><span class="pre">list_concepts</span></code>/<code class="docutils literal notranslate"><span class="pre">read_concept</span></code>/<code class="docutils literal notranslate"><span class="pre">search</span></code>) for deeper content. Replace
+this with your facility’s real terminology, system names, and naming
+conventions so the agent uses the right vocabulary when interpreting user
+questions.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p><code class="docutils literal notranslate"><span class="pre">.claude/rules/facility.md</span></code> is auto-registered as user-owned

@@ -519,16 +519,19 @@ is scaffolded into <code class="docutils literal notranslate"><span class="pre">
 example content with your own facility’s documents.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>The bundle path is required.  If it is missing or the directory does not
-exist, the <code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code> server will refuse to start with
-a clear error message.</p>
+<p>If <code class="docutils literal notranslate"><span class="pre">facility_knowledge.bundle_path</span></code> is missing, or points to a directory
+that does not exist, the <code class="docutils literal notranslate"><span class="pre">osprey_facility_knowledge</span></code> server still starts
+but logs a warning (missing key) or error (missing directory) and leaves the
+bundle uninitialised.  Its <code class="docutils literal notranslate"><span class="pre">list_concepts</span></code>, <code class="docutils literal notranslate"><span class="pre">read_concept</span></code>, <code class="docutils literal notranslate"><span class="pre">search</span></code>,
+and <code class="docutils literal notranslate"><span class="pre">draft_concept</span></code> tools then return a <code class="docutils literal notranslate"><span class="pre">server_not_initialised</span></code> error on
+every call until the path is fixed.</p>
 </div>
 </section>
 <section id="authoring-concept-documents">
 <h2>Authoring Concept Documents<a class="headerlink" href="#authoring-concept-documents" title="Link to this heading">#</a></h2>
 <p>Each concept document is a markdown file with YAML frontmatter at the top:</p>
 <div class="highlight-markdown notranslate"><div class="highlight"><pre><span></span>---
-type: subsystem
+type: Subsystem
 title: Power Supply System
 description: DC power supplies for all storage-ring magnets.
 <span class="gu">tags: [magnets, power-supplies, PSS]</span>
@@ -674,7 +677,9 @@ how to respond to a sudden pressure spike in sector 4.
 </div>
 <p>The agent will call <code class="docutils literal notranslate"><span class="pre">draft_concept</span></code> with a proposed path, frontmatter, and
 body.  You review and approve in the standard approval dialog; the document
-is written into the bundle and the index is regenerated.</p>
+is written into the bundle.  <code class="docutils literal notranslate"><span class="pre">draft_concept</span></code> does not rebuild the index, so
+run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">knowledge</span> <span class="pre">regen-index</span></code> afterwards for the new document to appear
+in <code class="docutils literal notranslate"><span class="pre">list_concepts</span></code> and <code class="docutils literal notranslate"><span class="pre">search</span></code>.</p>
 </section>
 <section id="the-facility-knowledge-subagent">
 <h2>The <code class="docutils literal notranslate"><span class="pre">facility-knowledge</span></code> Subagent<a class="headerlink" href="#the-facility-knowledge-subagent" title="Link to this heading">#</a></h2>
@@ -685,10 +690,12 @@ the three read-only MCP tools (<code class="docutils literal notranslate"><span 
 and follows a fixed retrieval strategy: list first to orient, search to narrow,
 read to synthesize, then submit the result.</p>
 <p>The subagent is enabled by default in the <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> preset.  To
-enable or disable it in another preset, set the <code class="docutils literal notranslate"><span class="pre">agents.facility-knowledge</span></code>
-flag in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">agents</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">facility-knowledge</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">   </span><span class="c1"># set to false to disable</span>
+enable or disable it in a generated project, set the agent’s <code class="docutils literal notranslate"><span class="pre">enabled</span></code> flag
+under <code class="docutils literal notranslate"><span class="pre">claude_code.agents</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">claude_code</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">agents</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">facility-knowledge</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">   </span><span class="c1"># disable the subagent (omit to keep it enabled)</span>
 </pre></div>
 </div>
 <div class="admonition note">

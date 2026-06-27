@@ -66,8 +66,13 @@ Switch to real hardware by changing ``type`` in ``config.yml``:
      connector:
        epics:
          gateways:
-           read_only: { address: cagw.facility.edu, port: 5064 }
-           write_access: { address: cagw-rw.facility.edu, port: 5065 }
+           # EPICS uses one process-wide CA context, so the connector points at a
+           # single gateway. When control_system.writes_enabled is true and a
+           # write_access gateway is set, writes route through it; otherwise the
+           # connector uses read_only (so a read-only deployment rejects writes at
+           # the network layer as well).
+           read_only:   { address: cagw.facility.edu, port: 5064 }
+           write_access: { address: cagw.facility.edu, port: 5084 }
          timeout: 5.0
 
 The Python API is identical -- only the config changes.
@@ -198,8 +203,11 @@ All ``write_channel()`` calls return :class:`~osprey.connectors.control_system.b
    }
 
 ``tolerance_absolute`` takes priority over ``tolerance_percent`` (percentage of value).
-Channels inherit from ``defaults`` unless overridden. Set ``"writable": false`` to block
-writes to a channel entirely.
+Each channel inherits any field it does not set from the ``defaults`` block, and a
+channel's own value always overrides it. ``writable`` defaults to ``true``; a channel's
+verification falls back to the ``defaults`` block's verification and then to the global
+``control_system.write_verification.default_level``. Set ``"writable": false`` -- on a
+channel, or in ``defaults`` to lock everything down by default -- to block writes.
 
 .. _write-safety-config:
 
@@ -231,7 +239,6 @@ Automatic safety-limit validation for write operations:
        enabled: true                     # Enable limits validation
        database_path: ./limits_db.json   # Path to the channel limits JSON
        allow_unlisted_channels: false    # Block writes to channels not in the database
-       on_violation: "error"             # "error" (raise) or "skip" (warn and skip)
 
 When enabled, every ``write_channel()`` call is validated against the limits database
 before the write is sent to hardware. See per-channel configuration above for the

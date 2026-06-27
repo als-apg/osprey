@@ -504,8 +504,9 @@ technical naming conventions.</p>
 <h2>In-Context Pipeline<a class="headerlink" href="#in-context-pipeline" title="Link to this heading">#</a></h2>
 <p>Loads the entire channel database into the LLM context for direct semantic
 matching.</p>
-<p><strong>Pipeline stages:</strong> query splitting, semantic matching against full database,
-iterative validation/correction.</p>
+<p><strong>How it works:</strong> a single inner-LLM call — the complete channel database is
+embedded in the system prompt and the model returns the most relevant channels
+in one shot (no query-splitting or iterative-correction stage).</p>
 <p>The database uses a flat JSON structure loaded by <code class="docutils literal notranslate"><span class="pre">TemplateChannelDatabase</span></code>,
 with standalone entries and template entries for device families:</p>
 <div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
@@ -561,11 +562,11 @@ osprey<span class="w"> </span>channel-finder<span class="w"> </span>preview<span
 <h2>Middle Layer Pipeline<a class="headerlink" href="#middle-layer-pipeline" title="Link to this heading">#</a></h2>
 <p>A React agent explores the database using query tools
 (<code class="docutils literal notranslate"><span class="pre">list_systems</span></code>, <code class="docutils literal notranslate"><span class="pre">list_families</span></code>, <code class="docutils literal notranslate"><span class="pre">inspect_fields</span></code>,
-<code class="docutils literal notranslate"><span class="pre">list_channel_names</span></code>, <code class="docutils literal notranslate"><span class="pre">get_common_names</span></code>).</p>
+<code class="docutils literal notranslate"><span class="pre">list_channels</span></code>, <code class="docutils literal notranslate"><span class="pre">get_common_names</span></code>).</p>
 <p>The database follows MATLAB Middle Layer (MML) functional organization
 (System -&gt; Family -&gt; Field -&gt; ChannelNames). Convert from MML exports:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>osprey.services.channel_finder.utils.mml_converter<span class="w"> </span><span class="se">\</span>
-<span class="w">   </span>--input<span class="w"> </span>path/to/mml_exports.py<span class="w"> </span><span class="se">\</span>
+<span class="w">   </span>--input<span class="w"> </span>path/to/mml_exports.py:MML_ao_SR<span class="w"> </span><span class="se">\</span>
 <span class="w">   </span>--output<span class="w"> </span>data/channel_databases/middle_layer.json
 </pre></div>
 </div>
@@ -586,16 +587,15 @@ osprey<span class="w"> </span>channel-finder<span class="w"> </span>web<span cla
 <span class="w">  </span><span class="nt">pipelines</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">in_context</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="nv">template</span><span class="p p-Indicator">,</span><span class="nt"> path</span><span class="p">:</span><span class="w"> </span><span class="nv">data/channel_databases/in_context.json</span><span class="p p-Indicator">}</span>
-<span class="w">      </span><span class="nt">processing</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">chunk_dictionary</span><span class="p">:</span><span class="w"> </span><span class="nv">false</span><span class="p p-Indicator">,</span><span class="nt"> chunk_size</span><span class="p">:</span><span class="w"> </span><span class="nv">50</span><span class="p p-Indicator">}</span>
 <span class="w">    </span><span class="nt">hierarchical</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="nv">hierarchical</span><span class="p p-Indicator">,</span><span class="nt"> path</span><span class="p">:</span><span class="w"> </span><span class="nv">data/channel_databases/hierarchical.json</span><span class="p p-Indicator">}</span>
 <span class="w">    </span><span class="nt">middle_layer</span><span class="p">:</span>
 <span class="w">      </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="nv">middle_layer</span><span class="p p-Indicator">,</span><span class="nt"> path</span><span class="p">:</span><span class="w"> </span><span class="nv">data/channel_databases/middle_layer.json</span><span class="p p-Indicator">}</span>
 <span class="w">  </span><span class="nt">benchmark</span><span class="p">:</span>
 <span class="w">    </span><span class="nt">dataset_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/benchmarks/queries.json</span>
-<span class="nt">benchmark</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">execution</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">max_concurrent_queries</span><span class="p">:</span><span class="w"> </span><span class="nv">5</span><span class="p p-Indicator">}</span>
-<span class="w">  </span><span class="nt">output</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">results_dir</span><span class="p">:</span><span class="w"> </span><span class="nv">data/benchmarks/results</span><span class="p p-Indicator">}</span>
+<span class="w">    </span><span class="c1"># Concurrency and output dir are set per run via CLI flags</span>
+<span class="w">    </span><span class="c1"># (osprey channel-finder benchmark --concurrency / --output-dir);</span>
+<span class="w">    </span><span class="c1"># they are not read from config.yml.</span>
 </pre></div>
 </div>
 </section>
@@ -605,7 +605,8 @@ osprey<span class="w"> </span>channel-finder<span class="w"> </span>web<span cla
 (<code class="docutils literal notranslate"><span class="pre">channel_finder_in_context</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_finder_hierarchical</span></code>,
 <code class="docutils literal notranslate"><span class="pre">channel_finder_middle_layer</span></code>). The active server is selected from
 <code class="docutils literal notranslate"><span class="pre">channel_finder.pipeline_mode</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and wired into the
-agent automatically by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code>. There is no public Python
+agent’s artifacts when you run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> (or <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code>
+after editing the config). There is no public Python
 <code class="docutils literal notranslate"><span class="pre">find_channels(...)</span></code> entry point — drive the resolver from natural
 language via the agent, or invoke the CLI directly:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>generate<span class="w">     </span><span class="c1"># build database from template</span>
