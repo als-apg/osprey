@@ -188,6 +188,37 @@ class TestLoadPanelConfig:
         assert len(custom) == 1
         assert custom[0]["id"] == "my-dash"
 
+    def test_events_panel_is_url_backed_custom(self):
+        """The control-assistant EVENTS panel is URL-backed.
+
+        It must be emitted as a custom panel (carrying url/path/health) so the
+        web terminal renders the iframe tab, not silently collapsed into the
+        builtin `enabled` set where its url is discarded and no frontend tab exists.
+        """
+        with patch(
+            "osprey.utils.workspace.load_osprey_config",
+            return_value={
+                "web": {
+                    "panels": {
+                        "events": {
+                            "label": "EVENTS",
+                            "url": "http://localhost:8020",
+                            "path": "/dashboard",
+                            "health_endpoint": "/health",
+                        }
+                    }
+                }
+            },
+        ):
+            enabled, custom, _default = _load_panel_config()
+        assert "events" not in enabled  # not silently dropped as a builtin
+        events = [p for p in custom if p["id"] == "events"]
+        assert len(events) == 1
+        assert events[0]["url"] == "http://localhost:8020"
+        assert events[0]["path"] == "/dashboard"
+        assert events[0]["healthEndpoint"] == "/health"
+        assert events[0]["label"] == "EVENTS"
+
     def test_config_load_failure(self):
         """Config load failure returns universal panels only."""
         with patch(

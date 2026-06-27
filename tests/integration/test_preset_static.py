@@ -144,19 +144,25 @@ def test_preset_yaml_parses_and_artifacts_resolve(preset_path: Path) -> None:
 
 @pytest.mark.parametrize("preset_path", _all_presets(), ids=lambda p: p.stem)
 def test_preset_web_panels_against_registry(preset_path: Path) -> None:
-    """Every ``web_panels`` entry in a preset must resolve to a built-in panel.
+    """Every ``web_panels`` entry must be a built-in panel or a URL-backed custom panel.
 
-    The runtime registry lives in ``osprey.profiles.web_panels`` and is shared
-    with both the web terminal and the template-manifest validator. A drifted
-    preset entry would render a broken UI tab at runtime.
+    Mirrors the real contract in ``build_profile`` validation: a panel is valid
+    if it is in the shared ``osprey.profiles.web_panels`` registry *or* it is
+    backed by a ``web.panels.<id>.url`` config override (rendered as an iframe
+    tab). A drifted entry that is neither would render a broken UI tab at runtime.
     """
     from osprey.profiles.web_panels import BUILTIN_PANELS
 
     profile = load_profile(preset_path)
-    unknown = [p for p in profile.web_panels if p not in BUILTIN_PANELS]
+    config = getattr(profile, "config", {}) or {}
+    unknown = [
+        p
+        for p in profile.web_panels
+        if p not in BUILTIN_PANELS and f"web.panels.{p}.url" not in config
+    ]
     assert not unknown, (
         f"{preset_path.name} declares unknown web_panels: {unknown} "
-        f"(valid: {sorted(BUILTIN_PANELS)})"
+        f"(valid: built-in {sorted(BUILTIN_PANELS)} or a web.panels.<id>.url override)"
     )
 
 

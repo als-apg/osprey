@@ -58,6 +58,29 @@ class TestRepositoryCRUD:
         assert isinstance(count, int)
         assert count >= 0
 
+    async def test_count_entries_honors_filters(self, repository, seed_entry_factory):
+        """count_entries applies the same filters as search_by_time_range.
+
+        So a filtered Browse listing's total_pages matches the rows returned,
+        instead of counting the whole table. Scoped to a unique source_system
+        so other rows in the shared test database do not bleed in.
+        """
+        base = datetime(2005, 5, 5, tzinfo=UTC)
+        src = "integ-count-src"
+        for i in range(3):
+            await repository.upsert_entry(
+                seed_entry_factory(
+                    entry_id=f"integ-count-{i:03d}",
+                    source_system=src,
+                    author="integ-count-alice" if i == 0 else "integ-count-bob",
+                    timestamp=base + timedelta(hours=i),
+                )
+            )
+
+        assert await repository.count_entries(source_system=src) == 3
+        assert await repository.count_entries(source_system=src, author="integ-count-alice") == 1
+        assert await repository.count_entries(source_system="integ-count-nope") == 0
+
     async def test_get_entries_by_ids_empty_list(self, repository):
         """Test get_entries_by_ids with empty list returns empty list."""
         results = await repository.get_entries_by_ids([])
@@ -117,6 +140,66 @@ class TestRepositoryTimeRange:
 
         results = await repository.search_by_time_range(limit=2)
         assert len(results) <= 2
+
+    async def test_search_by_time_range_filters_by_author(self, repository, seed_entry_factory):
+        """search_by_time_range filters by author when supplied."""
+        base = datetime(2002, 2, 2, tzinfo=UTC)
+        await repository.upsert_entry(
+            seed_entry_factory(entry_id="integ-auth-alice", author="integ-alice", timestamp=base)
+        )
+        await repository.upsert_entry(
+            seed_entry_factory(entry_id="integ-auth-bob", author="integ-bob", timestamp=base)
+        )
+
+        results = await repository.search_by_time_range(author="integ-alice", limit=100)
+
+        entry_ids = [e["entry_id"] for e in results]
+        assert "integ-auth-alice" in entry_ids
+        assert "integ-auth-bob" not in entry_ids
+
+    async def test_search_by_time_range_filters_by_source_system(
+        self, repository, seed_entry_factory
+    ):
+        """search_by_time_range filters by source_system when supplied."""
+        base = datetime(2003, 3, 3, tzinfo=UTC)
+        await repository.upsert_entry(
+            seed_entry_factory(entry_id="integ-src-als", source_system="integ-ALS", timestamp=base)
+        )
+        await repository.upsert_entry(
+            seed_entry_factory(
+                entry_id="integ-src-other", source_system="integ-OTHER", timestamp=base
+            )
+        )
+
+        results = await repository.search_by_time_range(source_system="integ-ALS", limit=100)
+
+        entry_ids = [e["entry_id"] for e in results]
+        assert "integ-src-als" in entry_ids
+        assert "integ-src-other" not in entry_ids
+
+    async def test_search_by_time_range_offset_paginates(self, repository, seed_entry_factory):
+        """offset advances the page so older entries become reachable.
+
+        Scoped to a unique source_system so other rows in the shared test
+        database do not bleed into the assertions.
+        """
+        base = datetime(2004, 4, 4, tzinfo=UTC)
+        src = "integ-offset-src"
+        for i in range(3):
+            await repository.upsert_entry(
+                seed_entry_factory(
+                    entry_id=f"integ-offset-{i:03d}",
+                    source_system=src,
+                    timestamp=base + timedelta(hours=i),  # 002 newest, 000 oldest
+                    raw_text=f"offset entry {i}",
+                )
+            )
+
+        page1 = await repository.search_by_time_range(source_system=src, limit=2, offset=0)
+        page2 = await repository.search_by_time_range(source_system=src, limit=2, offset=2)
+
+        assert [e["entry_id"] for e in page1] == ["integ-offset-002", "integ-offset-001"]
+        assert [e["entry_id"] for e in page2] == ["integ-offset-000"]
 
 
 class TestRepositoryHealth:

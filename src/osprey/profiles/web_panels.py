@@ -16,8 +16,13 @@ BUILTIN_PANELS: set[str] = {
     "tuning",
     "channel-finder",
     "lattice",
-    "events",  # event-dispatcher dashboard (control-assistant); URL-backed, see preset
 }
+
+# The event-dispatcher dashboard (``events``) is intentionally NOT a builtin: it
+# is a URL-backed custom panel (the control-assistant preset sets
+# ``web.panels.events.url`` to the dispatcher's ``/dashboard``). Listing it here
+# would make ``_load_panel_config`` discard that url and the frontend has no
+# builtin ``events`` tab, so the tab would never render.
 
 # Frontend fallback when a profile/config doesn't pin a default tab.
 # The web terminal opens this tab first on cold load.

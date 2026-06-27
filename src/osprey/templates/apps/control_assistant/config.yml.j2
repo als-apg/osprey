@@ -180,10 +180,6 @@ control_system:
     enabled: true
     database_path: "data/channel_limits.json"
     allow_unlisted_channels: true  # Permissive mode for tutorial
-    on_violation: "skip"   # Options: "error" | "skip" (DEFAULT)
-                           # - error: Strict - ANY violation blocks entire operation
-                           # - skip: Resilient - skip invalid writes, continue with valid ones
-                           # Production: "skip" recommended for multi-channel operations
 
   # Write Verification Configuration
   # Configures how channel writes are verified for accuracy

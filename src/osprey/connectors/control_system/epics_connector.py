@@ -104,8 +104,33 @@ class EPICSConnector(ControlSystemConnector):
                 "pyepics is required for EPICS connector. Install with: pip install pyepics"
             ) from None
 
-        # Extract gateway configuration
-        gateway_config = config.get("gateways", {}).get("read_only", {})
+        # Select the CA gateway. EPICS uses one process-wide context, so the
+        # connector points at a single gateway. A read-only gateway rejects
+        # writes, so a write-enabled deployment must route through the
+        # write-capable gateway. Defense-in-depth: only use write_access when
+        # writes are enabled, so a read-only deployment also has its writes
+        # rejected at the network layer (reinforcing the writes_enabled switch).
+        from osprey.utils.config import get_config_value
+
+        gateways = config.get("gateways", {})
+        try:
+            writes_enabled = get_config_value("control_system.writes_enabled", False)
+        except (FileNotFoundError, KeyError, RuntimeError):
+            writes_enabled = False  # Can't tell -> assume the safe (read-only) path
+
+        write_gateway = gateways.get("write_access") or {}
+        if writes_enabled and write_gateway:
+            gateway_config = write_gateway
+            logger.debug("EPICS connector: routing through write_access gateway (writes enabled)")
+        else:
+            gateway_config = gateways.get("read_only", {})
+            if writes_enabled and not write_gateway:
+                logger.warning(
+                    "control_system.writes_enabled is true but no gateways.write_access "
+                    "is configured; routing through the read_only gateway, which may "
+                    "reject writes. Configure gateways.write_access to enable hardware writes."
+                )
+
         if gateway_config:
             address = gateway_config.get("address", "")
             port = gateway_config.get("port", 5064)

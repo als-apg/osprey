@@ -278,15 +278,28 @@ async def list_entries(
     service = _require_service(request)
 
     try:
-        total = await service.repository.count_entries()
-
         # Operator-supplied query params are parsed naive by FastAPI; interpret
         # them as facility-local before they hit the TIMESTAMPTZ column.
-        # TODO: add offset pagination when repository supports it
+        local_start = _localize_facility(start_date)
+        local_end = _localize_facility(end_date)
+
+        # Count with the same filters so total_pages reflects the filtered set,
+        # not the whole table.
+        total = await service.repository.count_entries(
+            start=local_start,
+            end=local_end,
+            author=author,
+            source_system=source_system,
+        )
+
+        offset = max(page - 1, 0) * page_size
         entries = await service.repository.search_by_time_range(
-            start=_localize_facility(start_date),
-            end=_localize_facility(end_date),
+            start=local_start,
+            end=local_end,
             limit=page_size,
+            offset=offset,
+            author=author,
+            source_system=source_system,
         )
 
         entry_responses = [_entry_to_response(e) for e in entries]

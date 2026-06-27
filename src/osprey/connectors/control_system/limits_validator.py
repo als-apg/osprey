@@ -45,8 +45,6 @@ class LimitsValidator:
         self.limits = limits_database
         self.policy = policy_config
         self._raw_db = raw_db  # Keep raw database for verification config access
-        # Validation behavior: "error" (raise exception) or "skip" (return False, log warning)
-        self.on_violation = policy_config.get("on_violation", "error")
 
     @classmethod
     def from_config(cls):
@@ -84,10 +82,6 @@ class LimitsValidator:
             policy = {
                 "allow_unlisted_channels": get_config_value(
                     "control_system.limits_checking.allow_unlisted_channels", False
-                ),
-                "on_violation": get_config_value(
-                    "control_system.limits_checking.on_violation",
-                    "skip",  # Default to skip for resilience
                 ),
             }
 
@@ -148,12 +142,17 @@ class LimitsValidator:
         if not hasattr(self, "_raw_db") or self._raw_db is None:
             return None, None
 
-        # Get raw channel config
-        raw_config = self._raw_db.get(channel_address)
-        if not raw_config or "verification" not in raw_config:
+        # Get raw channel config; fall back to the 'defaults' block's
+        # verification when the channel does not declare its own.
+        raw_config = self._raw_db.get(channel_address) or {}
+        verif = raw_config.get("verification")
+        if verif is None:
+            defaults_config = self._raw_db.get(DEFAULTS_FIELD, {})
+            if isinstance(defaults_config, dict):
+                verif = defaults_config.get("verification")
+        if verif is None:
             return None, None
 
-        verif = raw_config["verification"]
         level = verif.get("level", "callback")
 
         # Calculate tolerance (only for readback level)
@@ -267,6 +266,7 @@ class LimitsValidator:
                 )
 
             # Validate 'defaults' field if present
+            defaults_config: dict = {}
             if DEFAULTS_FIELD in raw_db:
                 defaults_config = raw_db[DEFAULTS_FIELD]
                 if not isinstance(defaults_config, dict):
@@ -304,13 +304,19 @@ class LimitsValidator:
                     # Validate configuration structure
                     LimitsValidator._validate_channel_config(channel_name, config_dict)
 
+                    # Merge the 'defaults' block under the channel's own config so
+                    # the channel inherits any default field it does not override.
+                    # Shallow merge: the channel's own keys take precedence, and a
+                    # channel that declares 'verification' replaces it wholesale.
+                    merged = {**defaults_config, **config_dict}
+
                     # Create validated config object
                     config = ChannelLimitsConfig(
                         channel_address=channel_name,
-                        min_value=config_dict.get("min_value"),
-                        max_value=config_dict.get("max_value"),
-                        max_step=config_dict.get("max_step"),
-                        writable=config_dict.get("writable", True),
+                        min_value=merged.get("min_value"),
+                        max_value=merged.get("max_value"),
+                        max_step=merged.get("max_step"),
+                        writable=merged.get("writable", True),
                     )
 
                     # Log performance warning for max_step

@@ -188,6 +188,28 @@ def test_list_entries_endpoint(client, mock_ariel_service):
     assert "total_pages" in data
 
 
+def test_list_entries_passes_pagination_and_filters(client, mock_ariel_service):
+    """list_entries forwards offset (derived from page) and author/source filters
+    to the repository, instead of silently dropping page/author/source_system."""
+    mock_ariel_service.repository.count_entries = AsyncMock(return_value=100)
+    mock_ariel_service.repository.search_by_time_range = AsyncMock(return_value=[])
+
+    response = client.get("/api/entries?page=3&page_size=20&author=alice&source_system=ALS")
+
+    assert response.status_code == 200
+    _args, kwargs = mock_ariel_service.repository.search_by_time_range.call_args
+    assert kwargs["limit"] == 20
+    assert kwargs["offset"] == 40  # (page - 1) * page_size
+    assert kwargs["author"] == "alice"
+    assert kwargs["source_system"] == "ALS"
+
+    # total_pages must reflect the filtered set, so count_entries gets the same
+    # author/source filters (not an unfiltered whole-table count).
+    _cargs, ckwargs = mock_ariel_service.repository.count_entries.call_args
+    assert ckwargs["author"] == "alice"
+    assert ckwargs["source_system"] == "ALS"
+
+
 def test_get_entry_endpoint(client, mock_ariel_service):
     """Test get single entry endpoint."""
     # Mock entry
