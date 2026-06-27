@@ -203,7 +203,7 @@ The web interface discovers its search modes and tunable parameters dynamically 
                           "label": "Fuzzy Fallback",
                           "type": "bool",
                           "default": true,
-                          "section": "Search"
+                          "section": "Options"
                         }
                       ]
                     },
