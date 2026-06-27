@@ -59,8 +59,18 @@ class _IndexFileHandler(FileSystemEventHandler):
             return
         self._handle(event)
 
-    def _handle(self, event: FileSystemEvent) -> None:
-        src_path = Path(event.src_path)
+    def on_moved(self, event: FileSystemEvent) -> None:
+        if event.is_directory:
+            return
+        # Atomic index writes (tempfile + ``os.replace``) arrive as a move whose
+        # destination is the index file — on Linux inotify this is the only
+        # event delivered, never ``on_modified``/``on_created`` — so route on the
+        # destination path.
+        dest_path = getattr(event, "dest_path", "")
+        self._handle(event, path=str(dest_path) if dest_path else None)
+
+    def _handle(self, event: FileSystemEvent, path: str | None = None) -> None:
+        src_path = Path(path) if path is not None else Path(event.src_path)
         filename = src_path.name
 
         if filename not in self._index_configs:
