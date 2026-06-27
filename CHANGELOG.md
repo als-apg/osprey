@@ -13,6 +13,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- `osprey query "<prompt>"` — headless, read-only agent run for CI pipelines; boots the full MCP + tools stack, exits 0 on pass / 1 on verdict fail / 2 on infra error, and supports `--json` for machine-readable output.
 - `osprey skills install osprey-design-philosophy` — bundle OSPREY's design and architecture principles as an installable skill for framework contributors.
 - `scripts/benchmark/` — model-capability benchmark toolchain: runs the model-driving subset of `tests/e2e/` (the tests that route through the model under test) across a model × provider matrix and renders a per-test pass-rate dashboard. The whole run is declared in one config (`scripts/benchmark/matrix.yaml`) — each row names a `provider` and a model `id`, and the launcher (`matrix.py`) resolves credentials, derives the route (proxy for OpenAI-protocol models, direct for Anthropic), wires the LLM judge, and runs one isolated worker per (model, seed) cell. Adding a model — or a new provider such as a local DeepSeek (`ds4`) / Ollama / vLLM server — is a config edit, not a script edit. The provider is never hard-wired (#259).
 - How-to guide for running the Osprey agent on open-weight / self-hosted models and reproducing the model-capability benchmark (`docs/how-to/run-open-models`).

@@ -193,8 +193,12 @@ def _setup_rich_logging(level: int = logging.INFO) -> None:
 
     root_logger.addHandler(handler)
 
-    # Quiet noisy third-party loggers
-    for lib in ["httpx", "httpcore", "requests", "urllib3", "LiteLLM"]:
+    # Quiet noisy third-party loggers. claude_agent_sdk emits an INFO
+    # "Using bundled Claude Code CLI: …" line on stdout (the RichHandler
+    # Console defaults to stdout), which would corrupt `osprey query --json`
+    # machine-readable output; raising it to WARNING keeps that contract clean
+    # while preserving genuine warnings/errors.
+    for lib in ["httpx", "httpcore", "requests", "urllib3", "LiteLLM", "claude_agent_sdk"]:
         logging.getLogger(lib).setLevel(logging.WARNING)
 
 
