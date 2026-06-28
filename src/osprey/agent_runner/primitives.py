@@ -105,18 +105,13 @@ def _resolve_project_spec(project_dir: Path, *, provider: str | None = None) -> 
             config before resolving — used by cross-provider model sweeps in
             the benchmark runner.
     """
-    import yaml  # type: ignore[import-untyped]
+    from osprey.cli.claude_code_resolver import load_provider_spec
 
-    from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
-
-    cfg = yaml.safe_load((project_dir / "config.yml").read_text()) or {}
-    cc_config = cfg.get("claude_code", {})
-    if provider is not None:
-        cc_config = {**cc_config, "provider": provider}
-    spec = ClaudeCodeModelResolver.resolve(
-        cc_config,
-        cfg.get("api", {}).get("providers", {}),
-    )
+    # load_provider_spec reads config.yml and expands ${VAR} in provider config
+    # (e.g. a custom provider's base_url: ${ARGO_PROD_URL}) against an
+    # os.environ + project .env overlay before resolving. The e2e/benchmark
+    # override is applied last so it still wins (and is inert in production).
+    spec = load_provider_spec(project_dir, provider=provider)
     return _apply_e2e_overrides(spec)
 
 

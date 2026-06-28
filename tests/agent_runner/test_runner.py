@@ -384,3 +384,152 @@ async def test_run_query_raises_when_sdk_absent(project_dir: Path) -> None:
     with patch("osprey.agent_runner.runner.HAS_SDK", False):
         with pytest.raises(ImportError, match="claude_agent_sdk is required"):
             await run_query(project_dir, "q", disallowed_tools=[])
+
+
+# ---------------------------------------------------------------------------
+# Translation proxy start for non-native (OpenAI-protocol) providers (#307)
+# ---------------------------------------------------------------------------
+
+
+class _FakeSpec:
+    def __init__(
+        self,
+        *,
+        needs_proxy: bool,
+        auth_env_var: str = "ANTHROPIC_AUTH_TOKEN",
+        upstream_base_url: str | None = "https://argo.example/v1",
+        provider: str = "argo",
+    ) -> None:
+        self.needs_proxy = needs_proxy
+        self.auth_env_var = auth_env_var
+        self.upstream_base_url = upstream_base_url
+        self.provider = provider
+
+
+def _capture(captured: list, async_cm):
+    def _capture_client(options: ClaudeAgentOptions):
+        captured.append(options)
+        return async_cm
+
+    return _capture_client
+
+
+@pytest.mark.asyncio
+async def test_run_query_starts_proxy_for_non_native_provider(project_dir: Path) -> None:
+    """needs_proxy spec → start_proxy(upstream, key-from-env-dict); env repointed to loopback."""
+    async_cm, _ = _make_mock_client()
+    captured: list[ClaudeAgentOptions] = []
+    proxy = MagicMock(return_value=8123)
+    proxy_env = {
+        "CLAUDECODE": "",
+        "ANTHROPIC_BASE_URL": "https://argo.example/v1",
+        "ANTHROPIC_AUTH_TOKEN": "sk-argo",
+    }
+
+    with (
+        patch(
+            "osprey.agent_runner.runner.ClaudeSDKClient", side_effect=_capture(captured, async_cm)
+        ),
+        patch("osprey.agent_runner.runner._await_mcp_ready", new=AsyncMock(return_value=[])),
+        patch("osprey.agent_runner.runner.sdk_env", return_value=proxy_env),
+        patch("osprey.agent_runner.runner.resolve_default_model", return_value="m"),
+        patch(
+            "osprey.agent_runner.runner._resolve_project_spec",
+            return_value=_FakeSpec(needs_proxy=True),
+        ),
+        patch("osprey.agent_runner.runner.start_proxy", proxy),
+        patch("osprey.agent_runner.runner._expected_mcp_servers", return_value=set()),
+    ):
+        await run_query(project_dir, "q", disallowed_tools=[])
+
+    # api_key sourced from the env dict (not os.environ) on this path
+    proxy.assert_called_once_with("https://argo.example/v1", "sk-argo")
+    assert captured[0].env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:8123"
+
+
+@pytest.mark.asyncio
+async def test_run_query_warns_when_proxy_auth_token_missing(project_dir: Path, caplog) -> None:
+    """Proxy needed but auth token absent from env → warn (else it surfaces as a 401)."""
+    import logging
+
+    async_cm, _ = _make_mock_client()
+    proxy = MagicMock(return_value=8123)
+    # ANTHROPIC_BASE_URL present (proxy will start) but no ANTHROPIC_AUTH_TOKEN.
+    proxy_env = {"CLAUDECODE": "", "ANTHROPIC_BASE_URL": "https://argo.example/v1"}
+
+    with (
+        patch("osprey.agent_runner.runner.ClaudeSDKClient", return_value=async_cm),
+        patch("osprey.agent_runner.runner._await_mcp_ready", new=AsyncMock(return_value=[])),
+        patch("osprey.agent_runner.runner.sdk_env", return_value=proxy_env),
+        patch("osprey.agent_runner.runner.resolve_default_model", return_value="m"),
+        patch(
+            "osprey.agent_runner.runner._resolve_project_spec",
+            return_value=_FakeSpec(needs_proxy=True, provider="argo"),
+        ),
+        patch("osprey.agent_runner.runner.start_proxy", proxy),
+        patch("osprey.agent_runner.runner._expected_mcp_servers", return_value=set()),
+        caplog.at_level(logging.WARNING, logger="osprey.agent_runner.runner"),
+    ):
+        await run_query(project_dir, "q", disallowed_tools=[])
+
+    # Proxy still starts (best-effort), but the user is warned about auth.
+    proxy.assert_called_once()
+    assert any(
+        "ANTHROPIC_AUTH_TOKEN" in r.message and "argo" in r.message
+        for r in caplog.records
+        if r.levelno == logging.WARNING
+    ), "expected a warning naming the missing auth var and provider"
+
+
+@pytest.mark.asyncio
+async def test_run_query_no_proxy_for_native_provider(project_dir: Path) -> None:
+    """A native spec (needs_proxy=False) starts no proxy and leaves the base URL alone."""
+    async_cm, _ = _make_mock_client()
+    captured: list[ClaudeAgentOptions] = []
+    proxy = MagicMock(return_value=9999)
+    native_env = {"CLAUDECODE": "", "ANTHROPIC_BASE_URL": "https://api.cborg.lbl.gov"}
+
+    with (
+        patch(
+            "osprey.agent_runner.runner.ClaudeSDKClient", side_effect=_capture(captured, async_cm)
+        ),
+        patch("osprey.agent_runner.runner._await_mcp_ready", new=AsyncMock(return_value=[])),
+        patch("osprey.agent_runner.runner.sdk_env", return_value=native_env),
+        patch("osprey.agent_runner.runner.resolve_default_model", return_value="m"),
+        patch(
+            "osprey.agent_runner.runner._resolve_project_spec",
+            return_value=_FakeSpec(needs_proxy=False),
+        ),
+        patch("osprey.agent_runner.runner.start_proxy", proxy),
+        patch("osprey.agent_runner.runner._expected_mcp_servers", return_value=set()),
+    ):
+        await run_query(project_dir, "q", disallowed_tools=[])
+
+    proxy.assert_not_called()
+    assert captured[0].env["ANTHROPIC_BASE_URL"] == "https://api.cborg.lbl.gov"
+
+
+@pytest.mark.asyncio
+async def test_run_query_no_proxy_when_base_url_absent(project_dir: Path) -> None:
+    """needs_proxy spec but no ANTHROPIC_BASE_URL in env → no KeyError, no proxy."""
+    async_cm, _ = _make_mock_client()
+    captured: list[ClaudeAgentOptions] = []
+    proxy = MagicMock(return_value=1)
+
+    with (
+        patch(
+            "osprey.agent_runner.runner.ClaudeSDKClient", side_effect=_capture(captured, async_cm)
+        ),
+        patch("osprey.agent_runner.runner._await_mcp_ready", new=AsyncMock(return_value=[])),
+        patch("osprey.agent_runner.runner.sdk_env", return_value={"CLAUDECODE": ""}),
+        patch("osprey.agent_runner.runner.resolve_default_model", return_value="m"),
+        patch(
+            "osprey.agent_runner.runner._resolve_project_spec",
+            return_value=_FakeSpec(needs_proxy=True),
+        ),
+        patch("osprey.agent_runner.runner.start_proxy", proxy),
+        patch("osprey.agent_runner.runner._expected_mcp_servers", return_value=set()),
+    ):
+        await run_query(project_dir, "q", disallowed_tools=[])
+
+    proxy.assert_not_called()

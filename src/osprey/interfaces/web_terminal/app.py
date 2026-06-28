@@ -364,15 +364,13 @@ def _create_lifespan(
             logger.warning("Claude Code artifact regen on launch failed", exc_info=True)
 
         # ── Provider env injection ──
-        from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver, inject_provider_env
+        from osprey.cli.claude_code_resolver import inject_provider_env, load_provider_spec
 
         if app.state.config_path:
-            _cfg = yaml.safe_load(Path(app.state.config_path).read_text()) or {}
-            _cc = _cfg.get("claude_code", {})
-            _api = _cfg.get("api", {}).get("providers", {})
-            _spec = ClaudeCodeModelResolver.resolve(_cc, _api)
+            _project_dir = Path(app.state.config_path).parent
+            # load_provider_spec expands ${VAR} in provider config before resolving.
+            _spec = load_provider_spec(_project_dir)
             if _spec:
-                _project_dir = Path(app.state.config_path).parent
                 inject_provider_env(os.environ, _spec, project_dir=_project_dir)
 
                 # Start translation proxy for OpenAI-compatible providers

@@ -286,7 +286,7 @@ def status(project):
     """
     from osprey.cli.claude_code_resolver import (
         AGENT_DEFAULT_TIERS,
-        ClaudeCodeModelResolver,
+        load_provider_spec,
     )
     from osprey.cli.templates.manager import TemplateManager
 
@@ -300,7 +300,6 @@ def status(project):
 
     config = yaml.safe_load(config_file.read_text()) or {}
     claude_code_config = config.get("claude_code", {})
-    api_providers = config.get("api", {}).get("providers", {})
 
     console.print("\n[bold]Claude Code Status[/bold]\n")
 
@@ -314,7 +313,7 @@ def status(project):
         )
     else:
         try:
-            spec = ClaudeCodeModelResolver.resolve(claude_code_config, api_providers)
+            spec = load_provider_spec(project_dir)
         except ValueError as exc:
             console.print(f"[error]Provider error:[/error] {exc}")
             raise SystemExit(1) from exc
@@ -451,8 +450,8 @@ def chat_claude(project, resume, print_mode, effort, no_pin):
 
     # ── Provider isolation: inject env block + auth, scrub managed vars ──
     from osprey.cli.claude_code_resolver import (
-        ClaudeCodeModelResolver,
         inject_provider_env,
+        load_provider_spec,
     )
 
     config_path = project_dir / "config.yml"
@@ -462,8 +461,10 @@ def chat_claude(project, resume, print_mode, effort, no_pin):
         cc_config = config.get("claude_code", {})
         if not effort:
             effort = cc_config.get("effort")
-        api_providers = config.get("api", {}).get("providers", {})
-        spec = ClaudeCodeModelResolver.resolve(cc_config, api_providers)
+        # load_provider_spec re-reads config.yml and expands ${VAR} in provider
+        # config (e.g. a custom provider's base_url: ${ARGO_PROD_URL}) before
+        # resolving — so the proxy below gets a real upstream URL, not a literal.
+        spec = load_provider_spec(project_dir)
         if spec:
             if spec.auth_secret_env and not os.environ.get(spec.auth_secret_env):
                 console.print(

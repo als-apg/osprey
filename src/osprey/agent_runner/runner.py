@@ -12,6 +12,7 @@ for type checking or CLI argument parsing) still succeed.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -42,9 +43,13 @@ from osprey.agent_runner.primitives import (
     _await_mcp_ready,
     _expected_mcp_servers,
     _ingest_tool_result,
+    _resolve_project_spec,
     resolve_default_model,
     sdk_env,
 )
+from osprey.infrastructure.proxy.lifecycle import start_proxy
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Public entry point
@@ -100,13 +105,38 @@ async def run_query(
 
     resolved_model = model if model is not None else resolve_default_model(project_dir)
 
+    env = sdk_env(project_dir)
+
+    # Non-native (OpenAI-protocol) providers need the in-process translation
+    # proxy: repoint ANTHROPIC_BASE_URL at a loopback proxy that speaks
+    # Anthropic to the SDK and the provider's protocol upstream. The proxy auth
+    # token lives in the env dict here (provider_env_for_project injected it),
+    # not os.environ — see the os.environ-delivery variant in claude_cmd. The
+    # ANTHROPIC_BASE_URL guard mirrors claude_cmd so a base_url-less provider
+    # can't KeyError. In production this never fights the e2e proxy override:
+    # run_query is production-only; the e2e harness uses run_sdk_query.
+    spec = _resolve_project_spec(project_dir)
+    if spec and spec.needs_proxy and env.get("ANTHROPIC_BASE_URL"):
+        auth_token = env.get(spec.auth_env_var)
+        if not auth_token:
+            # Mirror claude_cmd's pre-flight auth warning: a missing token here
+            # otherwise surfaces only as an opaque proxy 401 mid-query.
+            logger.warning(
+                "Auth token %s missing for provider '%s' — proxied requests may "
+                "fail to authenticate (set the provider secret in the project .env)",
+                spec.auth_env_var,
+                spec.provider,
+            )
+        port = start_proxy(env["ANTHROPIC_BASE_URL"], auth_token)
+        env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
+
     options = ClaudeAgentOptions(
         model=resolved_model,
         cwd=str(project_dir),
         permission_mode="bypassPermissions",
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
-        env=sdk_env(project_dir),
+        env=env,
         setting_sources=["project"],
         disallowed_tools=disallowed_tools,
     )

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 import yaml
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from zoneinfo import ZoneInfo
 
 # Use standard logging (not get_logger) to avoid circular imports with logger.py
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger("CONFIG")
 
 
-def resolve_env_vars(data: Any) -> Any:
+def resolve_env_vars(data: Any, *, environ: "Mapping[str, str] | None" = None) -> Any:
     """Recursively resolve environment variables in configuration data.
 
     Supports both simple and bash-style default value syntax:
@@ -39,7 +40,15 @@ def resolve_env_vars(data: Any) -> Any:
     This is the public, standalone version of ConfigBuilder._resolve_env_vars.
     Use it when you need env-var resolution without a full ConfigBuilder
     instance (e.g., after a raw ``yaml.safe_load``).
+
+    Args:
+        data: The config data (dict/list/str/scalar) to resolve.
+        environ: Optional mapping to resolve ``${VAR}`` against instead of the
+            process environment. Lets callers expand against an
+            ``os.environ`` + ``.env`` overlay without mutating global state
+            (e.g. the Claude Code provider loader). Defaults to ``os.environ``.
     """
+    lookup = os.environ if environ is None else environ
     raw_server_envs: dict[str, dict] = {}
     if isinstance(data, dict):
         cc = data.get("claude_code")
@@ -50,9 +59,11 @@ def resolve_env_vars(data: Any) -> Any:
                     raw_server_envs[name] = copy.deepcopy(spec["env"])
 
     if isinstance(data, dict):
-        resolved: Any = {key: resolve_env_vars(value) for key, value in data.items()}
+        resolved: Any = {
+            key: resolve_env_vars(value, environ=lookup) for key, value in data.items()
+        }
     elif isinstance(data, list):
-        return [resolve_env_vars(item) for item in data]
+        return [resolve_env_vars(item, environ=lookup) for item in data]
     elif isinstance(data, str):
 
         def replace_env_var(match):
@@ -63,7 +74,7 @@ def resolve_env_vars(data: Any) -> Any:
                 var_name = match.group(3)
                 default_value = None
 
-            env_value = os.environ.get(var_name)
+            env_value = lookup.get(var_name)
             # Match bash :- semantics: empty string triggers default too
             if env_value is None or (not env_value and default_value is not None):
                 if default_value is not None:

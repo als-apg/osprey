@@ -1,7 +1,9 @@
 """Model provider resolution for Claude Code agent deployments.
 
 Maps canonical model tiers (haiku/sonnet/opus) to provider-specific model IDs
-and generates the env block for settings.json. Pure Python, no I/O.
+and generates the env block for settings.json. ``ClaudeCodeModelResolver`` does
+no file or network I/O; the ``load_provider_spec`` and ``inject_provider_env``
+helpers in this module do read ``config.yml`` / ``.env`` from disk.
 
 Design: model IDs are owned by the provider and live in ``api.providers``
 in config.yml.  ``CLAUDE_CODE_PROVIDERS`` defines only the auth pattern,
@@ -13,6 +15,7 @@ design.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -132,6 +135,72 @@ def inject_provider_env(
         environ[spec.auth_env_var] = secret
 
     return sorted(spec.env_block.keys())
+
+
+def load_provider_spec(
+    project_dir: Path,
+    *,
+    provider: str | None = None,
+) -> ClaudeCodeModelSpec | None:
+    """Read ``config.yml``, expand ``${VAR}`` placeholders, and resolve the spec.
+
+    This is the single chokepoint that resolves environment-variable
+    placeholders (e.g. a custom provider's ``base_url: ${ARGO_PROD_URL}``)
+    before handing the config to the pure :class:`ClaudeCodeModelResolver`.
+    Expansion uses an ``os.environ`` + project ``.env`` overlay (``.env``
+    wins, mirroring :func:`inject_provider_env`) and never mutates global
+    ``os.environ`` — preserving SDK env-isolation and benchmark
+    cross-provider-sweep safety.
+
+    Use this anywhere a ``${VAR}`` in a custom provider's ``base_url`` is
+    consumed at *runtime* (the CLI chat/status paths, the SDK runner, the
+    web-terminal lifespan, the dispatch worker). Callsites that stay on the
+    pure :class:`ClaudeCodeModelResolver` do so on purpose: the template-render
+    paths (``templates/claude_code.py``, ``templates/manager.py``) want the
+    literal ``${VAR}`` written into ``settings.json`` for deferred runtime
+    expansion, and the model-id-only readers (``benchmarks/sdk.py``,
+    ``channel_finder_in_context/server_context.py``) consume only
+    ``tier_to_model`` wire ids, which never contain ``${VAR}``. See
+    ``benchmarks/backends/react_backend.py`` for the one genuine deferral.
+
+    Args:
+        project_dir: Path to an initialized OSPREY project (contains config.yml).
+        provider: When given, overrides ``claude_code.provider`` in the loaded
+            config before resolving — used by cross-provider model sweeps.
+
+    Returns:
+        Resolved :class:`ClaudeCodeModelSpec` with ``${VAR}`` expanded in both
+        ``env_block['ANTHROPIC_BASE_URL']`` and ``upstream_base_url``, or
+        ``None`` when no provider is configured.
+    """
+    import yaml
+
+    from osprey.utils.config import resolve_env_vars
+
+    project_dir = Path(project_dir)
+    raw = yaml.safe_load((project_dir / "config.yml").read_text()) or {}
+
+    # Build an os.environ + .env overlay (.env wins) WITHOUT mutating os.environ.
+    lookup: dict[str, str] = dict(os.environ)
+    env_file = project_dir / ".env"
+    if env_file.is_file():
+        try:
+            from dotenv import dotenv_values
+
+            for key, value in dotenv_values(env_file).items():
+                if value is not None:
+                    lookup[key] = value
+        except ImportError:
+            pass
+
+    cfg = resolve_env_vars(raw, environ=lookup)
+    cc_config = cfg.get("claude_code", {})
+    if provider is not None:
+        cc_config = {**cc_config, "provider": provider}
+    return ClaudeCodeModelResolver.resolve(
+        cc_config,
+        cfg.get("api", {}).get("providers", {}),
+    )
 
 
 @dataclass(frozen=True)

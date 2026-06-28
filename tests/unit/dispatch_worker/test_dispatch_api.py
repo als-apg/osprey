@@ -9,8 +9,10 @@ SDK and tests never assert a timing-dependent terminal status.
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -434,3 +436,61 @@ def test_unconfigured_worker_token_fails_closed_500(monkeypatch):
         resp = c.get("/dispatch/some-id", headers={"Authorization": "Bearer anything"})
     assert resp.status_code == 500
     assert "DISPATCH_WORKER_TOKEN" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# _inject_provider_env_once: ${VAR} expansion + proxy-start for the worker (#307)
+# ---------------------------------------------------------------------------
+
+_ARGO_CONFIG = """\
+api:
+  providers:
+    argo:
+      base_url: ${ARGO_PROD_URL}
+claude_code:
+  provider: argo
+"""
+
+_CBORG_CONFIG = """\
+claude_code:
+  provider: cborg
+"""
+
+
+def _isolated_environ(monkeypatch, tmp_path, **extra):
+    """Swap os.environ for a throwaway dict so the function's mutations don't leak."""
+    fake = dict(os.environ)
+    fake["OSPREY_PROJECT_DIR"] = str(tmp_path)
+    fake.pop("ANTHROPIC_BASE_URL", None)
+    fake.update(extra)
+    monkeypatch.setattr(os, "environ", fake)
+    return fake
+
+
+def test_inject_provider_env_expands_and_starts_proxy(tmp_path, monkeypatch):
+    """Custom provider: ${VAR} base_url is expanded, proxy started, base URL repointed."""
+    (tmp_path / "config.yml").write_text(_ARGO_CONFIG)
+    (tmp_path / ".env").write_text("ARGO_PROD_URL=https://argo.example/v1\nARGO_API_KEY=sk-argo\n")
+    fake = _isolated_environ(monkeypatch, tmp_path)
+    proxy = MagicMock(return_value=7777)
+    monkeypatch.setattr("osprey.infrastructure.proxy.lifecycle.start_proxy", proxy)
+
+    dispatch_api._inject_provider_env_once()
+
+    proxy.assert_called_once()
+    upstream, api_key = proxy.call_args[0]
+    assert upstream == "https://argo.example/v1"
+    assert api_key == "sk-argo"
+    assert fake["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:7777"
+
+
+def test_inject_provider_env_no_proxy_for_native(tmp_path, monkeypatch):
+    """Native provider (cborg): env injected but no translation proxy started."""
+    (tmp_path / "config.yml").write_text(_CBORG_CONFIG)
+    _isolated_environ(monkeypatch, tmp_path, CBORG_API_KEY="sk-cborg")
+    proxy = MagicMock(return_value=1)
+    monkeypatch.setattr("osprey.infrastructure.proxy.lifecycle.start_proxy", proxy)
+
+    dispatch_api._inject_provider_env_once()
+
+    proxy.assert_not_called()

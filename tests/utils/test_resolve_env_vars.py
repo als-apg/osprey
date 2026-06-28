@@ -91,3 +91,47 @@ class TestResolveEnvVars:
         monkeypatch.setenv("OSPREY_QUIET", "1")
         result = resolve_env_vars("${UNSET_VAR}")
         assert result == "${UNSET_VAR}"
+
+
+class TestResolveEnvVarsWithEnviron:
+    """resolve_env_vars(data, environ=...) expands against a supplied mapping."""
+
+    def test_resolves_brace_var_from_environ(self):
+        """${VAR} resolves from the passed mapping, not os.environ."""
+        result = resolve_env_vars("${ARGO_PROD_URL}", environ={"ARGO_PROD_URL": "https://argo"})
+        assert result == "https://argo"
+
+    def test_resolves_bare_dollar_var_from_environ(self):
+        """$VAR resolves from the passed mapping."""
+        result = resolve_env_vars("$ARGO", environ={"ARGO": "https://argo"})
+        assert result == "https://argo"
+
+    def test_resolves_nested_dict_from_environ(self):
+        """Nested-dict ${VAR} keys resolve from the passed mapping."""
+        data = {"api": {"providers": {"argo": {"base_url": "${ARGO_PROD_URL}"}}}}
+        result = resolve_env_vars(data, environ={"ARGO_PROD_URL": "https://argo"})
+        assert result == {"api": {"providers": {"argo": {"base_url": "https://argo"}}}}
+
+    def test_default_check_uses_environ(self):
+        """${VAR:-default} with empty value in the mapping uses the default."""
+        assert resolve_env_vars("${X:-fallback}", environ={"X": ""}) == "fallback"
+        assert resolve_env_vars("${X:-fallback}", environ={"X": "set"}) == "set"
+
+    def test_does_not_read_os_environ_when_environ_given(self, monkeypatch):
+        """A var present in os.environ but absent from the mapping is NOT used."""
+        monkeypatch.setenv("ONLY_IN_OS", "from-os")
+        monkeypatch.setenv("OSPREY_QUIET", "1")
+        result = resolve_env_vars("${ONLY_IN_OS}", environ={})
+        assert result == "${ONLY_IN_OS}"
+
+    def test_preserves_server_env_blocks_with_environ(self):
+        """claude_code.servers.*.env stays verbatim even when environ is given."""
+        data = {
+            "claude_code": {
+                "servers": {"controls": {"env": {"KEY": "${SHOULD_NOT_EXPAND}"}}},
+                "provider": "${P}",
+            }
+        }
+        result = resolve_env_vars(data, environ={"SHOULD_NOT_EXPAND": "leaked", "P": "argo"})
+        assert result["claude_code"]["servers"]["controls"]["env"]["KEY"] == "${SHOULD_NOT_EXPAND}"
+        assert result["claude_code"]["provider"] == "argo"
