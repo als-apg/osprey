@@ -448,9 +448,7 @@ async def test_run_query_starts_proxy_for_non_native_provider(project_dir: Path)
 
 
 @pytest.mark.asyncio
-async def test_run_query_warns_when_proxy_auth_token_missing(
-    project_dir: Path, caplog
-) -> None:
+async def test_run_query_warns_when_proxy_auth_token_missing(project_dir: Path, caplog) -> None:
     """Proxy needed but auth token absent from env → warn (else it surfaces as a 401)."""
     import logging
 
