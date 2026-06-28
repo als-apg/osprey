@@ -137,3 +137,46 @@ def test_sdk_env_merges_provider_block(tmp_path: Path, monkeypatch: pytest.Monke
     assert env["CLAUDECODE"] == ""
     assert env["CBORG_API_KEY"] == "sk-cborg-secret"
     assert env["ANTHROPIC_BASE_URL"]  # provider env block merged in
+
+
+# ---------------------------------------------------------------------------
+# ${VAR} expansion for custom / non-native providers (#307)
+# ---------------------------------------------------------------------------
+
+_ARGO_CONFIG = """\
+api:
+  providers:
+    argo:
+      base_url: ${ARGO_PROD_URL}
+claude_code:
+  provider: argo
+"""
+
+
+def test_custom_provider_base_url_expanded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A custom provider's ${VAR} base_url is expanded (not passed literally)."""
+    monkeypatch.delenv("ARGO_PROD_URL", raising=False)
+    (tmp_path / "config.yml").write_text(_ARGO_CONFIG)
+    (tmp_path / ".env").write_text("ARGO_PROD_URL=https://argo.example/v1\nARGO_API_KEY=sk-argo\n")
+
+    env = provider_env_for_project(tmp_path)
+
+    assert env["ANTHROPIC_BASE_URL"] == "https://argo.example/v1"
+    assert "${ARGO_PROD_URL}" not in env["ANTHROPIC_BASE_URL"]
+
+
+def test_native_provider_env_block_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression: a literal-URL native config still resolves to the exact
+    same env block as the raw resolver — locks the e2e no-op guarantee."""
+    from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
+
+    _write_config(tmp_path, "cborg")
+    monkeypatch.setenv("CBORG_API_KEY", "sk-cborg-secret")
+
+    env = provider_env_for_project(tmp_path)
+    direct = ClaudeCodeModelResolver.resolve({"provider": "cborg", "model": "haiku"}, {})
+
+    for key, value in direct.env_block.items():
+        assert env[key] == value

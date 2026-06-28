@@ -109,17 +109,31 @@ def _inject_provider_env_once() -> None:
     try:
         from pathlib import Path
 
-        import yaml
+        from osprey.cli.claude_code_resolver import inject_provider_env, load_provider_spec
 
-        from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver, inject_provider_env
-
-        cfg = yaml.safe_load(Path(config_path).read_text()) or {}
-        cc = cfg.get("claude_code", {})
-        api_providers = cfg.get("api", {}).get("providers", {})
-        spec = ClaudeCodeModelResolver.resolve(cc, api_providers)
+        # load_provider_spec expands ${VAR} in provider config (e.g. a custom
+        # provider's base_url: ${ARGO_PROD_URL}) against the container-mounted
+        # /app/project/.env before resolving.
+        spec = load_provider_spec(Path(project_dir))
         if spec:
             injected = inject_provider_env(os.environ, spec, project_dir=Path(project_dir))
             logger.info("Provider env injected: %s (provider=%s)", injected, spec.provider)
+
+            # Non-native (OpenAI-protocol) providers need the in-process
+            # translation proxy. Deliver via os.environ (matching claude_cmd)
+            # because sdk_runner.build_clean_env copies os.environ into the SDK
+            # env; the in-container proxy thread is reachable by the SDK CLI.
+            # The ANTHROPIC_BASE_URL guard mirrors claude_cmd so a base_url-less
+            # provider can't KeyError.
+            if spec.needs_proxy and os.environ.get("ANTHROPIC_BASE_URL"):
+                from osprey.infrastructure.proxy.lifecycle import start_proxy
+
+                port = start_proxy(
+                    os.environ["ANTHROPIC_BASE_URL"],
+                    os.environ.get(spec.auth_env_var),
+                )
+                os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
+                logger.info("Translation proxy on :%d (provider=%s)", port, spec.provider)
         else:
             logger.warning("No provider configured in config.yml")
     except Exception:

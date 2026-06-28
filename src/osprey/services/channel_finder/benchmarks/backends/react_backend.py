@@ -40,6 +40,15 @@ def _resolve_litellm_endpoint(project_dir: Path, provider: str) -> dict | None:
 
     Returns ``None`` for ollama (already handled by ``_litellm_call_kwargs``)
     and for direct Anthropic (LiteLLM's default routing is correct).
+
+    NOTE (#307 follow-up): this benchmark-only path still does a raw
+    ``yaml.safe_load`` + ``ClaudeCodeModelResolver.resolve`` and so does NOT
+    expand ``${VAR}`` placeholders in a custom provider's ``base_url``. The
+    model matrix uses native literal-URL providers, so this is deferred rather
+    than switched to ``load_provider_spec`` — the contract differs (synthetic
+    ``{"provider": provider}`` config + litellm ``api_base``). Migrate to
+    ``load_provider_spec`` if a ``${VAR}``-based custom provider is ever
+    benchmarked.
     """
     if provider == "ollama":
         return None
