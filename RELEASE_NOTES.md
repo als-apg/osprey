@@ -1,18 +1,21 @@
-# Osprey Framework - Latest Release (v2026.6.1)
+# Osprey Framework - Latest Release (v2026.6.2)
 
-**Event dispatch & facility knowledge: turn external events into headless agent runs, serve subsystem knowledge to the agent on demand, and ship composable, data-driven simulation scenarios**
+**Open & self-hosted model support: run the OSPREY agent on any OpenAI-protocol model — open-weight or self-hosted, remote or local — as a configuration change, with a new model-capability benchmark; plus facility-timezone unification, ARIEL logbook publishing fixes, and hardening.**
 
 ## Highlights
 
-- **Event dispatch (opt-in).** A new `osprey.dispatch` server + dispatch worker turn external events (webhooks, cron) into headless agent runs, with a live dashboard, bearer-token-gated endpoints, per-trigger tool allowlists, and a server-side shell/web denylist. The `control-assistant` preset ships four control-system-free tutorial triggers; surfaced as an in-terminal **EVENTS** tab in `osprey web`.
-- **Facility Knowledge (OKF).** A structured markdown bundle (`osprey_facility_knowledge` MCP server) for on-demand retrieval of subsystem descriptions, device details, and operational procedures; `facility.md` thins to identity-only and deep content is fetched by the agent on demand. New `facility-knowledge` subagent and `osprey knowledge` CLI.
-- **Composable simulation scenarios.** Self-contained scenario bundles (telemetry + logbook narrative) under `data/simulation/scenarios/`, composed and applied via the new `osprey sim` CLI so the narrative the agent searches matches the telemetry it reads.
-- **Build & config fixes.** `osprey build` no longer crashes when a profile removes agents and disables the MCP server they depended on (#266); the hello-world tutorial now launches via `osprey claude chat` so the configured provider is actually used (#261).
+- **Open & self-hosted models.** Run the OSPREY agent on any OpenAI-protocol model — open-weight or self-hosted, remote or local — as a configuration change, not a code change. The agent speaks the Anthropic Messages API and a local translation proxy that OSPREY starts automatically reaches OpenAI-compatible endpoints; `provider=ds4` (local DeepSeek) now resolves in the `control_assistant` and `hello_world` presets. New how-to guide: *Run Open & Local Models* (#296, #297).
+- **Model-capability benchmark.** A declarative `scripts/benchmark/` toolchain runs the model-driving subset of the e2e suite across a model × provider matrix and renders a per-test pass-rate dashboard. The whole run is one config — each row names a provider and a model `id`, and the launcher resolves credentials, derives the route (proxy for OpenAI-protocol, direct for Anthropic), and runs one isolated worker per cell. Adding a model or provider is a config edit (#259).
+- **Facility-timezone unification.** All agent-facing timestamps — archiver queries, live channel reads, simulated events, ARIEL logbook entries, executed-script run times — now share one configurable `system.timezone`, rendered with explicit UTC offsets; operator-provided times ("today", "14:32") are read as facility-local. Shipped presets pin `system.timezone: UTC` for reproducible runs (#286).
+- **ARIEL logbook publishing.** Web entries (including those with attachments) now publish through the facility adapter with proper credential handling — a logbook that needs credentials returns HTTP 401 and the form prompts instead of silently saving local-only — and ARIEL-only attachments are no longer erased by a later re-ingestion poll (#291).
+- **Headless CI runs.** `osprey query "<prompt>"` performs a read-only agent run for CI pipelines: it boots the full MCP + tools stack, exits 0 on pass / 1 on verdict fail / 2 on infra error, and supports `--json` for machine-readable output (#298).
 
 ## Notable changes
 
-- `claude-agent-sdk` upgraded to 0.2.101.
-- **BREAKING:** the mock archiver no longer emits the built-in Sector-7 vacuum-burst and RF cavity-C1 thermal demo events from hard-coded source — that physics is now data-driven. Ship it as a scenario bundle (e.g. the `control-assistant` preset's `vacuum-burst` / `rf-thermal`). Without a `simulation_file`, the mock archiver synthesizes only generic per-PV waveforms.
+- `claude-agent-sdk` upgraded to 0.2.106 (bundles CLI 2.1.185) (#278).
+- The EPICS connector now routes Channel Access writes through the configured `gateways.write_access` gateway when `control_system.writes_enabled` is true, falling back to `gateways.read_only` otherwise — reinforcing the writes-enabled master switch at the network layer (#304).
+- The channel-limits `defaults` block is now actually inherited, so a `defaults: {writable: false}` lockdown takes effect; the non-functional `on_violation` knob was removed (limit enforcement is unconditional and fail-closed).
+- `osprey skills install osprey-design-philosophy` bundles OSPREY's design principles as an installable skill for contributors (#284).
 
 ## Installation
 
