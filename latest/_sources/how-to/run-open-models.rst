@@ -76,14 +76,14 @@ edit, not a script edit.
 The dashboard derives every count from the run data at render time — it never
 hard-codes a number, so it stays honest as the suite grows.
 
-.. admonition:: Benchmark snapshot — OSPREY 2026.6.1 (interim)
+.. admonition:: Benchmark snapshot — OSPREY v2026.6.2
    :class: important
 
-   Interim figures, measured against the current ``2026.6.1`` line — **not** the
-   pinned ``v2026.6.2`` release run. They are provisional and will be replaced by
-   a clean full-matrix re-run once ``v2026.6.2`` is tagged.
+   Pass rates for the open and self-hosted models below, measured on the
+   model-driving subset of the e2e suite; single-seed Anthropic columns are a
+   control/ceiling reference.
 
-   - **Measured against:** OSPREY ``2026.6.1``
+   - **Measured against:** OSPREY ``v2026.6.2``
    - **Run:** 2026-06-25 · open subjects via CBORG · Anthropic reference columns via als-apg · ``deepseek-v4`` self-hosted on a Mac Studio (keyless ``ds4`` server, single seed)
    - **Scope:** the model-driving subset of ``tests/e2e/`` — 36 tests per seed
    - **Scoring:** pass rate = passed / (passed + failed + timeout); a timeout counts as a failure (the model did not finish within the 1800s cap). Mean is over completed seeds.

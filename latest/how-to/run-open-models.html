@@ -534,12 +534,12 @@ scripts/benchmark/matrix_dashboard.py<span class="w"> </span>--results-dir<span 
 <p>The dashboard derives every count from the run data at render time — it never
 hard-codes a number, so it stays honest as the suite grows.</p>
 <div class="important admonition">
-<p class="admonition-title">Benchmark snapshot — OSPREY 2026.6.1 (interim)</p>
-<p>Interim figures, measured against the current <code class="docutils literal notranslate"><span class="pre">2026.6.1</span></code> line — <strong>not</strong> the
-pinned <code class="docutils literal notranslate"><span class="pre">v2026.6.2</span></code> release run. They are provisional and will be replaced by
-a clean full-matrix re-run once <code class="docutils literal notranslate"><span class="pre">v2026.6.2</span></code> is tagged.</p>
+<p class="admonition-title">Benchmark snapshot — OSPREY v2026.6.2</p>
+<p>Pass rates for the open and self-hosted models below, measured on the
+model-driving subset of the e2e suite; single-seed Anthropic columns are a
+control/ceiling reference.</p>
 <ul class="simple">
-<li><p><strong>Measured against:</strong> OSPREY <code class="docutils literal notranslate"><span class="pre">2026.6.1</span></code></p></li>
+<li><p><strong>Measured against:</strong> OSPREY <code class="docutils literal notranslate"><span class="pre">v2026.6.2</span></code></p></li>
 <li><p><strong>Run:</strong> 2026-06-25 · open subjects via CBORG · Anthropic reference columns via als-apg · <code class="docutils literal notranslate"><span class="pre">deepseek-v4</span></code> self-hosted on a Mac Studio (keyless <code class="docutils literal notranslate"><span class="pre">ds4</span></code> server, single seed)</p></li>
 <li><p><strong>Scope:</strong> the model-driving subset of <code class="docutils literal notranslate"><span class="pre">tests/e2e/</span></code> — 36 tests per seed</p></li>
 <li><p><strong>Scoring:</strong> pass rate = passed / (passed + failed + timeout); a timeout counts as a failure (the model did not finish within the 1800s cap). Mean is over completed seeds.</p></li>
