@@ -161,6 +161,7 @@ async def terminal_ws(websocket: WebSocket):
         rows=initial_rows,
         cols=initial_cols,
         extra_env=extra_env if extra_env else None,
+        cwd=websocket.app.state.project_cwd,
     )
     registry.attach_session(current_key)
 
@@ -256,6 +257,7 @@ async def terminal_ws(websocket: WebSocket):
                                 rows=initial_rows,
                                 cols=initial_cols,
                                 extra_env=target_env if target_env else None,
+                                cwd=websocket.app.state.project_cwd,
                             )
                             registry.attach_session(target_id)
 

@@ -84,6 +84,41 @@ class TestPtySession:
         finally:
             session.terminate()
 
+    def test_start_with_cwd(self, tmp_path):
+        """Child process must run in the supplied working directory.
+
+        Regression for #313: `osprey web --project X` launched from another
+        directory must spawn the terminal's Claude with cwd=X so it finds
+        X/.mcp.json. Without threading cwd into the PTY spawn, the child
+        inherits the launch dir and starts zero MCP servers.
+        """
+        import select
+
+        target = tmp_path / "project"
+        target.mkdir()
+
+        session = PtySession("/bin/sh")
+        session.start(cwd=str(target))
+        try:
+            session.write_input(b"pwd -P\n")
+
+            output = b""
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                r, _, _ = select.select([session._master_fd], [], [], 0.1)
+                if r:
+                    try:
+                        chunk = os.read(session._master_fd, 4096)
+                        output += chunk
+                        if os.path.realpath(target).encode() in output:
+                            break
+                    except OSError:
+                        break
+
+            assert os.path.realpath(target).encode() in output
+        finally:
+            session.terminate()
+
     def test_exit_code_none_while_running(self):
         session = PtySession("/bin/sh")
         session.start()
@@ -348,5 +383,65 @@ class TestPtyRegistry:
                         break
 
             assert b"test_value_12345" in output
+        finally:
+            registry.cleanup_all()
+
+    def test_create_session_passes_cwd(self, tmp_path):
+        """create_session forwards cwd to the child (operator/test path)."""
+        import select
+
+        target = tmp_path / "proj"
+        target.mkdir()
+
+        registry = PtyRegistry()
+        try:
+            session = registry.create_session("test-cwd", "/bin/sh", cwd=str(target))
+            session.write_input(b"pwd -P\n")
+
+            output = b""
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                r, _, _ = select.select([session._master_fd], [], [], 0.1)
+                if r:
+                    try:
+                        chunk = os.read(session._master_fd, 4096)
+                        output += chunk
+                        if os.path.realpath(target).encode() in output:
+                            break
+                    except OSError:
+                        break
+
+            assert os.path.realpath(target).encode() in output
+        finally:
+            registry.cleanup_all()
+
+    def test_get_or_create_session_passes_cwd(self, tmp_path):
+        """get_or_create_session (interactive terminal path, #313) forwards cwd."""
+        import select
+
+        target = tmp_path / "proj"
+        target.mkdir()
+
+        registry = PtyRegistry()
+        try:
+            session, _reused = registry.get_or_create_session(
+                "term-cwd", "/bin/sh", cwd=str(target)
+            )
+            session.write_input(b"pwd -P\n")
+
+            output = b""
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                r, _, _ = select.select([session._master_fd], [], [], 0.1)
+                if r:
+                    try:
+                        chunk = os.read(session._master_fd, 4096)
+                        output += chunk
+                        if os.path.realpath(target).encode() in output:
+                            break
+                    except OSError:
+                        break
+
+            assert os.path.realpath(target).encode() in output
         finally:
             registry.cleanup_all()

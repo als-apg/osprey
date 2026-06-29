@@ -40,6 +40,7 @@ class PtySession:
         initial_rows: int = 24,
         initial_cols: int = 80,
         extra_env: dict[str, str] | None = None,
+        cwd: str | None = None,
     ) -> None:
         """Spawn the shell process attached to a new PTY.
 
@@ -47,6 +48,11 @@ class PtySession:
             initial_rows: Initial terminal row count (default 24).
             initial_cols: Initial terminal column count (default 80).
             extra_env: Additional environment variables to set in the child process.
+            cwd: Working directory for the child process. When set, the spawned
+                process runs in this directory so Claude Code resolves
+                ``.mcp.json`` (and config/.env) relative to the project rather
+                than the launch directory (issue #313). When ``None`` the child
+                inherits the parent's cwd.
         """
         master_fd, slave_fd = pty.openpty()
 
@@ -107,6 +113,7 @@ class PtySession:
             stderr=slave_fd,
             preexec_fn=_child_preexec,
             env=env,
+            cwd=cwd,
         )
 
         # Close slave in parent — only the child uses it
@@ -245,8 +252,14 @@ class PtyRegistry:
         rows: int = 24,
         cols: int = 80,
         extra_env: dict[str, str] | None = None,
+        cwd: str | None = None,
     ) -> tuple[PtySession, bool]:
         """Get existing session or create a new one.
+
+        Args:
+            cwd: Working directory for the spawned process (issue #313). Only
+                used when a new session is created; reused live sessions keep
+                the directory they were spawned in.
 
         Returns:
             (session, was_reused) — True if an existing live session was reattached.
@@ -266,7 +279,7 @@ class PtyRegistry:
         # Evict if at capacity
         self._evict_lru()
 
-        session = self._spawn_session(command, rows, cols, extra_env)
+        session = self._spawn_session(command, rows, cols, extra_env, cwd)
         self._sessions[session_key] = session
         return session, False
 
@@ -319,10 +332,11 @@ class PtyRegistry:
         rows: int,
         cols: int,
         extra_env: dict[str, str] | None,
+        cwd: str | None = None,
     ) -> PtySession:
         """Create and start a new PtySession."""
         session = PtySession(command)
-        session.start(initial_rows=rows, initial_cols=cols, extra_env=extra_env)
+        session.start(initial_rows=rows, initial_cols=cols, extra_env=extra_env, cwd=cwd)
         return session
 
     # ---- Session methods (kept for operator sessions and tests) ---- #
@@ -334,13 +348,19 @@ class PtyRegistry:
         initial_rows: int = 24,
         initial_cols: int = 80,
         extra_env: dict[str, str] | None = None,
+        cwd: str | None = None,
     ) -> PtySession:
         """Create and start a new PTY session."""
         if session_id in self._sessions:
             self._sessions[session_id].terminate()
 
         session = PtySession(shell_command)
-        session.start(initial_rows=initial_rows, initial_cols=initial_cols, extra_env=extra_env)
+        session.start(
+            initial_rows=initial_rows,
+            initial_cols=initial_cols,
+            extra_env=extra_env,
+            cwd=cwd,
+        )
         self._sessions[session_id] = session
         return session
 
