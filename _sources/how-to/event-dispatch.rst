@@ -179,6 +179,25 @@ a container, repoint it at the dispatcher service:
 
    EVENT_DISPATCHER_URL=http://event-dispatcher:8020
 
+Auto-derived URL
+----------------
+
+You do not have to set ``web.panels.events.url`` by hand. Whenever a profile
+lists the ``events`` panel **and** declares a ``dispatch:`` block, the build
+derives the panel's route from ``dispatch.dispatcher_port``:
+
+.. code-block:: yaml
+
+   web.panels.events.url: http://localhost:<dispatcher_port>   # bare host
+   web.panels.events.path: /dashboard                          # route
+
+The ``url`` is the bare dispatcher host and ``path`` carries the ``/dashboard``
+route — the web terminal composes the backend target as ``url`` + ``path``, so
+baking ``/dashboard`` into ``url`` would double-prefix sub-routes. Keep them
+split. If a profile already pins ``web.panels.events.path`` the build leaves it
+untouched, and an explicit ``web.panels.events.url`` override always wins (use it
+for remote/containerized terminals that cannot reach ``localhost``).
+
 Authoring Triggers
 ==================
 

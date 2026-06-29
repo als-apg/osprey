@@ -1047,6 +1047,22 @@ a container, repoint it at the dispatcher service:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nv">EVENT_DISPATCHER_URL</span><span class="o">=</span>http://event-dispatcher:8020
 </pre></div>
 </div>
+<section id="auto-derived-url">
+<h3>Auto-derived URL<a class="headerlink" href="#auto-derived-url" title="Link to this heading">#</a></h3>
+<p>You do not have to set <code class="docutils literal notranslate"><span class="pre">web.panels.events.url</span></code> by hand. Whenever a profile
+lists the <code class="docutils literal notranslate"><span class="pre">events</span></code> panel <strong>and</strong> declares a <code class="docutils literal notranslate"><span class="pre">dispatch:</span></code> block, the build
+derives the panel’s route from <code class="docutils literal notranslate"><span class="pre">dispatch.dispatcher_port</span></code>:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web.panels.events.url</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http://localhost:&lt;dispatcher_port&gt;</span><span class="w">   </span><span class="c1"># bare host</span>
+<span class="nt">web.panels.events.path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/dashboard</span><span class="w">                          </span><span class="c1"># route</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">url</span></code> is the bare dispatcher host and <code class="docutils literal notranslate"><span class="pre">path</span></code> carries the <code class="docutils literal notranslate"><span class="pre">/dashboard</span></code>
+route — the web terminal composes the backend target as <code class="docutils literal notranslate"><span class="pre">url</span></code> + <code class="docutils literal notranslate"><span class="pre">path</span></code>, so
+baking <code class="docutils literal notranslate"><span class="pre">/dashboard</span></code> into <code class="docutils literal notranslate"><span class="pre">url</span></code> would double-prefix sub-routes. Keep them
+split. If a profile already pins <code class="docutils literal notranslate"><span class="pre">web.panels.events.path</span></code> the build leaves it
+untouched, and an explicit <code class="docutils literal notranslate"><span class="pre">web.panels.events.url</span></code> override always wins (use it
+for remote/containerized terminals that cannot reach <code class="docutils literal notranslate"><span class="pre">localhost</span></code>).</p>
+</section>
 </section>
 <section id="authoring-triggers">
 <h2>Authoring Triggers<a class="headerlink" href="#authoring-triggers" title="Link to this heading">#</a></h2>
@@ -1177,7 +1193,10 @@ handoff.</p>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#bring-it-up">Bring It Up</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#fire-a-trigger">Fire a Trigger</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-events-panel">The EVENTS Panel</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-events-panel">The EVENTS Panel</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#auto-derived-url">Auto-derived URL</a></li>
+</ul>
+</li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#authoring-triggers">Authoring Triggers</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#authentication">Authentication</a></li>
 </ul>
