@@ -420,23 +420,13 @@ class TestGetCallerInfo:
         assert "line_number" in caller_info
         assert "module" in caller_info
 
-    def test_extracts_class_name_from_method(self):
-        """Test extraction of class name from method call."""
-        from osprey.models.logging import _api_call_context, _get_caller_info
 
-        # Clear context to force stack inspection
-        _api_call_context.set(None)
-
-        class TestClassForInspection:
-            def test_method(self):
-                return _get_caller_info()
-
-        instance = TestClassForInspection()
-        caller_info = instance.test_method()
-
-        # May or may not capture class depending on stack depth
-        # Just verify we got valid caller info
-        assert "function" in caller_info
+# Note: a former test_extracts_class_name_from_method was removed — it was
+# vacuous. _get_caller_info() unconditionally skips stack frames 0-2, so the
+# method frame holding `self` (always frame 1 for a direct call) can never be
+# selected, making the class-extraction branch unreachable from a test without
+# refactoring production code. Its only assertion ("function" in caller_info)
+# duplicates test_falls_back_to_stack_inspection above.
 
 
 # =============================================================================
