@@ -212,7 +212,7 @@ jobs:
       run: uv sync --extra dev
 
     - name: Cache uv project-venv downloads
-      uses: actions/cache@v5
+      uses: actions/cache@v6
       with:
         path: ~/.cache/uv
         key: uv-buildboot-${{ runner.os }}-${{ hashFiles('uv.lock') }}
