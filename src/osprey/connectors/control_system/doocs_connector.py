@@ -41,7 +41,6 @@ class DOOCSConnector(ControlSystemConnector):
     def __init__(self):
         self._connected: bool = False
         self._subscriptions: dict[str, Any] = {}
-        self._timeout: float = 5.0
 
     async def connect(self, config: dict[str, Any]) -> None:
         """
