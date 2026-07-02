@@ -1,0 +1,39 @@
+{
+  "$description": "Web-terminal-only extension tokens: CRT-effect gates and the ASCII welcome modal's own muted-sage palette. Structured as top-level dark/light groups (one hop into core.json primitives, mirroring tokens/themes/*.json) — NOT semantic tokens, so they're namespaced --wt-* on emission. Source: web_terminal/static/css/variables.css + theme-light.css.",
+  "dark": {
+    "wt-crt": {
+      "scanline-opacity": { "$value": "1", "$type": "number" },
+      "vignette-opacity": { "$value": "1", "$type": "number" },
+      "glow-opacity": { "$value": "1", "$type": "number" },
+      "bezel-shadow": { "$value": "inset 0 2px 4px rgba(0, 0, 0, 0.5)", "$type": "shadow" },
+      "scanline-bg": { "$value": "repeating-linear-gradient(0deg, transparent 2px, rgba(0, 0, 0, 0.03) 4px)", "$type": "string" }
+    },
+    "wt-welcome": {
+      "bg": { "$value": "{color.slate.1100}", "$type": "color" },
+      "text": { "$value": "{color.green.200}", "$type": "color" },
+      "text-glow": { "$value": "0 0 8px rgba(126, 200, 160, 0.25)", "$type": "shadow", "$description": "Composite text-shadow embedding green.200's rgb triplet at 25% alpha; kept literal (no one-hop alias expresses 'primitive + alpha')." },
+      "link": { "$value": "{color.green.600}", "$type": "color" },
+      "link-hover": { "$value": "{color.green.100}", "$type": "color" },
+      "prompt": { "$value": "{color.green.500}", "$type": "color" },
+      "cursor": { "$value": "{color.green.200}", "$type": "color" }
+    }
+  },
+  "light": {
+    "wt-crt": {
+      "scanline-opacity": { "$value": "0", "$type": "number" },
+      "vignette-opacity": { "$value": "0", "$type": "number" },
+      "glow-opacity": { "$value": "0", "$type": "number" },
+      "bezel-shadow": { "$value": "none", "$type": "shadow" },
+      "scanline-bg": { "$value": "none", "$type": "string" }
+    },
+    "wt-welcome": {
+      "bg": { "$value": "{color.slate.150}", "$type": "color", "$description": "Equals bg.primary (light) — welcome modal has no CRT vignette in light mode, so it just matches the page background." },
+      "text": { "$value": "{color.teal.500}", "$type": "color" },
+      "text-glow": { "$value": "none", "$type": "shadow" },
+      "link": { "$value": "{color.teal.400}", "$type": "color" },
+      "link-hover": { "$value": "{color.teal.700}", "$type": "color" },
+      "prompt": { "$value": "{color.teal.400}", "$type": "color" },
+      "cursor": { "$value": "{color.teal.500}", "$type": "color" }
+    }
+  }
+}

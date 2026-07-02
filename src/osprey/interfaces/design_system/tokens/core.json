@@ -1,0 +1,142 @@
+{
+  "$description": "OSPREY design system primitives. Theme-independent; never emitted as CSS custom properties directly. Referenced one-hop by tokens/themes/*.json and tokens/interfaces/*.json via {color.family.step} aliases. Color ramp steps are NOT a synthetic mathematical scale — each step is a literal hex value that already exists somewhere in the six interfaces' hand-maintained CSS/JS (variables.css, theme-light.css, theme.js XTERM_PALETTES, gallery.js, plots.js, dashboard.js). Step numbers only encode relative lightness (low = light, high = dark) so the ramp is monotonic; gaps between steps are intentional and reflect the real distinct values in use, not a uniform interval.",
+  "color": {
+    "slate": {
+      "$description": "Neutral/background/text family. 22 steps because dark-mode and light-mode each accumulated their own hand-tuned bg/text/border shades over time; every step below is a distinct literal from web-terminal's variables.css + theme-light.css (canonical) or theme.js ANSI black/white slots.",
+      "50": { "$value": "#fafbfd", "$type": "color", "$description": "bg.terminal (light)" },
+      "100": { "$value": "#f8fafc", "$type": "color", "$description": "terminal.ansi.bright-white (dark)" },
+      "150": { "$value": "#f7f9fc", "$type": "color", "$description": "bg.primary (light)" },
+      "200": { "$value": "#f2f5fa", "$type": "color", "$description": "bg.panel (light)" },
+      "250": { "$value": "#f1f5f9", "$type": "color", "$description": "text.primary (dark)" },
+      "300": { "$value": "#eef2f7", "$type": "color", "$description": "bg.secondary (light)" },
+      "350": { "$value": "#e4e9f0", "$type": "color", "$description": "bg.elevated (light); terminal.ansi.black (light)" },
+      "400": { "$value": "#e2e8f0", "$type": "color", "$description": "terminal.ansi.white (dark)" },
+      "450": { "$value": "#d1d8e3", "$type": "color", "$description": "border.default (light, solid)" },
+      "500": { "$value": "#c8d6e5", "$type": "color", "$description": "terminal.text (dark)" },
+      "550": { "$value": "#94a3b8", "$type": "color", "$description": "tint.neutral base (dark); terminal.ansi.bright-black (light)" },
+      "600": { "$value": "#8b9ab5", "$type": "color", "$description": "text.secondary (dark); chart.axis-text / chart.grid base (dark)" },
+      "650": { "$value": "#64748b", "$type": "color", "$description": "text.muted (dark+light, identical); tint.neutral base (light)" },
+      "700": { "$value": "#374155", "$type": "color", "$description": "text.secondary (light)" },
+      "750": { "$value": "#1e293b", "$type": "color", "$description": "terminal.text (light); terminal.ansi.white (light)" },
+      "800": { "$value": "#1a2332", "$type": "color", "$description": "bg.elevated (dark); terminal.ansi.black (dark)" },
+      "850": { "$value": "#111a2e", "$type": "color", "$description": "bg.secondary (dark)" },
+      "900": { "$value": "#0e1525", "$type": "color", "$description": "bg.panel (dark)" },
+      "950": { "$value": "#0c1322", "$type": "color", "$description": "text.primary (light); terminal.ansi.bright-white (light)" },
+      "1000": { "$value": "#0a0f1a", "$type": "color", "$description": "bg.primary (dark)" },
+      "1050": { "$value": "#050a10", "$type": "color", "$description": "bg.terminal (dark)" },
+      "1100": { "$value": "#020408", "$type": "color", "$description": "wt-welcome.bg (dark), darkest slate step" }
+    },
+    "teal": {
+      "$description": "OSPREY accent family (fleet-wide accent color per user decision). Includes web-terminal's --color-accent/--color-accent-light plus the ANSI cyan slots (xterm cyan literally is the teal accent).",
+      "50": { "$value": "#67e8f9", "$type": "color", "$description": "terminal.ansi.bright-cyan (dark)" },
+      "100": { "$value": "#4fd1c5", "$type": "color", "$description": "accent.light (dark); terminal.cursor (dark); terminal.ansi.cyan (dark)" },
+      "300": { "$value": "#319795", "$type": "color", "$description": "accent.base (dark)" },
+      "400": { "$value": "#0a8f8c", "$type": "color", "$description": "accent.base (light); terminal.cursor (light); terminal.ansi.bright-cyan (light)" },
+      "500": { "$value": "#0d7377", "$type": "color", "$description": "accent.light (light); terminal.ansi.cyan (light)" },
+      "700": { "$value": "#065f5c", "$type": "color", "$description": "wt-welcome.link-hover (light)" }
+    },
+    "amber": {
+      "$description": "Decorative amber accent + warning status family. Dark/light diverge because light-theme amber uses a deeper shade for on-light contrast.",
+      "100": { "$value": "#e8c9a0", "$type": "color", "$description": "amber.light (dark)" },
+      "200": { "$value": "#fbbf24", "$type": "color", "$description": "terminal.ansi.bright-yellow (dark)" },
+      "250": { "$value": "#eab308", "$type": "color", "$description": "lattice LED computing status (single-use, dashboard.css --led-computing)" },
+      "300": { "$value": "#d4a574", "$type": "color", "$description": "amber.base (dark)" },
+      "400": { "$value": "#f59e0b", "$type": "color", "$description": "status.warning (dark); terminal.ansi.yellow (dark); terminal.ansi.bright-yellow (light)" },
+      "500": { "$value": "#e08e00", "$type": "color", "$description": "amber.hover (dark)" },
+      "600": { "$value": "#d97706", "$type": "color", "$description": "status.warning (light); terminal.ansi.yellow (light)" },
+      "700": { "$value": "#c07a00", "$type": "color", "$description": "amber.hover (light)" },
+      "800": { "$value": "#a07040", "$type": "color", "$description": "amber.base (light)" },
+      "900": { "$value": "#7a5530", "$type": "color", "$description": "amber.light (light)" }
+    },
+    "red": {
+      "$description": "Error/danger status family.",
+      "100": { "$value": "#f87171", "$type": "color", "$description": "terminal.ansi.bright-red (dark)" },
+      "300": { "$value": "#ef4444", "$type": "color", "$description": "status.error (dark); terminal.ansi.red (dark); terminal.ansi.bright-red (light)" },
+      "500": { "$value": "#dc2626", "$type": "color", "$description": "status.error-hover (dark); status.error (light); terminal.ansi.red (light)" },
+      "700": { "$value": "#b91c1c", "$type": "color", "$description": "status.error-hover (light)" }
+    },
+    "green": {
+      "$description": "Success status family plus the welcome-modal's muted sage-green accents (dark theme only — light theme's welcome modal reuses the teal family instead, preserved as-is from source).",
+      "100": { "$value": "#a0e8c0", "$type": "color", "$description": "wt-welcome.link-hover (dark)" },
+      "200": { "$value": "#7ec8a0", "$type": "color", "$description": "wt-welcome.text / wt-welcome.cursor (dark)" },
+      "300": { "$value": "#4ade80", "$type": "color", "$description": "terminal.ansi.bright-green (dark)" },
+      "400": { "$value": "#22c55e", "$type": "color", "$description": "status.success (dark); terminal.ansi.green (dark); terminal.ansi.bright-green (light)" },
+      "500": { "$value": "#5a9a7a", "$type": "color", "$description": "wt-welcome.prompt (dark)" },
+      "600": { "$value": "#5a8a7a", "$type": "color", "$description": "wt-welcome.link (dark)" },
+      "700": { "$value": "#16a34a", "$type": "color", "$description": "status.success (light); terminal.ansi.green (light)" },
+      "800": { "$value": "#15803d", "$type": "color", "$description": "diff.word-add-text (light, solid)" }
+    },
+    "blue": {
+      "$description": "ANSI blue family (also tuning's LHS scatter trace color).",
+      "100": { "$value": "#60a5fa", "$type": "color", "$description": "terminal.ansi.bright-blue (dark)" },
+      "300": { "$value": "#3b82f6", "$type": "color", "$description": "terminal.ansi.blue (dark); terminal.ansi.bright-blue (light); tuning COLORS.lhs" },
+      "500": { "$value": "#2563eb", "$type": "color", "$description": "terminal.ansi.blue (light)" }
+    },
+    "violet": {
+      "$description": "ANSI magenta family plus artifacts' memory-domain violet accent (art-violet-* extension tokens).",
+      "100": { "$value": "#b794f4", "$type": "color", "$description": "artifacts --color-violet-light (dark theme)" },
+      "150": { "$value": "#c084fc", "$type": "color", "$description": "terminal.ansi.bright-magenta (dark)" },
+      "200": { "$value": "#9f7aea", "$type": "color", "$description": "artifacts --color-violet (dark theme)" },
+      "300": { "$value": "#a855f7", "$type": "color", "$description": "terminal.ansi.magenta (dark); terminal.ansi.bright-magenta (light)" },
+      "400": { "$value": "#7c5cbf", "$type": "color", "$description": "artifacts --color-violet-dark (dark theme)" },
+      "500": { "$value": "#9333ea", "$type": "color", "$description": "terminal.ansi.magenta (light)" },
+      "550": { "$value": "#7c3aed", "$type": "color", "$description": "artifacts --color-violet (light theme)" },
+      "600": { "$value": "#6d28d9", "$type": "color", "$description": "artifacts --color-violet-light (light theme)" },
+      "700": { "$value": "#5b21b6", "$type": "color", "$description": "artifacts --color-violet-dark (light theme)" }
+    }
+  },
+  "font": {
+    "display": { "$value": "'Outfit', system-ui, sans-serif", "$type": "fontFamily", "$description": "Fleet-wide display/UI font; canon = web-terminal variables.css. ariel/lattice's '--font-sans: Inter' is retired fleet-wide (Task 3.5/3.6 rename usages to this token)." },
+    "mono": { "$value": "'JetBrains Mono', monospace", "$type": "fontFamily", "$description": "Sole monospace stack fleet-wide per user decision. Canon = web-terminal variables.css. Retires artifacts' 'DM Mono' and the richer fallback chains ('Fira Code'/'SF Mono'/Consolas) used elsewhere — those interfaces just get JetBrains Mono now." }
+  },
+  "space": {
+    "$description": "New primitive scale — no interface currently defines --space-* custom properties (each hand-codes pixel values inline). Conventional 4px-based scale for future component use; not extracted from an existing token.",
+    "0": { "$value": "0px", "$type": "dimension" },
+    "1": { "$value": "4px", "$type": "dimension" },
+    "2": { "$value": "8px", "$type": "dimension" },
+    "3": { "$value": "12px", "$type": "dimension" },
+    "4": { "$value": "16px", "$type": "dimension" },
+    "5": { "$value": "24px", "$type": "dimension" },
+    "6": { "$value": "32px", "$type": "dimension" },
+    "7": { "$value": "48px", "$type": "dimension" },
+    "8": { "$value": "64px", "$type": "dimension" }
+  },
+  "radius": {
+    "$description": "Consolidated from observed --radius-* values across interfaces (3px/4px folded into sm=4px; 5px/6px folded into md=6px — a naming/value consolidation, not a visual redesign of any single interface's existing radius since none of these tokens are consumed by Task 1.1).",
+    "none": { "$value": "0px", "$type": "dimension" },
+    "sm": { "$value": "4px", "$type": "dimension" },
+    "md": { "$value": "6px", "$type": "dimension" },
+    "lg": { "$value": "8px", "$type": "dimension" },
+    "xl": { "$value": "12px", "$type": "dimension" },
+    "full": { "$value": "9999px", "$type": "dimension" }
+  },
+  "z": {
+    "$description": "Exact values observed in shipped CSS (web-terminal scaffold.css and others). dropdown < sticky ordering is preserved as-is from source.",
+    "base": { "$value": "0", "$type": "number" },
+    "dropdown": { "$value": "100", "$type": "number" },
+    "sticky": { "$value": "200", "$type": "number" },
+    "overlay": { "$value": "300", "$type": "number" },
+    "modal": { "$value": "400", "$type": "number" },
+    "toast": { "$value": "500", "$type": "number" }
+  },
+  "duration": {
+    "$description": "Observed --transition-*/duration values across interfaces, renamed onto one scale (120ms/150ms both folded to distinct steps since both appear as a 'fast' value in different files).",
+    "instant": { "$value": "120ms", "$type": "duration" },
+    "fast": { "$value": "150ms", "$type": "duration" },
+    "base": { "$value": "200ms", "$type": "duration" },
+    "slow": { "$value": "300ms", "$type": "duration" }
+  },
+  "text": {
+    "$description": "Type-scale PRIMITIVE (font-size steps) — distinct from the semantic color group also named 'text' in tokens/themes/*.json (bg/text/accent/...). No path collision: this lives under core.json's primitive tree and is never emitted as a CSS variable; the semantic 'text.*' color group lives in the theme files and IS emitted (--text-primary etc). Flagged here for the generator/validator author since the shared name is easy to misread. Steps grounded in observed font-size frequency across web-terminal CSS (10px/11px/9px/12px most common); the 7px and 15px singleton outliers are not represented.",
+    "2xs": { "$value": "8px", "$type": "dimension" },
+    "xs": { "$value": "9px", "$type": "dimension" },
+    "sm": { "$value": "10px", "$type": "dimension" },
+    "base": { "$value": "11px", "$type": "dimension" },
+    "md": { "$value": "12px", "$type": "dimension" },
+    "lg": { "$value": "13px", "$type": "dimension" },
+    "xl": { "$value": "14px", "$type": "dimension" },
+    "2xl": { "$value": "16px", "$type": "dimension" },
+    "3xl": { "$value": "18px", "$type": "dimension" },
+    "4xl": { "$value": "32px", "$type": "dimension" }
+  }
+}

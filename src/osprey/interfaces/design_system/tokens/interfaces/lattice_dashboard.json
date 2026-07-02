@@ -1,0 +1,21 @@
+{
+  "$description": "Lattice-dashboard-only extension tokens: status LED colors (lat-led-*). Source: lattice_dashboard/static/dashboard.css lines 21-25. The dashboard currently ships ONE :root block only (no light theme at all — it is being brought into the fleet for the first time by this feature, per PLAN.md Task 3.6's 'full teal harmonization'). Decision: dark and light values are IDENTICAL here since there is no existing light-mode LED convention to preserve; these are small saturated status indicators (non-text UI, not WCAG-gated), so reusing the same value in both modes is a safe default. Task 3.6 (out of this task's scope) may revisit if the harmonization review flags LED legibility on the light background. ready/error/stale already coincide with existing ramp steps (green.400/red.300/amber.400); computing (#eab308) and idle (#4a5264) are genuinely new one-off literals not matched by any ramp step, kept as literals rather than forcing an unused ramp insertion.",
+  "dark": {
+    "lat-led": {
+      "ready": { "$value": "{color.green.400}", "$type": "color" },
+      "computing": { "$value": "#eab308", "$type": "color" },
+      "error": { "$value": "{color.red.300}", "$type": "color" },
+      "stale": { "$value": "{color.amber.400}", "$type": "color" },
+      "idle": { "$value": "#4a5264", "$type": "color" }
+    }
+  },
+  "light": {
+    "lat-led": {
+      "ready": { "$value": "{color.green.400}", "$type": "color" },
+      "computing": { "$value": "#eab308", "$type": "color" },
+      "error": { "$value": "{color.red.300}", "$type": "color" },
+      "stale": { "$value": "{color.amber.400}", "$type": "color" },
+      "idle": { "$value": "#4a5264", "$type": "color" }
+    }
+  }
+}
