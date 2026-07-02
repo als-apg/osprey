@@ -62,8 +62,31 @@ def create_notebook_from_code(
     return notebook
 
 
+# nbconvert's default HTML template links these assets from public CDNs.
+# The gallery serves rendered notebooks inside a sandboxed iframe, and deployed
+# environments have no outbound internet access (a restrictive proxy blocks
+# external hosts), so those loads fail and the notebook renders broken. Every
+# one is an nbconvert HTMLExporter traitlet; blanking them yields self-contained
+# HTML that depends only on the template's inlined CSS. The cost is that inline
+# LaTeX (MathJax), interactive widgets, and Mermaid diagrams are not rendered —
+# but those already fail in the target environment, so this is a strict
+# improvement there, not a regression.
+_EXTERNAL_ASSET_TRAITS = (
+    "mathjax_url",
+    "require_js_url",
+    "jquery_url",
+    "jupyter_widgets_base_url",
+    "widget_renderer_url",
+    "mermaid_js_url",
+    "mermaid_layout_elk_js_url",
+)
+
+
 def render_notebook_to_html(ipynb_path: Path) -> str:
-    """Render a .ipynb file to HTML using nbconvert.
+    """Render a .ipynb file to self-contained HTML using nbconvert.
+
+    The output references no external resources so it renders correctly inside
+    the gallery's sandboxed iframe in offline / proxied deployments.
 
     Args:
         ipynb_path: Path to the .ipynb file.
@@ -76,7 +99,11 @@ def render_notebook_to_html(ipynb_path: Path) -> str:
     with open(ipynb_path) as f:
         nb = nbformat.read(f, as_version=4)
 
-    exporter = HTMLExporter()
+    exporter = HTMLExporter(embed_images=True)
+    for trait in _EXTERNAL_ASSET_TRAITS:
+        if exporter.has_trait(trait):
+            setattr(exporter, trait, "")
+
     html, _ = exporter.from_notebook_node(nb)
     return html
 
