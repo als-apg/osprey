@@ -291,7 +291,13 @@ def test_approval_hook_allow_does_not_override_worker_deny(worker):
     trigger-excluded controls tool."""
     run = dispatch_and_wait(
         worker,
-        "Read the archived history for channel SR:BEAM:CURRENT using the archiver.",
+        # Fully specified so the agent has no reason to ask a clarifying
+        # question instead of attempting the tool call (observed flake: with no
+        # time range the agent asked "what period?" and never touched the tool,
+        # so the deny this test exists to observe never happened).
+        "Call the archiver_read tool NOW for channel SR:BEAM:CURRENT with "
+        "start='2h ago' and end='now'. Do not ask any clarifying questions; "
+        "attempt the tool call immediately and report its result.",
         allowed_tools=["mcp__controls__channel_read"],
     )
 
