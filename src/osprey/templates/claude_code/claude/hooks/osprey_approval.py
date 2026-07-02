@@ -141,7 +141,18 @@ def build_approval_output(reason_detail: str) -> dict:
 
 
 def build_allow_output() -> dict:
-    """Explicit allow decision — overrides static permission lists."""
+    """Explicit allow decision — overrides static permission lists.
+
+    In headless dispatch runs (``OSPREY_DISPATCH_RUN=1``, set by the dispatch
+    worker) this returns ``{}`` — no decision — instead. An explicit allow
+    would override the dispatch worker's per-trigger allowlist hook (CLI
+    hook aggregation is not deny-dominates), silently widening a sandboxed
+    run's tool surface. With no decision emitted, the call falls through to
+    the permission flow, where the worker's own callback rules. Ask and deny
+    outputs are unaffected.
+    """
+    if os.environ.get("OSPREY_DISPATCH_RUN") == "1":
+        return {}
     return {
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",

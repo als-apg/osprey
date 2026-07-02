@@ -21,11 +21,13 @@ try:
     from claude_agent_sdk import (
         AssistantMessage,
         ClaudeAgentOptions,
+        HookMatcher,
         ResultMessage,
         SystemMessage,
         TextBlock,
         ToolResultBlock,
         ToolUseBlock,
+        UserMessage,
         query,
     )
 
@@ -139,9 +141,11 @@ async def run_dispatch(
     # conflicts.  Provider env (auth token, base URL, model tier IDs) is already
     # injected into os.environ by _inject_provider_env_once() at worker startup.
     from osprey.interfaces.web_terminal.operator_session import build_clean_env
-    from osprey.interfaces.web_terminal.sdk_context import (
-        build_system_prompt,
-        make_tool_allowlist,
+    from osprey.interfaces.web_terminal.sdk_context import build_system_prompt
+    from osprey.mcp_server.dispatch_worker.agent_surfaces import parse_project_agents
+    from osprey.mcp_server.dispatch_worker.tool_policy import (
+        make_backstop,
+        make_pretooluse_hook,
     )
     from osprey.utils.config import get_facility_timezone
 
@@ -161,15 +165,47 @@ async def run_dispatch(
     dispatch_home = os.environ.get("HOME", "/home/dispatch")
     sdk_env["CLAUDE_CONFIG_DIR"] = os.path.join(dispatch_home, ".claude")
 
+    # Marks this CLI session as a headless dispatch run for the project's own
+    # hooks: osprey_approval must not emit explicit allow decisions here (CLI
+    # hook aggregation is not deny-dominates, so an allow would override the
+    # trigger-allowlist hook below).
+    sdk_env["OSPREY_DISPATCH_RUN"] = "1"
+
+    # Declared subagent tool surfaces from the provisioned .claude/agents/ —
+    # each subagent is held to exactly its declared tools (web-terminal parity)
+    # without the trigger having to enumerate them.
+    agent_surfaces = parse_project_agents(project_dir)
+    logger.info(
+        "Dispatch tool policy: %d trigger tools, subagent surfaces %s",
+        len(allowed_tools),
+        {name: (len(s) if s is not None else None) for name, s in agent_surfaces.items()},
+    )
+
     # NOTE: do NOT use permission_mode="bypassPermissions" — the CLI short-circuits
     # can_use_tool under bypass, so the allowlist would not be enforced. With the
     # default mode and can_use_tool set, the SDK auto-configures
-    # permission_prompt_tool_name="stdio" (see client.py:122) which routes every
-    # tool permission check to our allowlist callback.
+    # permission_prompt_tool_name="stdio" (see client.py:122) which routes
+    # unresolved permission checks to our backstop callback.
+    #
+    # The PreToolUse hook is the single authority: unlike can_use_tool — which
+    # the CLI never consults for calls already permitted by settings.json
+    # permissions.allow rules — the hook fires for EVERY tool call, including
+    # inside subagents, so project settings cannot widen the trigger's surface.
+    # Exact-name denied tools additionally go to disallowed_tools, which strips
+    # them from the model's context entirely; prefix entries (``server__*``)
+    # become server-level rules (``server``).
+    disallowed = [t for t in denied_tools if not t.endswith("*")] + [
+        t[: -len("__*")] for t in denied_tools if t.endswith("__*")
+    ]
+    # Any-typed so the SDK's HookCallback union (typed against its own
+    # TypedDict inputs) accepts our dict-based callback.
+    policy_hook: Any = make_pretooluse_hook(allowed_tools, agent_surfaces, denied_tools)
     options = ClaudeAgentOptions(
         allowed_tools=allowed_tools,
         system_prompt=build_system_prompt(get_facility_timezone()),
-        can_use_tool=make_tool_allowlist(allowed_tools, denied_tools),
+        can_use_tool=make_backstop(allowed_tools, agent_surfaces, denied_tools),
+        hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[policy_hook])]},
+        disallowed_tools=sorted(disallowed),
         cwd=project_dir,
         env=sdk_env,
         max_turns=max_turns,
@@ -248,9 +284,15 @@ async def run_dispatch(
                     }
                 )
 
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
+            # Tool RESULTS arrive as ToolResultBlock inside UserMessage (the
+            # SDK's message_parser wraps tool_result content that way), while
+            # text and ToolUseBlock arrive in AssistantMessage — handle both so
+            # per-call results (including permission denials) are captured.
+            if isinstance(message, AssistantMessage | UserMessage):
+                msg_content = message.content
+                blocks = msg_content if isinstance(msg_content, list) else []
+                for block in blocks:
+                    if isinstance(block, TextBlock) and isinstance(message, AssistantMessage):
                         text_parts.append(block.text)
                         await _push({"type": "text", "content": block.text})
                     elif isinstance(block, ToolUseBlock):
