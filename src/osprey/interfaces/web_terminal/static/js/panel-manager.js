@@ -394,7 +394,9 @@ async function pollHealth(panel) {
   state.polling = true;
 
   try {
-    const resp = await fetch(`${state.url}/health`, {
+    // Use the panel's configured health endpoint — hardcoding /health only
+    // worked while every panel happened to use it (tiled's is /api/v1/).
+    const resp = await fetch(`${state.url}${panel.healthEndpoint || '/health'}`, {
       signal: AbortSignal.timeout(2000),
     });
     const wasHealthy = state.healthy;
