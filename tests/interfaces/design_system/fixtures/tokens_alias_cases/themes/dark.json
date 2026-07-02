@@ -1,0 +1,12 @@
+{
+  "$extensions": { "id": "dark", "label": "Dark", "mode": "dark" },
+  "bg": {
+    "primary": { "$value": "#0a0f1a", "$type": "color" }
+  },
+  "accent": {
+    "resolved": { "$value": "{color.teal.500}", "$type": "color" },
+    "multihop": { "$value": "{chained.one}", "$type": "color" },
+    "dangling": { "$value": "{color.nonexistent}", "$type": "color" },
+    "not-primitive": { "$value": "{bg.primary}", "$type": "color" }
+  }
+}

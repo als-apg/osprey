@@ -1,0 +1,16 @@
+{
+  "badge": {
+    "accent": {
+      "dark": {
+        "$value": "{color.teal.300}",
+        "$type": "color",
+        "$description": "Extension token, dark-mode value."
+      },
+      "light": {
+        "$value": "{color.teal.500}",
+        "$type": "color",
+        "$description": "Extension token, light-mode value."
+      }
+    }
+  }
+}

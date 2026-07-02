@@ -1,0 +1,22 @@
+{
+  "color": {
+    "teal": {
+      "300": { "$value": "#2dd4bf", "$type": "color" },
+      "500": { "$value": "#14b8a6", "$type": "color" }
+    },
+    "slate": {
+      "900": { "$value": "#0a0f1a", "$type": "color" },
+      "050": { "$value": "#f8fafc", "$type": "color" }
+    }
+  },
+  "font": {
+    "mono": { "$value": "\"JetBrains Mono\", monospace", "$type": "fontFamily" }
+  },
+  "alias": {
+    "brand": {
+      "$value": "{color.teal.500}",
+      "$type": "color",
+      "$description": "One-hop alias within primitives, resolved against itself."
+    }
+  }
+}
