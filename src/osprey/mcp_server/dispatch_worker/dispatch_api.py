@@ -26,6 +26,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 from osprey.mcp_server.dispatch_worker import sdk_runner
+from osprey.utils.tool_rules import matches_denylist
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker")
 
@@ -230,13 +231,7 @@ def _is_denied(tool: str) -> bool:
     every ``mcp__plugin_playwright_playwright__<name>`` tool); all other entries
     match exactly.
     """
-    for entry in DENIED_TOOLS:
-        if entry.endswith("*"):
-            if tool.startswith(entry[:-1]):
-                return True
-        elif tool == entry:
-            return True
-    return False
+    return matches_denylist(tool, DENIED_TOOLS)
 
 
 # ---------------------------------------------------------------------------
