@@ -319,9 +319,15 @@ def _create_lifespan(
         app.state.broadcaster = FileEventBroadcaster()
         app.state.active_panel = None
         # Optional human-readable deployment name shown in the header so
-        # otherwise-identical web terminals are distinguishable. Sourced from
-        # ``web.app_name`` in config.yml; empty/absent ⇒ no label is rendered.
-        app.state.app_name = str((config.get("web") or {}).get("app_name") or "").strip()
+        # otherwise-identical web terminals are distinguishable. The
+        # ``OSPREY_WEB_APP_NAME`` environment variable takes precedence over
+        # ``web.app_name`` in config.yml, so several containers that share one
+        # baked config image can each be named individually via the environment.
+        # Empty/absent ⇒ no label is rendered.
+        app.state.app_name = (
+            os.environ.get("OSPREY_WEB_APP_NAME", "").strip()
+            or str((config.get("web") or {}).get("app_name") or "").strip()
+        )
 
         # Ensure OSPREY_CONFIG is set before any load_osprey_config() call
         if "OSPREY_CONFIG" not in os.environ:

@@ -204,6 +204,11 @@ badge is shown and the header is unchanged.
    web:
      app_name: "Control Room A"
 
+The ``OSPREY_WEB_APP_NAME`` environment variable overrides ``web.app_name`` when
+set. This is useful when several containers share a single baked config image
+but should each display a distinct name — set the variable per container instead
+of rebuilding a config per deployment.
+
 
 Configuration Reference
 -----------------------
