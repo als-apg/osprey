@@ -245,10 +245,13 @@ class TestHeaderAppName:
         # OSPREY_WEB_APP_NAME wins over web.app_name so containers sharing one
         # baked config image can still be named individually.
         cfg = {"watch_dir": str(workspace_dir), "web": {"app_name": "From Config"}}
-        with patch(
-            "osprey.interfaces.web_terminal.app._load_web_config",
-            return_value=cfg,
-        ), patch.dict("os.environ", {"OSPREY_WEB_APP_NAME": "From Env"}):
+        with (
+            patch(
+                "osprey.interfaces.web_terminal.app._load_web_config",
+                return_value=cfg,
+            ),
+            patch.dict("os.environ", {"OSPREY_WEB_APP_NAME": "From Env"}),
+        ):
             app = create_app(shell_command="echo")
             with TestClient(app) as c:
                 assert app.state.app_name == "From Env"
