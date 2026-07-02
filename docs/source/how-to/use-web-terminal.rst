@@ -191,6 +191,20 @@ The ``/api/panel-focus`` endpoint lets MCP tools programmatically switch the
 active panel.
 
 
+Deployment Name
+^^^^^^^^^^^^^^^
+
+Set an optional human-readable name to distinguish otherwise-identical web
+terminals (for example, several deployments sharing the same layout). It is
+rendered as a muted badge on the right of the header. When unset or empty, no
+badge is shown and the header is unchanged.
+
+.. code-block:: yaml
+
+   web:
+     app_name: "Control Room A"
+
+
 Configuration Reference
 -----------------------
 
