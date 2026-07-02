@@ -251,16 +251,16 @@ class DOOCSConnector(ControlSystemConnector):
 
                 verified = False
                 value_to_report = None
+                diff = 0.0
                 # FIXME: Osprey should also support writing strings
                 # Check tolerance if numerical data
-                if isinstance(readback, (float, int)):
+                if isinstance(readback.value, (float, int)):
                     diff = abs(float(readback.value) - float(value))
                     verified = diff <= (tolerance or 0.001)
                     value_to_report = float(readback.value)
 
                 elif isinstance(readback.value, str):
-                    diff = 0.0
-                    verified = value == readback
+                    verified = value == readback.value
                     value_to_report = 0.0
 
                 logger.debug(
