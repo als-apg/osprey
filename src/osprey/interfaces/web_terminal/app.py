@@ -176,6 +176,11 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
                     "url": spec.get("url", ""),
                     "healthEndpoint": spec.get("health_endpoint"),
                     "path": spec.get("path", "/"),
+                    # Path suffixes whose JSON responses get the proxy's
+                    # root-absolute-literal rewrite (see routes/proxy.py) —
+                    # for backends whose SPA bootstraps its API base from a
+                    # JSON config endpoint.
+                    "rewriteJsonPaths": spec.get("rewrite_json_paths") or [],
                 }
             )
 
