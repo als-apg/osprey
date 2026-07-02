@@ -633,6 +633,21 @@ gallery</strong> is always enabled. <strong>Domain panels</strong> are activated
 <p>The <code class="docutils literal notranslate"><span class="pre">/api/panel-focus</span></code> endpoint lets MCP tools programmatically switch the
 active panel.</p>
 </section>
+<section id="deployment-name">
+<h3>Deployment Name<a class="headerlink" href="#deployment-name" title="Link to this heading">#</a></h3>
+<p>Set an optional human-readable name to distinguish otherwise-identical web
+terminals (for example, several deployments sharing the same layout). It is
+rendered as a muted badge on the right of the header. When unset or empty, no
+badge is shown and the header is unchanged.</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">app_name</span><span class="p">:</span><span class="w"> </span><span class="s">&quot;Control</span><span class="nv"> </span><span class="s">Room</span><span class="nv"> </span><span class="s">A&quot;</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">OSPREY_WEB_APP_NAME</span></code> environment variable overrides <code class="docutils literal notranslate"><span class="pre">web.app_name</span></code> when
+set. This is useful when several containers share a single baked config image
+but should each display a distinct name — set the variable per container instead
+of rebuilding a config per deployment.</p>
+</section>
 </section>
 <section id="configuration-reference">
 <h2>Configuration Reference<a class="headerlink" href="#configuration-reference" title="Link to this heading">#</a></h2>
@@ -744,6 +759,7 @@ on the command line. CLI flags take precedence over <code class="docutils litera
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#scaffold-gallery">Scaffold Gallery</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#memory-gallery">Memory Gallery</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#side-panels">Side Panels</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#deployment-name">Deployment Name</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-reference">Configuration Reference</a><ul class="visible nav section-nav flex-column">
