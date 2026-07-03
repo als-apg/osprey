@@ -244,6 +244,14 @@ modules:
   # ---------------------------------------------------------------------------
   # Custom facility-specific MCP servers. Each entry becomes one compose
   # service + one CI build job. The user owns the source code + Dockerfile.
+  # NOTE: this block only builds/serves the containers. What the agent sees is
+  # declared in the project's config.yml under claude_code.servers.<name>
+  # (command/url + permissions/hooks); a SECOND INSTANCE of a framework server
+  # uses `extends` there instead, e.g.
+  #   claude_code.servers.phoebus2.extends: phoebus
+  #   claude_code.servers.phoebus2.env.PHOEBUS_BRIDGE_URL: "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}"
+  # (`extends` is not available in the build-profile mcp_servers: block, which
+  # requires command or url.)
   # ---------------------------------------------------------------------------
   custom_mcp_servers:
     enabled: true

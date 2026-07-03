@@ -1,0 +1,124 @@
+# phoebus-standalone.yml
+# Native-Phoebus interaction demo deployment.
+#
+# A lean, self-contained control-system profile (no logbook, no channel finder,
+# no dispatch) whose headline capability is first-class interaction with a LIVE
+# Phoebus product through the agent bridge: perceive the widget tree, snapshot
+# widgets, and drive controls via synthetic GUI events or the semantic PV path —
+# while ALSO reading/writing the same PVs directly through OSPREY's EPICS
+# connector. Pairs with the bundled demo soft IOC + panels (demos/phoebus/).
+#
+# Build:   osprey build phoebus-demo --preset phoebus-standalone
+# Demo:    bash demos/phoebus/run_demo.sh   (starts the soft IOC + Phoebus)
+# Then in the project: `claude`, and ask it to run the phoebus walkthrough.
+
+name: Phoebus Standalone
+
+# Reuse the control-system project skeleton (config.yml with the full
+# control_system/epics block we override below). The bundled channel database is
+# present but unused — the demo drives PVs by address, not by semantic lookup.
+data_bundle: control_assistant
+
+provider: anthropic
+model: claude-sonnet-4-5
+
+# Keep channel-finder out of the picture for this focused demo.
+channel_finder_mode: in_context
+
+# ── Artifact selection ───────────────────────────────────────────────────────
+hooks:
+  - hook-log          # Append every tool call to a structured JSONL audit log
+  - hook-config       # Inject project config.yml path into every tool call env
+  - approval          # Gate hardware-write + phoebus_drive on human approval
+  - writes-check      # Pre-write safety check: confirm channel is writable
+  - limits            # Enforce per-channel min/max limits before writes
+  - error-guidance    # Post-error hook that surfaces remediation hints
+  - memory-guard      # Warn when context window approaches threshold
+  - notebook-update   # Sync CLAUDE.md notebook after each session
+  - config-drift      # Warn at session start when config.yml drifted from artifacts
+
+rules:
+  - safety                 # Core safety: never write without approval
+  - error-handling         # Standard error handling and retry guidance
+  - facility               # Facility-level conventions (naming, units)
+  - workflows              # Approved workflow patterns
+  - timezone               # Localise timestamps to facility timezone
+  - control-system-safety  # EPICS PV safety: alarm limits, soft-IOC guards
+
+skills:
+  - phoebus-walkthrough  # Guided native-Phoebus perceive + drive demonstration
+  - diagnose             # Structured fault-diagnosis workflow
+  - session-report       # Summarise session actions and outcomes
+
+# Lean like ariel-standalone: no subagents.
+agents: []
+
+output_styles:
+  - control-operator  # Terse, actionable output style
+
+# PHOEBUS panel: a LIVE view of the (headless, isolated) Phoebus instance.
+# run_demo.sh streams the private Xvnc display through websockify+noVNC on
+# loopback; the web terminal embeds the noVNC client through its /panel proxy
+# (iframe /panel/phoebus/vnc.html; the RFB WebSocket rides the same proxy, so
+# the browser only ever talks to the web terminal). Without the stream leg
+# (e.g. desktop runs) the tab shows a connect error and everything else still
+# works — snapshots land in the Workspace tab as before.
+web_panels:
+  - phoebus
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+config:
+  # Real Channel Access against the demo soft IOC (the in-process mock connector
+  # cannot serve CA, so Phoebus and OSPREY share a real soft IOC).
+  control_system.type: epics
+  control_system.writes_enabled: true
+  control_system.write_verification.enabled: true
+  control_system.write_verification.default_level: readback
+  control_system.connector.epics.gateways.read_only.address: "127.0.0.1"
+  control_system.connector.epics.gateways.read_only.port: 5064
+  control_system.connector.epics.gateways.write_access.address: "127.0.0.1"
+  control_system.connector.epics.gateways.write_access.port: 5064
+
+  # Enable the native-Phoebus MCP server (off by default for other profiles).
+  claude_code.servers.phoebus.enabled: true
+
+  # Keep the demo lean: no logbook / channel-finder servers.
+  claude_code.servers.ariel.enabled: false
+  claude_code.servers.channel-finder.enabled: false
+
+  # Phoebus agent-bridge location (also overridable at runtime via
+  # PHOEBUS_BRIDGE_URL / PHOEBUS_BRIDGE_PORT).
+  phoebus.host: "127.0.0.1"
+  phoebus.port: 7979
+
+  # PHOEBUS live-stream panel (websockify+noVNC, started by run_demo.sh in
+  # isolated mode). `path` points the noVNC client's RFB WebSocket back
+  # through the web terminal's /panel proxy — single origin for the browser.
+  # The stream shows ONLY the Phoebus window: run_demo.sh pins the main stage
+  # to fill the Xvnc framebuffer exactly (size = DEMO_GEOMETRY, default
+  # 1600x900; noVNC `resize=scale` fits it to the panel).
+  web.panels.phoebus.label: PHOEBUS
+  web.panels.phoebus.url: "${PHOEBUS_STREAM_URL:-http://127.0.0.1:6080}"
+  web.panels.phoebus.path: "/vnc.html?path=panel/phoebus/websockify&autoconnect=1&resize=scale&reconnect=1"
+
+  # OPTIONAL second Phoebus instance (`INSTANCE=2 bash demos/phoebus/run_demo.sh`
+  # next to the first): uncomment to surface it as a PHOEBUS2 panel and give the
+  # agent a second, independent perceive/drive toolset (mcp__phoebus2__*, bridge
+  # on 7980). `extends: phoebus` clones the framework server — same permissions
+  # and drive-only approval gating, matchers rewritten to mcp__phoebus2__*. Left
+  # off by default so single-instance builds carry no dead tab or erroring tools.
+  # claude_code.servers.phoebus2.extends: phoebus
+  # claude_code.servers.phoebus2.env.PHOEBUS_BRIDGE_URL: "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}"
+  # web.panels.phoebus2.label: PHOEBUS2
+  # web.panels.phoebus2.url: "${PHOEBUS2_STREAM_URL:-http://127.0.0.1:6081}"
+  # web.panels.phoebus2.path: "/vnc.html?path=panel/phoebus2/websockify&autoconnect=1&resize=scale&reconnect=1"
+
+  system.timezone: America/Los_Angeles
+
+# ── Environment variables ────────────────────────────────────────────────────
+env:
+  defaults:
+    # Point both OSPREY's CA client and the soft IOC at the loopback interface
+    # so the demo never depends on a facility gateway.
+    EPICS_CA_ADDR_LIST: "127.0.0.1"
+    EPICS_CA_AUTO_ADDR_LIST: "NO"

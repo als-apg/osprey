@@ -336,6 +336,19 @@ modules:
 
 The skill renders compose entries and CI build jobs from this list. Each server gets its own Dockerfile path that the user owns.
 
+> **Agent-facing MCP declaration (`claude_code.servers`)** — the block above builds/serves the containers; what the *agent* sees is declared in the built project's `config.yml` under `claude_code.servers.<name>` (rendered into `.mcp.json` / `settings.json` at build/regen). A custom server needs `command`+`args` or `url`, plus optional `permissions.allow/ask` and `hooks.pre_tool_use` presets. A **second instance of a framework server** is declared with `extends` instead:
+>
+> ```yaml
+> claude_code:
+>   servers:
+>     phoebus2:
+>       extends: phoebus     # clone the framework server under a new name
+>       env:
+>         PHOEBUS_BRIDGE_URL: "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}"
+> ```
+>
+> The clone inherits the template's permissions and per-tool hooks with `mcp__<template>__` matchers rewritten to `mcp__<name>__`; spec `env` keys override the template's; `permissions.allow/ask` overrides may add but never remove the template's approval-gated (`ask`) tools. `extends` is only expressible via `config:` dotted overrides in a build profile (e.g. `claude_code.servers.phoebus2.extends: phoebus`) or directly in `config.yml` — the build-profile `mcp_servers:` block requires `command` or `url` and cannot express it. Note: approval policies key on the bare tool name, so they apply to every instance of a template (no per-instance gating).
+
 ### `modules.benchmarks` — e2e agent benchmark suite
 
 ```yaml

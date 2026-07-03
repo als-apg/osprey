@@ -383,6 +383,85 @@ def test_overlay_agent_frontmatter_preserved(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# Extends (second framework-server instance) rendered artifacts
+# ---------------------------------------------------------------------------
+
+
+def test_extends_phoebus2_rendered_artifacts(tmp_path, monkeypatch):
+    """A config-declared extends clone (claude_code.servers.phoebus2.extends:
+    phoebus, applied via the dotted-override path the phoebus-standalone preset
+    documents) renders exactly like the deleted framework phoebus2 entry:
+
+    * .mcp.json: python -m osprey.mcp_server.phoebus with the ${...} bridge URL
+      preserved literally — even with PHOEBUS2_BRIDGE_URL set in the build env.
+    * settings.json: the four reads in allow, drive + open_panel in ask (and
+      NOT in allow), PreToolUse approval hook under exactly
+      mcp__phoebus2__phoebus_drive (drive-only — no wildcard rule).
+    * hook_config.json: both phoebus prefixes in server/approval prefixes.
+    """
+    manager = TemplateManager()
+    project = manager.create_project(
+        project_name="extends-contract",
+        output_dir=tmp_path,
+        data_bundle="control_assistant",
+        context={"channel_finder_mode": "hierarchical"},
+    )
+
+    from osprey.utils.config_writer import config_update_fields
+
+    config_update_fields(
+        project / "config.yml",
+        {
+            "claude_code.servers.phoebus.enabled": True,
+            "claude_code.servers.phoebus2.extends": "phoebus",
+            "claude_code.servers.phoebus2.env.PHOEBUS_BRIDGE_URL": (
+                "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}"
+            ),
+        },
+    )
+
+    # Set during the regen: claude_code.servers.*.env must stay literal anyway
+    # (expanded by Claude Code at MCP launch, not at build time).
+    monkeypatch.setenv("PHOEBUS2_BRIDGE_URL", "http://10.0.0.5:7980")
+    manager.regenerate_claude_code(project)
+
+    mcp = json.loads((project / ".mcp.json").read_text())
+    p2 = mcp["mcpServers"]["phoebus2"]
+    assert p2["args"] == ["-m", "osprey.mcp_server.phoebus"]
+    assert p2["command"], "clone must render the framework interpreter command"
+    assert p2["env"]["PHOEBUS_BRIDGE_URL"] == "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}"
+    assert p2["env"]["OSPREY_CONFIG"].endswith("/config.yml")
+
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+    allow = set(settings["permissions"]["allow"])
+    ask = set(settings["permissions"]["ask"])
+    for tool in (
+        "phoebus_list_displays",
+        "phoebus_perceive",
+        "phoebus_perceive_region",
+        "phoebus_snapshot",
+        "phoebus_open_panel",
+    ):
+        assert f"mcp__phoebus2__{tool}" in allow, f"mcp__phoebus2__{tool} missing from allow"
+    for tool in ("phoebus_drive",):
+        assert f"mcp__phoebus2__{tool}" in ask, f"mcp__phoebus2__{tool} missing from ask"
+        assert f"mcp__phoebus2__{tool}" not in allow
+
+    pre = settings["hooks"]["PreToolUse"]
+    drive_rules = [r for r in pre if r["matcher"] == "mcp__phoebus2__phoebus_drive"]
+    assert len(drive_rules) == 1, "expected exactly one drive-only approval rule for the clone"
+    assert any("osprey_approval.py" in h["command"] for h in drive_rules[0]["hooks"])
+    assert not any(r["matcher"] == "mcp__phoebus2__.*" for r in pre), (
+        "clone must be drive-only gated, not wildcard-gated"
+    )
+
+    hook_cfg = json.loads((project / ".claude" / "hooks" / "hook_config.json").read_text())
+    for prefix in ("mcp__phoebus__", "mcp__phoebus2__"):
+        assert prefix in hook_cfg["server_prefixes"]
+        assert prefix in hook_cfg["approval_prefixes"]
+
+
+# ---------------------------------------------------------------------------
 # Crown-jewel invariant
 # ---------------------------------------------------------------------------
 
