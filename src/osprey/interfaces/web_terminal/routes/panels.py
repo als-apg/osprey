@@ -80,6 +80,14 @@ async def lattice_server_config(request: Request):
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
+@router.get("/api/okf-server")
+async def okf_server_config(request: Request):
+    """Return the OKF knowledge panel server URL for iframe embedding."""
+    url = getattr(request.app.state, "okf_server_url", None)
+    proxy_url = "/panel/okf" if url else None
+    return {"url": proxy_url, "available": proxy_url is not None}
+
+
 @router.get("/api/panels")
 async def get_panels(request: Request):
     """Return the full panel state in one payload.

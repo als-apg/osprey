@@ -76,6 +76,7 @@ _PANEL_STATE_MAP = {
     "tuning": "tuning_server_url",
     "channel-finder": "channel_finder_server_url",
     "lattice": "lattice_dashboard_server_url",
+    "okf": "okf_server_url",
 }
 
 

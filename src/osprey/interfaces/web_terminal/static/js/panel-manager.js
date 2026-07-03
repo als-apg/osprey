@@ -44,6 +44,12 @@ const PANELS = [
     configEndpoint: '/api/lattice-server',
     statusBarId: null,
   },
+  {
+    id: 'okf',
+    label: 'KNOWLEDGE',
+    configEndpoint: '/api/okf-server',
+    statusBarId: null,
+  },
 ];
 
 // ---- State ----
