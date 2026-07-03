@@ -342,9 +342,7 @@ async def phoebus_open_panel(name: str, focus: bool = True) -> str:
         while _monotonic() < deadline:
             await asyncio.sleep(0.5)
             try:
-                lst_status, displays = await anyio.to_thread.run_sync(
-                    _http_get_json, "/displays"
-                )
+                lst_status, displays = await anyio.to_thread.run_sync(_http_get_json, "/displays")
             except Exception:
                 break  # bridge vanished; return what we have
             if lst_status == 200 and isinstance(displays, list):

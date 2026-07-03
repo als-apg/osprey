@@ -31,7 +31,6 @@ Run explicitly (outside the default ``--ignore=tests/e2e`` fast run)::
         pytest tests/e2e/test_phoebus_real_bridge_e2e.py -v
 """
 
-import json
 import os
 import platform
 import subprocess
@@ -99,9 +98,7 @@ def real_bridge():
                 "is the demo stack (run_demo.sh) running?"
             )
     elif os.environ.get("PHOEBUS_E2E_LAUNCH") == "1":
-        isolated = os.environ.get(
-            "ISOLATED", "1" if platform.system() == "Linux" else "0"
-        ) == "1"
+        isolated = os.environ.get("ISOLATED", "1" if platform.system() == "Linux" else "0") == "1"
         os.environ.update(_default_ca_env(isolated))
         url = f"http://127.0.0.1:{os.environ.get('BRIDGE_PORT', '7979')}"
         proc = subprocess.Popen(

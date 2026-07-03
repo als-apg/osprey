@@ -346,9 +346,7 @@ async def test_open_panel_config_registered(tmp_path, monkeypatch):
     panel_file = tmp_path / "custom.bob"
     panel_file.write_text("fake bob content")
     config_file = tmp_path / "config.yml"
-    config_file.write_text(yaml.dump({
-        "phoebus": {"panels": {"custom": str(panel_file)}}
-    }))
+    config_file.write_text(yaml.dump({"phoebus": {"panels": {"custom": str(panel_file)}}}))
     monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
 
     body = {"id": "d-4", "resource": str(panel_file), "ready": True}
@@ -396,6 +394,7 @@ async def test_perceive_with_handle():
         result = await _fn("phoebus_perceive")(display="handle:d-1")
     url = m.call_args.args[0]
     import urllib.parse
+
     assert "handle:d-1" in urllib.parse.unquote(url)
     data = extract_response_dict(result)
     assert data["status"] == "success"
@@ -408,9 +407,7 @@ async def test_drive_with_handle_passes_through():
         f"{_MOD}._http_post_drive",
         return_value=(200, {"fired": True, "detail": "fired via ButtonBase.fire()"}),
     ) as m:
-        result = await _fn("phoebus_drive")(
-            widget="SetButton", verb="click", display="handle:d-1"
-        )
+        result = await _fn("phoebus_drive")(widget="SetButton", verb="click", display="handle:d-1")
     payload = m.call_args.args[0]
     assert payload["display"] == "handle:d-1"
     data = extract_response_dict(result)
