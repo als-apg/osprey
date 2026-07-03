@@ -35,7 +35,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+from enum import Enum
 from pathlib import Path
+from typing import Any, TypeVar, cast
 
 import anyio
 from pydantic import ValidationError
@@ -61,6 +63,8 @@ from osprey.mcp_server.phoebus.tools.bridge_tools import (
 from osprey.utils.workspace import load_osprey_config
 
 logger = logging.getLogger("osprey.mcp_server.tools.phoebus_databrowser")
+
+_EnumT = TypeVar("_EnumT", bound=Enum)
 
 # Default color palette for multiple PVs — parity with the retired server's
 # DEFAULT_COLORS rotation (phoebus_launch.py).
@@ -117,7 +121,7 @@ def _coerce_color(value: object, field: str) -> tuple[int, int, int]:
     """Validate a styling color value: a 3-element ``[r, g, b]`` sequence of
     ints in 0-255. Raises ``ValueError`` naming *field* on any mismatch."""
     try:
-        r, g, b = value  # type: ignore[misc]
+        r, g, b = cast("tuple[Any, Any, Any]", value)
     except (TypeError, ValueError):
         raise ValueError(
             f"'{field}' must be a 3-element [r, g, b] sequence, got {value!r}."
@@ -132,7 +136,7 @@ def _coerce_color(value: object, field: str) -> tuple[int, int, int]:
     return (r, g, b)
 
 
-def _coerce_enum(enum_cls: type, value: object, field: str):
+def _coerce_enum(enum_cls: type[_EnumT], value: object, field: str) -> _EnumT:
     """Coerce *value* to *enum_cls*, raising ``ValueError`` naming *field*
     (with the valid choices) instead of the enum's bare ``ValueError``."""
     try:

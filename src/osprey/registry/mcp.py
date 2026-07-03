@@ -159,8 +159,10 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "phoebus_perceive",
             "phoebus_perceive_region",
             "phoebus_snapshot",
-            # Opening a display touches no PVs and actuates nothing — allow.
+            # Opening a display or a Data Browser plot touches no PVs and
+            # actuates nothing — allow.
             "phoebus_open_panel",
+            "phoebus_open_databrowser",
         ],
         # Driving a live panel actuates hardware-facing controls — gate on approval.
         permissions_ask=["phoebus_drive"],

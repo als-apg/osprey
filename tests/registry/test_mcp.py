@@ -262,6 +262,7 @@ _PHOEBUS_ALLOW = [
     "phoebus_perceive_region",
     "phoebus_snapshot",
     "phoebus_open_panel",
+    "phoebus_open_databrowser",
 ]
 
 # Only drive actuates hardware-facing controls; open_panel touches no PVs
