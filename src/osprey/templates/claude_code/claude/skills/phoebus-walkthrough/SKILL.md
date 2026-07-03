@@ -152,9 +152,10 @@ opened panel becomes the active tab, so earlier phases that address the demo dis
 would otherwise need explicit handles.
 
 1. Check the project config for registered panels (`phoebus.panels.*` in config.yml).
-   At ALS the canonical example is `gtl_overview` — the gun-to-linac overview
-   (`GTLView.bob`). If no site panel is registered, say so and skip this phase.
-2. Call `phoebus_open_panel` with the registered name (e.g. `"gtl_overview"`). It
+   A site build profile registers these logical names, each mapping to a facility
+   `.bob` display (e.g. a `site_overview` panel). If no site panel is registered,
+   say so and skip this phase.
+2. Call `phoebus_open_panel` with a registered name (e.g. `"site_overview"`). It
    returns a deterministic handle like `"handle:d-2"` once the display reports ready.
 3. Call `phoebus_perceive` with `display=<that handle>` — summarise the scale (widget
    count, sections) rather than listing everything.
