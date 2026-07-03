@@ -1,7 +1,18 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
 <meta charset="utf-8">
+<script src="/design-system/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/design-system/css/tokens.css">
+<link rel="stylesheet" href="/design-system/css/base.css">
+<script type="module">
+// Follower role: the dashboard is never the theme hub (web-terminal is), so it
+// never persists a preference or broadcasts — it only applies whatever
+// theme-boot.js already resolved pre-paint and whatever the hub broadcasts
+// when this page is embedded as the in-terminal EVENTS panel.
+import { initTheme } from '/design-system/js/theme-manager.js';
+initTheme({ role: 'follower' });
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Event Dispatcher</title>
 <script>
@@ -12,33 +23,6 @@
 window.__OSPREY_CONFIG__ = window.__OSPREY_CONFIG__ || { facility_name: "", pv_strip_prefix: "" };
 </script>
 <style>
-:root {
-  --bg-primary: #0a0f1a;
-  --bg-secondary: #111a2e;
-  --bg-panel: #0e1525;
-  --bg-elevated: #1a2332;
-  --text-primary: #f1f5f9;
-  --text-secondary: #8b9ab5;
-  --text-muted: #64748b;
-  --color-accent: #319795;
-  --color-accent-light: #4fd1c5;
-  --color-amber: #d4a574;
-  --color-success: #22c55e;
-  --color-warning: #f59e0b;
-  --color-error: #ef4444;
-  --border-default: rgba(148, 163, 184, 0.12);
-  --border-accent: rgba(79, 209, 197, 0.15);
-  --font-display: 'Outfit', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-  --accent-tint-06: rgba(79, 209, 197, 0.06);
-  --accent-tint-08: rgba(79, 209, 197, 0.08);
-  --accent-tint-10: rgba(79, 209, 197, 0.10);
-  --accent-tint-15: rgba(79, 209, 197, 0.15);
-  --amber-tint-06: rgba(212, 165, 116, 0.06);
-  --error-tint-08: rgba(239, 68, 68, 0.08);
-  --success-tint-08: rgba(34, 197, 94, 0.08);
-  --warning-tint-08: rgba(245, 158, 11, 0.08);
-}
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
   font-family: var(--font-display);
@@ -274,10 +258,10 @@ header .stats .stat-value {
 }
 .badge-webhook { background: var(--accent-tint-08); color: var(--color-accent-light); border-color: rgba(79,209,197,0.3); }
 .badge-epics   { background: rgba(212,165,116,0.12); color: var(--color-amber); border-color: rgba(212,165,116,0.3); }
-.badge-drop    { background: var(--warning-tint-08); color: var(--color-warning); border-color: rgba(245,158,11,0.3); }
+.badge-drop    { background: color-mix(in srgb, var(--color-warning) 8%, transparent); color: var(--color-warning); border-color: rgba(245,158,11,0.3); }
 .badge-retry   { background: var(--accent-tint-08); color: var(--color-accent-light); border-color: rgba(79,209,197,0.3); }
 .badge-alert   { background: var(--error-tint-08); color: var(--color-error); border-color: rgba(239,68,68,0.3); }
-.badge-pending,.badge-dispatched { background: var(--warning-tint-08); color: var(--color-warning); border-color: rgba(245,158,11,0.3); }
+.badge-pending,.badge-dispatched { background: color-mix(in srgb, var(--color-warning) 8%, transparent); color: var(--color-warning); border-color: rgba(245,158,11,0.3); }
 .badge-completed,.badge-ok { background: var(--success-tint-08); color: var(--color-success); border-color: rgba(34,197,94,0.3); }
 .badge-error,.badge-err { background: var(--error-tint-08); color: var(--color-error); border-color: rgba(239,68,68,0.3); }
 .badge-running { background: var(--accent-tint-10); color: var(--color-accent-light); border-color: rgba(79,209,197,0.4); }
@@ -312,7 +296,7 @@ header .stats .stat-value {
   border-radius: 0 3px 3px 0;
   padding: 4px 7px;
 }
-.fire-split button:hover { background: var(--accent-tint-15); border-color: var(--color-accent-light); }
+.fire-split button:hover { background: var(--accent-tint-12); border-color: var(--color-accent-light); }
 .fire-split button:active { transform: translateY(1px); }
 .fire-split.disabled button {
   background: rgba(148,163,184,0.06);
@@ -643,7 +627,7 @@ header .stats .stat-value {
   text-transform: uppercase;
 }
 .tw-seg button.on {
-  background: var(--accent-tint-15);
+  background: var(--accent-tint-12);
   color: var(--color-accent-light);
 }
 
@@ -758,7 +742,7 @@ table.runs-table col.col-turns    { width: 42px; }
 table.runs-table col.col-tools    { width: 42px; }
 table.runs-table tbody tr { cursor: pointer; }
 table.runs-table tbody tr:hover { background: var(--accent-tint-06); }
-table.runs-table tbody tr.active { background: var(--accent-tint-15); }
+table.runs-table tbody tr.active { background: var(--accent-tint-12); }
 .t-output { color: var(--text-muted); }
 .t-trigger { color: var(--color-accent-light); }
 .t-trigger.none { color: var(--text-muted); }

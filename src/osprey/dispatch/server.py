@@ -19,11 +19,12 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from fastmcp import FastMCP
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
 from osprey.dispatch.dashboard import render_dashboard_html
 from osprey.dispatch.mcp_tools import register_tools
@@ -244,6 +245,38 @@ async def get_dispatch_result(request: Request) -> JSONResponse:
     # is an internal topology detail and the poll response should carry only the
     # dispatch's own status/run_id.
     return JSONResponse({**result})
+
+
+# FastMCP has no static-file mount (unlike the FastAPI interfaces, which mount
+# StaticFiles at "/design-system"), so the dashboard's tokens.css/base.css/
+# theme-boot.js/theme-manager.js are served through this hand-rolled route
+# instead. Resolved once at import time — package-relative from this file, up
+# to src/osprey/, then across into interfaces/design_system/static.
+_DESIGN_SYSTEM_STATIC_DIR = (
+    Path(__file__).parent.parent / "interfaces" / "design_system" / "static"
+).resolve()
+
+
+@mcp.custom_route("/design-system/{path:path}", methods=["GET"])
+async def design_system_asset(request: Request) -> FileResponse | JSONResponse:
+    """Serve design-system static assets (tokens.css, base.css, theme JS).
+
+    Ungated on purpose, like the ``/dashboard`` shell (see the security-model
+    note above ``create_server``'s dashboard routes): these are non-secret,
+    static assets that the dashboard's ``<head>`` must load before any auth
+    handshake happens.
+
+    Path-traversal guard: the requested path is joined onto the static root
+    and resolved (following ``..`` segments and symlinks), then checked with
+    ``is_relative_to`` against the resolved root. Anything that escapes the
+    root — or simply doesn't exist — gets a 404, never a 403, so a traversal
+    probe learns nothing about what does or doesn't exist outside the root.
+    """
+    requested = request.path_params["path"]
+    candidate = (_DESIGN_SYSTEM_STATIC_DIR / requested).resolve()
+    if not candidate.is_relative_to(_DESIGN_SYSTEM_STATIC_DIR) or not candidate.is_file():
+        return JSONResponse({"detail": "Not found"}, status_code=404)
+    return FileResponse(candidate)
 
 
 # ---------------------------------------------------------------------------
