@@ -10,10 +10,19 @@ Task 0.5. Two things changed on migration:
   — it supplies styling as structured tool arguments (``styling=``) instead
   of a natural-language ``query`` that used to be sent to a second model.
 * Live-open instead of a ``myapp://`` hand-off. This tool writes a styled
-  ``.plt`` into the workspace (reusing ``plt_generator``) and POSTs it to the
-  agent bridge's ``POST /open`` — the same bridge-client path
-  ``phoebus_open_panel`` uses (``bridge_tools._http_post_open``) — so the
-  Data Browser opens directly in the shared control-room Phoebus.
+  ``.plt`` into the workspace (reusing ``plt_generator``) and POSTs its
+  *content* to the agent bridge's ``POST /open`` — the same bridge-client
+  path ``phoebus_open_panel`` uses (``bridge_tools._http_post_open``) — so
+  the Data Browser opens directly in the shared control-room Phoebus.
+
+Content over path (Gap-1): this tool runs in a web-terminal container that
+does not share a writable filesystem with the bridge's container, so the
+``.plt`` *path* written here is meaningless to the bridge. Instead, the
+generated XML is read back and POSTed as ``{"content": <xml>, "extension":
+"plt"}`` — the bridge writes its own temp file and opens that. The local
+``.plt`` written by ``plt_generator`` is kept only as a shareable artifact
+(``plt_file`` in the result, a path in *this* tool's own container) for the
+operator to inspect or download; the open no longer depends on it.
 
 Facility-neutral archiver binding: the archiver-appliance URL bound into the
 generated ``.plt`` is never hardcoded here — it is resolved from
@@ -205,6 +214,10 @@ async def phoebus_open_databrowser(
     Returns:
         JSON ``{"status": "success", "handle": "handle:d-N", "plt_file":
         "<path>", "id": "d-N", "ready": <bool>, "channel_count": <int>}``.
+        ``plt_file`` is a local copy in *this tool's own container* — a
+        shareable artifact for the operator, not the path the bridge opened
+        (the bridge is sent the ``.plt`` content directly; see module
+        docstring).
     """
     if not channels:
         make_error(
@@ -219,9 +232,12 @@ async def phoebus_open_databrowser(
         workspace_dir=_plot_dir(),
         archiver_url=_archiver_url(),
     )
+    plt_content = Path(plt_path).read_text()
 
     try:
-        status, body = await anyio.to_thread.run_sync(_http_post_open, {"resource": plt_path})
+        status, body = await anyio.to_thread.run_sync(
+            _http_post_open, {"content": plt_content, "extension": "plt"}
+        )
     except Exception as exc:
         make_error(
             "phoebus_unreachable",

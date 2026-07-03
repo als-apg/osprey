@@ -4,6 +4,12 @@ The bridge HTTP boundary (``_http_post_open``, reused from ``bridge_tools``)
 is patched so these run with no Phoebus product, no bridge, and no network —
 per Task 0.5, live behavior depends on the app-aware ``/open`` routing
 (Task 0.6, built in parallel) and must not be required here.
+
+Gap-1 (content over path): the tool POSTs the generated ``.plt`` *content*
+to the bridge (not the local path), since the tool and the bridge may run in
+separate containers with no shared filesystem. ``plt_file`` in the result is
+still a locally-written copy — a shareable artifact — but is no longer what
+the bridge opens.
 """
 
 from pathlib import Path
@@ -50,7 +56,9 @@ async def test_success_returns_handle_and_plt_file(tmp_path, monkeypatch):
     assert plt_file.suffix == ".plt"
 
     posted = mock_open.call_args.args[0]
-    assert posted["resource"] == data["plt_file"]
+    assert posted["extension"] == "plt"
+    assert posted["content"] == plt_file.read_text()
+    assert "resource" not in posted
 
 
 async def test_default_title_lists_channels(tmp_path, monkeypatch):
