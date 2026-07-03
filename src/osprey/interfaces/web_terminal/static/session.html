@@ -29,13 +29,17 @@
       overflow: auto;
     }
 
-    /* Server colors — fixed across themes */
+    /* Server colors — a fixed categorical palette, intentionally the SAME
+       in both themes (each MCP server keeps one identifying hue whether
+       the terminal is light or dark, the same way a legend's series
+       colors don't change with theme). hygiene-allow-color-start */
     .srv-controls     { --srv: #d4a574; }
     .srv-python       { --srv: #a78bfa; }
     .srv-workspace    { --srv: #60a5fa; }
     .srv-ariel        { --srv: #f472b6; }
     .srv-channel-finder { --srv: #22d3ee; }
     .srv-unknown      { --srv: #64748b; }
+    /* hygiene-allow-color-end */
 
     html { height: 100%; }
 
@@ -54,7 +58,7 @@
       content: '';
       position: fixed;
       inset: 0;
-      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px);
+      background: var(--wt-welcome-scanline-bg);
       pointer-events: none;
       z-index: 1000;
       opacity: var(--wt-crt-scanline-opacity);
@@ -290,10 +294,10 @@
     }
     .tl-entry.tl-prompt::before { background: var(--color-amber); }
     .tl-entry.tl-reasoning::before { background: var(--color-accent-light); }
-    .tl-entry.tl-tool_call::before { background: #a78bfa; }
-    .tl-entry.tl-tool_result::before { background: #60a5fa; }
+    .tl-entry.tl-tool_call::before { background: #a78bfa; } /* hygiene-allow-color: fixed categorical timeline-kind color, matches .srv-python */
+    .tl-entry.tl-tool_result::before { background: #60a5fa; } /* hygiene-allow-color: fixed categorical timeline-kind color, matches .srv-workspace */
     .tl-entry.tl-error::before { background: var(--color-error); }
-    .tl-entry.tl-thinking::before { background: #f472b6; }
+    .tl-entry.tl-thinking::before { background: #f472b6; } /* hygiene-allow-color: fixed categorical timeline-kind color, matches .srv-ariel */
     .tl-kind {
       font-size: 9px;
       font-weight: 600;
@@ -304,9 +308,9 @@
     }
     .tl-entry.tl-prompt .tl-kind { color: var(--color-amber); }
     .tl-entry.tl-reasoning .tl-kind { color: var(--color-accent-light); }
-    .tl-entry.tl-tool_call .tl-kind { color: #a78bfa; }
-    .tl-entry.tl-tool_result .tl-kind { color: #60a5fa; }
-    .tl-entry.tl-thinking .tl-kind { color: #f472b6; }
+    .tl-entry.tl-tool_call .tl-kind { color: #a78bfa; } /* hygiene-allow-color: fixed categorical timeline-kind color, matches .srv-python */
+    .tl-entry.tl-tool_result .tl-kind { color: #60a5fa; } /* hygiene-allow-color: fixed categorical timeline-kind color, matches .srv-workspace */
+    .tl-entry.tl-thinking .tl-kind { color: #f472b6; } /* hygiene-allow-color: fixed categorical timeline-kind color, matches .srv-ariel */
     .tl-text {
       font-size: 11px;
       color: var(--text-secondary);

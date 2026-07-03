@@ -13,8 +13,8 @@
  */
 
 :root {
-  --verify-accent: #a78bfa;
-  --baseline-accent: #06b6d4;
+  --verify-accent: #a78bfa; /* hygiene-allow-color: no canonical equivalent; theme-invariant one-off */
+  --baseline-accent: #06b6d4; /* hygiene-allow-color: no canonical equivalent; theme-invariant one-off */
   --font-sans: 'Inter', -apple-system, sans-serif;
   --radius-sm: 4px;
   --radius-md: 6px;

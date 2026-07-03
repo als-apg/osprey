@@ -171,7 +171,7 @@ body.embedded .tuning-header { display: none; }
 
 .btn-primary {
   background: var(--color-accent);
-  color: #fff;
+  color: #fff; /* hygiene-allow-color: fixed white-on-accent button text, theme-invariant by design */
   border-color: var(--color-accent);
 }
 .btn-primary:hover:not(:disabled) { background: var(--color-accent-light); border-color: var(--color-accent-light); }
@@ -192,17 +192,17 @@ body.embedded .tuning-header { display: none; }
 
 .btn-danger {
   background: var(--color-error);
-  color: #fff;
+  color: #fff; /* hygiene-allow-color: fixed white-on-error button text, theme-invariant by design */
   border-color: var(--color-error);
 }
 .btn-danger:hover:not(:disabled) { background: var(--color-error-hover); }
 
 .btn-warning {
   background: var(--color-warning);
-  color: #000;
+  color: #000; /* hygiene-allow-color: fixed black-on-warning button text, theme-invariant by design */
   border-color: var(--color-warning);
 }
-.btn-warning:hover:not(:disabled) { background: #d97706; }
+.btn-warning:hover:not(:disabled) { background: color-mix(in srgb, var(--color-warning) 80%, black); }
 
 .btn-sm { padding: 0.3rem 0.6rem; font-size: 0.7rem; }
 
@@ -522,7 +522,7 @@ body.embedded .tuning-header { display: none; }
 .alert-danger {
   background: var(--error-tint-10);
   border: 1px solid var(--error-tint-30);
-  color: #fca5a5;
+  color: var(--color-error);
 }
 
 .alert-text { flex: 1; }
@@ -600,8 +600,8 @@ body.embedded .tuning-header { display: none; }
   align-items: center;
   gap: 0.5rem;
   padding: 0.5rem 0.75rem;
-  background: rgba(245, 158, 11, 0.08);
-  border: 1px solid rgba(245, 158, 11, 0.2);
+  background: color-mix(in srgb, var(--color-warning) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-warning) 20%, transparent);
   border-radius: 5px;
   font-size: 0.7rem;
   color: var(--color-warning);
@@ -704,7 +704,7 @@ body.embedded .tuning-header { display: none; }
 }
 
 .pagination button:hover { background: var(--bg-elevated); }
-.pagination button.active { background: var(--color-accent); color: #fff; border-color: var(--color-accent); }
+.pagination button.active { background: var(--color-accent); color: #fff; border-color: var(--color-accent); } /* hygiene-allow-color: fixed white-on-accent text, theme-invariant by design */
 .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ================================================================

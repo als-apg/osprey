@@ -94,7 +94,7 @@ import { initTheme, subscribe, chartTheme, chartSeries } from "/design-system/js
     const info =
       (typeRegistry.categories && typeRegistry.categories[type]) ||
       (typeRegistry.artifact_types && typeRegistry.artifact_types[type]) || {};
-    return info.color || "#64748b";
+    return info.color || "#64748b"; // hygiene-allow-color: matches --text-muted exactly, theme-invariant fallback
   }
 
   function thumbnailHtml(a) {
@@ -340,7 +340,7 @@ import { initTheme, subscribe, chartTheme, chartSeries } from "/design-system/js
       banner.id = "error-banner";
       banner.style.cssText =
         "position:fixed;top:0;left:0;right:0;z-index:9999;padding:12px 20px;" +
-        "background:var(--color-error);color:#fff;font-size:14px;text-align:center;";
+        "background:var(--color-error);color:#fff;font-size:14px;text-align:center;"; // hygiene-allow-color: fixed white-on-error banner text, theme-invariant by design
       document.body.prepend(banner);
     }
     banner.textContent = msg;

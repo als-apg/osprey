@@ -41,18 +41,14 @@
       --accent: var(--color-amber-light);
       --danger: var(--color-error);
       --glow: var(--wt-welcome-text-glow);
-      --glow-accent: 0 0 8px rgba(232, 192, 90, 0.3);
-      --glow-danger: 0 0 8px rgba(232, 90, 90, 0.3);
-    }
-
-    [data-theme="light"] {
-      /* The CRT phosphor-glow aesthetic is a dark-terminal effect; disable
-         glow shadows in light theme, matching --wt-welcome-text-glow's own
-         light value (none). --bg/--text/etc. already flip via the
-         wt-welcome-* tokens above; only the two glow shadows without a
-         direct emitted-token equivalent need a local override. */
-      --glow-accent: none;
-      --glow-danger: none;
+      /* The CRT phosphor-glow aesthetic is a dark-terminal effect. Rather
+         than a [data-theme="light"] override block, the glow color is
+         built from --accent/--danger (already theme-correct aliases,
+         above) with its alpha driven by --wt-crt-glow-opacity — the same
+         canonical toggle the scanline/vignette effects below use, which
+         is already 1 in dark and 0 in light. */
+      --glow-accent: 0 0 8px color-mix(in srgb, var(--accent) calc(30% * var(--wt-crt-glow-opacity)), transparent);
+      --glow-danger: 0 0 8px color-mix(in srgb, var(--danger) calc(30% * var(--wt-crt-glow-opacity)), transparent);
     }
 
     html {
@@ -76,13 +72,7 @@
       content: '';
       position: fixed;
       inset: 0;
-      background: repeating-linear-gradient(
-        0deg,
-        transparent,
-        transparent 2px,
-        rgba(0, 0, 0, 0.08) 2px,
-        rgba(0, 0, 0, 0.08) 4px
-      );
+      background: var(--wt-welcome-scanline-bg);
       pointer-events: none;
       z-index: 100;
       opacity: var(--wt-crt-scanline-opacity);
@@ -92,7 +82,7 @@
       content: '';
       position: fixed;
       inset: 0;
-      background: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.5) 100%);
+      background: radial-gradient(ellipse at center, transparent 50%, var(--overlay-black-50) 100%);
       pointer-events: none;
       z-index: 100;
       opacity: var(--wt-crt-vignette-opacity);
@@ -255,7 +245,7 @@
       text-decoration: none;
       font-size: 12px;
       padding: 8px 16px;
-      border: 1px solid rgba(90, 138, 122, 0.3);
+      border: 1px solid color-mix(in srgb, var(--text-dim) 30%, transparent);
       border-radius: 2px;
       transition: all 0.2s ease;
     }

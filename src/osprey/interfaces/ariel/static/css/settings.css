@@ -32,7 +32,7 @@
 
 .settings-mode-btn.active {
   color: var(--color-amber-light);
-  background: rgba(212, 165, 116, 0.1);
+  background: var(--amber-tint-08);
   border-color: var(--color-amber);
 }
 
@@ -52,7 +52,7 @@
 
 .settings-section-header {
   padding: var(--space-2) var(--space-3);
-  background: rgba(212, 165, 116, 0.1);
+  background: var(--amber-tint-08);
   border-bottom: 1px solid var(--neutral-tint-10);
 }
 
@@ -171,7 +171,7 @@
 .settings-confirm-overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.7);
+  background: color-mix(in srgb, var(--bg-terminal) 70%, transparent);
   display: none;
   align-items: center;
   justify-content: center;

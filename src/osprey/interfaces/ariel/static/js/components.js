@@ -109,7 +109,7 @@ export function sanitizeHighlight(html) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
+    .replace(/'/g, '&#039;') // hygiene-allow-color: HTML entity, not a hex color (scanner false positive)
     .replace(/\x00B_OPEN\x00/g, '<b>')
     .replace(/\x00B_CLOSE\x00/g, '</b>');
 }

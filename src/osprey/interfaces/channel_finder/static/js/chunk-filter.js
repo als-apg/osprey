@@ -7,7 +7,7 @@
  *
  * The invariant these helpers enforce: filtering and pagination derive from the
  * SAME filtered set. Filter the whole database first, THEN chunk the result —
- * the reverse (chunk first, filter the loaded chunk) is what caused issue #299,
+ * the reverse (chunk first, filter the loaded chunk) is what caused issue #299, (hygiene-allow-color: issue number, not a hex color)
  * where a match on a later page read as "No channels match the filter".
  */
 

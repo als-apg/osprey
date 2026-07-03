@@ -1,21 +1,23 @@
-"""Fleet-wide hygiene scanner: hardcoded colors and ``var(--x)`` integrity.
+"""Fleet-wide hygiene scanner: hardcoded colors, ``var(--x)`` integrity, and
+stray token-defining blocks.
 
 This module is the "hygiene" leg of the test pyramid described in the
 frontend-design-system PLAN (Task 1.11). It scans every ``.css``/``.js``/
 ``.html`` asset under ``src/osprey/interfaces/`` plus the single dispatch
 dashboard file (the design system is mounted there too, see Task 4.1) for
-two independent kinds of drift:
+three independent kinds of drift:
 
 (a) Hardcoded color literals (hex, ``rgb()``/``rgba()``, ``hsl()``/
     ``hsla()``) that should have been expressed as ``var(--token)``
-    references instead. Since the fleet migration (PLAN Phase 2/3) removes
-    these incrementally, file-by-file, this check is a *ratchet*: each
-    in-scope file's live count may only stay the same or go down relative
-    to ``hygiene_baseline.json``, and a file with no baseline entry must
-    have zero literals. Task 4.2 (hygiene-zero-flip) deletes the baseline
-    entirely and flips this to a strict zero-tolerance check once the
-    fleet migration finishes — see that task before changing this ratchet
-    logic.
+    references instead. This used to be a ratchet against
+    ``hygiene_baseline.json`` while the fleet migration (PLAN Phase 2/3)
+    was in progress; Task 4.2 (hygiene-zero-flip) deleted that baseline and
+    flipped this to a strict zero-tolerance check now that every interface
+    has migrated. From this commit on, every in-scope file must have zero
+    non-allowlisted literals — a genuinely justified, permanent survivor
+    (a print stylesheet that must stay light-on-white, a fixed categorical
+    color with no fleet-wide semantic equivalent, etc.) goes on the
+    commented allowlist described below instead of a token.
 
 (b) ``var(--name)`` reference integrity: every custom-property reference
     in the same in-scope assets must resolve to either a name the token
@@ -23,27 +25,34 @@ two independent kinds of drift:
     committed ``tokens.css``) or a name defined locally within the same
     interface's own asset set — either a CSS/inline-style
     ``--name: ...`` declaration or a JS ``element.style.setProperty
-    ('--name', ...)`` call. This is NOT a ratchet: it must hold at every
-    commit. A handful of genuinely dangling references already exist at
-    the time this test was authored (pre-existing bugs, not something
-    Task 1.11 is scoped to fix) — see ``_KNOWN_DANGLING_VARS`` below for
-    exactly which ones and why, with the owning migration task for each.
-    That allowlist is checked in both directions: no unexplained new
-    dangling ref may appear, and no allowlisted entry may go stale (i.e.
-    every migration task that fixes one of these must delete its entry
-    here in the same commit).
+    ('--name', ...)`` call. This has never been a ratchet: it must hold at
+    every commit. ``_KNOWN_DANGLING_VARS`` is the allowlist for any
+    pre-existing dangling reference that isn't in scope to fix immediately
+    (empty as of the hygiene-zero-flip commit — every migration task that
+    had an entry cleared it when it fixed the underlying reference). That
+    allowlist is checked in both directions: no unexplained new dangling
+    ref may appear, and no allowlisted entry may go stale.
 
-Both checks share the same allowlist idea in spirit — a literal, commented
-exception list — but check (a)'s allowlist is *in the scanned files
-themselves* (an inline marker comment, since ownership of those files
-belongs to the migration tasks, not this one) while check (b)'s lives in
-this module (there is nothing sensible to "comment out" in a way that
-survives a source edit for a missing declaration).
+(c) Stray token-defining blocks: no ``:root { ... }`` or
+    ``[data-theme=...] { ... }`` rule outside ``design_system/static/`` may
+    declare custom properties (``--name: value;``). Every interface used to
+    ship its own such block (that's what the fleet migration eliminated);
+    now the shared ``tokens.css`` is the only legitimate place one exists.
+    A ``[data-theme=...]`` rule that only overrides ordinary CSS properties
+    (e.g. disabling a dark-only glow effect in light mode) is unaffected by
+    this check — it's the act of *defining a custom property* in one of
+    these blocks that's disallowed, not the selector itself.
+
+Checks (a) and (c) share the same allowlist idea in spirit — a literal,
+commented exception list — but check (a)'s allowlist is *in the scanned
+files themselves* (an inline marker comment, since ownership of those
+files belongs to the migration tasks, not this one) while check (b)'s
+lives in this module (there is nothing sensible to "comment out" in a way
+that survives a source edit for a missing declaration).
 """
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
@@ -52,8 +61,8 @@ import osprey.interfaces.design_system as design_system_pkg
 _INTERFACES_ROOT = Path(design_system_pkg.__file__).parents[1]
 _REPO_ROOT = Path(design_system_pkg.__file__).parents[4]
 _DASHBOARD_HTML = _REPO_ROOT / "src" / "osprey" / "dispatch" / "dashboard.html"
-_TOKENS_CSS = _INTERFACES_ROOT / "design_system" / "static" / "css" / "tokens.css"
-_BASELINE_PATH = Path(__file__).parent / "hygiene_baseline.json"
+_DESIGN_SYSTEM_STATIC = _INTERFACES_ROOT / "design_system" / "static"
+_TOKENS_CSS = _DESIGN_SYSTEM_STATIC / "css" / "tokens.css"
 
 #: Generated artifacts excluded from BOTH checks — these ARE color/token
 #: definitions by design, not consumers of them (see PLAN Task 1.11).
@@ -104,21 +113,29 @@ def _relpath(path: Path) -> str:
     return path.relative_to(_REPO_ROOT).as_posix()
 
 
-# --- Check (a): hardcoded-color ratchet -------------------------------------------
+# --- Check (a): hardcoded-color strict zero-tolerance ------------------------------
 
 #: Matches a hex color (#rgb/#rrggbb/#rrggbbaa, with word-boundary guards so
 #: e.g. a URL fragment like "#deadbeef-section" is still counted only once,
-#: not double-matched) or an rgb()/rgba()/hsl()/hsla() function call.
+#: not double-matched) or an rgb()/rgba()/hsl()/hsla() function call. The
+#: negative lookbehind on ``#`` excludes HTML numeric character entities
+#: (``&#9998;``, ``&#039;``, ...) — their digits are frequently valid hex
+#: too (e.g. ``&#128203;`` contains only 0-9), but a literal ``#`` preceded
+#: by ``&`` is never a CSS color.
 _COLOR_RE = re.compile(
-    r"#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})\b"
+    r"(?<!&)#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})\b"
     r"|\b(?:rgba?|hsla?)\([^)]*\)"
 )
 
-#: Commented allowlist mechanism (PLAN Task 1.11 requirement; no current use
-#: — the first consumer is expected to be Task 3.2's `@media print` rule,
-#: which intentionally stays light-on-white regardless of theme). A line
-#: containing this marker is never counted; ``-start``/``-end`` variants
-#: bracket a multi-line block (both boundary lines are themselves exempt).
+#: Commented allowlist mechanism (PLAN Task 1.11 requirement) for a literal
+#: that is a genuine, permanent survivor rather than unmigrated debt: a
+#: print stylesheet that must stay light-on-white regardless of theme, a
+#: fixed categorical color with no fleet-wide semantic equivalent (a JSON
+#: syntax-highlight hue, a per-server legend color), a scanner false
+#: positive (an HTML entity or issue number the regex can't distinguish
+#: from a real color in context), or similar. A line containing this
+#: marker is never counted; ``-start``/``-end`` variants bracket a
+#: multi-line block (both boundary lines are themselves exempt).
 _ALLOW_LINE_MARKER = "hygiene-allow-color"
 _ALLOW_BLOCK_START_MARKER = "hygiene-allow-color-start"
 _ALLOW_BLOCK_END_MARKER = "hygiene-allow-color-end"
@@ -141,52 +158,28 @@ def _count_hardcoded_colors(text: str) -> int:
     return count
 
 
-def test_hardcoded_color_ratchet() -> None:
-    """Per-file hardcoded-color counts may only decrease from the baseline.
+def test_hardcoded_color_zero_tolerance() -> None:
+    """No in-scope file may contain a non-allowlisted hardcoded-color literal.
 
-    A file with no baseline entry must have zero hardcoded-color literals.
-    This is the migration's regression guard: every fleet-migration task
-    updates ``hygiene_baseline.json`` downward as it removes literals: see
-    Task 4.2 (hygiene-zero-flip), which deletes the baseline file and flips
-    this test to strict zero-tolerance once every task has landed.
+    This was a ratchet against ``hygiene_baseline.json`` during the fleet
+    migration (PLAN Phase 2/3); Task 4.2 (hygiene-zero-flip) deleted that
+    baseline once every interface finished migrating. A literal that's a
+    deliberate, permanent exception (not migration debt) belongs on the
+    inline ``hygiene-allow-color`` allowlist instead of a token — see the
+    module docstring and the marker's own docstring above.
     """
-    files = _in_scope_files()
-    baseline: dict[str, int] = json.loads(_BASELINE_PATH.read_text())
-
-    current: dict[str, int] = {}
-    for path in files:
+    offenders = []
+    for path in _in_scope_files():
         n = _count_hardcoded_colors(path.read_text(encoding="utf-8"))
         if n:
-            current[_relpath(path)] = n
-
-    in_scope_relpaths = {_relpath(path) for path in files}
-    stale_entries = sorted(set(baseline) - in_scope_relpaths)
-    assert not stale_entries, (
-        "hygiene_baseline.json has entries for files that are no longer in scope "
-        "(deleted, renamed, or moved out of src/osprey/interfaces/) — remove them: "
-        f"{stale_entries}"
+            offenders.append(f"{_relpath(path)}: {n} hardcoded color(s)")
+    assert not offenders, (
+        "Hardcoded color literal(s) found — use a design token instead, or if "
+        "this is a deliberate, permanent exception (print stylesheet, fixed "
+        "categorical color, scanner false positive), mark it with a trailing "
+        "`/* hygiene-allow-color: <reason> */` comment (or a "
+        "hygiene-allow-color-start/-end block for a multi-line span):\n" + "\n".join(offenders)
     )
-
-    regressions = []
-    for relpath, baseline_count in baseline.items():
-        live_count = current.get(relpath, 0)
-        if live_count > baseline_count:
-            regressions.append(
-                f"{relpath}: {live_count} hardcoded colors, baseline allows only "
-                f"{baseline_count} (counts may only decrease — did you add a new "
-                "literal instead of using a design token?)"
-            )
-    assert not regressions, "\n".join(regressions)
-
-    unbaselined = []
-    for relpath, live_count in current.items():
-        if relpath not in baseline:
-            unbaselined.append(
-                f"{relpath}: {live_count} hardcoded colors but no baseline entry "
-                "(new files must use design tokens, not literals — see "
-                "tests/interfaces/design_system/hygiene_baseline.json)"
-            )
-    assert not unbaselined, "\n".join(unbaselined)
 
 
 # --- Check (b): var(--x) integrity --------------------------------------------------
@@ -316,4 +309,66 @@ def test_var_integrity() -> None:
     assert not stale_allowlist, (
         "_KNOWN_DANGLING_VARS entries that are no longer dangling — the fix landed, "
         f"so remove these entries: {stale_allowlist}"
+    )
+
+
+# --- Check (c): no token-DUPLICATING blocks outside design_system/static/ ---------
+
+#: A `:root { ... }` or `[data-theme=...] { ... }` rule header, capturing its
+#: body up to the first unnested `}` — these blocks never legitimately nest
+#: further rules, only property declarations, so a non-greedy match to the
+#: first `}` is safe.
+_TOKEN_BLOCK_RE = re.compile(r"(:root|\[data-theme=[^\]]*\])[^{}]*\{([^{}]*)\}")
+
+
+def test_no_token_defining_blocks_outside_design_system() -> None:
+    """No interface may re-declare a canonical token or theme-switch a color.
+
+    Every interface used to ship a `:root {}` PLUS a `[data-theme=...] {}`
+    pair shadowing fleet-wide names (`--bg-primary`, `--text-primary`, ...)
+    with its own per-theme hardcoded values — that duplication (and the
+    resulting light/dark drift it caused) is exactly what the fleet
+    migration eliminated; `design_system/static/css/tokens.css` is now the
+    only legitimate place those names are declared. Concretely, two
+    patterns are still disallowed here:
+
+    - A `[data-theme=...] {}` block declaring ANY custom property. Every
+      interface now expresses theme-varying local values as a `color-mix()`
+      composite of a canonical bg/accent/etc. token (see e.g. lattice
+      dashboard's `--surface-card`) instead of a per-theme override block,
+      so no legitimate reason for one remains.
+    - A plain `:root {}` declaring a name `tokens.css` ALSO emits — that's
+      a shadow of the canonical cascade, which is what silently kept a
+      migrated interface dark-only in a previous incarnation of this bug.
+
+    A plain `:root {}` declaring names with NO canonical equivalent (a
+    spacing/radius/transition scale, a genuinely local one-off extension
+    color like `--verify-accent`) is exactly the sanctioned pattern for
+    "no fleet-wide equivalent" tokens described throughout the migration
+    and is NOT flagged. Likewise a `[data-theme=...] {}` rule that only
+    overrides ordinary CSS properties (no custom-property declarations in
+    its body) — e.g. disabling a dark-only glow effect in light mode — is
+    unaffected; see the module docstring.
+    """
+    emitted_names = _declared_names(_TOKENS_CSS.read_text(encoding="utf-8"))
+
+    offenders = []
+    for path in _in_scope_files():
+        if _DESIGN_SYSTEM_STATIC in path.parents:
+            continue
+        text = path.read_text(encoding="utf-8")
+        for selector, body in _TOKEN_BLOCK_RE.findall(text):
+            declared = _declared_names(body)
+            if not declared:
+                continue
+            if selector.startswith("[data-theme") or (declared & emitted_names):
+                offenders.append(_relpath(path))
+                break
+    assert not offenders, (
+        "Local :root {}/[data-theme=...] {} block(s) either theme-switching a "
+        "custom property or shadowing a canonical tokens.css name found "
+        "outside design_system/static/ — colors must come from the shared "
+        "tokens.css, with theme-varying local extensions expressed as a "
+        "color-mix() composite instead of a per-theme override block: "
+        + ", ".join(sorted(offenders))
     )
