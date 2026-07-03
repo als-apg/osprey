@@ -20,30 +20,14 @@ echo "→ Pruning stale bytecode caches..."
 find src/osprey -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null || true
 find src/osprey -type d -empty -delete 2>/dev/null || true
 
-# The behavioral/visual Playwright suites under tests/ skip cleanly when chromium
-# isn't installed. A silent skip in the pytest summary below is easy to miss —
-# run the exact same chromium-launch check those suites' chromium_browser fixture
-# uses, and say so loudly instead.
-echo "→ Checking chromium availability for browser-based theming tests..."
-if uv run python - <<'PYEOF' >/dev/null 2>&1
-from playwright.sync_api import sync_playwright
-
-pw = sync_playwright().start()
-try:
-    browser = pw.chromium.launch(headless=True)
-    browser.close()
-finally:
-    pw.stop()
-PYEOF
-then
-    echo "✅ Chromium available — browser-based theming tests will run for real"
-else
-    echo "⚠️  Browser-based theming tests NOT verified on this platform (no chromium) — CI enforces them"
-fi
+# The behavioral/visual Playwright suites (test_panels_browser.py, test_behavioral.py,
+# and the visual suite) are @pytest.mark.slow and excluded below to keep this check's
+# documented ~30s contract — they run in ci_check.sh and CI instead, chromium or not.
+echo "ℹ️  Browser-based theming tests are slow-marked; they run in ci_check.sh and CI, not in this fast pre-commit check."
 
 # Run fast tests only (stop on first failure for speed)
 echo "→ Running fast unit tests..."
-uv run pytest tests/ --ignore=tests/e2e -x --tb=line -q
+uv run pytest tests/ --ignore=tests/e2e -m "not slow" -x --tb=line -q
 
 echo ""
 echo "✅ Quick checks passed! Safe to commit."
