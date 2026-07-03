@@ -51,6 +51,14 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+/* base.css sets html,body { overflow: hidden } for the hub's fixed-viewport
+   terminal shell. Channel Finder is a normal scrolling page (fixed header +
+   a normal-flow .app-main that grows past one viewport height), so it must
+   override that back to auto or all content below the fold is unreachable. */
+html, body {
+  overflow: auto;
+}
+
 body {
   margin: 0;
   padding: 0;
