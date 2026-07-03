@@ -15,7 +15,7 @@
   border-radius: 4px;
   font-size: 10px;
   line-height: 1;
-  transition: all var(--transition-fast);
+  transition: all var(--wt-transition-fast);
 }
 
 .session-picker-btn:hover {
@@ -70,7 +70,7 @@
   border-radius: 6px;
   cursor: pointer;
   color: var(--text-primary);
-  transition: background var(--transition-fast);
+  transition: background var(--wt-transition-fast);
   font-family: var(--font-display);
 }
 

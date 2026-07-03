@@ -36,7 +36,7 @@
   border-radius: 3px;
   padding: 6px 10px;
   outline: none;
-  transition: border-color var(--transition-fast);
+  transition: border-color var(--wt-transition-fast);
 }
 
 .prompts-search::placeholder {
@@ -67,7 +67,7 @@
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--wt-transition-fast);
 }
 
 .prompts-chip:hover {
@@ -151,7 +151,7 @@
   padding: 8px 12px;
   cursor: pointer;
   border-left: 2px solid transparent;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  transition: background var(--wt-transition-fast), border-color var(--wt-transition-fast);
 }
 
 .prompts-card:hover {
@@ -243,7 +243,7 @@
   border-radius: 4px;
   cursor: pointer;
   padding: 3px 8px;
-  transition: color var(--transition-fast), border-color var(--transition-fast);
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast);
 }
 
 .prompts-back-btn:hover {
@@ -304,7 +304,7 @@
   padding: 2px 10px;
   border-radius: 3px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--wt-transition-fast);
   white-space: nowrap;
   flex-shrink: 0;
   color: var(--color-accent-light);
@@ -350,7 +350,7 @@
   border: 1px solid var(--border-default);
   padding: 3px 12px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--wt-transition-fast);
 }
 
 .prompts-mode-btn:first-child {
@@ -582,7 +582,7 @@
   padding: 3px 12px;
   border-radius: 3px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--wt-transition-fast);
   color: var(--text-muted);
   background: transparent;
   border: 1px solid var(--border-default);
@@ -609,7 +609,7 @@
   padding: 3px 12px;
   border-radius: 3px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--wt-transition-fast);
   color: var(--bg-primary);
   background: var(--color-accent-light);
   border: 1px solid var(--color-accent);
@@ -681,7 +681,7 @@
   border-radius: 3px;
   padding: 5px 14px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--wt-transition-fast);
   border: none;
 }
 
@@ -742,7 +742,7 @@
   border: none;
   padding: 6px 0;
   cursor: pointer;
-  transition: color var(--transition-fast);
+  transition: color var(--wt-transition-fast);
 }
 
 .prompts-source-toggle:hover {
@@ -751,7 +751,7 @@
 
 .prompts-source-arrow {
   font-size: 8px;
-  transition: transform var(--transition-fast);
+  transition: transform var(--wt-transition-fast);
 }
 
 .prompts-source-content {
@@ -846,7 +846,7 @@
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23888'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 4px center;
-  transition: border-color var(--transition-fast);
+  transition: border-color var(--wt-transition-fast);
 }
 
 .prompts-skill-select:hover,
@@ -870,7 +870,7 @@
   font-size: 8px;
   font-weight: 600;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--wt-transition-fast);
   flex-shrink: 0;
 }
 
@@ -894,7 +894,7 @@
   cursor: pointer;
   flex-shrink: 0;
   margin-left: 4px;
-  transition: all var(--transition-fast);
+  transition: all var(--wt-transition-fast);
 }
 
 .prompts-category-add:hover {
@@ -1003,7 +1003,7 @@
   font-size: 11px;
   padding: 5px 10px;
   outline: none;
-  transition: border-color var(--transition-fast);
+  transition: border-color var(--wt-transition-fast);
 }
 
 .memory-search-input:focus {
@@ -1024,7 +1024,7 @@
   font-weight: 500;
   padding: 5px 10px;
   cursor: pointer;
-  transition: background var(--transition-fast);
+  transition: background var(--wt-transition-fast);
   white-space: nowrap;
 }
 
@@ -1060,7 +1060,7 @@
   padding: 10px 12px;
   margin-bottom: 8px;
   cursor: pointer;
-  transition: border-color var(--transition-fast), background var(--transition-fast);
+  transition: border-color var(--wt-transition-fast), background var(--wt-transition-fast);
 }
 
 .memory-file-card:hover {
@@ -1152,7 +1152,7 @@
   height: 100%;
   background: var(--color-accent);
   border-radius: 1px;
-  transition: width var(--transition-normal);
+  transition: width var(--wt-transition-normal);
 }
 
 .memory-gauge-warn {
@@ -1197,7 +1197,7 @@
   font-size: 11px;
   padding: 3px 8px;
   cursor: pointer;
-  transition: color var(--transition-fast), border-color var(--transition-fast);
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast);
 }
 
 .memory-back-btn:hover {
@@ -1268,7 +1268,7 @@
   font-weight: 500;
   padding: 3px 10px;
   cursor: pointer;
-  transition: background var(--transition-fast);
+  transition: background var(--wt-transition-fast);
 }
 
 .memory-save-btn:hover:not(:disabled) {
@@ -1289,7 +1289,7 @@
   font-size: 10px;
   padding: 3px 10px;
   cursor: pointer;
-  transition: color var(--transition-fast), border-color var(--transition-fast);
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast);
 }
 
 .memory-discard-btn:hover:not(:disabled) {
@@ -1311,7 +1311,7 @@
   font-size: 10px;
   padding: 3px 10px;
   cursor: pointer;
-  transition: background var(--transition-fast);
+  transition: background var(--wt-transition-fast);
 }
 
 .memory-delete-btn:hover {
@@ -1410,7 +1410,7 @@
   padding: 3px 10px;
   border-radius: 3px;
   cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  transition: background var(--wt-transition-fast), border-color var(--wt-transition-fast);
 }
 
 .prompts-untracked-register {
@@ -1585,7 +1585,7 @@
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-primary);
-  transition: background var(--transition-fast);
+  transition: background var(--wt-transition-fast);
 }
 
 .config-hook-event-header:hover {
@@ -1595,7 +1595,7 @@
 .config-hook-chevron {
   font-size: 9px;
   color: var(--text-muted);
-  transition: transform var(--transition-fast);
+  transition: transform var(--wt-transition-fast);
   width: 10px;
   text-align: center;
 }
@@ -1804,7 +1804,7 @@
   padding: 4px 10px;
   cursor: pointer;
   user-select: none;
-  transition: background var(--transition-fast);
+  transition: background var(--wt-transition-fast);
 }
 
 .config-mcp-tool-header:hover {
@@ -1816,7 +1816,7 @@
   color: var(--text-muted);
   flex-shrink: 0;
   width: 8px;
-  transition: transform var(--transition-fast);
+  transition: transform var(--wt-transition-fast);
 }
 
 .config-mcp-tool-item.expanded .config-mcp-tool-chevron {
@@ -1935,7 +1935,7 @@
   padding: 4px 10px;
   cursor: pointer;
   text-align: left;
-  transition: color var(--transition-fast);
+  transition: color var(--wt-transition-fast);
 }
 
 .config-mcp-config-toggle:hover {
@@ -1984,7 +1984,7 @@
   border-radius: 3px;
   padding: 6px 10px;
   outline: none;
-  transition: border-color var(--transition-fast);
+  transition: border-color var(--wt-transition-fast);
 }
 
 .config-edit-input:focus {
@@ -2019,7 +2019,7 @@
   gap: 8px;
   padding: 4px 12px;
   border-bottom: 1px solid var(--neutral-tint-03);
-  transition: background var(--transition-fast), opacity 200ms ease;
+  transition: background var(--wt-transition-fast), opacity 200ms ease;
 }
 
 .config-edit-perm-row:hover {
@@ -2080,8 +2080,8 @@
   text-align: center;
   appearance: none;
   -webkit-appearance: none;
-  transition: background var(--transition-fast), color var(--transition-fast),
-              border-color var(--transition-fast);
+  transition: background var(--wt-transition-fast), color var(--wt-transition-fast),
+              border-color var(--wt-transition-fast);
 }
 
 .config-edit-level-allow {
@@ -2115,8 +2115,8 @@
   padding: 2px 4px;
   border-radius: 2px;
   opacity: 0;
-  transition: opacity var(--transition-fast), color var(--transition-fast),
-              background var(--transition-fast);
+  transition: opacity var(--wt-transition-fast), color var(--wt-transition-fast),
+              background var(--wt-transition-fast);
 }
 
 .config-edit-perm-row:hover .config-edit-remove-btn {
@@ -2158,7 +2158,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition: background var(--wt-transition-fast), color var(--wt-transition-fast);
 }
 
 .config-edit-add-btn:hover {
@@ -2179,7 +2179,7 @@
   padding: 3px 10px;
   cursor: grab;
   border-radius: 3px;
-  transition: background var(--transition-fast), opacity 200ms ease,
+  transition: background var(--wt-transition-fast), opacity 200ms ease,
               transform 200ms ease;
   user-select: none;
 }
@@ -2220,8 +2220,8 @@
   border-radius: 2px;
   opacity: 0;
   flex-shrink: 0;
-  transition: opacity var(--transition-fast), color var(--transition-fast),
-              background var(--transition-fast);
+  transition: opacity var(--wt-transition-fast), color var(--wt-transition-fast),
+              background var(--wt-transition-fast);
 }
 
 .config-perm-entry-interactive:hover .config-perm-entry-delete {
@@ -2283,8 +2283,8 @@
   border: 1px dashed var(--border-default);
   border-radius: 3px;
   cursor: pointer;
-  transition: color var(--transition-fast), border-color var(--transition-fast),
-              background var(--transition-fast);
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
+              background var(--wt-transition-fast);
 }
 
 .config-perm-add-btn:hover {
@@ -2438,7 +2438,7 @@
   border-radius: 4px;
   padding: 8px 20px;
   cursor: pointer;
-  transition: color var(--transition-fast), border-color var(--transition-fast);
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast);
 }
 
 .config-ownership-cancel:hover {
@@ -2456,7 +2456,7 @@
   border-radius: 4px;
   padding: 8px 20px;
   cursor: pointer;
-  transition: background var(--transition-fast);
+  transition: background var(--wt-transition-fast);
 }
 
 .config-ownership-confirm:hover {

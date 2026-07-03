@@ -7,7 +7,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--welcome-bg);
+  background: var(--wt-welcome-bg);
   opacity: 1;
   transition: opacity 0.5s ease;
 }
@@ -30,7 +30,7 @@
   );
   pointer-events: none;
   z-index: 1;
-  opacity: var(--crt-scanline-opacity);
+  opacity: var(--wt-crt-scanline-opacity);
 }
 
 .welcome-overlay::after {
@@ -40,7 +40,7 @@
   background: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.6) 100%);
   pointer-events: none;
   z-index: 1;
-  opacity: var(--crt-vignette-opacity);
+  opacity: var(--wt-crt-vignette-opacity);
 }
 
 .welcome-terminal {
@@ -55,10 +55,10 @@
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.45;
-  color: var(--welcome-text);
+  color: var(--wt-welcome-text);
   white-space: pre;
   margin: 0;
-  text-shadow: var(--welcome-text-glow);
+  text-shadow: var(--wt-welcome-text-glow);
   display: inline-block; /* shrink to widest line (the ═ borders) */
 }
 
@@ -86,9 +86,9 @@
   padding-left: 8ch;
   font-family: var(--font-mono);
   font-size: 13px;
-  color: var(--welcome-link);
+  color: var(--wt-welcome-link);
   text-decoration: none;
-  text-shadow: var(--welcome-text-glow);
+  text-shadow: var(--wt-welcome-text-glow);
   transition: color 0.15s ease;
 }
 
@@ -97,7 +97,7 @@
 }
 
 .welcome-safety-link:hover {
-  color: var(--welcome-link-hover);
+  color: var(--wt-welcome-link-hover);
 }
 
 /* Prompt button */
@@ -109,26 +109,26 @@
   border: none;
   font-family: var(--font-mono);
   font-size: 13px;
-  color: var(--welcome-prompt);
+  color: var(--wt-welcome-prompt);
   cursor: pointer;
-  text-shadow: var(--welcome-text-glow);
+  text-shadow: var(--wt-welcome-text-glow);
   transition: color 0.15s ease;
   letter-spacing: 0;
 }
 
 .welcome-prompt:hover {
-  color: var(--welcome-link-hover);
+  color: var(--wt-welcome-link-hover);
 }
 
 .welcome-prompt:hover .welcome-cursor {
-  background: var(--welcome-link-hover);
+  background: var(--wt-welcome-link-hover);
 }
 
 .welcome-cursor {
   display: inline-block;
   width: 7px;
   height: 14px;
-  background: var(--welcome-cursor);
+  background: var(--wt-welcome-cursor);
   vertical-align: text-bottom;
   animation: cursorBlink 1s step-end infinite;
 }
@@ -143,7 +143,7 @@
 /* ---- Header ---- */
 
 .header {
-  height: var(--header-height);
+  height: var(--wt-header-height);
   display: flex;
   align-items: stretch;
   background: var(--bg-secondary);
@@ -211,7 +211,7 @@
   font-weight: 500;
   color: var(--text-muted);
   letter-spacing: 0.02em;
-  transition: color var(--transition-fast), border-color var(--transition-fast);
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast);
 }
 
 .header-tab:hover { color: var(--text-secondary); }
@@ -236,7 +236,7 @@
   height: 5px;
   border-radius: 50%;
   background: var(--text-muted);
-  transition: background var(--transition-normal);
+  transition: background var(--wt-transition-normal);
 }
 
 .header-tab .tab-led.healthy { background: var(--color-success); }
@@ -246,7 +246,7 @@
 
 .main-container {
   display: flex;
-  height: calc(100vh - var(--header-height) - var(--status-bar-height));
+  height: calc(100vh - var(--wt-header-height) - var(--wt-status-bar-height));
   overflow: hidden;
 }
 
@@ -305,7 +305,7 @@
   border-radius: 3px;
   padding: 2px 8px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--wt-transition-fast);
   margin-left: auto;
 }
 
@@ -343,7 +343,7 @@
     rgba(0, 0, 0, 0.03) 4px
   );
   z-index: 1;
-  opacity: var(--crt-scanline-opacity);
+  opacity: var(--wt-crt-scanline-opacity);
 }
 
 /* Inner glow on active terminal */
@@ -358,7 +358,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  box-shadow: var(--crt-bezel-shadow);
+  box-shadow: var(--wt-crt-bezel-shadow);
   pointer-events: none;
   z-index: 2;
 }
