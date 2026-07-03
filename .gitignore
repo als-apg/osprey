@@ -143,7 +143,6 @@ my-control-assistant/
 my-lattice-assistant/
 my-ariel-standalone/
 my-agent/_audit/
-phoebus-demo/
 
 # Generated benchmark databases (regenerate: uv run python scripts/generate_benchmark_suite.py)
 data/benchmarks/cross_paradigm/tier*/

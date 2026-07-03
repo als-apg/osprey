@@ -349,6 +349,23 @@ The skill renders compose entries and CI build jobs from this list. Each server 
 >
 > The clone inherits the template's permissions and per-tool hooks with `mcp__<template>__` matchers rewritten to `mcp__<name>__`; spec `env` keys override the template's; `permissions.allow/ask` overrides may add but never remove the template's approval-gated (`ask`) tools. `extends` is only expressible via `config:` dotted overrides in a build profile (e.g. `claude_code.servers.phoebus2.extends: phoebus`) or directly in `config.yml` — the build-profile `mcp_servers:` block requires `command` or `url` and cannot express it. Note: approval policies key on the bare tool name, so they apply to every instance of a template (no per-instance gating).
 
+> **The `phoebus` framework server** — native interaction with a running [Phoebus](https://control-system-studio.readthedocs.io/) control panel (perceive the widget tree, snapshot widgets, drive controls via the in-JVM agent bridge). Off by default; a facility enables and configures it entirely through `config.yml` — no code changes:
+>
+> ```yaml
+> claude_code:
+>   servers:
+>     phoebus: { enabled: true }         # expose mcp__phoebus__* (drive is approval-gated)
+> phoebus:
+>   host: "127.0.0.1"                    # agent-bridge host (or set PHOEBUS_BRIDGE_URL)
+>   port: 7979                           # agent-bridge port
+>   require_handle: true                 # on a shared backend, reject the implicit "active" display
+>   archiver_url: "pbraw://arch.example.org/retrieve"  # optional; backs phoebus_open_databrowser
+>   panels:
+>     site_overview: /path/to/site.bob   # register a logical panel name → .bob file
+> ```
+>
+> The bridge itself lives in the Phoebus product (a facility build), not in OSPREY. Every value resolves from config or env with `127.0.0.1` defaults — nothing facility-specific is baked into the framework.
+
 ### `modules.benchmarks` — e2e agent benchmark suite
 
 ```yaml

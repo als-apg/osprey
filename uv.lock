@@ -437,15 +437,6 @@ wheels = [
 ]
 
 [[package]]
-name = "caproto"
-version = "1.3.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/5b/0a/6d6cb9d632b283e6215da216d5987763c043fe2a8d9c48a3ea7ab91b77b4/caproto-1.3.0.tar.gz", hash = "sha256:ea74f433297e895695c80a706a2389f745a94d756b5835c80af73af3df585cba", size = 452074, upload-time = "2025-09-03T21:02:00.662Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/21/bd/4d1f59c9287ec5f93f9d879db3ac06785ba7c4d04a7120678d894e0c53d0/caproto-1.3.0-py3-none-any.whl", hash = "sha256:fa623c4a7d7c3537fc41ce023b7c72922b8819ab88bf9abc527e3ac594634180", size = 407021, upload-time = "2025-09-03T21:01:59.169Z" },
-]
-
-[[package]]
 name = "certifi"
 version = "2026.1.4"
 source = { registry = "https://pypi.org/simple" }
@@ -2990,7 +2981,6 @@ dependencies = [
     { name = "aiohttp-socks" },
     { name = "anthropic" },
     { name = "bokeh" },
-    { name = "caproto" },
     { name = "certifi" },
     { name = "charset-normalizer" },
     { name = "claude-agent-sdk" },
@@ -3130,7 +3120,6 @@ requires-dist = [
     { name = "bokeh", specifier = ">=3.0" },
     { name = "build", marker = "extra == 'all'" },
     { name = "build", marker = "extra == 'dev'" },
-    { name = "caproto", specifier = ">=1.3.0" },
     { name = "certifi", specifier = ">=2025.4.26" },
     { name = "charset-normalizer", specifier = ">=3.4.2" },
     { name = "claude-agent-sdk", specifier = "==0.2.106" },

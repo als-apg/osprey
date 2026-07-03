@@ -389,8 +389,8 @@ def test_overlay_agent_frontmatter_preserved(tmp_path):
 
 def test_extends_phoebus2_rendered_artifacts(tmp_path, monkeypatch):
     """A config-declared extends clone (claude_code.servers.phoebus2.extends:
-    phoebus, applied via the dotted-override path the phoebus-standalone preset
-    documents) renders exactly like the deleted framework phoebus2 entry:
+    phoebus, applied via the dotted-override path a facility declares in
+    config.yml) renders exactly like the deleted framework phoebus2 entry:
 
     * .mcp.json: python -m osprey.mcp_server.phoebus with the ${...} bridge URL
       preserved literally — even with PHOEBUS2_BRIDGE_URL set in the build env.
