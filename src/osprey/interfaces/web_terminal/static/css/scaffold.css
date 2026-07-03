@@ -1530,7 +1530,7 @@
 
 .config-perm-allow .config-perm-header {
   color: var(--color-success);
-  background: var(--success-tint-06, rgba(34, 197, 94, 0.06));
+  background: var(--success-tint-08);
 }
 
 .config-perm-ask .config-perm-header {
@@ -1540,7 +1540,7 @@
 
 .config-perm-deny .config-perm-header {
   color: var(--color-error);
-  background: var(--error-tint-04, rgba(239, 68, 68, 0.04));
+  background: var(--error-tint-04);
 }
 
 .config-perm-group-label {
@@ -2087,19 +2087,19 @@
 .config-edit-level-allow {
   color: var(--color-success);
   background: var(--success-tint-08);
-  border-color: rgba(34, 197, 94, 0.2);
+  border-color: var(--success-tint-40);
 }
 
 .config-edit-level-ask {
   color: var(--color-warning);
   background: var(--amber-tint-08);
-  border-color: rgba(212, 165, 116, 0.2);
+  border-color: var(--amber-tint-25);
 }
 
 .config-edit-level-deny {
   color: var(--color-error);
   background: var(--error-tint-08);
-  border-color: rgba(239, 68, 68, 0.2);
+  border-color: var(--error-tint-25);
 }
 
 /* ---- Remove Button ---- */
@@ -2264,7 +2264,7 @@
 
 /* Drop target hint (always visible on the column during any drag) */
 .config-perm-drop-target {
-  background: var(--accent-tint-02, rgba(96, 165, 250, 0.02));
+  background: var(--accent-tint-04);
 }
 
 /* "+" add button at bottom of each column */
@@ -2388,7 +2388,7 @@
   padding: 28px 32px 24px;
   max-width: 440px;
   width: 90%;
-  box-shadow: 0 0 40px rgba(212, 165, 116, 0.12), var(--shadow-dialog);
+  box-shadow: 0 0 40px var(--amber-tint-12), var(--shadow-dialog);
   transform: scale(0.95);
   transition: transform 200ms ease;
 }
