@@ -205,21 +205,7 @@ _SET_PROPERTY_RE = re.compile(r"\.setProperty\(\s*['\"]--([a-zA-Z0-9-]+)['\"]")
 #: fix; each is owned by the migration task noted below and MUST be
 #: removed from this set in the same commit that fixes it — a stale entry
 #: fails the "no longer dangling" half of the assertion below.
-_KNOWN_DANGLING_VARS: frozenset[tuple[str, str]] = frozenset(
-    {
-        # ariel's spacing scale only goes up to --space-16; --space-32 was
-        # never added. `padding-right` computes to an invalid value.
-        # Owned by: migrate-ariel.
-        ("src/osprey/interfaces/ariel/static/css/components.css", "space-32"),
-        # A second, fallback-less `--amber` usage distinct from the
-        # already-documented entries.js:584 phantom (`var(--amber,
-        # #f59e0b)`, which degrades safely via its literal fallback and is
-        # tracked separately in PROPOSAL.md as a rename to --color-amber).
-        # This one has no fallback at all, so `border-left` is invalid.
-        # Owned by: migrate-ariel.
-        ("src/osprey/interfaces/ariel/static/js/entries.js", "amber"),
-    }
-)
+_KNOWN_DANGLING_VARS: frozenset[tuple[str, str]] = frozenset()
 
 
 def _declared_names(text: str) -> set[str]:

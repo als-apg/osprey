@@ -46,7 +46,7 @@
   align-items: center;
   justify-content: space-between;
   padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--neutral-tint-10);
   flex-shrink: 0;
 }
 

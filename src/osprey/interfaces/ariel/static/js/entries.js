@@ -568,8 +568,12 @@ export function showImageLightbox(url, filename) {
 
   const overlay = document.createElement('div');
   overlay.id = 'image-lightbox';
+  // A lightbox scrim is conventionally dark regardless of the active site
+  // theme (it exists to make the image itself readable), so its backdrop
+  // and text use theme-invariant black/white composites rather than
+  // themed tokens that would go light-on-light in light mode.
   overlay.style.cssText =
-    'position: fixed; inset: 0; background: rgba(0,0,0,0.85); display: flex; ' +
+    'position: fixed; inset: 0; background: color-mix(in srgb, black 85%, transparent); display: flex; ' +
     'flex-direction: column; align-items: center; justify-content: center; z-index: 10000; ' +
     'cursor: pointer;';
 
@@ -577,11 +581,11 @@ export function showImageLightbox(url, filename) {
     <img src="${escapeHtml(url)}" alt="${escapeHtml(filename)}"
          style="max-width: 90vw; max-height: 80vh; object-fit: contain; border-radius: 8px; cursor: default;"
          onclick="event.stopPropagation()"
-         onerror="this.outerHTML='<div style=&quot;color:#fff;font-size:1.2rem;&quot;>Failed to load image</div>'">
+         onerror="this.outerHTML='<div style=&quot;color:white;font-size:1.2rem;&quot;>Failed to load image</div>'">
     <div style="margin-top: 16px; display: flex; align-items: center; gap: 16px;">
-      <span style="color: #ccc; font-size: 0.9rem;">${escapeHtml(filename)}</span>
+      <span style="color: silver; font-size: 0.9rem;">${escapeHtml(filename)}</span>
       <a href="${escapeHtml(url)}" target="_blank" rel="noopener"
-         style="color: var(--amber, #f59e0b); font-size: 0.85rem; text-decoration: none;"
+         style="color: var(--color-amber); font-size: 0.85rem; text-decoration: none;"
          onclick="event.stopPropagation()">Open in new tab &#x2197;</a>
     </div>
   `;
@@ -725,7 +729,7 @@ export async function loadDraft(draftId) {
       banner.className = 'text-muted';
       banner.dataset.draftId = draftId;
       banner.style.cssText =
-        'padding: 8px 12px; margin-bottom: 12px; border-left: 3px solid var(--amber); font-size: 0.85rem;';
+        'padding: 8px 12px; margin-bottom: 12px; border-left: 3px solid var(--color-amber); font-size: 0.85rem;';
       banner.textContent = 'Draft loaded from Claude \u2014 review and submit';
       form.prepend(banner);
     }

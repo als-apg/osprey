@@ -4,6 +4,7 @@
  * Main application entry point and routing.
  */
 
+import { initTheme } from '/design-system/js/theme-manager.js';
 import { capabilitiesApi } from './api.js';
 import { initSearch, performSearch, clearSearch } from './search.js';
 import { initEntries, loadEntries, showEntry, closeEntryModal, loadDraft, showImageLightbox } from './entries.js';
@@ -12,8 +13,10 @@ import { initAdvancedOptions } from './advanced-options.js';
 import { initDrawers } from './drawer.js';
 import { initSettings, loadConfig } from './settings.js';
 
-// Theme sync is handled by the inline <script> in <head> (index.html),
-// NOT here — so it has zero import dependencies and always registers.
+// Panel embedded in the Web Terminal hub: apply the hub's broadcast theme
+// and follow live changes. theme-boot.js already applied data-theme
+// pre-paint; this call attaches the follower's postMessage listener.
+initTheme({ role: 'follower' });
 
 // Current view
 let currentView = 'search';
