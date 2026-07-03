@@ -20,6 +20,15 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+    /* base.css sets html,body { overflow: hidden } for the hub's fixed-viewport
+       terminal shell. This activity log is a normal scrolling page (fixed
+       header + nav, then main content that grows past one viewport height),
+       so it must override that back to auto or content below the fold is
+       unreachable. */
+    html, body {
+      overflow: auto;
+    }
+
     /* Server colors — fixed across themes */
     .srv-controls     { --srv: #d4a574; }
     .srv-python       { --srv: #a78bfa; }

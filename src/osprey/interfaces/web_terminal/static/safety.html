@@ -25,6 +25,14 @@
       padding: 0;
     }
 
+    /* base.css sets html,body { overflow: hidden } for the hub's fixed-viewport
+       terminal shell. This guidelines page is a normal scrolling document
+       (centered column of prose taller than one viewport), so it must
+       override that back to auto or content below the fold is unreachable. */
+    html, body {
+      overflow: auto;
+    }
+
     :root {
       --bg: var(--wt-welcome-bg);
       --text: var(--wt-welcome-text);
