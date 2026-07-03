@@ -462,6 +462,28 @@ function updateStatusBar(panel) {
   }
 }
 
+// ---- Theme Sync ----
+
+/**
+ * Send the hub's current theme to one iframe. Always sends — never
+ * conditioned on whether the id differs from the last send — because a
+ * hidden iframe can read empty custom properties on Firefox and needs a
+ * fresh, unconditional resend once it's visible again (theme-manager's
+ * hidden-iframe protocol; see that module's docstring). Broadcasting to
+ * every iframe on every hub theme change is theme-manager's own job (hub
+ * role); this is only the two per-iframe trigger points panel-manager
+ * owns: iframe creation and tab activation.
+ *
+ * 'osprey-theme-change' is the one message type theme-manager's follower
+ * role (and every embedded interface) actually listens for.
+ */
+function sendThemeToIframe(iframe) {
+  if (!iframe?.contentWindow) return;
+  try {
+    iframe.contentWindow.postMessage({ type: 'osprey-theme-change', theme: getTheme() }, '*');
+  } catch { /* cross-origin */ }
+}
+
 // ---- Tab Switching ----
 
 function activateTab(panelId, { userInitiated = false } = {}) {
@@ -493,16 +515,9 @@ function activateTab(panelId, { userInitiated = false } = {}) {
 
   // Re-send current theme and session ID to the newly visible iframe
   // (handles edge cases where a postMessage was missed while hidden/loading)
+  sendThemeToIframe(state.iframe);
   if (state.iframe?.contentWindow) {
     try {
-      state.iframe.contentWindow.postMessage(
-        { type: 'osprey-theme-change', theme: getTheme() },
-        '*'
-      );
-      state.iframe.contentWindow.postMessage(
-        { type: 'theme:set', theme: getTheme() },
-        '*'
-      );
       const sid = getCurrentSessionId();
       if (sid) {
         state.iframe.contentWindow.postMessage(
@@ -575,17 +590,10 @@ function createIframe(panelId) {
 
   iframe.addEventListener('load', () => {
     iframe.classList.add('loaded');
+    // Sync theme immediately so there's no flash of wrong theme
+    sendThemeToIframe(iframe);
     if (iframe.contentWindow) {
       try {
-        // Sync theme immediately so there's no flash of wrong theme
-        iframe.contentWindow.postMessage(
-          { type: 'theme:set', theme: getTheme() },
-          '*'
-        );
-        iframe.contentWindow.postMessage(
-          { type: 'osprey-theme-change', theme: getTheme() },
-          '*'
-        );
         const sid = getCurrentSessionId();
         if (sid) {
           iframe.contentWindow.postMessage(
