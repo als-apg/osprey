@@ -13,6 +13,7 @@ from osprey.cli.styles import console
 from osprey.cli.templates import claude_code, manifest, scaffolding
 from osprey.cli.templates._rendering import render_template as _render_template
 from osprey.errors import BuildProfileError
+from osprey.profiles.web_panels import BUILTIN_PANELS
 from osprey.utils.config import resolve_env_vars
 
 
@@ -213,6 +214,11 @@ class TemplateManager:
             "data_bundle": data_bundle,
             "selected_hooks": selected_hooks,
             "selected_web_panels": selected_web_panels,
+            # Enable-able builtin panel registry (single source of truth in
+            # osprey.profiles.web_panels). Templates derive their enable list
+            # from this so it can't drift from the real registry. sorted() for
+            # deterministic rendered output.
+            "builtin_panels": sorted(BUILTIN_PANELS),
             # Add detected environment variables
             "env": detected_env_vars,
             **(context or {}),

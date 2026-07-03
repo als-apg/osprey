@@ -598,5 +598,86 @@ def test_registry_style_parameter_is_gone():
     )
 
 
+class TestBuiltinPanelRegistryDrift:
+    """Enable-able builtin panels must derive from the BUILTIN_PANELS registry,
+    not a hardcoded template literal that drifts from it.
+
+    Discovered wiring the native ``okf`` KNOWLEDGE panel into BELLA + ALS: both
+    config templates hardcoded ``["ariel", "channel-finder", "tuning"]``, so a
+    profile listing a builtin the literal omitted (``okf`` or ``lattice``) in its
+    ``web_panels`` got filtered out at build time → no ``web.panels.okf`` stanza
+    → the runtime never enabled the tab and it silently never rendered. BELLA/ALS
+    worked around it with an explicit ``web.panels.okf.enabled: true`` override.
+    """
+
+    PANEL_TEMPLATES = [
+        "apps/control_assistant/config.yml.j2",
+        "apps/ariel_standalone/config.yml.j2",
+    ]
+
+    @pytest.mark.parametrize("template_path", PANEL_TEMPLATES)
+    def test_registry_injected_enables_builtin_absent_from_old_literal(self, template_path):
+        """With the registry injected as ``builtin_panels``: a builtin the OLD
+        literal omitted (``okf``) gets a stanza, a builtin the literal contained
+        AND the profile lists (``tuning``) gets one, and a builtin the profile
+        does NOT list (``ariel``) does not."""
+        import yaml
+
+        from osprey.profiles.web_panels import BUILTIN_PANELS
+
+        manager = TemplateManager()
+        template = manager.jinja_env.get_template(template_path)
+        rendered = template.render(
+            builtin_panels=sorted(BUILTIN_PANELS),
+            selected_web_panels=["okf", "tuning"],
+        )
+        panels = yaml.safe_load(rendered)["web"]["panels"]
+
+        # okf: builtin NOT in the old hardcoded literal — the drift bug.
+        assert panels.get("okf", {}).get("enabled") is True, (
+            "okf builtin filtered out — enable list drifted from BUILTIN_PANELS"
+        )
+        # tuning: builtin that WAS in the old literal and IS listed — stanza present.
+        assert panels.get("tuning", {}).get("enabled") is True
+        # ariel: builtin but NOT listed in this profile's web_panels — no stanza.
+        assert "ariel" not in panels
+
+    @pytest.mark.parametrize("template_path", PANEL_TEMPLATES)
+    def test_fallback_literal_excludes_okf_when_registry_absent(self, template_path):
+        """Safety-net fallback: without ``builtin_panels`` in context the template
+        reverts to the old literal, which excludes ``okf``. Proves the fix is the
+        registry injection — okf is enabled only because the registry supplies it,
+        not by accident of an expanded literal."""
+        import yaml
+
+        manager = TemplateManager()
+        template = manager.jinja_env.get_template(template_path)
+        rendered = template.render(selected_web_panels=["okf", "tuning"])
+        panels = yaml.safe_load(rendered)["web"]["panels"]
+
+        assert "okf" not in panels  # old literal omits okf
+        assert panels.get("tuning", {}).get("enabled") is True
+
+    def test_create_project_enables_okf_builtin_panel(self, tmp_path):
+        """End-to-end: ``manager.py`` injects ``sorted(BUILTIN_PANELS)`` → template
+        enables ``okf``. Fails against the old hardcoded literal (which omitted
+        okf) and passes with the registry-derived context. This removes the need
+        for the ``web.panels.okf.enabled: true`` override BELLA/ALS carried."""
+        import yaml
+
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="okf-panel-e2e",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            artifacts={"web_panels": ["okf", "tuning"]},
+        )
+        panels = yaml.safe_load((project_dir / "config.yml").read_text())["web"]["panels"]
+
+        assert panels.get("okf", {}).get("enabled") is True
+        assert panels.get("tuning", {}).get("enabled") is True
+        assert "ariel" not in panels
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
