@@ -85,4 +85,18 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         pass_workspace=True,
         require_section=True,
     ),
+    # OKF "KNOWLEDGE" panel. config_key is the shared facility_knowledge section
+    # (also read by the MCP server + CLI); require_section gates auto-launch on
+    # that section existing, and factory_config_kwargs feeds the resolved
+    # bundle_path into create_app (None → the panel's guarded mode). Port lives
+    # directly under the section (no config_web_subkey); env override is
+    # OSPREY_FACILITY_KNOWLEDGE_PORT.
+    "okf": WebServerDefinition(
+        name="OKF Knowledge Panel",
+        factory_path="osprey.interfaces.okf_panel.app:create_app",
+        config_key="facility_knowledge",
+        port_default=8093,
+        require_section=True,
+        factory_config_kwargs={"bundle_path": "facility_knowledge.bundle_path"},
+    ),
 }

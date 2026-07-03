@@ -46,7 +46,7 @@ async def list_panels() -> str:
     """List the panels available in the Web Terminal.
 
     Returns the enabled built-in panels (e.g. artifacts, ariel, tuning,
-    channel-finder, lattice, events) and any custom panels defined in
+    channel-finder, lattice, okf, events) and any custom panels defined in
     config.yml, together with their current visibility state and the
     currently active panel.
 
