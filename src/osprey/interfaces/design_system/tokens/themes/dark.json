@@ -97,9 +97,9 @@
     "del-bg": { "$value": "rgba(239, 68, 68, 0.08)", "$type": "color" },
     "del-text": { "$value": "rgba(239, 68, 68, 0.9)", "$type": "color" },
     "word-del-bg": { "$value": "rgba(239, 68, 68, 0.30)", "$type": "color" },
-    "word-del-text": { "$value": "rgba(239, 68, 68, 1.0)", "$type": "color" },
+    "word-del-text": { "$value": "{color.red.300}", "$type": "color" },
     "word-add-bg": { "$value": "rgba(34, 197, 94, 0.30)", "$type": "color" },
-    "word-add-text": { "$value": "rgba(34, 197, 94, 1.0)", "$type": "color" }
+    "word-add-text": { "$value": "{color.green.400}", "$type": "color" }
   },
   "terminal": {
     "cursor": { "$value": "{color.teal.100}", "$type": "color" },

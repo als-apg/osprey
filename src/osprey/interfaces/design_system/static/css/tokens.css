@@ -73,9 +73,9 @@
   --diff-del-bg: rgba(239, 68, 68, 0.08);
   --diff-del-text: rgba(239, 68, 68, 0.9);
   --diff-word-del-bg: rgba(239, 68, 68, 0.30);
-  --diff-word-del-text: rgba(239, 68, 68, 1.0);
+  --diff-word-del-text: #ef4444;
   --diff-word-add-bg: rgba(34, 197, 94, 0.30);
-  --diff-word-add-text: rgba(34, 197, 94, 1.0);
+  --diff-word-add-text: #22c55e;
   --terminal-cursor: #4fd1c5;
   --terminal-text: #c8d6e5;
   --terminal-selection: rgba(79, 209, 197, 0.25);
