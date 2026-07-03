@@ -11,12 +11,20 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Added
+
+- Every OSPREY browser interface — Web Terminal, Artifacts, ARIEL, Channel Finder, Tuning, the Lattice dashboard, the event dispatch dashboard, and the session activity/safety pages — now themes itself from one shared design-token system with dark, light, and `auto` (follows your OS color-scheme preference) modes. See the "Theming the OSPREY Interfaces" how-to for adding a new theme or wiring a new interface into it.
+
 ### Changed
 
+- The Web Terminal's first-run theme default changed from forced-dark to `auto`; use the in-app theme toggle if you want a fixed theme regardless of OS preference.
+- The Lattice dashboard's accent color changed from a cyan-blue hue to OSPREY's canonical teal accent, matching every other interface.
 - The event dispatcher dashboard now themes itself from the shared OSPREY design system instead of a hardcoded dark palette, and follows the web-terminal hub's theme when embedded as the EVENTS panel. **Requires a dispatcher container redeploy** to pick up the new `/design-system/*` asset route.
 
 ### Fixed
 
+- The session activity page ("Activity" / session log viewer) no longer applies its `?theme=` query parameter directly to the page; an invalid or unexpected value now falls back to the resolved default instead of being written straight into the page's theme attribute.
+- Web Terminal's and Artifacts' syntax-highlighting theme stylesheet no longer 404s in the default CDN vendor mode (it was previously served from a hardcoded local vendor path regardless of the configured vendor mode).
 - ARIEL now themes itself from the shared OSPREY design system instead of a hardcoded dark palette, and follows the web-terminal hub's theme when embedded; also fixes a phantom `--amber` CSS variable that was never defined (draft banner and image-lightbox link color).
 - Tuning panel Plotly charts now re-theme live with the rest of the UI instead of staying dark-locked in light mode.
 - `osprey web --project X` launched from another directory now spawns the interactive terminal's Claude Code with `cwd = X`, so it reads `X/.mcp.json` and starts the project's MCP servers (the PTY path previously ignored `--project` and inherited the launch directory) (#313).
