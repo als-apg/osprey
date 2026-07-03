@@ -323,6 +323,231 @@ def test_read_only_blocks_writes_check_custom_server_at_server_level(tmp_path: P
     assert "mcp__danger-server" in result
 
 
+def test_read_only_blocks_extends_clone_drive(tmp_path: Path) -> None:
+    """An extends clone (no permissions key of its own) inherits the template's
+    side-effect classification with the rewritten prefix: phoebus_drive
+    (ask-gated on the template) is blocked in the headless read-only path,
+    the perceive/snapshot/list/open_panel reads stay callable.
+    This is the sole guard under bypassPermissions."""
+    (tmp_path / "config.yml").write_text(
+        "claude_code:\n"
+        "  servers:\n"
+        "    phoebus2:\n"
+        "      extends: phoebus\n"
+        "      env:\n"
+        '        PHOEBUS_BRIDGE_URL: "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}"\n'
+    )
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "mcp__phoebus2__phoebus_drive" in result
+    assert "mcp__phoebus2__phoebus_open_panel" not in result
+    for read_tool in (
+        "phoebus_perceive",
+        "phoebus_perceive_region",
+        "phoebus_snapshot",
+        "phoebus_list_displays",
+    ):
+        assert f"mcp__phoebus2__{read_tool}" not in result, (
+            f"read tool {read_tool} must stay callable on the clone"
+        )
+
+
+def test_read_only_blocks_extends_clone_extra_tools(tmp_path: Path) -> None:
+    """The hard-coded ``_EXTRA_SIDE_EFFECT_TOOLS`` (unlisted side-effect tools
+    like the python server's execute_file) must follow an extends clone with
+    the rewritten prefix: the clone launches the SAME tool module, and SDK
+    disallow matching is by exact name, so blocking mcp__python__execute_file
+    does NOT cover mcp__python2__execute_file."""
+    (tmp_path / "config.yml").write_text(
+        "claude_code:\n  servers:\n    python2:\n      extends: python\n"
+    )
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "mcp__python2__execute" in result  # via the shared classifier (ask)
+    assert "mcp__python2__execute_file" in result  # via the rewritten extras
+    assert "mcp__python__execute_file" in result  # template extras unchanged
+
+
+def test_read_only_extends_override_cannot_narrow(tmp_path: Path) -> None:
+    """An extends spec that promotes phoebus_drive out of ask into allow must
+    STILL yield the drive tool in the disallow set (template-ask union
+    invariant — overrides can add gated tools, never remove them)."""
+    (tmp_path / "config.yml").write_text(
+        "claude_code:\n"
+        "  servers:\n"
+        "    phoebus2:\n"
+        "      extends: phoebus\n"
+        "      permissions:\n"
+        "        allow: [phoebus_drive, phoebus_perceive]\n"
+        "        ask: []\n"
+    )
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "mcp__phoebus2__phoebus_drive" in result
+    assert "mcp__phoebus2__phoebus_perceive" not in result
+
+
+def test_read_only_extends_unknown_target_fails_closed(tmp_path: Path) -> None:
+    """An unresolvable extends target (typo/version skew) must contribute a
+    server-level disallow, not nothing — a stale .mcp.json from a previous
+    build can still launch the server."""
+    (tmp_path / "config.yml").write_text(
+        "claude_code:\n  servers:\n    phoebus2:\n      extends: no_such_template\n"
+    )
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "mcp__phoebus2" in result
+
+
+def test_read_only_extends_non_string_target_fails_closed(tmp_path: Path) -> None:
+    """A non-string extends value (e.g. ``extends: [phoebus]``) must not crash
+    the classifier with a TypeError — it fails closed with the same
+    server-level disallow as any other unresolvable extends spec."""
+    (tmp_path / "config.yml").write_text(
+        "claude_code:\n  servers:\n    phoebus2:\n      extends: [phoebus]\n"
+    )
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "mcp__phoebus2" in result
+
+
+def test_read_only_legacy_enabled_only_spec_fails_closed(tmp_path: Path) -> None:
+    """A spec with NONE of extends/command/url (legacy form
+    ``phoebus2: {enabled: true}``) must fail closed with the server-level
+    disallow, exactly like an unresolvable extends — resolve_servers skips it,
+    but a stale .mcp.json from a previous build can still launch the server."""
+    (tmp_path / "config.yml").write_text(
+        "claude_code:\n  servers:\n    phoebus2:\n      enabled: true\n"
+    )
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "mcp__phoebus2" in result
+
+
+def test_read_only_extends_disabled_not_enumerated(tmp_path: Path) -> None:
+    """An extends clone with enabled: false contributes nothing (matches the
+    custom-server enabled gate)."""
+    (tmp_path / "config.yml").write_text(
+        "claude_code:\n  servers:\n    phoebus2:\n      extends: phoebus\n      enabled: false\n"
+    )
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "mcp__phoebus2__phoebus_drive" not in result
+    assert "mcp__phoebus2" not in result
+
+
+def test_read_only_extends_rewrites_writes_check_matcher(tmp_path: Path, monkeypatch) -> None:
+    """Extends of a writes-check-gated template yields the REWRITTEN matcher in
+    the disallow set — isolating the hooks_pre/_WRITES_CHECK leg of the shared
+    classifier. Uses a synthetic template whose writes-check-gated tool is NOT
+    in permissions_ask (on the real controls template channel_write is also
+    ask-gated, so the ask leg alone would produce the asserted string and the
+    writes-check leg could silently break)."""
+    from osprey.registry.mcp import _WRITES_CHECK, FRAMEWORK_SERVERS, HookRule, ServerDefinition
+
+    synthetic = ServerDefinition(
+        name="synth",
+        module="osprey.mcp_server.synth",
+        permissions_allow=["hw_read"],
+        hooks_pre=[HookRule(matcher="mcp__synth__hw_write", hooks=[_WRITES_CHECK])],
+    )
+    monkeypatch.setitem(FRAMEWORK_SERVERS, "synth", synthetic)
+    (tmp_path / "config.yml").write_text(
+        "claude_code:\n  servers:\n    synth2:\n      extends: synth\n"
+    )
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    # Only the writes-check leg can produce this entry (hw_write is in no
+    # permissions list of the synthetic template).
+    assert "mcp__synth2__hw_write" in result
+    # Non-gated reads on the clone stay callable.
+    assert "mcp__synth2__hw_read" not in result
+    # No server-level fail-closed entry — the clone resolved fine.
+    assert "mcp__synth2" not in result
+
+
+def test_read_only_extends_third_instance(tmp_path: Path) -> None:
+    """Two extends clones both land their drive tool in the disallow set —
+    N-instance scaling of the headless floor."""
+    (tmp_path / "config.yml").write_text(
+        "claude_code:\n"
+        "  servers:\n"
+        "    phoebus2:\n"
+        "      extends: phoebus\n"
+        "    phoebus3:\n"
+        "      extends: phoebus\n"
+    )
+
+    result = read_only_disallowed_tools(tmp_path)
+
+    assert "mcp__phoebus2__phoebus_drive" in result
+    assert "mcp__phoebus3__phoebus_drive" in result
+
+
+def test_registry_walk_matches_shared_classifier() -> None:
+    """Drift guard: for every framework server the registry walk emits exactly
+    the shared per-server classifier's output — pins that the framework path
+    and the extends path share one implementation."""
+    from osprey.agent_runner.write_tools import (
+        _registry_side_effect_tools,
+        _server_side_effect_tools,
+    )
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
+
+    expected: list[str] = []
+    for server in FRAMEWORK_SERVERS.values():
+        for name in _server_side_effect_tools(server):
+            if name not in expected:
+                expected.append(name)
+
+    assert _registry_side_effect_tools() == expected
+
+
+def test_extends_clone_classifies_like_template(tmp_path: Path) -> None:
+    """Drift guard (extends-aware variant of the registry guard): a clone of
+    each framework server must land in the read-only disallow set exactly like
+    its template with the mcp__<template>__ prefix rewritten — INCLUDING the
+    template's ``_EXTRA_SIDE_EFFECT_TOOLS`` entries (tools in no permission
+    list, e.g. python's execute_file), which the per-server classifier cannot
+    see. Compares the full production output (read_only_disallowed_tools), not
+    the classifier internals, so a blind spot in either path fails here."""
+    from osprey.agent_runner.write_tools import (
+        _EXTRA_SIDE_EFFECT_TOOLS,
+        _server_side_effect_tools,
+    )
+    from osprey.registry.mcp import FRAMEWORK_SERVERS, build_extended_server
+
+    for template_name, template in FRAMEWORK_SERVERS.items():
+        if template.condition:
+            continue  # conditioned templates cannot be extended
+        clone_name = f"{template_name}-clone"
+        clone = build_extended_server(clone_name, {"extends": template_name})
+        assert clone is not None, f"extends of {template_name!r} unexpectedly rejected"
+
+        old, new = f"mcp__{template_name}__", f"mcp__{clone_name}__"
+        template_surface = _server_side_effect_tools(template) + [
+            t for t in _EXTRA_SIDE_EFFECT_TOOLS if t.startswith(old)
+        ]
+        expected = {new + t[len(old) :] if t.startswith(old) else t for t in template_surface}
+
+        (tmp_path / "config.yml").write_text(
+            f"claude_code:\n  servers:\n    {clone_name}:\n      extends: {template_name}\n"
+        )
+        result = set(read_only_disallowed_tools(tmp_path))
+        clone_actual = {t for t in result if t.startswith(new)}
+        assert clone_actual == expected, (
+            f"clone of {template_name!r} classifies differently from its template"
+        )
+
+
 def test_read_only_disabled_custom_server_not_enumerated(tmp_path: Path) -> None:
     """A custom server explicitly disabled contributes no tools."""
     (tmp_path / "config.yml").write_text(

@@ -305,10 +305,19 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
         async with websockets.connect(target) as upstream:
 
             async def client_to_upstream():
+                # receive() (not receive_text()) — binary-protocol panels
+                # (e.g. the noVNC/RFB phoebus stream) send bytes frames,
+                # which receive_text() rejects, killing the relay.
                 try:
                     while True:
-                        data = await websocket.receive_text()
-                        await upstream.send(data)
+                        msg = await websocket.receive()
+                        if msg.get("type") == "websocket.disconnect":
+                            break
+                        data = msg.get("bytes")
+                        if data is None:
+                            data = msg.get("text")
+                        if data is not None:
+                            await upstream.send(data)
                 except WebSocketDisconnect:
                     pass
 

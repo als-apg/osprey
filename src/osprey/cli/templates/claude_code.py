@@ -144,6 +144,34 @@ def build_claude_code_context(
 
     ctx["enabled_servers"] = {s["name"] for s in ctx["servers"] if s["enabled"]}
     ctx["enabled_agents"] = {a["name"] for a in ctx["agents"] if a["enabled"]}
+
+    # Approval-overlap guard: a facility permissions.remove_ask or
+    # permissions.allow entry naming an approval-gated (ask) tool of an enabled
+    # server auto-approves it at the permission layer — and the osprey_approval
+    # hook keys its policy on the bare tool name, so a skip/allow there applies
+    # to EVERY instance of a template (extends clones included; per-instance
+    # gating is not possible). Warn loudly at build time.
+    _facility_perms = ctx["facility_permissions"] or {}
+    _overridden = set(_facility_perms.get("remove_ask") or []) | set(
+        _facility_perms.get("allow") or []
+    )
+    if _overridden:
+        for _srv in ctx["servers"]:
+            if not _srv["enabled"]:
+                continue
+            _ask_full = [f"mcp__{_srv['name']}__{t}" for t in _srv["permissions_ask"]] + list(
+                _srv["fixed_ask"]
+            )
+            for _tool in _ask_full:
+                if _tool in _overridden:
+                    logger.warning(
+                        "facility permissions remove_ask/allow overrides the "
+                        "approval-gated tool %s of server %r — it will be "
+                        "auto-approved at the permission layer",
+                        _tool,
+                        _srv["name"],
+                    )
+
     # User-owned files: regen skips these, users edit in-place
     ctx["user_owned"] = config.get("scaffold", {}).get("user_owned", [])
 
@@ -189,12 +217,25 @@ def build_claude_code_context(
     if not config.get("control_system", {}).get("writes_enabled", False):
         facility_perms = dict(ctx["facility_permissions"])
         deny = list(facility_perms.get("deny", []))
-        if "mcp__controls__channel_write" not in deny:
-            deny.append("mcp__controls__channel_write")
-        facility_perms["deny"] = deny
         remove_ask = list(facility_perms.get("remove_ask", []))
-        if "mcp__python__execute" not in remove_ask:
-            remove_ask.append("mcp__python__execute")
+        # Cover extends clones too, not just the literal template names: the
+        # runtime hook templates (osprey_writes_check.py, osprey_approval.py)
+        # exact-match template tool names and are clone-unaware — they are the
+        # belt layer only; this settings.json deny/remove_ask rendering is the
+        # enforced layer for clones.
+        for srv in ctx["servers"]:
+            if not srv["enabled"]:
+                continue
+            template = srv.get("extends_of") or srv["name"]
+            if template == "controls":
+                entry = f"mcp__{srv['name']}__channel_write"
+                if entry not in deny:
+                    deny.append(entry)
+            elif template == "python":
+                entry = f"mcp__{srv['name']}__execute"
+                if entry not in remove_ask:
+                    remove_ask.append(entry)
+        facility_perms["deny"] = deny
         facility_perms["remove_ask"] = remove_ask
         ctx["facility_permissions"] = facility_perms
 

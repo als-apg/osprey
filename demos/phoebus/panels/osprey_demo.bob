@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- OSPREY <-> Phoebus bridge demo panel.
+
+     Binds to the caproto soft IOC's DEMO:* Channel Access PVs (see
+     demos/phoebus/demo_ioc.py). Both Phoebus (this panel) and the OSPREY agent
+     (its EPICS connector) read/write the SAME PVs, so a synthetic GUI drive and
+     a direct PV write are mutually observable.
+
+     Widget -> bridge drive kind demonstrated:
+       Setpoint  (textentry)     -> verb "type"  (TEXT control)
+       SetButton (action_button) -> verb "click" (ACTION control, WritePV 42)
+       Enable    (bool_button)   -> verb "click" (toggle, ACTION control)
+       Valve     (bool_button)   -> verb "click" (momentary, MOMENTARY control)
+       Readback/Current/Status   -> read-only displays (perceive shows live PVs)
+-->
+<display version="2.0.0">
+  <name>OSPREY Phoebus Demo</name>
+  <width>460</width>
+  <height>360</height>
+
+  <widget type="label" version="2.0.0">
+    <name>Title</name>
+    <text>OSPREY ↔ Phoebus Bridge Demo</text>
+    <x>20</x>
+    <y>10</y>
+    <width>420</width>
+    <height>28</height>
+    <font>
+      <font family="Liberation Sans" style="BOLD" size="16.0"/>
+    </font>
+  </widget>
+
+  <!-- Setpoint: writable text entry (verb "type") -->
+  <widget type="label" version="2.0.0">
+    <name>SetpointLabel</name>
+    <text>Setpoint (mA)</text>
+    <x>20</x>
+    <y>55</y>
+    <width>150</width>
+    <height>25</height>
+  </widget>
+  <widget type="textentry" version="3.0.0">
+    <name>Setpoint</name>
+    <pv_name>ca://DEMO:Setpoint</pv_name>
+    <x>180</x>
+    <y>55</y>
+    <width>120</width>
+    <height>30</height>
+  </widget>
+
+  <!-- Readback: mirrors the setpoint -->
+  <widget type="label" version="2.0.0">
+    <name>ReadbackLabel</name>
+    <text>Readback (mA)</text>
+    <x>20</x>
+    <y>95</y>
+    <width>150</width>
+    <height>25</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>Readback</name>
+    <pv_name>ca://DEMO:Readback</pv_name>
+    <x>180</x>
+    <y>95</y>
+    <width>120</width>
+    <height>30</height>
+  </widget>
+
+  <!-- Current: live (noisy) value -->
+  <widget type="label" version="2.0.0">
+    <name>CurrentLabel</name>
+    <text>Current (mA)</text>
+    <x>20</x>
+    <y>135</y>
+    <width>150</width>
+    <height>25</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>Current</name>
+    <pv_name>ca://DEMO:Current</pv_name>
+    <x>180</x>
+    <y>135</y>
+    <width>120</width>
+    <height>30</height>
+  </widget>
+
+  <!-- Status: derived OK/WARN/FAULT -->
+  <widget type="label" version="2.0.0">
+    <name>StatusLabel</name>
+    <text>Status</text>
+    <x>20</x>
+    <y>175</y>
+    <width>150</width>
+    <height>25</height>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>Status</name>
+    <pv_name>ca://DEMO:Status</pv_name>
+    <x>180</x>
+    <y>175</y>
+    <width>120</width>
+    <height>30</height>
+  </widget>
+
+  <!-- Set 42 action button: verb "click" -> WritePV 42 to the setpoint -->
+  <widget type="action_button" version="3.0.0">
+    <name>SetButton</name>
+    <text>Set 42</text>
+    <x>20</x>
+    <y>225</y>
+    <width>120</width>
+    <height>40</height>
+    <actions>
+      <action type="write_pv">
+        <pv_name>ca://DEMO:Setpoint</pv_name>
+        <value>42</value>
+        <description>Write 42 to the setpoint</description>
+      </action>
+    </actions>
+  </widget>
+
+  <!-- Enable: toggle bool button (ACTION kind) -->
+  <widget type="bool_button" version="2.0.0">
+    <name>Enable</name>
+    <pv_name>ca://DEMO:Enable</pv_name>
+    <x>160</x>
+    <y>225</y>
+    <width>120</width>
+    <height>40</height>
+    <off_label>Enable OFF</off_label>
+    <on_label>Enable ON</on_label>
+  </widget>
+
+  <!-- Valve: momentary (push) bool button (MOMENTARY kind) -->
+  <widget type="bool_button" version="2.0.0">
+    <name>Valve</name>
+    <pv_name>ca://DEMO:Valve</pv_name>
+    <x>300</x>
+    <y>225</y>
+    <width>120</width>
+    <height>40</height>
+    <off_label>Valve CLOSED</off_label>
+    <on_label>Valve OPEN</on_label>
+    <mode>1</mode>
+  </widget>
+
+  <widget type="label" version="2.0.0">
+    <name>Hint</name>
+    <text>PVs served by demos/phoebus/demo_ioc.py (caproto soft IOC)</text>
+    <x>20</x>
+    <y>290</y>
+    <width>420</width>
+    <height>40</height>
+    <font>
+      <font family="Liberation Sans" style="ITALIC" size="11.0"/>
+    </font>
+  </widget>
+</display>

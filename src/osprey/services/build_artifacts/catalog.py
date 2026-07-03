@@ -258,6 +258,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             description="Artifact Gallery demo showcase skill",
         ),
         BuildArtifact(
+            canonical_name="skills/phoebus-walkthrough",
+            template_path="claude/skills/phoebus-walkthrough/SKILL.md",
+            output_path=".claude/skills/phoebus-walkthrough/SKILL.md",
+            description="Guided native-Phoebus perceive + drive demo skill",
+        ),
+        BuildArtifact(
             canonical_name="skills/sim-scenarios",
             template_path="claude/skills/sim-scenarios/SKILL.md",
             output_path=".claude/skills/sim-scenarios/SKILL.md",

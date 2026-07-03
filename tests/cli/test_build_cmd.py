@@ -2011,3 +2011,79 @@ def test_build_channel_finder_agent_requires_mode(tmp_path: Path) -> None:
     combined = result.output + (str(result.exception) if result.exception else "")
     assert "channel_finder_mode" in combined
     assert "required" in combined.lower()
+
+
+# ---------------------------------------------------------------------------
+# Approval-overlap guard (extends clones share bare-name approval policies)
+# ---------------------------------------------------------------------------
+
+
+def test_build_context_warns_when_remove_ask_overrides_gated_tool(tmp_path: Path, caplog) -> None:
+    """A facility permissions.remove_ask (or allow) entry naming an enabled
+    server's approval-gated tool — e.g. an extends clone's phoebus_drive —
+    must emit a build-time warning: it auto-approves the tool at the
+    permission layer, and approval policies apply to every instance of a
+    template (no per-instance gating)."""
+    import logging
+
+    from osprey.cli.templates import claude_code
+    from osprey.cli.templates.manager import TemplateManager
+
+    manager = TemplateManager()
+    project = manager.create_project(
+        project_name="remove-ask-warn",
+        output_dir=tmp_path,
+        data_bundle="hello_world",
+    )
+
+    config = yaml.safe_load((project / "config.yml").read_text())
+    cc = config.setdefault("claude_code", {})
+    cc.setdefault("servers", {})["phoebus2"] = {"extends": "phoebus"}
+    cc["permissions"] = {"remove_ask": ["mcp__phoebus2__phoebus_drive"]}
+
+    with caplog.at_level(logging.WARNING):
+        claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project, config
+        )
+
+    assert any(
+        "mcp__phoebus2__phoebus_drive" in r.message and "approval-gated" in r.message
+        for r in caplog.records
+    ), f"expected approval-overlap warning; got: {[r.message for r in caplog.records]}"
+
+
+def test_writes_disabled_hard_block_covers_extends_clones(tmp_path: Path) -> None:
+    """With control_system.writes_enabled false, the kill-switch hard-block must
+    cover extends clones of the controls/python templates, not just the literal
+    template names: the clone's rewritten channel_write lands in the rendered
+    settings.json permissions.deny, and the clone's execute is pulled out of
+    permissions.ask exactly like mcp__python__execute."""
+    from osprey.cli.templates.manager import TemplateManager
+    from osprey.utils.config_writer import config_update_fields
+
+    manager = TemplateManager()
+    project = manager.create_project(
+        project_name="writes-block-clone",
+        output_dir=tmp_path,
+        data_bundle="hello_world",
+    )
+
+    config_update_fields(
+        project / "config.yml",
+        {
+            "control_system.writes_enabled": False,
+            "claude_code.servers.controls2.extends": "controls",
+            "claude_code.servers.python2.extends": "python",
+        },
+    )
+    manager.regenerate_claude_code(project)
+
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+    deny = settings["permissions"]["deny"]
+    ask = settings["permissions"]["ask"]
+    # Template and clone both hard-blocked.
+    assert "mcp__controls__channel_write" in deny
+    assert "mcp__controls2__channel_write" in deny
+    # Template and clone execute both pulled out of ask (remove_ask leg).
+    assert "mcp__python__execute" not in ask
+    assert "mcp__python2__execute" not in ask
