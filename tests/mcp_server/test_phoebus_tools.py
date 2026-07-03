@@ -23,6 +23,18 @@ def _fn(name):
     return get_tool_fn(getattr(bridge_tools, name))
 
 
+def _register_demo_panel(tmp_path, monkeypatch, name="osprey_demo"):
+    """Register a phoebus panel in a temp config.yml and point OSPREY_CONFIG at it.
+
+    Panels resolve from ``phoebus.panels.<name>`` in config.yml — the real
+    deployment path for every facility. There is no built-in default panel, so
+    open_panel tests must register the name they open.
+    """
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(yaml.dump({"phoebus": {"panels": {name: f"/path/{name}.bob"}}}))
+    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+
+
 # ── list_displays ──────────────────────────────────────────────────────────
 async def test_list_displays_success():
     displays = [{"name": "demo", "ready": True, "active": True}]
@@ -174,9 +186,7 @@ async def test_drive_unreachable():
 # ── open_panel ─────────────────────────────────────────────────────────────
 async def test_open_panel_success_ready_immediately(tmp_path, monkeypatch):
     """Bridge returns ready=True on the POST /open response — no polling needed."""
-    config_file = tmp_path / "config.yml"
-    config_file.write_text("{}")
-    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+    _register_demo_panel(tmp_path, monkeypatch)
 
     body = {"id": "d-1", "resource": "/path/osprey_demo.bob", "ready": True}
     with patch(f"{_MOD}._http_post_open", return_value=(200, body)) as mock_open:
@@ -193,9 +203,7 @@ async def test_open_panel_success_ready_immediately(tmp_path, monkeypatch):
 
 async def test_open_panel_polls_until_ready(tmp_path, monkeypatch):
     """Bridge returns ready=False initially; open_panel polls displays until ready=True."""
-    config_file = tmp_path / "config.yml"
-    config_file.write_text("{}")
-    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+    _register_demo_panel(tmp_path, monkeypatch)
 
     open_body = {"id": "d-2", "resource": "/path/demo.bob", "ready": False}
     displays_body = [{"id": "d-2", "ready": True, "active": True, "name": "demo"}]
@@ -219,9 +227,7 @@ async def test_open_panel_timeout_returns_not_ready(tmp_path, monkeypatch):
     ``time.monotonic`` is patched so the deadline expires before the first loop
     iteration — no real sleep or polling occurs.
     """
-    config_file = tmp_path / "config.yml"
-    config_file.write_text("{}")
-    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+    _register_demo_panel(tmp_path, monkeypatch)
 
     open_body = {"id": "d-3", "resource": "/path/demo.bob", "ready": False}
     still_loading = [{"id": "d-3", "ready": False, "active": True, "name": "demo"}]
@@ -247,9 +253,7 @@ async def test_open_panel_timeout_returns_not_ready(tmp_path, monkeypatch):
 async def test_open_panel_focuses_own_web_panel_by_default(tmp_path, monkeypatch):
     """A successful open notifies the web terminal to focus THIS instance's
     panel tab, identified by OSPREY_SERVER_NAME (set per-clone by the registry)."""
-    config_file = tmp_path / "config.yml"
-    config_file.write_text("{}")
-    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+    _register_demo_panel(tmp_path, monkeypatch)
     monkeypatch.setenv("OSPREY_SERVER_NAME", "phoebus2")
 
     body = {"id": "d-1", "resource": "/path/osprey_demo.bob", "ready": True}
@@ -268,9 +272,7 @@ async def test_open_panel_focuses_own_web_panel_by_default(tmp_path, monkeypatch
 async def test_open_panel_focus_defaults_to_phoebus_panel(tmp_path, monkeypatch):
     """Without OSPREY_SERVER_NAME (template instance / older .mcp.json), the
     focus target falls back to the canonical 'phoebus' panel id."""
-    config_file = tmp_path / "config.yml"
-    config_file.write_text("{}")
-    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+    _register_demo_panel(tmp_path, monkeypatch)
     monkeypatch.delenv("OSPREY_SERVER_NAME", raising=False)
 
     body = {"id": "d-1", "resource": "/path/osprey_demo.bob", "ready": True}
@@ -285,9 +287,7 @@ async def test_open_panel_focus_defaults_to_phoebus_panel(tmp_path, monkeypatch)
 
 async def test_open_panel_focus_opt_out(tmp_path, monkeypatch):
     """focus=False (batch/background opens) suppresses the panel switch."""
-    config_file = tmp_path / "config.yml"
-    config_file.write_text("{}")
-    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+    _register_demo_panel(tmp_path, monkeypatch)
 
     body = {"id": "d-1", "resource": "/path/osprey_demo.bob", "ready": True}
     with (
@@ -305,9 +305,7 @@ async def test_open_panel_focus_opt_out(tmp_path, monkeypatch):
 async def test_open_panel_focus_failure_is_nonfatal(tmp_path, monkeypatch):
     """A failing focus notification (web terminal gone, config unreadable)
     must never fail the open itself — the display IS open at that point."""
-    config_file = tmp_path / "config.yml"
-    config_file.write_text("{}")
-    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+    _register_demo_panel(tmp_path, monkeypatch)
 
     body = {"id": "d-1", "resource": "/path/osprey_demo.bob", "ready": True}
     with (
@@ -323,9 +321,7 @@ async def test_open_panel_focus_failure_is_nonfatal(tmp_path, monkeypatch):
 
 async def test_open_panel_empty_id_raises(tmp_path, monkeypatch):
     """A 200 response with a missing/blank id raises phoebus_open_failed immediately."""
-    config_file = tmp_path / "config.yml"
-    config_file.write_text("{}")
-    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+    _register_demo_panel(tmp_path, monkeypatch)
 
     body_no_id = {"resource": "/path/demo.bob", "ready": False}  # no "id" key
     with patch(f"{_MOD}._http_post_open", return_value=(200, body_no_id)):
@@ -362,9 +358,7 @@ async def test_open_panel_config_registered(tmp_path, monkeypatch):
 
 async def test_open_panel_bridge_400(tmp_path, monkeypatch):
     """A 400 from the bridge surfaces as phoebus_open_failed with the bridge error text."""
-    config_file = tmp_path / "config.yml"
-    config_file.write_text("{}")
-    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+    _register_demo_panel(tmp_path, monkeypatch)
 
     with patch(
         f"{_MOD}._http_post_open",
@@ -377,9 +371,7 @@ async def test_open_panel_bridge_400(tmp_path, monkeypatch):
 
 async def test_open_panel_unreachable(tmp_path, monkeypatch):
     """Bridge unreachable during open raises phoebus_unreachable."""
-    config_file = tmp_path / "config.yml"
-    config_file.write_text("{}")
-    monkeypatch.setenv("OSPREY_CONFIG", str(config_file))
+    _register_demo_panel(tmp_path, monkeypatch)
 
     with patch(f"{_MOD}._http_post_open", side_effect=urllib.error.URLError("refused")):
         with assert_raises_error(error_type="phoebus_unreachable"):

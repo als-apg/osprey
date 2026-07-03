@@ -140,9 +140,8 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         name="phoebus",
         module="osprey.mcp_server.phoebus",
         # Off by default: only profiles that opt in (claude_code.servers.phoebus.enabled
-        # = true, e.g. the phoebus-standalone preset) get the native-Phoebus tools.
-        # A second live instance (INSTANCE=2 run_demo.sh) is declared in config as
-        # claude_code.servers.<name>.extends: phoebus — see build_extended_server().
+        # = true) get the native-Phoebus tools. A second live instance is declared in
+        # config as claude_code.servers.<name>.extends: phoebus — see build_extended_server().
         default_enabled=False,
         env={
             "OSPREY_CONFIG": "{project_root}/config.yml",

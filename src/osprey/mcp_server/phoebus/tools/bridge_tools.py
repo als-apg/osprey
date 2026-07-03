@@ -34,16 +34,18 @@ process-global focused display — a race when two terminals perceive/drive
 concurrently. Set ``PHOEBUS_REQUIRE_HANDLE=1`` (or ``phoebus.require_handle:
 true`` in config.yml) to reject the implicit ``"active"`` fallback and force
 callers to address a specific display (a handle or an explicit name). Off by
-default — the standalone single-user demo is unaffected.
+default — a single-instance deployment is unaffected.
 
 Panel name registry
 -------------------
 ``phoebus_open_panel`` resolves logical panel names to ``.bob`` resources via:
 
 1. ``phoebus.panels.<name>`` in config.yml — value may be an absolute path,
-   a ``file:`` URL, or a path relative to the config file's directory.
-2. Built-in registry (demo panels shipped with OSPREY, resolved relative to
-   the osprey repository root when running from a development checkout).
+   a ``file:`` URL, or a path relative to the config file's directory. This is
+   the deployment path for every facility.
+2. An optional framework built-in registry (empty by default; a framework
+   built-in, if ever added, is resolved relative to the osprey repository root
+   in a development checkout).
 """
 
 import asyncio
@@ -77,7 +79,7 @@ _TIMEOUT = 15  # seconds — snapshot/perceive marshal onto the Phoebus FX threa
 _UNREACHABLE_HINTS = [
     "Start a Phoebus product with the agent bridge enabled (default port 7979).",
     "Check the PHOEBUS_BRIDGE_URL env var or phoebus.host/phoebus.port in config.yml.",
-    "Launch the bundled demo with demos/phoebus/run_demo.sh, then retry.",
+    "Confirm the bridge is reachable, e.g. curl http://127.0.0.1:7979/displays.",
 ]
 
 
@@ -185,25 +187,18 @@ def _check_explicit_display(display: str) -> None:
 # Panel name → .bob resource resolution
 # ---------------------------------------------------------------------------
 
-# Built-in registry: NOT a framework requirement. The framework works fine with
-# this empty — phoebus.panels.<name> in config.yml is the real deployment path
-# (see the module docstring). The only entry ever added here is the demo panel
-# shipped under demos/, and only when that soft/optional condition is met (see
-# below) — a demos/-relative path must never be a *required* framework default.
+# Built-in registry: an optional, framework-level extension point for panels
+# shipped with OSPREY itself. Empty by default — the framework works fine this
+# way, and phoebus.panels.<name> in config.yml is the real deployment path for
+# every facility (see the module docstring). A framework built-in (if ever
+# added) is resolved relative to the osprey repo root in a development checkout,
+# or the config.yml directory otherwise; a facility panel must never be a
+# hardcoded framework default.
 _BUILTIN_PANELS: dict[str, str] = {}
 
 # bridge_tools.py is at src/osprey/mcp_server/phoebus/tools/bridge_tools.py
 # → parents[5] is the repo root (src/osprey/mcp_server/phoebus/tools → 5 up → repo root)
 _OSPREY_REPO_ROOT: Path = Path(__file__).resolve().parents[5]
-
-# Soft default for the standalone demo (run_demo.sh + the walkthrough): register
-# "osprey_demo" only when the demos/ tree is actually present next to this
-# checkout (true for a git clone, false for an installed package) — so the demo
-# keeps working out of the box without the framework carrying a hardcoded
-# demos/-relative path as a required default.
-_DEMO_PANEL_RELATIVE = "demos/phoebus/panels/osprey_demo.bob"
-if (_OSPREY_REPO_ROOT / _DEMO_PANEL_RELATIVE).exists():
-    _BUILTIN_PANELS["osprey_demo"] = _DEMO_PANEL_RELATIVE
 
 _OPEN_READY_TIMEOUT = 30  # seconds to wait for ready=True after /open
 
@@ -216,12 +211,13 @@ def _resolve_panel_resource(name: str) -> str:
     1. ``phoebus.panels.<name>`` in config.yml — value may be an absolute
        path, a ``file:`` URL, or a path relative to the config file's
        directory (resolved to absolute before forwarding).
-    2. Built-in registry (demo panels shipped with OSPREY), resolved relative
-       to the osprey repository root when running from a development checkout,
-       or relative to the config file's directory otherwise.
+    2. An optional framework built-in registry (empty by default), resolved
+       relative to the osprey repository root when running from a development
+       checkout, or relative to the config file's directory otherwise.
 
     Args:
-        name: Logical panel name (e.g. ``"osprey_demo"``).
+        name: Logical panel name registered under ``phoebus.panels`` in
+            config.yml (e.g. ``"site_overview"``).
 
     Raises:
         ToolError(unknown_panel): When *name* is not found in either source.
@@ -289,14 +285,15 @@ async def phoebus_open_panel(name: str, focus: bool = True) -> str:
 
     1. ``phoebus.panels.<name>`` in config.yml — accepts an absolute path, a
        ``file:`` URL, or a path relative to the config file's directory.
-    2. Built-in registry (demo panels shipped with OSPREY).
+    2. An optional framework built-in registry (empty by default).
 
     After a successful open the tool asks the Web Terminal (best-effort,
     never fatal) to focus this instance's panel tab, so the user sees the
     display they just asked for without hunting through tabs.
 
     Args:
-        name: Logical panel name (e.g. ``"osprey_demo"``).
+        name: Logical panel name registered under ``phoebus.panels`` in
+            config.yml (e.g. ``"site_overview"``).
         focus: Switch the Web Terminal to this instance's panel tab after
             opening (default ``True``). Pass ``False`` for batch or
             background opens that should not steal the user's view.

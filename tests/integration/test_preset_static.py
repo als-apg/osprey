@@ -202,12 +202,12 @@ def test_skill_referenced_mcp_tools_exist() -> None:
     )
 
 
-def test_phoebus_standalone_phoebus2_extends_block(tmp_path: Path) -> None:
-    """The commented phoebus2 opt-in in the phoebus-standalone preset must be
-    the ``extends`` form (the framework phoebus2 registry entry was deleted —
-    the legacy ``enabled: true`` form would now be a broken no-op), and
-    uncommenting it must round-trip through the same dotted-override path the
-    build uses (config_update_fields + resolve_env_vars) into a working clone.
+def test_phoebus2_extends_clone_round_trips(tmp_path: Path) -> None:
+    """A second framework-server instance declared via the ``extends`` form must
+    round-trip through the same dotted-override path the build uses
+    (config_update_fields + resolve_env_vars) into a working clone. The framework
+    phoebus2 registry entry was deleted, so ``extends: phoebus`` is the only
+    supported way to stand up a second live Phoebus instance.
     """
     import yaml
 
@@ -215,24 +215,14 @@ def test_phoebus_standalone_phoebus2_extends_block(tmp_path: Path) -> None:
     from osprey.utils.config import resolve_env_vars
     from osprey.utils.config_writer import config_update_fields
 
-    preset = PRESETS_DIR / "phoebus-standalone.yml"
-    text = preset.read_text(encoding="utf-8")
-
-    # The legacy opt-in form must be gone from the preset.
-    assert "claude_code.servers.phoebus2.enabled" not in text
-
-    # Shipped commented-out: the parsed profile carries no phoebus2 override.
-    profile = load_profile(preset)
-    config = getattr(profile, "config", {}) or {}
-    assert not any(k.startswith("claude_code.servers.phoebus2") for k in config)
-
-    # Uncomment the dotted overrides and apply them the way a build would.
-    overrides: dict = {}
-    for m in re.finditer(r"^  # (claude_code\.servers\.phoebus2\.\S+): (.+)$", text, re.M):
-        overrides[m.group(1)] = yaml.safe_load(m.group(2))
-    assert overrides.get("claude_code.servers.phoebus2.extends") == "phoebus", (
-        f"preset phoebus2 block is not the extends form: {overrides}"
-    )
+    # The dotted overrides a facility would declare in config.yml for a second
+    # live Phoebus instance (its own bridge URL, cloned from the phoebus server).
+    overrides: dict = {
+        "claude_code.servers.phoebus2.extends": "phoebus",
+        "claude_code.servers.phoebus2.env.PHOEBUS_BRIDGE_URL": (
+            "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}"
+        ),
+    }
 
     config_path = tmp_path / "config.yml"
     config_path.write_text("claude_code:\n  servers:\n    phoebus: {enabled: true}\n")
