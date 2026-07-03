@@ -74,7 +74,6 @@ let _preference = 'auto';
 // is resolved before anything touches data-theme.
 let _currentId = null;
 const _subscribers = new Set();
-let _sentinelDirty = false;
 let _messageListenerAttached = false;
 let _mediaQueryListenerAttached = false;
 let _toggleButtonWired = false;
@@ -352,10 +351,9 @@ function _readVar(styles, name) {
   return styles.getPropertyValue(name).trim();
 }
 
-/** Validate the sentinel token; logs + marks dirty (never throws) on an empty read. */
+/** Validate the sentinel token; logs (never throws) on an empty read. */
 function _checkSentinel(styles) {
   if (_readVar(styles, SENTINEL_VAR)) {
-    _sentinelDirty = false;
     return true;
   }
   console.error(
@@ -363,7 +361,6 @@ function _checkSentinel(styles) {
       '(a hidden iframe on Firefox reads empty custom properties); the next ' +
       'apply() re-fires every subscriber, giving this bridge another chance.'
   );
-  _sentinelDirty = true;
   return false;
 }
 
