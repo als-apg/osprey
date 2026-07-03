@@ -13,7 +13,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
-- **Native Phoebus control panels** — an optional `phoebus` MCP server lets the agent perceive a running [Phoebus](https://control-system-studio.readthedocs.io/) panel's widget tree, snapshot widgets, and drive controls (driving is approval-gated, like any hardware write). Off by default; enable with `claude_code.servers.phoebus.enabled: true` and configure the bridge and named panels via the `phoebus.*` config keys (see the build-deploy config schema). The Phoebus agent bridge itself is a facility build, not part of OSPREY.
+- **Native Phoebus control panels** — an optional `phoebus` MCP server lets the agent perceive a running [Phoebus](https://control-system-studio.readthedocs.io/) panel's widget tree, snapshot widgets, drive controls (driving is approval-gated, like any hardware write), and open live Data Browser archiver plots for a PV list and time range (`phoebus_open_databrowser`). Off by default; enable with `claude_code.servers.phoebus.enabled: true` and configure the bridge, named panels, and archiver via the `phoebus.*` config keys (see the build-deploy config schema). The Phoebus agent bridge itself is a facility build, not part of OSPREY.
 
 ### Fixed
 

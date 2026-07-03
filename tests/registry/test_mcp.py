@@ -262,10 +262,11 @@ _PHOEBUS_ALLOW = [
     "phoebus_perceive_region",
     "phoebus_snapshot",
     "phoebus_open_panel",
+    "phoebus_open_databrowser",
 ]
 
-# Only drive actuates hardware-facing controls; open_panel touches no PVs
-# and is plain-allowed — see the registry entry.
+# Only drive actuates hardware-facing controls; open_panel and open_databrowser
+# touch no PVs and are plain-allowed — see the registry entry.
 _PHOEBUS_ASK = ["phoebus_drive"]
 
 
