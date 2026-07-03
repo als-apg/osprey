@@ -191,6 +191,13 @@ jobs:
   visual-theming:
     name: Behavioral + Visual Theming (Playwright, design system)
     runs-on: ubuntu-latest
+    # The default GITHUB_TOKEN is read-only repo-wide; this job's last step
+    # pushes regenerated Linux baselines back to the PR branch, so it alone
+    # needs contents: write (matches docs.yml's workflow-level grant for the
+    # same reason — gh-pages push — scoped here to just this job instead of
+    # the whole ci.yml workflow).
+    permissions:
+      contents: write
 
     steps:
     - name: Checkout repository

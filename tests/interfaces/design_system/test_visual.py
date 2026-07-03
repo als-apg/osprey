@@ -366,10 +366,12 @@ def _perceptual_diff_ratio(
 def _assert_matches_baseline(name: str, png_bytes: bytes, regen: bool) -> None:
     """Compare (or record) one screenshot against its committed baseline.
 
-    Bootstrap and ``--regen-baselines`` both write the baseline unconditionally.
-    Otherwise: Linux does the real Pillow perceptual diff; every other platform
-    only asserts the capture itself is a valid, non-degenerate image and prints
-    an explicit skip notice — see the module docstring's platform split.
+    ``--regen-baselines`` always writes the baseline unconditionally. The
+    first-time bootstrap write (no baseline committed yet) is Linux-only —
+    writing one on any other platform would mint a non-authoritative,
+    non-Linux-rendered PNG that the real Linux CI comparison would then
+    (wrongly) diff against. Off-Linux with no baseline just skips with the
+    same explicit notice as the ordinary off-Linux compare path below.
     """
     captured = Image.open(io.BytesIO(png_bytes)).convert("RGB")
     assert captured.size == (VIEWPORT["width"], VIEWPORT["height"]), (
@@ -377,15 +379,16 @@ def _assert_matches_baseline(name: str, png_bytes: bytes, regen: bool) -> None:
     )
 
     baseline_path = BASELINES_DIR / f"{name}.png"
+    is_linux = platform.system() == "Linux"
 
-    if regen or not baseline_path.exists():
+    if regen or (is_linux and not baseline_path.exists()):
         BASELINES_DIR.mkdir(parents=True, exist_ok=True)
         captured.save(baseline_path)
         if not baseline_path.exists():  # pragma: no cover - defensive
             raise AssertionError(f"{name}: failed to write baseline to {baseline_path}")
         return
 
-    if platform.system() != "Linux":
+    if not is_linux:
         print(f"[visual] {name}: {_DASHBOARD_HTML_ONLY_ON_LINUX_NOTE}")
         return
 
