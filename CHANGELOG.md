@@ -27,7 +27,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Web Terminal's and Artifacts' syntax-highlighting theme stylesheet no longer 404s in the default CDN vendor mode (it was previously served from a hardcoded local vendor path regardless of the configured vendor mode).
 - ARIEL now themes itself from the shared OSPREY design system instead of a hardcoded dark palette, and follows the web-terminal hub's theme when embedded; also fixes a phantom `--amber` CSS variable that was never defined (draft banner and image-lightbox link color).
 - Tuning panel Plotly charts now re-theme live with the rest of the UI instead of staying dark-locked in light mode.
-- `osprey web --project X` launched from another directory now spawns the interactive terminal's Claude Code with `cwd = X`, so it reads `X/.mcp.json` and starts the project's MCP servers (the PTY path previously ignored `--project` and inherited the launch directory) (#313).
+- `osprey web --project X` launched from another directory now spawns the interactive terminal's OSPREY agent with `cwd = X`, so it reads `X/.mcp.json` and starts the project's MCP servers (the PTY path previously ignored `--project` and inherited the launch directory) (#313).
 
 ## [2026.6.3] - 2026-06-29
 
