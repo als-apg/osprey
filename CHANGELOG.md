@@ -17,6 +17,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Tuning panel Plotly charts now re-theme live with the rest of the UI instead of staying dark-locked in light mode.
 - `osprey web --project X` launched from another directory now spawns the interactive terminal's Claude Code with `cwd = X`, so it reads `X/.mcp.json` and starts the project's MCP servers (the PTY path previously ignored `--project` and inherited the launch directory) (#313).
 
 ## [2026.6.3] - 2026-06-29
