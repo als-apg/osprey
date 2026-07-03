@@ -7,7 +7,7 @@
  */
 
 import { fetchJSON } from './api.js';
-import { getTheme } from './theme.js';
+import { getTheme } from '/design-system/js/theme-manager.js';
 import { getCurrentSessionId } from './terminal.js';
 
 // ---- Panel Registry ----

@@ -9,10 +9,10 @@ import { initMemoryGallery } from './memory-gallery.js';
 import { initScaffoldGallery } from './scaffold-gallery.js';
 import { initHookDebug } from './hook-debug.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
-import { initTheme } from './theme.js';
+import { initTheme } from '/design-system/js/theme-manager.js';
 
 document.addEventListener('DOMContentLoaded', () => {
-  initTheme();
+  initTheme({ role: 'hub' });
   initTerminal('terminal-container');
   initPanelManager('right-panel');
   initSessionSelector('session-selector');

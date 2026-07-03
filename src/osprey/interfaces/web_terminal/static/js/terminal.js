@@ -1,7 +1,7 @@
 /* OSPREY Web Terminal — Terminal Module */
 
 import { createWebSocket, wsUrl } from './api.js';
-import { getXtermPalette, setTerminalRef } from './theme.js';
+import { subscribe, xtermPalette } from '/design-system/js/theme-manager.js';
 
 let term = null;
 let fitAddon = null;
@@ -22,11 +22,15 @@ export function initTerminal(containerId) {
     fontFamily: "'JetBrains Mono', monospace",
     fontSize: 14,
     lineHeight: 1.2,
-    theme: getXtermPalette(),
+    theme: xtermPalette(),
   });
 
-  // Register terminal reference for live theme switching
-  setTerminalRef(term);
+  // Live theme switching: re-read the palette from computed style on every
+  // apply (see theme-manager.js's hidden-iframe protocol for why this is
+  // never deduped on an unchanged theme id).
+  subscribe(() => {
+    if (term) term.options.theme = xtermPalette();
+  });
 
   fitAddon = new FitAddon.FitAddon();
   const webLinksAddon = new WebLinksAddon.WebLinksAddon();
