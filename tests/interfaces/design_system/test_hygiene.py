@@ -211,25 +211,6 @@ _KNOWN_DANGLING_VARS: frozenset[tuple[str, str]] = frozenset(
         # never added. `padding-right` computes to an invalid value.
         # Owned by: migrate-ariel.
         ("src/osprey/interfaces/ariel/static/css/components.css", "space-32"),
-        # Only --surface-card and --surface-hover exist in channel-finder's
-        # palette; --surface-secondary has no declaration and no fallback.
-        # `background` computes to an invalid value. Owned by:
-        # migrate-channel-finder.
-        (
-            "src/osprey/interfaces/channel_finder/static/css/channel-finder.css",
-            "surface-secondary",
-        ),
-        # channel-finder's own spacing scale skips 5 (defines --space-1..4,
-        # --space-6, --space-8, but no --space-5); `padding-left` computes
-        # to an invalid value. Owned by: migrate-channel-finder.
-        ("src/osprey/interfaces/channel_finder/static/css/channel-finder.css", "space-5"),
-        # --surface-subtle's fallback chain terminates in --surface-raised,
-        # which is ALSO never declared and has no further fallback of its
-        # own — the whole chain is invalid. Owned by: migrate-channel-finder.
-        (
-            "src/osprey/interfaces/channel_finder/static/css/channel-finder.css",
-            "surface-raised",
-        ),
         # A second, fallback-less `--amber` usage distinct from the
         # already-documented entries.js:584 phantom (`var(--amber,
         # #f59e0b)`, which degrades safely via its literal fallback and is
