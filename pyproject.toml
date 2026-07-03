@@ -150,6 +150,7 @@ dev = [
     "docker>=7.0.0",  # Docker SDK for testcontainers availability check
     "psycopg[binary,pool]>=3.1.0,<4.0.0",  # ARIEL search integration tests
     "psycopg-pool>=3.1.0,<4.0.0",  # ARIEL search integration tests
+    "pillow>=10.0.0",  # Perceptual diffing for the design-system visual regression suite
 ]
 
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)

@@ -188,6 +188,85 @@ jobs:
     - name: Run Tier 0 static checks
       run: uv run pytest tests/integration/test_preset_static.py -v --tb=short
 
+  visual-theming:
+    name: Behavioral + Visual Theming (Playwright, design system)
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    # Job-level "paths" isn't a thing in GitHub Actions — dorny/paths-filter
+    # computes it as a step output instead, so every later step can gate on
+    # it. An unrelated PR still gets a green (not skipped) job: every gated
+    # step no-ops, which reports as job success, same as any other
+    # conditionally-skipped step in this workflow.
+    - name: Detect design-system / dispatch dashboard changes
+      id: changes
+      uses: dorny/paths-filter@v3
+      with:
+        filters: |
+          theming:
+            - 'src/osprey/interfaces/**'
+            - 'src/osprey/dispatch/**'
+            - 'tests/interfaces/design_system/**'
+
+    - name: Install uv
+      if: steps.changes.outputs.theming == 'true'
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      if: steps.changes.outputs.theming == 'true'
+      run: uv python install 3.11
+
+    - name: Install dependencies
+      if: steps.changes.outputs.theming == 'true'
+      run: uv sync --extra dev
+
+    - name: Install Playwright chromium
+      if: steps.changes.outputs.theming == 'true'
+      run: uv run playwright install chromium --with-deps
+
+    - name: Run behavioral theming suite
+      if: steps.changes.outputs.theming == 'true'
+      run: |
+        uv run pytest tests/interfaces/design_system/test_behavioral.py \
+          tests/interfaces/web_terminal/test_panels_browser.py -v --tb=short
+
+    - name: Run visual regression suite
+      # Linux is the authoritative platform for the pixel diff (see
+      # test_visual.py's module docstring); this runner IS that platform.
+      # A missing baseline is written on the spot — see the "commit" step
+      # below for how a first-time/updated baseline lands back in the repo.
+      if: steps.changes.outputs.theming == 'true'
+      run: uv run pytest tests/interfaces/design_system/test_visual.py -v --tb=short
+
+    - name: Upload Linux-rendered baselines artifact
+      if: steps.changes.outputs.theming == 'true'
+      uses: actions/upload-artifact@v7
+      with:
+        name: visual-baselines-linux
+        path: tests/interfaces/design_system/baselines/*.png
+        retention-days: 14
+
+    - name: Commit new/updated Linux baselines back to the PR branch
+      # Only for same-repo PRs — forks can't push, and main pushes have
+      # nothing to compare against (baselines only ever change via a PR).
+      if: >-
+        steps.changes.outputs.theming == 'true' &&
+        github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository
+      uses: stefanzweifel/git-auto-commit-action@v5
+      with:
+        commit_message: "chore(visual): update Linux-rendered theming baseline(s) [skip ci]"
+        file_pattern: 'tests/interfaces/design_system/baselines/*.png'
+        commit_user_name: "github-actions[bot]"
+        commit_user_email: "github-actions[bot]@users.noreply.github.com"
+
   build-boot-smoke:
     name: Tier 1 — Build + MCP boot (${{ matrix.preset }})
     runs-on: ubuntu-latest
@@ -514,7 +593,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, lint, docs, package, static-checks, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dockerfile-e2e, agentic-per-preset]
+    needs: [test, lint, docs, package, static-checks, visual-theming, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dockerfile-e2e, agentic-per-preset]
     runs-on: ubuntu-latest
     if: always()
 
@@ -539,6 +618,10 @@ jobs:
         fi
         if [[ "${{ needs.static-checks.result }}" != "success" ]]; then
           echo "❌ Tier 0 static checks failed"
+          exit 1
+        fi
+        if [[ "${{ needs.visual-theming.result }}" != "success" ]]; then
+          echo "❌ Behavioral/visual theming suite failed"
           exit 1
         fi
         if [[ "${{ needs.build-boot-smoke.result }}" != "success" ]]; then
