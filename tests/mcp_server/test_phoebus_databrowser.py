@@ -38,6 +38,19 @@ async def test_empty_channels_raises_validation_error():
     assert "No channels" in ctx["envelope"]["error_message"]
 
 
+async def test_malformed_styling_returns_validation_error(tmp_path, monkeypatch):
+    """A malformed styling sub-field (bad enum value, bad color tuple) must
+    surface as a clean validation_error envelope naming the bad field, not a
+    raw ValueError/pydantic ValidationError bubbling out of the tool."""
+    monkeypatch.chdir(tmp_path)
+    styling = {"pvs": {"SR:BPM:X": {"trace_type": "NOPE", "color": [0, 0]}}}
+    with assert_raises_error(error_type="validation_error") as ctx:
+        await _open_databrowser()(channels=["SR:BPM:X"], styling=styling)
+    msg = ctx["envelope"]["error_message"]
+    assert "SR:BPM:X" in msg
+    assert "color" in msg
+
+
 # ── success path / output shape ─────────────────────────────────────────────
 async def test_success_returns_handle_and_plt_file(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)

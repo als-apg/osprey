@@ -38,8 +38,10 @@ import os
 from pathlib import Path
 
 import anyio
+from pydantic import ValidationError
 
 from osprey.mcp_server.errors import make_error
+from osprey.mcp_server.http import notify_panel_focus
 from osprey.mcp_server.phoebus import plt_generator
 from osprey.mcp_server.phoebus.models import (
     AnnotationConfig,
@@ -111,6 +113,35 @@ def _default_title(channels: list[str]) -> str:
     return f"Data Browser: {names}"
 
 
+def _coerce_color(value: object, field: str) -> tuple[int, int, int]:
+    """Validate a styling color value: a 3-element ``[r, g, b]`` sequence of
+    ints in 0-255. Raises ``ValueError`` naming *field* on any mismatch."""
+    try:
+        r, g, b = value  # type: ignore[misc]
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"'{field}' must be a 3-element [r, g, b] sequence, got {value!r}."
+        ) from None
+    for component, axis_name in ((r, "r"), (g, "g"), (b, "b")):
+        if isinstance(component, bool) or not isinstance(component, int) or not (
+            0 <= component <= 255
+        ):
+            raise ValueError(
+                f"'{field}.{axis_name}' must be an int in 0-255, got {component!r}."
+            )
+    return (r, g, b)
+
+
+def _coerce_enum(enum_cls: type, value: object, field: str):
+    """Coerce *value* to *enum_cls*, raising ``ValueError`` naming *field*
+    (with the valid choices) instead of the enum's bare ``ValueError``."""
+    try:
+        return enum_cls(value)
+    except ValueError:
+        valid = ", ".join(m.value for m in enum_cls)
+        raise ValueError(f"'{field}' must be one of {valid}, got {value!r}.") from None
+
+
 def _build_plot_config(
     channels: list[str],
     title: str | None,
@@ -120,58 +151,94 @@ def _build_plot_config(
 ) -> PlotConfig:
     """Translate tool arguments into a ``PlotConfig``, applying the retired
     server's defaults (color rotation, appearance) wherever ``styling``
-    leaves a value unspecified."""
+    leaves a value unspecified.
+
+    Raises ``ValueError`` (naming the offending ``styling`` field) on any
+    malformed sub-field — enum coercion, color tuples, or
+    ``AnnotationConfig`` construction — so the caller can turn it into a
+    clean ``validation_error`` envelope instead of a raw pydantic/enum
+    exception.
+    """
     styling = styling or {}
     per_pv: dict = styling.get("pvs", {})
 
     pvs: list[PVConfig] = []
     for i, name in enumerate(channels):
         pv_style: dict = per_pv.get(name, {})
+        field_prefix = f"pvs.{name}"
         color = pv_style.get("color")
-        if color is None:
-            color = _DEFAULT_COLORS[i % len(_DEFAULT_COLORS)]
-        pvs.append(
-            PVConfig(
-                name=name,
-                display_name=pv_style.get("display_name", name),
-                color_red=color[0],
-                color_green=color[1],
-                color_blue=color[2],
-                trace_type=TraceType(pv_style.get("trace_type", TraceType.LINE.value)),
-                line_style=LineStyle(pv_style.get("line_style", LineStyle.SOLID.value)),
-                line_width=pv_style.get("line_width", 2),
-                point_type=PointType(pv_style.get("point_type", PointType.NONE.value)),
-                point_size=pv_style.get("point_size", 2),
-                axis=pv_style.get("axis", 0),
-            )
+        color = (
+            _DEFAULT_COLORS[i % len(_DEFAULT_COLORS)]
+            if color is None
+            else _coerce_color(color, f"{field_prefix}.color")
         )
+        try:
+            pvs.append(
+                PVConfig(
+                    name=name,
+                    display_name=pv_style.get("display_name", name),
+                    color_red=color[0],
+                    color_green=color[1],
+                    color_blue=color[2],
+                    trace_type=_coerce_enum(
+                        TraceType,
+                        pv_style.get("trace_type", TraceType.LINE.value),
+                        f"{field_prefix}.trace_type",
+                    ),
+                    line_style=_coerce_enum(
+                        LineStyle,
+                        pv_style.get("line_style", LineStyle.SOLID.value),
+                        f"{field_prefix}.line_style",
+                    ),
+                    line_width=pv_style.get("line_width", 2),
+                    point_type=_coerce_enum(
+                        PointType,
+                        pv_style.get("point_type", PointType.NONE.value),
+                        f"{field_prefix}.point_type",
+                    ),
+                    point_size=pv_style.get("point_size", 2),
+                    axis=pv_style.get("axis", 0),
+                )
+            )
+        except ValidationError as exc:
+            raise ValueError(f"Invalid styling for '{field_prefix}': {exc}") from exc
 
-    bg = styling.get("background", (255, 255, 255))
-    fg = styling.get("foreground", (0, 0, 0))
-    annotations = [AnnotationConfig(**a) for a in styling.get("annotations", [])]
+    bg = _coerce_color(styling.get("background", (255, 255, 255)), "background")
+    fg = _coerce_color(styling.get("foreground", (0, 0, 0)), "foreground")
 
-    return PlotConfig(
-        title=title or _default_title(channels),
-        pvs=pvs,
-        time_range=TimeRange(start=start_time, end=end_time),
-        annotations=annotations,
-        background_red=bg[0],
-        background_green=bg[1],
-        background_blue=bg[2],
-        foreground_red=fg[0],
-        foreground_green=fg[1],
-        foreground_blue=fg[2],
-        show_grid=styling.get("show_grid", True),
-        show_legend=styling.get("show_legend", True),
-        show_toolbar=styling.get("show_toolbar", True),
-        scroll=styling.get("scroll", True),
-        update_period=styling.get("update_period", 3.0),
-        axis_name=styling.get("axis_name", "Values"),
-        auto_scale=styling.get("auto_scale", True),
-        axis_min=styling.get("axis_min"),
-        axis_max=styling.get("axis_max"),
-        log_scale=styling.get("log_scale", False),
-    )
+    annotations: list[AnnotationConfig] = []
+    for idx, annotation in enumerate(styling.get("annotations", [])):
+        field = f"annotations[{idx}]"
+        try:
+            annotations.append(AnnotationConfig(**annotation))
+        except (ValidationError, TypeError) as exc:
+            raise ValueError(f"Invalid styling for '{field}': {exc}") from exc
+
+    try:
+        return PlotConfig(
+            title=title or _default_title(channels),
+            pvs=pvs,
+            time_range=TimeRange(start=start_time, end=end_time),
+            annotations=annotations,
+            background_red=bg[0],
+            background_green=bg[1],
+            background_blue=bg[2],
+            foreground_red=fg[0],
+            foreground_green=fg[1],
+            foreground_blue=fg[2],
+            show_grid=styling.get("show_grid", True),
+            show_legend=styling.get("show_legend", True),
+            show_toolbar=styling.get("show_toolbar", True),
+            scroll=styling.get("scroll", True),
+            update_period=styling.get("update_period", 3.0),
+            axis_name=styling.get("axis_name", "Values"),
+            auto_scale=styling.get("auto_scale", True),
+            axis_min=styling.get("axis_min"),
+            axis_max=styling.get("axis_max"),
+            log_scale=styling.get("log_scale", False),
+        )
+    except ValidationError as exc:
+        raise ValueError(f"Invalid styling: {exc}") from exc
 
 
 @mcp.tool()
@@ -213,11 +280,13 @@ async def phoebus_open_databrowser(
 
     Returns:
         JSON ``{"status": "success", "handle": "handle:d-N", "plt_file":
-        "<path>", "id": "d-N", "ready": <bool>, "channel_count": <int>}``.
+        "<path>", "id": "d-N", "ready": <bool>, "channel_count": <int>,
+        "focused": <bool>}``.
         ``plt_file`` is a local copy in *this tool's own container* — a
         shareable artifact for the operator, not the path the bridge opened
         (the bridge is sent the ``.plt`` content directly; see module
-        docstring).
+        docstring). ``focused`` reports whether the Web Terminal tab-focus
+        notification (best-effort, mirrors ``phoebus_open_panel``) succeeded.
     """
     if not channels:
         make_error(
@@ -226,7 +295,18 @@ async def phoebus_open_databrowser(
             ["Pass at least one PV/channel name in 'channels'."],
         )
 
-    plot_config = _build_plot_config(channels, title, start_time, end_time, styling)
+    try:
+        plot_config = _build_plot_config(channels, title, start_time, end_time, styling)
+    except ValueError as exc:
+        make_error(
+            "validation_error",
+            f"Invalid 'styling': {exc}",
+            [
+                "Check styling field types/values against the documented schema "
+                "(see the phoebus_open_databrowser docstring)."
+            ],
+        )
+
     plt_path = plt_generator.create_plt_from_config(
         plot_config,
         workspace_dir=_plot_dir(),
@@ -263,13 +343,30 @@ async def phoebus_open_databrowser(
             ["This may indicate a bridge version mismatch; check the bridge logs."],
         )
 
+    # Best-effort UX signal, mirroring phoebus_open_panel: switch the Web
+    # Terminal to this instance's panel tab so the operator sees the Data
+    # Browser they just opened. A missing/unreachable web terminal (CLI-only
+    # mode) must never turn a successful open into a failure.
+    focused = False
+    panel_id = os.environ.get("OSPREY_SERVER_NAME", "phoebus")
+    try:
+        await anyio.to_thread.run_sync(notify_panel_focus, panel_id)
+        focused = True
+    except Exception as exc:
+        logger.debug("panel focus notification failed (non-fatal): %s", exc)
+
     return json.dumps(
         {
             "status": "success",
             "handle": f"handle:{display_id}",
             "plt_file": plt_path,
             "id": display_id,
+            # No readiness poll here (unlike phoebus_open_panel): a Data
+            # Browser is a streaming chart, not a widget tree that
+            # perceive/drive would race against JavaFX model loading — the
+            # bridge's own "ready" is passed through as-is.
             "ready": bool(body.get("ready", False)),
             "channel_count": len(channels),
+            "focused": focused,
         }
     )
