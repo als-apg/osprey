@@ -826,6 +826,11 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
     SHARED_FONTS_DIR = Path(__file__).parent.parent / "shared_fonts"
     if SHARED_FONTS_DIR.exists():
         app.mount("/static/fonts", StaticFiles(directory=SHARED_FONTS_DIR), name="shared-fonts")
+    DESIGN_SYSTEM_STATIC_DIR = Path(__file__).parent.parent / "design_system" / "static"
+    if DESIGN_SYSTEM_STATIC_DIR.exists():
+        app.mount(
+            "/design-system", StaticFiles(directory=DESIGN_SYSTEM_STATIC_DIR), name="design-system"
+        )
     if STATIC_DIR.exists():
         app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 

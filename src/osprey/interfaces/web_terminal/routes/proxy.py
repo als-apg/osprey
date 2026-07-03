@@ -26,6 +26,7 @@ router = APIRouter()
 # false positives on arbitrary ``/`` characters.
 _REWRITE_PREFIXES = (
     "/static/",
+    "/design-system/",
     "/api/",
     "/files/",
     "/health",
