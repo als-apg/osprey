@@ -62,6 +62,28 @@ find src/osprey -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null |
 find src/osprey -type d -empty -delete 2>/dev/null || true
 echo ""
 
+# The behavioral/visual Playwright suites (tests/interfaces/web_terminal/test_panels_browser.py,
+# tests/interfaces/design_system/test_behavioral.py) skip cleanly when chromium isn't installed.
+# A silent skip in the pytest summary below is easy to miss — run the exact same
+# chromium-launch check those suites' chromium_browser fixture uses, and say so loudly.
+echo "→ Checking chromium availability for browser-based theming tests..."
+if uv run python - <<'PYEOF' >/dev/null 2>&1
+from playwright.sync_api import sync_playwright
+
+pw = sync_playwright().start()
+try:
+    browser = pw.chromium.launch(headless=True)
+    browser.close()
+finally:
+    pw.stop()
+PYEOF
+then
+    echo "✅ Chromium available — browser-based theming tests will run for real"
+else
+    echo "⚠️  Browser-based theming tests NOT verified on this platform (no chromium) — CI enforces them"
+fi
+echo ""
+
 echo "→ Running pytest with coverage..."
 if ! uv run pytest tests/ --ignore=tests/e2e -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
     FAILED_CHECKS+=("pytest")
