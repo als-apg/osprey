@@ -22,12 +22,7 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent 0px,
-    rgba(0, 0, 0, 0.08) 2px,
-    transparent 4px
-  );
+  background: var(--wt-welcome-scanline-bg);
   pointer-events: none;
   z-index: 1;
   opacity: var(--wt-crt-scanline-opacity);

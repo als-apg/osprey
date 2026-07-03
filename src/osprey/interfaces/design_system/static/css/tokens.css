@@ -138,6 +138,7 @@
   --wt-welcome-link-hover: #a0e8c0;
   --wt-welcome-prompt: #5a9a7a;
   --wt-welcome-cursor: #7ec8a0;
+  --wt-welcome-scanline-bg: repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px);
   --wt-header-height: 48px;
   --wt-status-bar-height: 24px;
   --wt-transition-fast: 120ms ease;
@@ -278,6 +279,7 @@
   --wt-welcome-link-hover: #065f5c;
   --wt-welcome-prompt: #0a8f8c;
   --wt-welcome-cursor: #0d7377;
+  --wt-welcome-scanline-bg: repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px);
   --wt-header-height: 48px;
   --wt-status-bar-height: 24px;
   --wt-transition-fast: 120ms ease;

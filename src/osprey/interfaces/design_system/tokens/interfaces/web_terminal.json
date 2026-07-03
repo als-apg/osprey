@@ -15,7 +15,8 @@
       "link": { "$value": "{color.green.600}", "$type": "color" },
       "link-hover": { "$value": "{color.green.100}", "$type": "color" },
       "prompt": { "$value": "{color.green.500}", "$type": "color" },
-      "cursor": { "$value": "{color.green.200}", "$type": "color" }
+      "cursor": { "$value": "{color.green.200}", "$type": "color" },
+      "scanline-bg": { "$value": "repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px)", "$type": "string", "$description": "The welcome ASCII banner's own, more-pronounced scanline effect — distinct from wt-crt.scanline-bg (different stop offsets and alpha). Theme-invariant by design (same value in both groups, matching the literal it replaces): the overlay's opacity is already gated to 0 in light mode via wt-crt.scanline-opacity, so this value never renders visibly in light mode regardless." }
     },
     "wt-header-height": { "$value": "48px", "$type": "dimension", "$description": "Renamed from --header-height (Task 1.1 omission surfaced by the real build; used by terminal.css)." },
     "wt-status-bar-height": { "$value": "24px", "$type": "dimension", "$description": "Renamed from --status-bar-height (used by terminal.css, files.css)." },
@@ -38,7 +39,8 @@
       "link": { "$value": "{color.teal.400}", "$type": "color" },
       "link-hover": { "$value": "{color.teal.700}", "$type": "color" },
       "prompt": { "$value": "{color.teal.400}", "$type": "color" },
-      "cursor": { "$value": "{color.teal.500}", "$type": "color" }
+      "cursor": { "$value": "{color.teal.500}", "$type": "color" },
+      "scanline-bg": { "$value": "repeating-linear-gradient(0deg, transparent 0px, rgba(0, 0, 0, 0.08) 2px, transparent 4px)", "$type": "string", "$description": "Same theme-invariant value as dark — see dark group's description." }
     },
     "wt-header-height": { "$value": "48px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." },
     "wt-status-bar-height": { "$value": "24px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." },
