@@ -46,9 +46,7 @@ def test_clean_bundle_has_no_warnings(tmp_path):
 
 def test_missing_frontmatter_flagged(tmp_path):
     # No 'description' -> authoring validation fails.
-    _write_concept(
-        tmp_path, "devices/bpm", frontmatter={"type": "concept", "title": "BPM"}
-    )
+    _write_concept(tmp_path, "devices/bpm", frontmatter={"type": "concept", "title": "BPM"})
     warnings = validate_bundle(OKFBundle(tmp_path))
 
     kinds = {w.kind for w in warnings}

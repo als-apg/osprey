@@ -28,8 +28,8 @@ raises.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 from osprey.services.facility_knowledge.okf.bundle import OKFBundle, OKFBundleError
 from osprey.services.facility_knowledge.okf.document import OKFDocumentError
@@ -269,7 +269,6 @@ def bundle_health(warnings: list[ValidationWarning]) -> dict:
         "total": len(warnings),
         "counts": counts,
         "warnings": [
-            {"concept_id": w.concept_id, "kind": w.kind, "detail": w.detail}
-            for w in warnings
+            {"concept_id": w.concept_id, "kind": w.kind, "detail": w.detail} for w in warnings
         ],
     }

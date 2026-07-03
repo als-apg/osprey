@@ -101,9 +101,9 @@ def _launcher_side_port(monkeypatch, fake_config, env_value):
 @pytest.mark.parametrize(
     "env_value",
     [
-        None,   # no override → port_default 8093 on both sides
+        None,  # no override → port_default 8093 on both sides
         "9099",  # explicit override → both sides honour it
-        "",      # SET-BUT-EMPTY (compose `VAR=`) → must not crash the launch (regression)
+        "",  # SET-BUT-EMPTY (compose `VAR=`) → must not crash the launch (regression)
     ],
 )
 def test_launch_and_launcher_agree_on_port(monkeypatch, env_value):

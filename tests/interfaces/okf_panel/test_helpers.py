@@ -11,7 +11,6 @@ from osprey.interfaces.okf_panel.helpers import (
 )
 from osprey.services.facility_knowledge.okf.bundle import ConceptEntry
 
-
 # ---------------------------------------------------------------------------
 # make_snippet
 # ---------------------------------------------------------------------------
@@ -22,7 +21,8 @@ def test_snippet_found_mid_body():
         "The accelerator stores beam in the storage ring.\n"
         "Operators monitor the global orbit feedback system continuously\n"
         "to keep the closed orbit stable during user operations. "
-        + "Trailing padding text to push the end well past the match. " * 5
+        + "Trailing padding text to push the end well past the match. "
+        * 5
     )
     snippet = make_snippet(body, "orbit feedback")
 
@@ -126,9 +126,7 @@ def test_group_concepts_groups_sorted_alpha_and_concepts_sorted_by_title():
 
 def test_group_concepts_per_concept_dict_excludes_type():
     entries = [
-        ConceptEntry(
-            concept_id="devices/bpm", title="BPM", description="A monitor", type="device"
-        ),
+        ConceptEntry(concept_id="devices/bpm", title="BPM", description="A monitor", type="device"),
     ]
     payload = group_concepts(entries)
 

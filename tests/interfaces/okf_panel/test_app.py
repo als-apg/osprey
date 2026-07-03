@@ -45,7 +45,7 @@ def test_root_serves_spa_shell(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "text/html" in r.headers["content-type"]
-    assert "<div id=\"app\">" in r.text
+    assert '<div id="app">' in r.text
 
 
 def test_concepts_grouped_and_sorted(client):
@@ -193,9 +193,7 @@ def test_launch_factory_with_unconfigured_bundle_is_guarded(monkeypatch):
     from osprey.infrastructure import server_launcher
     from osprey.registry.web import FRAMEWORK_WEB_SERVERS
 
-    monkeypatch.setattr(
-        server_launcher, "load_osprey_config", lambda: {"facility_knowledge": {}}
-    )
+    monkeypatch.setattr(server_launcher, "load_osprey_config", lambda: {"facility_knowledge": {}})
     factory = server_launcher._make_app_factory(FRAMEWORK_WEB_SERVERS["okf"])
     app = factory()
     c = TestClient(app)
