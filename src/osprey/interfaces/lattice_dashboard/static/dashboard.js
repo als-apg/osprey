@@ -4,6 +4,13 @@
  * Renders Plotly figures, drives slider controls, manages status LEDs.
  */
 
+import { initTheme, subscribe, chartTheme } from '/design-system/js/theme-manager.js';
+
+// Panel embedded in the Web Terminal hub: apply the hub's broadcast theme
+// and follow live changes. theme-boot.js already applied data-theme
+// pre-paint; this call attaches the follower's postMessage listener.
+initTheme({ role: 'follower' });
+
 // ── Configuration ───────────────────────────────────────
 
 const API_BASE = '';  // Same origin (served by dashboard server)
@@ -12,28 +19,12 @@ const FAST_FIGURES = ['optics', 'resonance', 'chromaticity', 'footprint'];
 const VERIFICATION_FIGURES = ['da', 'lma'];
 const ALL_FIGURES = [...FAST_FIGURES, ...VERIFICATION_FIGURES];
 
-// Plotly layout overrides per theme
-const DARK_LAYOUT = {
-  paper_bgcolor: 'rgba(0,0,0,0)',
-  plot_bgcolor: 'rgba(22,26,36,0.95)',
-  font: { color: '#d8dce6', family: 'JetBrains Mono, monospace', size: 10 },
-  margin: { l: 45, r: 15, t: 30, b: 35 },
-  xaxis: { gridcolor: '#252a36', zerolinecolor: '#3a4050' },
-  yaxis: { gridcolor: '#252a36', zerolinecolor: '#3a4050' },
-};
-
-const LIGHT_LAYOUT = {
-  paper_bgcolor: 'rgba(0,0,0,0)',
-  plot_bgcolor: 'rgba(255,255,255,0.95)',
-  font: { color: '#1a1d24', family: 'JetBrains Mono, monospace', size: 10 },
-  margin: { l: 45, r: 15, t: 30, b: 35 },
-  xaxis: { gridcolor: '#e0e3e8', zerolinecolor: '#c8ccd4' },
-  yaxis: { gridcolor: '#e0e3e8', zerolinecolor: '#c8ccd4' },
-};
-
-function getThemeLayout() {
-  return document.documentElement.getAttribute('data-theme') === 'light' ? LIGHT_LAYOUT : DARK_LAYOUT;
-}
+// Theme-independent Plotly layout — colors come from chartTheme() at
+// render/re-theme time (see renderPlotly() and the theme subscription
+// below).
+const FIGURE_MARGIN = { l: 45, r: 15, t: 30, b: 35 };
+const FIGURE_FONT_FAMILY = 'JetBrains Mono, monospace';
+const FIGURE_FONT_SIZE = 10;
 
 const PLOTLY_CONFIG = {
   responsive: true,
@@ -94,9 +85,6 @@ let sliderDebounceTimers = {};
 // ── Initialization ──────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
-  // Theme from parent (web terminal postMessage)
-  handleThemeMessages();
-
   // Check embedded query param
   const params = new URLSearchParams(window.location.search);
   if (params.get('embedded') === 'true') {
@@ -535,8 +523,14 @@ function renderPlotly(name, figData) {
   hideSpinner(name);
 
   // Apply theme-aware layout overrides
-  const themeLayout = getThemeLayout();
-  const layout = { ...figData.layout, ...themeLayout };
+  const themeLayout = chartTheme();
+  const layout = {
+    ...figData.layout,
+    paper_bgcolor: themeLayout.paper_bgcolor,
+    plot_bgcolor: themeLayout.plot_bgcolor,
+    font: { family: FIGURE_FONT_FAMILY, size: FIGURE_FONT_SIZE, color: themeLayout.font.color },
+    margin: FIGURE_MARGIN,
+  };
   const defaultFontColor = themeLayout.font.color;
 
   // Merge axis colors into ALL axes (not just secondary ones)
@@ -546,7 +540,7 @@ function renderPlotly(name, figData) {
         layout[key] = {
           ...figData.layout[key],
           gridcolor: themeLayout.xaxis.gridcolor,
-          zerolinecolor: themeLayout.xaxis.zerolinecolor,
+          zerolinecolor: themeLayout.xaxis.gridcolor,
         };
       }
     }
@@ -572,36 +566,33 @@ function renderPlotly(name, figData) {
 
 // ── Theme ───────────────────────────────────────────────
 
-function handleThemeMessages() {
-  window.addEventListener('message', (event) => {
-    if (event.data && event.data.type === 'osprey-theme-change' && event.data.theme) {
-      const theme = event.data.theme;
-      document.documentElement.setAttribute('data-theme', theme);
-      // Re-render Plotly figures with new theme colors.
-      // Use dot-notation keys so Plotly merges into the existing layout
-      // instead of replacing entire sub-objects (which would wipe axis
-      // titles, ranges, tick formats, etc.).
-      const themeLayout = getThemeLayout();
-      ALL_FIGURES.forEach(name => {
-        const plotEl = document.getElementById(`plot-${name}`);
-        if (plotEl && plotEl.data) {
-          const update = {
-            paper_bgcolor: themeLayout.paper_bgcolor,
-            plot_bgcolor: themeLayout.plot_bgcolor,
-            'font.color': themeLayout.font.color,
-          };
-          for (const key of Object.keys(plotEl.layout || {})) {
-            if (key.startsWith('xaxis') || key.startsWith('yaxis')) {
-              update[key + '.gridcolor'] = themeLayout.xaxis.gridcolor;
-              update[key + '.zerolinecolor'] = themeLayout.xaxis.zerolinecolor;
-            }
-          }
-          Plotly.relayout(plotEl, update);
+// Re-theme every rendered Plotly figure live. subscribe() fires on every
+// theme apply — including the hub's initial broadcast and any later
+// toggle — so figures that were rendered under one theme always pick up
+// the other's colors without a page reload.
+// Dot-notation keys make Plotly merge into the existing layout instead of
+// replacing entire sub-objects (which would wipe axis titles, ranges,
+// tick formats, etc.).
+subscribe(() => {
+  const themeLayout = chartTheme();
+  ALL_FIGURES.forEach(name => {
+    const plotEl = document.getElementById(`plot-${name}`);
+    if (plotEl && plotEl.data) {
+      const update = {
+        paper_bgcolor: themeLayout.paper_bgcolor,
+        plot_bgcolor: themeLayout.plot_bgcolor,
+        'font.color': themeLayout.font.color,
+      };
+      for (const key of Object.keys(plotEl.layout || {})) {
+        if (key.startsWith('xaxis') || key.startsWith('yaxis')) {
+          update[key + '.gridcolor'] = themeLayout.xaxis.gridcolor;
+          update[key + '.zerolinecolor'] = themeLayout.xaxis.gridcolor;
         }
-      });
+      }
+      Plotly.relayout(plotEl, update);
     }
   });
-}
+});
 
 // ── Drag-and-Drop Panel Rearrangement ────────────────
 
