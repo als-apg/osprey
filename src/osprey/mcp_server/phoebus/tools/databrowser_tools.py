@@ -123,12 +123,12 @@ def _coerce_color(value: object, field: str) -> tuple[int, int, int]:
             f"'{field}' must be a 3-element [r, g, b] sequence, got {value!r}."
         ) from None
     for component, axis_name in ((r, "r"), (g, "g"), (b, "b")):
-        if isinstance(component, bool) or not isinstance(component, int) or not (
-            0 <= component <= 255
+        if (
+            isinstance(component, bool)
+            or not isinstance(component, int)
+            or not (0 <= component <= 255)
         ):
-            raise ValueError(
-                f"'{field}.{axis_name}' must be an int in 0-255, got {component!r}."
-            )
+            raise ValueError(f"'{field}.{axis_name}' must be an int in 0-255, got {component!r}.")
     return (r, g, b)
 
 
