@@ -93,6 +93,41 @@ else
 fi
 echo ""
 
+# Frontend JS checks (matches .github/workflows/ci.yml frontend-js job).
+# Optional locally: like the chromium check above, we *notice* when the Node
+# toolchain is absent rather than hard-failing — CI enforces it on every push.
+echo "→ Checking Node/npm availability for frontend JS checks..."
+if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+    echo "✅ Node/npm available — running frontend JS checks"
+    echo ""
+    echo "→ Installing JS dependencies (npm ci)..."
+    if ! npm ci; then
+        FAILED_CHECKS+=("npm-ci")
+        echo "❌ npm ci failed"
+    else
+        echo "✅ JS dependencies installed"
+        echo ""
+        echo "→ Running typecheck (npm run typecheck)..."
+        if ! npm run typecheck; then
+            FAILED_CHECKS+=("js-typecheck")
+            echo "❌ JS typecheck failed"
+        else
+            echo "✅ JS typecheck passed"
+        fi
+        echo ""
+        echo "→ Running JS tests (npm run test:js)..."
+        if ! npm run test:js; then
+            FAILED_CHECKS+=("js-tests")
+            echo "❌ JS tests failed"
+        else
+            echo "✅ JS tests passed"
+        fi
+    fi
+else
+    echo "⚠️  Frontend JS checks NOT verified on this platform (no node/npm) — CI enforces them"
+fi
+echo ""
+
 # 3. Documentation build (matches .github/workflows/ci.yml docs job)
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "📚 Step 3/4: Documentation"
