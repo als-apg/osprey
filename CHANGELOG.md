@@ -33,6 +33,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Web companion servers (Artifacts, ARIEL, Tuning, Channel Finder, Lattice, KNOWLEDGE) no longer skip their launch when a stale or foreign process briefly answers `/health` on their port during a restart, which previously left the panel unbacked and permanently 502ing. The launcher now decides ownership by whether a live TCP listener holds the port, waits out a shutting-down predecessor, and logs distinctly when it defers to a legitimate external server versus when the port is held by an unresponsive one (#327).
 - The session activity page ("Activity" / session log viewer) no longer applies its `?theme=` query parameter directly to the page; an invalid or unexpected value now falls back to the resolved default instead of being written straight into the page's theme attribute.
 - Web Terminal's and Artifacts' syntax-highlighting theme stylesheet no longer 404s in the default CDN vendor mode (it was previously served from a hardcoded local vendor path regardless of the configured vendor mode).
 - ARIEL now themes itself from the shared OSPREY design system instead of a hardcoded dark palette, and follows the web-terminal hub's theme when embedded; also fixes a phantom `--amber` CSS variable that was never defined (draft banner and image-lightbox link color).
