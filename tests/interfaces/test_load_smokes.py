@@ -1,6 +1,6 @@
-"""Six-interface "loads clean in a real browser" smoke suite.
+"""Seven-interface "loads clean in a real browser" smoke suite.
 
-Boots each of the six OSPREY interface ``create_app()`` factories on a real
+Boots each of the seven OSPREY interface ``create_app()`` factories on a real
 uvicorn server (see ``_run_app_server`` in ``conftest.py``) and drives a real
 Chromium page against ``GET /``, asserting via :func:`assert_page_loads_clean`
 that the page loaded without an uncaught JS exception or a failed same-origin
@@ -21,6 +21,7 @@ Skips cleanly when the chromium headless binary is not installed.
 from __future__ import annotations
 
 from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -129,6 +130,19 @@ def _launch_tuning(tmp_path, monkeypatch) -> Iterator[str]:
         yield base_url
 
 
+@contextmanager
+def _launch_okf_panel(tmp_path, monkeypatch) -> Iterator[str]:
+    monkeypatch.chdir(tmp_path)
+    from osprey.interfaces.okf_panel.app import create_app
+
+    # Build over the shared on-disk fixture bundle the panel's own unit tests use
+    # (tests/interfaces/okf_panel/fixtures/bundle) so GET / renders real content.
+    bundle = Path(__file__).parent / "okf_panel" / "fixtures" / "bundle"
+    app = create_app(bundle_path=str(bundle))
+    with _run_app_server(app) as base_url:
+        yield base_url
+
+
 # ---------------------------------------------------------------------------
 # Allowlists
 # ---------------------------------------------------------------------------
@@ -142,6 +156,7 @@ _ALLOWLISTS: dict[str, object] = {
     "channel_finder": None,
     "lattice_dashboard": None,
     "tuning": None,
+    "okf_panel": None,
 }
 
 
@@ -152,6 +167,7 @@ INTERFACE_LAUNCHERS = [
     ("channel_finder", _launch_channel_finder),
     ("lattice_dashboard", _launch_lattice_dashboard),
     ("tuning", _launch_tuning),
+    ("okf_panel", _launch_okf_panel),
 ]
 
 

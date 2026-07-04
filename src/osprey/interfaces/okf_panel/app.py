@@ -22,9 +22,9 @@ import logging
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
+from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.okf_panel.helpers import (
     build_structure_markdown,
     group_concepts,
@@ -130,22 +130,6 @@ def create_app(bundle_path=None) -> FastAPI:
         version="1.0.0",
     )
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    from osprey.interfaces.common_middleware import (
-        ExceptionLoggingMiddleware,
-        NoCacheStaticMiddleware,
-    )
-
-    app.add_middleware(NoCacheStaticMiddleware)
-    app.add_middleware(ExceptionLoggingMiddleware)
-
     app.state.bundle = _load_bundle(bundle_path)
 
     def _bundle_or_error():
@@ -242,10 +226,11 @@ def create_app(bundle_path=None) -> FastAPI:
             return err
         return bundle_health(validate_bundle(bundle))
 
-    # Static files last so the mount never shadows the API routes above.
-    from fastapi.staticfiles import StaticFiles
-
-    if STATIC_DIR.exists():
-        app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    # Shared CORS + middleware + static mounts (/design-system, /static/fonts,
+    # /static) applied last so they wrap the fully-assembled app and never
+    # shadow the API routes above. Drops the old allow_credentials=True (the
+    # shared helper deliberately omits it) and adds the design-system mounts the
+    # theme trio in index.html needs.
+    configure_interface_app(app, static_dir=STATIC_DIR)
 
     return app
