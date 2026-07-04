@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": false,
+    "noEmit": true,
+    "strict": true,
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ES2022",
+    "moduleResolution": "bundler",
+    "types": []
+  },
+  "include": [
+    "src/osprey/interfaces/**/static/js/**/*.js",
+    "tests/**/*.js",
+    "tests/**/*.mjs"
+  ]
+}

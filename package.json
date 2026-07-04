@@ -1,0 +1,16 @@
+{
+  "name": "osprey-frontend-devtools",
+  "description": "Dev-only JS toolchain (typecheck + tests) for OSPREY web interfaces. Not part of the Python wheel.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test:js": "vitest run",
+    "test:js:watch": "vitest"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5",
+    "happy-dom": "^20.10.6"
+  }
+}
