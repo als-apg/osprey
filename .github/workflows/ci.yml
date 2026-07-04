@@ -292,7 +292,14 @@ jobs:
         node-version: '22'
 
     - name: Install JS dependencies
-      run: npm ci
+      # `npm install`, not `npm ci`: the committed package-lock.json records a
+      # resolved entry only for the host platform's rollup binary (the lock is
+      # authored on macOS), so `npm ci` on the Linux runner cannot install
+      # @rollup/rollup-linux-x64-gnu that vitest needs (npm optional-deps bug,
+      # npm/cli#4828). `npm install` resolves the correct platform binary. This
+      # is a dev/CI-only typecheck+test job, so strict lock reproduction is not
+      # required here.
+      run: npm install
 
     - name: Typecheck (tsc --noEmit)
       run: npm run typecheck
