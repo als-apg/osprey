@@ -31,7 +31,6 @@ from osprey.interfaces.common_middleware import (
     NoCacheStaticMiddleware,
 )
 
-
 # ── Per-interface builders ────────────────────────────────────────────────
 # Each mirrors how that interface's existing tests instantiate create_app().
 # None of them enter the app lifespan (no TestClient), so no external service
