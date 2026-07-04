@@ -5,6 +5,8 @@
  * based on capabilities discovered from the backend API.
  */
 
+import { escapeHtml } from '/design-system/js/dom.js';
+
 // --- State ---
 let capabilities = null;
 let currentMode = 'keyword';
@@ -523,16 +525,6 @@ function resetToDefaults() {
       paramValues[param.name] = param.default;
     }
   }
-}
-
-/**
- * Escape HTML special characters.
- */
-function escapeHtml(str) {
-  if (!str) return '';
-  const div = document.createElement('div');
-  div.textContent = String(str);
-  return div.innerHTML;
 }
 
 export default {

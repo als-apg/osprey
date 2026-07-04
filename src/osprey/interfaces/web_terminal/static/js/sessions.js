@@ -2,6 +2,7 @@
 
 import { fetchJSON } from './api.js';
 import { stopTerminal, startTerminal, restartTerminal, getCurrentSessionId, notifySessionChange, switchSession } from './terminal.js';
+import { escapeHtml } from '/design-system/js/dom.js';
 
 let sessionsData = [];
 
@@ -150,13 +151,4 @@ function relativeTime(isoString) {
   const diffDay = Math.floor(diffHr / 24);
   if (diffDay < 7) return `${diffDay}d ago`;
   return date.toLocaleDateString();
-}
-
-/**
- * Escape HTML to prevent XSS.
- */
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
 }

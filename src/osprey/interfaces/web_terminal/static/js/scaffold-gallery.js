@@ -22,6 +22,7 @@ import { fetchJSON } from './api.js';
 import { registerUnsavedGuard } from './drawer.js';
 import { tokenize, computeWordDiff, groupChangeBlocks, renderWordsIntoLine } from './diff-utils.js';
 import { renderSettingsJsonEditor, renderMcpJson } from './config-renderers.js';
+import { escapeHtml, el as _el, debounce } from '/design-system/js/dom.js';
 
 // ---- Constants ---- //
 
@@ -1659,20 +1660,6 @@ export function initScaffoldGallery() {
 
 // ---- Module-Level Utility Functions ---- //
 
-/** Create a DOM element with a class name. */
-function _el(tag, className) {
-  const el = document.createElement(tag);
-  el.className = className;
-  return el;
-}
-
-/** Escape HTML special characters to prevent XSS. */
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 /** Return an emoji icon for a given artifact category. */
 function iconForCategory(cat) {
   switch ((cat || '').toLowerCase()) {
@@ -1685,18 +1672,6 @@ function iconForCategory(cat) {
     case 'skills':   return '\uD83D\uDCE6';  // package
     default:         return '\uD83D\uDCC4';   // document
   }
-}
-
-/**
- * Standard debounce: delays invoking fn until after ms milliseconds
- * have elapsed since the last invocation.
- */
-function debounce(fn, ms) {
-  let timer = null;
-  return function (...args) {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn.apply(this, args), ms);
-  };
 }
 
 /**
