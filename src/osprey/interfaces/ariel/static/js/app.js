@@ -5,6 +5,7 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
+import { applyEmbedded } from '/design-system/js/frame-params.js';
 import { capabilitiesApi } from './api.js';
 import { initSearch, performSearch, clearSearch } from './search.js';
 import { initEntries, loadEntries, showEntry, closeEntryModal, loadDraft, showImageLightbox } from './entries.js';
@@ -26,10 +27,7 @@ let currentView = 'search';
  */
 async function init() {
   // Embedded mode — hide logo when loaded inside web terminal iframe
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('embedded') === 'true') {
-    document.body.classList.add('embedded');
-  }
+  applyEmbedded();
 
   // Initialize modules — wrapped in try/catch so navigation always works
   // even if the backend is unavailable (degraded mode).

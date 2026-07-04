@@ -10,6 +10,7 @@ import { initOptimizationForm } from './optimization-form.js';
 import { initProgressDisplay } from './progress-display.js';
 import { initResultsViewer } from './results-viewer.js';
 import { initTheme } from '/design-system/js/theme-manager.js';
+import { applyEmbedded } from '/design-system/js/frame-params.js';
 
 // theme-boot.js (first script in <head>) already applied data-theme
 // before first paint. initTheme({role: 'follower'}) here wires the
@@ -19,10 +20,7 @@ import { initTheme } from '/design-system/js/theme-manager.js';
 // ---- Embedded Detection ----
 
 function checkEmbedded() {
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('embedded') === 'true') {
-    document.body.classList.add('embedded');
-  }
+  applyEmbedded();
 }
 
 // ---- Tab Switching ----

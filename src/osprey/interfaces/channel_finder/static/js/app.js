@@ -5,6 +5,7 @@
  */
 
 import { initTheme } from '/design-system/js/theme-manager.js';
+import { applyEmbedded } from '/design-system/js/frame-params.js';
 import { fetchJSON, putJSON } from './api.js';
 import { state } from './state.js';
 import { mountExplore, unmountExplore } from './explore.js';
@@ -16,9 +17,7 @@ import { refreshStatsBadges } from './stats-badges.js';
 // pre-paint; this call attaches the follower's postMessage listener.
 initTheme({ role: 'follower' });
 
-if (new URLSearchParams(window.location.search).get('embedded') === 'true') {
-  document.body.classList.add('embedded');
-}
+applyEmbedded();
 
 const VIEWS = {
   explore:  { mount: mountExplore,  unmount: unmountExplore },

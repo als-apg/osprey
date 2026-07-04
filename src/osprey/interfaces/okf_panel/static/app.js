@@ -29,6 +29,7 @@
  */
 
 import { initTheme } from "/design-system/js/theme-manager.js";
+import { applyEmbedded } from "/design-system/js/frame-params.js";
 import { debounce } from "/design-system/js/dom.js";
 
 // Panel embedded in the Web Terminal hub: apply the hub's broadcast theme and
@@ -37,9 +38,7 @@ import { debounce } from "/design-system/js/dom.js";
 // (replacing the legacy `theme:set` the panel's earlier TODO expected).
 initTheme({ role: "follower" });
 
-if (new URLSearchParams(window.location.search).get("embedded") === "true") {
-  document.body.classList.add("embedded");
-}
+applyEmbedded();
 
 (function () {
   // -- DOM handles -----------------------------------------------------------
