@@ -484,7 +484,7 @@ function updateStatusBar(panel) {
 function sendThemeToIframe(iframe) {
   if (!iframe?.contentWindow) return;
   try {
-    iframe.contentWindow.postMessage({ type: 'osprey-theme-change', theme: getTheme() }, '*');
+    iframe.contentWindow.postMessage({ type: 'osprey-theme-change', theme: getTheme() }, window.location.origin);
   } catch { /* cross-origin */ }
 }
 
@@ -504,7 +504,7 @@ function sendSessionToIframe(iframe) {
   const sid = getCurrentSessionId();
   if (!sid) return;
   try {
-    iframe.contentWindow.postMessage({ type: 'osprey-session-change', session_id: sid }, '*');
+    iframe.contentWindow.postMessage({ type: 'osprey-session-change', session_id: sid }, window.location.origin);
   } catch { /* cross-origin */ }
 }
 

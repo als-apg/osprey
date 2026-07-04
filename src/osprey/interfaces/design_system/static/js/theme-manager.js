@@ -205,7 +205,7 @@ function _broadcast(id) {
   const iframes = document.querySelectorAll('iframe');
   for (const iframe of iframes) {
     try {
-      iframe.contentWindow?.postMessage({ type: MESSAGE_TYPE, theme: id }, '*');
+      iframe.contentWindow?.postMessage({ type: MESSAGE_TYPE, theme: id }, window.location.origin);
     } catch (error) {
       // Cross-origin -- expected for some iframes; nothing to do.
     }
@@ -242,6 +242,7 @@ function _applyTheme(id, { broadcast = false, transition = false } = {}) {
 
 /** @param {MessageEvent} event */
 function _handleMessage(event) {
+  if (event.origin !== window.location.origin) return;
   const data = event.data;
   if (!data || data.type !== MESSAGE_TYPE) return;
   // Never applies an arbitrary string to data-theme: _resolve() falls

@@ -172,6 +172,7 @@ function initResizeHandle() {
 
 function initIframePasteBridge() {
   window.addEventListener('message', (e) => {
+    if (e.origin !== window.location.origin) return;
     // Accept paste-to-terminal messages from embedded iframes
     if (e.data && e.data.type === 'osprey-paste-to-terminal' && e.data.text) {
       pasteToTerminal(e.data.text);
