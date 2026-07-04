@@ -148,10 +148,12 @@ def _is_destructive(tool: str) -> bool:
     return any(marker in lowered for marker in _DESTRUCTIVE_MARKERS)
 
 
-def _registry_side_effect_tools() -> list[str]:
-    """Side-effecting MCP tool names declared in the framework registry.
+def _server_side_effect_tools(server) -> list[str]:
+    """Side-effecting MCP tool names declared by ONE ServerDefinition.
 
-    For every framework server this unions:
+    Shared classifier for the framework-registry walk and the config-declared
+    ``extends`` clone path — one implementation, so the two can never drift.
+    Unions:
 
     * ``permissions_ask`` + ``fixed_ask`` — the curated "needs approval because
       it acts" sets (e.g. ``entry_create``, ``draft_concept``, ``setup_patch``,
@@ -167,25 +169,54 @@ def _registry_side_effect_tools() -> list[str]:
     *reads* (``channel_read``, ``archiver_read``), which a read-only query must
     still be able to call.
 
-    Returns names as ``mcp__<server>__<tool>``.
+    Does NOT include ``_EXTRA_SIDE_EFFECT_TOOLS`` (tools in no permission list
+    at all) — callers union those separately: the framework walk via
+    :func:`read_only_disallowed_tools`, extends clones via
+    :func:`_extra_side_effect_tools_for`.
+
+    Returns names as ``mcp__<server>__<tool>`` (writes-check matchers verbatim).
     """
-    from osprey.registry.mcp import _WRITES_CHECK, FRAMEWORK_SERVERS
+    from osprey.registry.mcp import _WRITES_CHECK
 
     out: list[str] = []
+    for tool in (*server.permissions_ask, *server.fixed_ask):
+        out.append(f"mcp__{server.name}__{tool}")
+    for tool in (*server.permissions_allow, *server.fixed_allow):
+        if _is_destructive(tool):
+            out.append(f"mcp__{server.name}__{tool}")
+    for rule in server.hooks_pre:
+        if _WRITES_CHECK in rule.hooks:
+            out.append(rule.matcher)
+    return out
 
-    def _add(name: str) -> None:
-        if name not in out:
-            out.append(name)
 
+def _extra_side_effect_tools_for(instance_name: str, template_name: str) -> list[str]:
+    """``_EXTRA_SIDE_EFFECT_TOOLS`` entries owned by one framework template,
+    rewritten to an instance's prefix.
+
+    The extras list is keyed by framework-server name (``mcp__python__…``), but
+    SDK disallow matching is by EXACT tool name — an ``extends`` clone launches
+    the SAME tool module under a new prefix, so the template's extras must
+    follow the clone as ``mcp__<instance>__<tool>`` or the clone would keep an
+    unlisted exec tool (e.g. ``execute_file``) callable in read-only mode.
+    """
+    old = f"mcp__{template_name}__"
+    new = f"mcp__{instance_name}__"
+    return [new + tool[len(old) :] for tool in _EXTRA_SIDE_EFFECT_TOOLS if tool.startswith(old)]
+
+
+def _registry_side_effect_tools() -> list[str]:
+    """Side-effecting MCP tool names declared in the framework registry.
+
+    Applies :func:`_server_side_effect_tools` to every framework server.
+    """
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
+
+    out: list[str] = []
     for server in FRAMEWORK_SERVERS.values():
-        for tool in (*server.permissions_ask, *server.fixed_ask):
-            _add(f"mcp__{server.name}__{tool}")
-        for tool in (*server.permissions_allow, *server.fixed_allow):
-            if _is_destructive(tool):
-                _add(f"mcp__{server.name}__{tool}")
-        for rule in server.hooks_pre:
-            if _WRITES_CHECK in rule.hooks:
-                _add(rule.matcher)
+        for name in _server_side_effect_tools(server):
+            if name not in out:
+                out.append(name)
     return out
 
 
@@ -212,6 +243,20 @@ def _custom_server_side_effect_tools(project_dir: Path) -> list[str]:
     the registry would emit (``mcp__<server>__.*``) is a no-op in the SDK's
     exact-name/server-level disallow engine.
 
+    An ``extends`` spec (second instance of a framework server) is classified
+    from the RESOLVED clone via :func:`_server_side_effect_tools`, so it
+    inherits the template's ask/destructive-allow/writes-check surface with the
+    ``mcp__<template>__`` → ``mcp__<name>__`` matcher rewrite, plus the
+    template's ``_EXTRA_SIDE_EFFECT_TOOLS`` entries rewritten the same way
+    (:func:`_extra_side_effect_tools_for`). If the extends
+    target cannot be resolved (typo, version skew, config edited after build)
+    this fails CLOSED with a server-level ``mcp__<name>`` disallow — a stale
+    ``.mcp.json`` from a previous build can still launch the server
+    (``enableAllProjectMcpServers: true``), so an unresolvable spec must block
+    the whole server rather than contribute nothing. A spec with NONE of
+    extends/command/url (legacy form ``phoebus2: {enabled: true}``) fails
+    closed the same way.
+
     Returns an empty list when ``config.yml`` is absent or unreadable.
     """
     try:
@@ -219,7 +264,7 @@ def _custom_server_side_effect_tools(project_dir: Path) -> list[str]:
     except (OSError, ValueError):
         return []
 
-    from osprey.registry.mcp import FRAMEWORK_SERVERS
+    from osprey.registry.mcp import FRAMEWORK_SERVERS, build_extended_server
 
     servers = (cfg.get("claude_code") or {}).get("servers") or {}
     if not isinstance(servers, dict):
@@ -231,6 +276,26 @@ def _custom_server_side_effect_tools(project_dir: Path) -> list[str]:
             continue
         if name in FRAMEWORK_SERVERS:
             continue  # framework server (or override) — covered by the registry walk
+        if "extends" in spec:
+            clone = build_extended_server(name, spec)
+            if clone is None:
+                out.append(f"mcp__{name}")  # fail closed (see docstring)
+            else:
+                out.extend(_server_side_effect_tools(clone))
+                # The template's hard-coded extras (side-effect tools in NO
+                # registry list, e.g. python's execute_file) must follow the
+                # clone with the rewritten prefix — the registry classifier
+                # cannot see them, and exact-name disallow matching means the
+                # template's own entry does not cover the clone.
+                out.extend(_extra_side_effect_tools_for(name, spec["extends"]))
+            continue
+        if not spec.get("command") and not spec.get("url"):
+            # NONE of extends/command/url (legacy form 'phoebus2: {enabled:
+            # true}'): resolve_servers skips such a spec, so it never renders
+            # into .mcp.json — but a stale .mcp.json from a previous build can
+            # still launch a server by this name. Fail closed exactly like the
+            # unresolvable-extends path above: block the whole server.
+            out.append(f"mcp__{name}")
         perms = spec.get("permissions") or {}
         for tool in perms.get("ask") or []:
             out.append(f"mcp__{name}__{tool}")
@@ -269,7 +334,9 @@ def read_only_disallowed_tools(project_dir: Path) -> list[str]:
       side-effect surface tracks the registry as the single source of truth, not
       a hand-maintained copy).
     * ``_EXTRA_SIDE_EFFECT_TOOLS`` — side-effecting tools in NO registry
-      permission list (currently ``mcp__python__execute_file``).
+      permission list (currently ``mcp__python__execute_file``); ``extends``
+      clones of the owning template get these rewritten to their own prefix
+      via the custom-server path below.
     * :func:`_custom_server_side_effect_tools` — write tools of facility-defined
       custom MCP servers declared in the project's ``config.yml``.
 

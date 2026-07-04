@@ -192,8 +192,12 @@ def web(
         click.echo("WARNING: Binding to 0.0.0.0 exposes the terminal to the network.")
         click.echo("This is a single-user tool — add authentication before external exposure.\n")
 
-    # Pre-flight: check if port is already in use
+    # Pre-flight: check if port is already in use. SO_REUSEADDR matches
+    # uvicorn's own bind semantics — without it, TIME_WAIT sockets from a
+    # just-killed server fail this check for ~60s even though uvicorn
+    # itself would bind fine.
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind((host, port))
         except OSError as exc:
@@ -201,6 +205,13 @@ def web(
             click.echo(f"  Find the process:  lsof -i :{port}", err=True)
             click.echo(f"  Or use another:    osprey web --port {port + 1}", err=True)
             raise SystemExit(1) from exc
+
+    # Publish the ACTUAL port to every child process (PTY shells, their MCP
+    # servers): web_terminal_url() resolves OSPREY_WEB_PORT first, and
+    # without this, panel tools (switch_panel etc.) fire-and-forget their
+    # focus POSTs at the config default (8087) whenever --port differs —
+    # reporting success while the real terminal never hears the event.
+    os.environ["OSPREY_WEB_PORT"] = str(port)
 
     click.echo(f"Starting OSPREY Web Terminal on http://{host}:{port}")
     click.echo(f"Shell: {' '.join(shell_command)}")

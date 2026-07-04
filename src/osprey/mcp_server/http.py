@@ -34,6 +34,33 @@ def web_terminal_url() -> str:
     return f"http://{host}:{port}"
 
 
+def phoebus_bridge_url() -> str:
+    """Build the Phoebus agent-bridge base URL from env or config.
+
+    The bridge is the in-JVM HTTP server embedded in a running Phoebus product
+    (default ``http://127.0.0.1:7979``). Resolution order:
+
+    1. ``PHOEBUS_BRIDGE_URL`` env var (full URL) — set by the framework server
+       definition; wins outright.
+    2. ``PHOEBUS_BRIDGE_PORT`` env var overrides only the port.
+    3. ``phoebus.host`` / ``phoebus.port`` in config.yml.
+    4. ``127.0.0.1:7979`` default (matches ``bridge_preferences.properties``).
+    """
+    import os
+
+    from osprey.utils.workspace import load_osprey_config
+
+    full = os.environ.get("PHOEBUS_BRIDGE_URL")
+    if full:
+        return full.rstrip("/")
+
+    config = load_osprey_config()
+    ph = config.get("phoebus", {})
+    host = ph.get("host", "127.0.0.1")
+    port = int(os.environ.get("PHOEBUS_BRIDGE_PORT", ph.get("port", 7979)))
+    return f"http://{host}:{port}"
+
+
 def post_json(url: str, payload: dict, *, timeout: int = 3) -> None:
     """Fire-and-forget JSON POST to a local HTTP endpoint.
 

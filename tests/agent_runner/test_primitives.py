@@ -161,7 +161,8 @@ def test_custom_provider_base_url_expanded(tmp_path: Path, monkeypatch: pytest.M
 
     env = provider_env_for_project(tmp_path)
 
-    assert env["ANTHROPIC_BASE_URL"] == "https://argo.example/v1"
+    # ${VAR} expanded, and /v1 stripped for the Claude-Code-facing var (issue #312).
+    assert env["ANTHROPIC_BASE_URL"] == "https://argo.example"
     assert "${ARGO_PROD_URL}" not in env["ANTHROPIC_BASE_URL"]
 
 

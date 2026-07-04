@@ -137,6 +137,39 @@ def _launch_lattice_dashboard_server(app: FastAPI) -> None:
         app.state.lattice_dashboard_server_url = None
 
 
+def _launch_okf_server(app: FastAPI) -> None:
+    """Auto-launch the OKF knowledge panel server if configured.
+
+    The (host, port) computed here MUST match what ``ServerLauncher`` resolves
+    for the ``okf`` definition (``registry/web.py``): host/port read directly
+    from the ``facility_knowledge`` section (no ``web`` subkey), with the
+    ``OSPREY_FACILITY_KNOWLEDGE_PORT`` env override. Otherwise the proxied URL
+    stored here would point at a different port than the one uvicorn binds.
+    """
+    try:
+        from osprey.infrastructure.server_launcher import ensure_okf_server
+        from osprey.utils.workspace import load_osprey_config
+
+        config = load_osprey_config()
+        fk = config.get("facility_knowledge", {})
+        if not fk:
+            return
+        host = fk.get("host", "127.0.0.1")
+        # Guard a set-but-empty env override (e.g. compose `OSPREY_FACILITY_KNOWLEDGE_PORT=`):
+        # int("") would raise and kill this launch (silent dead tab). This mirrors
+        # server_launcher._make_config_reader's `if env_val:` guard so both sides
+        # resolve the SAME port — the launcher would otherwise bind 8093 while we'd die.
+        env_port = os.environ.get("OSPREY_FACILITY_KNOWLEDGE_PORT")
+        port = int(env_port) if env_port else int(fk.get("port", 8093))
+
+        app.state.okf_server_url = f"http://{host}:{port}"
+        ensure_okf_server()
+        logger.info("OKF knowledge panel available at %s", app.state.okf_server_url)
+    except Exception:
+        logger.warning("Could not auto-launch OKF knowledge panel", exc_info=True)
+        app.state.okf_server_url = None
+
+
 def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
     """Read web.panels and web.default_panel from config.yml.
 
@@ -174,6 +207,11 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
                     "url": spec.get("url", ""),
                     "healthEndpoint": spec.get("health_endpoint"),
                     "path": spec.get("path", "/"),
+                    # Path suffixes whose JSON responses get the proxy's
+                    # root-absolute-literal rewrite (see routes/proxy.py) —
+                    # for backends whose SPA bootstraps its API base from a
+                    # JSON config endpoint.
+                    "rewriteJsonPaths": spec.get("rewrite_json_paths") or [],
                 }
             )
 
@@ -316,6 +354,16 @@ def _create_lifespan(
         )
         app.state.broadcaster = FileEventBroadcaster()
         app.state.active_panel = None
+        # Optional human-readable deployment name shown in the header so
+        # otherwise-identical web terminals are distinguishable. The
+        # ``OSPREY_WEB_APP_NAME`` environment variable takes precedence over
+        # ``web.app_name`` in config.yml, so several containers that share one
+        # baked config image can each be named individually via the environment.
+        # Empty/absent ⇒ no label is rendered.
+        app.state.app_name = (
+            os.environ.get("OSPREY_WEB_APP_NAME", "").strip()
+            or str((config.get("web") or {}).get("app_name") or "").strip()
+        )
 
         # Ensure OSPREY_CONFIG is set before any load_osprey_config() call
         if "OSPREY_CONFIG" not in os.environ:
@@ -422,6 +470,8 @@ def _create_lifespan(
             _launch_channel_finder_server(app)
         if "lattice" in enabled_panels:
             _launch_lattice_dashboard_server(app)
+        if "okf" in enabled_panels:
+            _launch_okf_server(app)
 
         # Hook env placeholder — hooks read config.yml directly for
         # hot-reloadable settings (no env var propagation needed).
@@ -480,7 +530,8 @@ def create_app(
 
     @app.get("/")
     async def root(request: Request):
-        return templates.TemplateResponse(request, "index.html", {})
+        app_name = getattr(request.app.state, "app_name", "")
+        return templates.TemplateResponse(request, "index.html", {"app_name": app_name})
 
     configure_interface_app(app, static_dir=STATIC_DIR)
 

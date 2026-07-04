@@ -248,6 +248,344 @@ class TestResolveServers:
 
 
 # ---------------------------------------------------------------------------
+# Extends (second framework-server instance) tests
+# ---------------------------------------------------------------------------
+
+_PHOEBUS2_SPEC = {
+    "extends": "phoebus",
+    "env": {"PHOEBUS_BRIDGE_URL": "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}"},
+}
+
+_PHOEBUS_ALLOW = [
+    "phoebus_list_displays",
+    "phoebus_perceive",
+    "phoebus_perceive_region",
+    "phoebus_snapshot",
+    "phoebus_open_panel",
+    "phoebus_open_databrowser",
+]
+
+# Only drive actuates hardware-facing controls; open_panel touches no PVs
+# and is plain-allowed — see the registry entry.
+_PHOEBUS_ASK = ["phoebus_drive"]
+
+
+def _resolve_one(cfg, name, ctx=None):
+    servers = resolve_servers(cfg, ctx or _base_ctx())
+    matches = [s for s in servers if s["name"] == name]
+    assert len(matches) == 1, f"expected exactly one {name!r} server, got {len(matches)}"
+    return matches[0]
+
+
+class TestExtendsServers:
+    """Tests for extends clones (claude_code.servers.<name>.extends)."""
+
+    def test_golden_parity_with_deleted_framework_entry(self):
+        """The extends clone reproduces the old hand-written framework phoebus2
+        entry field-for-field (golden capture taken BEFORE the deletion)."""
+        p2 = _resolve_one({"servers": {"phoebus2": dict(_PHOEBUS2_SPEC)}}, "phoebus2")
+
+        assert p2["enabled"] is True  # despite template default_enabled=False
+        assert p2["command"] == "/usr/bin/python3"
+        assert p2["args"] == ["-m", "osprey.mcp_server.phoebus"]
+        # Spec env wins, ${...} NOT expanded; template keys survive with
+        # {project_root} resolved.
+        # OSPREY_SERVER_NAME is a deliberate post-golden addition (instance
+        # identity for UI signals, e.g. open_panel → panel_focus) — auto-set
+        # to the clone's own name, not inherited from the template.
+        assert p2["env"] == {
+            "OSPREY_CONFIG": "/tmp/test-project/config.yml",
+            "CONFIG_FILE": "/tmp/test-project/config.yml",
+            "PHOEBUS_BRIDGE_URL": "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}",
+            "OSPREY_SERVER_NAME": "phoebus2",
+        }
+        # Permissions inherited as bare names (unrewritten).
+        assert p2["permissions_allow"] == _PHOEBUS_ALLOW
+        assert p2["permissions_ask"] == _PHOEBUS_ASK
+        # Hook matchers rewritten with the anchored prefix.
+        assert len(p2["hooks_pre"]) == 1
+        assert p2["hooks_pre"][0]["matcher"] == "mcp__phoebus2__phoebus_drive"
+        assert len(p2["hooks_pre"][0]["hooks"]) == 1
+        assert "osprey_approval.py" in p2["hooks_pre"][0]["hooks"][0]["command"]
+        assert [r["matcher"] for r in p2["hooks_post"]] == ["mcp__phoebus2__.*"]
+        assert p2["is_custom"] is False
+        assert p2["url"] is None
+
+    def test_server_name_env_identity(self):
+        """Each instance's env advertises its own name via OSPREY_SERVER_NAME:
+        the template keeps 'phoebus', a clone is auto-rewritten to the clone
+        name, and an explicit spec env pin wins over the auto-rewrite."""
+        pristine = _resolve_one({"servers": {"phoebus": {"enabled": True}}}, "phoebus")
+        assert pristine["env"]["OSPREY_SERVER_NAME"] == "phoebus"
+
+        p2 = _resolve_one({"servers": {"phoebus2": dict(_PHOEBUS2_SPEC)}}, "phoebus2")
+        assert p2["env"]["OSPREY_SERVER_NAME"] == "phoebus2"
+
+        pinned_spec = {
+            "extends": "phoebus",
+            "env": {"OSPREY_SERVER_NAME": "custom-panel-id"},
+        }
+        pinned = _resolve_one({"servers": {"phoebus2": pinned_spec}}, "phoebus2")
+        assert pinned["env"]["OSPREY_SERVER_NAME"] == "custom-panel-id"
+
+    def test_no_bare_name_rewrite(self):
+        """The matcher rewrite is an anchored prefix splice — 'phoebus2_drive'
+        (the bare-name-replace bug class) must appear NOWHERE in any matcher or
+        permission string."""
+        p2 = _resolve_one({"servers": {"phoebus2": dict(_PHOEBUS2_SPEC)}}, "phoebus2")
+
+        strings = [r["matcher"] for r in (*p2["hooks_pre"], *p2["hooks_post"])]
+        strings += p2["permissions_allow"] + p2["permissions_ask"]
+        strings += p2["fixed_allow"] + p2["fixed_ask"]
+        for s in strings:
+            assert "phoebus2_drive" not in s, f"bare-name rewrite corruption in {s!r}"
+
+    def test_template_isolation(self):
+        """Resolving an extends spec must not mutate the phoebus template —
+        neither in the same pass nor in a subsequent resolve_servers() call."""
+        cfg = {"servers": {"phoebus": {"enabled": True}, "phoebus2": dict(_PHOEBUS2_SPEC)}}
+        servers = resolve_servers(cfg, _base_ctx())
+        phoebus = [s for s in servers if s["name"] == "phoebus"][0]
+        assert phoebus["hooks_pre"][0]["matcher"] == "mcp__phoebus__phoebus_drive"
+        assert (
+            phoebus["env"]["PHOEBUS_BRIDGE_URL"] == "${PHOEBUS_BRIDGE_URL:-http://127.0.0.1:7979}"
+        )
+
+        # A fresh resolve with no overrides yields the pristine template.
+        pristine = _resolve_one({}, "phoebus")
+        assert pristine["hooks_pre"][0]["matcher"] == "mcp__phoebus__phoebus_drive"
+        assert pristine["hooks_post"][0]["matcher"] == "mcp__phoebus__.*"
+
+    def test_enabled_semantics(self):
+        """Declared ⇒ enabled (template default_enabled=False must not leak);
+        enabled: false ⇒ absent; independent of the template's own enablement."""
+        # No 'enabled' key → enabled, even with the template explicitly disabled.
+        cfg = {"servers": {"phoebus": {"enabled": False}, "phoebus2": dict(_PHOEBUS2_SPEC)}}
+        servers = resolve_servers(cfg, _base_ctx())
+        by_name = {s["name"]: s for s in servers}
+        assert by_name["phoebus2"]["enabled"] is True
+        assert by_name["phoebus"]["enabled"] is False
+
+        # enabled: false → clone absent entirely.
+        cfg = {"servers": {"phoebus2": {**_PHOEBUS2_SPEC, "enabled": False}}}
+        servers = resolve_servers(cfg, _base_ctx())
+        assert "phoebus2" not in {s["name"] for s in servers}
+
+    def test_order_independence(self):
+        """Clone output is identical regardless of YAML declaration order
+        relative to a template override (copy-from-pristine-FRAMEWORK_SERVERS)."""
+        cfg_a = {"servers": {"phoebus": {"enabled": True}, "phoebus2": dict(_PHOEBUS2_SPEC)}}
+        cfg_b = {"servers": {"phoebus2": dict(_PHOEBUS2_SPEC), "phoebus": {"enabled": True}}}
+        p2_a = _resolve_one(cfg_a, "phoebus2")
+        p2_b = _resolve_one(cfg_b, "phoebus2")
+        assert p2_a == p2_b
+        # Both servers enabled; template env/permissions unchanged either way.
+        phoebus = _resolve_one(cfg_b, "phoebus")
+        assert phoebus["enabled"] is True
+        assert (
+            phoebus["env"]["PHOEBUS_BRIDGE_URL"] == "${PHOEBUS_BRIDGE_URL:-http://127.0.0.1:7979}"
+        )
+
+    def test_unknown_target_warns_and_skips(self, caplog):
+        """Unknown extends target → warning, no server emitted."""
+        with caplog.at_level(logging.WARNING):
+            servers = resolve_servers(
+                {"servers": {"phoebus2": {"extends": "phobeus"}}}, _base_ctx()
+            )
+        assert "phoebus2" not in {s["name"] for s in servers}
+        assert any("phobeus" in r.message for r in caplog.records)
+
+    @pytest.mark.parametrize("order", ["a_first", "b_first"])
+    def test_chaining_warns_and_skips(self, caplog, order):
+        """Extends of an extends/custom server (chaining) → warn + skip the
+        chained server, regardless of declaration order; the base clone survives."""
+        specs = [("a", {"extends": "phoebus"}), ("b", {"extends": "a"})]
+        if order == "b_first":
+            specs.reverse()
+        cfg = {"servers": dict(specs)}
+        with caplog.at_level(logging.WARNING):
+            servers = resolve_servers(cfg, _base_ctx())
+        names = {s["name"] for s in servers}
+        assert "a" in names
+        assert "b" not in names
+        assert any("'a'" in r.message or '"a"' in r.message for r in caplog.records)
+
+    def test_framework_name_shadowing_warns_keeps_framework_definition(self, caplog):
+        """servers.phoebus: {extends: controls} must not rebase phoebus — the
+        extends key is rejected loudly, only 'enabled' applies."""
+        cfg = {"servers": {"phoebus": {"extends": "controls", "enabled": True}}}
+        with caplog.at_level(logging.WARNING):
+            phoebus = _resolve_one(cfg, "phoebus")
+        # Framework definition intact: module, matchers, permissions.
+        assert phoebus["args"] == ["-m", "osprey.mcp_server.phoebus"]
+        assert phoebus["hooks_pre"][0]["matcher"] == "mcp__phoebus__phoebus_drive"
+        assert "channel_write" not in phoebus["permissions_ask"]
+        # The enabled toggle still applies; the extends key warned.
+        assert phoebus["enabled"] is True
+        assert any("extends" in r.message and "phoebus" in r.message for r in caplog.records)
+
+    @pytest.mark.parametrize(
+        "bad_name", ["phoebus(2", "phoebus.2", "phoe__bus2", "-phoebus2", "controls_"]
+    )
+    def test_invalid_clone_name_rejected(self, caplog, bad_name):
+        """Clone names are spliced into regexes and prefix matches — reject
+        anything outside [A-Za-z0-9][A-Za-z0-9_-]*, containing '__', or ending
+        in '_' ('controls_' → prefix 'mcp__controls___' startswith-collides
+        with 'mcp__controls__' and corrupts approval short-name extraction)."""
+        with caplog.at_level(logging.WARNING):
+            servers = resolve_servers({"servers": {bad_name: {"extends": "phoebus"}}}, _base_ctx())
+        assert bad_name not in {s["name"] for s in servers}
+        assert any("Invalid extends server name" in r.message for r in caplog.records)
+
+    @pytest.mark.parametrize("good_name", ["phoebus2", "phoebus-2"])
+    def test_valid_clone_name_accepted(self, good_name):
+        """The tightened name validation still accepts ordinary clone names
+        (trailing digit, trailing hyphen-digit)."""
+        clone = _resolve_one({"servers": {good_name: {"extends": "phoebus"}}}, good_name)
+        assert clone["enabled"] is True
+        assert clone["hooks_pre"][0]["matcher"] == f"mcp__{good_name}__phoebus_drive"
+
+    def test_non_string_extends_target_warns_and_skips(self, caplog):
+        """A non-string extends value (e.g. ``extends: [phoebus]``) must
+        warn+skip like an unknown target, not TypeError on the dict lookup."""
+        with caplog.at_level(logging.WARNING):
+            servers = resolve_servers(
+                {"servers": {"phoebus2": {"extends": ["phoebus"]}}}, _base_ctx()
+            )
+        assert "phoebus2" not in {s["name"] for s in servers}
+        assert any("Unknown extends target" in r.message for r in caplog.records)
+
+    def test_duplicate_allow_override_cannot_defeat_ask_union(self, caplog):
+        """Duplicated entries in an override's permissions.allow must not defeat
+        the single-.remove() ask-union guard: drive ends ONLY in ask."""
+        cfg = {
+            "servers": {
+                "phoebus2": {
+                    "extends": "phoebus",
+                    "permissions": {"allow": ["phoebus_drive", "phoebus_drive"], "ask": []},
+                }
+            }
+        }
+        with caplog.at_level(logging.WARNING):
+            p2 = _resolve_one(cfg, "phoebus2")
+        assert "phoebus_drive" in p2["permissions_ask"]
+        assert "phoebus_drive" not in p2["permissions_allow"]
+
+    def test_fixed_lists_rewritten(self, monkeypatch):
+        """fixed_allow/fixed_ask hold fully-qualified mcp__<server>__ strings —
+        the clone must get them rewritten with the anchored prefix (latent
+        today: no framework server sets them, so use a synthetic template)."""
+        from osprey.registry.mcp import (
+            FRAMEWORK_SERVERS,
+            ServerDefinition,
+            build_extended_server,
+        )
+
+        synthetic = ServerDefinition(
+            name="synth",
+            module="osprey.mcp_server.synth",
+            fixed_allow=["mcp__synth__widget_read", "Read(_agent_data/**)"],
+            fixed_ask=["mcp__synth__widget_write"],
+        )
+        monkeypatch.setitem(FRAMEWORK_SERVERS, "synth", synthetic)
+
+        clone = build_extended_server("synth2", {"extends": "synth"})
+        assert clone is not None
+        assert clone.fixed_allow == ["mcp__synth2__widget_read", "Read(_agent_data/**)"]
+        assert clone.fixed_ask == ["mcp__synth2__widget_write"]
+        # Template untouched.
+        assert synthetic.fixed_ask == ["mcp__synth__widget_write"]
+
+    @pytest.mark.parametrize("with_pipeline", [False, True])
+    def test_conditioned_template_skipped(self, caplog, with_pipeline):
+        """Extends of a conditioned/dynamic template (channel-finder) is not
+        supported: warn + skip, and no rendered dict may carry an unresolved
+        '{channel_finder_pipeline}' placeholder."""
+        ctx = _base_ctx(channel_finder_pipeline="hierarchical") if with_pipeline else _base_ctx()
+        with caplog.at_level(logging.WARNING):
+            servers = resolve_servers({"servers": {"cf2": {"extends": "channel-finder"}}}, ctx)
+        assert "cf2" not in {s["name"] for s in servers}
+        assert any("conditioned" in r.message for r in caplog.records)
+        # No ENABLED server (i.e. rendered into .mcp.json) may carry the broken
+        # 'osprey.mcp_server.channel_finder_' module or an unresolved placeholder.
+        for s in servers:
+            if not s["enabled"]:
+                continue
+            for a in s["args"]:
+                assert "{channel_finder_pipeline}" not in a
+                assert not a.endswith("channel_finder_")
+
+    def test_legacy_phoebus2_enabled_spec_warns_and_skips(self, caplog):
+        """The old form {'phoebus2': {'enabled': True}} (framework entry now
+        deleted; no extends/command/url) → warn + skip; no command=='' server
+        may ever be emitted (the broken-.mcp.json regression)."""
+        with caplog.at_level(logging.WARNING):
+            servers = resolve_servers({"servers": {"phoebus2": {"enabled": True}}}, _base_ctx())
+        assert "phoebus2" not in {s["name"] for s in servers}
+        assert any("phoebus2" in r.message and "extends" in r.message for r in caplog.records)
+        for s in servers:
+            assert not (s["url"] is None and s["command"] == ""), (
+                f"server {s['name']!r} rendered with an empty command"
+            )
+
+    def test_ask_override_cannot_narrow(self, caplog):
+        """An override that promotes phoebus_drive out of ask into allow is
+        corrected: drive stays in ask (union invariant) and leaves allow."""
+        cfg = {
+            "servers": {
+                "phoebus2": {
+                    "extends": "phoebus",
+                    "permissions": {"allow": ["phoebus_drive", "phoebus_perceive"], "ask": []},
+                }
+            }
+        }
+        with caplog.at_level(logging.WARNING):
+            p2 = _resolve_one(cfg, "phoebus2")
+        assert "phoebus_drive" in p2["permissions_ask"]
+        assert "phoebus_drive" not in p2["permissions_allow"]
+        assert "phoebus_perceive" in p2["permissions_allow"]
+        assert any("phoebus_drive" in r.message for r in caplog.records)
+
+    def test_ask_override_can_add(self):
+        """Overrides may ADD approval-gated tools beyond the template's; the
+        template's own ask set is re-added by the union invariant."""
+        cfg = {
+            "servers": {
+                "phoebus2": {
+                    "extends": "phoebus",
+                    "permissions": {"ask": ["phoebus_extra_tool"]},
+                }
+            }
+        }
+        p2 = _resolve_one(cfg, "phoebus2")
+        assert "phoebus_extra_tool" in p2["permissions_ask"]
+        for tool in _PHOEBUS_ASK:
+            assert tool in p2["permissions_ask"]
+
+    def test_third_instance_scales(self):
+        """Two extends clones (phoebus2 + phoebus3) render side by side with
+        distinct prefixes — N-instance scaling without framework changes."""
+        cfg = {
+            "servers": {
+                "phoebus2": dict(_PHOEBUS2_SPEC),
+                "phoebus3": {
+                    "extends": "phoebus",
+                    "env": {"PHOEBUS_BRIDGE_URL": "${PHOEBUS3_BRIDGE_URL:-http://127.0.0.1:7981}"},
+                },
+            }
+        }
+        servers = resolve_servers(cfg, _base_ctx())
+        by_name = {s["name"]: s for s in servers}
+        for name in ("phoebus2", "phoebus3"):
+            assert by_name[name]["enabled"] is True
+            assert by_name[name]["hooks_pre"][0]["matcher"] == f"mcp__{name}__phoebus_drive"
+            assert by_name[name]["permissions_ask"] == _PHOEBUS_ASK
+        assert by_name["phoebus3"]["env"]["PHOEBUS_BRIDGE_URL"] == (
+            "${PHOEBUS3_BRIDGE_URL:-http://127.0.0.1:7981}"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Agent resolution tests
 # ---------------------------------------------------------------------------
 
@@ -550,3 +888,74 @@ class TestTemplateRendering:
         data = json.loads(rendered)
         assert "mcp__my-plc__" in data["server_prefixes"]
         assert "mcp__my-plc__" in data["approval_prefixes"]
+
+    _EXTENDS_CFG = {
+        "servers": {
+            "phoebus": {"enabled": True},
+            "phoebus2": {
+                "extends": "phoebus",
+                "env": {"PHOEBUS_BRIDGE_URL": "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}"},
+            },
+        }
+    }
+
+    def test_render_settings_json_with_extends(self, template_manager):
+        """settings.json: extends clone yields mcp__phoebus2__ permissions and a
+        drive-only PreToolUse approval hook (no wildcard, no stale template rule)."""
+        ctx = self._full_ctx(_claude_code_config=self._EXTENDS_CFG)
+        rendered = self._render(template_manager, "claude_code/claude/settings.json.j2", ctx)
+        data = json.loads(rendered)
+
+        allow = set(data["permissions"]["allow"])
+        for tool in _PHOEBUS_ALLOW:
+            assert f"mcp__phoebus2__{tool}" in allow
+        assert "mcp__phoebus2__phoebus_drive" not in allow
+        assert set(data["permissions"]["ask"]) >= {
+            "mcp__phoebus__phoebus_drive",
+            "mcp__phoebus2__phoebus_drive",
+        }
+
+        pre = data["hooks"]["PreToolUse"]
+        drive_rules = [r for r in pre if r["matcher"] == "mcp__phoebus2__phoebus_drive"]
+        assert len(drive_rules) == 1
+        assert any("osprey_approval.py" in h["command"] for h in drive_rules[0]["hooks"])
+        # Drive-only gating: no wildcard pre rule for the clone.
+        assert not any(r["matcher"] == "mcp__phoebus2__.*" for r in pre)
+        # The clone contributes no duplicate template-prefixed rule.
+        assert sum(1 for r in pre if r["matcher"] == "mcp__phoebus__phoebus_drive") == 1
+
+    def test_render_mcp_json_with_extends(self, template_manager):
+        """.mcp.json: clone block equals the old framework rendering — python
+        -m osprey.mcp_server.phoebus with ${...} env preserved literally."""
+        ctx = self._full_ctx(_claude_code_config=self._EXTENDS_CFG)
+        rendered = self._render(template_manager, "claude_code/mcp.json.j2", ctx)
+        data = json.loads(rendered)
+        p2 = data["mcpServers"]["phoebus2"]
+        assert p2["command"] == "/usr/bin/python3"
+        assert p2["args"] == ["-m", "osprey.mcp_server.phoebus"]
+        assert p2["env"]["PHOEBUS_BRIDGE_URL"] == "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}"
+        assert p2["env"]["OSPREY_CONFIG"] == "/tmp/test-project/config.yml"
+
+    def test_render_hook_config_json_with_extends(self, template_manager):
+        """hook_config.json: both phoebus prefixes land in server_prefixes and
+        approval_prefixes (landmine D — templates are generic over s.name)."""
+        ctx = self._full_ctx(_claude_code_config=self._EXTENDS_CFG)
+        rendered = self._render(
+            template_manager, "claude_code/claude/hooks/hook_config.json.j2", ctx
+        )
+        data = json.loads(rendered)
+        for prefix in ("mcp__phoebus__", "mcp__phoebus2__"):
+            assert prefix in data["server_prefixes"]
+            assert prefix in data["approval_prefixes"]
+
+    def test_render_settings_json_extends_remove_ask_interplay(self, template_manager):
+        """facility remove_ask drops the clone's ask entry but the PreToolUse
+        approval matcher survives (the hook is independent of the ask list)."""
+        ctx = self._full_ctx(_claude_code_config=self._EXTENDS_CFG)
+        ctx["facility_permissions"] = {"remove_ask": ["mcp__phoebus2__phoebus_drive"]}
+        rendered = self._render(template_manager, "claude_code/claude/settings.json.j2", ctx)
+        data = json.loads(rendered)
+        assert "mcp__phoebus2__phoebus_drive" not in data["permissions"]["ask"]
+        assert "mcp__phoebus__phoebus_drive" in data["permissions"]["ask"]
+        pre_matchers = [r["matcher"] for r in data["hooks"]["PreToolUse"]]
+        assert "mcp__phoebus2__phoebus_drive" in pre_matchers
