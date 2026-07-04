@@ -416,13 +416,19 @@ def _capture(captured: list, async_cm):
 
 @pytest.mark.asyncio
 async def test_run_query_starts_proxy_for_non_native_provider(project_dir: Path) -> None:
-    """needs_proxy spec → start_proxy(upstream, key-from-env-dict); env repointed to loopback."""
+    """needs_proxy spec → start_proxy(spec.upstream_base_url, key-from-env-dict).
+
+    The proxy upstream MUST come from spec.upstream_base_url (the OpenAI root
+    with /v1), NOT from env["ANTHROPIC_BASE_URL"] — which the resolver strips of
+    /v1 for Claude Code (issue #312). The env var here is deliberately the
+    stripped form to prove the two are not conflated.
+    """
     async_cm, _ = _make_mock_client()
     captured: list[ClaudeAgentOptions] = []
     proxy = MagicMock(return_value=8123)
     proxy_env = {
         "CLAUDECODE": "",
-        "ANTHROPIC_BASE_URL": "https://argo.example/v1",
+        "ANTHROPIC_BASE_URL": "https://argo.example",  # stripped (Claude-Code-facing)
         "ANTHROPIC_AUTH_TOKEN": "sk-argo",
     }
 
@@ -435,14 +441,15 @@ async def test_run_query_starts_proxy_for_non_native_provider(project_dir: Path)
         patch("osprey.agent_runner.runner.resolve_default_model", return_value="m"),
         patch(
             "osprey.agent_runner.runner._resolve_project_spec",
-            return_value=_FakeSpec(needs_proxy=True),
+            return_value=_FakeSpec(needs_proxy=True, upstream_base_url="https://argo.example/v1"),
         ),
         patch("osprey.agent_runner.runner.start_proxy", proxy),
         patch("osprey.agent_runner.runner._expected_mcp_servers", return_value=set()),
     ):
         await run_query(project_dir, "q", disallowed_tools=[])
 
-    # api_key sourced from the env dict (not os.environ) on this path
+    # Proxy upstream = spec.upstream_base_url (WITH /v1), NOT the stripped env var.
+    # api_key sourced from the env dict (not os.environ) on this path.
     proxy.assert_called_once_with("https://argo.example/v1", "sk-argo")
     assert captured[0].env["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:8123"
 
@@ -510,8 +517,8 @@ async def test_run_query_no_proxy_for_native_provider(project_dir: Path) -> None
 
 
 @pytest.mark.asyncio
-async def test_run_query_no_proxy_when_base_url_absent(project_dir: Path) -> None:
-    """needs_proxy spec but no ANTHROPIC_BASE_URL in env → no KeyError, no proxy."""
+async def test_run_query_no_proxy_when_upstream_absent(project_dir: Path) -> None:
+    """needs_proxy spec but no upstream_base_url (base_url-less provider) → no proxy."""
     async_cm, _ = _make_mock_client()
     captured: list[ClaudeAgentOptions] = []
     proxy = MagicMock(return_value=1)
@@ -525,7 +532,7 @@ async def test_run_query_no_proxy_when_base_url_absent(project_dir: Path) -> Non
         patch("osprey.agent_runner.runner.resolve_default_model", return_value="m"),
         patch(
             "osprey.agent_runner.runner._resolve_project_spec",
-            return_value=_FakeSpec(needs_proxy=True),
+            return_value=_FakeSpec(needs_proxy=True, upstream_base_url=None),
         ),
         patch("osprey.agent_runner.runner.start_proxy", proxy),
         patch("osprey.agent_runner.runner._expected_mcp_servers", return_value=set()),

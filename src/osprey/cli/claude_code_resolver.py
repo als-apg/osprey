@@ -348,11 +348,17 @@ class ClaudeCodeModelResolver:
         # shell variable references; values are treated as literals.
         env_block: dict[str, str] = {}
 
-        # Base URL: use provider literal (no /v1); skip for direct Anthropic
+        # Base URL for Claude Code. Claude Code always appends "/v1/messages",
+        # so ANTHROPIC_BASE_URL must be the bare origin — never ending in /v1.
+        # OpenAI-compatible endpoints carry a trailing /v1 by convention (it is
+        # the OpenAI API root); strip it here so an anthropic-native provider
+        # configured with such a URL doesn't resolve to "…/v1/v1/messages"
+        # (issue #312). The proxy upstream keeps the original /v1 (see
+        # upstream_base_url below); for proxy providers this value is overwritten
+        # with the loopback URL at launch. Skipped for direct Anthropic (no base_url).
         if provider_def.get("base_url"):
-            base = provider_def["base_url"].rstrip("/").removesuffix("/v1")
             env_block["ANTHROPIC_BASE_URL"] = (
-                base  # This ensures Anthropic provider doesn't get double /v1 so the url is not broken
+                provider_def["base_url"].rstrip("/").removesuffix("/v1")
             )
 
         # Tier model env vars (all providers)
@@ -386,9 +392,11 @@ class ClaudeCodeModelResolver:
         from osprey.infrastructure.proxy.lifecycle import is_proxy_needed
 
         _needs_proxy = is_proxy_needed(provider_name, api_providers)
-        _upstream_url = (
-            provider_def.get("base_url") if _needs_proxy else None
-        )  # If the proxy is needed, use the raw provider_def (with /v1) not the stripped one
+        # The proxy forwards to upstream + "/chat/completions", so the upstream
+        # must keep its /v1. Use the raw configured base_url, NOT the /v1-stripped
+        # ANTHROPIC_BASE_URL above. Every launch path starts the proxy from this
+        # field (never from the env var) — see runner.py / dispatch_api.py.
+        _upstream_url = provider_def.get("base_url") if _needs_proxy else None
 
         return ClaudeCodeModelSpec(
             provider=provider_name,

@@ -43,8 +43,10 @@ def test_custom_provider_resolves_with_proxy():
     assert spec.env_block["ANTHROPIC_MODEL"] == "cborg-coder"
     # Crucially: a custom (non-native) provider needs the translation proxy:
     assert spec.needs_proxy is True
+    # Upstream keeps /v1 (proxy appends /chat/completions); the Claude-Code-facing
+    # var is stripped of /v1 since Claude Code appends /v1/messages (issue #312).
     assert spec.upstream_base_url == "https://api.cborg.lbl.gov/v1"
-    assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://api.cborg.lbl.gov/v1"
+    assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://api.cborg.lbl.gov"
 
 
 def test_builtin_cborg_is_anthropic_native_no_proxy():
@@ -85,7 +87,8 @@ def test_inject_provider_env_wires_auth_and_scrubs_managed_vars():
     assert "ANTHROPIC_API_KEY" not in environ
     # Project's chosen model is authoritative over the stale shell value:
     assert environ["ANTHROPIC_MODEL"] == "cborg-coder"
-    assert environ["ANTHROPIC_BASE_URL"] == "https://api.cborg.lbl.gov/v1"
+    # Claude-Code-facing var is stripped of the OpenAI /v1 (issue #312).
+    assert environ["ANTHROPIC_BASE_URL"] == "https://api.cborg.lbl.gov"
     assert "ANTHROPIC_BASE_URL" in injected
 
 

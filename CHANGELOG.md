@@ -17,6 +17,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Anthropic-native providers configured with a `/v1` base URL (e.g. Argo via `api_protocol: anthropic`) no longer resolve to a doubled `…/v1/v1/messages`: the Claude-Code-facing `ANTHROPIC_BASE_URL` is stripped of a trailing `/v1` (Claude Code appends `/v1/messages` itself), while the translation-proxy upstream keeps its `/v1`. All four launch paths (CLI, web terminal, SDK runner, dispatch worker) now start the proxy from the resolved `upstream_base_url` field rather than the stripped env var, so OpenAI-compatible providers still forward to `…/v1/chat/completions` (#312).
 - Headless dispatch runs now enforce the trigger's `allowed_tools` as the single authority via a PreToolUse hook: project `settings.json` allow-rules and the approval hook's explicit allows can no longer widen a run's tool surface, and declared subagents (`.claude/agents/*.md`) work with exactly their declared tools — no trigger changes needed.
 - `osprey web --project X` launched from another directory now spawns the interactive terminal's Claude Code with `cwd = X`, so it reads `X/.mcp.json` and starts the project's MCP servers (the PTY path previously ignored `--project` and inherited the launch directory) (#313).
 
