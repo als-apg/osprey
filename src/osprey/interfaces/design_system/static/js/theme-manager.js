@@ -1,3 +1,4 @@
+// @ts-check
 /* OSPREY Design System — Theme Manager
  *
  * Hand-written (not generated). Single runtime shared by every interface,
@@ -72,7 +73,9 @@ let _role = 'follower';
 let _preference = 'auto';
 // The currently applied, always-concrete theme id. Never 'auto' -- that
 // is resolved before anything touches data-theme.
+/** @type {string|null} */
 let _currentId = null;
+/** @type {Set<(id: string) => void>} */
 const _subscribers = new Set();
 let _messageListenerAttached = false;
 let _mediaQueryListenerAttached = false;
@@ -80,10 +83,18 @@ let _toggleButtonWired = false;
 
 // ---- id / mode resolution ----
 
+/**
+ * @param {unknown} value
+ * @returns {value is string}
+ */
 function _isKnownId(value) {
   return typeof value === 'string' && _validIds.includes(value);
 }
 
+/**
+ * @param {string} id
+ * @returns {string}
+ */
 function _modeOf(id) {
   const theme = _themesById.get(id);
   return theme ? theme.mode : 'dark';
@@ -102,7 +113,11 @@ function _resolveAuto() {
   return DEFAULTS[mode] || DEFAULTS.dark || DEFAULTS.light || _validIds[0];
 }
 
-/** Resolve a preference ('auto' or a candidate id) to a concrete, valid theme id. */
+/**
+ * Resolve a preference ('auto' or a candidate id) to a concrete, valid theme id.
+ * @param {unknown} preference
+ * @returns {string}
+ */
 function _resolve(preference) {
   if (preference === 'auto') return _resolveAuto();
   if (_isKnownId(preference)) return preference;
@@ -127,6 +142,7 @@ function _readStoredPreference() {
   }
 }
 
+/** @param {string} preference */
 function _persistPreference(preference) {
   try {
     window.localStorage.setItem(STORAGE_KEY, preference);
@@ -138,14 +154,16 @@ function _persistPreference(preference) {
 
 // ---- Applying a theme (data-theme, hljs swap, toggle UI, subscribers) ----
 
+/** @param {string} mode */
 function _swapHljsHref(mode) {
-  const link = document.getElementById('hljs-theme');
+  const link = /** @type {HTMLLinkElement|null} */ (document.getElementById('hljs-theme'));
   if (!link) return; // pages without a highlight.js stylesheet (most)
   const attr = mode === 'light' ? 'data-href-light' : 'data-href-dark';
   const href = link.getAttribute(attr);
   if (href) link.href = href;
 }
 
+/** @param {string} id */
 function _updateToggleUI(id) {
   const button = document.getElementById('theme-toggle');
   const sunIcon = document.getElementById('theme-icon-sun');
@@ -163,6 +181,7 @@ function _updateToggleUI(id) {
   }
 }
 
+/** @param {() => void} fn */
 function _withTransition(fn) {
   const root = document.documentElement;
   root.classList.add('theme-transitioning');
@@ -170,6 +189,7 @@ function _withTransition(fn) {
   window.setTimeout(() => root.classList.remove('theme-transitioning'), 300);
 }
 
+/** @param {string} id */
 function _notifySubscribers(id) {
   for (const callback of _subscribers) {
     try {
@@ -180,11 +200,12 @@ function _notifySubscribers(id) {
   }
 }
 
+/** @param {string} id */
 function _broadcast(id) {
   const iframes = document.querySelectorAll('iframe');
   for (const iframe of iframes) {
     try {
-      iframe.contentWindow.postMessage({ type: MESSAGE_TYPE, theme: id }, '*');
+      iframe.contentWindow?.postMessage({ type: MESSAGE_TYPE, theme: id }, '*');
     } catch (error) {
       // Cross-origin -- expected for some iframes; nothing to do.
     }
@@ -195,6 +216,9 @@ function _broadcast(id) {
  * Apply a concrete theme id: set data-theme, swap the hljs stylesheet,
  * update the toggle button, and notify every subscriber. NEVER deduped on
  * an unchanged id -- see the module docstring's hidden-iframe protocol.
+ *
+ * @param {string} id
+ * @param {{broadcast?: boolean, transition?: boolean}} [options]
  */
 function _applyTheme(id, { broadcast = false, transition = false } = {}) {
   _currentId = id;
@@ -216,6 +240,7 @@ function _applyTheme(id, { broadcast = false, transition = false } = {}) {
 
 // ---- Follower: obey hub broadcasts ----
 
+/** @param {MessageEvent} event */
 function _handleMessage(event) {
   const data = event.data;
   if (!data || data.type !== MESSAGE_TYPE) return;
@@ -306,7 +331,10 @@ export function initTheme({ role = 'follower' } = {}) {
   _wireToggleButton();
 }
 
-/** The currently applied, concrete theme id (never 'auto'). */
+/**
+ * The currently applied, concrete theme id (never 'auto').
+ * @returns {string|null}
+ */
 export function getTheme() {
   return _currentId;
 }
@@ -315,6 +343,8 @@ export function getTheme() {
  * Set the theme. `id` may be a concrete theme id or 'auto'; anything else
  * resolves to 'auto'. Only the hub role persists (to
  * localStorage['osprey-theme']) and broadcasts to embedded panels.
+ *
+ * @param {string} id
  */
 export function setTheme(id) {
   const preference = id === 'auto' || _isKnownId(id) ? id : 'auto';
@@ -327,14 +357,17 @@ export function setTheme(id) {
 
 /** Cycle between the resolved dark and light defaults (never sets 'auto'). */
 export function toggleTheme() {
-  const nextMode = _modeOf(_currentId) === 'dark' ? 'light' : 'dark';
-  setTheme(DEFAULTS[nextMode] || _currentId);
+  const nextMode = _modeOf(/** @type {string} */ (_currentId)) === 'dark' ? 'light' : 'dark';
+  setTheme(DEFAULTS[nextMode] || /** @type {string} */ (_currentId));
 }
 
 /**
  * Register a callback invoked with the applied theme id on every apply --
  * including applies where the id is unchanged (see the module docstring).
  * Returns an unsubscribe function.
+ *
+ * @param {(id: string) => void} callback
+ * @returns {() => void}
  */
 export function subscribe(callback) {
   _subscribers.add(callback);
@@ -347,11 +380,20 @@ function _computedStyles() {
   return getComputedStyle(document.documentElement);
 }
 
+/**
+ * @param {CSSStyleDeclaration} styles
+ * @param {string} name
+ * @returns {string}
+ */
 function _readVar(styles, name) {
   return styles.getPropertyValue(name).trim();
 }
 
-/** Validate the sentinel token; logs (never throws) on an empty read. */
+/**
+ * Validate the sentinel token; logs (never throws) on an empty read.
+ * @param {CSSStyleDeclaration} styles
+ * @returns {boolean}
+ */
 function _checkSentinel(styles) {
   if (_readVar(styles, SENTINEL_VAR)) {
     return true;
