@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import importlib
 import logging
+import socket
 import threading
+import time
 import urllib.request
 from collections.abc import Callable
 from pathlib import Path
@@ -19,6 +21,33 @@ from osprey.registry.web import FRAMEWORK_WEB_SERVERS, WebServerDefinition
 from osprey.utils.workspace import load_osprey_config
 
 logger = logging.getLogger("osprey.infrastructure.server_launcher")
+
+# When a port is already held on first check, it may be a predecessor that is
+# still shutting down after a restart. Wait a bounded grace period for it to
+# release the port so we can bind (own) it ourselves rather than trusting a
+# possibly-dying external responder. See issue #327.
+_PORT_RELEASE_GRACE_ATTEMPTS = 5
+_PORT_RELEASE_GRACE_INTERVAL = 0.5
+
+# When a port stays held by a process that does not answer /health, we cannot
+# bind it now, but it may free up later (a lazy caller like artifact_store
+# re-invokes ensure_running on every save). Re-probe at most this often so a
+# panel can self-heal without paying the grace cost on every call.
+_HELD_PORT_RETRY_COOLDOWN = 30.0
+
+
+def _loopback_for(host: str) -> str:
+    """Map a wildcard bind host to a loopback address reachable as a *client*.
+
+    A server bound to a wildcard (``0.0.0.0`` / ``::`` / ``""``) also accepts
+    connections on the corresponding loopback, but the wildcard itself is not a
+    valid client destination on macOS/BSD. Non-wildcard hosts pass through.
+    """
+    if host in ("0.0.0.0", ""):
+        return "127.0.0.1"
+    if host == "::":
+        return "::1"
+    return host
 
 
 class ServerLauncher:
@@ -31,6 +60,11 @@ class ServerLauncher:
         app_factory: Callable returning a ASGI app instance. Receives
             ``workspace_root`` kwarg if ``pass_workspace`` is True.
         pass_workspace: If True, resolve and pass ``workspace_root`` to the app factory.
+        release_grace_attempts: Times to re-probe a held port, waiting for a
+            shutting-down predecessor to release it before deferring/warning.
+        release_grace_interval: Seconds between those re-probes.
+        held_port_retry_cooldown: After a port is found held by a non-responder,
+            seconds to wait before ``ensure_running`` re-probes again.
     """
 
     def __init__(
@@ -40,19 +74,45 @@ class ServerLauncher:
         auto_launch_checker: Callable[[], bool],
         app_factory: Callable[..., object],
         pass_workspace: bool = False,
+        release_grace_attempts: int = _PORT_RELEASE_GRACE_ATTEMPTS,
+        release_grace_interval: float = _PORT_RELEASE_GRACE_INTERVAL,
+        held_port_retry_cooldown: float = _HELD_PORT_RETRY_COOLDOWN,
     ) -> None:
         self._name = name
         self._config_reader = config_reader
         self._auto_launch_checker = auto_launch_checker
         self._app_factory = app_factory
         self._pass_workspace = pass_workspace
+        self._release_grace_attempts = release_grace_attempts
+        self._release_grace_interval = release_grace_interval
+        self._held_port_retry_cooldown = held_port_retry_cooldown
         self._launched = False
+        # Monotonic deadline before which ensure_running() short-circuits after
+        # a "port held by a non-responder" outcome (see ensure_running).
+        self._retry_not_before = 0.0
         self._lock = threading.Lock()
+
+    def _port_has_listener(self, host: str, port: int) -> bool:
+        """Return True if a live TCP listener is bound to *host:port*.
+
+        This is a truer "is the port taken?" signal than a ``/health`` 200:
+        it answers the ownership question directly instead of conflating
+        "the port is bound" with "the bound thing is a healthy HTTP server".
+        A wildcard bind host is probed via loopback, which the same listener
+        also accepts.
+        """
+        try:
+            with socket.create_connection((_loopback_for(host), port), timeout=1):
+                return True
+        except OSError:
+            return False
 
     def _is_running(self, host: str, port: int) -> bool:
         """Check the /health endpoint (quick, no dependencies)."""
+        probe_host = _loopback_for(host)
+        netloc = f"[{probe_host}]" if ":" in probe_host else probe_host
         try:
-            url = f"http://{host}:{port}/health"
+            url = f"http://{netloc}:{port}/health"
             req = urllib.request.Request(url, method="GET")
             with urllib.request.urlopen(req, timeout=1) as resp:
                 return resp.status == 200
@@ -81,35 +141,49 @@ class ServerLauncher:
         t.start()
         logger.info("%s launched at http://%s:%s", self._name, host, port)
 
-        # Brief health-check to verify server came up
-        import time
-
+        # Brief health-check to verify *our* server came up. Liveness is checked
+        # first: if the thread has exited (e.g. the bind failed in a TOCTOU race
+        # with another process), a /health 200 would be a foreign responder, not
+        # ours — trusting it would recreate the #327 false positive.
         for _attempt in range(3):
             time.sleep(0.5)
+            if not t.is_alive():
+                logger.warning("%s thread exited before health check passed", self._name)
+                self._launched = False
+                return
             if self._is_running(host, port):
                 logger.info("%s health check passed", self._name)
                 self._launched = True
                 return
 
-        if not t.is_alive():
-            # Thread already exited (crashed) — don't mark as launched
-            logger.warning("%s thread exited before health check passed", self._name)
-            self._launched = False
-        else:
-            logger.warning(
-                "%s health check failed after launch — server may not be reachable at %s:%s",
-                self._name,
-                host,
-                port,
-            )
-            # Still mark as launched to avoid busy-retry loops; the crash handler
-            # in _run() will reset _launched if the thread actually crashes.
-            self._launched = True
+        # Thread still alive but /health never answered — mark launched to avoid
+        # busy-retry loops; the crash handler in _run() resets _launched if the
+        # thread later dies.
+        logger.warning(
+            "%s health check failed after launch — server may not be reachable at %s:%s",
+            self._name,
+            host,
+            port,
+        )
+        self._launched = True
 
     def ensure_running(self) -> None:
         """Ensure the server is running; launch if needed.
 
         Safe to call multiple times — no-op after first launch.
+
+        Ownership is decided by whether a live TCP listener holds the port,
+        not by a bare ``/health`` 200. A ``/health`` 200 from a stale or
+        foreign responder is a false positive: it previously made the manager
+        skip the launch and leave the panel unbacked (proxy 502) after a
+        restart (issue #327). Instead:
+
+        * port free            -> launch and own it;
+        * port held then freed -> a shutting-down predecessor; waited out,
+          then launched;
+        * port held throughout  -> defer to a legitimate external server if it
+          serves ``/health`` (latched); else warn and retry on a later call so a
+          lazily-relaunched panel can self-heal once the port frees.
         """
         if not self._auto_launch_checker():
             return
@@ -121,13 +195,50 @@ class ServerLauncher:
             if self._launched:
                 return
 
-            host, port = self._config_reader()
-
-            if self._is_running(host, port):
-                self._launched = True
+            # A recent "held by a non-responder" outcome throttles re-probing so
+            # a per-call caller (e.g. artifact_store on every save) does not pay
+            # the grace cost repeatedly while still recovering when the port frees.
+            if time.monotonic() < self._retry_not_before:
                 return
 
-            self._launch_in_thread(host, port)
+            host, port = self._config_reader()
+
+            # Nothing listening -> the port is ours to take.
+            if not self._port_has_listener(host, port):
+                self._launch_in_thread(host, port)
+                return
+
+            # Held on first check. Give a shutting-down predecessor a bounded
+            # grace period to release the port so we can bind it ourselves.
+            for _attempt in range(self._release_grace_attempts):
+                time.sleep(self._release_grace_interval)
+                if not self._port_has_listener(host, port):
+                    self._launch_in_thread(host, port)
+                    return
+
+            # Still held after the grace window. A live /health responder is a
+            # legitimate server owned by another process — defer to it (latched).
+            if self._is_running(host, port):
+                logger.info(
+                    "%s already served by another process at %s:%s — deferring launch",
+                    self._name,
+                    host,
+                    port,
+                )
+                self._launched = True
+            else:
+                # Held by something that does not answer /health; we cannot bind
+                # now. Do not latch — throttle and retry so the panel recovers if
+                # the port frees later.
+                logger.warning(
+                    "%s port %s:%s is held by a process that does not answer /health; "
+                    "the panel will be unbacked (502) until the port is free. "
+                    "Will retry on a later call.",
+                    self._name,
+                    host,
+                    port,
+                )
+                self._retry_not_before = time.monotonic() + self._held_port_retry_cooldown
 
 
 # ---------------------------------------------------------------------------
