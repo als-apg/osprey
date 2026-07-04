@@ -34,9 +34,6 @@ from __future__ import annotations
 
 import io
 import platform
-import socket
-import threading
-import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,26 +42,24 @@ from unittest.mock import patch
 
 import numpy as np
 import pytest
-import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
 
 import osprey.interfaces.design_system as design_system_pkg
+from tests.interfaces.conftest import _apply_all, _run_app_server
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from contextlib import AbstractContextManager
-
-    from playwright.sync_api import Browser
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
 # ---------------------------------------------------------------------------
 
 try:
-    from playwright.sync_api import expect, sync_playwright
+    from playwright.sync_api import expect
 
     _PLAYWRIGHT_AVAILABLE = True
 except ImportError:  # pragma: no cover
@@ -97,59 +92,8 @@ _DASHBOARD_HTML_ONLY_ON_LINUX_NOTE = (
 
 
 # ---------------------------------------------------------------------------
-# Helpers: ports, uvicorn lifecycle (mirrors test_behavioral.py)
+# Helpers: patch aggregation (ports/uvicorn lifecycle live in conftest.py)
 # ---------------------------------------------------------------------------
-
-
-def _free_port() -> int:
-    """Return an unused TCP port on 127.0.0.1."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
-
-def _wait_for_port(port: int, timeout: float = 10.0) -> None:
-    """Block until the server accepts TCP connections, or raise RuntimeError."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
-                return
-        except OSError:
-            time.sleep(0.1)
-    raise RuntimeError(f"Server did not become ready on port {port} within {timeout}s")
-
-
-@contextmanager
-def _run_app_server(app: FastAPI) -> Iterator[str]:
-    """Run any FastAPI app on a free port in a background thread.
-
-    Yields:
-        The server's base URL, e.g. ``"http://127.0.0.1:54321"``.
-    """
-    port = _free_port()
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-    server = uvicorn.Server(config)
-    t = threading.Thread(target=server.run, daemon=True)
-    t.start()
-    _wait_for_port(port)
-    try:
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        server.should_exit = True
-        t.join(timeout=5)
-
-
-@contextmanager
-def _apply_all(patches: list) -> Iterator[None]:
-    """Enter a variable-length list of patch context managers together."""
-    for p in patches:
-        p.start()
-    try:
-        yield
-    finally:
-        for p in reversed(patches):
-            p.stop()
 
 
 @contextmanager
@@ -161,7 +105,6 @@ def _hub_live_server(workspace_dir: Path, artifact_server_url: str) -> Iterator[
     (not the dead fake URL some other suites use), so the captured screenshot
     shows real embedded content instead of a proxy error page.
     """
-    port = _free_port()
     patches = [
         patch(
             "osprey.interfaces.web_terminal.app._load_web_config",
@@ -180,14 +123,8 @@ def _hub_live_server(workspace_dir: Path, artifact_server_url: str) -> Iterator[
         from osprey.interfaces.web_terminal.app import create_app
 
         app = create_app(shell_command=["echo", "hello"])
-        config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-        server = uvicorn.Server(config)
-        t = threading.Thread(target=server.run, daemon=True)
-        t.start()
-        _wait_for_port(port)
-        yield f"http://127.0.0.1:{port}"
-        server.should_exit = True
-    t.join(timeout=5)
+        with _run_app_server(app) as base_url:
+            yield base_url
 
 
 # ---------------------------------------------------------------------------
@@ -313,32 +250,6 @@ TARGETS: list[VisualTarget] = [
     # renders its genuine no-data empty state — a legitimate, stable baseline.
     VisualTarget("dispatch_dashboard", _dispatch_dashboard_server, path="/"),
 ]
-
-
-# ---------------------------------------------------------------------------
-# Function-scoped chromium fixture (see test_behavioral.py for rationale)
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def chromium_browser() -> Iterator[Browser]:
-    """Function-scoped Playwright browser. Skips if chromium binary is absent."""
-    if not _PLAYWRIGHT_AVAILABLE:
-        pytest.skip("playwright package not installed")
-
-    pw = sync_playwright().start()
-    try:
-        browser = pw.chromium.launch(headless=True)
-    except Exception as exc:  # pragma: no cover
-        pw.stop()
-        pytest.skip(f"Chromium binary not available: {exc}")
-        return  # unreachable — present only to satisfy type checkers
-
-    try:
-        yield browser
-    finally:
-        browser.close()
-        pw.stop()
 
 
 # ---------------------------------------------------------------------------

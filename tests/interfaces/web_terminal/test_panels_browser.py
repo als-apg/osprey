@@ -18,51 +18,26 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
-import socket
-import threading
-import time
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
 import pytest
 import requests
 
+from tests.interfaces.conftest import _run_app_server
+
 # ---------------------------------------------------------------------------
 # Playwright availability guard
 # ---------------------------------------------------------------------------
 
 try:
-    from playwright.sync_api import Page, expect, sync_playwright
+    from playwright.sync_api import Page, expect
 
     _PLAYWRIGHT_AVAILABLE = True
 except ImportError:  # pragma: no cover
     _PLAYWRIGHT_AVAILABLE = False
 
 pytestmark = pytest.mark.slow
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _free_port() -> int:
-    """Return an unused TCP port on 127.0.0.1."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return s.getsockname()[1]
-
-
-def _wait_for_port(port: int, timeout: float = 10.0) -> None:
-    """Block until the server accepts TCP connections, or raise RuntimeError."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
-                return
-        except OSError:
-            time.sleep(0.1)
-    raise RuntimeError(f"Server did not become ready on port {port} within {timeout}s")
 
 
 # ---------------------------------------------------------------------------
@@ -96,8 +71,6 @@ def _live_server(workspace_dir, enabled_panels, custom_panels=None, allow_runtim
     if custom_panels is None:
         custom_panels = []
 
-    port = _free_port()
-
     with (
         patch(
             "osprey.interfaces.web_terminal.app._load_web_config",
@@ -113,68 +86,18 @@ def _live_server(workspace_dir, enabled_panels, custom_panels=None, allow_runtim
             side_effect=lambda a: setattr(a.state, "artifact_server_url", "http://127.0.0.1:8086"),
         ),
     ):
-        import uvicorn
-
         from osprey.interfaces.web_terminal.app import create_app
 
         app = create_app(shell_command=["echo", "hello"])
-        config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-        server = uvicorn.Server(config)
+        # _run_app_server yields only after the port accepts connections (lifespan
+        # done), so app.state is safe to mutate here; and it joins the server
+        # thread while the patches above are still live, avoiding timing races.
+        with _run_app_server(app) as base_url:
+            if allow_runtime:
+                app.state.allow_runtime_panels = True
+                app.state.runtime_panel_allowlist = None  # any non-loopback host allowed
 
-        t = threading.Thread(target=server.run, daemon=True)
-        t.start()
-        _wait_for_port(port)
-
-        # Post-startup state manipulation.  _wait_for_port() only returns once
-        # the TCP port is accepting connections, by which point the lifespan has
-        # fully executed and app.state is safe to mutate from the test thread.
-        if allow_runtime:
-            app.state.allow_runtime_panels = True
-            app.state.runtime_panel_allowlist = None  # any non-loopback host allowed
-
-        yield f"http://127.0.0.1:{port}", app
-
-        server.should_exit = True
-    # Patches released after server thread exits to avoid timing races.
-    t.join(timeout=5)
-
-
-# ---------------------------------------------------------------------------
-# Function-scoped chromium fixture
-# ---------------------------------------------------------------------------
-#
-# Intentionally function-scoped (not session-scoped): sync_playwright() runs
-# an asyncio event loop on the main thread while alive, which makes
-# asyncio.Runner.run() raise "cannot be called from a running event loop" in
-# any pytest-asyncio async tests that share the session.  Closing and
-# restarting playwright per test (~0.5s overhead) is cheaper than the
-# ordering-dependent failures that a session-scoped fixture would cause.
-
-
-@pytest.fixture
-def chromium_browser():
-    """Function-scoped Playwright browser. Skips if chromium binary is absent."""
-    if not _PLAYWRIGHT_AVAILABLE:
-        pytest.skip("playwright package not installed")
-
-    # sync_playwright().start() spins up an asyncio loop on the main thread.  It
-    # MUST be stopped on every exit path — including the skip taken when the
-    # chromium binary is absent (the usual CI condition) and a failing test body.
-    # Leaking it makes every later asyncio.run()/pytest-asyncio test in the
-    # session raise "Runner.run() cannot be called from a running event loop".
-    pw = sync_playwright().start()
-    try:
-        browser = pw.chromium.launch(headless=True)
-    except Exception as exc:  # pragma: no cover
-        pw.stop()
-        pytest.skip(f"Chromium binary not available: {exc}")
-        return  # unreachable — present only to satisfy type checkers
-
-    try:
-        yield browser
-    finally:
-        browser.close()
-        pw.stop()
+            yield base_url, app
 
 
 # ---------------------------------------------------------------------------

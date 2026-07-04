@@ -25,21 +25,18 @@ Skips cleanly when the chromium headless binary is not installed.
 from __future__ import annotations
 
 import re
-import socket
-import threading
-import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
 import pytest
-import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 import osprey.interfaces.design_system as design_system_pkg
+from tests.interfaces.conftest import _apply_all, _run_app_server
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -49,7 +46,7 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 try:
-    from playwright.sync_api import Frame, Page, expect, sync_playwright
+    from playwright.sync_api import Frame, Page, expect
 
     _PLAYWRIGHT_AVAILABLE = True
 except ImportError:  # pragma: no cover
@@ -105,51 +102,8 @@ _FOLLOWER_HTML = """<!DOCTYPE html>
 
 
 # ---------------------------------------------------------------------------
-# Helpers: ports, uvicorn lifecycle
+# Companion backend app (ports/uvicorn lifecycle live in conftest.py)
 # ---------------------------------------------------------------------------
-
-
-def _free_port() -> int:
-    """Return an unused TCP port on 127.0.0.1."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
-
-def _wait_for_port(port: int, timeout: float = 10.0) -> None:
-    """Block until the server accepts TCP connections, or raise RuntimeError."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
-                return
-        except OSError:
-            time.sleep(0.1)
-    raise RuntimeError(f"Server did not become ready on port {port} within {timeout}s")
-
-
-@contextmanager
-def _run_app_server(app: FastAPI) -> Iterator[str]:
-    """Run any FastAPI app on a free port in a background thread.
-
-    Used for the two real companion backends the panel-embedding flows need:
-    the production tuning app, and the minimal design-system-only follower
-    stand-in defined above.
-
-    Yields:
-        The server's base URL, e.g. ``"http://127.0.0.1:54321"``.
-    """
-    port = _free_port()
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-    server = uvicorn.Server(config)
-    t = threading.Thread(target=server.run, daemon=True)
-    t.start()
-    _wait_for_port(port)
-    try:
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        server.should_exit = True
-        t.join(timeout=5)
 
 
 def _create_follower_app() -> FastAPI:
@@ -194,8 +148,6 @@ def _hub_live_server(
     if custom_panels is None:
         custom_panels = []
 
-    port = _free_port()
-
     patches = [
         patch(
             "osprey.interfaces.web_terminal.app._load_web_config",
@@ -218,59 +170,14 @@ def _hub_live_server(
             )
         )
 
+    # Patches stay live across create_app() AND the server lifespan (nested
+    # _run_app_server), so the join happens while patched — see _run_app_server.
     with _apply_all(patches):
         from osprey.interfaces.web_terminal.app import create_app
 
         app = create_app(shell_command=["echo", "hello"])
-        config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-        server = uvicorn.Server(config)
-
-        t = threading.Thread(target=server.run, daemon=True)
-        t.start()
-        _wait_for_port(port)
-
-        yield f"http://127.0.0.1:{port}"
-
-        server.should_exit = True
-    t.join(timeout=5)
-
-
-@contextmanager
-def _apply_all(patches: list) -> Iterator[None]:
-    """Enter a variable-length list of patch context managers together."""
-    for p in patches:
-        p.start()
-    try:
-        yield
-    finally:
-        for p in reversed(patches):
-            p.stop()
-
-
-# ---------------------------------------------------------------------------
-# Function-scoped chromium fixture (see test_panels_browser.py for rationale)
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def chromium_browser():
-    """Function-scoped Playwright browser. Skips if chromium binary is absent."""
-    if not _PLAYWRIGHT_AVAILABLE:
-        pytest.skip("playwright package not installed")
-
-    pw = sync_playwright().start()
-    try:
-        browser = pw.chromium.launch(headless=True)
-    except Exception as exc:  # pragma: no cover
-        pw.stop()
-        pytest.skip(f"Chromium binary not available: {exc}")
-        return  # unreachable — present only to satisfy type checkers
-
-    try:
-        yield browser
-    finally:
-        browser.close()
-        pw.stop()
+        with _run_app_server(app) as base_url:
+            yield base_url
 
 
 # ---------------------------------------------------------------------------
