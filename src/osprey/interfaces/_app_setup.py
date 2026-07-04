@@ -69,8 +69,6 @@ def configure_interface_app(app: FastAPI, *, static_dir: Path | str) -> None:
     if fonts_dir.exists():
         app.mount("/static/fonts", StaticFiles(directory=fonts_dir), name="shared-fonts")
     if design_system_dir.exists():
-        app.mount(
-            "/design-system", StaticFiles(directory=design_system_dir), name="design-system"
-        )
+        app.mount("/design-system", StaticFiles(directory=design_system_dir), name="design-system")
     if static_dir.exists():
         app.mount("/static", StaticFiles(directory=static_dir), name="static")

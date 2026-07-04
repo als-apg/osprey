@@ -961,4 +961,3 @@ function _truncate(str, maxLen) {
   if (str.length <= maxLen) return str;
   return str.substring(0, maxLen - 1) + '\u2026';
 }
-
