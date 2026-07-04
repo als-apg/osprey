@@ -15,6 +15,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 - Every OSPREY browser interface — Web Terminal, Artifacts, ARIEL, Channel Finder, Tuning, the Lattice dashboard, the event dispatch dashboard, and the session activity/safety pages — now themes itself from one shared design-token system with dark, light, and `auto` (follows your OS color-scheme preference) modes. See the "Theming the OSPREY Interfaces" how-to for adding a new theme or wiring a new interface into it.
 - Dev/CI-only front-end JavaScript toolchain — `npm run typecheck` (`tsc --noEmit`) and `npm run test:js` (Vitest), enforced by a CI job; JS files opt into type-checking with a `// @ts-check` comment. Not needed to install or run OSPREY.
+- Dev/CI-only Python-Playwright browser-test foundation under `tests/interfaces/` — a shared server/browser conftest plus an `assert_page_loads_clean` helper and a per-interface "loads clean in a real browser" smoke over all six web interfaces (`-m browser`), wired into the existing theming CI job. Skips cleanly when Chromium is absent; not needed to install or run OSPREY.
 
 ### Changed
 
