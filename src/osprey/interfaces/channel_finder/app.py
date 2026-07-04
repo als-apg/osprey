@@ -13,9 +13,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
+
+from osprey.interfaces._app_setup import configure_interface_app
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -172,22 +172,6 @@ def create_app(project_cwd: str | None = None) -> FastAPI:
         lifespan=_create_lifespan(project_cwd),
     )
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    from osprey.interfaces.common_middleware import (
-        ExceptionLoggingMiddleware,
-        NoCacheStaticMiddleware,
-    )
-
-    app.add_middleware(NoCacheStaticMiddleware)
-    app.add_middleware(ExceptionLoggingMiddleware)
-
     @app.get("/health")
     async def health():
         pipeline_type = getattr(app.state, "pipeline_type", "unknown")
@@ -210,17 +194,6 @@ def create_app(project_cwd: str | None = None) -> FastAPI:
     # Pending review API
     app.include_router(pending_review_api.router, prefix="/api")
 
-    # Mount shared fonts before /static (Starlette matches in declaration order)
-    SHARED_FONTS_DIR = Path(__file__).parent.parent / "shared_fonts"
-    if SHARED_FONTS_DIR.exists():
-        app.mount("/static/fonts", StaticFiles(directory=SHARED_FONTS_DIR), name="shared-fonts")
-    DESIGN_SYSTEM_STATIC_DIR = Path(__file__).parent.parent / "design_system" / "static"
-    if DESIGN_SYSTEM_STATIC_DIR.exists():
-        app.mount(
-            "/design-system", StaticFiles(directory=DESIGN_SYSTEM_STATIC_DIR), name="design-system"
-        )
-    # Static files (must come last so it doesn't shadow API routes)
-    if STATIC_DIR.exists():
-        app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    configure_interface_app(app, static_dir=STATIC_DIR)
 
     return app
