@@ -6,14 +6,13 @@
 
 /**
  * HTML-escape a string to prevent XSS.
- * @param {*} s - Value to escape (coerced to string).
- * @returns {string} Escaped HTML string.
+ *
+ * Re-exported from the shared design-system `dom.js` module under the historical
+ * `esc` name so existing importers (explore-hierarchical.js, etc.) keep working.
+ * Semantics are identical: textContent -> innerHTML, nullish -> "", no
+ * quote-escaping.
  */
-export function esc(s) {
-  const d = document.createElement('div');
-  d.textContent = String(s ?? '');
-  return d.innerHTML;
-}
+export { escapeHtml as esc } from '/design-system/js/dom.js';
 
 /**
  * Render a pipeline schema diagram into a container element.

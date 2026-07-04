@@ -1,0 +1,18 @@
+{
+  "$extensions": { "id": "light", "label": "Light", "mode": "light" },
+  "bg": {
+    "$type": "color",
+    "primary": { "$value": "{color.slate.050}" },
+    "panel": { "$value": "#ffffff" }
+  },
+  "text": {
+    "primary": {
+      "$value": "#0f172a",
+      "$type": "color",
+      "$description": "Primary body text color."
+    }
+  },
+  "accent": {
+    "base": { "$value": "{color.teal.500}", "$type": "color" }
+  }
+}

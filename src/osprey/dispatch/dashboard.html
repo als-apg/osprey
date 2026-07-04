@@ -1,7 +1,18 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
 <meta charset="utf-8">
+<script src="/design-system/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/design-system/css/tokens.css">
+<link rel="stylesheet" href="/design-system/css/base.css">
+<script type="module">
+// Follower role: the dashboard is never the theme hub (web-terminal is), so it
+// never persists a preference or broadcasts — it only applies whatever
+// theme-boot.js already resolved pre-paint and whatever the hub broadcasts
+// when this page is embedded as the in-terminal EVENTS panel.
+import { initTheme } from '/design-system/js/theme-manager.js';
+initTheme({ role: 'follower' });
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Event Dispatcher</title>
 <script>
@@ -12,33 +23,6 @@
 window.__OSPREY_CONFIG__ = window.__OSPREY_CONFIG__ || { facility_name: "", pv_strip_prefix: "" };
 </script>
 <style>
-:root {
-  --bg-primary: #0a0f1a;
-  --bg-secondary: #111a2e;
-  --bg-panel: #0e1525;
-  --bg-elevated: #1a2332;
-  --text-primary: #f1f5f9;
-  --text-secondary: #8b9ab5;
-  --text-muted: #64748b;
-  --color-accent: #319795;
-  --color-accent-light: #4fd1c5;
-  --color-amber: #d4a574;
-  --color-success: #22c55e;
-  --color-warning: #f59e0b;
-  --color-error: #ef4444;
-  --border-default: rgba(148, 163, 184, 0.12);
-  --border-accent: rgba(79, 209, 197, 0.15);
-  --font-display: 'Outfit', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
-  --accent-tint-06: rgba(79, 209, 197, 0.06);
-  --accent-tint-08: rgba(79, 209, 197, 0.08);
-  --accent-tint-10: rgba(79, 209, 197, 0.10);
-  --accent-tint-15: rgba(79, 209, 197, 0.15);
-  --amber-tint-06: rgba(212, 165, 116, 0.06);
-  --error-tint-08: rgba(239, 68, 68, 0.08);
-  --success-tint-08: rgba(34, 197, 94, 0.08);
-  --warning-tint-08: rgba(245, 158, 11, 0.08);
-}
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
   font-family: var(--font-display);
@@ -228,7 +212,7 @@ header .stats .stat-value {
   border-radius: 50%;
   transition: all 150ms ease;
 }
-.toggle-switch.on { border-color: rgba(34, 197, 94, 0.4); }
+.toggle-switch.on { border-color: var(--success-tint-40); }
 .toggle-switch.on::after {
   left: 15px;
   background: var(--color-success);
@@ -252,7 +236,7 @@ header .stats .stat-value {
 .trigger-sparkline .bar.empty { background: var(--border-default); height: 15% !important; }
 .trigger-sparkline .bar.ok   { background: var(--color-success); }
 .trigger-sparkline .bar.err  { background: var(--color-error); }
-.trigger-sparkline .bar.live { background: var(--color-accent-light); box-shadow: 0 -2px 4px rgba(79,209,197,0.5); }
+.trigger-sparkline .bar.live { background: var(--color-accent-light); box-shadow: 0 -2px 4px color-mix(in srgb, var(--color-accent-light) 50%, transparent); }
 .trigger-sparkline .bar.queued { background: var(--color-warning); }
 
 .trigger-card .badges {
@@ -272,16 +256,16 @@ header .stats .stat-value {
   font-family: var(--font-mono);
   border: 1px solid transparent;
 }
-.badge-webhook { background: var(--accent-tint-08); color: var(--color-accent-light); border-color: rgba(79,209,197,0.3); }
-.badge-epics   { background: rgba(212,165,116,0.12); color: var(--color-amber); border-color: rgba(212,165,116,0.3); }
-.badge-drop    { background: var(--warning-tint-08); color: var(--color-warning); border-color: rgba(245,158,11,0.3); }
-.badge-retry   { background: var(--accent-tint-08); color: var(--color-accent-light); border-color: rgba(79,209,197,0.3); }
-.badge-alert   { background: var(--error-tint-08); color: var(--color-error); border-color: rgba(239,68,68,0.3); }
-.badge-pending,.badge-dispatched { background: var(--warning-tint-08); color: var(--color-warning); border-color: rgba(245,158,11,0.3); }
-.badge-completed,.badge-ok { background: var(--success-tint-08); color: var(--color-success); border-color: rgba(34,197,94,0.3); }
-.badge-error,.badge-err { background: var(--error-tint-08); color: var(--color-error); border-color: rgba(239,68,68,0.3); }
-.badge-running { background: var(--accent-tint-10); color: var(--color-accent-light); border-color: rgba(79,209,197,0.4); }
-.badge-off     { background: rgba(148,163,184,0.08); color: var(--text-muted); border-color: rgba(148,163,184,0.2); }
+.badge-webhook { background: var(--accent-tint-08); color: var(--color-accent-light); border-color: var(--accent-tint-30); }
+.badge-epics   { background: var(--amber-tint-12); color: var(--color-amber); border-color: var(--amber-tint-25); }
+.badge-drop    { background: color-mix(in srgb, var(--color-warning) 8%, transparent); color: var(--color-warning); border-color: color-mix(in srgb, var(--color-warning) 30%, transparent); }
+.badge-retry   { background: var(--accent-tint-08); color: var(--color-accent-light); border-color: var(--accent-tint-30); }
+.badge-alert   { background: var(--error-tint-08); color: var(--color-error); border-color: var(--error-tint-30); }
+.badge-pending,.badge-dispatched { background: color-mix(in srgb, var(--color-warning) 8%, transparent); color: var(--color-warning); border-color: color-mix(in srgb, var(--color-warning) 30%, transparent); }
+.badge-completed,.badge-ok { background: var(--success-tint-08); color: var(--color-success); border-color: color-mix(in srgb, var(--color-success) 30%, transparent); }
+.badge-error,.badge-err { background: var(--error-tint-08); color: var(--color-error); border-color: var(--error-tint-30); }
+.badge-running { background: var(--accent-tint-10); color: var(--color-accent-light); border-color: color-mix(in srgb, var(--color-accent-light) 40%, transparent); }
+.badge-off     { background: var(--neutral-tint-08); color: var(--text-muted); border-color: var(--neutral-tint-20); }
 
 .fire-split {
   display: flex;
@@ -293,7 +277,7 @@ header .stats .stat-value {
 .fire-split button {
   background: var(--accent-tint-08);
   color: var(--color-accent-light);
-  border: 1px solid rgba(79,209,197,0.3);
+  border: 1px solid var(--accent-tint-30);
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 600;
@@ -308,19 +292,19 @@ header .stats .stat-value {
   border-radius: 3px 0 0 3px;
 }
 .fire-split button.more {
-  border-left: 1px solid rgba(79,209,197,0.15);
+  border-left: 1px solid var(--accent-tint-12);
   border-radius: 0 3px 3px 0;
   padding: 4px 7px;
 }
-.fire-split button:hover { background: var(--accent-tint-15); border-color: var(--color-accent-light); }
+.fire-split button:hover { background: var(--accent-tint-12); border-color: var(--color-accent-light); }
 .fire-split button:active { transform: translateY(1px); }
 .fire-split.disabled button {
-  background: rgba(148,163,184,0.06);
+  background: var(--neutral-tint-06);
   color: var(--text-muted);
-  border-color: rgba(148,163,184,0.2);
+  border-color: var(--neutral-tint-20);
   cursor: not-allowed;
 }
-.fire-split.disabled button:hover { background: rgba(148,163,184,0.06); }
+.fire-split.disabled button:hover { background: var(--neutral-tint-06); }
 
 .fire-editor {
   margin-top: 8px;
@@ -449,7 +433,7 @@ header .stats .stat-value {
   position: relative;
   transition: background 120ms ease;
 }
-.vhandle:hover, .vhandle.active { background: rgba(79,209,197,0.35); }
+.vhandle:hover, .vhandle.active { background: var(--accent-tint-30); }
 .vhandle::after {
   content: '';
   position: absolute;
@@ -471,7 +455,7 @@ header .stats .stat-value {
   position: relative;
   transition: background 120ms ease;
 }
-.hhandle:hover, .hhandle.active { background: rgba(79,209,197,0.35); }
+.hhandle:hover, .hhandle.active { background: var(--accent-tint-30); }
 .hhandle::after {
   content: '';
   position: absolute;
@@ -555,7 +539,7 @@ header .stats .stat-value {
   gap: 10px;
   padding: 6px 12px;
   align-items: center;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.06);
+  border-bottom: 1px solid var(--neutral-tint-06);
   min-height: 32px;
 }
 .timeline-track:hover { background: var(--accent-tint-06); }
@@ -587,7 +571,7 @@ header .stats .stat-value {
   top: 0;
   bottom: 0;
   width: 1px;
-  background: rgba(148, 163, 184, 0.07);
+  background: var(--neutral-tint-06);
   pointer-events: none;
 }
 .timeline-rail .now-line {
@@ -596,7 +580,7 @@ header .stats .stat-value {
   bottom: 0;
   right: 0;
   width: 1px;
-  background: rgba(79, 209, 197, 0.3);
+  background: var(--accent-tint-30);
   pointer-events: none;
 }
 .fire-dot {
@@ -643,7 +627,7 @@ header .stats .stat-value {
   text-transform: uppercase;
 }
 .tw-seg button.on {
-  background: var(--accent-tint-15);
+  background: var(--accent-tint-12);
   color: var(--color-accent-light);
 }
 
@@ -758,7 +742,7 @@ table.runs-table col.col-turns    { width: 42px; }
 table.runs-table col.col-tools    { width: 42px; }
 table.runs-table tbody tr { cursor: pointer; }
 table.runs-table tbody tr:hover { background: var(--accent-tint-06); }
-table.runs-table tbody tr.active { background: var(--accent-tint-15); }
+table.runs-table tbody tr.active { background: var(--accent-tint-12); }
 .t-output { color: var(--text-muted); }
 .t-trigger { color: var(--color-accent-light); }
 .t-trigger.none { color: var(--text-muted); }
@@ -889,9 +873,9 @@ table.runs-table tbody tr.active { background: var(--accent-tint-15); }
   transition: all 120ms ease;
 }
 .action-btn:hover { color: var(--color-accent-light); border-color: var(--color-accent-light); }
-.action-btn.danger { color: var(--color-error); border-color: rgba(239,68,68,0.3); }
+.action-btn.danger { color: var(--color-error); border-color: var(--error-tint-30); }
 .action-btn.danger:hover { background: var(--error-tint-08); }
-.action-btn.primary { color: var(--color-accent-light); border-color: rgba(79,209,197,0.3); background: var(--accent-tint-08); }
+.action-btn.primary { color: var(--color-accent-light); border-color: var(--accent-tint-30); background: var(--accent-tint-08); }
 
 .event {
   margin-bottom: 2px;
@@ -948,7 +932,7 @@ table.runs-table tbody tr.active { background: var(--accent-tint-15); }
   display: none;
   padding: 6px 10px 10px 24px;
   border-top: 1px solid var(--border-default);
-  background: rgba(0,0,0,0.15);
+  background: var(--overlay-black-20);
 }
 .tool-call.open .tool-body { display: block; }
 .tool-section-label {
@@ -988,7 +972,7 @@ table.runs-table tbody tr.active { background: var(--accent-tint-15); }
 .tool-json .key { color: var(--color-amber); }
 .tool-json .str { color: var(--color-success); }
 .tool-json .num { color: var(--color-accent-light); }
-.tool-json .bool { color: #a78bfa; }
+.tool-json .bool { color: #a78bfa; } /* hygiene-allow-color: fixed categorical JSON-syntax color (5th hue, no fleet token) */
 .tool-json .null { color: var(--text-muted); font-style: italic; }
 
 .toast {
@@ -1016,8 +1000,8 @@ table.runs-table tbody tr.active { background: var(--accent-tint-15); }
 
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.18); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.35); }
+::-webkit-scrollbar-thumb { background: var(--neutral-tint-20); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--neutral-tint-35); }
 </style>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -1424,7 +1408,7 @@ function renderTriggerCard(t) {
   badges.appendChild(el('span', { className: 'badge badge-' + t.source, textContent: t.source }));
   if (t.on_error) badges.appendChild(el('span', { className: 'badge badge-' + t.on_error, textContent: t.on_error }));
   if (t.allowed_tools && t.allowed_tools.length) {
-    badges.appendChild(el('span', { className: 'badge', style: { background: 'rgba(148,163,184,0.08)', color: 'var(--text-muted)' }, textContent: t.allowed_tools.length + ' tools' }));
+    badges.appendChild(el('span', { className: 'badge', style: { background: 'var(--neutral-tint-08)', color: 'var(--text-muted)' }, textContent: t.allowed_tools.length + ' tools' }));
   }
   if (t.status === 'disabled') {
     badges.appendChild(el('span', { className: 'badge badge-off', textContent: 'off' }));

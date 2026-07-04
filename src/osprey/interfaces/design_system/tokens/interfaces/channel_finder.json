@@ -1,0 +1,9 @@
+{
+  "$description": "Channel-finder-only extension token: PV-name monospace font (cf-font-pv, Syne Mono). Source: channel_finder/static/css/channel-finder.css line 52. Font-family has no color, so the dark/light values are identical — still declared under both groups to satisfy theme completeness.",
+  "dark": {
+    "cf-font-pv": { "$value": "'Syne Mono', 'JetBrains Mono', monospace", "$type": "fontFamily" }
+  },
+  "light": {
+    "cf-font-pv": { "$value": "'Syne Mono', 'JetBrains Mono', monospace", "$type": "fontFamily" }
+  }
+}

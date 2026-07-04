@@ -13,13 +13,33 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- Every OSPREY browser interface — Web Terminal, Artifacts, ARIEL, Channel Finder, Tuning, the Lattice dashboard, the event dispatch dashboard, the KNOWLEDGE (facility-knowledge) panel, and the session activity/safety pages — now themes itself from one shared design-token system with dark, light, and `auto` (follows your OS color-scheme preference) modes. See the "Theming the OSPREY Interfaces" how-to for adding a new theme or wiring a new interface into it.
+- Dev/CI-only front-end JavaScript toolchain — `npm run typecheck` (`tsc --noEmit`) and `npm run test:js` (Vitest), enforced by a CI job; JS files opt into type-checking with a `// @ts-check` comment. Not needed to install or run OSPREY.
+- Dev/CI-only Python-Playwright browser-test foundation under `tests/interfaces/` — a shared server/browser conftest plus an `assert_page_loads_clean` helper and a per-interface "loads clean in a real browser" smoke over all six web interfaces (`-m browser`), wired into the existing theming CI job. Skips cleanly when Chromium is absent; not needed to install or run OSPREY.
 - **Native Phoebus control panels** — an optional `phoebus` MCP server lets the agent perceive a running [Phoebus](https://control-system-studio.readthedocs.io/) panel's widget tree, snapshot widgets, and drive controls (driving is approval-gated, like any hardware write). Off by default; enable with `claude_code.servers.phoebus.enabled: true` and configure the bridge and named panels via the `phoebus.*` config keys (see the build-deploy config schema). The Phoebus agent bridge itself is a facility build, not part of OSPREY.
+- **KNOWLEDGE web panel** — a read-only browser panel over a facility-knowledge (OKF) bundle: concept tree, markdown reader, substring search, and a bundle-health summary, served as the `KNOWLEDGE` tab in the Web Terminal (the `okf` builtin panel). Reads the bundle configured at `facility_knowledge.bundle_path`.
+
+### Changed
+
+- The Web Terminal's first-run theme default changed from forced-dark to `auto`; use the in-app theme toggle if you want a fixed theme regardless of OS preference.
+- All web interface factories now share one app-setup helper for CORS, middleware, and static mounts; the Lattice dashboard picks up the standardized CORS policy and two request middlewares it was previously missing.
+- The ES-module browser interfaces now import shared front-end helpers (`el`, `escapeHtml`, `debounce`) from a single `dom.js` module instead of per-file copies.
+- The Lattice dashboard's accent color changed from a cyan-blue hue to OSPREY's canonical teal accent, matching every other interface.
+- The event dispatcher dashboard now themes itself from the shared OSPREY design system instead of a hardcoded dark palette, and follows the web-terminal hub's theme when embedded as the EVENTS panel. **Requires a dispatcher container redeploy** to pick up the new `/design-system/*` asset route.
+
+### Removed
+
+- Dropped the unused `basePath` iframe query parameter from the Web Terminal.
 
 ### Fixed
 
+- The session activity page ("Activity" / session log viewer) no longer applies its `?theme=` query parameter directly to the page; an invalid or unexpected value now falls back to the resolved default instead of being written straight into the page's theme attribute.
+- Web Terminal's and Artifacts' syntax-highlighting theme stylesheet no longer 404s in the default CDN vendor mode (it was previously served from a hardcoded local vendor path regardless of the configured vendor mode).
+- ARIEL now themes itself from the shared OSPREY design system instead of a hardcoded dark palette, and follows the web-terminal hub's theme when embedded; also fixes a phantom `--amber` CSS variable that was never defined (draft banner and image-lightbox link color).
+- Tuning panel Plotly charts now re-theme live with the rest of the UI instead of staying dark-locked in light mode.
 - Anthropic-native providers configured with a `/v1` base URL (e.g. Argo via `api_protocol: anthropic`) no longer resolve to a doubled `…/v1/v1/messages`: the Claude-Code-facing `ANTHROPIC_BASE_URL` is stripped of a trailing `/v1` (Claude Code appends `/v1/messages` itself), while the translation-proxy upstream keeps its `/v1`. All four launch paths (CLI, web terminal, SDK runner, dispatch worker) now start the proxy from the resolved `upstream_base_url` field rather than the stripped env var, so OpenAI-compatible providers still forward to `…/v1/chat/completions` (#312).
 - Headless dispatch runs now enforce the trigger's `allowed_tools` as the single authority via a PreToolUse hook: project `settings.json` allow-rules and the approval hook's explicit allows can no longer widen a run's tool surface, and declared subagents (`.claude/agents/*.md`) work with exactly their declared tools — no trigger changes needed.
-- `osprey web --project X` launched from another directory now spawns the interactive terminal's Claude Code with `cwd = X`, so it reads `X/.mcp.json` and starts the project's MCP servers (the PTY path previously ignored `--project` and inherited the launch directory) (#313).
+- `osprey web --project X` launched from another directory now spawns the interactive terminal's OSPREY agent with `cwd = X`, so it reads `X/.mcp.json` and starts the project's MCP servers (the PTY path previously ignored `--project` and inherited the launch directory) (#313).
 
 ## [2026.6.3] - 2026-06-29
 

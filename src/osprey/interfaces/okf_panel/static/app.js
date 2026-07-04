@@ -1,7 +1,5 @@
-"use strict";
-
 /*
- * OKF Knowledge Panel — read-only SPA shell (task 3.1).
+ * OKF Knowledge Panel — read-only SPA shell.
  *
  * PROXY PATH DECISION
  * -------------------
@@ -29,6 +27,19 @@
  * contains no /static or /api literals we rely on, and its <script src> in
  * index.html is rewritten as part of the HTML response.
  */
+
+import { initTheme } from "/design-system/js/theme-manager.js";
+import { debounce } from "/design-system/js/dom.js";
+
+// Panel embedded in the Web Terminal hub: apply the hub's broadcast theme and
+// follow live `osprey-theme-change` messages. theme-boot.js already applied
+// data-theme pre-paint; this attaches the follower's postMessage listener
+// (replacing the legacy `theme:set` the panel's earlier TODO expected).
+initTheme({ role: "follower" });
+
+if (new URLSearchParams(window.location.search).get("embedded") === "true") {
+  document.body.classList.add("embedded");
+}
 
 (function () {
   // -- DOM handles -----------------------------------------------------------
@@ -414,19 +425,8 @@
     searchResultsEl.appendChild(list);
   }
 
-  function debounce(fn, ms) {
-    let t = null;
-    return function () {
-      const args = arguments;
-      const self = this;
-      if (t) clearTimeout(t);
-      t = setTimeout(function () {
-        t = null;
-        fn.apply(self, args);
-      }, ms);
-    };
-  }
-
+  // debounce is imported from the shared design-system dom.js (identical
+  // trailing-edge behaviour to the local copy this replaces).
   const debouncedSearch = debounce(function () {
     runSearch(searchInput.value);
   }, 200);

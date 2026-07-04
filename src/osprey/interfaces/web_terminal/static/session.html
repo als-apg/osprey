@@ -4,59 +4,48 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OSPREY — Activity</title>
+  <script src="/design-system/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/design-system/css/tokens.css">
+  <link rel="stylesheet" href="/design-system/css/base.css">
+  <script type="module">
+    // Follower role: session.html is opened directly (new tab) or embedded
+    // read-only; it never persists a preference or broadcasts — it only
+    // applies whatever theme-boot.js already resolved pre-paint, a validated
+    // ?theme= query param, and whatever the hub broadcasts if this page is
+    // ever embedded. Manifest validation here is what closes the arbitrary
+    // data-theme injection hole the old hand-rolled ?theme= handling had.
+    import { initTheme } from '/design-system/js/theme-manager.js';
+    initTheme({ role: 'follower' });
+  </script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-    :root {
-      --bg-page: #050a10;
-      --bg-primary: #0a0f1a;
-      --bg-secondary: #111a2e;
-      --bg-elevated: #1a2332;
-      --text-primary: #f1f5f9;
-      --text-secondary: #8b9ab5;
-      --text-muted: #64748b;
-      --accent: #4fd1c5;
-      --accent-deep: #319795;
-      --amber: #d4a574;
-      --error: #ef4444;
-      --success: #22c55e;
-      --border: rgba(148, 163, 184, 0.12);
-      --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Menlo', 'Consolas', monospace;
-      --transition-fast: 120ms ease;
-      --transition-normal: 200ms ease;
-      --scanline-opacity: 0.03;
+    /* base.css sets html,body { overflow: hidden } for the hub's fixed-viewport
+       terminal shell. This activity log is a normal scrolling page (fixed
+       header + nav, then main content that grows past one viewport height),
+       so it must override that back to auto or content below the fold is
+       unreachable. */
+    html, body {
+      overflow: auto;
     }
 
-    [data-theme="light"] {
-      --bg-page: #fafbfd;
-      --bg-primary: #f7f9fc;
-      --bg-secondary: #eef2f7;
-      --bg-elevated: #e4e9f0;
-      --text-primary: #0c1322;
-      --text-secondary: #374155;
-      --text-muted: #64748b;
-      --accent: #0a8f8c;
-      --accent-deep: #0a8f8c;
-      --amber: #a07040;
-      --error: #dc2626;
-      --success: #16a34a;
-      --border: #d1d8e3;
-      --scanline-opacity: 0;
-    }
-
-    /* Server colors — fixed across themes */
+    /* Server colors — a fixed categorical palette, intentionally the SAME
+       in both themes (each MCP server keeps one identifying hue whether
+       the terminal is light or dark, the same way a legend's series
+       colors don't change with theme). hygiene-allow-color-start */
     .srv-controls     { --srv: #d4a574; }
     .srv-python       { --srv: #a78bfa; }
     .srv-workspace    { --srv: #60a5fa; }
     .srv-ariel        { --srv: #f472b6; }
     .srv-channel-finder { --srv: #22d3ee; }
     .srv-unknown      { --srv: #64748b; }
+    /* hygiene-allow-color-end */
 
     html { height: 100%; }
 
     body {
       min-height: 100%;
-      background: var(--bg-page);
+      background: var(--bg-terminal);
       color: var(--text-primary);
       font-family: var(--font-mono);
       font-size: 12px;
@@ -69,16 +58,16 @@
       content: '';
       position: fixed;
       inset: 0;
-      background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.08) 2px, rgba(0,0,0,0.08) 4px);
+      background: var(--wt-welcome-scanline-bg);
       pointer-events: none;
       z-index: 1000;
-      opacity: var(--scanline-opacity);
+      opacity: var(--wt-crt-scanline-opacity);
     }
 
     ::-webkit-scrollbar { width: 5px; height: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.2); border-radius: 3px; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.35); }
+    ::-webkit-scrollbar-thumb { background: var(--neutral-tint-20); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--neutral-tint-35); }
 
     /* ---- Header ---- */
     header {
@@ -87,7 +76,7 @@
       gap: 10px;
       padding: 10px 14px;
       background: var(--bg-primary);
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid var(--border-default);
       position: sticky;
       top: 0;
       z-index: 10;
@@ -102,9 +91,9 @@
     .refresh-dot {
       width: 6px; height: 6px;
       border-radius: 50%;
-      background: var(--accent);
+      background: var(--color-accent-light);
       opacity: 0;
-      transition: opacity var(--transition-fast);
+      transition: opacity var(--wt-transition-fast);
     }
     .refresh-dot.pulse {
       opacity: 1;
@@ -121,7 +110,7 @@
       gap: 6px;
       padding: 8px 14px;
       background: var(--bg-primary);
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid var(--border-default);
       flex-wrap: wrap;
     }
     .pill {
@@ -131,11 +120,11 @@
       letter-spacing: 1.5px;
       padding: 5px 12px;
       border-radius: 12px;
-      border: 1px solid var(--border);
+      border: 1px solid var(--border-default);
       background: transparent;
       color: var(--text-muted);
       cursor: pointer;
-      transition: all var(--transition-fast);
+      transition: all var(--wt-transition-fast);
       white-space: nowrap;
     }
     .pill:hover {
@@ -143,12 +132,9 @@
       border-color: var(--text-muted);
     }
     .pill.active {
-      background: var(--accent);
-      color: #050a10;
-      border-color: var(--accent);
-    }
-    [data-theme="light"] .pill.active {
-      color: #ffffff;
+      background: var(--color-accent-light);
+      color: var(--bg-primary);
+      border-color: var(--color-accent-light);
     }
 
     /* ---- Main ---- */
@@ -198,11 +184,11 @@
     /* ---- Agent Cards ---- */
     .agent-card {
       background: var(--bg-secondary);
-      border-left: 3px solid var(--accent);
+      border-left: 3px solid var(--color-accent-light);
       border-radius: 4px;
       margin-bottom: 8px;
       cursor: pointer;
-      transition: background var(--transition-fast);
+      transition: background var(--wt-transition-fast);
     }
     .agent-card:hover { background: var(--bg-elevated); }
     .agent-card-header {
@@ -227,14 +213,14 @@
       letter-spacing: 1px;
       padding: 2px 6px;
       border-radius: 3px;
-      background: rgba(148,163,184,0.1);
+      background: var(--neutral-tint-10);
       color: var(--text-muted);
       text-transform: uppercase;
       white-space: nowrap;
     }
     .badge-error {
-      background: rgba(239,68,68,0.1);
-      color: var(--error);
+      background: var(--error-tint-10);
+      color: var(--color-error);
     }
     .agent-tools {
       display: none;
@@ -247,15 +233,15 @@
       padding: 4px 0;
       font-size: 11px;
       color: var(--text-secondary);
-      border-bottom: 1px solid rgba(148,163,184,0.06);
+      border-bottom: 1px solid var(--neutral-tint-06);
       align-items: center;
     }
     .tool-row { cursor: pointer; }
     .tool-row:last-child { border-bottom: none; }
     .agent-tools .log-detail { padding-left: 55px; }
     .tool-row.is-error {
-      background: rgba(239,68,68,0.06);
-      border-left: 2px solid var(--error);
+      background: var(--error-tint-08);
+      border-left: 2px solid var(--color-error);
       padding-left: 6px;
       margin-left: -8px;
     }
@@ -272,13 +258,13 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .tool-row.is-error .tool-name { color: var(--error); }
+    .tool-row.is-error .tool-name { color: var(--color-error); }
     .server-badge {
       font-size: 9px;
       padding: 1px 5px;
       border-radius: 3px;
       color: var(--srv, var(--text-muted));
-      background: rgba(148,163,184,0.08);
+      background: var(--neutral-tint-08);
       white-space: nowrap;
     }
 
@@ -286,14 +272,14 @@
     .agent-timeline {
       display: none;
       padding: 0 12px 10px;
-      border-top: 1px solid var(--border);
+      border-top: 1px solid var(--border-default);
       margin-top: 4px;
     }
     .agent-card.expanded .agent-timeline { display: block; }
     .tl-entry {
       position: relative;
       padding: 6px 0 6px 16px;
-      border-left: 2px solid rgba(148,163,184,0.15);
+      border-left: 2px solid var(--neutral-tint-12);
       margin-left: 4px;
     }
     .tl-entry::before {
@@ -306,12 +292,12 @@
       border-radius: 50%;
       background: var(--text-muted);
     }
-    .tl-entry.tl-prompt::before { background: var(--amber); }
-    .tl-entry.tl-reasoning::before { background: var(--accent); }
-    .tl-entry.tl-tool_call::before { background: #a78bfa; }
-    .tl-entry.tl-tool_result::before { background: #60a5fa; }
-    .tl-entry.tl-error::before { background: var(--error); }
-    .tl-entry.tl-thinking::before { background: #f472b6; }
+    .tl-entry.tl-prompt::before { background: var(--color-amber); }
+    .tl-entry.tl-reasoning::before { background: var(--color-accent-light); }
+    .tl-entry.tl-tool_call::before { background: #a78bfa; } /* hygiene-allow-color: fixed categorical timeline-kind color, matches .srv-python */
+    .tl-entry.tl-tool_result::before { background: #60a5fa; } /* hygiene-allow-color: fixed categorical timeline-kind color, matches .srv-workspace */
+    .tl-entry.tl-error::before { background: var(--color-error); }
+    .tl-entry.tl-thinking::before { background: #f472b6; } /* hygiene-allow-color: fixed categorical timeline-kind color, matches .srv-ariel */
     .tl-kind {
       font-size: 9px;
       font-weight: 600;
@@ -320,11 +306,11 @@
       color: var(--text-muted);
       margin-bottom: 2px;
     }
-    .tl-entry.tl-prompt .tl-kind { color: var(--amber); }
-    .tl-entry.tl-reasoning .tl-kind { color: var(--accent); }
-    .tl-entry.tl-tool_call .tl-kind { color: #a78bfa; }
-    .tl-entry.tl-tool_result .tl-kind { color: #60a5fa; }
-    .tl-entry.tl-thinking .tl-kind { color: #f472b6; }
+    .tl-entry.tl-prompt .tl-kind { color: var(--color-amber); }
+    .tl-entry.tl-reasoning .tl-kind { color: var(--color-accent-light); }
+    .tl-entry.tl-tool_call .tl-kind { color: #a78bfa; } /* hygiene-allow-color: fixed categorical timeline-kind color, matches .srv-python */
+    .tl-entry.tl-tool_result .tl-kind { color: #60a5fa; } /* hygiene-allow-color: fixed categorical timeline-kind color, matches .srv-workspace */
+    .tl-entry.tl-thinking .tl-kind { color: #f472b6; } /* hygiene-allow-color: fixed categorical timeline-kind color, matches .srv-ariel */
     .tl-text {
       font-size: 11px;
       color: var(--text-secondary);
@@ -387,13 +373,13 @@
       padding: 4px 8px;
       background: var(--bg-secondary);
       color: var(--text-primary);
-      border: 1px solid var(--border);
+      border: 1px solid var(--border-default);
       border-radius: 4px;
       outline: none;
     }
     .filter-bar select:focus,
     .filter-bar input[type="text"]:focus {
-      border-color: var(--accent);
+      border-color: var(--color-accent-light);
     }
     .filter-bar label {
       font-size: 10px;
@@ -404,7 +390,7 @@
       cursor: pointer;
     }
     .filter-bar input[type="checkbox"] {
-      accent-color: var(--accent);
+      accent-color: var(--color-accent-light);
     }
     .log-headers {
       display: flex;
@@ -414,7 +400,7 @@
       letter-spacing: 1px;
       color: var(--text-muted);
       text-transform: uppercase;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid var(--border-default);
     }
     .log-headers .col-time { width: 60px; flex-shrink: 0; }
     .log-headers .col-tool { flex: 1; }
@@ -426,21 +412,21 @@
       padding: 5px 0;
       font-size: 11px;
       color: var(--text-secondary);
-      border-bottom: 1px solid rgba(148,163,184,0.06);
+      border-bottom: 1px solid var(--neutral-tint-06);
       cursor: pointer;
       align-items: center;
-      transition: background var(--transition-fast);
+      transition: background var(--wt-transition-fast);
     }
-    .log-row:hover { background: rgba(148,163,184,0.04); }
+    .log-row:hover { background: var(--neutral-tint-03); }
     .log-row .col-time { width: 60px; flex-shrink: 0; font-size: 10px; color: var(--text-muted); }
     .log-row .col-tool { flex: 1; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .log-row .col-server { width: 70px; flex-shrink: 0; }
     .log-row .col-agent { width: 70px; flex-shrink: 0; font-size: 10px; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .log-row.is-error {
-      border-left: 3px solid var(--error);
+      border-left: 3px solid var(--color-error);
       padding-left: 5px;
     }
-    .log-row.is-error .col-tool { color: var(--error); }
+    .log-row.is-error .col-tool { color: var(--color-error); }
     .log-detail {
       display: none;
       padding: 8px 0 8px 68px;
@@ -487,12 +473,9 @@
       font-size: 9px;
       padding: 2px 6px;
       border-radius: 3px;
-      background: rgba(79,209,197,0.1);
-      color: var(--accent);
+      background: var(--accent-tint-10);
+      color: var(--color-accent-light);
       white-space: nowrap;
-    }
-    [data-theme="light"] .cat-pill {
-      background: rgba(10,143,140,0.1);
     }
     .artifact-group {
       margin-bottom: 8px;
@@ -554,11 +537,8 @@
       font-size: 9px;
       padding: 1px 5px;
       border-radius: 3px;
-      background: rgba(79,209,197,0.08);
-      color: var(--accent);
-    }
-    [data-theme="light"] .channel-tag {
-      background: rgba(10,143,140,0.08);
+      background: var(--accent-tint-08);
+      color: var(--color-accent-light);
     }
 
     /* ---- Conversation View ---- */
@@ -573,15 +553,13 @@
       border-left: 3px solid transparent;
     }
     .chat-msg.user {
-      border-left-color: var(--amber);
-      background: rgba(212,165,116,0.06);
+      border-left-color: var(--color-amber);
+      background: var(--amber-tint-06);
     }
     .chat-msg.assistant {
-      border-left-color: var(--accent);
-      background: rgba(79,209,197,0.06);
+      border-left-color: var(--color-accent-light);
+      background: var(--accent-tint-06);
     }
-    [data-theme="light"] .chat-msg.user { background: rgba(160,112,64,0.06); }
-    [data-theme="light"] .chat-msg.assistant { background: rgba(10,143,140,0.06); }
     .chat-role {
       font-size: 9px;
       font-weight: 600;
@@ -592,8 +570,8 @@
       align-items: center;
       gap: 8px;
     }
-    .chat-msg.user .chat-role { color: var(--amber); }
-    .chat-msg.assistant .chat-role { color: var(--accent); }
+    .chat-msg.user .chat-role { color: var(--color-amber); }
+    .chat-msg.assistant .chat-role { color: var(--color-accent-light); }
     .chat-ts {
       font-size: 9px;
       color: var(--text-muted);
@@ -614,15 +592,15 @@
       bottom: 16px;
       right: 16px;
       background: var(--bg-elevated);
-      border: 1px solid var(--error);
+      border: 1px solid var(--color-error);
       border-radius: 4px;
       padding: 8px 14px;
       font-size: 11px;
-      color: var(--error);
+      color: var(--color-error);
       z-index: 100;
       opacity: 0;
       transform: translateY(8px);
-      transition: opacity var(--transition-normal), transform var(--transition-normal);
+      transition: opacity var(--wt-transition-normal), transform var(--wt-transition-normal);
       pointer-events: none;
       max-width: 300px;
     }
@@ -671,15 +649,13 @@
   'use strict';
 
   // ---- Theme ----
-  const params = new URLSearchParams(location.search);
-  const theme = params.get('theme');
-  if (theme) document.documentElement.setAttribute('data-theme', theme);
+  // Handled by the follower-role theme-manager module loaded in <head>
+  // (validates ?theme= and 'osprey-theme-change' broadcasts against the
+  // THEMES manifest before ever touching data-theme).
 
   window.addEventListener('message', (e) => {
     if (!e.data) return;
-    if (e.data.type === 'osprey-theme-change' && e.data.theme) {
-      document.documentElement.setAttribute('data-theme', e.data.theme);
-    } else if (e.data.type === 'osprey-session-change') {
+    if (e.data.type === 'osprey-session-change') {
       currentSessionId = e.data.session_id || null;
       cache = { agents: null, toollog: null, artifacts: null, conversation: null };
       refreshActive();
@@ -805,13 +781,13 @@
       const aid = agent.agent_id || 'main';
       const isRoot = !agent.agent_id || agent.agent_id === 'main';
       const name = isRoot ? 'ROOT SESSION' : (agent.agent_type || aid);
-      const borderColor = isRoot ? 'var(--accent)' : `var(--srv, var(--accent))`;
+      const borderColor = isRoot ? 'var(--color-accent-light)' : `var(--srv, var(--color-accent-light))`;
       const srvCls = isRoot ? '' : serverClass(agent.server || agent.agent_type);
       const tools = toolsByAgent[aid] || [];
       const errCount = tools.filter(t => t.is_error).length;
       const dur = agent.duration ? agent.duration : '';
 
-      html += `<div class="agent-card ${srvCls}" style="border-left-color:${isRoot ? 'var(--accent)' : `var(--srv, var(--accent))`}" data-agent="${esc(aid)}">
+      html += `<div class="agent-card ${srvCls}" style="border-left-color:${isRoot ? 'var(--color-accent-light)' : `var(--srv, var(--color-accent-light))`}" data-agent="${esc(aid)}">
         <div class="agent-card-header">
           <span class="agent-name">${esc(name)}</span>
           ${agent.agent_type ? `<span class="badge">${esc(agent.agent_type)}</span>` : ''}

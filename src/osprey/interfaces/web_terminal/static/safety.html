@@ -4,6 +4,18 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OSPREY — Safety Guidelines</title>
+  <script src="/design-system/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/design-system/css/tokens.css">
+  <link rel="stylesheet" href="/design-system/css/base.css">
+  <script type="module">
+    // Follower role: safety.html is opened directly (new tab) or embedded
+    // read-only; it never persists a preference or broadcasts — it only
+    // applies whatever theme-boot.js already resolved pre-paint, a validated
+    // ?theme= query param, and whatever the hub broadcasts if this page is
+    // ever embedded.
+    import { initTheme } from '/design-system/js/theme-manager.js';
+    initTheme({ role: 'follower' });
+  </script>
   <style>
     *,
     *::before,
@@ -13,18 +25,30 @@
       padding: 0;
     }
 
+    /* base.css sets html,body { overflow: hidden } for the hub's fixed-viewport
+       terminal shell. This guidelines page is a normal scrolling document
+       (centered column of prose taller than one viewport), so it must
+       override that back to auto or content below the fold is unreachable. */
+    html, body {
+      overflow: auto;
+    }
+
     :root {
-      --bg: #020408;
-      --text: #7ec8a0;
-      --text-dim: #5a8a7a;
-      --text-bright: #a0e8c0;
-      --accent: #e8c05a;
-      --danger: #e85a5a;
-      --glow: 0 0 8px rgba(126, 200, 160, 0.25);
-      --glow-accent: 0 0 8px rgba(232, 192, 90, 0.3);
-      --glow-danger: 0 0 8px rgba(232, 90, 90, 0.3);
-      --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Menlo', monospace;
-      --scanline-opacity: 0.04;
+      --bg: var(--wt-welcome-bg);
+      --text: var(--wt-welcome-text);
+      --text-dim: var(--wt-welcome-link);
+      --text-bright: var(--wt-welcome-link-hover);
+      --accent: var(--color-amber-light);
+      --danger: var(--color-error);
+      --glow: var(--wt-welcome-text-glow);
+      /* The CRT phosphor-glow aesthetic is a dark-terminal effect. Rather
+         than a [data-theme="light"] override block, the glow color is
+         built from --accent/--danger (already theme-correct aliases,
+         above) with its alpha driven by --wt-crt-glow-opacity — the same
+         canonical toggle the scanline/vignette effects below use, which
+         is already 1 in dark and 0 in light. */
+      --glow-accent: 0 0 8px color-mix(in srgb, var(--accent) calc(30% * var(--wt-crt-glow-opacity)), transparent);
+      --glow-danger: 0 0 8px color-mix(in srgb, var(--danger) calc(30% * var(--wt-crt-glow-opacity)), transparent);
     }
 
     html {
@@ -48,25 +72,20 @@
       content: '';
       position: fixed;
       inset: 0;
-      background: repeating-linear-gradient(
-        0deg,
-        transparent,
-        transparent 2px,
-        rgba(0, 0, 0, 0.08) 2px,
-        rgba(0, 0, 0, 0.08) 4px
-      );
+      background: var(--wt-welcome-scanline-bg);
       pointer-events: none;
       z-index: 100;
-      opacity: var(--scanline-opacity);
+      opacity: var(--wt-crt-scanline-opacity);
     }
 
     body::after {
       content: '';
       position: fixed;
       inset: 0;
-      background: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.5) 100%);
+      background: radial-gradient(ellipse at center, transparent 50%, var(--overlay-black-50) 100%);
       pointer-events: none;
       z-index: 100;
+      opacity: var(--wt-crt-vignette-opacity);
     }
 
     .container {
@@ -167,7 +186,7 @@
       padding: 12px 16px;
       border: 1px solid var(--danger);
       border-radius: 2px;
-      background: rgba(232, 90, 90, 0.06);
+      background: var(--error-tint-08);
     }
 
     .warning-box .label {
@@ -226,7 +245,7 @@
       text-decoration: none;
       font-size: 12px;
       padding: 8px 16px;
-      border: 1px solid rgba(90, 138, 122, 0.3);
+      border: 1px solid color-mix(in srgb, var(--text-dim) 30%, transparent);
       border-radius: 2px;
       transition: all 0.2s ease;
     }

@@ -38,14 +38,14 @@
 }
 
 .btn-secondary {
-  background: var(--bg-tertiary);
+  background: var(--bg-elevated);
   color: var(--text-primary);
   border-color: var(--border-default);
 }
 
 .btn-secondary:hover:not(:disabled) {
   background: var(--bg-elevated);
-  border-color: var(--border-strong);
+  border-color: var(--neutral-tint-35);
 }
 
 .btn-ghost {
@@ -103,7 +103,7 @@
   padding: var(--space-3) var(--space-4);
   font-size: var(--text-base);
   color: var(--text-primary);
-  background: var(--bg-input);
+  background: var(--bg-panel);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   transition: all var(--transition-fast);
@@ -116,7 +116,7 @@
 .input:focus {
   outline: none;
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px var(--color-accent-glow);
+  box-shadow: 0 0 0 3px var(--accent-tint-30);
 }
 
 .input-lg {
@@ -162,7 +162,7 @@ textarea.input {
   padding: var(--space-2) var(--space-8) var(--space-2) var(--space-3);
   font-size: var(--text-sm);
   color: var(--text-primary);
-  background: var(--bg-input);
+  background: var(--bg-panel);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%2394a3b8' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right var(--space-2) center;
@@ -175,20 +175,20 @@ textarea.input {
 .select:focus {
   outline: none;
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px var(--color-accent-glow);
+  box-shadow: 0 0 0 3px var(--accent-tint-30);
 }
 
 /* === Cards === */
 .card {
   background: var(--surface-card);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
 .card-header {
   padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--neutral-tint-10);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -206,14 +206,14 @@ textarea.input {
 
 .card-footer {
   padding: var(--space-4) var(--space-5);
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--neutral-tint-10);
   background: var(--bg-secondary);
 }
 
 /* === Entry Card (logbook entries) === */
 .entry-card {
   background: var(--surface-card);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-lg);
   padding: var(--space-4) var(--space-5);
   transition: all var(--transition-fast);
@@ -221,7 +221,7 @@ textarea.input {
 }
 
 .entry-card:hover {
-  border-color: var(--border-strong);
+  border-color: var(--neutral-tint-35);
   background: var(--bg-secondary);
 }
 
@@ -266,7 +266,7 @@ textarea.input {
 
 .entry-card-content b {
   color: var(--color-amber-light);
-  background: var(--color-amber-glow);
+  background: var(--amber-tint-15);
   font-weight: 700;
   padding: 1px 3px;
   border-radius: 3px;
@@ -278,7 +278,7 @@ textarea.input {
   gap: var(--space-4);
   margin-top: var(--space-3);
   padding-top: var(--space-3);
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--neutral-tint-10);
   font-size: var(--text-sm);
 }
 
@@ -295,7 +295,7 @@ textarea.input {
   padding: 1px var(--space-2);
   font-size: var(--text-xs);
   color: var(--text-muted);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-sm);
   background: transparent;
 }
@@ -313,18 +313,18 @@ textarea.input {
 }
 
 .score-high {
-  color: var(--score-high);
-  background: var(--score-high-bg);
+  color: var(--ariel-score-high);
+  background: var(--ariel-score-high-bg);
 }
 
 .score-medium {
-  color: var(--score-medium);
-  background: var(--score-medium-bg);
+  color: var(--ariel-score-medium);
+  background: var(--ariel-score-medium-bg);
 }
 
 .score-low {
-  color: var(--score-low);
-  background: var(--score-low-bg);
+  color: var(--ariel-score-low);
+  background: var(--ariel-score-low-bg);
 }
 
 /* === Tags === */
@@ -335,18 +335,18 @@ textarea.input {
   padding: var(--space-1) var(--space-2);
   font-size: var(--text-xs);
   color: var(--text-secondary);
-  background: var(--bg-tertiary);
+  background: var(--bg-elevated);
   border-radius: var(--radius-sm);
 }
 
 .tag-accent {
   color: var(--color-accent-light);
-  background: rgba(79, 209, 197, 0.1);
+  background: var(--accent-tint-10);
 }
 
 .tag-amber {
   color: var(--color-amber-light);
-  background: rgba(212, 165, 116, 0.1);
+  background: var(--amber-tint-08);
 }
 
 /* === Status Indicator === */
@@ -370,7 +370,7 @@ textarea.input {
 
 /* === Answer Box (RAG results) === */
 .answer-box {
-  background: linear-gradient(135deg, rgba(49, 151, 149, 0.1), rgba(212, 165, 116, 0.05));
+  background: linear-gradient(135deg, var(--accent-tint-10), var(--amber-tint-04));
   border: 1px solid var(--color-accent);
   border-radius: var(--radius-lg);
   padding: var(--space-5);
@@ -397,7 +397,7 @@ textarea.input {
 .answer-box-sources {
   margin-top: var(--space-4);
   padding-top: var(--space-3);
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--neutral-tint-10);
   font-size: var(--text-sm);
   color: var(--text-secondary);
 }
@@ -495,7 +495,7 @@ textarea.input {
 .pipeline-details {
   border-radius: var(--radius-md);
   margin-bottom: var(--space-4);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--neutral-tint-10);
   background: var(--bg-secondary);
   overflow: hidden;
 }
@@ -518,7 +518,7 @@ textarea.input {
 
 .pipeline-details-body {
   padding: var(--space-3) var(--space-4) var(--space-4);
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--neutral-tint-10);
 }
 
 /* RAG stage flow */
@@ -535,8 +535,8 @@ textarea.input {
   align-items: center;
   gap: var(--space-1);
   padding: var(--space-2) var(--space-3);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-md);
   min-width: 80px;
 }
@@ -583,7 +583,7 @@ textarea.input {
 
 .pipeline-tool-table td {
   padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--neutral-tint-10);
   color: var(--text-secondary);
 }
 
@@ -630,7 +630,7 @@ textarea.input {
   align-items: flex-start;
   gap: var(--space-2);
   padding: var(--space-2);
-  border-left: 2px solid var(--border-subtle);
+  border-left: 2px solid var(--neutral-tint-10);
   padding-left: var(--space-3);
 }
 
@@ -643,13 +643,13 @@ textarea.input {
   text-transform: uppercase;
   letter-spacing: var(--tracking-wide);
   white-space: nowrap;
-  background: var(--bg-tertiary);
+  background: var(--bg-elevated);
   color: var(--text-secondary);
 }
 
 .pipeline-step-badge-user_query { color: var(--color-info); border: 1px solid var(--color-info); background: var(--color-info-bg); }
-.pipeline-step-badge-reasoning { color: var(--color-accent-light); border: 1px solid var(--color-accent); background: rgba(79, 209, 197, 0.1); }
-.pipeline-step-badge-tool_call { color: var(--color-amber-light); border: 1px solid var(--color-amber); background: var(--color-amber-glow); }
+.pipeline-step-badge-reasoning { color: var(--color-accent-light); border: 1px solid var(--color-accent); background: var(--accent-tint-10); }
+.pipeline-step-badge-tool_call { color: var(--color-amber-light); border: 1px solid var(--color-amber); background: var(--amber-tint-15); }
 .pipeline-step-badge-tool_result { color: var(--color-warning); border: 1px solid var(--color-warning); background: var(--color-warning-bg); }
 .pipeline-step-badge-final_answer { color: var(--color-success); border: 1px solid var(--color-success); background: var(--color-success-bg); }
 
@@ -658,7 +658,7 @@ textarea.input {
   font-size: var(--text-xs);
   font-weight: 500;
   color: var(--color-amber);
-  background: var(--color-amber-glow);
+  background: var(--amber-tint-15);
   padding: 1px var(--space-2);
   border-radius: var(--radius-sm);
 }
@@ -673,7 +673,7 @@ textarea.input {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.75);
+  background: color-mix(in srgb, var(--bg-terminal) 75%, transparent);
   display: flex;
   align-items: flex-start;
   justify-content: center;
@@ -698,7 +698,7 @@ textarea.input {
   align-items: center;
   justify-content: space-between;
   padding: var(--space-4) var(--space-6);
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--neutral-tint-10);
 }
 
 .modal-title {
@@ -717,8 +717,8 @@ textarea.input {
   justify-content: flex-end;
   gap: var(--space-3);
   padding: var(--space-4) var(--space-6);
-  border-top: 1px solid var(--border-subtle);
-  background: var(--bg-tertiary);
+  border-top: 1px solid var(--neutral-tint-10);
+  background: var(--bg-elevated);
   border-radius: 0 0 var(--radius-xl) var(--radius-xl);
 }
 
@@ -770,7 +770,7 @@ textarea.input {
 /* === Filters Panel === */
 .filters-panel {
   background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-lg);
   padding: var(--space-4);
 }
@@ -833,7 +833,7 @@ textarea.input {
 .drop-zone:hover,
 .drop-zone.dragover {
   border-color: var(--color-accent);
-  background: var(--color-accent-glow);
+  background: var(--accent-tint-30);
 }
 
 .drop-zone-text {
@@ -858,7 +858,7 @@ textarea.input {
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  background: var(--bg-input);
+  background: var(--bg-panel);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   padding: var(--space-1);
@@ -895,7 +895,7 @@ textarea.input {
 
 .mode-tab.active {
   color: var(--color-accent-light);
-  background: rgba(79, 209, 197, 0.1);
+  background: var(--accent-tint-10);
   border-color: var(--color-accent);
 }
 
@@ -921,7 +921,7 @@ textarea.input {
 /* === Advanced Options Panel === */
 .advanced-panel {
   background: var(--bg-secondary);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-lg);
   margin-top: var(--space-3);
   overflow: hidden;
@@ -946,8 +946,8 @@ textarea.input {
   align-items: center;
   justify-content: space-between;
   padding: var(--space-3) var(--space-4);
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--neutral-tint-10);
 }
 
 .advanced-title {
@@ -984,15 +984,15 @@ textarea.input {
 /* === Advanced Section === */
 .advanced-section {
   background: var(--bg-primary);
-  border: 1px solid var(--border-subtle);
+  border: 1px solid var(--neutral-tint-10);
   border-radius: var(--radius-md);
   overflow: hidden;
 }
 
 .advanced-section-header {
   padding: var(--space-2) var(--space-3);
-  background: rgba(212, 165, 116, 0.1);
-  border-bottom: 1px solid var(--border-subtle);
+  background: var(--amber-tint-08);
+  border-bottom: 1px solid var(--neutral-tint-10);
 }
 
 .advanced-section-header .section-title {
@@ -1034,7 +1034,7 @@ textarea.input {
   font-size: var(--text-sm);
   font-weight: 500;
   color: var(--color-accent-light);
-  background: var(--bg-tertiary);
+  background: var(--bg-elevated);
   padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
   min-width: 60px;
@@ -1047,7 +1047,7 @@ textarea.input {
   appearance: none;
   width: 100%;
   height: 6px;
-  background: var(--bg-tertiary);
+  background: var(--bg-elevated);
   border-radius: var(--radius-full);
   outline: none;
   cursor: pointer;
@@ -1062,13 +1062,13 @@ textarea.input {
   border: 2px solid var(--bg-primary);
   border-radius: var(--radius-full);
   cursor: pointer;
-  box-shadow: 0 0 0 2px var(--color-accent-glow);
+  box-shadow: 0 0 0 2px var(--accent-tint-30);
   transition: all var(--transition-fast);
 }
 
 .slider::-webkit-slider-thumb:hover {
   background: var(--color-accent-light);
-  box-shadow: 0 0 0 4px var(--color-accent-glow);
+  box-shadow: 0 0 0 4px var(--accent-tint-30);
   transform: scale(1.1);
 }
 
@@ -1079,17 +1079,17 @@ textarea.input {
   border: 2px solid var(--bg-primary);
   border-radius: var(--radius-full);
   cursor: pointer;
-  box-shadow: 0 0 0 2px var(--color-accent-glow);
+  box-shadow: 0 0 0 2px var(--accent-tint-30);
   transition: all var(--transition-fast);
 }
 
 .slider::-moz-range-thumb:hover {
   background: var(--color-accent-light);
-  box-shadow: 0 0 0 4px var(--color-accent-glow);
+  box-shadow: 0 0 0 4px var(--accent-tint-30);
 }
 
 .slider::-moz-range-track {
-  background: var(--bg-tertiary);
+  background: var(--bg-elevated);
   height: 6px;
   border-radius: var(--radius-full);
 }
@@ -1129,7 +1129,7 @@ textarea.input {
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: var(--bg-tertiary);
+  background-color: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-full);
   transition: all var(--transition-fast);
@@ -1148,7 +1148,7 @@ textarea.input {
 }
 
 .toggle-switch input:checked + .toggle-slider {
-  background-color: rgba(79, 209, 197, 0.2);
+  background-color: var(--accent-tint-20);
   border-color: var(--color-accent);
 }
 
@@ -1158,14 +1158,14 @@ textarea.input {
 }
 
 .toggle-switch input:focus + .toggle-slider {
-  box-shadow: 0 0 0 3px var(--color-accent-glow);
+  box-shadow: 0 0 0 3px var(--accent-tint-30);
 }
 
 /* === Session Info Panel (draft metadata) === */
 .session-info-panel {
   padding: 8px 12px;
   margin-bottom: 12px;
-  border-left: 3px solid var(--border-subtle);
+  border-left: 3px solid var(--neutral-tint-10);
   font-size: 0.8rem;
   color: var(--text-muted);
 }

@@ -17,7 +17,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-06-22T03:11:24.832859Z"
+exclude-newer = "2026-06-27T19:07:11.493149Z"
 exclude-newer-span = "P7D"
 
 [[package]]
@@ -3037,6 +3037,7 @@ all = [
     { name = "mss" },
     { name = "mypy" },
     { name = "myst-parser" },
+    { name = "pillow" },
     { name = "pre-commit" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "psycopg-pool" },
@@ -3074,6 +3075,7 @@ dev = [
     { name = "build" },
     { name = "docker" },
     { name = "mypy" },
+    { name = "pillow" },
     { name = "pre-commit" },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "psycopg-pool" },
@@ -3156,6 +3158,8 @@ requires-dist = [
     { name = "ollama", specifier = ">=0.5.1" },
     { name = "openai", specifier = ">=2" },
     { name = "pandas", specifier = ">=2.2.3" },
+    { name = "pillow", marker = "extra == 'all'", specifier = ">=10.0.0" },
+    { name = "pillow", marker = "extra == 'dev'", specifier = ">=10.0.0" },
     { name = "playwright", specifier = ">=1.40.0" },
     { name = "plotly", specifier = ">=5.0.0" },
     { name = "pre-commit", marker = "extra == 'all'" },

@@ -4,6 +4,8 @@
  * Single gallery for all artifacts with type filtering, pin flag,
  * and inline timeseries rendering.
  */
+import { initTheme, subscribe, chartTheme, chartSeries } from "/design-system/js/theme-manager.js";
+
 (function () {
   "use strict";
 
@@ -92,7 +94,7 @@
     const info =
       (typeRegistry.categories && typeRegistry.categories[type]) ||
       (typeRegistry.artifact_types && typeRegistry.artifact_types[type]) || {};
-    return info.color || "#64748b";
+    return info.color || "#64748b"; // hygiene-allow-color: matches --text-muted exactly, theme-invariant fallback
   }
 
   function thumbnailHtml(a) {
@@ -338,7 +340,7 @@
       banner.id = "error-banner";
       banner.style.cssText =
         "position:fixed;top:0;left:0;right:0;z-index:9999;padding:12px 20px;" +
-        "background:var(--color-error);color:#fff;font-size:14px;text-align:center;";
+        "background:var(--color-error);color:#fff;font-size:14px;text-align:center;"; // hygiene-allow-color: fixed white-on-error banner text, theme-invariant by design
       document.body.prepend(banner);
     }
     banner.textContent = msg;
@@ -1058,10 +1060,6 @@
     return _plotlyLoading;
   }
 
-  const _tsColorway = [
-    "#4fd1c5", "#d4a574", "#9f7aea", "#3b82f6",
-    "#22c55e", "#f59e0b", "#ef4444", "#e879f9",
-  ];
 
   function _esc(s) {
     const d = document.createElement("div");
@@ -1151,8 +1149,9 @@
       // Toolbar
       html += '<div class="ts-toolbar">';
       html += '<div class="ts-toolbar-group">';
+      const _tsPalette = chartSeries();
       columns.forEach((col, ci) => {
-        const color = _tsColorway[ci % _tsColorway.length];
+        const color = _tsPalette[ci % _tsPalette.length];
         html += `<button class="ts-ch-toggle" data-ch-index="${ci}" data-ch-name="${_esc(col)}" title="${_esc(col)}">`;
         html += `<span class="ts-ch-dot" style="background:${color}"></span>`;
         html += _esc(_tsShortChannelName(col));
@@ -1220,21 +1219,17 @@
     }
   }
 
-  const _tsThemes = {
-    dark: {
-      paper: "#131c2e", plot: "#0b1120", font: "#8b9ab5",
-      grid: "rgba(100,116,139,0.1)", line: "rgba(100,116,139,0.18)",
-      legendBg: "rgba(19,28,46,0.85)", legendBorder: "rgba(100,116,139,0.18)",
-    },
-    light: {
-      paper: "#eef2f7", plot: "#f7f9fc", font: "#0c1322",
-      grid: "rgba(0,0,0,0.08)", line: "rgba(0,0,0,0.12)",
-      legendBg: "rgba(238,242,247,0.9)", legendBorder: "rgba(0,0,0,0.1)",
-    },
-  };
-
-  function _currentTheme() {
-    return document.documentElement.getAttribute("data-theme") === "light" ? "light" : "dark";
+  /**
+   * A Plotly layout fragment for the timeseries chart, built from
+   * chartTheme()'s --chart-* computed-style bridge plus a couple of
+   * gallery-specific extras (axis/legend line color, legend background)
+   * that bridge doesn't cover -- read directly via getComputedStyle so
+   * they still track the design tokens rather than being hardcoded.
+   */
+  function _tsChartTheme() {
+    const base = chartTheme();
+    const line = getComputedStyle(document.documentElement).getPropertyValue("--border-default").trim();
+    return { ...base, line: line || base.xaxis.gridcolor, legendBg: base.paper_bgcolor, legendBorder: line };
   }
 
   async function renderTimeseriesChart(el, chartData) {
@@ -1250,18 +1245,18 @@
       hovertemplate: "%{y:.4g}<extra>%{fullData.name}</extra>",
     }));
 
-    const t = _tsThemes[_currentTheme()] || _tsThemes.dark;
+    const t = _tsChartTheme();
 
     const layout = {
-      paper_bgcolor: t.paper,
-      plot_bgcolor: t.plot,
-      font: { family: "'DM Mono', monospace", size: 11, color: t.font },
+      paper_bgcolor: t.paper_bgcolor,
+      plot_bgcolor: t.plot_bgcolor,
+      font: { family: "'JetBrains Mono', monospace", size: 11, color: t.font.color },
       margin: { t: 30, r: 20, b: 50, l: 60 },
       hovermode: "x unified",
-      xaxis: { gridcolor: t.grid, linecolor: t.line, tickfont: { size: 10 } },
-      yaxis: { gridcolor: t.grid, linecolor: t.line, tickfont: { size: 10 } },
+      xaxis: { gridcolor: t.xaxis.gridcolor, linecolor: t.line, tickfont: { size: 10 } },
+      yaxis: { gridcolor: t.yaxis.gridcolor, linecolor: t.line, tickfont: { size: 10 } },
       legend: { bgcolor: t.legendBg, bordercolor: t.legendBorder, borderwidth: 1, font: { size: 10 } },
-      colorway: _tsColorway,
+      colorway: chartSeries(),
     };
 
     Plotly.newPlot(el, traces, layout, {
@@ -1520,35 +1515,51 @@
     connectSSE();
   }
 
-  // ---- Theme change: forward to iframes + re-style timeseries charts ----
+  // ---- Theme: follower role; forward to nested previews + re-style plots ----
+  //
+  // initTheme({role:'follower'}) replaces the old hand-rolled
+  // 'osprey-theme-change' listener and data-theme MutationObserver: the
+  // theme-manager runtime already applies broadcasts from the hub and
+  // whatever ?theme=/localStorage/data-theme theme-boot.js resolved
+  // pre-paint. subscribe() below is the one thing still gallery-specific:
+  // re-forwarding to nested preview iframes (Plotly HTML artifacts) and
+  // re-styling the visible timeseries chart. It fires on every apply, even
+  // one that re-applies an unchanged id (the hidden-iframe repair path),
+  // which is exactly what a hidden preview iframe needs on tab activation.
 
-  function _onThemeChange(theme) {
-    // Forward to all preview iframes (Plotly HTML artifacts)
+  initTheme({ role: "follower" });
+
+  function _forwardThemeToPreviewFrames(theme) {
     document.querySelectorAll(".preview-viewport iframe, .browse-preview-pane iframe").forEach((iframe) => {
       try { iframe.contentWindow.postMessage({ type: "osprey-theme-change", theme }, "*"); } catch {}
     });
-    // Re-style any visible timeseries Plotly chart (target the actual Plotly
-    // graph div inside the container, not the outer #ts-viewport wrapper)
-    const tsChart = document.querySelector("#ts-viewport [data-ts-chart]");
-    if (tsChart && typeof Plotly !== "undefined") {
-      const t = _tsThemes[theme] || _tsThemes.dark;
-      try {
-        Plotly.relayout(tsChart, {
-          paper_bgcolor: t.paper, plot_bgcolor: t.plot,
-          "font.color": t.font,
-          "xaxis.gridcolor": t.grid, "xaxis.linecolor": t.line,
-          "yaxis.gridcolor": t.grid, "yaxis.linecolor": t.line,
-          "legend.bgcolor": t.legendBg, "legend.bordercolor": t.legendBorder,
-        });
-      } catch {}
-    }
   }
 
-  // Listen for theme changes from the parent (Web Terminal) or self
+  function _restyleTimeseriesChart() {
+    // Target the actual Plotly graph div inside the container, not the
+    // outer #ts-viewport wrapper.
+    const tsChart = document.querySelector("#ts-viewport [data-ts-chart]");
+    if (!tsChart || typeof Plotly === "undefined") return;
+    const t = _tsChartTheme();
+    try {
+      Plotly.relayout(tsChart, {
+        paper_bgcolor: t.paper_bgcolor, plot_bgcolor: t.plot_bgcolor,
+        "font.color": t.font.color,
+        "xaxis.gridcolor": t.xaxis.gridcolor, "xaxis.linecolor": t.line,
+        "yaxis.gridcolor": t.yaxis.gridcolor, "yaxis.linecolor": t.line,
+        "legend.bgcolor": t.legendBg, "legend.bordercolor": t.legendBorder,
+      });
+    } catch {}
+  }
+
+  subscribe((theme) => {
+    _forwardThemeToPreviewFrames(theme);
+    _restyleTimeseriesChart();
+  });
+
+  // Session changes are unrelated to theming and stay a plain message
+  // listener (theme-manager owns the 'osprey-theme-change' type now).
   window.addEventListener("message", (e) => {
-    if (e.data && e.data.type === "osprey-theme-change" && e.data.theme) {
-      _onThemeChange(e.data.theme);
-    }
     if (e.data && e.data.type === "osprey-session-change" && e.data.session_id) {
       currentSessionId = e.data.session_id;
       const btn = document.getElementById("all-sessions-btn");
@@ -1557,15 +1568,6 @@
       fetchArtifacts();
     }
   });
-
-  // Also observe data-theme attribute changes (covers non-postMessage scenarios)
-  new MutationObserver((mutations) => {
-    for (const m of mutations) {
-      if (m.attributeName === "data-theme") {
-        _onThemeChange(document.documentElement.getAttribute("data-theme") || "dark");
-      }
-    }
-  }).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
 
   // ---- Expose state for logbook.js / print.js ----
 

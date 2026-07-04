@@ -33,6 +33,11 @@
     "</svg>";
 
   // ---- Shared styles for self-built print windows ----
+  //
+  // Printed output stays light-on-white regardless of the gallery's active
+  // theme (matches the fleet-wide "@media print never goes dark" rule) — the
+  // couple of hardcoded grays below are intentional, not migration debt.
+  // hygiene-allow-color-start
 
   const PRINT_STYLES =
     "body { margin: 0; padding: 24px; font-family: system-ui, -apple-system, sans-serif; " +
@@ -43,6 +48,8 @@
     ".print-body { width: 100%; }\n" +
     ".print-body img { max-width: 100%; height: auto; display: block; }\n" +
     "@media print { .print-header { page-break-after: avoid; } }\n";
+
+  // hygiene-allow-color-end
 
   const MSG_POPUP_BLOCKED = "Print blocked \u2014 please allow pop-ups for this site and try again.";
 
@@ -181,10 +188,12 @@
 
     // Show loading message while capturing
     // Safe: writing static HTML to our own about:blank window.
+    // This capture window is part of the always-light print flow (see the
+    // PRINT_STYLES comment above) \u2014 the hardcoded gray is intentional.
     w.document.open();  // eslint-disable-line no-restricted-syntax
     w.document.write(  // static content only
       "<!DOCTYPE html><html><head><style>body{display:flex;align-items:center;" +
-      "justify-content:center;height:100vh;font-family:system-ui;color:#666;}" +
+      "justify-content:center;height:100vh;font-family:system-ui;color:#666;}" + // hygiene-allow-color
       "</style></head><body><p>Capturing chart\u2026</p></body></html>"
     );
     w.document.close();

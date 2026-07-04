@@ -7,7 +7,7 @@
  */
 
 import { fetchJSON } from './api.js';
-import { getTheme } from './theme.js';
+import { getTheme } from '/design-system/js/theme-manager.js';
 import { getCurrentSessionId } from './terminal.js';
 
 // ---- Panel Registry ----
@@ -470,6 +470,48 @@ function updateStatusBar(panel) {
   }
 }
 
+// ---- Theme Sync ----
+
+/**
+ * Send the hub's current theme to one iframe. Always sends — never
+ * conditioned on whether the id differs from the last send — because a
+ * hidden iframe can read empty custom properties on Firefox and needs a
+ * fresh, unconditional resend once it's visible again (theme-manager's
+ * hidden-iframe protocol; see that module's docstring). Broadcasting to
+ * every iframe on every hub theme change is theme-manager's own job (hub
+ * role); this is only the two per-iframe trigger points panel-manager
+ * owns: iframe creation and tab activation.
+ *
+ * 'osprey-theme-change' is the one message type theme-manager's follower
+ * role (and every embedded interface) actually listens for.
+ */
+function sendThemeToIframe(iframe) {
+  if (!iframe?.contentWindow) return;
+  try {
+    iframe.contentWindow.postMessage({ type: 'osprey-theme-change', theme: getTheme() }, '*');
+  } catch { /* cross-origin */ }
+}
+
+/**
+ * Send the hub's active session id to one iframe — the twin of
+ * sendThemeToIframe(), owned by the same two per-iframe trigger points
+ * (iframe creation and tab activation). Guards on a missing contentWindow
+ * (a not-yet-loaded or detached iframe) and on there being no active
+ * session yet, and swallows the cross-origin postMessage throw the same
+ * way its theme twin does.
+ *
+ * 'osprey-session-change' is the message type embedded interfaces listen
+ * for to scope their view to the hub's active session.
+ */
+function sendSessionToIframe(iframe) {
+  if (!iframe?.contentWindow) return;
+  const sid = getCurrentSessionId();
+  if (!sid) return;
+  try {
+    iframe.contentWindow.postMessage({ type: 'osprey-session-change', session_id: sid }, '*');
+  } catch { /* cross-origin */ }
+}
+
 // ---- Tab Switching ----
 
 function activateTab(panelId, { userInitiated = false } = {}) {
@@ -501,25 +543,8 @@ function activateTab(panelId, { userInitiated = false } = {}) {
 
   // Re-send current theme and session ID to the newly visible iframe
   // (handles edge cases where a postMessage was missed while hidden/loading)
-  if (state.iframe?.contentWindow) {
-    try {
-      state.iframe.contentWindow.postMessage(
-        { type: 'osprey-theme-change', theme: getTheme() },
-        '*'
-      );
-      state.iframe.contentWindow.postMessage(
-        { type: 'theme:set', theme: getTheme() },
-        '*'
-      );
-      const sid = getCurrentSessionId();
-      if (sid) {
-        state.iframe.contentWindow.postMessage(
-          { type: 'osprey-session-change', session_id: sid },
-          '*'
-        );
-      }
-    } catch { /* cross-origin */ }
-  }
+  sendThemeToIframe(state.iframe);
+  sendSessionToIframe(state.iframe);
 
   // Report user-initiated tab switches to the server (avoids SSE feedback loop)
   if (userInitiated) {
@@ -574,7 +599,6 @@ function createIframe(panelId) {
   const embedUrl = new URL(targetUrl, window.location.origin);
   embedUrl.searchParams.set('embedded', 'true');
   embedUrl.searchParams.set('theme', getTheme());
-  embedUrl.searchParams.set('basePath', state.url);
   if (state.project) {
     embedUrl.hash = `#/sessions?project=${encodeURIComponent(state.project)}`;
   }
@@ -583,26 +607,10 @@ function createIframe(panelId) {
 
   iframe.addEventListener('load', () => {
     iframe.classList.add('loaded');
-    if (iframe.contentWindow) {
-      try {
-        // Sync theme immediately so there's no flash of wrong theme
-        iframe.contentWindow.postMessage(
-          { type: 'theme:set', theme: getTheme() },
-          '*'
-        );
-        iframe.contentWindow.postMessage(
-          { type: 'osprey-theme-change', theme: getTheme() },
-          '*'
-        );
-        const sid = getCurrentSessionId();
-        if (sid) {
-          iframe.contentWindow.postMessage(
-            { type: 'osprey-session-change', session_id: sid },
-            '*'
-          );
-        }
-      } catch { /* cross-origin */ }
-    }
+    // Sync theme + session immediately so there's no flash of the wrong
+    // theme and the embedded app scopes to the active session.
+    sendThemeToIframe(iframe);
+    sendSessionToIframe(iframe);
   });
 
   contentEl.appendChild(iframe);

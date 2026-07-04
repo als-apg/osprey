@@ -62,12 +62,69 @@ find src/osprey -type d -name __pycache__ -prune -exec rm -rf {} + 2>/dev/null |
 find src/osprey -type d -empty -delete 2>/dev/null || true
 echo ""
 
+# The behavioral/visual Playwright suites (tests/interfaces/web_terminal/test_panels_browser.py,
+# tests/interfaces/design_system/test_behavioral.py) skip cleanly when chromium isn't installed.
+# A silent skip in the pytest summary below is easy to miss — run the exact same
+# chromium-launch check those suites' chromium_browser fixture uses, and say so loudly.
+echo "→ Checking chromium availability for browser-based theming tests..."
+if uv run python - <<'PYEOF' >/dev/null 2>&1
+from playwright.sync_api import sync_playwright
+
+pw = sync_playwright().start()
+try:
+    browser = pw.chromium.launch(headless=True)
+    browser.close()
+finally:
+    pw.stop()
+PYEOF
+then
+    echo "✅ Chromium available — browser-based theming tests will run for real"
+else
+    echo "⚠️  Browser-based theming tests NOT verified on this platform (no chromium) — CI enforces them"
+fi
+echo ""
+
 echo "→ Running pytest with coverage..."
 if ! uv run pytest tests/ --ignore=tests/e2e -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term; then
     FAILED_CHECKS+=("pytest")
     echo "❌ Tests failed"
 else
     echo "✅ Tests passed"
+fi
+echo ""
+
+# Frontend JS checks (matches .github/workflows/ci.yml frontend-js job).
+# Optional locally: like the chromium check above, we *notice* when the Node
+# toolchain is absent rather than hard-failing — CI enforces it on every push.
+echo "→ Checking Node/npm availability for frontend JS checks..."
+if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+    echo "✅ Node/npm available — running frontend JS checks"
+    echo ""
+    echo "→ Installing JS dependencies (npm ci)..."
+    if ! npm ci; then
+        FAILED_CHECKS+=("npm-ci")
+        echo "❌ npm ci failed"
+    else
+        echo "✅ JS dependencies installed"
+        echo ""
+        echo "→ Running typecheck (npm run typecheck)..."
+        if ! npm run typecheck; then
+            FAILED_CHECKS+=("js-typecheck")
+            echo "❌ JS typecheck failed"
+        else
+            echo "✅ JS typecheck passed"
+        fi
+        echo ""
+        echo "→ Running JS tests (npm run test:js)..."
+        if ! npm run test:js; then
+            FAILED_CHECKS+=("js-tests")
+            echo "❌ JS tests failed"
+        else
+            echo "✅ JS tests passed"
+        fi
+    fi
+else
+    echo "⚠️  Frontend JS checks NOT verified on this platform (no node/npm) — CI enforces them"
 fi
 echo ""
 

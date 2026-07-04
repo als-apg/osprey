@@ -106,6 +106,27 @@ pytest tests/ --ignore=tests/e2e -v
 pytest tests/e2e/ -v
 ```
 
+## Front-End JavaScript Tooling
+
+The browser interfaces ship a small dev/CI-only JS toolchain. It is **not**
+needed to install or run OSPREY — only if you edit front-end JavaScript. It
+requires Node LTS.
+
+```bash
+# One-time: install the dev-only toolchain
+npm install
+
+# Type-check the JS (tsc --noEmit)
+npm run typecheck
+
+# Run the JS unit tests (Vitest)
+npm run test:js
+```
+
+Type-checking is opt-in per file: add `// @ts-check` at the top of a JS file to
+bring it under the type-checker. New or edited files should opt in. Files
+currently checked include `dom.js` and `theme-manager.js`.
+
 ## Building Documentation
 
 ```bash

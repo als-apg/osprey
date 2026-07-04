@@ -11,6 +11,8 @@
  * permission entries without touching raw JSON.
  */
 
+import { el as _el, escapeHtml as _esc } from '/design-system/js/dom.js';
+
 // ---------------------------------------------------------------------------
 // settings.json renderer
 // ---------------------------------------------------------------------------
@@ -958,16 +960,4 @@ function _countHooks(hookGroups) {
 function _truncate(str, maxLen) {
   if (str.length <= maxLen) return str;
   return str.substring(0, maxLen - 1) + '\u2026';
-}
-
-function _el(tag, className) {
-  const el = document.createElement(tag);
-  el.className = className;
-  return el;
-}
-
-function _esc(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
 }

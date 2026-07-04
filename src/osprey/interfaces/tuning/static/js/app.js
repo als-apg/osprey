@@ -9,9 +9,12 @@ import { initNavbar } from './navbar.js';
 import { initOptimizationForm } from './optimization-form.js';
 import { initProgressDisplay } from './progress-display.js';
 import { initResultsViewer } from './results-viewer.js';
+import { initTheme } from '/design-system/js/theme-manager.js';
 
-// Theme sync is handled by the inline <script> in <head> (index.html),
-// NOT here — so it has zero import dependencies and always registers.
+// theme-boot.js (first script in <head>) already applied data-theme
+// before first paint. initTheme({role: 'follower'}) here wires the
+// osprey-theme-change listener so this panel stays in sync with the
+// web-terminal hub — it does not persist or broadcast anything itself.
 
 // ---- Embedded Detection ----
 
@@ -119,6 +122,7 @@ async function attemptRecovery() {
 // ---- Init ----
 
 document.addEventListener('DOMContentLoaded', () => {
+  initTheme({ role: 'follower' });
   checkEmbedded();
   initTabs();
   initAccordions();

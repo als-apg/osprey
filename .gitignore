@@ -159,3 +159,6 @@ tests/e2e/claude_code/benchmark_results/
 
 # Playwright MCP browser-session cache (page snapshots, console logs)
 .playwright-mcp/
+
+# Node.js (dev-only JS toolchain; not part of the Python wheel)
+node_modules/

@@ -24,19 +24,15 @@
   right: 0;
   bottom: 0;
   pointer-events: none;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent 2px,
-    rgba(0, 0, 0, 0.03) 4px
-  );
-  opacity: var(--crt-scanline-opacity);
+  background: var(--wt-crt-scanline-bg);
+  opacity: var(--wt-crt-scanline-opacity);
   z-index: 1;
 }
 
 /* Inner glow while streaming */
 .operator-container.streaming {
-  box-shadow: inset 0 0 60px rgba(79, 209, 197, 0.03);
-  opacity: var(--crt-glow-opacity);
+  box-shadow: inset 0 0 60px var(--accent-tint-04);
+  opacity: var(--wt-crt-glow-opacity);
 }
 
 /* ---- Session info header bar ---- */
@@ -125,7 +121,7 @@
 /* System (assistant) entries — teal */
 .op-entry.assistant {
   border-left-color: var(--color-accent);
-  background: var(--accent-system-tint-04);
+  background: var(--wt-accent-system-tint-04);
 }
 
 .op-entry.assistant .op-entry-prefix {
@@ -238,7 +234,7 @@
 
 .op-tool.completed.errored .op-tool-led {
   background: var(--color-error);
-  box-shadow: 0 0 4px rgba(239, 68, 68, 0.5);
+  box-shadow: 0 0 4px var(--error-tint-40);
 }
 
 .op-tool pre {
@@ -342,8 +338,8 @@
 
 .op-ts-badge-ch {
   color: var(--color-accent-light);
-  border-color: rgba(79, 209, 197, 0.25);
-  background: rgba(79, 209, 197, 0.06);
+  border-color: var(--accent-tint-25);
+  background: var(--accent-tint-06);
 }
 
 .op-ts-badge-rows {
@@ -352,8 +348,8 @@
 
 .op-ts-badge-ds {
   color: var(--color-amber-light);
-  border-color: rgba(212, 165, 116, 0.25);
-  background: rgba(212, 165, 116, 0.06);
+  border-color: var(--amber-tint-25);
+  background: var(--amber-tint-06);
 }
 
 .op-ts-plotly {
@@ -500,7 +496,7 @@
   text-transform: uppercase;
   letter-spacing: 0.05em;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--wt-transition-fast);
   white-space: nowrap;
 }
 
@@ -543,7 +539,7 @@
   border-radius: 3px;
   padding: 2px 8px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--wt-transition-fast);
   margin-left: auto;
 }
 

@@ -4,6 +4,8 @@
  * Reusable component rendering functions.
  */
 
+import { escapeHtml } from '/design-system/js/dom.js';
+
 /**
  * Format a timestamp for display.
  * @param {string} timestamp - ISO timestamp
@@ -109,7 +111,7 @@ export function sanitizeHighlight(html) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
+    .replace(/'/g, '&#039;') // hygiene-allow-color: HTML entity, not a hex color (scanner false positive)
     .replace(/\x00B_OPEN\x00/g, '<b>')
     .replace(/\x00B_CLOSE\x00/g, '</b>');
 }
@@ -303,17 +305,11 @@ export function renderDiagnosticsBar(diagnostics) {
   `;
 }
 
-/**
- * Escape HTML special characters.
- * @param {string} text - Text to escape
- * @returns {string} Escaped text
- */
-export function escapeHtml(text) {
-  if (!text) return '';
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
+// Re-exported from the shared design-system dom module. The import above creates
+// a real local binding, so internal call sites and the `export default {…}`
+// object below keep resolving `escapeHtml`, and importer files (dashboard.js,
+// search.js, entries.js) continue to get it from './components.js'.
+export { escapeHtml };
 
 /**
  * Create an element from HTML string.

@@ -14,11 +14,9 @@ from typing import TYPE_CHECKING, NamedTuple
 import httpx
 import yaml
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from osprey.interfaces.common_middleware import ExceptionLoggingMiddleware, NoCacheStaticMiddleware
+from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.vendor import vendor_url
 from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster, WorkspaceWatcher
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry
@@ -528,17 +526,6 @@ def create_app(
         lifespan=_create_lifespan(config_path, shell_command, project_dir),
     )
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    app.add_middleware(NoCacheStaticMiddleware)
-    app.add_middleware(ExceptionLoggingMiddleware)
-
     app.include_router(router)
 
     @app.get("/")
@@ -546,12 +533,7 @@ def create_app(
         app_name = getattr(request.app.state, "app_name", "")
         return templates.TemplateResponse(request, "index.html", {"app_name": app_name})
 
-    # Mount shared fonts before /static (Starlette matches in declaration order)
-    SHARED_FONTS_DIR = Path(__file__).parent.parent / "shared_fonts"
-    if SHARED_FONTS_DIR.exists():
-        app.mount("/static/fonts", StaticFiles(directory=SHARED_FONTS_DIR), name="shared-fonts")
-    if STATIC_DIR.exists():
-        app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    configure_interface_app(app, static_dir=STATIC_DIR)
 
     return app
 

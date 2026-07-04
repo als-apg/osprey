@@ -150,6 +150,7 @@ dev = [
     "docker>=7.0.0",  # Docker SDK for testcontainers availability check
     "psycopg[binary,pool]>=3.1.0,<4.0.0",  # ARIEL search integration tests
     "psycopg-pool>=3.1.0,<4.0.0",  # ARIEL search integration tests
+    "pillow>=10.0.0",  # Perceptual diffing for the design-system visual regression suite
 ]
 
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
@@ -274,6 +275,7 @@ markers = [
     "e2e_benchmark: Channel finder benchmark validation tests",
     "e2e_tutorial: Tutorial workflow validation tests",
     "slow: Tests that take significant time",
+    "browser: Real-browser Playwright tests (requires chromium; skips if absent)",
     "requires_api: Tests that require API credentials",
     "requires_openai: Tests that require OpenAI API key",
     "requires_anthropic: Tests that require Anthropic API key",

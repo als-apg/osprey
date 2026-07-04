@@ -6,6 +6,7 @@
  */
 
 import { configApi } from './api.js';
+import { escapeHtml } from '/design-system/js/dom.js';
 
 let configDirty = false;
 let originalRaw = '';
@@ -292,10 +293,4 @@ async function saveConfig() {
     statusEl.textContent = `Save failed: ${e.message}`;
     statusEl.className = 'settings-status error';
   }
-}
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
 }

@@ -13,10 +13,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from fastapi import FastAPI, Request, Response
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.vendor import vendor_url
 
 if TYPE_CHECKING:
@@ -87,14 +86,6 @@ def create_app(tuning_api_url: str | None = None) -> FastAPI:
         lifespan=_create_lifespan(tuning_api_url),
     )
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
     @app.get("/health")
     async def health():
         return {"status": "healthy", "service": "tuning"}
@@ -153,19 +144,6 @@ def create_app(tuning_api_url: str | None = None) -> FastAPI:
                 media_type="application/json",
             )
 
-    from osprey.interfaces.common_middleware import (
-        ExceptionLoggingMiddleware,
-        NoCacheStaticMiddleware,
-    )
-
-    app.add_middleware(NoCacheStaticMiddleware)
-    app.add_middleware(ExceptionLoggingMiddleware)
-
-    # Mount shared fonts before /static (Starlette matches in declaration order)
-    SHARED_FONTS_DIR = Path(__file__).parent.parent / "shared_fonts"
-    if SHARED_FONTS_DIR.exists():
-        app.mount("/static/fonts", StaticFiles(directory=SHARED_FONTS_DIR), name="shared-fonts")
-    if STATIC_DIR.exists():
-        app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    configure_interface_app(app, static_dir=STATIC_DIR)
 
     return app

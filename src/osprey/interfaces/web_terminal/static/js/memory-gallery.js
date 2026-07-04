@@ -18,6 +18,7 @@
 
 import { fetchJSON } from './api.js';
 import { registerUnsavedGuard } from './drawer.js';
+import { escapeHtml, el as _el, debounce } from '/design-system/js/dom.js';
 
 // ---- Constants ---- //
 
@@ -560,28 +561,8 @@ export function initMemoryGallery() {
 
 // ---- Utility Functions ---- //
 
-function _el(tag, className) {
-  const el = document.createElement(tag);
-  el.className = className;
-  return el;
-}
-
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
-
 function formatSize(bytes) {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
   return (bytes / 1048576).toFixed(1) + ' MB';
-}
-
-function debounce(fn, ms) {
-  let timer = null;
-  return function (...args) {
-    clearTimeout(timer);
-    timer = setTimeout(() => fn.apply(this, args), ms);
-  };
 }

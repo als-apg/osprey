@@ -6,7 +6,7 @@
  * the in-context pipeline is bounded to fit an LLM context window (small DBs),
  * and the endpoint 404s for the large-DB pipelines. Filtering and pagination
  * derive from one shared filtered set (see chunk-filter.js) so a search match on
- * any page is always found — fixing the disjoint-scope bug in issue #299.
+ * any page is always found — fixing the disjoint-scope bug in issue #299. (hygiene-allow-color: issue number, not a hex color)
  *
  * Inline CRUD: add, edit, and delete channels.
  */

@@ -56,9 +56,9 @@ async function loadRun(timestamp) {
 
 function renderAnalysis(data, timestamp) {
   contentEl.innerHTML = `
-    <div class="analysis-header" style="margin-bottom: var(--space-4);">
+    <div class="analysis-header" style="margin-bottom: 1rem;">
       <span style="font-weight: 600; color: var(--text-primary);">Run: ${timestamp}</span>
-      <span style="color: var(--text-muted); margin-left: var(--space-2);">${data.length} points</span>
+      <span style="color: var(--text-muted); margin-left: 0.5rem;">${data.length} points</span>
     </div>
     <div class="analysis-grid">
       <div class="analysis-chart">

@@ -1,110 +1,41 @@
 /*
- * OKF Knowledge Panel — self-contained stylesheet.
- * No external fonts or CDNs: must work fully offline behind the proxy.
+ * OKF Knowledge Panel — stylesheet layered on the shared design system.
  *
- * The design tokens (:root) and the .osprey-md-rendered markdown block below
- * are ported VERBATIM from the OSPREY artifact gallery
- * (osprey/interfaces/artifacts/static/css/gallery.css) so the panel reads as
- * the same "Precision Instrumentation" design system: deep-navy panels, teal
- * instrument accents, DM Mono readouts. Font stacks include system fallbacks;
- * no font files are vendored.
+ * Color/font tokens come from /design-system/css/tokens.css (+ base.css),
+ * linked in index.html's <head> before this file, so the panel reads as the
+ * same "Precision Instrumentation" design system as every other OSPREY
+ * interface and honours the hub's dark/light theme automatically:
+ *   --bg-primary/secondary/panel/elevated, --text-primary/secondary/muted,
+ *   --color-accent[-light], --color-amber-light, --color-success/warning,
+ *   --border-default/accent, --font-display, --font-mono, and the
+ *   --accent-tint-*/--neutral-tint-* ramps.
+ * Only panel-local scale/layout tokens with no fleet-wide equivalent
+ * (typography steps, spacing, radius, transitions, translucent surfaces) stay
+ * in the reduced :root below, mirroring the artifact gallery's post-migration
+ * layout. The .osprey-md-rendered markdown block is unchanged in behaviour —
+ * it just references the shared tokens now.
  */
 
 /* ================================================================
-   Design Tokens (ported verbatim from gallery.css :root)
+   Local Design Tokens (no fleet-wide equivalent)
    ================================================================ */
 
 :root {
-  /* === Primary Palette === */
-  --color-primary: #1a365d;
-  --color-primary-light: #2b4a82;
-  --color-primary-dark: #0f2340;
+  /* === Local-only surfaces ===
+     Translucent card/hover tints composited from canonical bg tokens so they
+     track the active theme without a per-theme override block. */
+  --surface-card: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+  --surface-hover: color-mix(in srgb, var(--bg-elevated) 60%, transparent);
 
-  /* === Accent - Teal (instrument indicator) === */
-  --color-accent: #319795;
-  --color-accent-light: #4fd1c5;
-  --color-accent-dark: #236c6a;
-  --color-accent-glow: rgba(79, 209, 197, 0.3);
-  --color-accent-subtle: rgba(79, 209, 197, 0.08);
-
-  /* === Amber (warm secondary) === */
-  --color-amber: #d4a574;
-  --color-amber-light: #e8c9a0;
-  --color-amber-dark: #b8894e;
-  --color-amber-glow: rgba(212, 165, 116, 0.2);
-
-  /* === Violet (memory domain) === */
-  --color-violet: #9f7aea;
-  --color-violet-light: #b794f4;
-  --color-violet-dark: #7c5cbf;
-  --color-violet-glow: rgba(159, 122, 234, 0.2);
-  --text-violet: var(--color-violet-light);
-
-  /* === Backgrounds === */
-  --bg-primary: #0b1120;
-  --bg-secondary: #131c2e;
-  --bg-tertiary: #1e293b;
-  --bg-elevated: #283548;
-  --bg-input: #0f1829;
-  --bg-sidebar: #0e1525;
-
-  /* === Surfaces === */
-  --surface-card: rgba(19, 28, 46, 0.85);
-  --surface-modal: rgba(11, 17, 32, 0.96);
-  --surface-hover: rgba(30, 41, 59, 0.6);
-
-  /* === Text === */
-  --text-primary: #e2e8f0;
-  --text-secondary: #8b9ab5;
-  --text-muted: #506380;
-  --text-accent: var(--color-accent-light);
-  --text-amber: var(--color-amber-light);
-
-  /* === Status === */
-  --color-success: #22c55e;
-  --color-warning: #f59e0b;
-  --color-error: #ef4444;
-  --color-info: #3b82f6;
-
-  /* === Borders === */
-  --border-subtle: rgba(100, 116, 139, 0.1);
-  --border-default: rgba(100, 116, 139, 0.18);
-  --border-strong: rgba(100, 116, 139, 0.3);
-  --border-accent: var(--color-accent-dark);
-
-  /* === Accent tint for filter chips === */
-  --accent-tint-10: rgba(79, 209, 197, 0.1);
-
-  /* Fallbacks for accent tints referenced by .osprey-md-rendered but not in
-     the gallery token block (added here per the porting brief). */
-  --accent-tint-30: rgba(79, 209, 197, 0.3);
-  --accent-tint-04: rgba(79, 209, 197, 0.04);
-
-  /* === Shadows === */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
-  --shadow-lg: 0 10px 30px rgba(0, 0, 0, 0.6);
-  --shadow-glow-accent: 0 0 20px var(--color-accent-glow);
-  --shadow-glow-amber: 0 0 15px var(--color-amber-glow);
-
-  /* === Typography === */
-  --font-display: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  --font-mono: 'DM Mono', 'Fira Code', 'SF Mono', Consolas, monospace;
-
+  /* === Typography (panel-local scale) === */
   --text-xs: 0.7rem;
   --text-sm: 0.8125rem;
   --text-base: 0.9375rem;
-  --text-lg: 1.0625rem;
-  --text-xl: 1.25rem;
   --text-2xl: 1.5rem;
-  --text-3xl: 1.875rem;
 
   --leading-tight: 1.25;
   --leading-normal: 1.5;
-  --leading-relaxed: 1.625;
 
-  --tracking-tight: -0.02em;
-  --tracking-normal: 0;
   --tracking-wide: 0.05em;
   --tracking-wider: 0.1em;
 
@@ -113,33 +44,16 @@
   --space-2: 0.5rem;
   --space-3: 0.75rem;
   --space-4: 1rem;
-  --space-5: 1.25rem;
   --space-6: 1.5rem;
   --space-8: 2rem;
-  --space-10: 2.5rem;
   --space-12: 3rem;
-  --space-16: 4rem;
 
   /* === Border radius === */
-  --radius-sm: 3px;
   --radius-md: 5px;
-  --radius-lg: 8px;
-  --radius-xl: 12px;
   --radius-full: 9999px;
 
   /* === Transitions === */
   --transition-fast: 120ms ease;
-  --transition-base: 200ms ease;
-  --transition-slow: 300ms ease;
-
-  /* === Z-index === */
-  --z-sticky: 200;
-  --z-modal: 400;
-
-  /* === Layout === */
-  --container-max: 1600px;
-  --header-height: 52px;
-  --sidebar-width: 320px;
 }
 
 * {
@@ -173,7 +87,7 @@ body {
   max-width: 300px;
   display: flex;
   flex-direction: column;
-  background: var(--bg-sidebar);
+  background: var(--bg-panel);
   border-right: 1px solid var(--border-default);
   overflow: hidden;
 }
@@ -194,7 +108,7 @@ body {
   font-family: var(--font-display);
   font-size: var(--text-sm);
   color: var(--text-primary);
-  background: var(--bg-input);
+  background: var(--bg-primary);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   outline: none;
@@ -208,7 +122,7 @@ body {
 
 #search-input:focus {
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 2px var(--color-accent-subtle);
+  box-shadow: 0 0 0 2px var(--accent-tint-08);
 }
 
 /* Home / structure-overview entry, pinned at the top of the sidebar. */
@@ -302,7 +216,7 @@ body {
 }
 
 .concept-link.active {
-  background: var(--color-accent-subtle);
+  background: var(--accent-tint-08);
   color: var(--color-accent-light);
   font-weight: 600;
   box-shadow: inset 2px 0 0 var(--color-accent);
@@ -403,7 +317,7 @@ body {
 #tree::-webkit-scrollbar-thumb,
 #search-results::-webkit-scrollbar-thumb,
 #reader::-webkit-scrollbar-thumb {
-  background: var(--border-strong);
+  background: var(--neutral-tint-35);
   border-radius: var(--radius-full);
 }
 
@@ -460,7 +374,7 @@ body {
   border: 1px solid var(--border-default);
   border-radius: 3px;
   padding: 1px 4px;
-  color: var(--color-amber-light, #e8c9a0);
+  color: var(--color-amber-light);
 }
 
 .osprey-md-rendered pre {
@@ -486,7 +400,7 @@ body {
   margin: 0.8em 0;
   padding: 6px 12px;
   border-left: 3px solid var(--color-accent);
-  background: var(--accent-tint-04, rgba(79,209,197,0.04));
+  background: var(--accent-tint-04);
   color: var(--text-secondary);
   font-size: 12px;
 }
@@ -538,7 +452,7 @@ body {
   gap: 0.5rem;
   margin-top: auto;
   padding: 0.6rem 0.85rem;
-  border-top: 1px solid var(--border-subtle);
+  border-top: 1px solid var(--neutral-tint-10);
   font-size: 0.75rem;
   line-height: 1.3;
   color: var(--text-secondary);
@@ -554,14 +468,14 @@ body {
 
 .bundle-health .health-dot.ok {
   background: var(--color-success);
-  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-success) 50%, transparent);
 }
 
 .bundle-health .health-dot.warn {
   background: var(--color-warning);
-  box-shadow: 0 0 6px rgba(245, 158, 11, 0.5);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-warning) 50%, transparent);
 }
 
 .bundle-health.has-warnings .health-text {
-  color: var(--text-amber);
+  color: var(--color-amber-light);
 }
