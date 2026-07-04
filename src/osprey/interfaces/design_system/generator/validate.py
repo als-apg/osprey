@@ -310,11 +310,6 @@ def _iter_all_tokens(tree: TokenTree) -> Iterator[ResolvedToken]:
         yield from tokens.values()
 
 
-def _is_resolvable_value(token: ResolvedToken) -> bool:
-    """Whether ``token.value`` is a usable literal (not an unresolved alias)."""
-    return token.alias_status in (AliasStatus.NOT_ALIAS, AliasStatus.RESOLVED)
-
-
 def _document_source_file(name: str, tokens: dict[str, ResolvedToken]) -> Path:
     """Best-effort source file for an (possibly empty) document's tokens."""
     if tokens:
@@ -417,7 +412,7 @@ def check_color_syntax(tree: TokenTree) -> list[ValidationError]:
     """
     errors: list[ValidationError] = []
     for token in _iter_all_tokens(tree):
-        if token.type != "color" or not _is_resolvable_value(token):
+        if token.type != "color" or not token.has_literal_value:
             continue
         if not isinstance(token.value, str) or parse_color(token.value) is None:
             errors.append(
@@ -452,7 +447,7 @@ def check_terminal_serialization(tree: TokenTree) -> list[ValidationError]:
         for path, token in tokens.items():
             if path != "terminal" and not path.startswith("terminal."):
                 continue
-            if not _is_resolvable_value(token):
+            if not token.has_literal_value:
                 continue
             if not isinstance(token.value, str) or not is_terminal_safe_color(token.value):
                 errors.append(
@@ -633,7 +628,7 @@ def check_namespace_collisions(tree: TokenTree) -> list[ValidationError]:
 
 def _gate_color(token: ResolvedToken | None) -> RGBColor | None:
     """Extract a usable :class:`RGBColor` from a WCAG gate token, if any."""
-    if token is None or not _is_resolvable_value(token):
+    if token is None or not token.has_literal_value:
         return None
     if not isinstance(token.value, str):
         return None

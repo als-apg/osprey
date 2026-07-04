@@ -23,7 +23,7 @@ unchanged and the freshness gate (a future task) can byte-compare it.
 
 from __future__ import annotations
 
-from osprey.interfaces.design_system.generator.model import AliasStatus, ResolvedToken, TokenTree
+from osprey.interfaces.design_system.generator.model import ResolvedToken, TokenTree
 
 __all__ = ["css_variable_name", "emit_css"]
 
@@ -89,7 +89,7 @@ def css_variable_name(path: str) -> str | None:
 
 def _resolved_value(token: ResolvedToken) -> str:
     """Return a token's emittable literal value, or raise if unresolved/non-string."""
-    if token.alias_status not in (AliasStatus.NOT_ALIAS, AliasStatus.RESOLVED):
+    if not token.has_literal_value:
         raise ValueError(
             f"{token.source_file} ({token.path}): cannot emit unresolved alias "
             f"{token.value!r} — the tree must be validated before emission"

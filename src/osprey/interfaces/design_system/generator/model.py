@@ -145,6 +145,24 @@ class ResolvedToken:
     alias_status: AliasStatus
     alias_target: str | None
 
+    @property
+    def has_literal_value(self) -> bool:
+        """Whether :attr:`value` is a usable literal to read or emit.
+
+        True for a plain literal (:attr:`AliasStatus.NOT_ALIAS`) and for a
+        successfully one-hop-resolved alias (:attr:`AliasStatus.RESOLVED`);
+        False for every unresolved alias (dangling, multi-hop, or
+        non-primitive), whose :attr:`value` is only the raw reference text.
+
+        This is the single source of truth for the pipeline's core
+        invariant — a tree that passes ``validate.assert_valid`` has this
+        True for every token, so the emitters may rely on it. Both the
+        validator (which skips value-reading checks when it is False) and
+        the CSS emitter (which refuses to emit when it is False) consult
+        this one predicate, so the two can never drift apart.
+        """
+        return self.alias_status in (AliasStatus.NOT_ALIAS, AliasStatus.RESOLVED)
+
 
 @dataclass(frozen=True)
 class TokenTree:
