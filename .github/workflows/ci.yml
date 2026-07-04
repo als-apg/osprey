@@ -219,6 +219,9 @@ jobs:
             - 'src/osprey/interfaces/**'
             - 'src/osprey/dispatch/**'
             - 'tests/interfaces/design_system/**'
+            - 'tests/interfaces/conftest.py'
+            - 'tests/interfaces/_browser.py'
+            - 'tests/interfaces/test_load_smokes.py'
 
     - name: Install uv
       if: steps.changes.outputs.theming == 'true'
@@ -242,7 +245,8 @@ jobs:
       if: steps.changes.outputs.theming == 'true'
       run: |
         uv run pytest tests/interfaces/design_system/test_behavioral.py \
-          tests/interfaces/web_terminal/test_panels_browser.py -v --tb=short
+          tests/interfaces/web_terminal/test_panels_browser.py \
+          tests/interfaces/test_load_smokes.py -v --tb=short
 
     - name: Run visual regression suite
       # Linux is the authoritative platform for the pixel diff (see
