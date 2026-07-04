@@ -59,6 +59,13 @@ Framework & Infrastructure
       Launch and operate the Web Terminal interface for interactive Osprey agent
       sessions with your control system.
 
+   .. grid-item-card:: Theming the OSPREY Interfaces
+      :link: theming-interfaces
+      :link-type: doc
+
+      Add a new theme or wire a new interface into the shared design-token
+      system — token architecture, the generator CLI, and consuming tokens.
+
    .. grid-item-card:: Use the CLI Chat Interface
       :link: use-cli-chat
       :link-type: doc
@@ -140,6 +147,7 @@ Services & Connectors
    build-profiles
    add-mcp-server
    use-web-terminal
+   theming-interfaces
    use-cli-chat
    non_interactive_query
    use-python-executor

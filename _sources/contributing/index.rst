@@ -232,6 +232,9 @@ All new functionality must include tests.
    * - **E2E**
      - Critical user flows, deployment validation
      - Slow, requires API keys ($0.10-$0.25/run)
+   * - **Browser**
+     - Real-browser page loads, theming, JS module loading (Playwright + Chromium)
+     - Slow; needs Chromium (auto-installed in CI, skips locally if absent)
 
 **Running tests:**
 
@@ -248,6 +251,9 @@ All new functionality must include tests.
 
    # E2E tests (requires API keys) -- MUST use path, NOT marker
    uv run pytest tests/e2e/ -v
+
+   # Browser smokes (Playwright + Chromium; skips if the browser is absent)
+   uv run pytest tests/interfaces/ -m browser -v
 
    # With coverage
    uv run pytest tests/ --ignore=tests/e2e --cov=src/osprey

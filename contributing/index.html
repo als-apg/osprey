@@ -631,6 +631,10 @@ uv<span class="w"> </span>run<span class="w"> </span>mypy<span class="w"> </span
 <td><p>Critical user flows, deployment validation</p></td>
 <td><p>Slow, requires API keys ($0.10-$0.25/run)</p></td>
 </tr>
+<tr class="row-odd"><td><p><strong>Browser</strong></p></td>
+<td><p>Real-browser page loads, theming, JS module loading (Playwright + Chromium)</p></td>
+<td><p>Slow; needs Chromium (auto-installed in CI, skips locally if absent)</p></td>
+</tr>
 </tbody>
 </table>
 </div>
@@ -646,6 +650,9 @@ uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </sp
 
 <span class="c1"># E2E tests (requires API keys) -- MUST use path, NOT marker</span>
 uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/e2e/<span class="w"> </span>-v
+
+<span class="c1"># Browser smokes (Playwright + Chromium; skips if the browser is absent)</span>
+uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/interfaces/<span class="w"> </span>-m<span class="w"> </span>browser<span class="w"> </span>-v
 
 <span class="c1"># With coverage</span>
 uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/<span class="w"> </span>--ignore<span class="o">=</span>tests/e2e<span class="w"> </span>--cov<span class="o">=</span>src/osprey

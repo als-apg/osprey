@@ -1,0 +1,1359 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Theming the OSPREY Interfaces &#8212; Osprey Framework 2026.6.2 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=e7cf6fe6"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+    <script type="module">import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.8.0/dist/mermaid.esm.min.mjs";
+
+
+
+
+
+const initStyles = () => {
+    const defaultStyle = document.createElement('style');
+    defaultStyle.textContent = `pre.mermaid {
+    /* Same as .mermaid-container > pre */
+    display: block;
+    width: 100%;
+}
+
+pre.mermaid > svg {
+    /* Same as .mermaid-container > pre > svg */
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}`;
+    document.head.appendChild(defaultStyle);
+
+    const fullscreenStyle = document.createElement('style');
+    fullscreenStyle.textContent = `.mermaid-container {
+    display: flex;
+    flex-direction: row;
+    width: 100%;
+}
+
+.mermaid-container > pre {
+    display: block;
+    width: 100%;
+}
+
+.mermaid-container > pre > svg {
+    height: 500px;
+    width: 100%;
+    max-width: 100% !important;
+}
+
+.mermaid-fullscreen-btn {
+    width: 28px;
+    height: 28px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.3);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    font-size: 14px;
+    line-height: 1;
+    padding: 0;
+    color: #333;
+}
+
+.mermaid-fullscreen-btn:hover {
+    opacity: 100% !important;
+    background: rgba(255, 255, 255, 1);
+    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.3);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-btn.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-btn.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 3px 10px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal {
+    display: none;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 95vw;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.98);
+    z-index: 9999;
+    padding: 20px;
+    overflow: auto;
+}
+
+.mermaid-fullscreen-modal.dark-theme {
+    background: rgba(0, 0, 0, 0.98);
+}
+
+.mermaid-fullscreen-modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen {
+    position: relative;
+    width: 95vw;
+    height: 90vh;
+    max-width: 95vw;
+    max-height: 90vh;
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen.dark-theme {
+    background: #1a1a1a;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.8);
+}
+
+.mermaid-container-fullscreen pre.mermaid {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.mermaid-container-fullscreen .mermaid svg {
+    height: 100% !important;
+    width: 100% !important;
+    cursor: grab;
+}
+
+.mermaid-fullscreen-close {
+    position: fixed !important;
+    top: 20px !important;
+    right: 20px !important;
+    width: 40px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.95);
+    border: 1px solid rgba(0, 0, 0, 0.2);
+    border-radius: 50%;
+    cursor: pointer;
+    z-index: 10000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s;
+    font-size: 24px;
+    line-height: 1;
+    color: #333;
+}
+
+.mermaid-fullscreen-close:hover {
+    background: white;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.4);
+    transform: scale(1.1);
+}
+
+.mermaid-fullscreen-close.dark-theme {
+    background: rgba(50, 50, 50, 0.95);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    color: #e0e0e0;
+}
+
+.mermaid-fullscreen-close.dark-theme:hover {
+    background: rgba(60, 60, 60, 1);
+    box-shadow: 0 6px 16px rgba(255, 255, 255, 0.2);
+}
+
+.mermaid-fullscreen-modal .mermaid-fullscreen-btn {
+    display: none !important;
+}`;
+    document.head.appendChild(fullscreenStyle);
+}
+
+// Detect if page has dark background
+const isDarkTheme = () => {
+    // We use a set of heuristics:
+    // 1. Check for common dark mode classes or attributes
+    // 2. Check computed background color brightness
+    if (document.documentElement.classList.contains('dark') ||
+        document.documentElement.getAttribute('data-theme') === 'dark' ||
+        document.body.classList.contains('dark') ||
+        document.body.getAttribute('data-theme') === 'dark') {
+        // console.log("Dark theme detected via class/attribute");
+        return true;
+    }
+    if (document.documentElement.classList.contains('light') ||
+        document.documentElement.getAttribute('data-theme') === 'light' ||
+        document.body.classList.contains('light') ||
+        document.body.getAttribute('data-theme') === 'light') {
+        // console.log("Light theme detected via class/attribute");
+        return false;
+    }
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        // console.log("Dark theme detected via prefers-color-scheme");
+        return true;
+    }
+    const bgColor = window.getComputedStyle(document.body).backgroundColor;
+    const match = bgColor.match(/rgb\((\d+),\s*(\d+),\s*(\d+)/);
+    if (match) {
+        const r = parseInt(match[1]);
+        const g = parseInt(match[2]);
+        const b = parseInt(match[3]);
+        const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+        // console.log("Background color brightness:", brightness);
+        return brightness < 128;
+    }
+    // console.log("No dark or light theme detected, defaulting to light theme");
+    return false;
+};
+
+let darkTheme = isDarkTheme();
+let modal = null;
+let modalContent = null;
+let previousScrollOffset = [window.scrollX, window.scrollY];
+
+const runMermaid = async (rerun) => {
+    console.log("Running mermaid diagrams, rerun =", rerun);
+    // clear all existing mermaid charts
+    let all_mermaids = document.querySelectorAll(".mermaid");
+
+    if (rerun) {
+        all_mermaids.forEach((el) => {
+            if(!el.hasAttribute("data-original-code")) {
+                // store original code
+                // console.log(`Storing original code for first run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+            if(el.getAttribute("data-processed") === "true") {
+                // remove and restore original
+                el.removeAttribute("data-processed");
+                // console.log(`Restoring original code for re-run: `, el.getAttribute('data-original-code'));
+                el.innerHTML = el.getAttribute('data-original-code');
+            } else {
+                // store original code
+                // console.log(`Storing original code for re-run: `, el.innerHTML);
+                el.setAttribute('data-original-code', el.innerHTML);
+            }
+        });
+        await mermaid.run();
+    }
+
+    all_mermaids = document.querySelectorAll(".mermaid");
+    const mermaids_processed = document.querySelectorAll(".mermaid[data-processed='true']");
+
+    if ("False" === "True") {
+        const mermaids_to_add_zoom = -1 === -1 ? all_mermaids.length : -1;
+        if(mermaids_to_add_zoom > 0) {
+            var svgs = d3.selectAll("");
+            if(all_mermaids.length !== mermaids_processed.length) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else if(svgs.size() !== mermaids_to_add_zoom) {
+                setTimeout(() => runMermaid(false), 200);
+                return;
+            } else {
+                svgs.each(function() {
+                    var svg = d3.select(this);
+                    svg.html("<g class='wrapper'>" + svg.html() + "</g>");
+                    var inner = svg.select("g");
+                    var zoom = d3.zoom().on("zoom", function(event) {
+                        inner.attr("transform", event.transform);
+                    });
+                    svg.call(zoom);
+                });
+            }
+        }
+    } else if(all_mermaids.length !== mermaids_processed.length) {
+        // Wait for mermaid to process all diagrams
+        setTimeout(() => runMermaid(false), 200);
+        return;
+    }
+
+    // Stop here if not adding fullscreen capability
+    if ("True" !== "True") return;
+
+    if (modal !== null ) {
+        // Destroy existing modal
+        modal.remove();
+        modal = null;
+        modalContent = null;
+    }
+
+    modal = document.createElement('div');
+    modal.className = 'mermaid-fullscreen-modal' + (darkTheme ? ' dark-theme' : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-label', 'Fullscreen diagram viewer');
+    modal.innerHTML = `
+        <button class="mermaid-fullscreen-close${darkTheme ? ' dark-theme' : ''}" aria-label="Close fullscreen">✕</button>
+        <div class="mermaid-container-fullscreen${darkTheme ? ' dark-theme' : ''}"></div>
+    `;
+    document.body.appendChild(modal);
+
+    modalContent = modal.querySelector('.mermaid-container-fullscreen');
+    const closeBtn = modal.querySelector('.mermaid-fullscreen-close');
+
+    const closeModal = () => {
+        modal.classList.remove('active');
+        modalContent.innerHTML = '';
+        document.body.style.overflow = ''
+        window.scrollTo({left: previousScrollOffset[0], top: previousScrollOffset[1], behavior: 'instant'});
+    };
+
+    closeBtn.addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal.classList.contains('active')) {
+            closeModal();
+        }
+    });
+
+    document.querySelectorAll('.mermaid').forEach((mermaidDiv) => {
+        if (mermaidDiv.parentNode.classList.contains('mermaid-container') ||
+            mermaidDiv.closest('.mermaid-fullscreen-modal')) {
+            // Already processed, adjust button class if needed
+            const existingBtn = mermaidDiv.parentNode.querySelector('.mermaid-fullscreen-btn');
+            if (existingBtn) {
+                existingBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+            }
+            return;
+        }
+
+        const container = document.createElement('div');
+        container.className = 'mermaid-container';
+        mermaidDiv.parentNode.insertBefore(container, mermaidDiv);
+        container.appendChild(mermaidDiv);
+
+        const fullscreenBtn = document.createElement('button');
+        fullscreenBtn.className = 'mermaid-fullscreen-btn' + (darkTheme ? ' dark-theme' : '');
+        fullscreenBtn.setAttribute('aria-label', 'View diagram in fullscreen');
+        fullscreenBtn.textContent = '⛶';
+        fullscreenBtn.style.opacity = '50%';
+
+        // Calculate dynamic position based on diagram's margin and padding
+        const diagramStyle = window.getComputedStyle(mermaidDiv);
+        const marginTop = parseFloat(diagramStyle.marginTop) || 0;
+        const marginRight = parseFloat(diagramStyle.marginRight) || 0;
+        const paddingTop = parseFloat(diagramStyle.paddingTop) || 0;
+        const paddingRight = parseFloat(diagramStyle.paddingRight) || 0;
+        fullscreenBtn.style.top = `${marginTop + paddingTop + 4}px`;
+        fullscreenBtn.style.right = `${marginRight + paddingRight + 4}px`;
+
+        fullscreenBtn.addEventListener('click', () => {
+            previousScrollOffset = [window.scroll, window.scrollY];
+            const clone = mermaidDiv.cloneNode(true);
+            modalContent.innerHTML = '';
+            modalContent.appendChild(clone);
+
+            const svg = clone.querySelector('svg');
+            if (svg) {
+                svg.removeAttribute('width');
+                svg.removeAttribute('height');
+                svg.style.width = '100%';
+                svg.style.height = 'auto';
+                svg.style.maxWidth = '100%';
+                svg.style.sdisplay = 'block';
+
+                if ("False" === "True") {
+                    setTimeout(() => {
+                        const g = svg.querySelector('g');
+                        if (g) {
+                            var svgD3 = d3.select(svg);
+                            svgD3.html("<g class='wrapper'>" + svgD3.html() + "</g>");
+                            var inner = svgD3.select("g");
+                            var zoom = d3.zoom().on("zoom", function(event) {
+                                inner.attr("transform", event.transform);
+                            });
+                            svgD3.call(zoom);
+                        }
+                    }, 100);
+                }
+            }
+
+            modal.classList.add('active');
+            document.body.style.overflow = 'hidden';
+        });
+        container.appendChild(fullscreenBtn);
+    });
+};
+
+const load = async () => {
+    initStyles();
+
+    await runMermaid(true);
+
+    const reRunIfThemeChanges = async () => {
+        const newDarkTheme = isDarkTheme();
+        if (newDarkTheme !== darkTheme) {
+            darkTheme = newDarkTheme;
+            console.log("Theme change detected, re-running mermaid with", darkTheme ? "dark" : "default", "theme");
+            await mermaid.initialize(
+                {...JSON.parse(
+                    `{"startOnLoad": false}`
+                ),
+                ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+                }
+            );
+            await runMermaid(true);
+        }
+    };
+
+    // Update theme classes when theme changes
+    const themeObserver = new MutationObserver(reRunIfThemeChanges);
+    themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+    themeObserver.observe(document.body, {
+        attributes: true,
+        attributeFilter: ['class', 'style', 'data-theme']
+    });
+};
+
+
+
+
+
+console.log("Initializing mermaid with", darkTheme ? "dark" : "default", "theme");
+mermaid.initialize(
+    {...JSON.parse(
+        `{"startOnLoad": false}`
+    ),
+    ...{ darkMode: darkTheme, theme: darkTheme ? 'dark' : 'default' },
+    }
+);
+
+window.addEventListener("load", load);</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/theming-interfaces';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.6.2';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Use the CLI Chat Interface" href="use-cli-chat.html" />
+    <link rel="prev" title="Use the Web Terminal" href="use-web-terminal.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Jul 04, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-web-terminal.html">Use the Web Terminal</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Theming the OSPREY Interfaces</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
+<li class="toctree-l1"><a class="reference internal" href="non_interactive_query.html">Non-Interactive Agent Queries</a></li>
+
+
+
+
+
+
+
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
+
+
+
+
+<li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">How-To Guides</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Theming the OSPREY Interfaces</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="theming-the-osprey-interfaces">
+<h1>Theming the OSPREY Interfaces<a class="headerlink" href="#theming-the-osprey-interfaces" title="Link to this heading">#</a></h1>
+<p>Every browser interface OSPREY ships — the Web Terminal hub, the Artifacts
+gallery, ARIEL, Channel Finder, Tuning, the Lattice dashboard, the event
+dispatch dashboard, and the session activity/safety pages — draws its
+colors, fonts, and a handful of layout constants from one generated design
+system instead of hand-maintained, per-interface CSS. This guide covers the
+three-tier token architecture, how to add a new theme (“skin”), and how to
+wire a new interface into the system.</p>
+<pre  class="mermaid">
+        flowchart LR
+    core[&quot;tokens/core.json\n(primitives)&quot;] --&gt; themes[&quot;tokens/themes/*.json\n(semantic, per-theme)&quot;]
+    core --&gt; ext[&quot;tokens/interfaces/*.json\n(extension, per-interface)&quot;]
+    themes --&gt; build[generator/build.py]
+    ext --&gt; build
+    build --&gt; css[&quot;design_system/static/css/tokens.css&quot;]
+    build --&gt; js[&quot;design_system/static/js/tokens.js&quot;]
+    build --&gt; boot[&quot;design_system/static/js/theme-boot.js&quot;]
+    </pre><section id="the-three-token-tiers">
+<h2>The Three Token Tiers<a class="headerlink" href="#the-three-token-tiers" title="Link to this heading">#</a></h2>
+<p>All token sources are hand-authored JSON in <a class="reference external" href="https://tr.designtokens.org/format/">DTCG format</a> (Design Tokens Community Group) under
+<code class="docutils literal notranslate"><span class="pre">src/osprey/interfaces/design_system/tokens/</span></code>. Nothing under <code class="docutils literal notranslate"><span class="pre">tokens/</span></code> is
+hand-maintained CSS or JS — it is data, and the generator is the only thing
+that reads it.</p>
+<ol class="arabic simple">
+<li><p><strong>Primitives</strong> — <code class="docutils literal notranslate"><span class="pre">tokens/core.json</span></code>. Color ramps (<code class="docutils literal notranslate"><span class="pre">color.slate.*</span></code>,
+<code class="docutils literal notranslate"><span class="pre">color.teal.*</span></code>, <code class="docutils literal notranslate"><span class="pre">color.amber.*</span></code>, …), theme-independent. A primitive
+is never emitted as a CSS custom property directly; it only exists to be
+aliased. Each ramp step is a literal hex value that already existed
+somewhere in the fleet before migration — steps are not a synthetic
+mathematical scale, so gaps between step numbers are expected.</p></li>
+<li><p><strong>Semantic tokens</strong> — <code class="docutils literal notranslate"><span class="pre">tokens/themes/dark.json</span></code> and
+<code class="docutils literal notranslate"><span class="pre">tokens/themes/light.json</span></code>. One JSON document per theme, each defining
+the same set of semantic names (<code class="docutils literal notranslate"><span class="pre">bg.primary</span></code>, <code class="docutils literal notranslate"><span class="pre">text.secondary</span></code>,
+<code class="docutils literal notranslate"><span class="pre">accent.base</span></code>, <code class="docutils literal notranslate"><span class="pre">status.error</span></code>, <code class="docutils literal notranslate"><span class="pre">border.default</span></code>, <code class="docutils literal notranslate"><span class="pre">tint.accent.08</span></code>,
+…) via one-hop aliases into <code class="docutils literal notranslate"><span class="pre">core.json</span></code> (<code class="docutils literal notranslate"><span class="pre">{color.teal.100}</span></code>). These
+are the names every interface’s CSS should reach for first.</p></li>
+<li><p><strong>Extension tokens</strong> — <code class="docutils literal notranslate"><span class="pre">tokens/interfaces/&lt;name&gt;.json</span></code>, one file per
+interface that needs tokens beyond the shared semantic set (a chart color
+bridge, a CRT scanline effect, a fixed layout dimension). Every extension
+token is namespaced with a short interface prefix — <code class="docutils literal notranslate"><span class="pre">wt-</span></code> (web
+terminal), <code class="docutils literal notranslate"><span class="pre">art-</span></code> (artifacts), <code class="docutils literal notranslate"><span class="pre">ariel-</span></code>, <code class="docutils literal notranslate"><span class="pre">cf-</span></code> (channel finder),
+<code class="docutils literal notranslate"><span class="pre">lat-</span></code> (lattice) — enforced by
+<code class="docutils literal notranslate"><span class="pre">generator/validate.py::check_namespace_collisions</span></code>. A bare, unprefixed
+extension name is a validation error: the whole point of the prefix
+convention is that two interfaces can each add a token called, say,
+<code class="docutils literal notranslate"><span class="pre">header-height</span></code>, without colliding in the single flat CSS custom
+property namespace every token ultimately lives in.</p></li>
+</ol>
+<p>The generator (<code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span> <span class="pre">osprey.interfaces.design_system.generator.build</span></code>)
+loads all three tiers, resolves aliases, validates the whole tree, and
+renders three generated artifacts under
+<code class="docutils literal notranslate"><span class="pre">design_system/static/</span></code>:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">css/tokens.css</span></code></dt><dd><p>Every semantic and extension token as CSS custom properties, under
+<code class="docutils literal notranslate"><span class="pre">:root,</span> <span class="pre">[data-theme=&quot;dark&quot;]</span></code> and <code class="docutils literal notranslate"><span class="pre">[data-theme=&quot;light&quot;]</span></code> (and any
+further themes you add) blocks.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">js/tokens.js</span></code></dt><dd><p>The <code class="docutils literal notranslate"><span class="pre">THEMES</span></code> manifest (<code class="docutils literal notranslate"><span class="pre">[{id,</span> <span class="pre">label,</span> <span class="pre">mode},</span> <span class="pre">...]</span></code>) and <code class="docutils literal notranslate"><span class="pre">DEFAULTS</span></code>
+(<code class="docutils literal notranslate"><span class="pre">{dark:</span> <span class="pre">&lt;id&gt;,</span> <span class="pre">light:</span> <span class="pre">&lt;id&gt;}</span></code>) that <code class="docutils literal notranslate"><span class="pre">theme-manager.js</span></code> uses to
+validate theme ids and resolve <code class="docutils literal notranslate"><span class="pre">auto</span></code> mode. Carries no color data —
+colors are read from computed CSS at runtime (see
+<a class="reference internal" href="#theming-consuming-tokens"><span class="std std-ref">Consuming Tokens in a New Interface</span></a>), not duplicated into JS.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">js/theme-boot.js</span></code></dt><dd><p>A tiny, dependency-free, non-module script that applies <code class="docutils literal notranslate"><span class="pre">data-theme</span></code>
+before first paint (from <code class="docutils literal notranslate"><span class="pre">localStorage</span></code>/<code class="docutils literal notranslate"><span class="pre">?theme=</span></code>/OS preference),
+so there is no flash of the wrong theme while the rest of the page
+loads.</p>
+</dd>
+</dl>
+<p>All three are checked-in generated artifacts, not built at deploy time —
+regenerate and commit them whenever you touch <code class="docutils literal notranslate"><span class="pre">tokens/</span></code>.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code class="docutils literal notranslate"><span class="pre">core.json</span></code>, <code class="docutils literal notranslate"><span class="pre">tokens.css</span></code>, and <code class="docutils literal notranslate"><span class="pre">tokens.js</span></code> are excluded from the
+fleet-wide hygiene scanner (<code class="docutils literal notranslate"><span class="pre">tests/interfaces/design_system/test_hygiene.py</span></code>):
+they <em>are</em> the color/token definitions, not consumers of them. Every
+other CSS/JS/HTML asset under <code class="docutils literal notranslate"><span class="pre">src/osprey/interfaces/</span></code> is scanned and
+must reference tokens via <code class="docutils literal notranslate"><span class="pre">var(--name)</span></code> rather than hardcoding colors.</p>
+</div>
+</section>
+<section id="adding-a-skin">
+<h2>Adding a Skin<a class="headerlink" href="#adding-a-skin" title="Link to this heading">#</a></h2>
+<p>“Adding a skin” means adding a new theme id beyond the two that ship today
+(<code class="docutils literal notranslate"><span class="pre">dark</span></code>, <code class="docutils literal notranslate"><span class="pre">light</span></code>) — for example a high-contrast variant. The generator
+and runtime are both already N-theme-capable; there is nothing beyond the
+token source tree to change.</p>
+<section id="step-1-copy-a-theme-document">
+<h3>Step 1: Copy a Theme Document<a class="headerlink" href="#step-1-copy-a-theme-document" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>src/osprey/interfaces/design_system/tokens/themes/light.json<span class="w"> </span><span class="se">\</span>
+<span class="w">   </span>src/osprey/interfaces/design_system/tokens/themes/high-contrast.json
+</pre></div>
+</div>
+<p>Every interface extension file under <code class="docutils literal notranslate"><span class="pre">tokens/interfaces/</span></code> that defines
+per-mode groups (<code class="docutils literal notranslate"><span class="pre">dark</span></code>/<code class="docutils literal notranslate"><span class="pre">light</span></code>) needs a value for your new theme’s
+<em>mode</em> too — see <a class="reference internal" href="#theming-interface-mode"><span class="std std-ref">A Note on Interface-Mode Completeness</span></a> below.</p>
+</section>
+<section id="step-2-edit-the-new-theme">
+<h3>Step 2: Edit the New Theme<a class="headerlink" href="#step-2-edit-the-new-theme" title="Link to this heading">#</a></h3>
+<p>Update <code class="docutils literal notranslate"><span class="pre">$extensions</span></code> (the id the runtime and CSS selector will use) and
+every semantic value:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;$extensions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;dark&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;high-contrast&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;High Contrast&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;bg&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;terminal&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;$value&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;{color.slate.1100}&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;$type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;color&quot;</span><span class="w"> </span><span class="p">},</span>
+<span class="w">    </span><span class="nt">&quot;primary&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;$value&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;#000000&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;$type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;color&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;text&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;primary&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;$value&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;#ffffff&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;$type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;color&quot;</span><span class="w"> </span><span class="p">}</span>
+<span class="w">  </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">mode</span></code> is <code class="docutils literal notranslate"><span class="pre">&quot;dark&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;light&quot;</span></code> — it decides which of the two
+<code class="docutils literal notranslate"><span class="pre">DEFAULTS</span></code> slots (and which <code class="docutils literal notranslate"><span class="pre">prefers-color-scheme</span></code> bucket) this theme
+can serve as the resolved value for <code class="docutils literal notranslate"><span class="pre">auto</span></code>. It does <strong>not</strong> need to be
+unique: nothing stops two themes from sharing a mode, but exactly the
+themes tagged with a given mode are candidates for that mode’s default and
+for <code class="docutils literal notranslate"><span class="pre">auto</span></code> resolution.</p>
+<p>Prefer aliasing into <code class="docutils literal notranslate"><span class="pre">core.json</span></code> primitives (<code class="docutils literal notranslate"><span class="pre">{color.slate.1100}</span></code>) over
+a fresh literal wherever an existing ramp step is close enough — every
+literal color you introduce is one more thing
+<code class="docutils literal notranslate"><span class="pre">check_theme_completeness</span></code>/<code class="docutils literal notranslate"><span class="pre">check_wcag_gates</span></code> have to validate and one
+more color nobody else’s theme can reuse. If you do need a genuinely new
+primitive, add the ramp step to <code class="docutils literal notranslate"><span class="pre">core.json</span></code> first with a
+<code class="docutils literal notranslate"><span class="pre">$description</span></code> explaining where it comes from, following the existing
+entries’ style.</p>
+</section>
+<section id="step-3-build">
+<h3>Step 3: Build<a class="headerlink" href="#step-3-build" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>osprey.interfaces.design_system.generator.build
+</pre></div>
+</div>
+<p>This loads the whole <code class="docutils literal notranslate"><span class="pre">tokens/</span></code> tree, validates it, and rewrites
+<code class="docutils literal notranslate"><span class="pre">tokens.css</span></code>/<code class="docutils literal notranslate"><span class="pre">tokens.js</span></code>/<code class="docutils literal notranslate"><span class="pre">theme-boot.js</span></code>. A validation failure prints
+every error with its file and dot-path — fix all of them before
+re-running; there is no partial-success mode.</p>
+<p>The most common first-run failures when adding a theme:</p>
+<ul class="simple">
+<li><p><strong>Theme completeness</strong> — every semantic token defined in <code class="docutils literal notranslate"><span class="pre">dark.json</span></code>
+must also be defined in your new theme (and vice versa). A key present in
+one theme and missing in another is rejected outright.</p></li>
+<li><p><strong>Interface-mode completeness</strong> — see <a class="reference internal" href="#theming-interface-mode"><span class="std std-ref">A Note on Interface-Mode Completeness</span></a>.</p></li>
+<li><p><strong>WCAG contrast gates</strong> — <code class="docutils literal notranslate"><span class="pre">text.primary</span></code>/<code class="docutils literal notranslate"><span class="pre">text.secondary</span></code> vs.
+<code class="docutils literal notranslate"><span class="pre">bg.primary</span></code> must clear 4.5:1, <code class="docutils literal notranslate"><span class="pre">text.muted</span></code> 3:1, <code class="docutils literal notranslate"><span class="pre">accent</span></code> vs.
+<code class="docutils literal notranslate"><span class="pre">bg.primary</span></code> 3:1. These are computed, not eyeballed; a theme that reads
+fine to you can still fail the gate.</p></li>
+</ul>
+</section>
+<section id="step-4-run-the-contract-tests">
+<h3>Step 4: Run the Contract Tests<a class="headerlink" href="#step-4-run-the-contract-tests" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/interfaces/design_system/<span class="w"> </span>-v
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">test_contract.py</span></code> re-runs the full generator validation sweep against
+the real, committed <code class="docutils literal notranslate"><span class="pre">tokens/</span></code> tree (not a fixture) — it is the
+authoritative gate for shipped token data, distinct from
+<code class="docutils literal notranslate"><span class="pre">test_model.py</span></code>/<code class="docutils literal notranslate"><span class="pre">test_validate.py</span></code>/<code class="docutils literal notranslate"><span class="pre">test_emit_*.py</span></code>, which exercise
+the generator code itself against synthetic trees. It also checks
+<code class="docutils literal notranslate"><span class="pre">tokens.js</span></code>’s <code class="docutils literal notranslate"><span class="pre">THEMES</span></code>/<code class="docutils literal notranslate"><span class="pre">DEFAULTS</span></code> against the theme sources, orphaned
+color primitives, and literal colors that duplicate a ramp step where a
+one-hop alias would do.</p>
+<p><code class="docutils literal notranslate"><span class="pre">test_freshness.py</span></code> is the drift gate: it regenerates the artifacts into
+a temp directory and diffs them byte-for-byte against what is committed
+under <code class="docutils literal notranslate"><span class="pre">static/</span></code>. If you built (Step 3) and forgot to <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">add</span></code> the
+regenerated files, this is what catches it in CI.</p>
+</section>
+<section id="step-5-regenerate-baselines">
+<h3>Step 5: Regenerate Baselines<a class="headerlink" href="#step-5-regenerate-baselines" title="Link to this heading">#</a></h3>
+<p>A new theme id needs its own visual regression baselines (screenshots) —
+<code class="docutils literal notranslate"><span class="pre">test_visual.py</span></code> captures each interface’s main view per theme at a fixed
+viewport and diffs future runs against committed PNGs under
+<code class="docutils literal notranslate"><span class="pre">tests/interfaces/design_system/baselines/</span></code>. Regenerate with the pytest
+option the suite documents (<code class="docutils literal notranslate"><span class="pre">--regen-baselines</span></code>), review the new PNGs,
+and commit them alongside your theme addition. Pixel-diff baselines are
+Linux-rendered (CI) — macOS runs skip the byte-compare (AA/subpixel
+rendering differs) and only verify the screenshots capture without
+erroring.</p>
+</section>
+<section id="a-note-on-interface-mode-completeness">
+<span id="theming-interface-mode"></span><h3>A Note on Interface-Mode Completeness<a class="headerlink" href="#a-note-on-interface-mode-completeness" title="Link to this heading">#</a></h3>
+<p>Extension token files are keyed by <strong>mode</strong> (<code class="docutils literal notranslate"><span class="pre">dark</span></code>/<code class="docutils literal notranslate"><span class="pre">light</span></code>), not by
+theme id, because an extension token is usually a visual effect (“CRT
+scanline opacity”) that only needs two states, not N. When you add a theme
+whose <code class="docutils literal notranslate"><span class="pre">mode</span></code> already has an extension group (e.g. your new theme is
+<code class="docutils literal notranslate"><span class="pre">&quot;mode&quot;:</span> <span class="pre">&quot;light&quot;</span></code> and <code class="docutils literal notranslate"><span class="pre">tokens/interfaces/web_terminal.json</span></code> already has
+a <code class="docutils literal notranslate"><span class="pre">light</span></code> group), nothing changes — the new theme reuses that mode’s
+extension values automatically. You only need to touch extension files if
+you introduce a genuinely new mode, which is not the common case.</p>
+</section>
+</section>
+<section id="consuming-tokens-in-a-new-interface">
+<span id="theming-consuming-tokens"></span><h2>Consuming Tokens in a New Interface<a class="headerlink" href="#consuming-tokens-in-a-new-interface" title="Link to this heading">#</a></h2>
+<p>Every interface’s <code class="docutils literal notranslate"><span class="pre">&lt;head&gt;</span></code> follows the same three-line opener, in order:</p>
+<div class="highlight-html notranslate"><div class="highlight"><pre><span></span><span class="p">&lt;</span><span class="nt">script</span> <span class="na">src</span><span class="o">=</span><span class="s">&quot;/design-system/js/theme-boot.js&quot;</span><span class="p">&gt;&lt;/</span><span class="nt">script</span><span class="p">&gt;</span>
+<span class="p">&lt;</span><span class="nt">link</span> <span class="na">rel</span><span class="o">=</span><span class="s">&quot;stylesheet&quot;</span> <span class="na">href</span><span class="o">=</span><span class="s">&quot;/design-system/css/tokens.css&quot;</span><span class="p">&gt;</span>
+<span class="p">&lt;</span><span class="nt">link</span> <span class="na">rel</span><span class="o">=</span><span class="s">&quot;stylesheet&quot;</span> <span class="na">href</span><span class="o">=</span><span class="s">&quot;/design-system/css/base.css&quot;</span><span class="p">&gt;</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">theme-boot.js</span></code> must load first and must <strong>not</strong> be a module script
+(module scripts are deferred, which would let a pre-theme flash slip
+through) — it sets <code class="docutils literal notranslate"><span class="pre">data-theme</span></code> synchronously before anything paints.
+<code class="docutils literal notranslate"><span class="pre">tokens.css</span></code> makes every custom property available. <code class="docutils literal notranslate"><span class="pre">base.css</span></code> is
+optional (see below).</p>
+<p>Mount the design system’s static directory once per FastAPI app:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="n">DESIGN_SYSTEM_STATIC_DIR</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="vm">__file__</span><span class="p">)</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">parent</span> <span class="o">/</span> <span class="s2">&quot;design_system&quot;</span> <span class="o">/</span> <span class="s2">&quot;static&quot;</span>
+<span class="n">app</span><span class="o">.</span><span class="n">mount</span><span class="p">(</span><span class="s2">&quot;/design-system&quot;</span><span class="p">,</span> <span class="n">StaticFiles</span><span class="p">(</span><span class="n">directory</span><span class="o">=</span><span class="n">DESIGN_SYSTEM_STATIC_DIR</span><span class="p">),</span> <span class="n">name</span><span class="o">=</span><span class="s2">&quot;design-system&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Then initialize the runtime — a small module script, placed after the head
+links:</p>
+<div class="highlight-html notranslate"><div class="highlight"><pre><span></span><span class="p">&lt;</span><span class="nt">script</span> <span class="na">type</span><span class="o">=</span><span class="s">&quot;module&quot;</span><span class="p">&gt;</span>
+<span class="w">  </span><span class="k">import</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nx">initTheme</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="kr">from</span><span class="w"> </span><span class="s1">&#39;/design-system/js/theme-manager.js&#39;</span><span class="p">;</span>
+<span class="w">  </span><span class="nx">initTheme</span><span class="p">({</span><span class="w"> </span><span class="nx">role</span><span class="o">:</span><span class="w"> </span><span class="s1">&#39;follower&#39;</span><span class="w"> </span><span class="p">});</span>
+<span class="p">&lt;/</span><span class="nt">script</span><span class="p">&gt;</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">role</span></code> is almost always <code class="docutils literal notranslate"><span class="pre">'follower'</span></code>: it applies whatever
+<code class="docutils literal notranslate"><span class="pre">theme-boot.js</span></code> already resolved pre-paint, applies a validated
+<code class="docutils literal notranslate"><span class="pre">?theme=</span></code> query parameter if present, and listens for
+<code class="docutils literal notranslate"><span class="pre">'osprey-theme-change'</span></code> broadcasts from the hub when embedded as an
+iframe panel — but never persists a preference to <code class="docutils literal notranslate"><span class="pre">localStorage</span></code> and
+never broadcasts itself. Only the Web Terminal hub uses
+<code class="docutils literal notranslate"><span class="pre">role:</span> <span class="pre">'hub'</span></code>: it is the one surface with a theme toggle button, the one
+that persists the user’s choice, and the one that broadcasts to every
+embedded panel. There should only ever be one hub on a page.</p>
+<section id="app-shell-vs-document-pages">
+<h3>app-shell vs. document pages<a class="headerlink" href="#app-shell-vs-document-pages" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">base.css</span></code> sets <code class="docutils literal notranslate"><span class="pre">html,</span> <span class="pre">body</span> <span class="pre">{</span> <span class="pre">height:</span> <span class="pre">100%;</span> <span class="pre">overflow:</span> <span class="pre">hidden;</span> <span class="pre">}</span></code> — the
+right default for a fixed-viewport, single-screen app shell (the Web
+Terminal hub, the Artifacts gallery, Tuning, the Lattice dashboard). If
+your interface is instead a normal scrolling <em>document</em> — a log viewer, a
+guidelines page, a rendered markdown artifact — that default clips
+everything below the fold. You have two options:</p>
+<ul>
+<li><p><strong>Link base.css and override the overflow back to auto</strong>, after the
+<code class="docutils literal notranslate"><span class="pre">base.css</span></code> <code class="docutils literal notranslate"><span class="pre">&lt;link&gt;</span></code> so cascade order lets your rule win at equal
+specificity:</p>
+<div class="highlight-css notranslate"><div class="highlight"><pre><span></span><span class="c">/* base.css sets html,body { overflow: hidden } for the hub&#39;s fixed-</span>
+<span class="c">   viewport terminal shell. This page is a normal scrolling document,</span>
+<span class="c">   so it must override that back to auto or content below the fold</span>
+<span class="c">   is unreachable. */</span>
+<span class="nt">html</span><span class="o">,</span><span class="w"> </span><span class="nt">body</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">overflow</span><span class="p">:</span><span class="w"> </span><span class="kc">auto</span><span class="p">;</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>This is the right choice when you still want <code class="docutils literal notranslate"><span class="pre">base.css</span></code>’s font,
+background, and reset rules — Channel Finder, ARIEL, and the session
+activity/safety pages all use this pattern.</p>
+</li>
+<li><p><strong>Omit base.css entirely</strong> if you don’t need its app-shell layout rules
+at all — the artifacts markdown-rendering page does this: it links only
+<code class="docutils literal notranslate"><span class="pre">tokens.css</span></code> (colors) and writes its own minimal reset, since
+<code class="docutils literal notranslate"><span class="pre">tokens.css</span></code> itself carries no layout rules and can’t clip anything.</p></li>
+</ul>
+<p>Either way, decide this up front — a page that scrolls fine in local
+testing without <code class="docutils literal notranslate"><span class="pre">base.css</span></code> in the picture can silently clip the moment
+someone adds the link later.</p>
+</section>
+<section id="jinja-rendered-vs-plain-static-pages">
+<h3>Jinja-rendered vs. plain-static pages<a class="headerlink" href="#jinja-rendered-vs-plain-static-pages" title="Link to this heading">#</a></h3>
+<p>Most of the head wiring above is identical whether your page is served as
+a plain static file (<code class="docutils literal notranslate"><span class="pre">FileResponse</span></code> / <code class="docutils literal notranslate"><span class="pre">StaticFiles</span></code>) or rendered
+server-side (<code class="docutils literal notranslate"><span class="pre">Jinja2Templates.TemplateResponse</span></code>, or a hand-built HTML
+string). The one place it diverges is <strong>highlight.js’s theme stylesheet</strong>,
+which must swap between a dark and a light vendor asset at runtime and
+therefore needs a <code class="docutils literal notranslate"><span class="pre">data-href-dark</span></code>/<code class="docutils literal notranslate"><span class="pre">data-href-light</span></code> pair resolved
+server-side, since the underlying URL depends on vendor mode
+(CDN vs. self-hosted, chosen from config, not something a static file can
+express):</p>
+<div class="highlight-html notranslate"><div class="highlight"><pre><span></span><span class="p">&lt;</span><span class="nt">link</span> <span class="na">id</span><span class="o">=</span><span class="s">&quot;hljs-theme&quot;</span> <span class="na">rel</span><span class="o">=</span><span class="s">&quot;stylesheet&quot;</span>
+      <span class="na">href</span><span class="o">=</span><span class="s">&quot;{{ vendor_url(&#39;highlight.js atom-one-dark theme&#39;, &#39;/static/vendor/atom-one-dark.min.css&#39;) }}&quot;</span>
+      <span class="na">data-href-dark</span><span class="o">=</span><span class="s">&quot;{{ vendor_url(&#39;highlight.js atom-one-dark theme&#39;, &#39;/static/vendor/atom-one-dark.min.css&#39;) }}&quot;</span>
+      <span class="na">data-href-light</span><span class="o">=</span><span class="s">&quot;{{ vendor_url(&#39;highlight.js atom-one-light theme&#39;, &#39;/static/vendor/atom-one-light.min.css&#39;) }}&quot;</span><span class="p">&gt;</span>
+<span class="p">&lt;</span><span class="nt">link</span> <span class="na">rel</span><span class="o">=</span><span class="s">&quot;prefetch&quot;</span> <span class="na">href</span><span class="o">=</span><span class="s">&quot;{{ vendor_url(&#39;highlight.js atom-one-light theme&#39;, &#39;/static/vendor/atom-one-light.min.css&#39;) }}&quot;</span><span class="p">&gt;</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">theme-manager.js</span></code> reads <code class="docutils literal notranslate"><span class="pre">data-href-dark</span></code>/<code class="docutils literal notranslate"><span class="pre">data-href-light</span></code> off the
+<code class="docutils literal notranslate"><span class="pre">#hljs-theme</span></code> element and swaps <code class="docutils literal notranslate"><span class="pre">href</span></code> on every theme apply — it never
+guesses a vendor path itself. If your interface doesn’t render code blocks
+with highlight.js, you don’t need any of this. If it does and your page is
+plain-static (no server-side templating available at all), you cannot use
+<code class="docutils literal notranslate"><span class="pre">vendor_url()</span></code>; either hardcode a single vendor mode for that page or add
+templating.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p>A page that hardcodes a local vendor path directly (skipping
+<code class="docutils literal notranslate"><span class="pre">vendor_url()</span></code>) will 404 in the default CDN vendor mode, where assets
+are served from a CDN rather than <code class="docutils literal notranslate"><span class="pre">/static/vendor/</span></code>. This bit
+web-terminal and the artifacts pages before both were fixed to resolve
+the hljs stylesheet through <code class="docutils literal notranslate"><span class="pre">vendor_url()</span></code> — always route vendor
+asset paths through it rather than hardcoding either the CDN or the
+local form.</p>
+</div>
+</section>
+</section>
+<section id="the-generator-cli-reference">
+<h2>The Generator CLI Reference<a class="headerlink" href="#the-generator-cli-reference" title="Link to this heading">#</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>osprey.interfaces.design_system.generator.build<span class="w"> </span><span class="o">[</span>--check<span class="o">]</span>
+</pre></div>
+</div>
+<p>Without <code class="docutils literal notranslate"><span class="pre">--check</span></code>: loads <code class="docutils literal notranslate"><span class="pre">tokens/</span></code>, validates it (aborting with every
+error printed if invalid), renders all three artifacts, and writes them
+under <code class="docutils literal notranslate"><span class="pre">static/</span></code>.</p>
+<p>With <code class="docutils literal notranslate"><span class="pre">--check</span></code>: does the same load-validate-render, but never writes.
+Instead it diffs each rendered artifact against what is already on disk
+and exits non-zero with a unified diff for anything that has drifted. This
+is the freshness gate CI runs — if you edit <code class="docutils literal notranslate"><span class="pre">tokens/</span></code> and forget to
+regenerate, <code class="docutils literal notranslate"><span class="pre">--check</span></code> fails the build with a diff showing exactly what’s
+stale:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>osprey.interfaces.design_system.generator.build<span class="w"> </span>--check
+</pre></div>
+</div>
+<p>Exit codes: <code class="docutils literal notranslate"><span class="pre">0</span></code> on success (or a clean <code class="docutils literal notranslate"><span class="pre">--check</span></code>), <code class="docutils literal notranslate"><span class="pre">1</span></code> on a
+build/validation failure, or (<code class="docutils literal notranslate"><span class="pre">--check</span></code> only) on detected drift.</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="use-web-terminal.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Use the Web Terminal</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="use-cli-chat.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Use the CLI Chat Interface</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-three-token-tiers">The Three Token Tiers</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-a-skin">Adding a Skin</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-1-copy-a-theme-document">Step 1: Copy a Theme Document</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-edit-the-new-theme">Step 2: Edit the New Theme</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-build">Step 3: Build</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-run-the-contract-tests">Step 4: Run the Contract Tests</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-5-regenerate-baselines">Step 5: Regenerate Baselines</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-note-on-interface-mode-completeness">A Note on Interface-Mode Completeness</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#consuming-tokens-in-a-new-interface">Consuming Tokens in a New Interface</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#app-shell-vs-document-pages">app-shell vs. document pages</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#jinja-rendered-vs-plain-static-pages">Jinja-rendered vs. plain-static pages</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-generator-cli-reference">The Generator CLI Reference</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/theming-interfaces.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>
