@@ -109,14 +109,17 @@ async def run_query(
 
     # Non-native (OpenAI-protocol) providers need the in-process translation
     # proxy: repoint ANTHROPIC_BASE_URL at a loopback proxy that speaks
-    # Anthropic to the SDK and the provider's protocol upstream. The proxy auth
-    # token lives in the env dict here (provider_env_for_project injected it),
-    # not os.environ — see the os.environ-delivery variant in claude_cmd. The
-    # ANTHROPIC_BASE_URL guard mirrors claude_cmd so a base_url-less provider
-    # can't KeyError. In production this never fights the e2e proxy override:
+    # Anthropic to the SDK and the provider's protocol upstream. The proxy is
+    # started from spec.upstream_base_url — the OpenAI root *with* its /v1 —
+    # NOT from env["ANTHROPIC_BASE_URL"], which the resolver strips of /v1 for
+    # Claude Code (see claude_code_resolver); sourcing the upstream from the env
+    # var would forward to a /v1-less "…/chat/completions" (issue #312). The
+    # proxy auth token lives in the env dict here (provider_env_for_project
+    # injected it), not os.environ — see the os.environ-delivery variant in
+    # claude_cmd. In production this never fights the e2e proxy override:
     # run_query is production-only; the e2e harness uses run_sdk_query.
     spec = _resolve_project_spec(project_dir)
-    if spec and spec.needs_proxy and env.get("ANTHROPIC_BASE_URL"):
+    if spec and spec.needs_proxy and spec.upstream_base_url:
         auth_token = env.get(spec.auth_env_var)
         if not auth_token:
             # Mirror claude_cmd's pre-flight auth warning: a missing token here
@@ -127,7 +130,7 @@ async def run_query(
                 spec.auth_env_var,
                 spec.provider,
             )
-        port = start_proxy(env["ANTHROPIC_BASE_URL"], auth_token)
+        port = start_proxy(spec.upstream_base_url, auth_token)
         env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
 
     options = ClaudeAgentOptions(

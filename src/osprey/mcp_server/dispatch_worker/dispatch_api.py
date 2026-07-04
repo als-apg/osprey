@@ -121,16 +121,18 @@ def _inject_provider_env_once() -> None:
             logger.info("Provider env injected: %s (provider=%s)", injected, spec.provider)
 
             # Non-native (OpenAI-protocol) providers need the in-process
-            # translation proxy. Deliver via os.environ (matching claude_cmd)
-            # because sdk_runner.build_clean_env copies os.environ into the SDK
-            # env; the in-container proxy thread is reachable by the SDK CLI.
-            # The ANTHROPIC_BASE_URL guard mirrors claude_cmd so a base_url-less
-            # provider can't KeyError.
-            if spec.needs_proxy and os.environ.get("ANTHROPIC_BASE_URL"):
+            # translation proxy. Deliver the loopback via os.environ (matching
+            # claude_cmd) because sdk_runner.build_clean_env copies os.environ
+            # into the SDK env; the in-container proxy thread is reachable by the
+            # SDK CLI. Start the proxy from spec.upstream_base_url — the OpenAI
+            # root *with* /v1 — NOT os.environ["ANTHROPIC_BASE_URL"], which the
+            # resolver strips of /v1 for Claude Code; sourcing the upstream from
+            # the env var would forward to a /v1-less endpoint (issue #312).
+            if spec.needs_proxy and spec.upstream_base_url:
                 from osprey.infrastructure.proxy.lifecycle import start_proxy
 
                 port = start_proxy(
-                    os.environ["ANTHROPIC_BASE_URL"],
+                    spec.upstream_base_url,
                     os.environ.get(spec.auth_env_var),
                 )
                 os.environ["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"

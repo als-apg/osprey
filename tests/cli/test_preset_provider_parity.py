@@ -111,4 +111,7 @@ def test_ds4_stanza_resolves_to_deepseek_tiers():
     assert spec.tier_to_model["haiku"] == "deepseek-v4-flash"
     assert spec.tier_to_model["sonnet"] == "deepseek-v4-pro"
     assert spec.tier_to_model["opus"] == "deepseek-v4-pro"
-    assert spec.env_block["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:8000/v1"
+    # Claude-Code-facing var is stripped of /v1 (issue #312); the proxy upstream
+    # keeps it for /chat/completions forwarding.
+    assert spec.env_block["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:8000"
+    assert spec.upstream_base_url == "http://127.0.0.1:8000/v1"
