@@ -21,6 +21,23 @@ from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, BUILTIN_PANELS
 from osprey.registry.web import FRAMEWORK_WEB_SERVERS, WebServerDefinition
 
 
+def _fresh_source(obj) -> str:
+    """Read *obj*'s source file directly from disk.
+
+    Prefer this over ``inspect.getsource`` for architectural "this wiring line
+    exists" guards. ``inspect.getsource`` slices lines using the code object's
+    ``co_firstlineno`` against a ``linecache`` copy of the file; if bytecode and
+    on-disk source drift (a transient ``.py``/``.pyc`` skew, which we have hit),
+    it silently returns an *adjacent* definition — a flake that can false-fail or,
+    worse, false-pass. Reading the whole file fresh is deterministic. For a
+    module this is the entire source; behavioural assertions are used instead
+    wherever a function's actual effect can be exercised directly.
+    """
+    path = inspect.getsourcefile(obj) or inspect.getfile(obj)
+    with open(path, encoding="utf-8") as fh:
+        return fh.read()
+
+
 def test_okf_is_a_builtin_panel_with_knowledge_label():
     assert "okf" in BUILTIN_PANELS
     assert BUILTIN_PANEL_LABELS["okf"] == "KNOWLEDGE"
@@ -43,25 +60,57 @@ def test_port_env_override_key_is_facility_knowledge():
     assert f"OSPREY_{defn.config_key.upper()}_PORT" == "OSPREY_FACILITY_KNOWLEDGE_PORT"
 
 
-def test_ensure_okf_server_alias_exists():
+def test_ensure_okf_server_alias_delegates_to_okf_key(monkeypatch):
+    """The ensure_okf_server alias delegates to ensure_web_server("okf").
+
+    Behavioural (was an inspect.getsource substring check): patch the delegate
+    and assert the alias forwards the bare "okf" key — stronger than matching
+    source text and immune to getsource line-slicing flakes.
+    """
     assert hasattr(server_launcher, "ensure_okf_server")
-    # It resolves the launcher by the registry key "okf".
-    src = inspect.getsource(server_launcher.ensure_okf_server)
-    assert 'ensure_web_server("okf")' in src
+    keys: list[str] = []
+    monkeypatch.setattr(server_launcher, "ensure_web_server", keys.append)
+    server_launcher.ensure_okf_server()
+    assert keys == ["okf"]
 
 
 def test_proxy_state_map_wires_okf_to_okf_server_url():
     assert proxy_module._PANEL_STATE_MAP["okf"] == "okf_server_url"
 
 
-def test_web_terminal_launches_and_gates_okf():
+def test_launch_okf_server_sets_proxy_state_and_invokes_launcher(monkeypatch):
+    """_launch_okf_server stores the state attr the proxy reads and delegates.
+
+    Behavioural replacement for the source-text checks that the launch fn
+    references ``app.state.okf_server_url`` and ``ensure_okf_server``.
+    """
+    import osprey.utils.workspace as workspace
+
+    ensure_calls: list[bool] = []
+    monkeypatch.setattr(
+        workspace, "load_osprey_config", lambda: {"facility_knowledge": {"bundle_path": "/b"}}
+    )
+    monkeypatch.setattr(server_launcher, "ensure_okf_server", lambda: ensure_calls.append(True))
+    monkeypatch.delenv("OSPREY_FACILITY_KNOWLEDGE_PORT", raising=False)
+
+    app = SimpleNamespace(state=SimpleNamespace())
+    web_terminal_app._launch_okf_server(app)
+
+    # The proxy reads app.state.okf_server_url; it must be populated (not a dead tab).
+    assert getattr(app.state, "okf_server_url", None)
+    # And the launch delegated to the launcher.
+    assert ensure_calls == [True]
+
+
+def test_lifespan_gates_okf_launch_on_enabled_panels():
+    """The lifespan launches okf only when the bare "okf" panel id is enabled.
+
+    Driving the full async lifespan here is disproportionate, so this stays a
+    source guard — but reads the module source fresh from disk (deterministic)
+    rather than via inspect.getsource.
+    """
     assert hasattr(web_terminal_app, "_launch_okf_server")
-    launch_src = inspect.getsource(web_terminal_app._launch_okf_server)
-    # The launch fn stores the same state attr the proxy reads, and calls ensure_okf_server.
-    assert "app.state.okf_server_url" in launch_src
-    assert "ensure_okf_server" in launch_src
-    # The lifespan gates the launch on the bare "okf" enabled-panel string.
-    module_src = inspect.getsource(web_terminal_app)
+    module_src = _fresh_source(web_terminal_app)
     assert '"okf" in enabled_panels' in module_src
     assert "_launch_okf_server(app)" in module_src
 
@@ -140,8 +189,25 @@ def test_panels_route_exposes_okf_server_config_endpoint():
 
     paths = {getattr(r, "path", None) for r in panels_module.router.routes}
     assert "/api/okf-server" in paths
-    # The handler returns the reverse-proxy path for the iframe src.
-    assert '"/panel/okf"' in inspect.getsource(panels_module.okf_server_config)
+
+
+async def test_okf_server_config_endpoint_returns_proxy_path():
+    """okf_server_config returns the /panel/okf reverse-proxy path when available.
+
+    Behavioural replacement for an inspect.getsource substring check: exercise
+    the handler directly for both the available and unavailable states.
+    """
+    from osprey.interfaces.web_terminal.routes import panels as panels_module
+
+    available = SimpleNamespace(
+        app=SimpleNamespace(state=SimpleNamespace(okf_server_url="http://127.0.0.1:8093"))
+    )
+    result = await panels_module.okf_server_config(available)
+    assert result == {"url": "/panel/okf", "available": True}
+
+    unavailable = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace()))
+    result = await panels_module.okf_server_config(unavailable)
+    assert result == {"url": None, "available": False}
 
 
 def test_frontend_panel_manager_registers_okf_tab():
@@ -168,5 +234,6 @@ def test_build_chain_reads_builtins_dynamically_no_hardcoded_okf():
 
     # Both import the shared set rather than hardcoding panel ids; adding "okf"
     # to BUILTIN_PANELS is therefore sufficient (no separate edit needed).
-    assert "BUILTIN_PANELS" in inspect.getsource(build_profile)
-    assert "BUILTIN_PANELS" in inspect.getsource(manifest)
+    # Fresh-file reads (not inspect.getsource) keep this guard deterministic.
+    assert "BUILTIN_PANELS" in _fresh_source(build_profile)
+    assert "BUILTIN_PANELS" in _fresh_source(manifest)
