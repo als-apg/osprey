@@ -14,12 +14,19 @@ Compatibility is documented in release notes, not encoded in the version string.
 ### Added
 
 - Every OSPREY browser interface — Web Terminal, Artifacts, ARIEL, Channel Finder, Tuning, the Lattice dashboard, the event dispatch dashboard, and the session activity/safety pages — now themes itself from one shared design-token system with dark, light, and `auto` (follows your OS color-scheme preference) modes. See the "Theming the OSPREY Interfaces" how-to for adding a new theme or wiring a new interface into it.
+- Dev/CI-only front-end JavaScript toolchain — `npm run typecheck` (`tsc --noEmit`) and `npm run test:js` (Vitest), enforced by a CI job; JS files opt into type-checking with a `// @ts-check` comment. Not needed to install or run OSPREY.
 
 ### Changed
 
 - The Web Terminal's first-run theme default changed from forced-dark to `auto`; use the in-app theme toggle if you want a fixed theme regardless of OS preference.
+- All web interface factories now share one app-setup helper for CORS, middleware, and static mounts; the Lattice dashboard picks up the standardized CORS policy and two request middlewares it was previously missing.
+- The ES-module browser interfaces now import shared front-end helpers (`el`, `escapeHtml`, `debounce`) from a single `dom.js` module instead of per-file copies.
 - The Lattice dashboard's accent color changed from a cyan-blue hue to OSPREY's canonical teal accent, matching every other interface.
 - The event dispatcher dashboard now themes itself from the shared OSPREY design system instead of a hardcoded dark palette, and follows the web-terminal hub's theme when embedded as the EVENTS panel. **Requires a dispatcher container redeploy** to pick up the new `/design-system/*` asset route.
+
+### Removed
+
+- Dropped the unused `basePath` iframe query parameter from the Web Terminal.
 
 ### Fixed
 
