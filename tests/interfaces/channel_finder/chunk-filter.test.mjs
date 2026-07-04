@@ -1,16 +1,15 @@
 /**
  * Regression tests for the in-context Explore filter/chunk logic (issue #299).
  *
- * Pure-logic guard, no DOM/network — run with zero extra dependencies:
- *   node --test tests/interfaces/channel_finder/chunk-filter.test.mjs
+ * Pure-logic guard, no DOM/network:
+ *   npx vitest run tests/interfaces/channel_finder/chunk-filter.test.mjs
  *
  * The bug: chunking happened server-side BEFORE filtering, so a search match on
  * a later page read as "No channels match the filter". The fix filters the whole
  * DB first, then re-chunks the filtered set. These tests pin that behavior.
  */
 
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
+import { test, expect } from 'vitest';
 
 import {
   filterChannels,
@@ -52,17 +51,17 @@ test('#299 regression: a match deep on page 3 is found from page 1', () => {
   chunkIdx = 0;
   chunkIdx = clampChunkIdx(chunkIdx, filtered.length, CHUNK_SIZE);
 
-  assert.equal(filtered.length, 1, 'the zebra is found across the whole DB');
-  assert.equal(totalChunksFor(filtered.length, CHUNK_SIZE), 1, 'filtered set is one chunk');
+  expect(filtered.length, 'the zebra is found across the whole DB').toBe(1);
+  expect(totalChunksFor(filtered.length, CHUNK_SIZE), 'filtered set is one chunk').toBe(1);
 
   const page = pageSlice(filtered, chunkIdx, CHUNK_SIZE);
-  assert.equal(page.length, 1);
-  assert.equal(page[0].channel, 'SR:SPECIAL:ZEBRA', 'the match is on the visible page');
+  expect(page.length).toBe(1);
+  expect(page[0].channel, 'the match is on the visible page').toBe('SR:SPECIAL:ZEBRA');
 });
 
 test('empty filter returns the full set unchanged (same reference)', () => {
   const db = makeDb();
-  assert.equal(filterChannels(db, ''), db);
+  expect(filterChannels(db, '')).toBe(db);
 });
 
 test('filter matches across name, address, and description (case-insensitive)', () => {
@@ -71,34 +70,34 @@ test('filter matches across name, address, and description (case-insensitive)', 
     { channel: 'SR:DCCT', address: 'SR:CURRENT:MON', description: 'stored beam current' },
     { channel: 'BR:VAC:01', address: 'BR:VAC:01', description: 'booster vacuum gauge' },
   ];
-  assert.equal(filterChannels(db, 'dcct').length, 1, 'name match');
-  assert.equal(filterChannels(db, 'current:mon').length, 1, 'address match');
-  assert.equal(filterChannels(db, 'vacuum').length, 1, 'description match');
-  assert.equal(filterChannels(db, 'sr:').length, 2, 'shared prefix matches two');
+  expect(filterChannels(db, 'dcct').length, 'name match').toBe(1);
+  expect(filterChannels(db, 'current:mon').length, 'address match').toBe(1);
+  expect(filterChannels(db, 'vacuum').length, 'description match').toBe(1);
+  expect(filterChannels(db, 'sr:').length, 'shared prefix matches two').toBe(2);
 });
 
 test('totalChunksFor never reports zero chunks', () => {
-  assert.equal(totalChunksFor(0, CHUNK_SIZE), 1);
-  assert.equal(totalChunksFor(1, CHUNK_SIZE), 1);
-  assert.equal(totalChunksFor(50, CHUNK_SIZE), 1);
-  assert.equal(totalChunksFor(51, CHUNK_SIZE), 2);
-  assert.equal(totalChunksFor(120, CHUNK_SIZE), 3);
+  expect(totalChunksFor(0, CHUNK_SIZE)).toBe(1);
+  expect(totalChunksFor(1, CHUNK_SIZE)).toBe(1);
+  expect(totalChunksFor(50, CHUNK_SIZE)).toBe(1);
+  expect(totalChunksFor(51, CHUNK_SIZE)).toBe(2);
+  expect(totalChunksFor(120, CHUNK_SIZE)).toBe(3);
 });
 
 test('clampChunkIdx keeps the operator on a valid page when the set shrinks', () => {
   // Was on page 3 (idx 2) of 120; a narrowing filter leaves 10 matches (1 page).
-  assert.equal(clampChunkIdx(2, 10, CHUNK_SIZE), 0, 'clamped down to the only page');
+  expect(clampChunkIdx(2, 10, CHUNK_SIZE), 'clamped down to the only page').toBe(0);
   // Still valid pages stay put.
-  assert.equal(clampChunkIdx(1, 120, CHUNK_SIZE), 1);
+  expect(clampChunkIdx(1, 120, CHUNK_SIZE)).toBe(1);
   // Negative input floors at 0.
-  assert.equal(clampChunkIdx(-3, 120, CHUNK_SIZE), 0);
+  expect(clampChunkIdx(-3, 120, CHUNK_SIZE)).toBe(0);
 });
 
 test('pageSlice returns the correct window per page', () => {
   const db = makeDb();
-  assert.equal(pageSlice(db, 0, CHUNK_SIZE).length, 50);
-  assert.equal(pageSlice(db, 1, CHUNK_SIZE).length, 50);
-  assert.equal(pageSlice(db, 2, CHUNK_SIZE).length, 20, 'last page is the remainder');
-  assert.equal(pageSlice(db, 0, CHUNK_SIZE)[0].channel, 'SR:BPM:000:X');
-  assert.equal(pageSlice(db, 1, CHUNK_SIZE)[0].channel, 'SR:BPM:050:X');
+  expect(pageSlice(db, 0, CHUNK_SIZE).length).toBe(50);
+  expect(pageSlice(db, 1, CHUNK_SIZE).length).toBe(50);
+  expect(pageSlice(db, 2, CHUNK_SIZE).length, 'last page is the remainder').toBe(20);
+  expect(pageSlice(db, 0, CHUNK_SIZE)[0].channel).toBe('SR:BPM:000:X');
+  expect(pageSlice(db, 1, CHUNK_SIZE)[0].channel).toBe('SR:BPM:050:X');
 });
