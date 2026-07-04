@@ -350,7 +350,8 @@ class ClaudeCodeModelResolver:
 
         # Base URL: use provider literal (no /v1); skip for direct Anthropic
         if provider_def.get("base_url"):
-            env_block["ANTHROPIC_BASE_URL"] = provider_def["base_url"]
+            base = provider_def["base_url"].rstrip("/").removesuffix("/v1")
+            env_block["ANTHROPIC_BASE_URL"] = base # This ensures Anthropic provider doesn't get double /v1 so the url is not broken
 
         # Tier model env vars (all providers)
         env_block["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = tier_to_model["haiku"]
@@ -383,7 +384,7 @@ class ClaudeCodeModelResolver:
         from osprey.infrastructure.proxy.lifecycle import is_proxy_needed
 
         _needs_proxy = is_proxy_needed(provider_name, api_providers)
-        _upstream_url = env_block.get("ANTHROPIC_BASE_URL") if _needs_proxy else None
+        _upstream_url = provider_def.get("base_url") if _needs_proxy else None # If the proxy is needed, use the raw provider_def (with /v1) not the stripped one 
 
         return ClaudeCodeModelSpec(
             provider=provider_name,
