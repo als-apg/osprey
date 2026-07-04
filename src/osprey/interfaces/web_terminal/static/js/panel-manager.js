@@ -484,6 +484,26 @@ function sendThemeToIframe(iframe) {
   } catch { /* cross-origin */ }
 }
 
+/**
+ * Send the hub's active session id to one iframe — the twin of
+ * sendThemeToIframe(), owned by the same two per-iframe trigger points
+ * (iframe creation and tab activation). Guards on a missing contentWindow
+ * (a not-yet-loaded or detached iframe) and on there being no active
+ * session yet, and swallows the cross-origin postMessage throw the same
+ * way its theme twin does.
+ *
+ * 'osprey-session-change' is the message type embedded interfaces listen
+ * for to scope their view to the hub's active session.
+ */
+function sendSessionToIframe(iframe) {
+  if (!iframe?.contentWindow) return;
+  const sid = getCurrentSessionId();
+  if (!sid) return;
+  try {
+    iframe.contentWindow.postMessage({ type: 'osprey-session-change', session_id: sid }, '*');
+  } catch { /* cross-origin */ }
+}
+
 // ---- Tab Switching ----
 
 function activateTab(panelId, { userInitiated = false } = {}) {
@@ -516,17 +536,7 @@ function activateTab(panelId, { userInitiated = false } = {}) {
   // Re-send current theme and session ID to the newly visible iframe
   // (handles edge cases where a postMessage was missed while hidden/loading)
   sendThemeToIframe(state.iframe);
-  if (state.iframe?.contentWindow) {
-    try {
-      const sid = getCurrentSessionId();
-      if (sid) {
-        state.iframe.contentWindow.postMessage(
-          { type: 'osprey-session-change', session_id: sid },
-          '*'
-        );
-      }
-    } catch { /* cross-origin */ }
-  }
+  sendSessionToIframe(state.iframe);
 
   // Report user-initiated tab switches to the server (avoids SSE feedback loop)
   if (userInitiated) {
@@ -590,19 +600,10 @@ function createIframe(panelId) {
 
   iframe.addEventListener('load', () => {
     iframe.classList.add('loaded');
-    // Sync theme immediately so there's no flash of wrong theme
+    // Sync theme + session immediately so there's no flash of the wrong
+    // theme and the embedded app scopes to the active session.
     sendThemeToIframe(iframe);
-    if (iframe.contentWindow) {
-      try {
-        const sid = getCurrentSessionId();
-        if (sid) {
-          iframe.contentWindow.postMessage(
-            { type: 'osprey-session-change', session_id: sid },
-            '*'
-          );
-        }
-      } catch { /* cross-origin */ }
-    }
+    sendSessionToIframe(iframe);
   });
 
   contentEl.appendChild(iframe);
