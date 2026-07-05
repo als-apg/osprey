@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -28,6 +29,7 @@ if TYPE_CHECKING:
         PermissionMode,
         ResultMessage,
         SystemMessage,
+        ToolPermissionContext,
         ToolResultBlock,
     )
 
@@ -457,6 +459,7 @@ def build_agent_options(
     max_budget_usd: float = 2.0,
     model: str | None = None,
     permission_mode: PermissionMode = "bypassPermissions",
+    can_use_tool: Callable[[str, dict[str, Any], ToolPermissionContext], Any] | None = None,
 ) -> ClaudeAgentOptions:
     """Build ``ClaudeAgentOptions`` routed to a project's configured provider.
 
@@ -478,6 +481,11 @@ def build_agent_options(
         permission_mode: SDK permission mode. ``"bypassPermissions"`` for the
             read-only headless path; ``"default"`` when an approval callback
             should mediate tool use.
+        can_use_tool: Optional SDK permission callback, set on the returned
+            options unchanged when given. Only meaningful alongside
+            ``permission_mode="default"`` (``"bypassPermissions"`` never
+            consults it). ``None`` (the default) leaves ``ClaudeAgentOptions``
+            behavior exactly as before this parameter existed.
 
     Returns:
         Configured ``ClaudeAgentOptions`` ready to open a ``ClaudeSDKClient``.
@@ -509,7 +517,7 @@ def build_agent_options(
         port = start_proxy(spec.upstream_base_url, auth_token)
         env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
 
-    return ClaudeAgentOptions(
+    options = ClaudeAgentOptions(
         model=resolved_model,
         cwd=str(project_dir),
         permission_mode=permission_mode,
@@ -519,6 +527,9 @@ def build_agent_options(
         setting_sources=["project"],
         disallowed_tools=disallowed_tools,
     )
+    if can_use_tool is not None:
+        options.can_use_tool = can_use_tool
+    return options
 
 
 async def _drain_response(

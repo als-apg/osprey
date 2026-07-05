@@ -29,9 +29,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable
 
-    from claude_agent_sdk import ClaudeSDKClient, PermissionMode, ResultMessage
+    from claude_agent_sdk import (
+        ClaudeSDKClient,
+        PermissionMode,
+        ResultMessage,
+        ToolPermissionContext,
+    )
 
 # SDK import — keep module importable even when SDK is absent.
 try:
@@ -196,6 +201,7 @@ async def agent_session(
     max_budget_usd: float = 5.0,
     model: str | None = None,
     permission_mode: PermissionMode = "bypassPermissions",
+    can_use_tool: Callable[[str, dict[str, Any], ToolPermissionContext], Any] | None = None,
 ) -> AsyncIterator[AgentSession]:
     """Open a multi-turn :class:`AgentSession` for *project_dir*.
 
@@ -213,6 +219,10 @@ async def agent_session(
         model: Model id; resolved from the project's haiku tier when ``None``.
         permission_mode: SDK permission mode (``"bypassPermissions"`` for a
             read-only run; ``"default"`` when an approval callback mediates).
+        can_use_tool: Optional SDK permission callback, forwarded to
+            :func:`~osprey.agent_runner.primitives.build_agent_options`
+            unchanged. Only meaningful alongside ``permission_mode="default"``.
+            ``None`` (the default) preserves prior behavior exactly.
 
     Yields:
         An :class:`AgentSession` ready to :meth:`~AgentSession.send` turns.
@@ -233,6 +243,7 @@ async def agent_session(
         max_budget_usd=max_budget_usd,
         model=model,
         permission_mode=permission_mode,
+        can_use_tool=can_use_tool,
     )
 
     async with ClaudeSDKClient(options=options) as client:
