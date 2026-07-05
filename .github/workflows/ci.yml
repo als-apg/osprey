@@ -481,11 +481,15 @@ jobs:
           # (agentic-per-preset). The full Docker-stack dispatch test
           # (dispatch-deploy-e2e) and the Dockerfile e2e (dockerfile-e2e) each
           # have their own job because they build container images. Exclude all
-          # three here to avoid double-execution.
+          # three here to avoid double-execution. The write-safety pentest round
+          # (test_pentest_round_e2e) is manual-only: it provisions a full live
+          # round and spends real API budget, so it is opt-in via
+          # OSPREY_PENTEST_E2E_ENABLE and excluded from the default sweep.
           uv run pytest tests/e2e/ -v --tb=short \
             --ignore=tests/e2e/test_preset_agentic.py \
             --ignore=tests/e2e/test_dispatch_deploy.py \
-            --ignore=tests/e2e/test_dockerfile_e2e.py
+            --ignore=tests/e2e/test_dockerfile_e2e.py \
+            --ignore=tests/e2e/test_pentest_round_e2e.py
         fi
 
   deploy-e2e:
