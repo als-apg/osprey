@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass, field
@@ -22,7 +23,9 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from claude_agent_sdk import (
+        ClaudeAgentOptions,
         ClaudeSDKClient,
+        PermissionMode,
         ResultMessage,
         SystemMessage,
         ToolResultBlock,
@@ -30,11 +33,24 @@ if TYPE_CHECKING:
 
 # SDK imports — keep module importable even when SDK is absent.
 try:
-    from claude_agent_sdk import ResultMessage, SystemMessage  # type: ignore[assignment]
+    from claude_agent_sdk import (  # type: ignore[assignment]
+        AssistantMessage,
+        ClaudeAgentOptions,
+        ResultMessage,
+        SystemMessage,
+        TextBlock,
+        ToolResultBlock,
+        ToolUseBlock,
+        UserMessage,
+    )
 
     HAS_SDK = True
 except ImportError:
     HAS_SDK = False
+
+from osprey.infrastructure.proxy.lifecycle import start_proxy
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -423,6 +439,136 @@ def _ingest_tool_result(block: ToolResultBlock, pending_tools: dict[str, ToolTra
                 texts.append(item.get("text", ""))
         matched.result = "\n".join(texts) if texts else str(block.content)
     matched.is_error = bool(block.is_error)
+
+
+# ---------------------------------------------------------------------------
+# Shared SDK wiring: option building + response draining
+# ---------------------------------------------------------------------------
+# These back both the single-turn ``run_query`` and the multi-turn
+# ``agent_session`` so provider routing and stream parsing are identical across
+# entry points — there is one place to fix a routing bug or a message-type gap.
+
+
+def build_agent_options(
+    project_dir: Path,
+    *,
+    disallowed_tools: list[str],
+    max_turns: int = 25,
+    max_budget_usd: float = 2.0,
+    model: str | None = None,
+    permission_mode: PermissionMode = "bypassPermissions",
+) -> ClaudeAgentOptions:
+    """Build ``ClaudeAgentOptions`` routed to a project's configured provider.
+
+    Resolves the model and provider env, and — for non-native (OpenAI-protocol)
+    providers — starts the in-process translation proxy and repoints
+    ``ANTHROPIC_BASE_URL`` at it. The proxy upstream comes from
+    ``spec.upstream_base_url`` (the OpenAI root *with* its ``/v1``), NOT from
+    ``env["ANTHROPIC_BASE_URL"]`` which the resolver strips of ``/v1`` for Claude
+    Code; sourcing the upstream from the env var would forward to a ``/v1``-less
+    ``…/chat/completions`` (issue #312).
+
+    Args:
+        project_dir: Path to an initialized OSPREY project.
+        disallowed_tools: Tool names forbidden at the SDK level (forwarded as
+            ``--disallowedTools``; the architectural read-only guard).
+        max_turns: Maximum agentic turns before the SDK stops a response.
+        max_budget_usd: Budget ceiling passed to the SDK (literal, not scaled).
+        model: Model id; when ``None``, resolved from the project's haiku tier.
+        permission_mode: SDK permission mode. ``"bypassPermissions"`` for the
+            read-only headless path; ``"default"`` when an approval callback
+            should mediate tool use.
+
+    Returns:
+        Configured ``ClaudeAgentOptions`` ready to open a ``ClaudeSDKClient``.
+
+    Raises:
+        ImportError: When ``claude_agent_sdk`` is not installed.
+    """
+    if not HAS_SDK:
+        raise ImportError(
+            "claude_agent_sdk is required to build agent options. "
+            "Install it with: pip install claude-agent-sdk"
+        )
+
+    resolved_model = model if model is not None else resolve_default_model(project_dir)
+    env = sdk_env(project_dir)
+
+    spec = _resolve_project_spec(project_dir)
+    if spec and spec.needs_proxy and spec.upstream_base_url:
+        auth_token = env.get(spec.auth_env_var)
+        if not auth_token:
+            # A missing token otherwise surfaces only as an opaque proxy 401
+            # mid-query; warn early naming the var and provider.
+            logger.warning(
+                "Auth token %s missing for provider '%s' — proxied requests may "
+                "fail to authenticate (set the provider secret in the project .env)",
+                spec.auth_env_var,
+                spec.provider,
+            )
+        port = start_proxy(spec.upstream_base_url, auth_token)
+        env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
+
+    return ClaudeAgentOptions(
+        model=resolved_model,
+        cwd=str(project_dir),
+        permission_mode=permission_mode,
+        max_turns=max_turns,
+        max_budget_usd=max_budget_usd,
+        env=env,
+        setting_sources=["project"],
+        disallowed_tools=disallowed_tools,
+    )
+
+
+async def _drain_response(
+    client: ClaudeSDKClient,
+    workflow: SDKWorkflowResult,
+) -> None:
+    """Consume one response stream from *client* into *workflow*.
+
+    Iterates ``client.receive_response()`` (which terminates after the
+    ResultMessage) and collects assistant text, tool-call traces, tool results
+    (which arrive in a following ``UserMessage`` per the Anthropic contract, or
+    embedded in an ``AssistantMessage`` when the SDK forwards them), system
+    messages, and the final ResultMessage.
+
+    Args:
+        client: An open, connected ``ClaudeSDKClient`` with a query in flight.
+        workflow: Result accumulator; a fresh instance collects one turn, a
+            reused instance accumulates across turns.
+    """
+    # ``tool_use_id`` → ``ToolTrace`` map for matching results to their calls;
+    # purely local to this drain, reset for each response stream.
+    pending_tools: dict[str, ToolTrace] = {}
+    async for message in client.receive_response():
+        if isinstance(message, AssistantMessage):
+            for block in message.content:
+                if isinstance(block, TextBlock):
+                    workflow.text_blocks.append(block.text)
+                elif isinstance(block, ToolUseBlock):
+                    trace = ToolTrace(
+                        name=block.name,
+                        input=block.input,
+                        tool_use_id=block.id,
+                        parent_tool_use_id=message.parent_tool_use_id,
+                    )
+                    workflow.tool_traces.append(trace)
+                    pending_tools[block.id] = trace
+                elif isinstance(block, ToolResultBlock):
+                    _ingest_tool_result(block, pending_tools)
+
+        elif isinstance(message, UserMessage):
+            if isinstance(message.content, list):
+                for block in message.content:
+                    if isinstance(block, ToolResultBlock):
+                        _ingest_tool_result(block, pending_tools)
+
+        elif isinstance(message, SystemMessage):
+            workflow.system_messages.append(message)
+
+        elif isinstance(message, ResultMessage):
+            workflow.result = message
 
 
 # ---------------------------------------------------------------------------
