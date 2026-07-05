@@ -176,6 +176,11 @@ archiver-mongodb = [
     "pymongo>=4.0",
 ]
 
+# QuestDB archiver connector backend
+archiver-questdb = [
+    "asyncpg>=0.29",
+]
+
 # Facility knowledge / ontology support (OKF markdown bundles, RDF reasoning)
 knowledge = [
     "rdflib>=7.0",
@@ -248,6 +253,7 @@ module = [
     "pyepics.*",
     "podman.*",
     "pymongo.*",
+    "asyncpg.*",
 ]
 ignore_missing_imports = true
 
