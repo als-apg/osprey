@@ -5,6 +5,7 @@
  */
 
 import { initTheme, subscribe, chartTheme } from '/design-system/js/theme-manager.js';
+import { applyEmbedded } from '/design-system/js/frame-params.js';
 
 // Panel embedded in the Web Terminal hub: apply the hub's broadcast theme
 // and follow live changes. theme-boot.js already applied data-theme
@@ -86,10 +87,7 @@ let sliderDebounceTimers = {};
 
 document.addEventListener('DOMContentLoaded', () => {
   // Check embedded query param
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('embedded') === 'true') {
-    document.body.classList.add('embedded');
-  }
+  applyEmbedded();
 
   // Bind buttons
   document.getElementById('btn-refresh').addEventListener('click', refreshFast);

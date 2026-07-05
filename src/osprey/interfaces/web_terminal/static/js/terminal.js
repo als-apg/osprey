@@ -265,7 +265,7 @@ export function notifySessionChange(sessionId) {
     try {
       iframe.contentWindow.postMessage(
         { type: 'osprey-session-change', session_id: sessionId },
-        '*'
+        window.location.origin
       );
     } catch { /* cross-origin — ignore */ }
   });

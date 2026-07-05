@@ -189,6 +189,7 @@ import { initTheme, subscribe, chartTheme, chartSeries } from "/design-system/js
   function sendToTerminal(text) {
     try {
       if (window.parent && window.parent !== window) {
+        // Intentional '*' (same-origin contract exception): parent embedder may be cross-origin.
         window.parent.postMessage({ type: "osprey-paste-to-terminal", text }, "*");
       }
     } catch { /* cross-origin */ }
@@ -1531,6 +1532,7 @@ import { initTheme, subscribe, chartTheme, chartSeries } from "/design-system/js
 
   function _forwardThemeToPreviewFrames(theme) {
     document.querySelectorAll(".preview-viewport iframe, .browse-preview-pane iframe").forEach((iframe) => {
+      // Intentional '*' (same-origin contract exception): nested preview iframe may be null/cross-origin.
       try { iframe.contentWindow.postMessage({ type: "osprey-theme-change", theme }, "*"); } catch {}
     });
   }
@@ -1560,6 +1562,7 @@ import { initTheme, subscribe, chartTheme, chartSeries } from "/design-system/js
   // Session changes are unrelated to theming and stay a plain message
   // listener (theme-manager owns the 'osprey-theme-change' type now).
   window.addEventListener("message", (e) => {
+    if (e.origin !== window.location.origin) return;
     if (e.data && e.data.type === "osprey-session-change" && e.data.session_id) {
       currentSessionId = e.data.session_id;
       const btn = document.getElementById("all-sessions-btn");

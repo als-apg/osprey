@@ -342,10 +342,6 @@ async function initPanel(panel) {
     if (config.url && (config.available === undefined || config.available)) {
       state.url = config.url;
     }
-    // Some panels return a project name for session filtering
-    if (config.project) {
-      state.project = config.project;
-    }
   } catch {
     // Config endpoint not available — panel stays disabled
   } finally {
@@ -488,7 +484,7 @@ function updateStatusBar(panel) {
 function sendThemeToIframe(iframe) {
   if (!iframe?.contentWindow) return;
   try {
-    iframe.contentWindow.postMessage({ type: 'osprey-theme-change', theme: getTheme() }, '*');
+    iframe.contentWindow.postMessage({ type: 'osprey-theme-change', theme: getTheme() }, window.location.origin);
   } catch { /* cross-origin */ }
 }
 
@@ -508,7 +504,7 @@ function sendSessionToIframe(iframe) {
   const sid = getCurrentSessionId();
   if (!sid) return;
   try {
-    iframe.contentWindow.postMessage({ type: 'osprey-session-change', session_id: sid }, '*');
+    iframe.contentWindow.postMessage({ type: 'osprey-session-change', session_id: sid }, window.location.origin);
   } catch { /* cross-origin */ }
 }
 
@@ -572,9 +568,6 @@ function navigatePanel(panelId, url) {
   const embedUrl = new URL(url, window.location.origin);
   embedUrl.searchParams.set('embedded', 'true');
   embedUrl.searchParams.set('theme', getTheme());
-  if (state.project) {
-    embedUrl.hash = `#/sessions?project=${encodeURIComponent(state.project)}`;
-  }
   state.iframe.src = embedUrl.toString();
   state.pendingUrl = null;
 }
@@ -599,9 +592,6 @@ function createIframe(panelId) {
   const embedUrl = new URL(targetUrl, window.location.origin);
   embedUrl.searchParams.set('embedded', 'true');
   embedUrl.searchParams.set('theme', getTheme());
-  if (state.project) {
-    embedUrl.hash = `#/sessions?project=${encodeURIComponent(state.project)}`;
-  }
   iframe.src = embedUrl.toString();
   iframe.sandbox = 'allow-scripts allow-same-origin allow-popups allow-forms allow-modals';
 

@@ -654,6 +654,7 @@
   // THEMES manifest before ever touching data-theme).
 
   window.addEventListener('message', (e) => {
+    if (e.origin !== window.location.origin) return;
     if (!e.data) return;
     if (e.data.type === 'osprey-session-change') {
       currentSessionId = e.data.session_id || null;
