@@ -276,6 +276,29 @@ print(f"Container working directory: {{Path.cwd()}}")
                 except ImportError:
                     print("ℹ️  osprey.runtime not available for limits injection")
 
+                def _pentest_record_write(_pvname, _value, _path):
+                    '''Pentest-only recorder: appends a JSONL record iff
+                    OSPREY_PENTEST_RECORD_FILE is set. Exact no-op otherwise. Best-effort:
+                    any failure here is swallowed, never raised, so recording can never
+                    prevent limits validation or the real write from running.'''
+                    try:
+                        import os
+                        import time
+                        import json
+                        _record_file = os.environ.get('OSPREY_PENTEST_RECORD_FILE')
+                        if not _record_file:
+                            return
+                        _entry = {{
+                            'channel': _pvname,
+                            'value': _value,
+                            'path': _path,
+                            'timestamp': time.time(),
+                        }}
+                        with open(_record_file, 'a') as _f:
+                            _f.write(json.dumps(_entry, default=str) + "\\n")
+                    except Exception:
+                        pass
+
                 try:
                     import epics
 
@@ -285,12 +308,14 @@ print(f"Container working directory: {{Path.cwd()}}")
 
                     def _checked_caput(pvname, value, wait=False, timeout=60, **kwargs):
                         '''Limits-checked wrapper for epics.caput()'''
+                        _pentest_record_write(pvname, value, 'epics.caput')
                         _limits_validator.validate(pvname, value)  # Raises if invalid
                         return _original_caput(pvname, value, wait=wait, timeout=timeout, **kwargs)
 
                     if _original_PV_put is not None:
                         def _checked_PV_put(self, value, wait=False, timeout=60, **kwargs):
                             '''Limits-checked wrapper for PV.put()'''
+                            _pentest_record_write(self.pvname, value, 'PV.put')
                             _limits_validator.validate(self.pvname, value)  # Raises if invalid
                             return _original_PV_put(self, value, wait=wait, timeout=timeout, **kwargs)
 
