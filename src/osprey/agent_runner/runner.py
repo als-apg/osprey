@@ -1,9 +1,12 @@
 """Headless agent-run entry point for the ``osprey query`` CLI command.
 
 Provides a production-ready ``run_query`` coroutine built on the shared
-primitives in ``osprey.agent_runner.primitives``.  The implementation mirrors
-``tests/e2e/sdk_helpers.run_sdk_query`` without the test-only concerns
-(e2e budget scaling, subagent transcript harvesting, MCP sidecar persistence).
+primitives in ``osprey.agent_runner.primitives``.  ``run_query`` is the
+single-turn entry point; the multi-turn counterpart is
+``osprey.agent_runner.session.agent_session``.  Both build their SDK options
+via ``primitives.build_agent_options`` and parse the response stream via
+``primitives._drain_response``, so provider routing and message handling are
+identical across them.
 
 The module remains importable when ``claude_agent_sdk`` is absent; the runtime
 path will raise ``ImportError`` in that case, but module-level imports (e.g.
@@ -12,26 +15,15 @@ for type checking or CLI argument parsing) still succeed.
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from claude_agent_sdk import ClaudeSDKClient
 
-# SDK imports — keep module importable even when SDK is absent.
+# SDK import — keep module importable even when SDK is absent.
 try:
-    from claude_agent_sdk import (
-        AssistantMessage,
-        ClaudeAgentOptions,
-        ClaudeSDKClient,
-        ResultMessage,
-        SystemMessage,
-        TextBlock,
-        ToolResultBlock,
-        ToolUseBlock,
-        UserMessage,
-    )
+    from claude_agent_sdk import ClaudeSDKClient
 
     HAS_SDK = True
 except ImportError:
@@ -39,17 +31,11 @@ except ImportError:
 
 from osprey.agent_runner.primitives import (
     SDKWorkflowResult,
-    ToolTrace,
     _await_mcp_ready,
+    _drain_response,
     _expected_mcp_servers,
-    _ingest_tool_result,
-    _resolve_project_spec,
-    resolve_default_model,
-    sdk_env,
+    build_agent_options,
 )
-from osprey.infrastructure.proxy.lifecycle import start_proxy
-
-logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Public entry point
@@ -65,7 +51,7 @@ async def run_query(
     max_budget_usd: float = 2.0,
     model: str | None = None,
 ) -> SDKWorkflowResult:
-    """Run a read-only agent query via the Claude Agent SDK.
+    """Run a single-turn, read-only agent query via the Claude Agent SDK.
 
     This is the production runner used by ``osprey query``.  It is
     architecturally read-only: the caller supplies ``disallowed_tools`` which
@@ -103,91 +89,26 @@ async def run_query(
             "Install it with: pip install claude-agent-sdk"
         )
 
-    resolved_model = model if model is not None else resolve_default_model(project_dir)
-
-    env = sdk_env(project_dir)
-
-    # Non-native (OpenAI-protocol) providers need the in-process translation
-    # proxy: repoint ANTHROPIC_BASE_URL at a loopback proxy that speaks
-    # Anthropic to the SDK and the provider's protocol upstream. The proxy is
-    # started from spec.upstream_base_url — the OpenAI root *with* its /v1 —
-    # NOT from env["ANTHROPIC_BASE_URL"], which the resolver strips of /v1 for
-    # Claude Code (see claude_code_resolver); sourcing the upstream from the env
-    # var would forward to a /v1-less "…/chat/completions" (issue #312). The
-    # proxy auth token lives in the env dict here (provider_env_for_project
-    # injected it), not os.environ — see the os.environ-delivery variant in
-    # claude_cmd. In production this never fights the e2e proxy override:
-    # run_query is production-only; the e2e harness uses run_sdk_query.
-    spec = _resolve_project_spec(project_dir)
-    if spec and spec.needs_proxy and spec.upstream_base_url:
-        auth_token = env.get(spec.auth_env_var)
-        if not auth_token:
-            # Mirror claude_cmd's pre-flight auth warning: a missing token here
-            # otherwise surfaces only as an opaque proxy 401 mid-query.
-            logger.warning(
-                "Auth token %s missing for provider '%s' — proxied requests may "
-                "fail to authenticate (set the provider secret in the project .env)",
-                spec.auth_env_var,
-                spec.provider,
-            )
-        port = start_proxy(spec.upstream_base_url, auth_token)
-        env["ANTHROPIC_BASE_URL"] = f"http://127.0.0.1:{port}"
-
-    options = ClaudeAgentOptions(
-        model=resolved_model,
-        cwd=str(project_dir),
-        permission_mode="bypassPermissions",
+    options = build_agent_options(
+        project_dir,
+        disallowed_tools=disallowed_tools,
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
-        env=env,
-        setting_sources=["project"],
-        disallowed_tools=disallowed_tools,
+        model=model,
     )
 
     workflow = SDKWorkflowResult()
-
-    # Map tool_use_id → ToolTrace for matching results to calls.
-    pending_tools: dict[str, ToolTrace] = {}
 
     try:
         # ClaudeSDKClient (streaming) rather than the one-shot ``query()`` so
         # we can poll ``get_mcp_status()`` and wait out async MCP registration
         # before the first turn — eliminating the controls cold-start race.
-        # Message handling is identical to the query() iterator.
         async with ClaudeSDKClient(options=options) as client:
             workflow.mcp_servers = await _await_mcp_ready(
                 client, _expected_mcp_servers(project_dir)
             )
             await client.query(prompt)
-            async for message in client.receive_response():
-                if isinstance(message, AssistantMessage):
-                    for block in message.content:
-                        if isinstance(block, TextBlock):
-                            workflow.text_blocks.append(block.text)
-                        elif isinstance(block, ToolUseBlock):
-                            trace = ToolTrace(
-                                name=block.name,
-                                input=block.input,
-                                tool_use_id=block.id,
-                                parent_tool_use_id=message.parent_tool_use_id,
-                            )
-                            workflow.tool_traces.append(trace)
-                            pending_tools[block.id] = trace
-                        elif isinstance(block, ToolResultBlock):
-                            _ingest_tool_result(block, pending_tools)
-
-                elif isinstance(message, UserMessage):
-                    # Tool results land here per the Anthropic API contract.
-                    if isinstance(message.content, list):
-                        for block in message.content:
-                            if isinstance(block, ToolResultBlock):
-                                _ingest_tool_result(block, pending_tools)
-
-                elif isinstance(message, SystemMessage):
-                    workflow.system_messages.append(message)
-
-                elif isinstance(message, ResultMessage):
-                    workflow.result = message
+            await _drain_response(client, workflow)
     except Exception as exc:
         raise RuntimeError(f"SDK query failed: {exc}") from exc
 
