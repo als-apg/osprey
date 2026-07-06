@@ -17,6 +17,15 @@ from osprey.utils.config import resolve_env_vars
 
 logger = logging.getLogger("osprey.cli.templates")
 
+# python's execute is the one documented read/write-mixed exception to the
+# kill-switch's hard-deny default (see the docstring in
+# build_claude_code_context below): it accepts both read-only and write-access
+# kernels, so the kill switch pulls it OUT of `ask` instead of hard-denying it
+# outright. Every other _WRITES_CHECK-gated tool is presumed pure-write and
+# must be denied. Module-level so tests can assert against the same set the
+# renderer actually uses instead of re-declaring it.
+_MIXED_READ_WRITE_TEMPLATES = {"python"}
+
 
 def build_claude_code_context(
     template_root: Path,
@@ -214,7 +223,18 @@ def build_claude_code_context(
     # (it has a legitimate readonly path), so instead it is pulled OUT of
     # permissions.ask — with no static ask entry, the writes_check hook's deny
     # on a readwrite execute stands alone and blocks the call before the prompt.
+    #
+    # Generalized over FRAMEWORK_SERVERS rather than hardcoded per server name:
+    # any hooks_pre rule gated by _WRITES_CHECK is a hardware/state write and
+    # defaults to a hard deny (covers controls' channel_write and scan's
+    # launch_scan automatically, plus any future write server with no code
+    # change here). python's execute is the one documented exception — it
+    # accepts both read_only and write_access kernels, so it is pulled into
+    # remove_ask instead (see docstring above); every other writes-check-gated
+    # tool is presumed pure-write and denied outright.
     if not config.get("control_system", {}).get("writes_enabled", False):
+        from osprey.registry.mcp import _WRITES_CHECK, FRAMEWORK_SERVERS
+
         facility_perms = dict(ctx["facility_permissions"])
         deny = list(facility_perms.get("deny", []))
         remove_ask = list(facility_perms.get("remove_ask", []))
@@ -227,14 +247,21 @@ def build_claude_code_context(
             if not srv["enabled"]:
                 continue
             template = srv.get("extends_of") or srv["name"]
-            if template == "controls":
-                entry = f"mcp__{srv['name']}__channel_write"
-                if entry not in deny:
-                    deny.append(entry)
-            elif template == "python":
-                entry = f"mcp__{srv['name']}__execute"
-                if entry not in remove_ask:
-                    remove_ask.append(entry)
+            template_def = FRAMEWORK_SERVERS.get(template)
+            if template_def is None:
+                continue  # custom (non-framework) server — out of scope here
+            old_prefix, new_prefix = f"mcp__{template}__", f"mcp__{srv['name']}__"
+            for rule in template_def.hooks_pre:
+                if _WRITES_CHECK not in rule.hooks:
+                    continue
+                matcher = rule.matcher
+                if matcher.startswith(old_prefix):
+                    matcher = new_prefix + matcher[len(old_prefix) :]
+                if template in _MIXED_READ_WRITE_TEMPLATES:
+                    if matcher not in remove_ask:
+                        remove_ask.append(matcher)
+                elif matcher not in deny:
+                    deny.append(matcher)
         facility_perms["deny"] = deny
         facility_perms["remove_ask"] = remove_ask
         ctx["facility_permissions"] = facility_perms
