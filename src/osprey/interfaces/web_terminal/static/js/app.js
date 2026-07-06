@@ -3,7 +3,7 @@
 import { initTerminal, fitTerminal, focusTerminal, getTerminalDimensions, stopTerminal, startTerminal, restartTerminal, pasteToTerminal } from './terminal.js';
 import { onConnectionStateChange, fetchJSON } from './api.js';
 import { initPanelManager } from './panel-manager.js';
-import { initDrawers } from './drawer.js';
+import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
 import { initMemoryGallery } from './memory-gallery.js';
 import { initScaffoldGallery } from './scaffold-gallery.js';
@@ -20,7 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initResizeHandle();
   initKeyboardShortcuts();
   initNewSessionButton();
-  initDrawers();
+  initDrawerTriggerHighlight();
   initSettings();
   initMemoryGallery();
   initScaffoldGallery();
@@ -48,6 +48,32 @@ function initNewSessionButton() {
       btn.disabled = false;
     }
   });
+}
+
+/* ---- Drawer Trigger Highlight ---- */
+
+/**
+ * osprey-drawer doesn't manage its `[data-drawer]` trigger's `.active` state
+ * itself (a page-level nicety, not part of the component's contract — see
+ * its module docstring). Web_terminal owns its own triggers, so it wires
+ * this via the `drawer:open`/`drawer:close` events the component dispatches
+ * (bubbling) on the host, matching any trigger for that drawer id — either
+ * the component's own `[data-drawer]` marker, or `[data-drawer-trigger]`,
+ * web_terminal's convention for a trigger (like the settings gear) that
+ * needs its own gating logic before opening and so must never match the
+ * component's delegated `[data-drawer]` handler. Either way the highlight
+ * stays in sync.
+ */
+function initDrawerTriggerHighlight() {
+  const setActive = (active) => (event) => {
+    const drawer = event.target;
+    if (!(drawer instanceof HTMLElement) || !drawer.id) return;
+    document
+      .querySelectorAll(`[data-drawer="${drawer.id}"], [data-drawer-trigger="${drawer.id}"]`)
+      .forEach((btn) => btn.classList.toggle('active', active));
+  };
+  document.addEventListener('drawer:open', setActive(true));
+  document.addEventListener('drawer:close', setActive(false));
 }
 
 /* ---- Status Bar ---- */

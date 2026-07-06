@@ -1,7 +1,6 @@
 /* OSPREY Web Terminal — Agent Settings Panel */
 
 import { fetchJSON } from './api.js';
-import { closeDrawer } from './drawer.js';
 import { restartTerminal, startTerminal } from './terminal.js';
 
 let currentConfig = null;  // { sections, raw, path }
@@ -10,6 +9,18 @@ let currentMode = 'form';  // 'form' | 'raw'
 
 // The agent tab panel — all DOM queries are scoped to this element
 let agentPanel = null;
+
+// The settings drawer element — resolved once in initSettings(), reused by
+// applySettings() to close it and by the warning gate below to open it.
+let settingsDrawer = null;
+
+// Per-session warning for the settings drawer (resets on server restart)
+const SETTINGS_WARNING_KEY = 'osprey-settings-warning-ack';
+
+// True from the moment a trigger click starts the gate (health check in
+// flight, or the warning dialog itself is up) until it resolves one way or
+// another. Guards against a rapid second click spawning a second dialog.
+let warningGatePending = false;
 
 // Known enum values for select dropdowns
 const ENUM_FIELDS = {
@@ -39,9 +50,15 @@ const BOOLEAN_FIELDS = new Set([
  * Initialize the settings panel. Call once on DOMContentLoaded.
  */
 export function initSettings() {
-  const drawer = document.getElementById('settings-drawer');
+  settingsDrawer = document.getElementById('settings-drawer');
+  // Invariant: the warning gate must never be gated on elements unrelated to
+  // the drawer (fail-closed) — install it as soon as the drawer itself is
+  // resolved, before the unrelated `#tab-config` guard clause below, so a
+  // missing/renamed config tab can never silently leave the drawer ungated.
+  if (settingsDrawer) initSettingsWarningGate();
+
   agentPanel = document.getElementById('tab-config');
-  if (!drawer || !agentPanel) return;
+  if (!settingsDrawer || !agentPanel) return;
 
   // Load config when agent tab becomes active (covers both drawer open and tab switch)
   agentPanel.addEventListener('drawer:tab-activate', () => loadConfig());
@@ -64,6 +81,144 @@ export function initSettings() {
   // Raw editor dirty tracking
   const rawEditor = document.getElementById('settings-raw-editor');
   if (rawEditor) rawEditor.addEventListener('input', markDirty);
+}
+
+/**
+ * Gate opening the settings drawer behind a first-time-per-session warning
+ * (these settings control agent behavior, safety hooks, and security
+ * policies). The trigger button intentionally carries `data-drawer-trigger`
+ * rather than osprey-drawer's own `[data-drawer]` marker, so the component's
+ * delegated handler never matches it and never toggles the drawer directly —
+ * this gate is the sole open path, and the click reaches every other
+ * document-level listener (e.g. sessions.js's outside-click dropdown close)
+ * completely unmodified, with no propagation tampering.
+ */
+function initSettingsWarningGate() {
+  const trigger = document.querySelector('[data-drawer-trigger="settings-drawer"]');
+  if (!trigger) return;
+
+  trigger.addEventListener('click', () => {
+    if (settingsDrawer.hasAttribute('open')) {
+      settingsDrawer.close();
+      return;
+    }
+    if (warningGatePending) return; // a check or the dialog itself is already in flight
+    maybeWarnThenOpen();
+  });
+}
+
+// Bounds how long a trigger click can leave `warningGatePending` true while
+// waiting on /health -- a stalled backend or a dropped connection with no
+// RST would otherwise never settle the fetch and permanently brick the
+// gear (every later click a no-op, only a reload recovering).
+const HEALTH_CHECK_TIMEOUT_MS = 4000;
+
+async function maybeWarnThenOpen() {
+  warningGatePending = true;
+  let timeoutId;
+  try {
+    const timeout = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error('health check timed out')), HEALTH_CHECK_TIMEOUT_MS);
+    });
+    const healthCheck = fetchJSON('/health');
+    // If the timeout wins the race, the still-pending fetch may reject later;
+    // swallow that late rejection so it doesn't surface as an unhandled one.
+    healthCheck.catch(() => {});
+    const health = await Promise.race([healthCheck, timeout]);
+    clearTimeout(timeoutId);
+    const serverSession = health.session_id;
+    if (!serverSession || localStorage.getItem(SETTINGS_WARNING_KEY) !== serverSession) {
+      safelyShowSettingsWarning(serverSession);
+      return;
+    }
+  } catch {
+    // Health endpoint unreachable, or slow enough to hit the timeout above —
+    // show the warning to be safe (fail-safe-to-warning; the flag clears via
+    // the dialog's own cleanup() once dismissed).
+    clearTimeout(timeoutId);
+    safelyShowSettingsWarning(null);
+    return;
+  }
+  warningGatePending = false;
+  settingsDrawer.open();
+}
+
+/**
+ * Defense-in-depth: if building/showing the dialog itself throws (e.g. DOM
+ * corruption), reset the gate rather than leaving it permanently pending.
+ * @param {string|null} serverSession
+ */
+function safelyShowSettingsWarning(serverSession) {
+  try {
+    showSettingsWarning(serverSession);
+  } catch (error) {
+    warningGatePending = false;
+    console.error('osprey web_terminal: failed to show the settings warning dialog; gate reset', error);
+  }
+}
+
+/**
+ * Show a first-time warning dialog before opening the settings drawer.
+ * Persists acknowledgment per server session so it reappears on restart.
+ * @param {string|null} serverSession
+ */
+function showSettingsWarning(serverSession) {
+  const overlay = document.createElement('div');
+  overlay.className = 'settings-warning-overlay';
+
+  const dialog = document.createElement('div');
+  dialog.className = 'settings-warning-dialog';
+
+  dialog.innerHTML = `
+    <div class="settings-warning-icon">⚠</div>
+    <div class="settings-warning-title">Expert Configuration Area</div>
+    <div class="settings-warning-body">
+      <p>These settings directly control <strong>agent behavior</strong>,
+      <strong>safety hooks</strong>, and <strong>security policies</strong>.</p>
+      <p>Incorrect changes can <strong>disable safety checks</strong>,
+      bypass human approval requirements, or allow unvalidated writes
+      to control system hardware.</p>
+      <p>Only modify these settings if you understand the safety
+      implications of each option.</p>
+    </div>
+    <div class="settings-warning-actions">
+      <button class="settings-warning-cancel">Cancel</button>
+      <button class="settings-warning-proceed">I Understand, Proceed</button>
+    </div>
+  `;
+
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  // Animate in
+  requestAnimationFrame(() => overlay.classList.add('visible'));
+
+  // Unconditional on every dismissal path (Cancel, Proceed, Escape) — leaves
+  // no stale `keydown` listener behind and always resolves the pending gate.
+  const cleanup = () => {
+    document.removeEventListener('keydown', onKey);
+    warningGatePending = false;
+    overlay.classList.remove('visible');
+    overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
+    // Fallback removal if transition doesn't fire
+    setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 300);
+  };
+
+  dialog.querySelector('.settings-warning-cancel').addEventListener('click', cleanup);
+
+  dialog.querySelector('.settings-warning-proceed').addEventListener('click', () => {
+    if (serverSession) {
+      localStorage.setItem(SETTINGS_WARNING_KEY, serverSession);
+    }
+    cleanup();
+    settingsDrawer.open();
+  });
+
+  // Escape key cancels
+  const onKey = (e) => {
+    if (e.key === 'Escape') cleanup();
+  };
+  document.addEventListener('keydown', onKey);
 }
 
 async function loadConfig() {
@@ -381,7 +536,7 @@ async function applySettings() {
     if (status) status.textContent = '';
     if (applyBtn) applyBtn.disabled = false;
 
-    closeDrawer();
+    settingsDrawer.close();
     await restartTerminal();
     startTerminal();
   } catch (e) {
