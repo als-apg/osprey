@@ -1,8 +1,7 @@
 {
-  "_comment": "Channel Limits Database - defines safety limits and verification for runtime validation",
-  "_version": "1.0",
-  "_description": "This database configures automatic limits validation and verification for channel writes. The connector reads this configuration and applies it automatically - capabilities don't need to know about these details.",
-
+  "_comment": "Channel Limits Database - defines safety limits and verification for runtime validation. All 168 writable :SP addresses from the namespace-union manifest (docker/virtual-accelerator/manifest) are covered below, family-banded from the SR lattice model's device inventory and machine.json's simulated nominal values (see docker/virtual-accelerator/lattice/response.py for the SR corrector +-10A convention that sizes the HCM/VCM band; other families use a generous band around their machine.json nominal spread).",
+  "_version": "2.0",
+  "_description": "This database configures automatic limits validation and verification for channel writes. The connector reads this configuration and applies it automatically - capabilities don't need to know about these details. Note: max_step is intentionally NOT set on the real channels below -- LimitsValidator's max_step check reads the current value via a direct pyepics caget regardless of connector type (not connector-abstracted), which would block every write to these channels in the default mock control-system type (no live EPICS server behind mock addresses). min/max bounds plus readback verification below already enforce 'value must fit inside its own limits' without that failure mode.",
   "defaults": {
     "_comment": "Default settings inherited by all channels unless overridden",
     "writable": true,
@@ -11,50 +10,1348 @@
       "_comment": "Default verification: callback (fast, EPICS IOC confirmation)"
     }
   },
-
-  "MAG:HCM[H01]:CURRENT:SP": {
-    "_comment": "Example: Critical magnet with strict limits and readback verification",
-    "min_value": -10.0,
-    "max_value": 10.0,
-    "max_step": 2.0,
+  "BR:MAG:DIPOLE:01:CURRENT:SP": {
+    "min_value": 280.0,
+    "max_value": 360.0,
     "verification": {
       "level": "readback",
-      "tolerance_percent": 0.1,
-      "_comment": "Readback verification with 0.1% tolerance (one per mil)"
+      "tolerance_percent": 1.0
     }
   },
-
-  "MAG:QF[QF01]:CURRENT:SP": {
-    "_comment": "Example: Read-only channel (writes blocked)",
-    "writable": false
-  },
-
-  "ElectronGunFilamentCurrentSetPoint": {
-    "_comment": "Example: Sensitive equipment with tight absolute tolerance",
-    "min_value": 0.0,
-    "max_value": 10.0,
-    "max_step": 0.5,
+  "BR:MAG:DIPOLE:02:CURRENT:SP": {
+    "min_value": 280.0,
+    "max_value": 360.0,
     "verification": {
       "level": "readback",
-      "tolerance_absolute": 0.01,
-      "_comment": "Absolute tolerance (±0.01 units) for precise control"
+      "tolerance_percent": 1.0
     }
   },
-
-  "TerminalVoltageSetValue": {
-    "_comment": "Example: Channel with limits but using default verification (callback from defaults)",
-    "min_value": 0.0,
-    "max_value": 100.0
+  "BR:MAG:DIPOLE:03:CURRENT:SP": {
+    "min_value": 280.0,
+    "max_value": 360.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
   },
-
-  "DIAGNOSTICS:TEMPERATURE:SP": {
-    "_comment": "Example: Low-criticality channel with no verification (fastest writes)",
+  "BR:MAG:DIPOLE:04:CURRENT:SP": {
+    "min_value": 280.0,
+    "max_value": 360.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BR:MAG:DIPOLE:05:CURRENT:SP": {
+    "min_value": 280.0,
+    "max_value": 360.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BR:MAG:DIPOLE:06:CURRENT:SP": {
+    "min_value": 280.0,
+    "max_value": 360.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BR:MAG:DIPOLE:07:CURRENT:SP": {
+    "min_value": 280.0,
+    "max_value": 360.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BR:MAG:DIPOLE:08:CURRENT:SP": {
+    "min_value": 280.0,
+    "max_value": 360.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BR:MAG:QD:01:CURRENT:SP": {
+    "min_value": 30.0,
+    "max_value": 48.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BR:MAG:QD:02:CURRENT:SP": {
+    "min_value": 30.0,
+    "max_value": 48.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BR:MAG:QD:03:CURRENT:SP": {
+    "min_value": 30.0,
+    "max_value": 48.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BR:MAG:QD:04:CURRENT:SP": {
+    "min_value": 30.0,
+    "max_value": 48.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BR:MAG:QF:01:CURRENT:SP": {
+    "min_value": 38.0,
+    "max_value": 55.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BR:MAG:QF:02:CURRENT:SP": {
+    "min_value": 38.0,
+    "max_value": 55.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BR:MAG:QF:03:CURRENT:SP": {
+    "min_value": 38.0,
+    "max_value": 55.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BR:MAG:QF:04:CURRENT:SP": {
+    "min_value": 38.0,
+    "max_value": 55.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BTS:MAG:HCM:01:CURRENT:SP": {
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BTS:MAG:HCM:02:CURRENT:SP": {
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BTS:MAG:HCM:03:CURRENT:SP": {
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BTS:MAG:HCM:04:CURRENT:SP": {
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BTS:MAG:HCM:05:CURRENT:SP": {
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BTS:MAG:HCM:06:CURRENT:SP": {
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BTS:MAG:QF:01:CURRENT:SP": {
+    "min_value": 30.0,
+    "max_value": 48.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BTS:MAG:QF:02:CURRENT:SP": {
+    "min_value": 30.0,
+    "max_value": 48.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BTS:MAG:QF:03:CURRENT:SP": {
+    "min_value": 30.0,
+    "max_value": 48.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BTS:MAG:QF:04:CURRENT:SP": {
+    "min_value": 30.0,
+    "max_value": 48.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BTS:MAG:QF:05:CURRENT:SP": {
+    "min_value": 30.0,
+    "max_value": 48.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BTS:MAG:QF:06:CURRENT:SP": {
+    "min_value": 30.0,
+    "max_value": 48.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BTS:MAG:VCM:01:CURRENT:SP": {
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BTS:MAG:VCM:02:CURRENT:SP": {
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BTS:MAG:VCM:03:CURRENT:SP": {
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BTS:MAG:VCM:04:CURRENT:SP": {
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BTS:MAG:VCM:05:CURRENT:SP": {
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "BTS:MAG:VCM:06:CURRENT:SP": {
+    "min_value": -5.0,
+    "max_value": 5.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:01:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:02:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:03:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:04:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:05:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:06:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:07:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:08:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:09:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:10:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:11:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:12:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:13:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:14:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:15:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:16:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:17:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:18:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:19:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:20:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:21:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:22:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:23:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:DIPOLE:24:CURRENT:SP": {
+    "min_value": 800.0,
+    "max_value": 1000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:HCM:01:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:02:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:03:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:04:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:05:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:06:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:07:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:08:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:09:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:10:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:11:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:12:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:13:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:14:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:15:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:16:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:17:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:18:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:19:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:HCM:20:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:QD:01:CURRENT:SP": {
+    "min_value": 250.0,
+    "max_value": 320.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:02:CURRENT:SP": {
+    "min_value": 250.0,
+    "max_value": 320.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:03:CURRENT:SP": {
+    "min_value": 250.0,
+    "max_value": 320.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:04:CURRENT:SP": {
+    "min_value": 250.0,
+    "max_value": 320.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:05:CURRENT:SP": {
+    "min_value": 250.0,
+    "max_value": 320.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:06:CURRENT:SP": {
+    "min_value": 250.0,
+    "max_value": 320.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:07:CURRENT:SP": {
+    "min_value": 250.0,
+    "max_value": 320.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:08:CURRENT:SP": {
+    "min_value": 250.0,
+    "max_value": 320.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:09:CURRENT:SP": {
+    "min_value": 250.0,
+    "max_value": 320.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:10:CURRENT:SP": {
+    "min_value": 250.0,
+    "max_value": 320.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:11:CURRENT:SP": {
+    "min_value": 250.0,
+    "max_value": 320.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:12:CURRENT:SP": {
+    "min_value": 250.0,
+    "max_value": 320.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:13:CURRENT:SP": {
+    "min_value": 250.0,
+    "max_value": 320.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:14:CURRENT:SP": {
+    "min_value": 250.0,
+    "max_value": 320.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:15:CURRENT:SP": {
+    "min_value": 250.0,
+    "max_value": 320.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QD:16:CURRENT:SP": {
+    "min_value": 250.0,
+    "max_value": 320.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:01:CURRENT:SP": {
+    "min_value": 300.0,
+    "max_value": 400.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:02:CURRENT:SP": {
+    "min_value": 300.0,
+    "max_value": 400.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:03:CURRENT:SP": {
+    "min_value": 300.0,
+    "max_value": 400.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:04:CURRENT:SP": {
+    "min_value": 300.0,
+    "max_value": 400.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:05:CURRENT:SP": {
+    "min_value": 300.0,
+    "max_value": 400.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:06:CURRENT:SP": {
+    "min_value": 300.0,
+    "max_value": 400.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:07:CURRENT:SP": {
+    "min_value": 300.0,
+    "max_value": 400.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:08:CURRENT:SP": {
+    "min_value": 300.0,
+    "max_value": 400.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:09:CURRENT:SP": {
+    "min_value": 300.0,
+    "max_value": 400.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:10:CURRENT:SP": {
+    "min_value": 300.0,
+    "max_value": 400.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:11:CURRENT:SP": {
+    "min_value": 300.0,
+    "max_value": 400.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:12:CURRENT:SP": {
+    "min_value": 300.0,
+    "max_value": 400.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:13:CURRENT:SP": {
+    "min_value": 300.0,
+    "max_value": 400.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:14:CURRENT:SP": {
+    "min_value": 300.0,
+    "max_value": 400.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:15:CURRENT:SP": {
+    "min_value": 300.0,
+    "max_value": 400.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:QF:16:CURRENT:SP": {
+    "min_value": 300.0,
+    "max_value": 400.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:01:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:02:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:03:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:04:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:05:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:06:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:07:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:08:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:09:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:10:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:11:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SD:12:CURRENT:SP": {
+    "min_value": 80.0,
+    "max_value": 110.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:01:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:02:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:03:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:04:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:05:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:06:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:07:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:08:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:09:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:10:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:11:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:SF:12:CURRENT:SP": {
+    "min_value": 100.0,
+    "max_value": 140.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:MAG:VCM:01:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:02:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:03:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:04:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:05:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:06:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:07:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:08:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:09:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:10:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:11:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:12:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:13:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:14:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:15:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:16:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:17:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:18:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:19:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:MAG:VCM:20:CURRENT:SP": {
+    "min_value": -12.0,
+    "max_value": 12.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.5
+    }
+  },
+  "SR:RF:CAVITY:01:FREQUENCY:SP": {
+    "min_value": 499.0,
+    "max_value": 500.3,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.01
+    }
+  },
+  "SR:RF:CAVITY:01:TUNER:SP": {
+    "min_value": 0.0,
+    "max_value": 10.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 2.0
+    }
+  },
+  "SR:RF:CAVITY:01:VOLTAGE:SP": {
+    "min_value": 0.0,
+    "max_value": 3.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:RF:CAVITY:02:FREQUENCY:SP": {
+    "min_value": 499.0,
+    "max_value": 500.3,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 0.01
+    }
+  },
+  "SR:RF:CAVITY:02:TUNER:SP": {
+    "min_value": 0.0,
+    "max_value": 10.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 2.0
+    }
+  },
+  "SR:RF:CAVITY:02:VOLTAGE:SP": {
+    "min_value": 0.0,
+    "max_value": 3.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:RF:KLYSTRON:01:VOLTAGE:SP": {
     "min_value": 0.0,
     "max_value": 100.0,
     "verification": {
-      "level": "none",
-      "_comment": "No verification - fastest write mode (use for non-critical channels)"
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:RF:KLYSTRON:02:VOLTAGE:SP": {
+    "min_value": 0.0,
+    "max_value": 100.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 1.0
+    }
+  },
+  "SR:VAC:ION-PUMP:01:VOLTAGE:SP": {
+    "min_value": 0.0,
+    "max_value": 7000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 2.0
+    }
+  },
+  "SR:VAC:ION-PUMP:02:VOLTAGE:SP": {
+    "min_value": 0.0,
+    "max_value": 7000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 2.0
+    }
+  },
+  "SR:VAC:ION-PUMP:03:VOLTAGE:SP": {
+    "min_value": 0.0,
+    "max_value": 7000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 2.0
+    }
+  },
+  "SR:VAC:ION-PUMP:04:VOLTAGE:SP": {
+    "min_value": 0.0,
+    "max_value": 7000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 2.0
+    }
+  },
+  "SR:VAC:ION-PUMP:05:VOLTAGE:SP": {
+    "min_value": 0.0,
+    "max_value": 7000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 2.0
+    }
+  },
+  "SR:VAC:ION-PUMP:06:VOLTAGE:SP": {
+    "min_value": 0.0,
+    "max_value": 7000.0,
+    "verification": {
+      "level": "readback",
+      "tolerance_percent": 2.0
     }
   }
-
 }

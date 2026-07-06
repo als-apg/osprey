@@ -164,10 +164,13 @@ hooks:
 control_system:
   # Control system type - determines which runtime connector to use
   # Note: Pattern detection is control-system-agnostic (same for all types)
-  # Options:
-  #   - mock: Development mode (accepts any channel names, no hardware)
-  #   - epics: Production EPICS control system
-  type: mock  # <-- Change to 'epics' for production
+  # Options (three-state switch):
+  #   - mock: Development mode (accepts any channel names, no hardware) — DEFAULT
+  #   - virtual_accelerator: Containerized PyAT-backed soft-IOC over real EPICS
+  #     Channel Access. Requires the VA container running first — see
+  #     docker/virtual-accelerator/README.md for the run command.
+  #   - epics: Production EPICS control system (ALS values below — untouched)
+  type: mock  # <-- Change to 'virtual_accelerator' or 'epics' for other modes
 
   # Write Access Control - Master safety switch for hardware control
   # This is OPERATOR-LEVEL authorization (always hard-stops if false)
@@ -230,7 +233,36 @@ control_system:
     mock:
       simulation_file: data/simulation/machine.json
 
-    # EPICS connector (production mode)
+    # Virtual Accelerator connector (middle rung of the three-state switch) —
+    # a containerized PyAT-backed soft-IOC reached over real EPICS Channel
+    # Access via VirtualAcceleratorConnector (an EPICSConnector subclass, so
+    # the gateway shape below is identical to the `epics` block's). Requires
+    # the VA container running first: see docker/virtual-accelerator/README.md
+    # for the run command.
+    #
+    # simulation_file: same simulation machine model as the mock connector
+    # above, so `osprey sim apply NAME...` stays type-aware and consistent
+    # whether you're running mock or virtual_accelerator.
+    #
+    # Gateway config is CA name-server/TCP mode against localhost:5064 — the
+    # one host<->container CA configuration confirmed to work across
+    # container runtimes (broadcast discovery does not reliably cross the
+    # macOS<->container VM boundary). See
+    # docker/virtual-accelerator/probe/README.md for the empirical finding.
+    virtual_accelerator:
+      timeout: 5.0
+      simulation_file: data/simulation/machine.json
+      gateways:
+        read_only:
+          address: localhost
+          port: 5064
+          use_name_server: true
+        write_access:
+          address: localhost
+          port: 5064
+          use_name_server: true
+
+    # EPICS connector (production mode) — untouched ALS production values.
     epics:
       timeout: 5.0
       gateways:
