@@ -28,6 +28,8 @@ def _load_project_engine():
 
     Exits with a clear message if the project is not simulation-backed.
     """
+    from osprey.connectors.types import MOCK
+    from osprey.simulation.apply import resolve_simulation_file
     from osprey.simulation.engine import SimulationEngine
 
     project_dir = Path.cwd()
@@ -38,17 +40,18 @@ def _load_project_engine():
         raise SystemExit(1)
 
     config = load_config(str(config_path))
-    sim_file = (
-        config.get("control_system", {}).get("connector", {}).get("mock", {}).get("simulation_file")
-    )
-    if not sim_file:
-        click.echo("Error: no mock 'simulation_file' configured in config.yml.", err=True)
+    machine_path, active_type, type_key, mock_key = resolve_simulation_file(config, project_dir)
+    if machine_path is None:
+        if active_type == MOCK:
+            click.echo("Error: no mock 'simulation_file' configured in config.yml.", err=True)
+        else:
+            click.echo(
+                f"Error: no simulation_file configured for control_system.type "
+                f"'{active_type}' (tried {type_key} and {mock_key}).",
+                err=True,
+            )
         click.echo("This project does not use the simulation engine.", err=True)
         raise SystemExit(1)
-
-    machine_path = Path(sim_file)
-    if not machine_path.is_absolute():
-        machine_path = project_dir / machine_path
     return project_dir, config, SimulationEngine.from_file(machine_path)
 
 

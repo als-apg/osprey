@@ -404,7 +404,7 @@ def show_config_menu() -> str | None:
         "What would you like to do?",
         choices=[
             Choice(
-                "[→] set-control-system - Switch between Mock/EPICS connectors",
+                "[→] set-control-system - Switch between Mock/Virtual Accelerator/EPICS connectors",
                 value="set_control_system",
             ),
             Choice(
@@ -483,6 +483,10 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
     # Show choices
     choices = [
         Choice("Mock - Tutorial/Development mode (safe, no hardware)", value=types.MOCK),
+        Choice(
+            "Virtual Accelerator - Simulated PyAT-backed soft-IOC (EPICS-compatible)",
+            value=types.VIRTUAL_ACCELERATOR,
+        ),
         Choice("EPICS - Production mode (connects to real control system)", value=types.EPICS),
         Choice("─" * 60, value=None, disabled=True),
         Choice("[←] Back - Return to config menu", value="back"),
@@ -495,8 +499,10 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
     if control_type is None or control_type == "back":
         return
 
-    # Ask about archiver too
-    if control_type == types.EPICS:
+    # Ask about archiver too. Virtual Accelerator is a real CA connector (an
+    # EPICSConnector subclass pointed at a soft-IOC), so it goes through the
+    # same gateway/archiver flow as EPICS rather than defaulting to mock.
+    if control_type in (types.EPICS, types.VIRTUAL_ACCELERATOR):
         console.print("\n[bold]Archiver Configuration[/bold]\n")
         archiver_type = questionary.select(
             "Which archiver?",
@@ -524,7 +530,7 @@ def handle_set_control_system(project_path: Path | None = None) -> None:
         config_path.write_text(new_content, encoding="utf-8")
         console.print(f"\n{Messages.success('Control system configuration updated!')}")
 
-        if control_type == types.EPICS:
+        if control_type in (types.EPICS, types.VIRTUAL_ACCELERATOR):
             console.print("\n[dim]Next steps:[/dim]")
             console.print("[dim]   1. Configure EPICS gateway: config → set-epics-gateway[/dim]")
             console.print("[dim]   2. Verify EPICS connection settings[/dim]")

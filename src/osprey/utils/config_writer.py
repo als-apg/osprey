@@ -360,7 +360,7 @@ def set_control_system_type(
 
     Args:
         config_path: Path to config.yml
-        control_type: 'mock' or 'epics'
+        control_type: 'mock', 'epics', or 'virtual_accelerator'
         archiver_type: Optional archiver type ('mock_archiver', 'epics_archiver')
         create_backup: If True, creates a .bak file before modifying
 

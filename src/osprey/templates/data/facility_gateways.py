@@ -43,17 +43,23 @@ FACILITY_GATEWAYS = {
     },
     "simulation": {
         "name": "Local Simulation",
-        "description": "Local simulation soft IOC on localhost",
+        "description": (
+            "Local simulation soft IOC on localhost, e.g. the PyAT Virtual "
+            "Accelerator container -- CA name-server mode, the only "
+            "host<->container configuration proven to work across container "
+            "runtimes (broadcast discovery does not reliably cross the "
+            "macOS<->VM boundary)"
+        ),
         "gateways": {
             "read_only": {
                 "address": "localhost",
                 "port": 5064,
-                "use_name_server": False,
+                "use_name_server": True,
             },
             "write_access": {
                 "address": "localhost",
                 "port": 5064,
-                "use_name_server": False,
+                "use_name_server": True,
             },
         },
     },
