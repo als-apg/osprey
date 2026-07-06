@@ -7,8 +7,6 @@ Author: Frank Mayet (DESY, MXL)
 Date: 2026-07-01
 """
 
-########################################################################################
-
 import asyncio
 from datetime import datetime
 from typing import Any
@@ -20,8 +18,6 @@ from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey.utils.logger import get_logger
 
 logger = get_logger("doocs_archiver_connector")
-
-########################################################################################
 
 
 class DOOCSArchiverConnector(ArchiverConnector):

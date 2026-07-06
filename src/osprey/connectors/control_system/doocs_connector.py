@@ -7,8 +7,6 @@ Author: Frank Mayet (DESY, MXL)
 Date: 2026-07-01
 """
 
-########################################################################################
-
 import asyncio
 import secrets
 from collections.abc import Callable
@@ -27,8 +25,6 @@ from osprey.utils.config import get_facility_timezone
 from osprey.utils.logger import get_logger
 
 logger = get_logger("doocs_connector")
-
-########################################################################################
 
 
 class DOOCSConnector(ControlSystemConnector):
