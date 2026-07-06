@@ -1,4 +1,11 @@
-"""Integration tests for InContextBackend — real subprocess + real LLM call."""
+"""Integration tests for InContextBackend — real subprocess + real LLM call.
+
+Lives under ``tests/e2e/`` because it makes a real credentialed LLM call (the
+inner ``query_channels`` model call happens inside the spawned MCP subprocess).
+Keeping it here means the fast lane — ``pytest tests/ --ignore=tests/e2e`` — is
+hermetic regardless of which provider keys a developer happens to have exported;
+the placement guard in ``tests/test_api_marker_placement.py`` enforces this.
+"""
 
 from __future__ import annotations
 
