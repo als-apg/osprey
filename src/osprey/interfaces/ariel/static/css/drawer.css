@@ -22,7 +22,7 @@
   transition: transform var(--transition-slow);
 }
 
-.drawer.open {
+.drawer[open] {
   transform: translateX(0);
 }
 
@@ -36,7 +36,7 @@
   transition: opacity var(--transition-slow), visibility var(--transition-slow);
 }
 
-.drawer-backdrop.visible {
+.drawer-backdrop[open] {
   opacity: 1;
   visibility: visible;
 }

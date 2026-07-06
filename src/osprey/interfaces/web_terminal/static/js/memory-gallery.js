@@ -17,7 +17,6 @@
  */
 
 import { fetchJSON } from './api.js';
-import { registerUnsavedGuard } from './drawer.js';
 import { escapeHtml, el as _el, debounce } from '/design-system/js/dom.js';
 
 // ---- Constants ---- //
@@ -553,7 +552,7 @@ export function initMemoryGallery() {
   });
 
   // Register unsaved-changes guard (uses composite array via B1 fix)
-  registerUnsavedGuard('settings-drawer', () => {
+  drawer.registerUnsavedGuard(() => {
     if (!memoryGallery.editDirty) return true;
     return confirm('You have unsaved memory changes. Discard them?');
   });

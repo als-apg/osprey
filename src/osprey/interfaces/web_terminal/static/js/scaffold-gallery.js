@@ -19,7 +19,6 @@
  */
 
 import { fetchJSON } from './api.js';
-import { registerUnsavedGuard } from './drawer.js';
 import { tokenize, computeWordDiff, groupChangeBlocks, renderWordsIntoLine } from './diff-utils.js';
 import { renderSettingsJsonEditor, renderMcpJson } from './config-renderers.js';
 import { escapeHtml, el as _el, debounce } from '/design-system/js/dom.js';
@@ -1651,7 +1650,7 @@ export function initScaffoldGallery() {
   });
 
   // Composite unsaved-changes guard
-  registerUnsavedGuard('settings-drawer', () => {
+  drawer.registerUnsavedGuard(() => {
     const dirty = behaviorGallery.editDirty || safetyGallery.editDirty || configGallery.editDirty;
     if (!dirty) return true;
     return confirm('You have unsaved changes. Discard them?');
