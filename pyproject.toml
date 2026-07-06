@@ -248,6 +248,7 @@ module = [
     "pyepics.*",
     "podman.*",
     "pymongo.*",
+    "doocs4py.*",
 ]
 ignore_missing_imports = true
 
