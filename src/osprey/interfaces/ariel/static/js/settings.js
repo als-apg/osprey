@@ -39,15 +39,14 @@ export function initSettings() {
     });
   }
 
-  // Observe drawer open to load config on first show
+  // Load config whenever the drawer opens, via the component's public
+  // drawer:open event (fired on the host) rather than a MutationObserver on
+  // its `open` attribute — attribute reflection is the component's internal
+  // state mechanics, and the event only fires for real transitions (a vetoed
+  // or echoed attribute mutation never dispatches it).
   const drawer = document.getElementById('settings-drawer');
   if (drawer) {
-    const observer = new MutationObserver(() => {
-      if (drawer.classList.contains('open')) {
-        loadConfig();
-      }
-    });
-    observer.observe(drawer, { attributes: true, attributeFilter: ['class'] });
+    drawer.addEventListener('drawer:open', () => loadConfig());
   }
 }
 

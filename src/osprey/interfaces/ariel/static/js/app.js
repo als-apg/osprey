@@ -11,8 +11,8 @@ import { initSearch, performSearch, clearSearch } from './search.js';
 import { initEntries, loadEntries, showEntry, closeEntryModal, loadDraft, showImageLightbox } from './entries.js';
 import { initDashboard, loadStatus, startAutoRefresh, stopAutoRefresh } from './dashboard.js';
 import { initAdvancedOptions } from './advanced-options.js';
-import { initDrawers } from './drawer.js';
-import { initSettings, loadConfig } from './settings.js';
+import '/design-system/js/components/osprey-drawer.js';
+import { initSettings } from './settings.js';
 
 // Panel embedded in the Web Terminal hub: apply the hub's broadcast theme
 // and follow live changes. theme-boot.js already applied data-theme
@@ -43,7 +43,6 @@ async function init() {
     initEntries();
     initDashboard();
     initAdvancedOptions(capabilities);
-    initDrawers();
     initSettings();
   } catch (e) {
     console.error('Module initialization failed (non-fatal):', e);
