@@ -252,6 +252,19 @@ module = [
 ]
 ignore_missing_imports = true
 
+# Bluesky bridge (osprey.services.bluesky_bridge): the lifecycle core (runs.py,
+# app.py, security.py, scanner.py) stays import-clean of these, but Phase 2's
+# submodules (scanner_bluesky.py, devices/epics.py, plans.py, ...) will import
+# them behind the optional `osprey-framework[bluesky-bridge]` extra.
+[[tool.mypy.overrides]]
+module = [
+    "bluesky.*",
+    "ophyd.*",
+    "ophyd_async.*",
+    "tiled.*",
+]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 minversion = "6.0"
 addopts = "-ra -v --tb=short --strict-markers --color=yes"
