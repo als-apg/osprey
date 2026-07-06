@@ -5,14 +5,14 @@ All tests mock doocs4py so no installed DOOCS environment is required.
 """
 
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
 import pytest
 
-UTC = timezone.utc
+UTC = UTC
 
 # --------------------------------------------------------------------------------------
 # Helpers
@@ -315,7 +315,7 @@ class TestReadHistory:
         n = 50
         times = np.linspace(_START_TS, _END_TS, n)
         values = [0.0] * 25 + [1.0] * 25
-        chunk = [(float(t), 0, 0, float(v)) for t, v in zip(times, values)]
+        chunk = [(float(t), 0, 0, float(v)) for t, v in zip(times, values, strict=False)]
 
         mock_d4py = MagicMock()
         r = MagicMock()

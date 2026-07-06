@@ -11,7 +11,7 @@ Date: 2026-07-01
 
 import asyncio
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -66,8 +66,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
 
             self._doocs4py = doocs4py
             logger.debug(
-                "DOOCS archiver connector: doocs4py version "
-                f"{self._doocs4py.__version__} loaded"
+                f"DOOCS archiver connector: doocs4py version {self._doocs4py.__version__} loaded"
             )
         except ImportError:
             raise ImportError("doocs4py is required for the DOOCS connector.") from None
@@ -80,9 +79,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
                 f"Available FACILITIEs: {len(facilities)}"
             )
         except Exception:
-            raise Exception(
-                "DOOCS archiver connector failed to connect to the ENS."
-            ) from None
+            raise Exception("DOOCS archiver connector failed to connect to the ENS.") from None
 
         self._avg_window = config.get("avg_window", None)
 
@@ -121,9 +118,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
 
         # Validate inputs
         if not isinstance(start_date, datetime):
-            raise TypeError(
-                f"start_date must be a datetime object, got {type(start_date)}"
-            )
+            raise TypeError(f"start_date must be a datetime object, got {type(start_date)}")
         if not isinstance(end_date, datetime):
             raise TypeError(f"end_date must be a datetime object, got {type(end_date)}")
 
@@ -134,7 +129,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
         num_points = min(int(duration / (precision_ms / 1000.0)), 10000)
         num_points = max(num_points, 10)  # At least 10 points
 
-        def fetch_all() -> Dict[str, pd.Series]:
+        def fetch_all() -> dict[str, pd.Series]:
             data = {}
             for add in pv_list:
                 hist_data_dict = self._read_history(
@@ -145,20 +140,14 @@ class DOOCSArchiverConnector(ArchiverConnector):
                     self._avg_window,
                 )
                 if hist_data_dict is None:
-                    raise RuntimeError(
-                        f"DOOCS archiver connector: Cannot read history for {add}"
-                    )
-                timestamps = pd.to_datetime(
-                    hist_data_dict.get("time", []), unit="s", utc=True
-                )
+                    raise RuntimeError(f"DOOCS archiver connector: Cannot read history for {add}")
+                timestamps = pd.to_datetime(hist_data_dict.get("time", []), unit="s", utc=True)
                 values = hist_data_dict.get("data", [])
                 data[add] = pd.Series(values, index=timestamps, name=add)
             return data
 
         try:
-            series_dict = await asyncio.wait_for(
-                asyncio.to_thread(fetch_all), timeout=timeout
-            )
+            series_dict = await asyncio.wait_for(asyncio.to_thread(fetch_all), timeout=timeout)
 
             if len(pv_list) == 1:
                 data = pd.DataFrame(series_dict)
@@ -185,9 +174,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
             return data
 
         except TimeoutError as e:
-            raise TimeoutError(
-                f"DOOCS archiver request timed out after {timeout}s"
-            ) from e
+            raise TimeoutError(f"DOOCS archiver request timed out after {timeout}s") from e
 
     async def get_metadata(self, pv_name: str) -> ArchiverMetadata:
         """Get archiver metadata."""
@@ -222,9 +209,9 @@ class DOOCSArchiverConnector(ArchiverConnector):
         address: str,
         start_time: float,
         end_time: float,
-        max_points: Optional[int] = None,
-        avg_window: Optional[float] = None,
-    ) -> Optional[Dict[str, np.ndarray]]:
+        max_points: int | None = None,
+        avg_window: float | None = None,
+    ) -> dict[str, np.ndarray] | None:
         """Read history data from DOOCS using doocs4py. Timestamps are in UNIX format.
 
         Parameters
@@ -326,9 +313,7 @@ class DOOCSArchiverConnector(ArchiverConnector):
                         kernel = np.ones(win) / win
                         smooth_data = np.convolve(reduced_data, kernel, mode="same")
                         # Correct edge underweighting from zero-padding in 'same'.
-                        norm = np.convolve(
-                            np.ones_like(reduced_data), kernel, mode="same"
-                        )
+                        norm = np.convolve(np.ones_like(reduced_data), kernel, mode="same")
                         smooth_data = smooth_data / norm
 
             # Build metadata describing the request and the retrieved raw data.

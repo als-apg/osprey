@@ -5,7 +5,7 @@ All tests mock doocs4py so no installed DOOCS environment is required.
 """
 
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,14 +16,11 @@ from osprey.connectors.control_system.base import ChannelValue, ChannelWriteResu
 # Helpers to build mock doocs4py objects
 # --------------------------------------------------------------------------------------
 
-UTC = timezone.utc
 _EPOCH_S = 1_700_000_000  # arbitrary fixed timestamp
 _EPOCH_US = 500_000
 
 # Patch targets used in multiple test classes
-_LIMITS_PATCH = (
-    "osprey.connectors.control_system.doocs_connector" ".LimitsValidator.from_config"
-)
+_LIMITS_PATCH = "osprey.connectors.control_system.doocs_connector.LimitsValidator.from_config"
 _TZ_PATCH = "osprey.connectors.control_system.doocs_connector.get_facility_timezone"
 
 
@@ -181,9 +178,7 @@ class TestReadChannel:
 class TestWriteChannel:
     async def test_write_none_verification_success(self, connector):
         conn, mock_d4py = connector
-        result = await conn.write_channel(
-            "FAC/DEV/LOC/PROP", 10.0, verification_level="none"
-        )
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", 10.0, verification_level="none")
 
         assert isinstance(result, ChannelWriteResult)
         assert result.success is True
@@ -196,15 +191,10 @@ class TestWriteChannel:
         conn, mock_d4py = connector
         mock_d4py.set.side_effect = RuntimeError("write failed")
 
-        result = await conn.write_channel(
-            "FAC/DEV/LOC/PROP", 5.0, verification_level="none"
-        )
+        result = await conn.write_channel("FAC/DEV/LOC/PROP", 5.0, verification_level="none")
 
         assert result.success is False
-        assert (
-            "write failed" in result.error_message
-            or "FAC/DEV/LOC/PROP" in result.error_message
-        )
+        assert "write failed" in result.error_message or "FAC/DEV/LOC/PROP" in result.error_message
 
     async def test_write_readback_verified(self, connector):
         conn, mock_d4py = connector
@@ -267,9 +257,7 @@ class TestWriteChannel:
         assert result.success is False
         assert "disabled" in result.error_message.lower()
 
-    async def test_write_readback_failure_returns_success_with_unverified(
-        self, connector
-    ):
+    async def test_write_readback_failure_returns_success_with_unverified(self, connector):
         """Write succeeds but readback throws — success=True, verified=False."""
         conn, mock_d4py = connector
         mock_d4py.set.return_value = None
@@ -310,9 +298,7 @@ class TestReadMultipleChannels:
 
         mock_d4py.get.side_effect = _side_effect
 
-        results = await conn.read_multiple_channels(
-            ["FAC/DEV/LOC/OK", "FAC/DEV/LOC/BAD"]
-        )
+        results = await conn.read_multiple_channels(["FAC/DEV/LOC/OK", "FAC/DEV/LOC/BAD"])
 
         assert "FAC/DEV/LOC/OK" in results
         assert "FAC/DEV/LOC/BAD" not in results

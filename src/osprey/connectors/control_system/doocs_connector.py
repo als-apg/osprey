@@ -57,9 +57,7 @@ class DOOCSConnector(ControlSystemConnector):
             import doocs4py
 
             self._doocs4py = doocs4py
-            logger.debug(
-                f"DOOCS connector: doocs4py version {self._doocs4py.__version__} loaded"
-            )
+            logger.debug(f"DOOCS connector: doocs4py version {self._doocs4py.__version__} loaded")
         except ImportError:
             raise ImportError("doocs4py is required for the DOOCS connector.") from None
 
@@ -120,9 +118,7 @@ class DOOCSConnector(ControlSystemConnector):
 
         value = data.get_data()
         macropulse = data.macropulse
-        timestamp_s, timestamp_us = (
-            data.timestamp.get_seconds_and_microseconds_since_epoch()
-        )
+        timestamp_s, timestamp_us = data.timestamp.get_seconds_and_microseconds_since_epoch()
         timestamp_float = timestamp_s + timestamp_us / 1e6
 
         timestamp = datetime.fromtimestamp(timestamp_float, get_facility_timezone())
@@ -309,8 +305,7 @@ class DOOCSConnector(ControlSystemConnector):
 
         else:
             raise ValueError(
-                f"Invalid verification_level: {verification_level}. "
-                "Must be 'none', or 'readback'"
+                f"Invalid verification_level: {verification_level}. Must be 'none', or 'readback'"
             )
 
     async def read_multiple_channels(
@@ -345,9 +340,7 @@ class DOOCSConnector(ControlSystemConnector):
             """Wrapper to convert DOOCS callback to Osprey format."""
             value = data.get_data()
             macropulse = data.macropulse
-            timestamp_s, timestamp_us = (
-                data.timestamp.get_seconds_and_microseconds_since_epoch()
-            )
+            timestamp_s, timestamp_us = data.timestamp.get_seconds_and_microseconds_since_epoch()
             timestamp_float = timestamp_s + timestamp_us / 1e6
 
             timestamp = datetime.fromtimestamp(timestamp_float, get_facility_timezone())
@@ -364,9 +357,7 @@ class DOOCSConnector(ControlSystemConnector):
                 },
             )
 
-            prop_value = ChannelValue(
-                value=value, timestamp=timestamp, metadata=metadata
-            )
+            prop_value = ChannelValue(value=value, timestamp=timestamp, metadata=metadata)
             # Schedule callback in event loop
             loop.call_soon_threadsafe(callback, prop_value)
 
