@@ -1,0 +1,63 @@
+# Full Virtual Accelerator image: PyAT + pythonSoftIOC + osprey (for
+# SimulationEngine), assembled by entrypoint.py as
+# manifest -> records -> physics bridge -> engine source, served over CA.
+#
+# Build context MUST be a staging directory containing exactly:
+#   pyproject.toml, README.md, src/, docker/virtual-accelerator/
+# (see scripts/va/run_va.sh / build_and_boot_check.sh, which stage it) --
+# NOT the repo root, which also contains .venv/.git/worktrees and would
+# make every build re-tar gigabytes of unrelated content.
+#
+# Why python:3.11-slim, not python:3.10-slim (the Phase-1 probe's base):
+# osprey's own pyproject.toml requires Python >=3.11, but the originally
+# investigated softioc==4.5.0 publishes wheels no newer than cp310 -- these
+# two constraints are mutually exclusive in one interpreter. softioc first
+# publishes a cp311 wheel at 4.6.1; accelerator-toolbox is bumped to 0.7.1
+# to match what this repo's uv.lock already resolves (and what
+# lattice/response.py and ioc/physics_bridge.py were actually built and
+# tested against) rather than the stale 0.6.1 probe-era pin.
+#
+# accelerator-toolbox/softioc (and softioc's epicscorelibs/pvxslibs deps)
+# still publish no linux/aarch64 wheels at any version, so this image is
+# still built and run for linux/amd64 explicitly, same as the probe.
+ARG TARGET_PLATFORM=linux/amd64
+FROM --platform=${TARGET_PLATFORM} python:3.11-slim
+
+RUN pip install --no-cache-dir \
+    accelerator-toolbox==0.7.1 \
+    softioc==4.7.0
+
+# osprey itself (for SimulationEngine + pv_taxonomy), built from the source
+# copied in below -- never from PyPI -- so the image always matches
+# whatever checkout produced it (this feature may not be released yet).
+WORKDIR /opt/osprey
+COPY pyproject.toml README.md /opt/osprey/
+COPY src/ /opt/osprey/src/
+RUN pip install --no-cache-dir .
+
+# manifest/lattice/ioc modules, preserved at the SAME relative depth as in
+# the source repo: docker/virtual-accelerator/manifest/paths.py locates the
+# channel-finder DB JSON files via
+# ``Path(__file__).resolve().parents[3]`` -- i.e. it must land on
+# /opt/osprey, where the `src/` copied above also lives. This directory
+# depth is load-bearing, not cosmetic; do not flatten it.
+COPY docker/virtual-accelerator/manifest /opt/osprey/docker/virtual-accelerator/manifest
+COPY docker/virtual-accelerator/lattice /opt/osprey/docker/virtual-accelerator/lattice
+COPY docker/virtual-accelerator/ioc /opt/osprey/docker/virtual-accelerator/ioc
+COPY docker/virtual-accelerator/entrypoint.py /opt/osprey/docker/virtual-accelerator/entrypoint.py
+
+WORKDIR /opt/osprey/docker/virtual-accelerator
+
+# Channel Access server port. TCP only is required -- CA name-server mode
+# (EPICS_CA_NAME_SERVERS=<host>:5064, EPICS_CA_AUTO_ADDR_LIST=NO on the
+# client side) is the one host<->container configuration proven to work
+# across container runtimes (see docker/virtual-accelerator/probe/README.md);
+# UDP broadcast discovery is not published because it is not relied upon.
+# 5064 matches the "Local Simulation" gateway preset
+# (src/osprey/templates/data/facility_gateways.py) exactly, so a preset
+# project needs no config changes beyond selecting control_system.type:
+# virtual_accelerator.
+EXPOSE 5064/tcp
+ENV EPICS_CA_SERVER_PORT=5064
+
+CMD ["python", "-u", "entrypoint.py"]

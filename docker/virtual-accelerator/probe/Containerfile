@@ -1,0 +1,29 @@
+# Phase-1 probe: minimal PyAT + pythonSoftIOC image for the hard reachability gate.
+#
+# Pinned versions (accelerator-toolbox==0.6.1, softioc==4.5.0) publish only
+# macOS and linux/x86_64 (manylinux) wheels on PyPI -- no linux/aarch64 wheels
+# exist, and softioc's epicscorelibs/pvxslibs deps would require building the
+# full EPICS base from source to run natively on linux/arm64. This image is
+# therefore built and run for linux/amd64 explicitly (see probe_build_and_caget.sh),
+# which on Apple Silicon hosts runs under the container runtime's x86_64 emulation.
+# Python 3.10 is required: softioc==4.5.0 has no manylinux wheel beyond cp310.
+ARG TARGET_PLATFORM=linux/amd64
+FROM --platform=${TARGET_PLATFORM} python:3.10-slim
+
+WORKDIR /probe
+
+RUN pip install --no-cache-dir \
+    accelerator-toolbox==0.6.1 \
+    softioc==4.5.0
+
+COPY ioc.py /probe/ioc.py
+
+# Channel Access server port (TCP + UDP). UDP is published only to let the
+# name-server-vs-broadcast experiment be repeated; the confirmed-working host
+# access path is CA name-server mode over TCP (see README.md).
+EXPOSE 5064/tcp
+EXPOSE 5064/udp
+
+ENV EPICS_CA_SERVER_PORT=5064
+
+CMD ["python", "-u", "ioc.py"]
