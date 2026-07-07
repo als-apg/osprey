@@ -21,13 +21,15 @@
  * nullish-collapsing) — see dom.js. This module used to carry its own
  * `_esc` copy; that divergence has been consolidated away.
  *
- * Table cells render values/timestamps raw, with no precision or
- * short-time formatting applied. Changing the rendered precision/format of
- * archiver-data cells deserves its own deliberate decision. (Logged as a
- * follow-up: index cells could use a short-time formatter, value cells a
- * precision formatter, since the backend's split-orient `index` is ISO
- * timestamp strings — see src/osprey/utils/timeseries.py's
- * `extract_timeseries_frame`.)
+ * Table cells apply magnitude-adaptive formatting: index cells go through
+ * `_tsShortTime` (short month/day + hour:minute:second, no year, since the
+ * backend's split-orient `index` is ISO timestamp strings — see
+ * src/osprey/utils/timeseries.py's `extract_timeseries_frame`), value cells
+ * through `_tsFormatValue` (<=5 significant figures, scientific notation for
+ * very large/small magnitudes). Both helpers fall back to raw `String(...)`
+ * for inputs that aren't a number/valid date, so their output is still run
+ * through `escapeHtml` at the interpolation site — never trust it as safe
+ * HTML on its own.
  *
  * @module timeseries
  */
@@ -49,7 +51,10 @@ function ensurePlotlyLoaded() {
     const script = document.createElement("script");
     script.src = "/static/js/vendor/plotly-3.3.1.min.js";
     script.onload = () => { _plotlyLoaded = true; resolve(); };
-    script.onerror = () => reject(new Error("Failed to load Plotly"));
+    script.onerror = () => {
+      _plotlyLoading = null;
+      reject(new Error("Failed to load Plotly"));
+    };
     document.head.appendChild(script);
   });
   return _plotlyLoading;
@@ -67,6 +72,53 @@ function _tsShortChannelName(name) {
   const parts = name.split(":");
   if (parts.length >= 3) return parts[0] + ":...:" + parts[parts.length - 1];
   return name.slice(0, 10) + "..." + name.slice(-10);
+}
+
+/**
+ * Magnitude-adaptive value-cell formatter: <=5 significant figures for
+ * ordinary magnitudes, scientific notation once a value is very large or
+ * very small (but nonzero). Falls back to `String(...)` for non-number
+ * (including NaN) input — callers MUST still escapeHtml the result, since
+ * that fallback echoes the raw input verbatim.
+ * @param {any} num
+ * @returns {string}
+ */
+function _tsFormatValue(num) {
+  if (num === null || num === undefined) return "--";
+  if (typeof num !== "number" || Number.isNaN(num)) return String(num);
+  if (num === 0) return "0";
+  const abs = Math.abs(num);
+  if (abs >= 1e6 || abs < 0.001) return num.toExponential(3);
+  return num.toPrecision(5);
+}
+
+/**
+ * Short index/time-cell formatter for ISO timestamp strings: month/day +
+ * hour:minute:second, no year. Only ISO-date-shaped strings are parsed at
+ * all: `Date` coercion would otherwise turn null/numbers/numeric strings
+ * into fabricated epoch/year-2000 timestamps, so nullish input renders
+ * "--" and any non-ISO-shaped value falls back to `String(iso)` verbatim.
+ * Callers MUST still escapeHtml the result, since that fallback echoes the
+ * raw input.
+ * @param {any} iso
+ * @returns {string}
+ */
+function _tsShortTime(iso) {
+  if (iso === null || iso === undefined) return "--";
+  if (typeof iso !== "string" || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return String(iso);
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso);
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  } catch {
+    return String(iso);
+  }
 }
 
 /** @param {any} chartData */
@@ -285,9 +337,9 @@ export async function renderTimeseriesTable(el, artifactId, columns, offset) {
 
     tableData.index.forEach((/** @type {any} */ idx, /** @type {number} */ i) => {
       html += '<tr>';
-      html += `<td class="ts-index-cell">${escapeHtml(String(idx))}</td>`;
+      html += `<td class="ts-index-cell">${escapeHtml(_tsShortTime(idx))}</td>`;
       const row = tableData.data[i] || [];
-      row.forEach((/** @type {any} */ val) => { html += `<td>${escapeHtml(val == null ? "" : String(val))}</td>`; });
+      row.forEach((/** @type {any} */ val) => { html += `<td>${escapeHtml(_tsFormatValue(val))}</td>`; });
       html += '</tr>';
     });
 

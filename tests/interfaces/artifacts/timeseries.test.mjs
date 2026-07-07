@@ -76,6 +76,17 @@ function stubFetchRouting({ chartResp, tableResp } = {}) {
 }
 
 /**
+ * Stub the global `fetch` to resolve ok with `makeTableData(overrides)` for
+ * every call — the common `renderTimeseriesTable` setup. Returns the mock
+ * for tests that assert on fetched URLs.
+ */
+function stubTableFetch(overrides = {}) {
+  const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(makeTableData(overrides)) });
+  vi.stubGlobal('fetch', fetchMock);
+  return fetchMock;
+}
+
+/**
  * Make an injected `<script>` "load" on the next microtask instead of
  * happy-dom actually processing it — happy-dom's default browser settings
  * disable script file loading outright (`disableJavaScriptFileLoading`),
@@ -337,7 +348,7 @@ describe('renderTimeseriesTable', () => {
   });
 
   test('renders a header row and one data row per index entry, from fixture series', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(makeTableData()) }));
+    stubTableFetch();
 
     await renderTimeseriesTable(el, 'ts1', ['SR:MAG:QF1:I', 'SR:MAG:QF2:I'], 0);
 
@@ -346,25 +357,151 @@ describe('renderTimeseriesTable', () => {
 
     const rows = el.querySelectorAll('tbody tr');
     expect(rows.length).toBe(2);
-    expect(rows[0].querySelector('.ts-index-cell').textContent).toBe('2026-07-01T00:00:00Z');
-    expect(Array.from(rows[0].querySelectorAll('td')).map((td) => td.textContent)).toEqual(['2026-07-01T00:00:00Z', '1', '2']);
+    // Index cell goes through _tsShortTime: exact rendering is locale-dependent,
+    // so assert shape (no year, seconds retained) rather than an exact string.
+    const indexCellText = rows[0].querySelector('.ts-index-cell').textContent;
+    expect(indexCellText).not.toMatch(/\b(19|20)\d{2}\b/);
+    expect(indexCellText).toMatch(/\d{1,2}:\d{2}:\d{2}/);
+    // Value cells go through _tsFormatValue: <=5 significant figures.
+    const valueCells = Array.from(rows[0].querySelectorAll('td')).slice(1).map((td) => td.textContent);
+    expect(valueCells).toEqual(['1.0000', '2.0000']);
   });
 
-  test('renders null values as an empty cell rather than the string "null"', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(makeTableData({ data: [[null, 2.0]] , index: ['2026-07-01T00:00:00Z']})),
-    }));
+  test('renders null values as "--" rather than the string "null"', async () => {
+    stubTableFetch({ data: [[null, 2.0]], index: ['2026-07-01T00:00:00Z'] });
 
     await renderTimeseriesTable(el, 'ts1', ['a', 'b'], 0);
 
     const cells = Array.from(el.querySelectorAll('tbody tr td')).map((td) => td.textContent);
-    expect(cells).toEqual(['2026-07-01T00:00:00Z', '', '2']);
+    expect(cells[1]).toBe('--');
+    expect(cells[2]).toBe('2.0000');
+  });
+
+  describe('value-cell formatting (_tsFormatValue, exercised via rendered cells)', () => {
+    test('null/undefined -> "--", 0 -> "0", ordinary magnitude -> <=5 significant figures', async () => {
+      stubTableFetch({
+        columns: ['a', 'b', 'c'],
+        index: ['2026-07-01T00:00:00Z'],
+        data: [[null, 0, 1.23456789]],
+      });
+
+      await renderTimeseriesTable(el, 'ts1', ['a', 'b', 'c'], 0);
+
+      const cells = Array.from(el.querySelectorAll('tbody tr td')).map((td) => td.textContent).slice(1);
+      expect(cells).toEqual(['--', '0', '1.2346']);
+    });
+
+    test('very large and very small nonzero magnitudes render in scientific notation (toExponential(3))', async () => {
+      stubTableFetch({
+        columns: ['big', 'tiny'],
+        index: ['2026-07-01T00:00:00Z'],
+        data: [[1e7, 0.000123]],
+      });
+
+      await renderTimeseriesTable(el, 'ts1', ['big', 'tiny'], 0);
+
+      const cells = Array.from(el.querySelectorAll('tbody tr td')).map((td) => td.textContent).slice(1);
+      expect(cells).toEqual([(1e7).toExponential(3), (0.000123).toExponential(3)]);
+    });
+
+    test('a non-number string cell and a NaN cell fall back to String(...)', async () => {
+      stubTableFetch({
+        columns: ['s', 'n'],
+        index: ['2026-07-01T00:00:00Z'],
+        data: [['not-a-number', NaN]],
+      });
+
+      await renderTimeseriesTable(el, 'ts1', ['s', 'n'], 0);
+
+      const cells = Array.from(el.querySelectorAll('tbody tr td')).map((td) => td.textContent).slice(1);
+      expect(cells).toEqual(['not-a-number', 'NaN']);
+    });
+  });
+
+  describe('index-cell short-time formatting (_tsShortTime, exercised via rendered cells)', () => {
+    test('a valid ISO timestamp renders without a 4-digit year and with seconds retained', async () => {
+      stubTableFetch({
+        columns: ['a'],
+        index: ['2026-07-06T12:34:56Z'],
+        data: [[1.0]],
+      });
+
+      await renderTimeseriesTable(el, 'ts1', ['a'], 0);
+
+      const indexCellText = el.querySelector('.ts-index-cell').textContent;
+      // Locale-dependent exact rendering -- assert shape, not an exact string.
+      // (No month-glyph assertion: month:"short" has no ASCII letters under
+      // CJK/numeric-month locales, so that check would flake by CI locale.)
+      expect(indexCellText).not.toMatch(/\b(19|20)\d{2}\b/); // no year
+      expect(indexCellText).toMatch(/\d{1,2}:\d{2}:\d{2}/); // hour:minute:second
+    });
+
+    test('null and numeric index values render honestly instead of as fabricated dates', async () => {
+      stubTableFetch({
+        columns: ['a'],
+        index: [null, 0, '0'],
+        data: [[1.0], [2.0], [3.0]],
+      });
+
+      await renderTimeseriesTable(el, 'ts1', ['a'], 0);
+
+      const cells = Array.from(el.querySelectorAll('.ts-index-cell')).map((c) => c.textContent);
+      // new Date(null) is epoch 0 and new Date('0') parses as year 2000 --
+      // neither may leak into the table as an invented timestamp.
+      expect(cells).toEqual(['--', '0', '0']);
+    });
+
+    test('an unparseable index value falls back to String(iso)', async () => {
+      stubTableFetch({
+        columns: ['a'],
+        index: ['not-a-date'],
+        data: [[1.0]],
+      });
+
+      await renderTimeseriesTable(el, 'ts1', ['a'], 0);
+
+      expect(el.querySelector('.ts-index-cell').textContent).toBe('not-a-date');
+    });
+  });
+
+  describe('hostile cell values (MI-1 regression: agent-supplied strings must render inert)', () => {
+    const XSS_PAYLOAD = '"><img src=x onerror=alert(1)>';
+
+    test('a hostile string value cell renders escaped, with no live <img>', async () => {
+      stubTableFetch({
+        columns: ['a'],
+        index: ['2026-07-01T00:00:00Z'],
+        data: [[XSS_PAYLOAD]],
+      });
+
+      await renderTimeseriesTable(el, 'ts1', ['a'], 0);
+
+      expect(el.querySelectorAll('img').length).toBe(0);
+      expect(el.innerHTML).toContain('&lt;img');
+      expect(el.innerHTML).not.toContain('<img');
+      const valueCell = el.querySelectorAll('tbody tr td')[1];
+      expect(valueCell.textContent).toBe(XSS_PAYLOAD);
+    });
+
+    test('a hostile string index value renders escaped, with no live <img>', async () => {
+      stubTableFetch({
+        columns: ['a'],
+        index: [XSS_PAYLOAD],
+        data: [[1.0]],
+      });
+
+      await renderTimeseriesTable(el, 'ts1', ['a'], 0);
+
+      expect(el.querySelectorAll('img').length).toBe(0);
+      expect(el.innerHTML).toContain('&lt;img');
+      expect(el.innerHTML).not.toContain('<img');
+      expect(el.querySelector('.ts-index-cell').textContent).toBe(XSS_PAYLOAD);
+    });
   });
 
   describe('pagination', () => {
     test('Prev is disabled at offset 0; Next is disabled once all rows are on the page', async () => {
-      vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(makeTableData({ total_rows: 2 })) }));
+      stubTableFetch({ total_rows: 2 });
 
       await renderTimeseriesTable(el, 'ts1', ['a', 'b'], 0);
 
@@ -374,8 +511,7 @@ describe('renderTimeseriesTable', () => {
     });
 
     test('Next is enabled when more rows remain, and clicking it re-fetches at the next offset', async () => {
-      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(makeTableData({ total_rows: 120 })) });
-      vi.stubGlobal('fetch', fetchMock);
+      const fetchMock = stubTableFetch({ total_rows: 120 });
 
       await renderTimeseriesTable(el, 'ts1', ['a', 'b'], 0);
 
@@ -388,8 +524,7 @@ describe('renderTimeseriesTable', () => {
     });
 
     test('Prev clamps to offset 0 rather than going negative', async () => {
-      const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve(makeTableData({ total_rows: 120, offset: 20 })) });
-      vi.stubGlobal('fetch', fetchMock);
+      const fetchMock = stubTableFetch({ total_rows: 120, offset: 20 });
 
       await renderTimeseriesTable(el, 'ts1', ['a', 'b'], 20);
       fetchMock.mockClear();
@@ -435,10 +570,7 @@ describe('Plotly loader edge cases (isolated: fresh module instance per test)', 
       }
       throw new Error('unexpected non-script appendChild in this isolated test');
     });
-    vi.stubGlobal('fetch', vi.fn((url) => {
-      if (url.includes('format=chart')) return Promise.resolve({ ok: true, json: () => Promise.resolve(makeChartData()) });
-      return Promise.resolve({ ok: true, json: () => Promise.resolve(makeTableData()) });
-    }));
+    stubFetchRouting();
 
     const fresh = await import('../../../src/osprey/interfaces/artifacts/static/js/timeseries.js');
     const container = document.createElement('div');
@@ -447,6 +579,49 @@ describe('Plotly loader edge cases (isolated: fresh module instance per test)', 
 
     expect(container.textContent).toContain('Failed to load timeseries data');
     expect(Plotly.newPlot).not.toHaveBeenCalled();
+  });
+
+  test('a script load failure does not permanently poison the loader: the next render re-injects a fresh <script> and can succeed', async () => {
+    vi.stubGlobal('Plotly', { newPlot: vi.fn((el) => { el.data = []; }) });
+    stubFetchRouting();
+
+    /** @type {any[]} */
+    const scriptAppends = [];
+    vi.spyOn(document.head, 'appendChild').mockImplementation((node) => {
+      if (node && node.tagName === 'SCRIPT') {
+        scriptAppends.push(node);
+        if (scriptAppends.length === 1) {
+          // First injection: simulate a load failure, as the earlier test does.
+          queueMicrotask(() => node.onerror && node.onerror());
+        }
+        // The second (retry) injection is left pending here -- the test
+        // fires its onload manually below, once it's confirmed injected.
+        return node;
+      }
+      throw new Error('unexpected non-script appendChild in this isolated test');
+    });
+
+    const fresh = await import('../../../src/osprey/interfaces/artifacts/static/js/timeseries.js');
+
+    const container1 = document.createElement('div');
+    await fresh.renderTimeseriesView(container1, { id: 'ts1' });
+
+    expect(container1.textContent).toContain('Failed to load timeseries data');
+    expect(scriptAppends.length).toBe(1);
+
+    const container2 = document.createElement('div');
+    const renderPromise = fresh.renderTimeseriesView(container2, { id: 'ts2' });
+
+    // A second render must re-inject its own fresh <script> rather than
+    // reusing the (permanently rejected) first loading promise.
+    await vi.waitFor(() => expect(scriptAppends.length).toBe(2));
+    expect(scriptAppends[1]).not.toBe(scriptAppends[0]);
+
+    scriptAppends[1].onload();
+    await renderPromise;
+
+    expect(container2.textContent).not.toContain('Failed to load timeseries data');
+    expect(Plotly.newPlot).toHaveBeenCalledTimes(1);
   });
 
   test('concurrent renderTimeseriesChart calls coalesce onto one _plotlyLoading promise (exactly one <script> injected)', async () => {
