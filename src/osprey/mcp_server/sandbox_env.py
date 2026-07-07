@@ -22,7 +22,7 @@ _SENSITIVE_ENV_EXACT: tuple[str, ...] = ("EVENT_DISPATCHER_TOKEN",)
 _SENSITIVE_ENV_SUFFIXES: tuple[str, ...] = ("_PROMOTE_TOKEN",)
 
 
-def _scrub_sensitive_env(env: dict[str, str]) -> dict[str, str]:
+def scrub_sensitive_env(env: dict[str, str]) -> dict[str, str]:
     """Return a copy of *env* with write-arming secrets removed.
 
     Drops any key in :data:`_SENSITIVE_ENV_EXACT` and any key ending in one of

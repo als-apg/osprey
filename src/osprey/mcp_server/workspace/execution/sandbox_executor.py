@@ -30,11 +30,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from osprey.mcp_server.sandbox_env import _scrub_sensitive_env
+from osprey.mcp_server.sandbox_env import scrub_sensitive_env
 
 logger = logging.getLogger("osprey.mcp_server.workspace.execution.sandbox_executor")
 
-# _scrub_sensitive_env's deny-list lives in osprey.mcp_server.sandbox_env
+# scrub_sensitive_env's deny-list lives in osprey.mcp_server.sandbox_env
 # (imported above), shared with python_executor/executor.py's identical
 # local-subprocess seam so the two sandboxes cannot drift.
 
@@ -643,7 +643,7 @@ async def execute_sandbox_code(
     script_path.write_text(wrapped_code, encoding="utf-8")
 
     start_time = time.time()
-    sandbox_env = _scrub_sensitive_env(os.environ.copy())
+    sandbox_env = scrub_sensitive_env(os.environ.copy())
 
     try:
         proc = await asyncio.create_subprocess_exec(

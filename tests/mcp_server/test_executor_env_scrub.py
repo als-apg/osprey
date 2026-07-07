@@ -1,6 +1,6 @@
 """Unit tests for the python-executor sandbox environment scrub.
 
-Covers ``_scrub_sensitive_env`` (the pure filtering function) and the
+Covers ``scrub_sensitive_env`` (the pure filtering function) and the
 ``_execute_via_local`` subprocess-spawn seam that must use it. The scrub
 prevents agent-generated code running in the local-execution sandbox from
 reading write-arming secrets (e.g. ``BLUESKY_PROMOTE_TOKEN``) and calling a
@@ -17,7 +17,7 @@ from osprey.mcp_server.python_executor.executor import execute_code
 from osprey.mcp_server.sandbox_env import (
     _SENSITIVE_ENV_EXACT,
     _SENSITIVE_ENV_SUFFIXES,
-    _scrub_sensitive_env,
+    scrub_sensitive_env,
 )
 
 
@@ -52,7 +52,7 @@ def _write_local_config(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# _scrub_sensitive_env — pure function
+# scrub_sensitive_env — pure function
 # ---------------------------------------------------------------------------
 
 
@@ -60,7 +60,7 @@ def _write_local_config(tmp_path):
 def test_scrub_removes_bluesky_promote_token():
     """BLUESKY_PROMOTE_TOKEN is dropped via the *_PROMOTE_TOKEN suffix rule."""
     env = {"BLUESKY_PROMOTE_TOKEN": "secret", "PATH": "/usr/bin"}
-    scrubbed = _scrub_sensitive_env(env)
+    scrubbed = scrub_sensitive_env(env)
     assert "BLUESKY_PROMOTE_TOKEN" not in scrubbed
     assert scrubbed["PATH"] == "/usr/bin"
 
@@ -69,7 +69,7 @@ def test_scrub_removes_bluesky_promote_token():
 def test_scrub_removes_event_dispatcher_token():
     """EVENT_DISPATCHER_TOKEN is dropped via the exact-name rule."""
     env = {"EVENT_DISPATCHER_TOKEN": "secret", "PATH": "/usr/bin"}
-    scrubbed = _scrub_sensitive_env(env)
+    scrubbed = scrub_sensitive_env(env)
     assert "EVENT_DISPATCHER_TOKEN" not in scrubbed
     assert scrubbed["PATH"] == "/usr/bin"
 
@@ -78,7 +78,7 @@ def test_scrub_removes_event_dispatcher_token():
 def test_scrub_generalizes_to_future_promote_tokens():
     """Any future *_PROMOTE_TOKEN name is scrubbed without a code change."""
     env = {"SOME_OTHER_BRIDGE_PROMOTE_TOKEN": "secret", "PATH": "/usr/bin"}
-    scrubbed = _scrub_sensitive_env(env)
+    scrubbed = scrub_sensitive_env(env)
     assert "SOME_OTHER_BRIDGE_PROMOTE_TOKEN" not in scrubbed
 
 
@@ -93,22 +93,22 @@ def test_scrub_preserves_unrelated_env():
         # either scrub rule — must survive.
         "TOKENIZER_CACHE_DIR": "/tmp/cache",
     }
-    scrubbed = _scrub_sensitive_env(env)
+    scrubbed = scrub_sensitive_env(env)
     assert scrubbed == env
 
 
 @pytest.mark.unit
 def test_scrub_does_not_mutate_input():
-    """_scrub_sensitive_env returns a copy; it must not mutate the caller's dict."""
+    """scrub_sensitive_env returns a copy; it must not mutate the caller's dict."""
     env = {"BLUESKY_PROMOTE_TOKEN": "secret", "PATH": "/usr/bin"}
     original = dict(env)
-    _scrub_sensitive_env(env)
+    scrub_sensitive_env(env)
     assert env == original
 
 
 @pytest.mark.unit
 def test_scrub_empty_env():
-    assert _scrub_sensitive_env({}) == {}
+    assert scrub_sensitive_env({}) == {}
 
 
 @pytest.mark.unit
