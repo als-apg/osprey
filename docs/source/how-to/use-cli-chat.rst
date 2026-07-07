@@ -2,8 +2,8 @@ Use the CLI Chat Interface
 ==========================
 
 The CLI chat interface launches the Osprey agent in your native terminal while
-running OSPREY's companion services in the background. This gives you the full
-agent TUI experience — keyboard shortcuts, slash commands, native
+running OSPREY's companion services in the background. This runs the agent
+in the full terminal TUI — keyboard shortcuts, slash commands, native
 scrollback — with access to companion services (artifact gallery, session
 analytics, etc.) via their URLs in a browser.
 

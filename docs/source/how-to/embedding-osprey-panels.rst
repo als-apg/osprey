@@ -7,7 +7,7 @@ same-origin iframe panels, and hosts its own session activity page
 (``session.html``) the same way. This guide documents the shell↔panel
 boundary as a versioned contract: three transports, a well-known set of
 query params, per-panel deep-link forms, the same-origin postMessage model
-that keeps the boundary safe, and the chrome contract that decides what a
+that enforces the boundary, and the chrome contract that decides what a
 panel shows of itself when it's running standalone versus inside the hub.
 If you are wiring a new panel into the hub, or adding a new well-known param
 or message type, this is the contract to extend rather than work around.
@@ -95,9 +95,9 @@ own grammar, and the hub does not know or care what it means.
   earlier ``#/sessions?project=`` grammar existed on this codepath and has
   since been removed as vestigial — it had no reader.
 
-This asymmetry is intentional, not an oversight: divergent per-panel hash
-grammars are documented here rather than converged into one shared shape,
-because a hash is inherently panel-internal navigation state. The seam a
+Per-panel hash grammars diverge by design: they are documented here rather
+than converged into one shared shape, because a hash is inherently
+panel-internal navigation state. The seam a
 future KNOWLEDGE concept-picker would use to deep-link the hub straight into
 an OKF concept is exactly this transport — the hub would set the iframe's
 initial ``#<conceptId>`` hash the same way a user's own OKF navigation does —
@@ -297,7 +297,7 @@ into this contract:
 The Executable Contract Spec
 --------------------------------
 
-The whole contract above is proven end-to-end, in a real browser, by
+The whole contract above is exercised end-to-end, in a real browser, by
 ``tests/interfaces/web_terminal/test_contract_params.py``:
 
 * query = creation-time config (``?embedded=true`` / ``?theme=``)

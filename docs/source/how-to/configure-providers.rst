@@ -162,7 +162,7 @@ Model Tier Mapping
 ------------------
 
 The Osprey agent uses three model tiers — ``haiku`` (fast/cheap), ``sonnet``
-(balanced), and ``opus`` (powerful). Each provider maps these to its own model
+(balanced), and ``opus`` (most capable). Each provider maps these to its own model
 IDs via the ``models`` block in ``api.providers``.
 
 The resolver applies model IDs in this priority order:

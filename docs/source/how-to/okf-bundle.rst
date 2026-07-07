@@ -1,0 +1,271 @@
+==============
+The OKF Bundle
+==============
+
+The **Open Knowledge Format (OKF)** bundle is the on-demand tier of
+:doc:`Facility Knowledge <use-facility-knowledge>`: a directory of Markdown
+concept documents that the ``osprey_facility_knowledge`` MCP server serves to
+the agent only when a task calls for them. This page covers what OKF is, how to
+structure a bundle, and how to author, validate, and serve it.
+
+
+What Is the Open Knowledge Format?
+==================================
+
+The Open Knowledge Format is a convention for representing a body of knowledge
+as **cross-linked Markdown files with YAML frontmatter**, so the same files can
+be read by a person, tracked in version control, and navigated by an agent. It
+was introduced by Google; see the `Google Cloud blog post
+<https://cloud.google.com/blog/products/data-analytics/how-the-open-knowledge-format-can-improve-data-sharing>`_
+for the original description.
+
+OSPREY uses OKF for **facility narrative knowledge** — the descriptive,
+human-authored context that does not belong in the channel database (that is the
+:doc:`Channel Finder <use-channel-finder>`) or the logbook (that is
+:doc:`ARIEL <ariel/index>`). A bundle of OKF documents is served to the agent on
+demand by the ``osprey_facility_knowledge`` MCP server.
+
+
+The Core Ideas
+==============
+
+OKF rests on four ideas.
+
+**1. Typed documents.** OKF calls each file a **concept** — "a single unit of
+knowledge, represented as one Markdown document." Every concept is a Markdown
+file with a YAML frontmatter block whose ``type`` field is what makes the corpus
+machine-navigable: it lets indexes group documents and lets the agent tell
+*what kind* of document it is. See the full frontmatter schema under
+:ref:`Structure & Config <authoring-concept-documents>` below.
+
+**2. Progressive disclosure.** Every directory carries an auto-generated
+``index.md`` that summarizes its contents. This lets the agent browse the index
+to discover what exists and then read only the document it needs, instead of
+loading the whole bundle. Regenerate these indexes with
+``osprey knowledge regen-index`` after adding or removing documents.
+
+**3. Cross-links.** Documents reference each other with bundle-relative
+Markdown links, so the agent can follow references from one document to related
+ones:
+
+.. code-block:: markdown
+
+   See [Personnel Safety System](/subsystems/pss.md) for the interlock hierarchy.
+
+**4. Validation levels.** OKF distinguishes two strictness levels, so
+half-finished stubs and finished documents can coexist. *Consuming* validation
+requires only a ``type`` (a tolerant reader check); *authoring* validation also
+requires ``title`` and ``description``. ``osprey knowledge validate`` checks
+your bundle at the authoring level.
+
+
+Working with a Bundle
+=====================
+
+.. tab-set::
+
+   .. tab-item:: Structure & Config
+
+      There is no required layout beyond the top-level directory — organize
+      sub-directories in whatever structure suits your facility, from a single
+      flat folder to a deep tree. The server discovers whatever is present and
+      auto-generates the ``index.md`` files. A conventional starting shape groups
+      documents by kind:
+
+      .. code-block:: text
+
+         data/facility_knowledge/
+         ├── index.md            ← bundle root index (auto-generated)
+         ├── subsystems/         ← how the major systems work (vacuum, timing, safety…)
+         │   ├── index.md        ← sub-directory index (auto-generated)
+         │   ├── power-supply-system.md
+         │   └── timing-system.md
+         ├── devices/            ← device classes and families (BPMs, ion pumps…)
+         │   ├── index.md
+         │   └── magnet-power-supply.md
+         ├── procedures/         ← operational checklists and recovery steps
+         ├── physics/            ← calibrations, beam-behavior notes
+         └── references/         ← glossaries, standards, safety rules
+
+      The ``control_assistant`` preset ships an Example Research Facility bundle
+      you can read as a worked example, then replace with your own.
+
+      .. _authoring-concept-documents:
+
+      **Authoring concept documents.** Each concept document is a markdown file
+      with YAML frontmatter at the top:
+
+      .. code-block:: markdown
+
+         ---
+         type: Subsystem
+         title: Power Supply System
+         description: DC power supplies for all storage-ring magnets.
+         tags: [magnets, power-supplies, PSS]
+         ---
+
+         # Power Supply System
+
+         ...document body...
+
+      Required frontmatter fields (authoring level):
+
+      .. list-table::
+         :header-rows: 1
+         :widths: 25 75
+
+         * - Field
+           - Description
+         * - ``type``
+           - Document type (a short free-form label)
+         * - ``title``
+           - Human-readable title
+         * - ``description``
+           - One-sentence summary used in indexes and search
+
+      Optional fields: ``tags`` (list of strings), ``related`` (list of
+      bundle-relative paths to related docs). Documents cross-reference each
+      other with bundle-relative Markdown links, as shown in `The Core Ideas`_
+      above.
+
+      **Pointing the server at the bundle.** Add a ``facility_knowledge`` block
+      to ``config.yml``:
+
+      .. code-block:: yaml
+
+         facility_knowledge:
+           bundle_path: data/facility_knowledge
+
+      Relative paths are resolved against the directory containing ``config.yml``
+      (the project root).  For the ``control_assistant`` preset the example
+      bundle is scaffolded into ``data/facility_knowledge/`` automatically.
+
+   .. tab-item:: Connecting to OSPREY
+
+      The ``osprey_facility_knowledge`` MCP server reads the OKF bundle at
+      startup, auto-generates the ``index.md`` files, and exposes it to the agent
+      through four tools:
+
+      * ``list_concepts`` — browse the index to discover what topics exist
+      * ``read_concept`` — retrieve a specific document by its bundle-relative path
+      * ``search`` — full-text search across all concept documents
+      * ``draft_concept`` — author a new concept document (requires human approval)
+
+      **The facility-knowledge subagent.** When it is enabled in a project's
+      config, the main OSPREY agent delegates facility knowledge questions to this
+      dedicated specialist rather than handling them inline. The subagent has
+      access only to the three read-only tools (``list_concepts``,
+      ``read_concept``, ``search``) and follows a fixed retrieval strategy: list
+      first to orient, search to narrow, read to synthesize, then submit the
+      result.
+
+      It is enabled by default in the ``control_assistant`` preset. To enable or
+      disable it in a generated project, set the agent's ``enabled`` flag under
+      ``claude_code.agents`` in ``config.yml``:
+
+      .. code-block:: yaml
+
+         claude_code:
+           agents:
+             facility-knowledge:
+               enabled: false   # disable the subagent (omit to keep it enabled)
+
+      .. note::
+
+         The subagent never writes to the bundle.  Authoring new concept
+         documents is done via the ``draft_concept`` MCP tool in the main agent
+         session, or directly via ``osprey knowledge seed-from-ttl`` (see the
+         :ref:`CLI <knowledge-cli>`).
+
+   .. tab-item:: osprey knowledge CLI
+
+      .. _knowledge-cli:
+
+      The ``osprey knowledge`` command group provides three operations for
+      managing an OKF bundle from the terminal.
+
+      .. code-block:: console
+
+         $ osprey knowledge --help
+         Usage: osprey knowledge [OPTIONS] COMMAND [ARGS]...
+
+           Manage OKF facility knowledge bundles.
+
+         Commands:
+           regen-index    Regenerate index.md files throughout an OKF bundle.
+           validate       Validate all OKF documents in a bundle.
+           seed-from-ttl  Seed OKF stub documents from a NARAD/als-ontology TTL file.
+
+      **regen-index** — regenerates ``index.md`` files throughout the bundle. Run
+      this after adding or removing concept documents:
+
+      .. code-block:: console
+
+         $ osprey knowledge regen-index data/facility_knowledge
+
+      When called without an argument the bundle path is read from
+      ``facility_knowledge.bundle_path`` in ``config.yml``.  Or via the Python
+      API:
+
+      .. code-block:: python
+
+         from osprey.services.facility_knowledge.okf.index import regenerate_indexes
+         from pathlib import Path
+
+         regenerate_indexes(Path("data/facility_knowledge"))
+
+      The root ``index.md`` includes an ``okf_version`` frontmatter key;
+      sub-directory indexes contain no frontmatter (they are consumed by the
+      server, not the agent directly).  The command is idempotent — a second run
+      produces bit-identical output — and never touches concept documents, only
+      index files.
+
+      **validate** — validates every ``*.md`` file in the bundle and reports all
+      failures in one pass (collect-all, never aborts on the first error):
+
+      .. code-block:: console
+
+         $ osprey knowledge validate data/facility_knowledge
+         All files in data/facility_knowledge are valid.
+
+      Concept documents are checked at the *authoring* level (``type``,
+      ``title``, and ``description`` must be present and non-empty).  Index files
+      are checked for frontmatter compliance (OKF §6/§11).  The command exits 0
+      on a clean bundle, 1 if any file fails.
+
+      **seed-from-ttl** — seeds one OKF stub document per device node in a
+      NARAD/als-ontology Turtle file.  Requires the ``knowledge`` extra:
+
+      .. code-block:: console
+
+         $ pip install "osprey-framework[knowledge]"
+         $ osprey knowledge seed-from-ttl devices.ttl data/facility_knowledge
+
+      Idempotency rules applied per stub:
+
+      * **File absent** — write and report ``written``.
+      * **File present, same body** — skip and report ``unchanged``.
+      * **File present, body differs, no** ``--force`` — skip and report
+        ``differs, use --force``.
+      * **File present, body differs,** ``--force`` set — overwrite and report
+        ``overwritten``.
+
+      Use ``--force`` only when you want to reset hand-edited stubs to the
+      auto-generated content.
+
+      .. warning::
+
+         ``--force`` overwrites existing stubs.  Omit it to protect hand-edited
+         documents.
+
+
+.. seealso::
+
+   :doc:`use-facility-knowledge`
+      How the on-demand bundle relates to the always-in-context rules.
+
+   :doc:`build-profiles`
+      How to assemble facility-specific OSPREY projects with custom data bundles.
+
+   :doc:`/architecture/mcp-servers`
+      MCP servers provided by the framework, including ``osprey_facility_knowledge``.
