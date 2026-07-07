@@ -8,9 +8,14 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ES2022",
     "moduleResolution": "bundler",
-    "types": []
+    "types": [],
+    "baseUrl": ".",
+    "paths": {
+      "/design-system/js/*": ["src/osprey/interfaces/design_system/static/js/*"]
+    }
   },
   "include": [
+    "src/osprey/interfaces/vendor-globals.d.ts",
     "src/osprey/interfaces/**/static/js/**/*.js",
     "tests/**/*.js",
     "tests/**/*.mjs"
