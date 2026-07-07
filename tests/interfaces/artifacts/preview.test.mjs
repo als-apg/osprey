@@ -143,6 +143,18 @@ describe('renderPreview: per-type viewport dispatch', () => {
     expect(iframe.getAttribute('src')).toBe('/api/notebooks/nb1/rendered');
   });
 
+  test('artifact_type "notebook" percent-encodes a hostile id in the iframe src', () => {
+    setSelectedArtifact(makeArtifact({ id: 'a/../b?x="y"', artifact_type: 'notebook' }));
+    const renderer = createPreviewRenderer(makeCallbacks());
+    renderer.renderPreview();
+
+    const iframe = document.querySelector('.preview-viewport iframe.preview-iframe-light');
+    const src = iframe.getAttribute('src');
+    const idSegment = src.split('/')[3];
+    expect(idSegment).not.toMatch(/[/?"]/);
+    expect(src).toBe('/api/notebooks/a%2F..%2Fb%3Fx%3D%22y%22/rendered');
+  });
+
   test('an unrecognized type with mime_type application/pdf renders a light iframe of the file', () => {
     setSelectedArtifact(makeArtifact({ artifact_type: 'weird_type', mime_type: 'application/pdf' }));
     const renderer = createPreviewRenderer(makeCallbacks());
@@ -383,6 +395,29 @@ describe('fullscreen mode', () => {
     const badge = document.getElementById('fullscreen-new-badge');
     expect(badge.textContent).toBe('2 new');
     expect(badge.dataset.count).toBe('2');
+  });
+});
+
+describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
+  test('a hostile category is escaped in the badge class attribute — no element injection, no attribute breakout', () => {
+    const hostile = '"><img src=x onerror=alert(1)>';
+    setSelectedArtifact(makeArtifact({ category: hostile, artifact_type: hostile }));
+    createPreviewRenderer(makeCallbacks()).renderPreview();
+
+    expect(document.querySelector('.preview-header img')).toBeNull();
+    expect(document.querySelector('.preview-header [onerror]')).toBeNull();
+    expect(document.getElementById('preview-content').innerHTML).not.toMatch(/"><img/);
+
+    const badge = document.querySelector('.badge');
+    expect(badge).not.toBeNull();
+  });
+
+  test('benign category renders the badge class byte-identical (regression guard)', () => {
+    setSelectedArtifact(makeArtifact({ category: 'visualization' }));
+    createPreviewRenderer(makeCallbacks()).renderPreview();
+
+    const badge = document.querySelector('.badge');
+    expect(badge.className).toBe('badge badge-visualization');
   });
 });
 

@@ -11,6 +11,7 @@
  */
 
 import { fileUrl } from "./state.js";
+import { escapeHtml } from "/design-system/js/dom.js";
 
 // ---- Type Registry ---- //
 
@@ -36,6 +37,15 @@ export async function initTypeRegistry() {
 
 /**
  * Human-readable label for an artifact/category type.
+ *
+ * Escaped at the source: `info.label` comes from the agent-fed
+ * `/api/type-registry`, and `type` itself is the agent-supplied
+ * `category`/`artifact_type` value (never validated server-side beyond a
+ * log-warning — see artifact_store.py). Every call site interpolates the
+ * result directly into innerHTML, so this must return HTML-safe text.
+ * Audited: no call site (render.js, preview.js, this module's own
+ * `thumbnailHtml`) wraps the result in `escapeHtml` itself, so escaping here
+ * cannot double-escape.
  * @param {string} type
  * @returns {string}
  */
@@ -43,7 +53,7 @@ export function typeBadge(type) {
   const info =
     (typeRegistry.categories && typeRegistry.categories[type]) ||
     (typeRegistry.artifact_types && typeRegistry.artifact_types[type]) || {};
-  return info.label || type.replace(/_/g, " ");
+  return escapeHtml(info.label || type.replace(/_/g, " "));
 }
 
 /**
@@ -119,7 +129,7 @@ export function thumbnailHtml(a) {
       return `<iframe src="${url}" sandbox="allow-scripts allow-same-origin"
                loading="lazy" tabindex="-1"></iframe>`;
     case "notebook":
-      return `<iframe src="/api/notebooks/${a.id}/rendered"
+      return `<iframe src="/api/notebooks/${encodeURIComponent(a.id)}/rendered"
                sandbox="allow-scripts allow-same-origin"
                loading="lazy" tabindex="-1"></iframe>`;
     default:
@@ -135,17 +145,10 @@ export function thumbnailHtml(a) {
 
 // ---- Utilities ---- //
 
-/**
- * HTML-escape a value using the textContent -> innerHTML trick. Nullish
- * input yields "" (not "undefined"/"null").
- * @param {unknown} str
- * @returns {string}
- */
-export function escapeHtml(str) {
-  const d = document.createElement("div");
-  d.textContent = /** @type {any} */ (str) || "";
-  return d.innerHTML;
-}
+// HTML-escaping now lives in the design-system's canonical helper — this
+// module re-exports it so existing importers (render.js, preview.js,
+// preview-content.js) keep working unchanged.
+export { escapeHtml } from "/design-system/js/dom.js";
 
 /**
  * Human-readable byte size (B/KB/MB/GB).
@@ -212,8 +215,8 @@ export function formatDate(iso) {
  */
 export function openUrl(a) {
   switch (a.artifact_type) {
-    case "markdown": return `/api/markdown/${a.id}/rendered`;
-    case "notebook": return `/api/notebooks/${a.id}/rendered`;
+    case "markdown": return `/api/markdown/${encodeURIComponent(a.id)}/rendered`;
+    case "notebook": return `/api/notebooks/${encodeURIComponent(a.id)}/rendered`;
     default:         return fileUrl(a);
   }
 }

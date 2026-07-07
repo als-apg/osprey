@@ -51,6 +51,10 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Toggling the theme (in the Web Terminal hub or any standalone interface) no longer leaves a stale `?theme=` in the URL; reloading after a toggle now falls back to your saved preference (or the OS setting in `auto` mode) instead of being pinned to whatever value was in the URL at toggle time.
 - Creating a new artifact from the Web Terminal's Scaffold gallery no longer fails with an HTTP 405 — the create-artifact request now uses `POST` directly instead of being routed through a GET-only fetch helper.
 
+### Security
+
+- Artifacts gallery: agent-supplied artifact metadata (`category`, `artifact_type`, type-registry labels) is now HTML-escaped at every render sink, the shared `escapeHtml` escapes quotes for attribute contexts, and artifact ids are percent-encoded in URL paths — closing a stored-XSS in the gallery sidebar.
+
 ## [2026.6.3] - 2026-06-29
 
 ### Fixed

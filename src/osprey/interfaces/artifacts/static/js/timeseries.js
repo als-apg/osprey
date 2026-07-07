@@ -17,10 +17,9 @@
  * The lazy `<script src="/static/js/vendor/plotly-3.3.1.min.js">` injection
  * must keep that exact offline-vendored path — do not change it.
  *
- * `_esc` duplicates types.js's `escapeHtml` (same textContent→innerHTML
- * trick, different name) rather than importing it. That divergence is
- * pinned by a labeled KNOWN-DIVERGENCE test elsewhere; consolidation is
- * deliberately deferred, so the local copy stands.
+ * HTML-escaping uses the design-system's canonical `escapeHtml` (quote-safe,
+ * nullish-collapsing) — see dom.js. This module used to carry its own
+ * `_esc` copy; that divergence has been consolidated away.
  *
  * Table cells render values/timestamps raw, with no precision or
  * short-time formatting applied. Changing the rendered precision/format of
@@ -34,6 +33,7 @@
  */
 
 import { chartTheme, chartSeries } from "/design-system/js/theme-manager.js";
+import { escapeHtml } from "/design-system/js/dom.js";
 
 // ---- Lazy Plotly Loader ---- //
 
@@ -56,16 +56,6 @@ function ensurePlotlyLoaded() {
 }
 
 // ---- Helpers ---- //
-
-/**
- * @param {unknown} s
- * @returns {string}
- */
-function _esc(s) {
-  const d = document.createElement("div");
-  d.textContent = /** @type {any} */ (s);
-  return d.innerHTML;
-}
 
 /**
  * @param {string} name
@@ -131,7 +121,7 @@ export async function renderTimeseriesView(container, artifact) {
     // Info bar
     html += '<div class="ts-info-bar">';
     columns.forEach((/** @type {any} */ c) => {
-      html += `<span class="ts-badge ts-badge-channel"><span class="badge-label">CH</span> ${_esc(_tsShortChannelName(c))}</span>`;
+      html += `<span class="ts-badge ts-badge-channel"><span class="badge-label">CH</span> ${escapeHtml(_tsShortChannelName(c))}</span>`;
     });
     html += `<span class="ts-badge ts-badge-rows"><span class="badge-label">Rows</span> ${chartData.total_rows.toLocaleString()}</span>`;
     if (chartData.downsampled) {
@@ -145,9 +135,9 @@ export async function renderTimeseriesView(container, artifact) {
     const _tsPalette = chartSeries();
     columns.forEach((/** @type {any} */ col, /** @type {number} */ ci) => {
       const color = _tsPalette[ci % _tsPalette.length];
-      html += `<button class="ts-ch-toggle" data-ch-index="${ci}" data-ch-name="${_esc(col)}" title="${_esc(col)}">`;
+      html += `<button class="ts-ch-toggle" data-ch-index="${ci}" data-ch-name="${escapeHtml(col)}" title="${escapeHtml(col)}">`;
       html += `<span class="ts-ch-dot" style="background:${color}"></span>`;
-      html += _esc(_tsShortChannelName(col));
+      html += escapeHtml(_tsShortChannelName(col));
       html += '</button>';
     });
     html += '</div>';
@@ -290,14 +280,14 @@ export async function renderTimeseriesTable(el, artifactId, columns, offset) {
 
     let html = '<div class="ts-data-table-wrapper"><table class="ts-data-table">';
     html += '<thead><tr><th>Index</th>';
-    columns.forEach((c) => { html += `<th>${_esc(c)}</th>`; });
+    columns.forEach((c) => { html += `<th>${escapeHtml(c)}</th>`; });
     html += '</tr></thead><tbody>';
 
     tableData.index.forEach((/** @type {any} */ idx, /** @type {number} */ i) => {
       html += '<tr>';
-      html += `<td class="ts-index-cell">${_esc(String(idx))}</td>`;
+      html += `<td class="ts-index-cell">${escapeHtml(String(idx))}</td>`;
       const row = tableData.data[i] || [];
-      row.forEach((/** @type {any} */ val) => { html += `<td>${_esc(val == null ? "" : String(val))}</td>`; });
+      row.forEach((/** @type {any} */ val) => { html += `<td>${escapeHtml(val == null ? "" : String(val))}</td>`; });
       html += '</tr>';
     });
 

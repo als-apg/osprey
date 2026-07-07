@@ -95,6 +95,17 @@ describe('fileUrl', () => {
   test('builds a /files/{id}/{filename} URL, encoding the filename', () => {
     expect(fileUrl({ id: 'abc123', filename: 'plot one.png' })).toBe('/files/abc123/plot%20one.png');
   });
+
+  test('percent-encodes a hostile id, so no raw path-breakout/query/quote characters survive', () => {
+    const url = fileUrl({ id: 'a/../b?x="y"', filename: 'plot.png' });
+    const idSegment = url.split('/')[2];
+    expect(idSegment).not.toMatch(/[/?"]/);
+    expect(url).toBe('/files/a%2F..%2Fb%3Fx%3D%22y%22/plot.png');
+  });
+
+  test('is byte-identical for a real 12-hex artifact id (encodeURIComponent is a no-op)', () => {
+    expect(fileUrl({ id: '0123456789ab', filename: 'plot.png' })).toBe('/files/0123456789ab/plot.png');
+  });
 });
 
 describe('error banner', () => {

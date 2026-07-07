@@ -75,7 +75,7 @@ export function setShowAllSessions(v) { showAllSessions = v; }
 
 /** @param {{id: string, filename: string}} a */
 export function fileUrl(a) {
-  return `/files/${a.id}/${encodeURIComponent(a.filename)}`;
+  return `/files/${encodeURIComponent(a.id)}/${encodeURIComponent(a.filename)}`;
 }
 
 // ---- Error Banner ---- //

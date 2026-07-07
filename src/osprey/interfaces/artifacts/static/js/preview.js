@@ -106,7 +106,7 @@ export function createPreviewRenderer(callbacks) {
           viewportHtml = `<iframe src="${url}" class="preview-iframe-light" sandbox="allow-scripts allow-same-origin"></iframe>`;
           break;
         case "notebook":
-          viewportHtml = `<iframe src="/api/notebooks/${a.id}/rendered" class="preview-iframe-light" sandbox="allow-scripts allow-same-origin"></iframe>`;
+          viewportHtml = `<iframe src="/api/notebooks/${encodeURIComponent(a.id)}/rendered" class="preview-iframe-light" sandbox="allow-scripts allow-same-origin"></iframe>`;
           break;
         case "plot_png":
         case "image":
@@ -144,7 +144,7 @@ export function createPreviewRenderer(callbacks) {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
             Back
           </button>
-          <span class="badge badge-${a.category || a.artifact_type}">${typeBadge(a.category || a.artifact_type)}</span>
+          <span class="badge badge-${escapeHtml(a.category || a.artifact_type)}">${typeBadge(a.category || a.artifact_type)}</span>
           <span class="preview-header-title">${escapeHtml(a.title)}</span>
         </div>
         <div class="preview-header-actions">

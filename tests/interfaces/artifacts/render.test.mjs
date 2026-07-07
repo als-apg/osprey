@@ -20,7 +20,7 @@
  * gallery.js effects it defers to).
  */
 
-import { test, expect, describe, beforeEach, vi } from 'vitest';
+import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
 import {
   setArtifacts,
@@ -31,6 +31,7 @@ import {
   initSplitPaneResize,
   createSidebarRenderer,
 } from '../../../src/osprey/interfaces/artifacts/static/js/render.js';
+import { initTypeRegistry } from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
 
 /** Minimal DOM fixture matching artifacts/static/index.html's structure. */
 function mountFixture() {
@@ -266,6 +267,111 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
 
     expect(section.classList.contains('collapsed')).toBe(true);
     expect(callbacks.onSelect).not.toHaveBeenCalled();
+  });
+});
+
+describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
+  const HOSTILE = '"><img src=x onerror=alert(1)>';
+
+  /**
+   * Seed state with one artifact whose category/artifact_type carry the
+   * hostile payload (title/filename are inert and unasserted).
+   * @param {string} id
+   */
+  function setHostileArtifact(id) {
+    setArtifacts([
+      { id, title: `Hostile ${id}`, filename: `${id}.png`, artifact_type: HOSTILE, category: HOSTILE, pinned: false, timestamp: '2026-07-04T10:00:00Z', size_bytes: 10 },
+    ]);
+  }
+
+  afterEach(async () => {
+    // Reset the module-level type registry so a test that re-inits it with a
+    // hostile label can't leak into later tests — even when its assertions fail.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ json: () => Promise.resolve({}) }));
+    await initTypeRegistry();
+    vi.unstubAllGlobals();
+  });
+
+  test('a hostile category/artifact_type is escaped in tree-mode data-type attributes — no live <img>, no unescaped attribute breakout', () => {
+    setHostileArtifact('x1');
+    const sidebarRenderer = createSidebarRenderer(makeCallbacks());
+    sidebarRenderer.renderSidebar(); // default: tree mode, list layout
+
+    // No live <img> element was injected anywhere in the sidebar.
+    expect(document.querySelector('#sidebar-body img')).toBeNull();
+    // No unescaped '"><' breakout sequence made it into the serialized markup.
+    expect(document.getElementById('sidebar-body').innerHTML).not.toMatch(/"><img/);
+
+    const section = document.querySelector('.tree-section');
+    expect(section).not.toBeNull();
+    // dataset/getAttribute auto-decode entities, so reading the attribute back
+    // round-trips to the raw hostile string (entity-decoded) — that's expected
+    // and safe; what matters is the SERIALIZED markup never contained a live
+    // '"><' breakout, asserted above.
+    expect(section.dataset.type).toBe(HOSTILE);
+    expect(section.querySelector('.tree-section-header').dataset.type).toBe(HOSTILE);
+  });
+
+  test('a hostile category is escaped in the activity-mode timeline-item data-type attribute', () => {
+    setHostileArtifact('x2');
+    const sidebarRenderer = createSidebarRenderer(makeCallbacks());
+    sidebarRenderer.setBrowseMode('activity');
+    sidebarRenderer.renderSidebar();
+
+    expect(document.querySelector('#sidebar-body img')).toBeNull();
+    expect(document.getElementById('sidebar-body').innerHTML).not.toMatch(/"><img/);
+
+    const item = document.querySelector('.timeline-item');
+    expect(item).not.toBeNull();
+    expect(item.dataset.type).toBe(HOSTILE);
+  });
+
+  test('a hostile gallery-layout category is escaped in the gallery-card data-type attribute', () => {
+    setHostileArtifact('x3');
+    const sidebarRenderer = createSidebarRenderer(makeCallbacks());
+    sidebarRenderer.setSidebarLayout('gallery');
+    sidebarRenderer.renderSidebar();
+
+    expect(document.querySelector('#sidebar-body img')).toBeNull();
+    const card = document.querySelector('.gallery-card');
+    expect(card).not.toBeNull();
+    expect(card.dataset.type).toBe(HOSTILE);
+  });
+
+  test('the filter-chip innerHTML escapes a hostile registry label as text and keeps the typeIcon SVG markup intact', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ categories: { evilchip: { label: '<img src=x onerror=alert(1)>' } } }),
+    }));
+    await initTypeRegistry();
+
+    setArtifacts([
+      { id: 'c1', title: 'Chip Test', filename: 'c.png', artifact_type: 'evilchip', category: 'evilchip', pinned: false, timestamp: '2026-07-04T10:00:00Z', size_bytes: 10 },
+    ]);
+    const sidebarRenderer = createSidebarRenderer(makeCallbacks());
+    sidebarRenderer.initFilterBar();
+
+    const chip = document.querySelector('.filter-chip[data-filter="evilchip"]');
+    expect(chip).not.toBeNull();
+    expect(chip.querySelector('img')).toBeNull();
+    // typeIcon's own SVG markup (audited: `type` never reaches its output) is
+    // untouched by this escaping and must still render.
+    expect(chip.querySelector('.chip-icon svg')).not.toBeNull();
+    expect(chip.innerHTML).toContain('&lt;img');
+    expect(chip.innerHTML).not.toContain('<img');
+  });
+
+  test('benign categories render byte-identical output (regression guard)', () => {
+    setArtifacts(makeFixtureArtifacts());
+    const sidebarRenderer = createSidebarRenderer(makeCallbacks());
+    sidebarRenderer.renderSidebar();
+
+    const visSection = document.querySelector('.tree-section[data-type="visualization"]');
+    expect(visSection).not.toBeNull();
+    expect(visSection.dataset.type).toBe('visualization');
+    expect(visSection.querySelector('.tree-section-header').dataset.type).toBe('visualization');
+    // The serialized markup is also byte-identical for benign values —
+    // escaping must introduce no stray entities.
+    expect(visSection.outerHTML).toContain('data-type="visualization"');
   });
 });
 

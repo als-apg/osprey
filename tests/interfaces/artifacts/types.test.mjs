@@ -78,6 +78,22 @@ describe('typeBadge', () => {
     await initTypeRegistry();
     expect(typeBadge('json')).toBe('JSON Data');
   });
+
+  test('Task 1.3 — a hostile registry label (agent-fed /api/type-registry) is escaped to inert text', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ artifact_types: { evil: { label: '<img src=x onerror=alert(1)>' } } }),
+    }));
+    await initTypeRegistry();
+    const result = typeBadge('evil');
+    expect(result).not.toContain('<img');
+    expect(result).toContain('&lt;img');
+  });
+
+  test('Task 1.3 — a hostile unregistered type falls back to escaped humanized text (agent-supplied category/artifact_type)', () => {
+    const result = typeBadge('<script>alert(1)</script>');
+    expect(result).not.toContain('<script>');
+    expect(result).toContain('&lt;script&gt;');
+  });
 });
 
 describe('typeIcon', () => {
@@ -127,16 +143,18 @@ describe('escapeHtml', () => {
     expect(escapeHtml('')).toBe('');
   });
 
-  test('KNOWN DIVERGENCE from design-system/js/dom.js\'s escapeHtml: falsy-but-defined values (0, false) also collapse to "" here', () => {
-    // dom.js's escapeHtml uses `String(value ?? "")` — only null/undefined
-    // become "", so escapeHtml(0) there is "0" and escapeHtml(false) is
-    // "false". This local implementation uses `str || ""` (moved verbatim
-    // from the original gallery.js, unchanged behavior), which treats ANY
-    // falsy value the same as nullish. Pinning the current behavior here so
-    // a future consolidation onto the shared dom.js helper is a deliberate,
-    // reviewed decision rather than a silent behavior change.
-    expect(escapeHtml(0)).toBe('');
-    expect(escapeHtml(false)).toBe('');
+  test('post-consolidation contract: only null/undefined collapse to "" — 0 and false stringify', () => {
+    // types.js now re-exports design-system/js/dom.js's escapeHtml, which
+    // uses `String(value ?? "")`: only null/undefined become "", so
+    // falsy-but-defined values like 0/false stringify instead of collapsing.
+    // This was a deliberate, reviewed consolidation (previously this module
+    // had its own `str || ""` copy that collapsed ALL falsy values).
+    expect(escapeHtml(0)).toBe('0');
+    expect(escapeHtml(false)).toBe('false');
+  });
+
+  test('escapes double- and single-quotes (quote-safe, attribute-context contract)', () => {
+    expect(escapeHtml(`"quoted" & 'single'`)).toBe('&quot;quoted&quot; &amp; &#39;single&#39;');
   });
 });
 
@@ -207,6 +225,28 @@ describe('openUrl', () => {
   test('any other type falls back to the raw file URL', () => {
     expect(openUrl({ id: 'a3', artifact_type: 'plot_png', filename: 'plot.png' })).toBe('/files/a3/plot.png');
   });
+
+  test('markdown branch percent-encodes a hostile id, so no raw path-breakout/query/quote characters survive', () => {
+    const url = openUrl({ id: 'a/../b?x="y"', artifact_type: 'markdown', filename: 'x.md' });
+    const idSegment = url.split('/')[3];
+    expect(idSegment).not.toMatch(/[/?"]/);
+    expect(url).toBe('/api/markdown/a%2F..%2Fb%3Fx%3D%22y%22/rendered');
+  });
+
+  test('markdown branch is byte-identical for a real 12-hex artifact id', () => {
+    expect(openUrl({ id: '0123456789ab', artifact_type: 'markdown', filename: 'x.md' })).toBe('/api/markdown/0123456789ab/rendered');
+  });
+
+  test('notebook branch percent-encodes a hostile id, so no raw path-breakout/query/quote characters survive', () => {
+    const url = openUrl({ id: 'a/../b?x="y"', artifact_type: 'notebook', filename: 'x.ipynb' });
+    const idSegment = url.split('/')[3];
+    expect(idSegment).not.toMatch(/[/?"]/);
+    expect(url).toBe('/api/notebooks/a%2F..%2Fb%3Fx%3D%22y%22/rendered');
+  });
+
+  test('notebook branch is byte-identical for a real 12-hex artifact id', () => {
+    expect(openUrl({ id: '0123456789ab', artifact_type: 'notebook', filename: 'x.ipynb' })).toBe('/api/notebooks/0123456789ab/rendered');
+  });
 });
 
 describe('thumbnailHtml', () => {
@@ -219,6 +259,17 @@ describe('thumbnailHtml', () => {
   test('an html-family type renders an <iframe>', () => {
     const html = thumbnailHtml({ id: 'i2', artifact_type: 'plot_html', filename: 'p.html' });
     expect(html).toContain('<iframe');
+  });
+
+  test('the notebook iframe src percent-encodes a hostile id, so no raw path-breakout/query/quote characters survive', () => {
+    const html = thumbnailHtml({ id: 'a/../b?x="y"', artifact_type: 'notebook', filename: 'n.ipynb' });
+    expect(html).toContain('/api/notebooks/a%2F..%2Fb%3Fx%3D%22y%22/rendered');
+    expect(html).not.toContain('/api/notebooks/a/../b');
+  });
+
+  test('the notebook iframe src is byte-identical for a real 12-hex artifact id', () => {
+    const html = thumbnailHtml({ id: '0123456789ab', artifact_type: 'notebook', filename: 'n.ipynb' });
+    expect(html).toContain('/api/notebooks/0123456789ab/rendered');
   });
 
   test('a type with a non-empty summary renders the summary fields, escaped', () => {
