@@ -631,4 +631,4 @@ function injectLogbookButtons() {
   }
 }
 
-export { injectLogbookButtons };
+export { injectLogbookButtons, makeBtn, updateHeaderTitle, getSteeringValues, getContextValues };

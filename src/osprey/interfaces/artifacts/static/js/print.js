@@ -21,8 +21,11 @@
  *     Plotly.toImage() as PNG, then populates the window and prints.
  */
 
+import { escapeHtml as esc } from "/design-system/js/dom.js";
 import { getSelectedArtifact, fileUrl } from "./state.js";
 import { openUrl } from "./types.js";
+
+export { esc };
 
 // ---- SVG icon (printer) ----
 
@@ -57,21 +60,14 @@ const MSG_POPUP_BLOCKED = "Print blocked \u2014 please allow pop-ups for this si
 
 // ---- Helpers ----
 
-/** @param {unknown} str */
-function esc(str) {
-  if (!str) return "";
-  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-
 /** @param {any} ts */
-function fmtTime(ts) {
+export function fmtTime(ts) {
   if (!ts) return "";
   return new Date(ts).toLocaleString();
 }
 
 /** @param {any} a */
-function headerHtml(a) {
+export function headerHtml(a) {
   let meta = "";
   if (a.timestamp) meta += "<span>" + esc(fmtTime(a.timestamp)) + "</span>";
   if (a.tool_source) meta += " &middot; <span>Source: " + esc(a.tool_source) + "</span>";
@@ -234,7 +230,7 @@ function printTimeseries(a) {
 // ---- Dispatch ----
 
 /** @param {any} a */
-function printArtifact(a) {
+export function printArtifact(a) {
   if (!a) return;
 
   const isTimeseries =
