@@ -200,6 +200,31 @@ function _notifySubscribers(id) {
   }
 }
 
+// ---- Clearing the one-shot ?theme= query param ----
+
+/**
+ * Strip a `theme` param from the URL's query string, if present, without
+ * adding a history entry. Called from setTheme() -- the explicit-choice
+ * path -- for both roles: once the user has made an explicit choice, a
+ * leftover `?theme=` must not out-rank it (or the OS/localStorage
+ * resolution a follower falls back to) on the next reload. initTheme()'s
+ * one-time read of `?theme=` still happens first, so an incoming panel
+ * URL still applies its param on first load -- this only clears it after
+ * that initial resolution so it doesn't linger.
+ */
+function _stripQueryTheme() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('theme')) return;
+    params.delete('theme');
+    const query = params.toString();
+    const url = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
+    window.history.replaceState(window.history.state, '', url);
+  } catch (error) {
+    // Non-browser environment or a blocked history API -- non-fatal.
+  }
+}
+
 /** @param {string} id */
 function _broadcast(id) {
   const iframes = document.querySelectorAll('iframe');
@@ -343,7 +368,10 @@ export function getTheme() {
 /**
  * Set the theme. `id` may be a concrete theme id or 'auto'; anything else
  * resolves to 'auto'. Only the hub role persists (to
- * localStorage['osprey-theme']) and broadcasts to embedded panels.
+ * localStorage['osprey-theme']) and broadcasts to embedded panels. Both
+ * roles strip a `theme` query param from the URL (D15): this is the
+ * explicit-choice path (reached only via the toggle button), so a
+ * leftover `?theme=` must not out-rank it on the next reload.
  *
  * @param {string} id
  */
@@ -354,6 +382,7 @@ export function setTheme(id) {
     _persistPreference(preference);
   }
   _applyTheme(_resolve(preference), { broadcast: _role === 'hub', transition: true });
+  _stripQueryTheme();
 }
 
 /** Cycle between the resolved dark and light defaults (never sets 'auto'). */

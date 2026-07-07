@@ -244,6 +244,10 @@ TARGETS: list[VisualTarget] = [
     VisualTarget("artifacts_gallery", _artifacts_server, path="/"),
     VisualTarget("ariel", _ariel_server, path="/"),
     VisualTarget("channel_finder", _channel_finder_server, path="/"),
+    # D14/D15 regression guard: embedded mode must hide the standalone logo +
+    # theme switcher (component self-hides via body.embedded) while keeping
+    # the pipeline switcher + nav usable — see channel-finder-narrowing.
+    VisualTarget("channel_finder_embedded", _channel_finder_server, path="/?embedded=true"),
     VisualTarget("tuning", _tuning_server, path="/"),
     VisualTarget("lattice_dashboard", _lattice_dashboard_server, path="/"),
     # Dispatch dashboard has no live dispatcher backend behind it here, so it
@@ -327,8 +331,12 @@ def test_visual_snapshot(tmp_path, chromium_browser, target: VisualTarget, pytes
         for theme in THEMES:
             page = chromium_browser.new_page(viewport=VIEWPORT)
             try:
+                # target.path may already carry its own query string (e.g.
+                # channel_finder_embedded's "/?embedded=true"), so `theme`
+                # must be appended with "&" rather than blindly with "?".
+                separator = "&" if "?" in target.path else "?"
                 page.goto(
-                    f"{base_url}{target.path}?theme={theme}",
+                    f"{base_url}{target.path}{separator}theme={theme}",
                     wait_until="domcontentloaded",
                     timeout=15_000,
                 )

@@ -12,6 +12,7 @@ import { initEntries, loadEntries, showEntry, closeEntryModal, loadDraft, showIm
 import { initDashboard, loadStatus, startAutoRefresh, stopAutoRefresh } from './dashboard.js';
 import { initAdvancedOptions } from './advanced-options.js';
 import '/design-system/js/components/osprey-drawer.js';
+import '/design-system/js/components/osprey-theme-switcher.js';
 import { initSettings } from './settings.js';
 
 // Panel embedded in the Web Terminal hub: apply the hub's broadcast theme

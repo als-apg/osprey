@@ -74,6 +74,7 @@
               <path d="M20.49 15a9 9 0 01-14.85 3.36L1 14"/>
             </svg>
           </button>
+          <osprey-theme-switcher></osprey-theme-switcher>
           <span class="status-indicator" id="health-indicator">
             <span class="status-dot healthy"></span>
             <span class="status-label">Connected</span>
@@ -187,13 +188,8 @@
     </main>
   </div>
 
-  <!-- All three are type="module" (gallery.js imports theme-manager.js;
-       logbook.js/print.js don't need the import themselves, but module
-       scripts are deferred, so all three must share that timing to keep
-       running in document order: gallery.js sets window._galleryState
-       before logbook.js/print.js read it). -->
+  <!-- logbook.js/print.js load via the import graph (preview.js imports
+       both directly); no separate script tags needed. -->
   <script type="module" src="/static/js/gallery.js"></script>
-  <script type="module" src="/static/js/logbook.js"></script>
-  <script type="module" src="/static/js/print.js"></script>
 </body>
 </html>

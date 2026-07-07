@@ -6,6 +6,7 @@
 
 import { initTheme } from '/design-system/js/theme-manager.js';
 import { applyEmbedded } from '/design-system/js/frame-params.js';
+import '/design-system/js/components/osprey-theme-switcher.js';
 import { fetchJSON, putJSON } from './api.js';
 import { state } from './state.js';
 import { mountExplore, unmountExplore } from './explore.js';

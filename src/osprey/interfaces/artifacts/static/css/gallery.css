@@ -352,6 +352,32 @@ code {
 .status-dot.warning { background: var(--color-warning); }
 .status-dot.error   { background: var(--color-error); }
 
+/* <osprey-theme-switcher>'s toggle button (design_system/static/js/components/
+   osprey-theme-switcher.js) ships no skin of its own -- it renders a bare
+   `.header-icon-btn` button and leaves styling to each interface, same
+   split as the shared <osprey-drawer>. Sized to match the other header
+   icon buttons (.btn-icon) here rather than reusing web_terminal's
+   32px/--wt-transition-fast styling verbatim. */
+.header-icon-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.header-icon-btn:hover {
+  color: var(--color-accent-light);
+  border-color: var(--border-accent);
+  background: var(--accent-tint-06);
+}
+
 /* ---- Main ---- */
 
 .main {

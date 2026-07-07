@@ -157,6 +157,8 @@ _ALLOWLISTS: dict[str, object] = {
     "lattice_dashboard": None,
     "tuning": None,
     "okf_panel": None,
+    "web_terminal_session": None,
+    "web_terminal_safety": None,
 }
 
 
@@ -197,4 +199,38 @@ def test_interface_loads_clean(
             # async init (fetch /api/panels, then per-panel config).
             expect(page.locator('button[data-panel-id="artifacts"]')).to_be_visible(timeout=10_000)
 
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# Web-terminal static pages (session.html, safety.html) -- CC-11
+# ---------------------------------------------------------------------------
+# Both are static assets under the hub's own /static mount (configure_interface_app
+# mounts the whole static/ dir), not a second app -- a path-override on the
+# same _launch_web_terminal hub server above, mirroring test_visual.py's
+# _web_terminal_static_page_server (which likewise reuses its hub server
+# unchanged and only varies the VisualTarget's `path`).
+
+_WEB_TERMINAL_STATIC_PAGES = [
+    ("web_terminal_session", "/static/session.html"),
+    ("web_terminal_safety", "/static/safety.html"),
+]
+
+
+@pytest.mark.parametrize(
+    "name,path",
+    _WEB_TERMINAL_STATIC_PAGES,
+    ids=[name for name, _ in _WEB_TERMINAL_STATIC_PAGES],
+)
+def test_web_terminal_static_page_loads_clean(
+    name: str,
+    path: str,
+    tmp_path,
+    monkeypatch,
+    chromium_browser: Browser,
+) -> None:
+    """session.html/safety.html load with no uncaught error or failed asset."""
+    with _launch_web_terminal(tmp_path, monkeypatch) as base_url:
+        page = chromium_browser.new_page()
+        assert_page_loads_clean(page, f"{base_url}{path}", allowlist=_ALLOWLISTS[name])
         page.close()

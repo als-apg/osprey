@@ -88,6 +88,28 @@ body.embedded .tuning-header { display: none; }
   gap: 0.5rem;
 }
 
+/* <osprey-theme-switcher> renders this class on its own button; the
+   component ships no skin of its own, so each interface styles it locally.
+   Sized as a compact icon button to sit alongside navbar-right's controls. */
+.header-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 120ms ease;
+}
+
+.header-icon-btn:hover {
+  color: var(--text-primary);
+  background: var(--neutral-tint-12);
+}
+
 .navbar-label {
   font-size: 0.7rem;
   font-weight: 500;

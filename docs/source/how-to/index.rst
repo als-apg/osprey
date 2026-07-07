@@ -66,6 +66,14 @@ Framework & Infrastructure
       Add a new theme or wire a new interface into the shared design-token
       system — token architecture, the generator CLI, and consuming tokens.
 
+   .. grid-item-card:: Embedding OSPREY Panels
+      :link: embedding-osprey-panels
+      :link-type: doc
+
+      The shell↔panel contract behind the Web Terminal hub's iframe panels —
+      query/hash/postMessage transports, the same-origin model, and the
+      branding-only chrome contract for standalone vs. embedded pages.
+
    .. grid-item-card:: Use the CLI Chat Interface
       :link: use-cli-chat
       :link-type: doc
@@ -148,6 +156,7 @@ Services & Connectors
    add-mcp-server
    use-web-terminal
    theming-interfaces
+   embedding-osprey-panels
    use-cli-chat
    non_interactive_query
    use-python-executor

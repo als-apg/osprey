@@ -11,6 +11,7 @@ import { initProgressDisplay } from './progress-display.js';
 import { initResultsViewer } from './results-viewer.js';
 import { initTheme } from '/design-system/js/theme-manager.js';
 import { applyEmbedded } from '/design-system/js/frame-params.js';
+import '/design-system/js/components/osprey-theme-switcher.js';
 
 // theme-boot.js (first script in <head>) already applied data-theme
 // before first paint. initTheme({role: 'follower'}) here wires the

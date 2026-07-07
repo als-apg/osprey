@@ -31,6 +31,7 @@
 import { initTheme } from "/design-system/js/theme-manager.js";
 import { applyEmbedded } from "/design-system/js/frame-params.js";
 import { debounce } from "/design-system/js/dom.js";
+import "/design-system/js/components/osprey-theme-switcher.js";
 
 // Panel embedded in the Web Terminal hub: apply the hub's broadcast theme and
 // follow live `osprey-theme-change` messages. theme-boot.js already applied

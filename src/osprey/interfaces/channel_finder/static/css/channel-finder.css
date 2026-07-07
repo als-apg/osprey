@@ -115,8 +115,10 @@ a:hover { color: var(--color-accent-light); }
   z-index: 100;
 }
 
-body.embedded .app-header { display: none; }
-body.embedded .app-main { padding-top: 0; }
+/* Embedded mode keeps the fixed header (so the pipeline switcher + nav stay
+   usable inside the hub) and only hides the standalone-only logo; .app-main
+   keeps its 48px padding-top below to clear that still-visible header. */
+body.embedded .app-logo { display: none; }
 
 .header-left {
   display: flex;
@@ -240,6 +242,40 @@ body.embedded .app-main { padding-top: 0; }
 .nav-link.active {
   color: var(--text-accent);
   border-bottom-color: var(--color-accent);
+}
+
+/* Groups header-nav with the theme switcher so `.app-header`'s two-child
+   space-between layout is preserved (header-left <-> header-right) instead
+   of splitting three items across the header. */
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 100%;
+}
+
+/* <osprey-theme-switcher>'s toggle button (design_system/static/js/components/
+   osprey-theme-switcher.js) ships no skin of its own -- it renders a bare
+   `.header-icon-btn` button and leaves styling to each interface, same split
+   as the shared <osprey-drawer>. */
+.header-icon-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.header-icon-btn:hover {
+  color: var(--color-accent-light);
+  border-color: var(--border-accent);
+  background: var(--accent-tint-06);
 }
 
 /* ================================================================
