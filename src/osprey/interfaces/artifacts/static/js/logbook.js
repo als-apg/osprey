@@ -11,10 +11,10 @@
  *   P2d — Composing (spinner)
  *   P3  — Review Form (subject, details, tags → submit)
  *
- * Depends on: state.js (for getFocusedArtifact/getSelectedArtifact)
+ * Depends on: state.js (for getSelectedArtifact)
  */
 
-import { getFocusedArtifact, getSelectedArtifact } from "./state.js";
+import { getSelectedArtifact } from "./state.js";
 import { escapeHtml } from "/design-system/js/dom.js";
 
 // Pencil icon SVG for the logbook button
@@ -611,19 +611,11 @@ function createLogbookBtn(opts) {
 }
 
 /**
- * Inject logbook buttons into focus and preview action bars.
+ * Inject logbook buttons into the preview action bar.
  * Called after each render pass by preview.js.
  */
 function injectLogbookButtons() {
   document.querySelectorAll(".logbook-action-btn").forEach(function (b) { b.remove(); });
-
-  var focusedArtifact = getFocusedArtifact();
-  if (focusedArtifact) {
-    var bar = document.querySelector("#focus-container .focus-nav");
-    if (bar) {
-      bar.appendChild(createLogbookBtn({ artifact_id: focusedArtifact.id }));
-    }
-  }
 
   var selectedArtifact = getSelectedArtifact();
   if (selectedArtifact) {

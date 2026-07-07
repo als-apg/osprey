@@ -19,8 +19,9 @@
  * mirroring scaffold/data.js's createScaffoldDataActions callback-injection
  * pattern.
  *
- * logbook.js/print.js import `getFocusedArtifact`/`getSelectedArtifact`/
- * `fileUrl` directly from here — there is no global-object bridge.
+ * logbook.js/print.js import `getSelectedArtifact`/`fileUrl` and
+ * preview.js/gallery.js import `getFocusedArtifact` directly from here —
+ * there is no global-object bridge.
  *
  * @module state
  */
