@@ -42,7 +42,6 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 import pytest
-
 from tests.interfaces.conftest import _run_app_server
 
 if TYPE_CHECKING:
@@ -105,7 +104,9 @@ def _open_settings_tab(page: Page) -> None:
     wait for the async GET /api/settings -> renderSettingsForm() round trip.
     """
     page.click(SETTINGS_TAB_SELECTOR)
-    expect(page.locator("#tab-settings")).to_have_class("sidebar-tab-content sidebar-tab-content--active")
+    expect(page.locator("#tab-settings")).to_have_class(
+        "sidebar-tab-content sidebar-tab-content--active"
+    )
     expect(page.locator("#setting-da-nturns")).to_be_visible(timeout=5_000)
 
 
@@ -114,7 +115,9 @@ def _open_settings_tab(page: Page) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_apply_sends_full_payload_and_rerenders_edited_values(tmp_path, monkeypatch, chromium_browser):
+def test_apply_sends_full_payload_and_rerenders_edited_values(
+    tmp_path, monkeypatch, chromium_browser
+):
     """Editing an int/float/int_or_null field and clicking Apply PUTs the
     whole form (every group, not just the edited fields) and the SSE
     settings_updated broadcast re-renders the form with the new values.

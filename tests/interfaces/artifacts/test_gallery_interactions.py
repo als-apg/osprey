@@ -205,7 +205,9 @@ def test_selecting_artifact_renders_preview_for_its_type(tmp_path, monkeypatch, 
         _card_for_title(page, HTML_TITLE).click()
         expect(page.locator(".preview-header-title")).to_have_text(HTML_TITLE, timeout=10_000)
         expect(page.locator(".preview-header .badge")).to_have_class("badge badge-visualization")
-        expect(page.locator(".preview-viewport iframe.preview-iframe-light")).to_be_visible(timeout=5_000)
+        expect(page.locator(".preview-viewport iframe.preview-iframe-light")).to_be_visible(
+            timeout=5_000
+        )
         page.close()
 
 
@@ -214,7 +216,9 @@ def test_selecting_artifact_renders_preview_for_its_type(tmp_path, monkeypatch, 
 # ---------------------------------------------------------------------------
 
 
-def test_logbook_and_print_buttons_present_after_bridge_kill(tmp_path, monkeypatch, chromium_browser):
+def test_logbook_and_print_buttons_present_after_bridge_kill(
+    tmp_path, monkeypatch, chromium_browser
+):
     """The preview's action bar still carries the logbook + print buttons.
 
     5.7's own validation gate only greps for the dead window bridge --
