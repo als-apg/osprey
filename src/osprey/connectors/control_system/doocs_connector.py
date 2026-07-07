@@ -121,7 +121,7 @@ class DOOCSConnector(ControlSystemConnector):
 
         # Compile metadata
         metadata = ChannelMetadata(
-            units="",  # TODO: Implement .EGU
+            units="",
             precision=None,
             alarm_status=None,
             timestamp=timestamp,
@@ -244,13 +244,14 @@ class DOOCSConnector(ControlSystemConnector):
                 verified = False
                 value_to_report = None
                 diff = 0.0
-                # FIXME: Osprey should also support writing strings
+
                 # Check tolerance if numerical data
                 if isinstance(readback.value, (float, int)):
                     diff = abs(float(readback.value) - float(value))
                     verified = diff <= (tolerance or 0.001)
                     value_to_report = float(readback.value)
 
+                # Check only equivalence if string data
                 elif isinstance(readback.value, str):
                     verified = value == readback.value
                     value_to_report = 0.0
@@ -343,7 +344,7 @@ class DOOCSConnector(ControlSystemConnector):
 
             # Compile metadata
             metadata = ChannelMetadata(
-                units="",  # TODO: Implement .EGU
+                units="",
                 precision=None,
                 alarm_status=None,
                 timestamp=timestamp,
