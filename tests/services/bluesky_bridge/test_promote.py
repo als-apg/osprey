@@ -103,6 +103,56 @@ def test_do_promote_returns_500_when_scanner_factory_raises(registry: RunRegistr
     assert run.error == "could not build scanner"
 
 
+def test_do_promote_stops_a_scanner_that_partially_started_then_raised(
+    registry: RunRegistry,
+) -> None:
+    """MANDATORY handoff fix (task 2.7): a `start_scan_thread()` that raises after
+    partially starting something must not leave a live, untracked, unstoppable
+    scan behind — `run.scanner` is never published on this path, so nothing
+    else could ever call `stop_scanning_thread()` on it unless `do_promote`
+    itself does.
+    """
+    run = registry.add(request={})
+
+    class PartiallyStartingScanner(FakeScanner):
+        def start_scan_thread(self) -> None:
+            # Simulate a real Scanner whose thread partially launches before
+            # failing to fully come up.
+            self._active = True
+            raise RuntimeError("thread launch failed after partial start")
+
+    scanner = PartiallyStartingScanner()
+
+    with pytest.raises(HTTPException) as excinfo:
+        do_promote(run, lambda: scanner)
+
+    assert excinfo.value.status_code == 500
+    assert run.scanner is None
+    assert scanner.stop_calls == 1
+    assert scanner.is_scanning_active() is False
+
+
+def test_do_promote_does_not_call_stop_when_the_factory_itself_raises(
+    registry: RunRegistry,
+) -> None:
+    """No scanner instance exists in this failure mode — there is nothing to stop."""
+    run = registry.add(request={})
+    stop_calls: list[str] = []
+
+    class RecordingScanner(FakeScanner):
+        def stop_scanning_thread(self) -> None:
+            stop_calls.append("stop")
+            super().stop_scanning_thread()
+
+    def failing_factory() -> RecordingScanner:
+        raise RuntimeError("could not build scanner")
+
+    with pytest.raises(HTTPException):
+        do_promote(run, failing_factory)
+
+    assert stop_calls == []
+
+
 def test_a_failed_promote_can_be_retried(registry: RunRegistry) -> None:
     run = registry.add(request={})
 

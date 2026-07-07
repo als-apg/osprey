@@ -12,6 +12,7 @@ since FastAPI is a core bridge dependency, not one of the deferred ones.
 
 from __future__ import annotations
 
+import logging
 import time
 import uuid
 from collections.abc import Callable
@@ -24,15 +25,7 @@ from fastapi import HTTPException
 if TYPE_CHECKING:
     from .scanner import Scanner
 
-# `Run.status` treats a scanner whose (lowercased, stringified) `current_state`
-# equals one of these as the one terminal-failure signal from the scanner seam
-# not already captured by `run.error` directly (e.g. a background scan thread
-# failing asynchronously). Equality, not substring match, so a state like
-# "no_error" can't false-positive. Only `FakeScanner` exists today and it sets
-# exactly "error" (see `simulate_error`); Phase 2's real bluesky-backed
-# `Scanner` should add an explicit terminal-error signal to the protocol
-# instead of leaning on `current_state` string matching.
-_ERROR_STATES = {"error"}
+logger = logging.getLogger("osprey.services.bluesky_bridge.runs")
 
 
 @dataclass
@@ -80,7 +73,7 @@ class Run:
         if self.scanner is not None:
             if self.scanner.is_scanning_active():
                 return "running"
-            if str(self.scanner.current_state).lower() in _ERROR_STATES:
+            if self.scanner.error_message is not None:
                 return "error"
         return "completed"
 
@@ -97,7 +90,9 @@ class Run:
         if self.error:
             out["error"] = self.error
         elif status == "error" and self.scanner is not None:
-            out["error"] = f"scan ended in state {self.scanner.current_state!r}"
+            out["error"] = self.scanner.error_message or (
+                f"scan ended in state {self.scanner.current_state!r}"
+            )
         return out
 
 
@@ -169,6 +164,18 @@ def do_promote(run: Run, scanner_factory: Callable[[], Scanner]) -> Run:
     re-checks ``run.stopped`` in the same critical section that sets
     ``scanner``/``promoted``; if a stop landed during the build, the
     just-started scanner is stopped immediately after releasing the lock.
+
+    A *different* failure mode: ``scanner.start_scan_thread()`` itself raises
+    after partially starting something (e.g. a real bluesky ``Scanner``
+    spawned its daemon thread, which then failed before the thread became
+    observably "active"). Without a guard, the except branch below records
+    ``run.error`` and returns 500 — but ``run.scanner`` is never published
+    (the run reports "error", not "running"), so nothing else could ever call
+    ``stop_scanning_thread()`` on that scanner: a live, untracked, unstoppable
+    scan. So the except branch stops whatever `scanner_factory()` managed to
+    build, unconditionally, before surfacing the error — safe even if nothing
+    actually started, since every `Scanner.stop_scanning_thread()` must
+    already tolerate being called on an inactive scanner.
     """
     with registry.lock:
         if run.promoted:
@@ -184,12 +191,23 @@ def do_promote(run: Run, scanner_factory: Callable[[], Scanner]) -> Run:
         run.promoting = True
         run.error = None  # clear any prior failed-promote error before this (re)try
 
+    scanner: Scanner | None = None
     try:
         scanner = scanner_factory()
         if not scanner.reinitialize(run.request):
             raise RuntimeError("scanner.reinitialize() returned False")
         scanner.start_scan_thread()
     except Exception as exc:  # surface to the run rather than raising 500 blind
+        if scanner is not None:
+            try:
+                scanner.stop_scanning_thread()
+            except Exception:
+                logger.warning(
+                    "do_promote: stop_scanning_thread() on a failed-start scanner"
+                    " for run %r also raised",
+                    run.id,
+                    exc_info=True,
+                )
         with registry.lock:
             run.error = str(exc)
             run.promoting = False

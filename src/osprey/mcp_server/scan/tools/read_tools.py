@@ -139,7 +139,7 @@ async def list_runs(limit: int = 20) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Tool 5: read scan data (bounded; stub until full Tiled-backed bounding lands)
+# Tool 5: read scan data (bounded)
 # ---------------------------------------------------------------------------
 @mcp.tool()
 async def read_scan_data(
@@ -147,11 +147,10 @@ async def read_scan_data(
 ) -> str:
     """Read a bounded window of a run's data.
 
-    Row-bounded by design: this never returns an unbounded table. This tool
-    targets the bridge's ``GET /runs/{id}/data`` endpoint, which is not yet
-    implemented — the live-row buffer and the route itself land in a later
-    phase. Until then, calls return a ``bluesky_bridge_error`` from the bridge
-    rather than any data.
+    Row-bounded by design: this never returns an unbounded table. Backed by
+    the bridge's in-process live-row buffer (``GET /runs/{id}/data``), so
+    reads work with no Tiled server — ``row_count``/``truncated`` describe
+    the run's *true* total vs. what this window actually returned.
 
     Args:
         run_id: Run id returned by create_scan_intent or list_runs.
@@ -164,7 +163,7 @@ async def read_scan_data(
     Returns:
         JSON ``{"run_uid", "columns", "rows", "row_count", "truncated"[,
         "partial"]}``. ``partial: true`` means the run is still in progress
-        and more rows will arrive; an empty run returns
+        and more rows will arrive; an empty/never-started buffer returns
         ``{"columns": [], "rows": []}``.
     """
     params = f"max_rows={max_rows}"
@@ -175,6 +174,15 @@ async def read_scan_data(
     status, body = await anyio.to_thread.run_sync(_http_get_json, f"/runs/{run_id}/data?{params}")
     if status == 404:
         return make_error("unknown_run", bridge_error_message(body, status), UNKNOWN_RUN_HINTS)
+    if status == 409:
+        return make_error(
+            "scan_data_not_ready",
+            bridge_error_message(body, status),
+            [
+                "The run has not started yet, so there is no run_uid to read data for.",
+                "Check scan_status; data becomes readable once the run is promoted and running.",
+            ],
+        )
     if status != 200:
         return make_error("bluesky_bridge_error", bridge_error_message(body, status))
     return json.dumps(body)

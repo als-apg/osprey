@@ -2,9 +2,9 @@
 
 ``Scanner`` is the boundary the lifecycle core (``runs.py``'s ``do_promote``) is
 written against. The real implementation (a bluesky ``RunEngine`` in a daemon
-thread, wired to ophyd-async devices and a ``TiledWriter``) arrives in Phase 2 as
-``scanner_bluesky.py`` and lives behind the ``osprey-framework[scan-bridge]``
-extra. Everything in this module — the Protocol and ``FakeScanner`` — has no
+thread, wired to ophyd-async devices and a ``TiledWriter``) lives in
+``scanner_bluesky.py``, behind the ``osprey-framework[bluesky-bridge]`` extra.
+Everything in this module — the Protocol and ``FakeScanner`` — has no
 bluesky/ophyd/tiled dependency, so the lifecycle core can be built, imported, and
 unit-tested before that extra ever needs to be installed.
 """
@@ -24,10 +24,14 @@ class Scanner(Protocol):
     ``estimate_current_completion``/``current_state`` for status, and may call
     ``stop_scanning_thread`` to abort. ``last_run_uid`` surfaces the underlying
     run identifier (e.g. a bluesky start-doc uid) once the scan has begun.
+    ``error_message`` is the explicit terminal-error signal: non-None means the
+    scan ended in an unrecoverable error (``runs.py``'s ``Run.status`` reads
+    this directly, rather than string-matching ``current_state``).
     """
 
     current_state: Any
     last_run_uid: str | None
+    error_message: str | None
 
     def reinitialize(self, exec_config: Any) -> bool:
         """Prepare the scan from ``exec_config``. Returns False on setup failure."""
@@ -80,6 +84,7 @@ class FakeScanner:
         self.reinitialize_calls += 1
         if self.reinitialize_fails:
             self.current_state = "error"
+            self.error_message = "reinitialize() was configured to fail"
             return False
         self.current_state = "armed"
         return True

@@ -88,6 +88,38 @@ def test_run_error_takes_precedence_even_before_promotion() -> None:
     assert run.status == "error"
 
 
+def test_status_is_error_based_on_error_message_not_a_current_state_heuristic() -> None:
+    """MANDATORY handoff fix (task 2.7): the terminal-error signal is the
+    Scanner protocol's explicit `error_message`, not a `current_state` string
+    match — a scanner can report a totally custom terminal `current_state` and
+    still be recognized as errored as long as `error_message` is set.
+    """
+    scanner = FakeScanner()
+    scanner.start_scan_thread()
+    scanner._active = False
+    scanner.current_state = "some_custom_terminal_state"  # not "error"
+    scanner.error_message = "device timeout"
+
+    run = Run(id="abc123", request={}, promoted=True, scanner=scanner)
+    assert run.status == "error"
+
+
+def test_status_is_not_error_when_current_state_looks_like_error_but_error_message_is_none() -> (
+    None
+):
+    """The old heuristic matched `current_state == "error"` directly; the new
+    signal requires `error_message` to be set — proves the heuristic is gone.
+    """
+    scanner = FakeScanner()
+    scanner.start_scan_thread()
+    scanner._active = False
+    scanner.current_state = "error"  # would have matched the old heuristic
+    scanner.error_message = None
+
+    run = Run(id="abc123", request={}, promoted=True, scanner=scanner)
+    assert run.status == "completed"
+
+
 # =========================================================================
 # to_dict shape
 # =========================================================================
@@ -133,6 +165,16 @@ def test_to_dict_synthesizes_error_message_from_scanner_state() -> None:
     out = run.to_dict()
     assert out["status"] == "error"
     assert "error" in out
+
+
+def test_to_dict_uses_the_scanner_error_message_directly() -> None:
+    scanner = FakeScanner()
+    scanner.start_scan_thread()
+    scanner._active = False
+    scanner.error_message = "device timeout"
+    run = Run(id="abc123", request={}, promoted=True, scanner=scanner)
+    out = run.to_dict()
+    assert out["error"] == "device timeout"
 
 
 # =========================================================================
