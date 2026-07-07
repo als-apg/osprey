@@ -360,7 +360,7 @@ class DOOCSConnector(ControlSystemConnector):
 
         # Subscribe
         address = self._doocs4py.Address(channel_address)
-        self._doocs4py.subscribe(address)
+        self._doocs4py.subscribe(address, doocs_callback)
 
         # Generate subscription ID
         sub_id = f"{channel_address}_{secrets.token_hex(8)}"
