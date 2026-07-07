@@ -402,7 +402,11 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -470,13 +474,13 @@
 </section>
 <section id="overview">
 <h1>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h1>
-<p>The Control System Integration system provides a <strong>two-layer abstraction</strong> for working with control systems and archivers. This enables development and R&amp;D work using mock connectors (without hardware access) and seamless migration to production by changing a single configuration line.</p>
-<p><strong>Key Features:</strong></p>
+<p>The Control System Integration system provides a <strong>two-layer abstraction</strong> for working with control systems and archivers. This enables development and R&amp;D work using mock connectors (without hardware access) and migration to production by changing a single configuration line.</p>
+<p><strong>Capabilities:</strong></p>
 <ul class="simple">
 <li><p><strong>Mock Mode</strong>: Work with any channel names without hardware access</p></li>
 <li><p><strong>Production Mode</strong>: EPICS in-tree; LabVIEW, Tango, and other stacks via user-registered custom connectors</p></li>
-<li><p><strong>Unified API</strong>: Same code works with mock and production connectors</p></li>
-<li><p><strong>Pluggable Architecture</strong>: Register custom connectors via <code class="docutils literal notranslate"><span class="pre">ConnectorFactory</span></code></p></li>
+<li><p><strong>One API</strong>: the same code works with mock and production connectors</p></li>
+<li><p><strong>Custom connectors</strong>: register your own via <code class="docutils literal notranslate"><span class="pre">ConnectorFactory</span></code></p></li>
 </ul>
 <p><strong>Built-in Connectors:</strong></p>
 <ul class="simple">

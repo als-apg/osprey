@@ -402,7 +402,11 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -468,8 +472,8 @@
 <span id="how-to-channel-finder"></span><h1>How to Use the Channel Finder<a class="headerlink" href="#how-to-use-the-channel-finder" title="Link to this heading">#</a></h1>
 <p>The Channel Finder translates natural language queries (e.g., “beam current,”
 “terminal voltage”) into control system addresses (e.g., <code class="docutils literal notranslate"><span class="pre">SR:DCCT:Current</span></code>,
-<code class="docutils literal notranslate"><span class="pre">TMVST</span></code>). It uses LLM-powered pipelines so operators do not need to memorize
-technical naming conventions.</p>
+<code class="docutils literal notranslate"><span class="pre">TMVST</span></code>). It uses LLM-based pipelines, so a query can use everyday terms
+rather than exact channel names.</p>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <p>Hellert et al. (2025), <em>From Natural Language to Control Signals</em>,

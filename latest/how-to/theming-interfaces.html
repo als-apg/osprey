@@ -837,7 +837,11 @@ window.addEventListener("load", load);</script>
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -963,7 +967,7 @@ validate theme ids and resolve <code class="docutils literal notranslate"><span 
 colors are read from computed CSS at runtime (see
 <a class="reference internal" href="#theming-consuming-tokens"><span class="std std-ref">Consuming Tokens in a New Interface</span></a>), not duplicated into JS.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">js/theme-boot.js</span></code></dt><dd><p>A tiny, dependency-free, non-module script that applies <code class="docutils literal notranslate"><span class="pre">data-theme</span></code>
+<dt><code class="docutils literal notranslate"><span class="pre">js/theme-boot.js</span></code></dt><dd><p>A dependency-free, non-module script that applies <code class="docutils literal notranslate"><span class="pre">data-theme</span></code>
 before first paint (from <code class="docutils literal notranslate"><span class="pre">localStorage</span></code>/<code class="docutils literal notranslate"><span class="pre">?theme=</span></code>/OS preference),
 so there is no flash of the wrong theme while the rest of the page
 loads.</p>

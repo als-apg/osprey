@@ -402,7 +402,11 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -637,7 +641,7 @@ falls back to the provider’s own default tier — <code class="docutils litera
 <section id="model-tier-mapping">
 <h2>Model Tier Mapping<a class="headerlink" href="#model-tier-mapping" title="Link to this heading">#</a></h2>
 <p>The Osprey agent uses three model tiers — <code class="docutils literal notranslate"><span class="pre">haiku</span></code> (fast/cheap), <code class="docutils literal notranslate"><span class="pre">sonnet</span></code>
-(balanced), and <code class="docutils literal notranslate"><span class="pre">opus</span></code> (powerful). Each provider maps these to its own model
+(balanced), and <code class="docutils literal notranslate"><span class="pre">opus</span></code> (most capable). Each provider maps these to its own model
 IDs via the <code class="docutils literal notranslate"><span class="pre">models</span></code> block in <code class="docutils literal notranslate"><span class="pre">api.providers</span></code>.</p>
 <p>The resolver applies model IDs in this priority order:</p>
 <ol class="arabic simple">

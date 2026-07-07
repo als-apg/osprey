@@ -837,7 +837,11 @@ window.addEventListener("load", load);</script>
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -942,8 +946,8 @@ config into your project, and appends both to <code class="docutils literal notr
 <section id="bring-it-up">
 <h2>Bring It Up<a class="headerlink" href="#bring-it-up" title="Link to this heading">#</a></h2>
 <p>Both services are registered in <code class="docutils literal notranslate"><span class="pre">deployed_services</span></code>, so they come up with the
-rest of the stack. One command, secure by default — <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>
-auto-generates both bearer tokens into <code class="docutils literal notranslate"><span class="pre">.env</span></code> when they are unset:</p>
+rest of the stack. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> auto-generates both bearer tokens into
+<code class="docutils literal notranslate"><span class="pre">.env</span></code> when they are unset:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w">        </span><span class="c1"># add --dev to bake in a local osprey checkout</span>
 </pre></div>
 </div>
@@ -1111,8 +1115,8 @@ stack never exercises it; the behaviour is covered by
 <h2>Authentication<a class="headerlink" href="#authentication" title="Link to this heading">#</a></h2>
 <p>Two bearer tokens live in the project <code class="docutils literal notranslate"><span class="pre">.env</span></code>. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code>
 auto-generates a strong random value for each when it is unset (and logs where
-it wrote it), so a containerized deploy is secure by default — no editing
-required. Set your own values in <code class="docutils literal notranslate"><span class="pre">.env</span></code> to override:</p>
+it wrote it), so a containerized deploy needs no token editing. Set your own
+values in <code class="docutils literal notranslate"><span class="pre">.env</span></code> to override:</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">EVENT_DISPATCHER_TOKEN</span></code> — guards <strong>inbound</strong> webhook and write endpoints.
 Send it as <code class="docutils literal notranslate"><span class="pre">Authorization:</span> <span class="pre">Bearer</span> <span class="pre">&lt;token&gt;</span></code>.</p></li>

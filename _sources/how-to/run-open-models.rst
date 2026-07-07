@@ -74,7 +74,7 @@ edit, not a script edit.
    scripts/benchmark/matrix_dashboard.py --results-dir results --out dashboard.html
 
 The dashboard derives every count from the run data at render time — it never
-hard-codes a number, so it stays honest as the suite grows.
+hard-codes a number, so it stays accurate as the suite grows.
 
 .. admonition:: Benchmark snapshot — OSPREY v2026.6.2
    :class: important

@@ -133,7 +133,7 @@ Services & Connectors
       :link: ariel/index
       :link-type: doc
 
-      Intelligent search over facility electronic logbooks with keyword and
+      Search over facility electronic logbooks with keyword and
       semantic retrieval modes, plus multi-step reasoning delegated to the
       Osprey agent.
 
@@ -141,8 +141,9 @@ Services & Connectors
       :link: use-facility-knowledge
       :link-type: doc
 
-      Author and serve structured facility knowledge (subsystems, devices, procedures)
-      to the OSPREY agent via an on-demand markdown bundle.
+      What the Open Knowledge Format is and why OSPREY stores facility knowledge
+      as cross-linked markdown, plus how to structure, author, and serve a
+      bundle to the agent on demand.
 
 
 .. toctree::

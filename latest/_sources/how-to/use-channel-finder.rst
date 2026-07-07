@@ -6,8 +6,8 @@ How to Use the Channel Finder
 
 The Channel Finder translates natural language queries (e.g., "beam current,"
 "terminal voltage") into control system addresses (e.g., ``SR:DCCT:Current``,
-``TMVST``). It uses LLM-powered pipelines so operators do not need to memorize
-technical naming conventions.
+``TMVST``). It uses LLM-based pipelines, so a query can use everyday terms
+rather than exact channel names.
 
 .. seealso::
 

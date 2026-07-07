@@ -402,7 +402,11 @@
 <li class="toctree-l2"><a class="reference internal" href="standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="../use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="../facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="../../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -469,7 +473,7 @@
                   
   <section id="data-ingestion">
 <h1>Data Ingestion<a class="headerlink" href="#data-ingestion" title="Link to this heading">#</a></h1>
-<p>ARIEL’s ingestion system converts facility-specific logbook data into a common schema and optionally enriches it through a pipeline of enhancement modules. Before ARIEL can search anything, logbook data must be ingested into its PostgreSQL database. Every facility stores its logbook entries differently — different APIs, file formats, field names, and conventions. ARIEL’s ingestion layer abstracts over these differences through pluggable <a class="reference internal" href="#facility-adapters">facility adapters</a> that normalize entries into a common schema and store them in the <a class="reference internal" href="#database">database</a>. After ingestion, optional <a class="reference internal" href="#enhancement-pipeline">enhancement modules</a> can enrich the stored entries with additional computed fields — vector embeddings for semantic search, LLM-extracted keywords and summaries, or any other derived metadata. Enhancement is a separate step from ingestion: you can ingest first and enhance later, re-enhance with different models, or skip enhancement entirely if you only need keyword search.</p>
+<p>ARIEL’s ingestion system converts facility-specific logbook data into a common schema and optionally enriches it through a pipeline of enhancement modules. Before ARIEL can search anything, logbook data must be ingested into its PostgreSQL database. Logbook systems differ in their APIs, file formats, field names, and conventions; ARIEL’s ingestion layer abstracts over these differences through pluggable <a class="reference internal" href="#facility-adapters">facility adapters</a> that normalize entries into a common schema and store them in the <a class="reference internal" href="#database">database</a>. After ingestion, optional <a class="reference internal" href="#enhancement-pipeline">enhancement modules</a> can enrich the stored entries with additional computed fields — vector embeddings for semantic search, LLM-extracted keywords and summaries, or any other derived metadata. Enhancement is a separate step from ingestion: you can ingest first and enhance later, re-enhance with different models, or skip enhancement entirely if you only need keyword search.</p>
 <section id="ingestion-architecture">
 <h2>Ingestion Architecture<a class="headerlink" href="#ingestion-architecture" title="Link to this heading">#</a></h2>
 <div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Source System (HTTP API / JSONL file)

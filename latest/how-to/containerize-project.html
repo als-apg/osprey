@@ -402,7 +402,11 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -486,9 +490,9 @@ every project.</p>
 <p>Every project built by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> includes a reference container
 recipe at the project root:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">Dockerfile</span></code> — a complete, self-documenting image definition that
-installs Claude Code and OSPREY, copies the project in, relocates its
-recorded paths, and serves the web terminal.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">Dockerfile</span></code> — an image definition that installs Claude Code and OSPREY,
+copies the project in, relocates its recorded paths, and serves the web
+terminal.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> — keeps secrets (<code class="docutils literal notranslate"><span class="pre">.env</span></code>) and host-specific state
 (<code class="docutils literal notranslate"><span class="pre">.venv</span></code>, <code class="docutils literal notranslate"><span class="pre">.git</span></code>, <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code>) out of the image.</p></li>
 </ul>

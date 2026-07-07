@@ -48,8 +48,8 @@ Bring It Up
 ===========
 
 Both services are registered in ``deployed_services``, so they come up with the
-rest of the stack. One command, secure by default — ``osprey deploy up``
-auto-generates both bearer tokens into ``.env`` when they are unset:
+rest of the stack. ``osprey deploy up`` auto-generates both bearer tokens into
+``.env`` when they are unset:
 
 .. code-block:: bash
 
@@ -248,8 +248,8 @@ Authentication
 
 Two bearer tokens live in the project ``.env``. ``osprey deploy up``
 auto-generates a strong random value for each when it is unset (and logs where
-it wrote it), so a containerized deploy is secure by default — no editing
-required. Set your own values in ``.env`` to override:
+it wrote it), so a containerized deploy needs no token editing. Set your own
+values in ``.env`` to override:
 
 - ``EVENT_DISPATCHER_TOKEN`` — guards **inbound** webhook and write endpoints.
   Send it as ``Authorization: Bearer <token>``.

@@ -73,7 +73,7 @@ renders three generated artifacts under
     :ref:`theming-consuming-tokens`), not duplicated into JS.
 
 ``js/theme-boot.js``
-    A tiny, dependency-free, non-module script that applies ``data-theme``
+    A dependency-free, non-module script that applies ``data-theme``
     before first paint (from ``localStorage``/``?theme=``/OS preference),
     so there is no flash of the wrong theme while the rest of the page
     loads.

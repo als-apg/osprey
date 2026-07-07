@@ -402,7 +402,11 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
+</ul>
+</details></li>
 <li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
 </ul>
 </div>
@@ -472,7 +476,7 @@ same-origin iframe panels, and hosts its own session activity page
 (<code class="docutils literal notranslate"><span class="pre">session.html</span></code>) the same way. This guide documents the shell↔panel
 boundary as a versioned contract: three transports, a well-known set of
 query params, per-panel deep-link forms, the same-origin postMessage model
-that keeps the boundary safe, and the chrome contract that decides what a
+that enforces the boundary, and the chrome contract that decides what a
 panel shows of itself when it’s running standalone versus inside the hub.
 If you are wiring a new panel into the hub, or adding a new well-known param
 or message type, this is the contract to extend rather than work around.</p>
@@ -553,9 +557,9 @@ transport.</p></li>
 earlier <code class="docutils literal notranslate"><span class="pre">#/sessions?project=</span></code> grammar existed on this codepath and has
 since been removed as vestigial — it had no reader.</p></li>
 </ul>
-<p>This asymmetry is intentional, not an oversight: divergent per-panel hash
-grammars are documented here rather than converged into one shared shape,
-because a hash is inherently panel-internal navigation state. The seam a
+<p>Per-panel hash grammars diverge by design: they are documented here rather
+than converged into one shared shape, because a hash is inherently
+panel-internal navigation state. The seam a
 future KNOWLEDGE concept-picker would use to deep-link the hub straight into
 an OKF concept is exactly this transport — the hub would set the iframe’s
 initial <code class="docutils literal notranslate"><span class="pre">#&lt;conceptId&gt;</span></code> hash the same way a user’s own OKF navigation does —
@@ -759,7 +763,7 @@ reload-strip) for it automatically.</p></li>
 </section>
 <section id="the-executable-contract-spec">
 <h2>The Executable Contract Spec<a class="headerlink" href="#the-executable-contract-spec" title="Link to this heading">#</a></h2>
-<p>The whole contract above is proven end-to-end, in a real browser, by
+<p>The whole contract above is exercised end-to-end, in a real browser, by
 <code class="docutils literal notranslate"><span class="pre">tests/interfaces/web_terminal/test_contract_params.py</span></code>:</p>
 <ul class="simple">
 <li><p>query = creation-time config (<code class="docutils literal notranslate"><span class="pre">?embedded=true</span></code> / <code class="docutils literal notranslate"><span class="pre">?theme=</span></code>)</p></li>

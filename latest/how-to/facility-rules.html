@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Python Execution Service &#8212; Osprey Framework 2026.6.2 documentation</title>
+    <title>Facility Rules &#8212; Osprey Framework 2026.6.2 documentation</title>
   
   
   
@@ -49,7 +49,7 @@
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../_static/copybutton.js?v=30646c52"></script>
     <script src="../_static/design-tabs.js?v=f930bc37"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/use-python-executor';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/facility-rules';</script>
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
@@ -60,8 +60,8 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Event Dispatch" href="event-dispatch.html" />
-    <link rel="prev" title="Non-Interactive Agent Queries" href="non_interactive_query.html" />
+    <link rel="next" title="The OKF Bundle" href="okf-bundle.html" />
+    <link rel="prev" title="Facility Knowledge" href="use-facility-knowledge.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -386,7 +386,7 @@
 
 
 
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Python Execution Service</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
 
@@ -402,8 +402,8 @@
 <li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
 </ul>
 </details></li>
-<li class="toctree-l1 has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
-<li class="toctree-l2"><a class="reference internal" href="facility-rules.html">Facility Rules</a></li>
+<li class="toctree-l1 current active has-children"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a><details open="open"><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul class="current">
+<li class="toctree-l2 current active"><a class="current reference internal" href="#">Facility Rules</a></li>
 <li class="toctree-l2"><a class="reference internal" href="okf-bundle.html">The OKF Bundle</a></li>
 </ul>
 </details></li>
@@ -451,7 +451,10 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">How-To Guides</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Python Execution Service</span></li>
+    
+    <li class="breadcrumb-item"><a href="use-facility-knowledge.html" class="nav-link">Facility Knowledge</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Facility Rules</span></li>
   </ul>
 </nav>
 </div>
@@ -468,188 +471,86 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="python-execution-service">
-<span id="how-to-python-executor"></span><h1>Python Execution Service<a class="headerlink" href="#python-execution-service" title="Link to this heading">#</a></h1>
-<p>The Python Execution Service runs user-provided code in an isolated
-environment with safety checks, process isolation, and timeout enforcement.
-The Osprey agent uses it via the <code class="docutils literal notranslate"><span class="pre">execute</span></code> MCP tool to perform data analysis,
-plotting, and control-system interactions on behalf of the operator.</p>
-<section id="what-it-does">
-<h2>What It Does<a class="headerlink" href="#what-it-does" title="Link to this heading">#</a></h2>
-<p>The service accepts Python source code, applies layered safety checks, and
-runs it in either a <strong>container</strong> (Jupyter kernel over WebSocket) or a
-<strong>local subprocess</strong> (<code class="docutils literal notranslate"><span class="pre">ExecutionWrapper</span></code>). Results—stdout, stderr,
-figures, and saved artifacts—are returned as structured JSON.</p>
-<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>Osprey agent → execute MCP tool → safety checks → container / subprocess → result JSON
-</pre></div>
-</div>
-<p>All packages installed in the deployment environment are available to
-executed code (numpy, pandas, scipy, matplotlib, plotly, etc.).
-A <code class="docutils literal notranslate"><span class="pre">save_artifact(obj,</span> <span class="pre">title=&quot;Untitled&quot;,</span> <span class="pre">description=&quot;&quot;,</span> <span class="pre">artifact_type=None,</span> <span class="pre">category=&quot;&quot;)</span></code>
-helper is injected into the subprocess namespace for saving objects to the
-artifact gallery. The <code class="docutils literal notranslate"><span class="pre">artifact_type</span></code> parameter overrides automatic type
-detection (e.g., <code class="docutils literal notranslate"><span class="pre">&quot;figure&quot;</span></code>, <code class="docutils literal notranslate"><span class="pre">&quot;dataframe&quot;</span></code>); <code class="docutils literal notranslate"><span class="pre">category</span></code> is a free-form
-grouping label used by the gallery UI.</p>
-</section>
-<section id="mcp-tool-interface">
-<span id="executor-mcp-tool"></span><h2>MCP Tool Interface<a class="headerlink" href="#mcp-tool-interface" title="Link to this heading">#</a></h2>
-<p>The server exposes two tools, <code class="docutils literal notranslate"><span class="pre">execute</span></code> and <code class="docutils literal notranslate"><span class="pre">execute_file</span></code>, registered on
-the <code class="docutils literal notranslate"><span class="pre">python</span></code> FastMCP server (<code class="docutils literal notranslate"><span class="pre">osprey.mcp_server.python_executor</span></code>).
-<code class="docutils literal notranslate"><span class="pre">execute_file</span></code> runs an existing <code class="docutils literal notranslate"><span class="pre">.py</span></code> file on disk through the same safety
-pipeline as <code class="docutils literal notranslate"><span class="pre">execute</span></code>; both share the parameters below (<code class="docutils literal notranslate"><span class="pre">execute_file</span></code>
-takes <code class="docutils literal notranslate"><span class="pre">file_path</span></code> and optional <code class="docutils literal notranslate"><span class="pre">script_args</span></code> in place of <code class="docutils literal notranslate"><span class="pre">code</span></code>).</p>
-<div class="pst-scrollable-table-container"><table class="table" id="id1">
-<caption><span class="caption-text"><code class="docutils literal notranslate"><span class="pre">execute</span></code> parameters</span><a class="headerlink" href="#id1" title="Link to this table">#</a></caption>
+  <section id="facility-rules">
+<h1>Facility Rules<a class="headerlink" href="#facility-rules" title="Link to this heading">#</a></h1>
+<p>The always-in-context tier of <a class="reference internal" href="use-facility-knowledge.html"><span class="doc">Facility Knowledge</span></a>
+is the set of Markdown rules under the project’s <code class="docutils literal notranslate"><span class="pre">.claude/rules/</span></code> directory.
+They load into the main agent’s context at the start of every session, the same
+way <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code> does. Several of them carry facility-specific operating
+context.</p>
+<section id="what-the-control-assistant-preset-ships">
+<h2>What the <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> preset ships<a class="headerlink" href="#what-the-control-assistant-preset-ships" title="Link to this heading">#</a></h2>
+<div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
-<col style="width: 20.0%" />
+<col style="width: 34.0%" />
+<col style="width: 51.0%" />
 <col style="width: 15.0%" />
-<col style="width: 65.0%" />
 </colgroup>
 <thead>
-<tr class="row-odd"><th class="head"><p>Parameter</p></th>
-<th class="head"><p>Default</p></th>
-<th class="head"><p>Description</p></th>
+<tr class="row-odd"><th class="head"><p>Rule</p></th>
+<th class="head"><p>Holds</p></th>
+<th class="head"><p>Facility-specific</p></th>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">code</span></code></p></td>
-<td><p><em>(required)</em></p></td>
-<td><p>Python source code to run.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">facility.md</span></code></p></td>
+<td><p>Facility identity (name, type, mission) and a pointer to the on-demand
+knowledge tools.</p></td>
+<td><p>Yes</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">description</span></code></p></td>
-<td><p><em>(required)</em></p></td>
-<td><p>Human-readable description of what the code does.</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">control-system-safety.md</span></code></p></td>
+<td><p>Which control protocol the facility runs (EPICS, Tango, OPC-UA, LabVIEW)
+and the required <code class="docutils literal notranslate"><span class="pre">osprey.runtime</span></code> write path.</p></td>
+<td><p>Yes</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">execution_mode</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">&quot;readonly&quot;</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">&quot;readonly&quot;</span></code> blocks detected write patterns; <code class="docutils literal notranslate"><span class="pre">&quot;readwrite&quot;</span></code> allows
-them.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">timezone.md</span></code></p></td>
+<td><p>The facility timezone used to interpret timestamps.</p></td>
+<td><p>Yes</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">save_output</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">True</span></code></p></td>
-<td><p>Save code and output to a workspace data file and artifact store.</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">safety.md</span></code></p></td>
+<td><p>Channel-write safety, tool confinement, and data-integrity rules.</p></td>
+<td><p>Customizable</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">error-handling.md</span></code></p></td>
+<td><p>Error taxonomy and response protocol for tool failures.</p></td>
+<td><p>Customizable</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">artifacts.md</span></code>, <code class="docutils literal notranslate"><span class="pre">python-execution.md</span></code>, <code class="docutils literal notranslate"><span class="pre">data-visualization.md</span></code>, <code class="docutils literal notranslate"><span class="pre">workflows.md</span></code></p></td>
+<td><p>Generic operating rules — artifact reuse, code execution, plotting, and
+task planning/delegation.</p></td>
+<td><p>No</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>The tool returns a JSON object containing:</p>
-<ul class="simple">
-<li><p><strong>output</strong> / <strong>error</strong> — stdout and stderr truncated to 500 characters.
-Full output is available in the saved data file.</p></li>
-<li><p><strong>artifact_ids</strong> — IDs for any figures or saved objects.</p></li>
-<li><p><strong>notebook_artifact_id</strong> — ID of an auto-generated notebook capturing the
-run.</p></li>
-<li><p><strong>gallery_url</strong> — link to the artifact gallery (when available).</p></li>
-<li><p><strong>has_errors</strong>, <strong>status</strong> (<code class="docutils literal notranslate"><span class="pre">&quot;Success&quot;</span></code> / <code class="docutils literal notranslate"><span class="pre">&quot;Failed&quot;</span></code>), and
-<strong>detected_patterns</strong> for control-system operation metadata.</p></li>
-</ul>
+<p>A build profile can add rules of its own. Any rule without <code class="docutils literal notranslate"><span class="pre">paths</span></code> frontmatter
+loads unconditionally at session start.</p>
 </section>
-<section id="execution-modes">
-<h2>Execution Modes<a class="headerlink" href="#execution-modes" title="Link to this heading">#</a></h2>
-<section id="container-execution">
-<h3>Container Execution<a class="headerlink" href="#container-execution" title="Link to this heading">#</a></h3>
-<p>The default mode. Code is sent to a Jupyter kernel running inside a Docker
-container via WebSocket. Separate containers can be configured for
-<code class="docutils literal notranslate"><span class="pre">readonly</span></code> and <code class="docutils literal notranslate"><span class="pre">readwrite</span></code> modes:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="c1"># config.yml</span>
-<span class="nt">execution</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">execution_method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">container</span>
-<span class="nt">services</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">jupyter</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">containers</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">read</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
-<span class="w">        </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8088</span>
-<span class="w">      </span><span class="nt">write</span><span class="p">:</span>
-<span class="w">        </span><span class="nt">hostname</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">localhost</span>
-<span class="w">        </span><span class="nt">port_host</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">8089</span>
+<section id="changing-a-rule">
+<h2>Changing a rule<a class="headerlink" href="#changing-a-rule" title="Link to this heading">#</a></h2>
+<p>There are two ways to edit a rule.</p>
+<p><strong>Edit the Markdown directly.</strong> Each rule is a file under <code class="docutils literal notranslate"><span class="pre">.claude/rules/</span></code>.
+<code class="docutils literal notranslate"><span class="pre">facility.md</span></code> is yours to edit — it is user-owned, and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code>
+never overwrites it. The framework-generated rules <em>are</em> re-rendered by
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code>; to keep an edit to one of those, claim it first so it
+becomes user-owned:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>rules/safety
+<span class="gp">$ </span>osprey<span class="w"> </span>scaffold<span class="w"> </span>diff<span class="w"> </span>rules/safety<span class="w">     </span><span class="c1"># compare yours vs the framework version</span>
 </pre></div>
 </div>
-<p>Container mode provides the strongest isolation—the MCP server
-process is never exposed to user code.</p>
-</section>
-<section id="local-subprocess-execution">
-<h3>Local Subprocess Execution<a class="headerlink" href="#local-subprocess-execution" title="Link to this heading">#</a></h3>
-<p>Local mode is selected explicitly by setting <code class="docutils literal notranslate"><span class="pre">execution_method:</span> <span class="pre">local</span></code>
-(there is no automatic fallback from container mode). The <code class="docutils literal notranslate"><span class="pre">ExecutionWrapper</span></code>
-wraps user code with safety
-monkeypatches (e.g., <code class="docutils literal notranslate"><span class="pre">epics.caput()</span></code> validation against the limits
-database), writes the wrapped script to an execution folder, and runs it
-as a subprocess:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">execution</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">execution_method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">local</span>
-<span class="w">  </span><span class="nt">python_env_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">/path/to/venv</span><span class="w">   </span><span class="c1"># optional; defaults to sys.executable</span>
-</pre></div>
+<p><strong>Through the web terminal.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> exposes the agent’s <code class="docutils literal notranslate"><span class="pre">.claude/</span></code>
+files in the browser: edit a rule in the setup editor, or use the scaffold
+gallery to override a framework-generated rule (which claims it for you). See
+<a class="reference internal" href="use-web-terminal.html"><span class="doc">Use the Web Terminal</span></a>.</p>
+<div class="admonition seealso">
+<p class="admonition-title">See also</p>
+<dl class="simple">
+<dt><a class="reference internal" href="use-facility-knowledge.html"><span class="doc">Facility Knowledge</span></a></dt><dd><p>How the always-in-context rules relate to the on-demand OKF bundle.</p>
+</dd>
+<dt><a class="reference internal" href="build-profiles.html"><span class="doc">Build Profiles</span></a></dt><dd><p>How a build profile overlays its own rules into a generated project.</p>
+</dd>
+</dl>
 </div>
-<p>The subprocess working directory is set to the project root so that
-relative workspace paths (e.g. <code class="docutils literal notranslate"><span class="pre">_agent_data/data/002_archiver_read.json</span></code>)
-resolve correctly.</p>
-</section>
-</section>
-<section id="security-model">
-<h2>Security Model<a class="headerlink" href="#security-model" title="Link to this heading">#</a></h2>
-<p>Five safety layers are applied in sequence:</p>
-<ol class="arabic simple">
-<li><p><strong>Static safety check</strong> (<code class="docutils literal notranslate"><span class="pre">quick_safety_check</span></code>)—blocks dangerous
-patterns such as dynamic code evaluation, dynamic imports, and
-<code class="docutils literal notranslate"><span class="pre">subprocess</span></code> calls before execution begins.</p></li>
-<li><p><strong>Control-system pattern detection</strong>
-(<code class="docutils literal notranslate"><span class="pre">detect_control_system_operations</span></code>)—identifies read and write
-patterns. In <code class="docutils literal notranslate"><span class="pre">readonly</span></code> mode, detected writes cause immediate
-rejection.</p></li>
-<li><p><strong>Limits monkeypatch</strong> (<code class="docutils literal notranslate"><span class="pre">ExecutionWrapper</span></code> /
-<code class="docutils literal notranslate"><span class="pre">LimitsValidator</span></code>)—at runtime, <code class="docutils literal notranslate"><span class="pre">epics.caput()</span></code> calls are
-intercepted and validated against the channel limits database.
-Out-of-range values are blocked.</p></li>
-<li><p><strong>Process isolation</strong>—code always runs outside the MCP server
-process, either in a container or a local subprocess.</p></li>
-<li><p><strong>Execution timeout</strong>—configurable via
-<code class="docutils literal notranslate"><span class="pre">python_executor.execution_timeout_seconds</span></code> (default 600 s). The
-process is killed if it exceeds the limit.</p></li>
-</ol>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">python_executor</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">execution_timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300</span>
-</pre></div>
-</div>
-<div class="admonition-control-system-operations-in-user-code admonition">
-<p class="admonition-title">Control system operations in user code</p>
-<p>Python code interacts with control systems using
-<code class="docutils literal notranslate"><span class="pre">osprey.runtime</span></code> utilities (<code class="docutils literal notranslate"><span class="pre">read_channel()</span></code>, <code class="docutils literal notranslate"><span class="pre">write_channel()</span></code>),
-not direct connector imports. The execution wrapper configures these
-automatically from the deployment context, so code works with any
-connector (EPICS, Mock, etc.) and notebooks remain reproducible.</p>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>There is no in-framework code-generation pipeline. The Osprey agent generates
-Python code itself and invokes the <code class="docutils literal notranslate"><span class="pre">execute</span></code> MCP tool directly.</p>
-</div>
-<div class="admonition note">
-<p class="admonition-title">Note</p>
-<p>Write approval is handled by the <code class="docutils literal notranslate"><span class="pre">execution_mode</span></code> parameter. The Osprey agent
-requests user confirmation before calling <code class="docutils literal notranslate"><span class="pre">execute</span></code> with
-<code class="docutils literal notranslate"><span class="pre">execution_mode=&quot;readwrite&quot;</span></code>—there is no separate approval API.</p>
-</div>
-</section>
-<section id="installation">
-<h2>Installation<a class="headerlink" href="#installation" title="Link to this heading">#</a></h2>
-<p>The Python executor is included in the default Osprey installation:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>sync
-</pre></div>
-</div>
-<p>No additional setup is needed for local subprocess mode. For container
-mode, configure the Jupyter container endpoints in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> as shown
-above.</p>
-</section>
-<section id="see-also">
-<h2>See Also<a class="headerlink" href="#see-also" title="Link to this heading">#</a></h2>
-<ul class="simple">
-<li><p><a class="reference internal" href="../architecture/mcp-servers.html"><span class="doc">MCP Servers</span></a> for how the
-<code class="docutils literal notranslate"><span class="pre">python</span></code> server fits into the overall system.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">src/osprey/mcp_server/python_executor/</span></code> for the full server source.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">src/osprey/services/python_executor/</span></code> for execution engine internals,
-safety checks, and pattern detection.</p></li>
-</ul>
 </section>
 </section>
 
@@ -664,20 +565,20 @@ safety checks, and pattern detection.</p></li>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="non_interactive_query.html"
+       href="use-facility-knowledge.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Non-Interactive Agent Queries</p>
+        <p class="prev-next-title">Facility Knowledge</p>
       </div>
     </a>
     <a class="right-next"
-       href="event-dispatch.html"
+       href="okf-bundle.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Event Dispatch</p>
+        <p class="prev-next-title">The OKF Bundle</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -700,16 +601,8 @@ safety checks, and pattern detection.</p></li>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-it-does">What It Does</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#mcp-tool-interface">MCP Tool Interface</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#execution-modes">Execution Modes</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#container-execution">Container Execution</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#local-subprocess-execution">Local Subprocess Execution</a></li>
-</ul>
-</li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#security-model">Security Model</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#installation">Installation</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#see-also">See Also</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-control-assistant-preset-ships">What the <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> preset ships</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#changing-a-rule">Changing a rule</a></li>
 </ul>
   </nav></div>
 
@@ -717,7 +610,7 @@ safety checks, and pattern detection.</p></li>
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/use-python-executor.rst">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/facility-rules.rst">
       <i class="fa-solid fa-pencil"></i>
       
       
