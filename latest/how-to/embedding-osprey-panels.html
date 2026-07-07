@@ -1,0 +1,919 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="../" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Embedding OSPREY Panels &#8212; Osprey Framework 2026.6.2 documentation</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="../_static/styles/theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+<link href="../_static/styles/pydata-sphinx-theme.css?digest=8878045cc6db502f8baf" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="../_static/copybutton.css?v=76b2166b" />
+    <link rel="stylesheet" type="text/css" href="../_static/graphviz.css?v=4ae1632d" />
+    <link rel="stylesheet" type="text/css" href="../_static/workflow-autodoc.css?v=8680bdfd" />
+    <link rel="stylesheet" type="text/css" href="../_static/sphinx-design.min.css?v=95c83b7e" />
+    <link rel="stylesheet" type="text/css" href="../_static/custom.css?v=a5f60b8d" />
+  
+  <!-- So that users can add custom icons -->
+  <script src="../_static/scripts/fontawesome.js?digest=8878045cc6db502f8baf"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf" />
+<link rel="preload" as="script" href="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf" />
+
+    <script src="../_static/documentation_options.js?v=e7cf6fe6"></script>
+    <script src="../_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
+    <script src="../_static/copybutton.js?v=30646c52"></script>
+    <script src="../_static/design-tabs.js?v=f930bc37"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/embedding-osprey-panels';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '2026.6.2';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <link rel="icon" href="../_static/logo.svg"/>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Use the CLI Chat Interface" href="use-cli-chat.html" />
+    <link rel="prev" title="Theming the OSPREY Interfaces" href="theming-interfaces.html" />
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="docsearch:language" content="en"/>
+  <meta name="docsearch:version" content="" />
+    <meta name="docbuild:last-update" content="Jul 07, 2026"/>
+  </head>
+  
+  
+  <body data-bs-spy="scroll" data-bs-target=".bd-toc-nav" data-offset="180" data-bs-root-margin="0px 0px -60%" data-default-mode="">
+
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="../search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class=" navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="../index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">Osprey Framework</p>
+  
+</a></div>
+    
+  </div>
+  
+  <div class=" navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+      
+        <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../getting-started/index.html">
+    Getting Started
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../architecture/index.html">
+    Architecture Overview
+  </a>
+</li>
+
+
+<li class="nav-item current active">
+  <a class="nav-link nav-internal" href="index.html">
+    How-To Guides
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="../contributing/index.html">
+    Contributing to Osprey
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-3"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-3"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-3"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-3">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+        
+          <div class="navbar-item">
+
+<button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button pst-js-only" aria-label="Color mode" data-bs-title="Color mode"  data-bs-placement="bottom" data-bs-toggle="tooltip">
+  <i class="theme-switch fa-solid fa-sun                fa-lg" data-mode="light" title="Light"></i>
+  <i class="theme-switch fa-solid fa-moon               fa-lg" data-mode="dark"  title="Dark"></i>
+  <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg" data-mode="auto"  title="System Settings"></i>
+</button></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/als-apg/osprey" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i>
+            <span class="sr-only">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+    <div class="sidebar-primary-items__start sidebar-primary__section">
+        <div class="sidebar-primary-item">
+<nav class="bd-docs-nav bd-links"
+     aria-label="Section Navigation">
+  <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
+<li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
+<li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
+<li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
+<li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
+<li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-web-terminal.html">Use the Web Terminal</a></li>
+<li class="toctree-l1"><a class="reference internal" href="theming-interfaces.html">Theming the OSPREY Interfaces</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Embedding OSPREY Panels</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
+<li class="toctree-l1"><a class="reference internal" href="non_interactive_query.html">Non-Interactive Agent Queries</a></li>
+
+
+
+
+
+
+
+<li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
+<li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
+<li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
+
+
+
+
+<li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
+<li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/data-ingestion.html">Data Ingestion</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/search-modes.html">Search Modes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/web-interface.html">Web Interface</a></li>
+<li class="toctree-l2"><a class="reference internal" href="ariel/standalone-deployment.html">Standalone Deployment</a></li>
+</ul>
+</details></li>
+<li class="toctree-l1"><a class="reference internal" href="use-facility-knowledge.html">Facility Knowledge</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../cli-reference/index.html">CLI Reference</a></li>
+</ul>
+</div>
+</nav></div>
+    </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none">
+<div class="header-article-items header-article__inner">
+  
+    <div class="header-article-items__start">
+      
+        <div class="header-article-item">
+
+<nav aria-label="Breadcrumb" class="d-print-none">
+  <ul class="bd-breadcrumbs">
+    
+    <li class="breadcrumb-item breadcrumb-home">
+      <a href="../index.html" class="nav-link" aria-label="Home">
+        <i class="fa-solid fa-home"></i>
+      </a>
+    </li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">How-To Guides</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Embedding OSPREY Panels</span></li>
+  </ul>
+</nav>
+</div>
+      
+    </div>
+  
+  
+</div>
+</div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="embedding-osprey-panels">
+<h1>Embedding OSPREY Panels<a class="headerlink" href="#embedding-osprey-panels" title="Link to this heading">#</a></h1>
+<p>The Web Terminal hub embeds every other interface — Channel Finder, OKF,
+ARIEL, Tuning, the Lattice dashboard, and the Artifacts gallery — as
+same-origin iframe panels, and hosts its own session activity page
+(<code class="docutils literal notranslate"><span class="pre">session.html</span></code>) the same way. This guide documents the shell↔panel
+boundary as a versioned contract: three transports, a well-known set of
+query params, per-panel deep-link forms, the same-origin postMessage model
+that keeps the boundary safe, and the chrome contract that decides what a
+panel shows of itself when it’s running standalone versus inside the hub.
+If you are wiring a new panel into the hub, or adding a new well-known param
+or message type, this is the contract to extend rather than work around.</p>
+<section id="the-three-transports">
+<h2>The Three Transports<a class="headerlink" href="#the-three-transports" title="Link to this heading">#</a></h2>
+<p>The contract splits along a simple line: <strong>who decides the value, and when</strong>.</p>
+<dl class="simple">
+<dt>query = creation-time config</dt><dd><p>Read once, at panel boot, from the iframe’s <code class="docutils literal notranslate"><span class="pre">src</span></code> URL. The hub decides
+these values when it <em>builds</em> the iframe URL — a panel embedded directly
+(not inside the hub) simply omits them and gets the default behavior.</p>
+</dd>
+<dt>hash = panel-owned deep-link</dt><dd><p>Each panel owns its own hash grammar and reads it from its own
+<code class="docutils literal notranslate"><span class="pre">location.hash</span></code> — the hub does not construct or interpret it. See
+<a class="reference internal" href="#per-panel-deep-link-forms">Per-Panel Deep-Link Forms</a> below.</p>
+</dd>
+<dt>postMessage = live push</dt><dd><p>Used for state changes that happen <em>after</em> a panel has already loaded —
+a theme toggle, a session switch — which query and hash, both read only
+at boot, cannot express. See <a class="reference internal" href="#the-same-origin-model">The Same-Origin Model</a>.</p>
+</dd>
+</dl>
+</section>
+<section id="well-known-query-params">
+<h2>Well-Known Query Params<a class="headerlink" href="#well-known-query-params" title="Link to this heading">#</a></h2>
+<p>Two query params are part of the contract today:</p>
+<dl class="simple">
+<dt><code class="docutils literal notranslate"><span class="pre">embedded</span></code></dt><dd><p><code class="docutils literal notranslate"><span class="pre">&quot;true&quot;</span></code> marks the page as running inside a host frame. Read by
+<code class="docutils literal notranslate"><span class="pre">applyEmbedded()</span></code>, exported from the shared
+<code class="docutils literal notranslate"><span class="pre">design_system/static/js/frame-params.js</span></code> module (served at runtime as
+<code class="docutils literal notranslate"><span class="pre">/design-system/js/frame-params.js</span></code>). It adds the <code class="docutils literal notranslate"><span class="pre">embedded</span></code> class to
+<code class="docutils literal notranslate"><span class="pre">document.body</span></code> and is a no-op for any other value, including absence.
+All six panels that can run under the hub — Channel Finder, OKF, ARIEL,
+Tuning, the Lattice dashboard, and Artifacts — plus the hub’s own
+<code class="docutils literal notranslate"><span class="pre">session.html</span></code>, import <code class="docutils literal notranslate"><span class="pre">applyEmbedded()</span></code> from this single shared
+module; there is no per-panel copy of this reader left to drift. See
+<a class="reference internal" href="#chrome-contract-branding-only-standalone-vs-embedded">Chrome Contract: Branding-Only, Standalone vs. Embedded</a> below for what
+each page actually does with the resulting <code class="docutils literal notranslate"><span class="pre">embedded</span></code> class.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">theme</span></code></dt><dd><p>Owned and read pre-paint by <code class="docutils literal notranslate"><span class="pre">theme-boot.js</span></code> / <code class="docutils literal notranslate"><span class="pre">theme-manager.js</span></code>,
+<strong>not</strong> by <code class="docutils literal notranslate"><span class="pre">frame-params.js</span></code>. <code class="docutils literal notranslate"><span class="pre">theme-boot.js</span></code> is a non-module inline
+script that resolves and applies <code class="docutils literal notranslate"><span class="pre">data-theme</span></code> before first paint;
+re-reading <code class="docutils literal notranslate"><span class="pre">theme</span></code> in the deferred <code class="docutils literal notranslate"><span class="pre">frame-params.js</span></code> ES module would
+just duplicate that read after the fact and risk a visible theme flash.
+See <a class="reference internal" href="theming-interfaces.html"><span class="doc">Theming the OSPREY Interfaces</span></a> for the full theme contract, including the
+<code class="docutils literal notranslate"><span class="pre">follower</span></code>/<code class="docutils literal notranslate"><span class="pre">hub</span></code> roles and the <code class="docutils literal notranslate"><span class="pre">osprey-theme-change</span></code> broadcast.</p>
+</dd>
+</dl>
+</section>
+<section id="contract-version-and-the-bump-policy">
+<h2><code class="docutils literal notranslate"><span class="pre">CONTRACT_VERSION</span></code> and the Bump Policy<a class="headerlink" href="#contract-version-and-the-bump-policy" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">frame-params.js</span></code> exports a <code class="docutils literal notranslate"><span class="pre">CONTRACT_VERSION</span></code> string constant (currently
+<code class="docutils literal notranslate"><span class="pre">'1'</span></code>). It exists purely as a documentation and coordination anchor —
+<strong>nothing on the wire carries it</strong>: there is no <code class="docutils literal notranslate"><span class="pre">?v=</span></code> query param, no
+per-message version field, and no code path branches on its value.</p>
+<p>Bump <code class="docutils literal notranslate"><span class="pre">CONTRACT_VERSION</span></code> when either of these happens:</p>
+<ul class="simple">
+<li><p>a well-known param name or its semantics change (for example, <code class="docutils literal notranslate"><span class="pre">embedded</span></code>
+started meaning something different, or a new well-known param joined the
+set with a name collision risk), or</p></li>
+<li><p>a postMessage message type or its payload shape changes.</p></li>
+</ul>
+<p>Treat the bump as a signal for anyone reading the source, not a runtime
+guard — there is no consumer today that inspects it programmatically. The
+D15 chrome-contract work below (the <code class="docutils literal notranslate"><span class="pre">&lt;osprey-theme-switcher&gt;</span></code> component,
+its embedded-hide rule, and the <code class="docutils literal notranslate"><span class="pre">history.replaceState</span></code> strip in
+<code class="docutils literal notranslate"><span class="pre">setTheme()</span></code>) did <strong>not</strong> bump <code class="docutils literal notranslate"><span class="pre">CONTRACT_VERSION</span></code>: it changed <em>how</em> a
+page presents itself once <code class="docutils literal notranslate"><span class="pre">embedded</span></code>/<code class="docutils literal notranslate"><span class="pre">theme</span></code> are already applied, not
+the wire semantics of either param.</p>
+</section>
+<section id="per-panel-deep-link-forms">
+<h2>Per-Panel Deep-Link Forms<a class="headerlink" href="#per-panel-deep-link-forms" title="Link to this heading">#</a></h2>
+<p>The hash transport is deliberately <strong>panel-owned</strong>: each panel defines its
+own grammar, and the hub does not know or care what it means.</p>
+<ul class="simple">
+<li><p><strong>OKF</strong> reads its own <code class="docutils literal notranslate"><span class="pre">location.hash</span></code> as <code class="docutils literal notranslate"><span class="pre">#&lt;conceptId&gt;</span></code> and routes to
+that concept on load. This is the one panel that currently uses the hash
+transport.</p></li>
+<li><p><strong>Web Terminal</strong> (the hub) sets <strong>no hash</strong> on any iframe URL it builds. An
+earlier <code class="docutils literal notranslate"><span class="pre">#/sessions?project=</span></code> grammar existed on this codepath and has
+since been removed as vestigial — it had no reader.</p></li>
+</ul>
+<p>This asymmetry is intentional, not an oversight: divergent per-panel hash
+grammars are documented here rather than converged into one shared shape,
+because a hash is inherently panel-internal navigation state. The seam a
+future KNOWLEDGE concept-picker would use to deep-link the hub straight into
+an OKF concept is exactly this transport — the hub would set the iframe’s
+initial <code class="docutils literal notranslate"><span class="pre">#&lt;conceptId&gt;</span></code> hash the same way a user’s own OKF navigation does —
+but no hub-side hash producer exists today.</p>
+</section>
+<section id="the-same-origin-model">
+<h2>The Same-Origin Model<a class="headerlink" href="#the-same-origin-model" title="Link to this heading">#</a></h2>
+<p>Every hub→panel and panel→hub <code class="docutils literal notranslate"><span class="pre">postMessage</span></code> call assumes the sender and
+receiver share an origin — this is not a general cross-origin embedding
+protocol, and the panels’ iframe <code class="docutils literal notranslate"><span class="pre">sandbox</span></code> attribute includes
+<code class="docutils literal notranslate"><span class="pre">allow-same-origin</span></code> on that assumption.</p>
+<p><strong>Senders</strong> post with the target origin pinned to <code class="docutils literal notranslate"><span class="pre">window.location.origin</span></code>,
+never <code class="docutils literal notranslate"><span class="pre">'*'</span></code>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">theme-manager.js</span></code>’s <code class="docutils literal notranslate"><span class="pre">_broadcast</span></code> (theme changes to every embedded panel)</p></li>
+<li><p>Web Terminal’s <code class="docutils literal notranslate"><span class="pre">terminal.js</span></code> <code class="docutils literal notranslate"><span class="pre">notifySessionChange</span></code></p></li>
+<li><p>Web Terminal’s <code class="docutils literal notranslate"><span class="pre">panel-manager.js</span></code>, two per-iframe resend call sites
+(theme and session-change repair on tab activation)</p></li>
+</ul>
+<p><strong>Receivers</strong> guard symmetrically, rejecting anything that isn’t
+same-origin before touching <code class="docutils literal notranslate"><span class="pre">event.data</span></code>:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">theme-manager.js</span></code>’s <code class="docutils literal notranslate"><span class="pre">_handleMessage</span></code></p></li>
+<li><p>Artifacts <code class="docutils literal notranslate"><span class="pre">gallery.js</span></code>’s session-change listener</p></li>
+<li><p>Web Terminal’s <code class="docutils literal notranslate"><span class="pre">session.html</span></code> session-change listener</p></li>
+<li><p>Web Terminal’s <code class="docutils literal notranslate"><span class="pre">app.js</span></code> paste-to-terminal listener</p></li>
+</ul>
+<p>All four follow the same one-line shape:</p>
+<div class="highlight-js notranslate"><div class="highlight"><pre><span></span><span class="nb">window</span><span class="p">.</span><span class="nx">addEventListener</span><span class="p">(</span><span class="s1">&#39;message&#39;</span><span class="p">,</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">)</span><span class="w"> </span><span class="p">=&gt;</span><span class="w"> </span><span class="p">{</span>
+<span class="w">  </span><span class="k">if</span><span class="w"> </span><span class="p">(</span><span class="nx">e</span><span class="p">.</span><span class="nx">origin</span><span class="w"> </span><span class="o">!==</span><span class="w"> </span><span class="nb">window</span><span class="p">.</span><span class="nx">location</span><span class="p">.</span><span class="nx">origin</span><span class="p">)</span><span class="w"> </span><span class="k">return</span><span class="p">;</span>
+<span class="w">  </span><span class="c1">// ... handle e.data</span>
+<span class="p">});</span>
+</pre></div>
+</div>
+<section id="two-documented-cross-origin-exceptions">
+<h3>Two Documented Cross-Origin Exceptions<a class="headerlink" href="#two-documented-cross-origin-exceptions" title="Link to this heading">#</a></h3>
+<p>Two send sites in Artifacts deliberately keep <code class="docutils literal notranslate"><span class="pre">'*'</span></code> as the target origin
+instead of <code class="docutils literal notranslate"><span class="pre">window.location.origin</span></code>, each with a one-line reason recorded
+at the call site:</p>
+<ul class="simple">
+<li><p><strong>paste→parent</strong> (<code class="docutils literal notranslate"><span class="pre">sendToTerminal</span></code>, <code class="docutils literal notranslate"><span class="pre">types.js</span></code>): posts
+<code class="docutils literal notranslate"><span class="pre">osprey-paste-to-terminal</span></code> to <code class="docutils literal notranslate"><span class="pre">window.parent</span></code> with <code class="docutils literal notranslate"><span class="pre">'*'</span></code>, because the
+parent embedder may legitimately be cross-origin — Artifacts can be
+embedded outside the OSPREY hub entirely.</p></li>
+<li><p><strong>theme→nested-preview-iframe</strong> (<code class="docutils literal notranslate"><span class="pre">_forwardThemeToPreviewFrames</span></code>,
+<code class="docutils literal notranslate"><span class="pre">gallery.js</span></code>): forwards <code class="docutils literal notranslate"><span class="pre">osprey-theme-change</span></code> to nested preview
+iframes (rendered Plotly HTML artifacts) with <code class="docutils literal notranslate"><span class="pre">'*'</span></code>, because that nested
+content may be <code class="docutils literal notranslate"><span class="pre">null</span></code> or cross-origin and there is no same-origin
+guarantee to pin to.</p></li>
+</ul>
+<p>Do not treat these two as a precedent for a general “allow cross-origin”
+escape hatch — every other sender/receiver pair pins to
+<code class="docutils literal notranslate"><span class="pre">window.location.origin</span></code>, and there is no allowed-origins configuration
+knob in the contract. If a genuine cross-origin consumer shows up beyond
+these two cases, that is a new design decision, not a default to fall back
+on.</p>
+</section>
+</section>
+<section id="chrome-contract-branding-only-standalone-vs-embedded">
+<h2>Chrome Contract: Branding-Only, Standalone vs. Embedded<a class="headerlink" href="#chrome-contract-branding-only-standalone-vs-embedded" title="Link to this heading">#</a></h2>
+<p>Every page above draws its theme toggle from one shared component,
+<code class="docutils literal notranslate"><span class="pre">&lt;osprey-theme-switcher&gt;</span></code> (<code class="docutils literal notranslate"><span class="pre">design_system/static/js/components/</span>
+<span class="pre">osprey-theme-switcher.js</span></code>), and every page decides what to show of its own
+branding based on the same <code class="docutils literal notranslate"><span class="pre">embedded</span></code> class <code class="docutils literal notranslate"><span class="pre">applyEmbedded()</span></code> already
+applies. The rule is <strong>branding-only</strong>: embedding hides a page’s own logo or
+title — the one thing that duplicates what the hub’s own chrome already
+shows — and nothing else. It does not hide navigation, a pipeline switcher,
+or any other functional UI, because that stays useful even inside the hub.</p>
+<section id="osprey-theme-switcher">
+<h3><code class="docutils literal notranslate"><span class="pre">&lt;osprey-theme-switcher&gt;</span></code><a class="headerlink" href="#osprey-theme-switcher" title="Link to this heading">#</a></h3>
+<p>A single light-DOM custom element renders the toggle button
+<code class="docutils literal notranslate"><span class="pre">theme-manager.js</span></code> already binds by id (<code class="docutils literal notranslate"><span class="pre">#theme-toggle</span></code>,
+<code class="docutils literal notranslate"><span class="pre">#theme-icon-sun</span></code>, <code class="docutils literal notranslate"><span class="pre">#theme-icon-moon</span></code>) — mounting it is one line,
+<code class="docutils literal notranslate"><span class="pre">&lt;osprey-theme-switcher&gt;&lt;/osprey-theme-switcher&gt;</span></code>, plus a side-effect
+import of the component module. It carries no theme-switching logic of its
+own; see <a class="reference internal" href="theming-interfaces.html"><span class="doc">Theming the OSPREY Interfaces</span></a> for what <code class="docutils literal notranslate"><span class="pre">initTheme()</span></code> and the
+<code class="docutils literal notranslate"><span class="pre">follower</span></code>/<code class="docutils literal notranslate"><span class="pre">hub</span></code> roles actually do.</p>
+<p>The component hides itself fleet-wide under <code class="docutils literal notranslate"><span class="pre">embedded</span></code> with one rule it
+injects itself — <code class="docutils literal notranslate"><span class="pre">body.embedded</span> <span class="pre">osprey-theme-switcher</span> <span class="pre">{</span> <span class="pre">display:</span> <span class="pre">none;</span> <span class="pre">}</span></code>
+— so no page needs its own copy of that rule. What each page <em>is</em>
+responsible for is hiding its own branding element, if it has one, with
+exactly that same pattern:</p>
+<div class="highlight-css notranslate"><div class="highlight"><pre><span></span><span class="nt">body</span><span class="p">.</span><span class="nc">embedded</span><span class="w"> </span><span class="o">&lt;</span><span class="nt">your-branding-selector</span><span class="o">&gt;</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="k">display</span><span class="p">:</span><span class="w"> </span><span class="kc">none</span><span class="p">;</span><span class="w"> </span><span class="p">}</span>
+</pre></div>
+</div>
+<div class="pst-scrollable-table-container"><table class="table" id="id1">
+<caption><span class="caption-text">Per-page branding selector</span><a class="headerlink" href="#id1" title="Link to this table">#</a></caption>
+<colgroup>
+<col style="width: 25.0%" />
+<col style="width: 30.0%" />
+<col style="width: 45.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Page</p></th>
+<th class="head"><p>Branding selector</p></th>
+<th class="head"><p>Notes</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Channel Finder</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">.app-logo</span></code></p></td>
+<td><p>Narrowed from an earlier whole-header rule (D15) — the header stays
+fixed and visible embedded so the pipeline switcher and nav remain
+usable; only the logo hides. See <a class="reference internal" href="#a-non-occlusion-anti-regression-example">A Non-Occlusion Anti-Regression
+Example</a>.</p></td>
+</tr>
+<tr class="row-odd"><td><p>Artifacts</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">.logo</span></code></p></td>
+<td></td>
+</tr>
+<tr class="row-even"><td><p>ARIEL</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">.logo</span></code></p></td>
+<td></td>
+</tr>
+<tr class="row-odd"><td><p>Tuning</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">.tuning-header</span></code></p></td>
+<td></td>
+</tr>
+<tr class="row-even"><td><p>Lattice Dashboard</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">.topbar-logo</span></code></p></td>
+<td></td>
+</tr>
+<tr class="row-odd"><td><p>OKF</p></td>
+<td><p><em>(none)</em></p></td>
+<td><p>No pre-existing branding chrome to hide — only the switcher hides.</p></td>
+</tr>
+<tr class="row-even"><td><p>session.html</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">header</span> <span class="pre">h1</span></code></p></td>
+<td><p>The refresh-status dot next to it stays visible embedded; it’s a
+live status indicator, not branding.</p></td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section id="a-non-occlusion-anti-regression-example">
+<h3>A Non-Occlusion Anti-Regression Example<a class="headerlink" href="#a-non-occlusion-anti-regression-example" title="Link to this heading">#</a></h3>
+<p>Channel Finder’s header is <code class="docutils literal notranslate"><span class="pre">position:</span> <span class="pre">fixed</span></code> and <code class="docutils literal notranslate"><span class="pre">.app-main</span></code> carries a
+matching <code class="docutils literal notranslate"><span class="pre">padding-top:</span> <span class="pre">48px</span></code> so page content clears it. When the
+branding-only rule replaced an earlier whole-header hide, that padding had
+to stay exactly as-is in both modes — a future change that reintroduced
+whole-header hiding without also zeroing this padding would leave a silent
+48px gap; one that kept the header but forgot the padding would occlude the
+first 48px of content. <code class="docutils literal notranslate"><span class="pre">test_channel_finder_embedded_non_occlusion</span></code> in
+<code class="docutils literal notranslate"><span class="pre">tests/interfaces/web_terminal/test_contract_params.py</span></code> pins both
+invariants together: the pipeline switcher’s bounding box stays inside the
+viewport, and <code class="docutils literal notranslate"><span class="pre">.app-main</span></code>’s computed <code class="docutils literal notranslate"><span class="pre">padding-top</span></code> stays <code class="docutils literal notranslate"><span class="pre">48px</span></code>
+embedded.</p>
+</section>
+<section id="d15-session-only-toggles-no-stale-theme">
+<h3>D15: Session-Only Toggles, No Stale <code class="docutils literal notranslate"><span class="pre">?theme=</span></code><a class="headerlink" href="#d15-session-only-toggles-no-stale-theme" title="Link to this heading">#</a></h3>
+<p>A standalone panel’s theme toggle is deliberately <strong>session-only</strong>: clicking
+it applies the new theme immediately, but a <em>follower</em> page never persists
+that choice to <code class="docutils literal notranslate"><span class="pre">localStorage</span></code> and never broadcasts it (see
+<a class="reference internal" href="theming-interfaces.html"><span class="doc">Theming the OSPREY Interfaces</span></a>) — a reload falls back to whatever
+<code class="docutils literal notranslate"><span class="pre">?theme=</span></code>/<code class="docutils literal notranslate"><span class="pre">localStorage</span></code>/OS preference resolution <code class="docutils literal notranslate"><span class="pre">theme-boot.js</span></code>
+would have used anyway.</p>
+<p>That only works cleanly if a leftover <code class="docutils literal notranslate"><span class="pre">?theme=</span></code> query param — say, from a
+panel URL the hub built with an explicit theme, or from a link someone
+bookmarked — can’t out-rank that fallback on the next reload. So
+<code class="docutils literal notranslate"><span class="pre">setTheme()</span></code> (<code class="docutils literal notranslate"><span class="pre">theme-manager.js</span></code>) strips <code class="docutils literal notranslate"><span class="pre">theme</span></code> from the URL via
+<code class="docutils literal notranslate"><span class="pre">history.replaceState</span></code> on every explicit toggle, for <strong>both</strong> roles — this
+also fixes a hub-side quirk where a stale <code class="docutils literal notranslate"><span class="pre">?theme=</span></code> in the address bar
+could out-rank the user’s already-persisted preference. The strip happens
+only on the explicit-toggle path (clicking the switcher); a theme applied by
+<code class="docutils literal notranslate"><span class="pre">initTheme()</span></code> on load, or by a hub broadcast arriving via <code class="docutils literal notranslate"><span class="pre">postMessage</span></code>,
+never touches the URL.</p>
+</section>
+<section id="new-panel-recipe">
+<h3>New-Panel Recipe<a class="headerlink" href="#new-panel-recipe" title="Link to this heading">#</a></h3>
+<p>Wiring a new panel (or any standalone page that might one day run embedded)
+into this contract:</p>
+<ol class="arabic simple">
+<li><p>Load <code class="docutils literal notranslate"><span class="pre">theme-boot.js</span></code> first in <code class="docutils literal notranslate"><span class="pre">&lt;head&gt;</span></code> (non-module — see
+<a class="reference internal" href="theming-interfaces.html"><span class="doc">Theming the OSPREY Interfaces</span></a>), then link <code class="docutils literal notranslate"><span class="pre">tokens.css</span></code> (and <code class="docutils literal notranslate"><span class="pre">base.css</span></code> if
+it’s an app-shell page).</p></li>
+<li><p>Add a side-effect import of
+<code class="docutils literal notranslate"><span class="pre">/design-system/js/components/osprey-theme-switcher.js</span></code> and mount
+<code class="docutils literal notranslate"><span class="pre">&lt;osprey-theme-switcher&gt;&lt;/osprey-theme-switcher&gt;</span></code> in the header. If the
+page already has hand-written <code class="docutils literal notranslate"><span class="pre">#theme-toggle</span></code>/<code class="docutils literal notranslate"><span class="pre">#theme-icon-sun</span></code>/
+<code class="docutils literal notranslate"><span class="pre">#theme-icon-moon</span></code> markup, remove it first — a duplicate id would make
+<code class="docutils literal notranslate"><span class="pre">document.getElementById('theme-toggle')</span></code> resolve to whichever copy is
+first in document order.</p></li>
+<li><p>Import <code class="docutils literal notranslate"><span class="pre">initTheme</span></code> from <code class="docutils literal notranslate"><span class="pre">theme-manager.js</span></code> and call
+<code class="docutils literal notranslate"><span class="pre">initTheme({</span> <span class="pre">role:</span> <span class="pre">'follower'</span> <span class="pre">})</span></code> — after the switcher’s side-effect
+import, so its click handler wires up against a button that already
+exists.</p></li>
+<li><p>Import <code class="docutils literal notranslate"><span class="pre">applyEmbedded</span></code> from <code class="docutils literal notranslate"><span class="pre">frame-params.js</span></code> and call it.</p></li>
+<li><p>If the page has its own branding element, add exactly one rule:
+<code class="docutils literal notranslate"><span class="pre">body.embedded</span> <span class="pre">&lt;selector&gt;</span> <span class="pre">{</span> <span class="pre">display:</span> <span class="pre">none;</span> <span class="pre">}</span></code> — narrow to the branding
+itself, not the whole header, so functional chrome (nav, a pipeline
+switcher, a status indicator) stays usable embedded. Do <strong>not</strong> add a
+rule to hide the switcher yourself; it already hides itself fleet-wide.</p></li>
+<li><p>Add the new page to <code class="docutils literal notranslate"><span class="pre">_CHROME_CONTRACT_PANELS</span></code> in
+<code class="docutils literal notranslate"><span class="pre">tests/interfaces/web_terminal/test_contract_params.py</span></code> — one tuple
+(launcher, path, branding selector or <code class="docutils literal notranslate"><span class="pre">None</span></code>) exercises all three
+chrome-contract test functions (embedded-hide, standalone-toggle, D15
+reload-strip) for it automatically.</p></li>
+</ol>
+</section>
+</section>
+<section id="the-executable-contract-spec">
+<h2>The Executable Contract Spec<a class="headerlink" href="#the-executable-contract-spec" title="Link to this heading">#</a></h2>
+<p>The whole contract above is proven end-to-end, in a real browser, by
+<code class="docutils literal notranslate"><span class="pre">tests/interfaces/web_terminal/test_contract_params.py</span></code>:</p>
+<ul class="simple">
+<li><p>query = creation-time config (<code class="docutils literal notranslate"><span class="pre">?embedded=true</span></code> / <code class="docutils literal notranslate"><span class="pre">?theme=</span></code>)</p></li>
+<li><p>hash = panel-owned deep-link (via the OKF standalone panel)</p></li>
+<li><p>postMessage = live push, including a synthetic foreign-origin rejection
+check against all four receivers listed above</p></li>
+<li><p>the chrome contract, for all six panels plus <code class="docutils literal notranslate"><span class="pre">session.html</span></code>: branding
+and switcher hidden embedded, the switcher visible and functional
+standalone, the D15 reload-strip, and Channel Finder’s non-occlusion pin</p></li>
+</ul>
+<p>Treat that file as the up-to-date reference for exact assertions — it is the
+contract’s source of truth, not this prose. For the config-side view of
+panels (enabling them, custom panel URLs, <code class="docutils literal notranslate"><span class="pre">/api/panel-focus</span></code>), see
+<a class="reference internal" href="use-web-terminal.html"><span class="doc">Use the Web Terminal</span></a>.</p>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="left-prev"
+       href="theming-interfaces.html"
+       title="previous page">
+      <i class="fa-solid fa-angle-left"></i>
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">previous</p>
+        <p class="prev-next-title">Theming the OSPREY Interfaces</p>
+      </div>
+    </a>
+    <a class="right-next"
+       href="use-cli-chat.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Use the CLI Chat Interface</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-three-transports">The Three Transports</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#well-known-query-params">Well-Known Query Params</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#contract-version-and-the-bump-policy"><code class="docutils literal notranslate"><span class="pre">CONTRACT_VERSION</span></code> and the Bump Policy</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#per-panel-deep-link-forms">Per-Panel Deep-Link Forms</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-same-origin-model">The Same-Origin Model</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#two-documented-cross-origin-exceptions">Two Documented Cross-Origin Exceptions</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#chrome-contract-branding-only-standalone-vs-embedded">Chrome Contract: Branding-Only, Standalone vs. Embedded</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-theme-switcher"><code class="docutils literal notranslate"><span class="pre">&lt;osprey-theme-switcher&gt;</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-non-occlusion-anti-regression-example">A Non-Occlusion Anti-Regression Example</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#d15-session-only-toggles-no-stale-theme">D15: Session-Only Toggles, No Stale <code class="docutils literal notranslate"><span class="pre">?theme=</span></code></a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#new-panel-recipe">New-Panel Recipe</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-executable-contract-spec">The Executable Contract Spec</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
+
+  
+  <div class="tocsection editthispage">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/embedding-osprey-panels.rst">
+      <i class="fa-solid fa-pencil"></i>
+      
+      
+        
+          Edit on GitHub
+        
+      
+    </a>
+  </div>
+</div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="../_static/scripts/bootstrap.js?digest=8878045cc6db502f8baf"></script>
+<script defer src="../_static/scripts/pydata-sphinx-theme.js?digest=8878045cc6db502f8baf"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Osprey Developer Team.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.0.4.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.16.1.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

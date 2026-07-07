@@ -263,6 +263,131 @@ All new functionality must include tests.
    E2E tests **must** be run with ``pytest tests/e2e/`` not ``pytest -m e2e``.
    The marker-based approach causes registry state leaks and service conflicts.
 
+Front-End (JavaScript) Testing
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Front-end code (``static/js/`` under each ``src/osprey/interfaces/<name>/``) gets
+its own dev/CI-only Node toolchain -- ``tsc --noEmit`` for types and
+`Vitest <https://vitest.dev/>`_ for unit tests. Neither is needed to install or
+run Osprey; both run only in dev and CI, the front-end analogues of ``mypy``
+and ``pytest``.
+
+.. code-block:: bash
+
+   # Type-check every // @ts-check'd file (opt-in per file -- see below)
+   npm run typecheck
+
+   # All Vitest units (happy-dom, no real browser)
+   npm run test:js
+
+   # A single Vitest file
+   npx vitest run tests/interfaces/artifacts/preview.test.mjs
+
+A front-end change is covered by up to five rails, narrowest/fastest to
+broadest/slowest:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 18 47 35
+
+   * - Rail
+     - Covers
+     - Run
+   * - **Vitest unit**
+     - Pure logic in one module: mocked ``fetch``, no real browser (happy-dom)
+     - ``npx vitest run tests/interfaces/<iface>/<module>.test.mjs``
+   * - **Loads-clean**
+     - Page boots in a real browser with no uncaught JS exception and no
+       failed same-origin script/stylesheet fetch
+     - ``uv run pytest tests/interfaces/test_load_smokes.py -m browser -k <iface> -v``
+   * - **Contract**
+     - Shell<->panel chrome contract: ``?embedded=true`` hides branding, the
+       theme switcher shows/hides correctly, a reload after a theme toggle
+       carries no stale ``?theme=``
+     - ``uv run pytest tests/interfaces/web_terminal/test_contract_params.py -m browser -v``
+   * - **Visual**
+     - Pixel-level screenshot diff per interface x theme against a committed
+       baseline PNG
+     - ``uv run pytest tests/interfaces/design_system/test_visual.py -k <iface> -v``
+   * - **Interaction pin**
+     - A real user flow through a real browser and a real backend, proving a
+       multi-module wiring didn't drop a call across a split -- the one net a
+       per-module Vitest suite (which mocks its neighbors) cannot cast
+     - ``uv run pytest tests/interfaces/<iface>/test_<flow>.py -m browser -v``
+
+.. warning::
+
+   ``test_visual.py`` is marked ``slow``, **not** ``browser`` -- an
+   ``-m browser`` selector silently matches zero of its cases. Select it with
+   ``-k <target-name>`` (or run the file directly) instead.
+
+**What a new panel or extracted module must ship with:**
+
+- ``// @ts-check`` as line 1, plus full JSDoc (``@param``/``@returns``).
+  ``tsconfig.json`` sets ``checkJs: false`` repo-wide, so a file is
+  type-checked only once it opts in -- a module missing the pragma makes
+  ``npm run typecheck`` *pass* while checking nothing inside it.
+- A Vitest file, one-to-one by name (``foo.js`` -> ``foo.test.mjs``), covering
+  the module's pure logic and DOM-visible behavior in isolation.
+- If the module is wired into a page: a ``test_load_smokes.py`` entry for
+  that page, so a broken import or a typo'd export name surfaces as a real
+  thrown exception instead of a silent no-op.
+- If it's a **panel** (embeddable in the Web Terminal hub): support both
+  standalone and embedded modes -- ``applyEmbedded()`` on load, an
+  ``<osprey-theme-switcher>`` that hides itself when embedded (the hub owns
+  theme chrome there), branding hidden when embedded -- plus a
+  ``test_contract_params.py`` case. See :doc:`/how-to/embedding-osprey-panels`
+  for the full dual-mode checklist and the well-known query/hash parameters.
+- If the change is visible on screen: a ``test_visual.py`` ``TARGETS`` entry
+  and a committed baseline PNG (regenerate with ``--regen-baselines`` on
+  Linux/CI -- a baseline captured on macOS will mismatch there).
+- If the change moves real behavior across a module boundary (a callback that
+  used to call a sibling directly now goes through an injected factory, a
+  delegator, or a re-exported method): an interaction pin that drives the
+  whole chain through a real browser, not just each module's own
+  mocked-neighbor Vitest suite.
+
+**JSDoc / cast conventions** (``src/osprey/interfaces/vendor-globals.d.ts`` and
+the exemplars below have worked examples):
+
+- Vendored classic-script globals that never get real npm types (Plotly,
+  ``marked``, ``hljs``, KaTeX) get **one** shared ambient-declarations file
+  (``vendor-globals.d.ts``, ``declare const X: any;``) rather than a
+  per-call-site cast.
+- A ``document.getElementById``/``querySelector`` result that needs a
+  property the generic ``Element``/``HTMLElement`` type doesn't have
+  (``.value``, ``.checked``, ``.dataset``, ``.disabled``) gets an inline
+  type-assertion cast to the concrete element type at the call site --
+  ``/** @type {HTMLInputElement} */ (document.getElementById("foo"))``.
+- For ``querySelectorAll(...).forEach(callback)`` where the callback needs a
+  narrower element type than ``Element``: cast the **collection**, not the
+  per-item callback parameter. TypeScript's contravariant
+  function-parameter checking rejects a callback typed to accept only
+  ``HTMLInputElement`` where one accepting any ``Element`` is expected, even
+  though ``HTMLInputElement`` narrows ``Element``.
+- ``catch (e)`` blocks that read the error message use
+  ``e instanceof Error ? e.message : String(e)`` (``e`` is ``unknown`` under
+  ``strict``); a ``catch`` that only logs the raw value needs no cast.
+- Shared design-system helpers are imported by the absolute
+  ``/design-system/js/*`` specifier, mapped in both ``tsconfig.json`` and
+  ``vitest.config.js``'s ``resolve.alias`` -- the same import path resolves
+  under the type-checker, Vitest, and the real browser.
+
+**Exemplars** (concrete, complete, worth reading before writing your own):
+
+- Vitest unit, factory-with-injected-callbacks pattern:
+  ``tests/interfaces/artifacts/preview.test.mjs``,
+  ``tests/interfaces/lattice_dashboard/render.test.mjs``,
+  ``tests/interfaces/web_terminal/scaffold-detail.test.mjs``.
+- Interaction pin, proving a multi-module split still wires up end to end:
+  ``tests/interfaces/artifacts/test_gallery_interactions.py``,
+  ``tests/interfaces/web_terminal/test_scaffold_detail.py``,
+  ``tests/interfaces/lattice_dashboard/test_settings_form.py``,
+  ``tests/interfaces/web_terminal/test_session_page.py``.
+- Contract + dual-mode chrome: ``tests/interfaces/web_terminal/test_contract_params.py``.
+- Visual baselines: ``tests/interfaces/design_system/test_visual.py``.
+- Loads-clean: ``tests/interfaces/test_load_smokes.py``.
+
 Docstrings
 ^^^^^^^^^^
 

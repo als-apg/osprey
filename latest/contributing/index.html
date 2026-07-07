@@ -64,7 +64,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Jul 06, 2026"/>
+    <meta name="docbuild:last-update" content="Jul 07, 2026"/>
   </head>
   
   
@@ -664,6 +664,141 @@ uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </sp
 The marker-based approach causes registry state leaks and service conflicts.</p>
 </div>
 </section>
+<section id="front-end-javascript-testing">
+<h3>Front-End (JavaScript) Testing<a class="headerlink" href="#front-end-javascript-testing" title="Link to this heading">#</a></h3>
+<p>Front-end code (<code class="docutils literal notranslate"><span class="pre">static/js/</span></code> under each <code class="docutils literal notranslate"><span class="pre">src/osprey/interfaces/&lt;name&gt;/</span></code>) gets
+its own dev/CI-only Node toolchain – <code class="docutils literal notranslate"><span class="pre">tsc</span> <span class="pre">--noEmit</span></code> for types and
+<a class="reference external" href="https://vitest.dev/">Vitest</a> for unit tests. Neither is needed to install or
+run Osprey; both run only in dev and CI, the front-end analogues of <code class="docutils literal notranslate"><span class="pre">mypy</span></code>
+and <code class="docutils literal notranslate"><span class="pre">pytest</span></code>.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># Type-check every // @ts-check&#39;d file (opt-in per file -- see below)</span>
+npm<span class="w"> </span>run<span class="w"> </span>typecheck
+
+<span class="c1"># All Vitest units (happy-dom, no real browser)</span>
+npm<span class="w"> </span>run<span class="w"> </span>test:js
+
+<span class="c1"># A single Vitest file</span>
+npx<span class="w"> </span>vitest<span class="w"> </span>run<span class="w"> </span>tests/interfaces/artifacts/preview.test.mjs
+</pre></div>
+</div>
+<p>A front-end change is covered by up to five rails, narrowest/fastest to
+broadest/slowest:</p>
+<div class="pst-scrollable-table-container"><table class="table">
+<colgroup>
+<col style="width: 18.0%" />
+<col style="width: 47.0%" />
+<col style="width: 35.0%" />
+</colgroup>
+<thead>
+<tr class="row-odd"><th class="head"><p>Rail</p></th>
+<th class="head"><p>Covers</p></th>
+<th class="head"><p>Run</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><strong>Vitest unit</strong></p></td>
+<td><p>Pure logic in one module: mocked <code class="docutils literal notranslate"><span class="pre">fetch</span></code>, no real browser (happy-dom)</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">npx</span> <span class="pre">vitest</span> <span class="pre">run</span> <span class="pre">tests/interfaces/&lt;iface&gt;/&lt;module&gt;.test.mjs</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Loads-clean</strong></p></td>
+<td><p>Page boots in a real browser with no uncaught JS exception and no
+failed same-origin script/stylesheet fetch</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">pytest</span> <span class="pre">tests/interfaces/test_load_smokes.py</span> <span class="pre">-m</span> <span class="pre">browser</span> <span class="pre">-k</span> <span class="pre">&lt;iface&gt;</span> <span class="pre">-v</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Contract</strong></p></td>
+<td><p>Shell&lt;-&gt;panel chrome contract: <code class="docutils literal notranslate"><span class="pre">?embedded=true</span></code> hides branding, the
+theme switcher shows/hides correctly, a reload after a theme toggle
+carries no stale <code class="docutils literal notranslate"><span class="pre">?theme=</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">pytest</span> <span class="pre">tests/interfaces/web_terminal/test_contract_params.py</span> <span class="pre">-m</span> <span class="pre">browser</span> <span class="pre">-v</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><strong>Visual</strong></p></td>
+<td><p>Pixel-level screenshot diff per interface x theme against a committed
+baseline PNG</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">pytest</span> <span class="pre">tests/interfaces/design_system/test_visual.py</span> <span class="pre">-k</span> <span class="pre">&lt;iface&gt;</span> <span class="pre">-v</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p><strong>Interaction pin</strong></p></td>
+<td><p>A real user flow through a real browser and a real backend, proving a
+multi-module wiring didn’t drop a call across a split – the one net a
+per-module Vitest suite (which mocks its neighbors) cannot cast</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">uv</span> <span class="pre">run</span> <span class="pre">pytest</span> <span class="pre">tests/interfaces/&lt;iface&gt;/test_&lt;flow&gt;.py</span> <span class="pre">-m</span> <span class="pre">browser</span> <span class="pre">-v</span></code></p></td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code class="docutils literal notranslate"><span class="pre">test_visual.py</span></code> is marked <code class="docutils literal notranslate"><span class="pre">slow</span></code>, <strong>not</strong> <code class="docutils literal notranslate"><span class="pre">browser</span></code> – an
+<code class="docutils literal notranslate"><span class="pre">-m</span> <span class="pre">browser</span></code> selector silently matches zero of its cases. Select it with
+<code class="docutils literal notranslate"><span class="pre">-k</span> <span class="pre">&lt;target-name&gt;</span></code> (or run the file directly) instead.</p>
+</div>
+<p><strong>What a new panel or extracted module must ship with:</strong></p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">//</span> <span class="pre">&#64;ts-check</span></code> as line 1, plus full JSDoc (<code class="docutils literal notranslate"><span class="pre">&#64;param</span></code>/<code class="docutils literal notranslate"><span class="pre">&#64;returns</span></code>).
+<code class="docutils literal notranslate"><span class="pre">tsconfig.json</span></code> sets <code class="docutils literal notranslate"><span class="pre">checkJs:</span> <span class="pre">false</span></code> repo-wide, so a file is
+type-checked only once it opts in – a module missing the pragma makes
+<code class="docutils literal notranslate"><span class="pre">npm</span> <span class="pre">run</span> <span class="pre">typecheck</span></code> <em>pass</em> while checking nothing inside it.</p></li>
+<li><p>A Vitest file, one-to-one by name (<code class="docutils literal notranslate"><span class="pre">foo.js</span></code> -&gt; <code class="docutils literal notranslate"><span class="pre">foo.test.mjs</span></code>), covering
+the module’s pure logic and DOM-visible behavior in isolation.</p></li>
+<li><p>If the module is wired into a page: a <code class="docutils literal notranslate"><span class="pre">test_load_smokes.py</span></code> entry for
+that page, so a broken import or a typo’d export name surfaces as a real
+thrown exception instead of a silent no-op.</p></li>
+<li><p>If it’s a <strong>panel</strong> (embeddable in the Web Terminal hub): support both
+standalone and embedded modes – <code class="docutils literal notranslate"><span class="pre">applyEmbedded()</span></code> on load, an
+<code class="docutils literal notranslate"><span class="pre">&lt;osprey-theme-switcher&gt;</span></code> that hides itself when embedded (the hub owns
+theme chrome there), branding hidden when embedded – plus a
+<code class="docutils literal notranslate"><span class="pre">test_contract_params.py</span></code> case. See <a class="reference internal" href="../how-to/embedding-osprey-panels.html"><span class="doc">Embedding OSPREY Panels</span></a>
+for the full dual-mode checklist and the well-known query/hash parameters.</p></li>
+<li><p>If the change is visible on screen: a <code class="docutils literal notranslate"><span class="pre">test_visual.py</span></code> <code class="docutils literal notranslate"><span class="pre">TARGETS</span></code> entry
+and a committed baseline PNG (regenerate with <code class="docutils literal notranslate"><span class="pre">--regen-baselines</span></code> on
+Linux/CI – a baseline captured on macOS will mismatch there).</p></li>
+<li><p>If the change moves real behavior across a module boundary (a callback that
+used to call a sibling directly now goes through an injected factory, a
+delegator, or a re-exported method): an interaction pin that drives the
+whole chain through a real browser, not just each module’s own
+mocked-neighbor Vitest suite.</p></li>
+</ul>
+<p><strong>JSDoc / cast conventions</strong> (<code class="docutils literal notranslate"><span class="pre">src/osprey/interfaces/vendor-globals.d.ts</span></code> and
+the exemplars below have worked examples):</p>
+<ul class="simple">
+<li><p>Vendored classic-script globals that never get real npm types (Plotly,
+<code class="docutils literal notranslate"><span class="pre">marked</span></code>, <code class="docutils literal notranslate"><span class="pre">hljs</span></code>, KaTeX) get <strong>one</strong> shared ambient-declarations file
+(<code class="docutils literal notranslate"><span class="pre">vendor-globals.d.ts</span></code>, <code class="docutils literal notranslate"><span class="pre">declare</span> <span class="pre">const</span> <span class="pre">X:</span> <span class="pre">any;</span></code>) rather than a
+per-call-site cast.</p></li>
+<li><p>A <code class="docutils literal notranslate"><span class="pre">document.getElementById</span></code>/<code class="docutils literal notranslate"><span class="pre">querySelector</span></code> result that needs a
+property the generic <code class="docutils literal notranslate"><span class="pre">Element</span></code>/<code class="docutils literal notranslate"><span class="pre">HTMLElement</span></code> type doesn’t have
+(<code class="docutils literal notranslate"><span class="pre">.value</span></code>, <code class="docutils literal notranslate"><span class="pre">.checked</span></code>, <code class="docutils literal notranslate"><span class="pre">.dataset</span></code>, <code class="docutils literal notranslate"><span class="pre">.disabled</span></code>) gets an inline
+type-assertion cast to the concrete element type at the call site –
+<code class="docutils literal notranslate"><span class="pre">/**</span> <span class="pre">&#64;type</span> <span class="pre">{HTMLInputElement}</span> <span class="pre">*/</span> <span class="pre">(document.getElementById(&quot;foo&quot;))</span></code>.</p></li>
+<li><p>For <code class="docutils literal notranslate"><span class="pre">querySelectorAll(...).forEach(callback)</span></code> where the callback needs a
+narrower element type than <code class="docutils literal notranslate"><span class="pre">Element</span></code>: cast the <strong>collection</strong>, not the
+per-item callback parameter. TypeScript’s contravariant
+function-parameter checking rejects a callback typed to accept only
+<code class="docutils literal notranslate"><span class="pre">HTMLInputElement</span></code> where one accepting any <code class="docutils literal notranslate"><span class="pre">Element</span></code> is expected, even
+though <code class="docutils literal notranslate"><span class="pre">HTMLInputElement</span></code> narrows <code class="docutils literal notranslate"><span class="pre">Element</span></code>.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">catch</span> <span class="pre">(e)</span></code> blocks that read the error message use
+<code class="docutils literal notranslate"><span class="pre">e</span> <span class="pre">instanceof</span> <span class="pre">Error</span> <span class="pre">?</span> <span class="pre">e.message</span> <span class="pre">:</span> <span class="pre">String(e)</span></code> (<code class="docutils literal notranslate"><span class="pre">e</span></code> is <code class="docutils literal notranslate"><span class="pre">unknown</span></code> under
+<code class="docutils literal notranslate"><span class="pre">strict</span></code>); a <code class="docutils literal notranslate"><span class="pre">catch</span></code> that only logs the raw value needs no cast.</p></li>
+<li><p>Shared design-system helpers are imported by the absolute
+<code class="docutils literal notranslate"><span class="pre">/design-system/js/*</span></code> specifier, mapped in both <code class="docutils literal notranslate"><span class="pre">tsconfig.json</span></code> and
+<code class="docutils literal notranslate"><span class="pre">vitest.config.js</span></code>’s <code class="docutils literal notranslate"><span class="pre">resolve.alias</span></code> – the same import path resolves
+under the type-checker, Vitest, and the real browser.</p></li>
+</ul>
+<p><strong>Exemplars</strong> (concrete, complete, worth reading before writing your own):</p>
+<ul class="simple">
+<li><p>Vitest unit, factory-with-injected-callbacks pattern:
+<code class="docutils literal notranslate"><span class="pre">tests/interfaces/artifacts/preview.test.mjs</span></code>,
+<code class="docutils literal notranslate"><span class="pre">tests/interfaces/lattice_dashboard/render.test.mjs</span></code>,
+<code class="docutils literal notranslate"><span class="pre">tests/interfaces/web_terminal/scaffold-detail.test.mjs</span></code>.</p></li>
+<li><p>Interaction pin, proving a multi-module split still wires up end to end:
+<code class="docutils literal notranslate"><span class="pre">tests/interfaces/artifacts/test_gallery_interactions.py</span></code>,
+<code class="docutils literal notranslate"><span class="pre">tests/interfaces/web_terminal/test_scaffold_detail.py</span></code>,
+<code class="docutils literal notranslate"><span class="pre">tests/interfaces/lattice_dashboard/test_settings_form.py</span></code>,
+<code class="docutils literal notranslate"><span class="pre">tests/interfaces/web_terminal/test_session_page.py</span></code>.</p></li>
+<li><p>Contract + dual-mode chrome: <code class="docutils literal notranslate"><span class="pre">tests/interfaces/web_terminal/test_contract_params.py</span></code>.</p></li>
+<li><p>Visual baselines: <code class="docutils literal notranslate"><span class="pre">tests/interfaces/design_system/test_visual.py</span></code>.</p></li>
+<li><p>Loads-clean: <code class="docutils literal notranslate"><span class="pre">tests/interfaces/test_load_smokes.py</span></code>.</p></li>
+</ul>
+</section>
 <section id="docstrings">
 <h3>Docstrings<a class="headerlink" href="#docstrings" title="Link to this heading">#</a></h3>
 <p>All public functions, classes, and methods need Google-style docstrings:</p>
@@ -761,6 +896,7 @@ The marker-based approach causes registry state leaks and service conflicts.</p>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#python-style">Python Style</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#linting-and-formatting">Linting and Formatting</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#testing">Testing</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#front-end-javascript-testing">Front-End (JavaScript) Testing</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#docstrings">Docstrings</a></li>
 </ul>
 </li>
