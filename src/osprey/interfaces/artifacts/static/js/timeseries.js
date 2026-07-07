@@ -36,6 +36,7 @@
 
 import { chartTheme, chartSeries } from "/design-system/js/theme-manager.js";
 import { escapeHtml } from "/design-system/js/dom.js";
+import { isoToDate } from "./types.js";
 
 // ---- Lazy Plotly Loader ---- //
 
@@ -94,31 +95,26 @@ function _tsFormatValue(num) {
 
 /**
  * Short index/time-cell formatter for ISO timestamp strings: month/day +
- * hour:minute:second, no year. Only ISO-date-shaped strings are parsed at
- * all: `Date` coercion would otherwise turn null/numbers/numeric strings
- * into fabricated epoch/year-2000 timestamps, so nullish input renders
- * "--" and any non-ISO-shaped value falls back to `String(iso)` verbatim.
- * Callers MUST still escapeHtml the result, since that fallback echoes the
- * raw input.
+ * hour:minute:second, no year. Shares types.js's `isoToDate` guard, which
+ * rejects the null/number/numeric-string inputs that bare `Date` coercion
+ * would otherwise turn into fabricated epoch/year-2000 timestamps: nullish
+ * input renders "--", and any other non-ISO/invalid value falls back to
+ * `String(iso)` verbatim. Callers MUST still escapeHtml the result, since
+ * that fallback echoes the raw input.
  * @param {any} iso
  * @returns {string}
  */
 function _tsShortTime(iso) {
   if (iso === null || iso === undefined) return "--";
-  if (typeof iso !== "string" || !/^\d{4}-\d{2}-\d{2}/.test(iso)) return String(iso);
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return String(iso);
-    return d.toLocaleString(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
-  } catch {
-    return String(iso);
-  }
+  const d = isoToDate(iso);
+  if (!d) return String(iso);
+  return d.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 /** @param {any} chartData */

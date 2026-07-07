@@ -205,6 +205,22 @@ function debounce(fn, ms) {
 /** @type {any} */
 let sseSource = null;
 
+/**
+ * Select an artifact as both the on-screen selection and the agent-focus
+ * target, re-render, and optionally enter fullscreen. Shared by the SSE
+ * "focus" handler's two branches (artifact already local vs. fetched on
+ * retry) so the select→focus→render→fullscreen sequence has one definition.
+ * @param {any} artifact
+ * @param {boolean} wantFullscreen
+ */
+function applyFocus(artifact, wantFullscreen) {
+  setSelectedArtifact(artifact);
+  setFocusedArtifact(artifact);
+  sidebarRenderer.renderSidebar();
+  previewRenderer.renderPreview();
+  if (wantFullscreen) previewRenderer.enterFullscreen(artifact);
+}
+
 function connectSSE() {
   if (sseSource) { sseSource.close(); sseSource = null; }
   const source = new EventSource("/api/events");
@@ -223,11 +239,7 @@ function connectSSE() {
       if (focusId) {
         const a = getArtifacts().find((x) => x.id === focusId);
         if (a) {
-          setSelectedArtifact(a);
-          setFocusedArtifact(a);
-          sidebarRenderer.renderSidebar();
-          previewRenderer.renderPreview();
-          if (wantFullscreen) previewRenderer.enterFullscreen(a);
+          applyFocus(a, wantFullscreen);
           // Scroll the selected item into view
           requestAnimationFrame(() => {
             const sel = sidebarBody.querySelector(`[data-id="${focusId}"]`);
@@ -237,13 +249,7 @@ function connectSSE() {
           // Artifact not yet in local list — refresh and retry
           fetchArtifacts().then(() => {
             const retry = getArtifacts().find((x) => x.id === focusId);
-            if (retry) {
-              setSelectedArtifact(retry);
-              setFocusedArtifact(retry);
-              sidebarRenderer.renderSidebar();
-              previewRenderer.renderPreview();
-              if (wantFullscreen) previewRenderer.enterFullscreen(retry);
-            }
+            if (retry) applyFocus(retry, wantFullscreen);
           });
         }
       }

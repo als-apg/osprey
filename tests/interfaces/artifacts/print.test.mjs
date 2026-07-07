@@ -113,6 +113,14 @@ describe('fmtTime', () => {
     const ts = '2026-07-03T15:45:00Z';
     expect(fmtTime(ts)).toBe(new Date(ts).toLocaleString());
   });
+
+  test('non-ISO / fabricating input yields "" rather than an invented date', () => {
+    // Shares types.js's isoToDate guard: bare `new Date("0")` would fabricate
+    // a year-2000 date; the guard rejects these numeric/non-ISO strings.
+    for (const junk of ['0', '1751000000000', 'not-a-date', 42, {}]) {
+      expect(fmtTime(junk)).toBe('');
+    }
+  });
 });
 
 describe('headerHtml', () => {

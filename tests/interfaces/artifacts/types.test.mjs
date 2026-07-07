@@ -31,6 +31,9 @@ import {
   formatFullTime,
   formatDate,
   openUrl,
+  isoToDate,
+  isTimeseries,
+  hasTimeseriesData,
   isNewThisSession,
   sendToTerminal,
   requestColorPass,
@@ -183,6 +186,33 @@ describe('formatSize', () => {
   });
 });
 
+describe('isoToDate (shared timestamp guard)', () => {
+  test('parses a valid ISO string to a Date', () => {
+    const d = isoToDate('2026-07-03T15:45:00Z');
+    expect(d).toBeInstanceOf(Date);
+    expect(d.getUTCFullYear()).toBe(2026);
+  });
+
+  test('accepts the backend microsecond + numeric-offset shape', () => {
+    expect(isoToDate('2026-07-07T15:45:00.123456+00:00')).toBeInstanceOf(Date);
+  });
+
+  test('returns null for nullish input', () => {
+    expect(isoToDate(null)).toBeNull();
+    expect(isoToDate(undefined)).toBeNull();
+  });
+
+  test('returns null for non-string / numeric / non-ISO-shaped input (no fabricated date)', () => {
+    for (const junk of ['0', '1751000000000', 'not-a-date', 0, 42, {}, []]) {
+      expect(isoToDate(junk)).toBeNull();
+    }
+  });
+
+  test('returns null for an ISO-shaped-but-impossible date (NaN branch)', () => {
+    expect(isoToDate('2026-99-99T00:00:00Z')).toBeNull();
+  });
+});
+
 describe('formatTime / formatFullTime / formatDate', () => {
   test('formatTime and formatFullTime return "" for falsy input', () => {
     expect(formatTime(null)).toBe('');
@@ -210,6 +240,31 @@ describe('formatTime / formatFullTime / formatDate', () => {
     const iso = '2026-07-03T15:45:00Z';
     expect(formatTime(iso).length).toBeGreaterThan(0);
     expect(formatFullTime(iso)).toContain('2026');
+  });
+
+  test('accepts the exact backend timestamp shape (microseconds + numeric offset)', () => {
+    // artifact_store.py emits datetime.now(UTC).isoformat(), e.g. this form —
+    // the guard's ISO-shape regex must pass it through, not reject it.
+    const iso = '2026-07-07T15:45:00.123456+00:00';
+    expect(formatTime(iso).length).toBeGreaterThan(0);
+    expect(formatFullTime(iso)).toContain('2026');
+    expect(formatDate(iso)).not.toBe('Unknown');
+  });
+
+  test('non-ISO / fabricating input yields the empty/"Unknown" fallback, never an invented date', () => {
+    // Bare `new Date("0")`/`new Date(0)` would fabricate a year-2000/epoch
+    // date; the guard must reject these rather than render a made-up time.
+    for (const junk of ['0', '1751000000000', 'not-a-date', 42, {}, []]) {
+      expect(formatTime(junk)).toBe('');
+      expect(formatFullTime(junk)).toBe('');
+      expect(formatDate(junk)).toBe('Unknown');
+    }
+  });
+
+  test('an ISO string that parses to an invalid date falls back rather than throwing', () => {
+    // ISO-shaped but impossible (month 99): Date coercion yields NaN.
+    expect(formatFullTime('2026-99-99T00:00:00Z')).toBe('');
+    expect(formatDate('2026-99-99T00:00:00Z')).toBe('Unknown');
   });
 });
 
@@ -246,6 +301,46 @@ describe('openUrl', () => {
 
   test('notebook branch is byte-identical for a real 12-hex artifact id', () => {
     expect(openUrl({ id: '0123456789ab', artifact_type: 'notebook', filename: 'x.ipynb' })).toBe('/api/notebooks/0123456789ab/rendered');
+  });
+});
+
+describe('isTimeseries', () => {
+  test('true when metadata.data_type is "timeseries"', () => {
+    expect(isTimeseries({ metadata: { data_type: 'timeseries' }, artifact_type: 'json' })).toBe(true);
+  });
+
+  test('true when category is "archiver_data"', () => {
+    expect(isTimeseries({ category: 'archiver_data', artifact_type: 'json' })).toBe(true);
+  });
+
+  test('false for an ordinary artifact with no timeseries markers', () => {
+    expect(isTimeseries({ artifact_type: 'json', metadata: { data_type: 'table' } })).toBe(false);
+  });
+
+  test('does not require a data file (print strategy captures the on-screen chart)', () => {
+    expect(isTimeseries({ category: 'archiver_data' })).toBe(true);
+  });
+
+  test('tolerates a missing metadata object without throwing', () => {
+    expect(isTimeseries({ artifact_type: 'json' })).toBe(false);
+  });
+});
+
+describe('hasTimeseriesData', () => {
+  test('true when a timeseries artifact carries a top-level data_file', () => {
+    expect(hasTimeseriesData({ category: 'archiver_data', data_file: 'y.parquet' })).toBe(true);
+  });
+
+  test('true when the data_file lives under metadata', () => {
+    expect(hasTimeseriesData({ metadata: { data_type: 'timeseries', data_file: 'x.parquet' } })).toBe(true);
+  });
+
+  test('false for a timeseries artifact with no data file (nothing to fetch/render)', () => {
+    expect(hasTimeseriesData({ category: 'archiver_data' })).toBe(false);
+  });
+
+  test('false for a non-timeseries artifact even when it happens to have a data_file', () => {
+    expect(hasTimeseriesData({ artifact_type: 'json', data_file: 'z.parquet' })).toBe(false);
   });
 });
 
