@@ -20,8 +20,8 @@ test('escapeHtml resolves through the /design-system/js alias and escapes HTML-s
   expect(escapeHtml('<img src=x onerror=alert(1)>')).toBe('&lt;img src=x onerror=alert(1)&gt;');
 });
 
-test('escapeHtml leaves double quotes as-is (matches the call sites it replaces)', () => {
-  expect(escapeHtml('"quoted"')).toBe('"quoted"');
+test('escapeHtml escapes double quotes (attribute-context safe)', () => {
+  expect(escapeHtml('"quoted"')).toBe('&quot;quoted&quot;');
 });
 
 test('escapeHtml treats nullish input as an empty string', () => {
