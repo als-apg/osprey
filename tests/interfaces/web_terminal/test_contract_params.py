@@ -388,3 +388,190 @@ def test_postmessage_paste_to_terminal_rejects_foreign_origin(
         assert any("contract-test-accepted-paste" in frame for frame in sent_frames), sent_frames
 
         page.close()
+
+
+# ---------------------------------------------------------------------------
+# (4) chrome contract: <osprey-theme-switcher> + embedded-hide + D15 reload-strip
+# ---------------------------------------------------------------------------
+# Every panel's theme toggle is the shared `<osprey-theme-switcher>`
+# component, and `applyEmbedded()` is wired into each of the 6 panels
+# below -- this is the automated proof that the chrome contract holds on
+# every panel, not just the one or two it was developed against.
+# web_terminal's own session.html joins as fleet page 7, via a
+# path-override on `_launch_web_terminal` (same hub server
+# test_load_smokes.py's own '/' case boots) rather than a distinct
+# launcher -- session.html is a static page under the hub's /static
+# mount, not a second app.
+# `branding_selector` is the per-page standalone-only element the D15
+# narrowing keeps hidden in embedded mode; okf_panel has no branding
+# chrome of its own to hide, so its entry is `None` and the branding
+# assertion is skipped for it.
+_CHROME_CONTRACT_PANELS = [
+    ("ariel", _launch_ariel, "", ".logo"),
+    ("artifacts", _launch_artifacts, "", ".logo"),
+    ("channel_finder", _launch_channel_finder, "", ".app-logo"),
+    ("tuning", _launch_tuning, "", ".tuning-header"),
+    ("lattice_dashboard", _launch_lattice_dashboard, "", ".topbar-logo"),
+    ("okf_panel", _launch_okf_panel, "", None),
+    ("web_terminal_session", _launch_web_terminal, "/static/session.html", "header h1"),
+]
+
+
+@pytest.mark.parametrize(
+    ("panel_name", "launch", "path", "branding_selector"),
+    _CHROME_CONTRACT_PANELS,
+    ids=[name for name, _, _, _ in _CHROME_CONTRACT_PANELS],
+)
+def test_embedded_hides_branding_and_switcher(
+    panel_name, launch, path, branding_selector, tmp_path, monkeypatch, chromium_browser
+):
+    """``?embedded=true`` hides the page's own branding AND the theme switcher.
+
+    The switcher's own D15 rule (``body.embedded osprey-theme-switcher {
+    display: none }``, injected once by osprey-theme-switcher.js itself) is
+    what hides it -- no per-panel CSS is needed for that half of the
+    contract. The branding selector, by contrast, is each page's own
+    pre-existing ``body.embedded <selector> { display: none }`` rule; this
+    proves the switcher rollout didn't disturb it.
+    """
+    # Arrange
+    with launch(tmp_path, monkeypatch) as base_url:
+        page = chromium_browser.new_page()
+
+        # Act
+        page.goto(f"{base_url}{path}?embedded=true", wait_until="load")
+
+        # Assert -- applyEmbedded() ran.
+        expect(page.locator("body.embedded")).to_have_count(1)
+        # Assert -- the switcher is hidden fleet-wide by its own injected rule.
+        assert (
+            page.evaluate(
+                "getComputedStyle(document.querySelector('osprey-theme-switcher')).display"
+            )
+            == "none"
+        )
+        # Assert -- the page's own branding is hidden (skipped where none exists).
+        if branding_selector:
+            assert (
+                page.evaluate(
+                    f"getComputedStyle(document.querySelector('{branding_selector}')).display"
+                )
+                == "none"
+            )
+
+        page.close()
+
+
+@pytest.mark.parametrize(
+    ("panel_name", "launch", "path", "branding_selector"),
+    _CHROME_CONTRACT_PANELS,
+    ids=[name for name, _, _, _ in _CHROME_CONTRACT_PANELS],
+)
+def test_switcher_present_and_toggles_theme_standalone(
+    panel_name, launch, path, branding_selector, tmp_path, monkeypatch, chromium_browser
+):
+    """Standalone (no ``?embedded``), the switcher is visible and its click toggles the theme.
+
+    Starts from an explicit ``?theme=dark`` (rather than relying on the
+    auto-resolved default) so the post-click assertion -- 'light' -- proves
+    the click actually drove ``toggleTheme()``, not a coincidental default.
+    """
+    del branding_selector  # unused here; shared parametrization with the embedded test above
+    # Arrange
+    with launch(tmp_path, monkeypatch) as base_url:
+        page = chromium_browser.new_page()
+
+        # Act
+        page.goto(f"{base_url}{path}?theme=dark", wait_until="load")
+
+        # Assert -- switcher is visible standalone (the inverse of the embedded case).
+        expect(page.locator("osprey-theme-switcher")).to_be_visible()
+        expect(page.locator("html[data-theme='dark']")).to_have_count(1)
+
+        # Act -- click the switcher's toggle button.
+        page.locator("#theme-toggle").click()
+
+        # Assert -- toggleTheme() cycled dark -> light.
+        expect(page.locator("html[data-theme='light']")).to_have_count(1)
+
+        page.close()
+
+
+@pytest.mark.parametrize(
+    ("panel_name", "launch", "path", "branding_selector"),
+    _CHROME_CONTRACT_PANELS,
+    ids=[name for name, _, _, _ in _CHROME_CONTRACT_PANELS],
+)
+def test_theme_toggle_strips_stale_query_param_and_survives_reload(
+    panel_name, launch, path, branding_selector, tmp_path, monkeypatch, chromium_browser
+):
+    """D15: a toggle strips ``?theme=`` from the URL, so a reload can't resurrect it.
+
+    Starts from a real ``?theme=dark`` query param (not merely its absence)
+    so the post-toggle assertion proves setTheme()'s ``history.replaceState``
+    strip actually removed something, rather than passing vacuously on a URL
+    that never had the param to begin with.
+    """
+    del branding_selector  # unused here; shared parametrization with the embedded test above
+    # Arrange
+    with launch(tmp_path, monkeypatch) as base_url:
+        page = chromium_browser.new_page()
+        page.goto(f"{base_url}{path}?theme=dark", wait_until="load")
+        expect(page.locator("html[data-theme='dark']")).to_have_count(1)
+
+        # Act -- toggle via the switcher (the only path a follower ever
+        # reaches setTheme() through).
+        page.locator("#theme-toggle").click()
+
+        # Assert -- the leftover ?theme=dark is gone from the URL immediately.
+        assert "theme=" not in page.url
+
+        # Act -- reload.
+        page.reload(wait_until="load")
+
+        # Assert -- the stale param can't be resurrected because it was
+        # actually stripped (not just visually ignored): reload falls back
+        # to OS/localStorage resolution, and the URL still carries no
+        # ``theme=`` fragment for a future reload to trip over either.
+        assert "theme=" not in page.url
+
+        page.close()
+
+
+def test_channel_finder_embedded_non_occlusion(tmp_path, monkeypatch, chromium_browser):
+    """channel_finder's embedded mode keeps the fixed header visible without occluding content.
+
+    D15 narrowed channel_finder's embedded-hide rule from the whole
+    ``.app-header`` down to just ``.app-logo`` (css:118 -> ``.app-logo``,
+    the old whole-header rule at :119 deleted) specifically so the pipeline
+    switcher and nav stay usable inside the hub. This is the anti-regression
+    check for that narrowing: the switcher must still render inside the
+    viewport (not accidentally hidden or pushed off-screen), and
+    ``.app-main``'s 48px top padding -- which exists so content clears the
+    still-fixed 48px header -- must be unchanged in embedded mode. A future
+    change that reintroduced whole-header hiding without also zeroing this
+    padding would otherwise leave a silent 48px gap; one that hid the header
+    without keeping this padding would occlude content start.
+    """
+    # Arrange
+    with _launch_channel_finder(tmp_path, monkeypatch) as base_url:
+        page = chromium_browser.new_page()
+
+        # Act
+        page.goto(f"{base_url}?embedded=true", wait_until="load")
+
+        # Assert -- the pipeline switcher is rendered and positioned inside the viewport.
+        box = page.locator("#pipeline-switcher").bounding_box()
+        assert box is not None, "#pipeline-switcher has no bounding box -- is it rendered?"
+        viewport = page.viewport_size
+        assert viewport is not None
+        assert box["width"] > 0 and box["height"] > 0
+        assert 0 <= box["y"] <= viewport["height"]
+
+        # Assert -- .app-main's clearance for the still-fixed header is unchanged.
+        padding_top = page.evaluate(
+            "getComputedStyle(document.querySelector('.app-main')).paddingTop"
+        )
+        assert padding_top == "48px"
+
+        page.close()

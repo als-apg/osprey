@@ -82,6 +82,28 @@ body {
 
 /* -- Sidebar -------------------------------------------------------------- */
 
+/* <osprey-theme-switcher> renders this class on its own button; the
+   component ships no skin of its own, so each interface styles it locally. */
+.header-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.header-icon-btn:hover {
+  color: var(--color-accent-light);
+  background: var(--surface-hover);
+}
+
 #sidebar {
   flex: 0 0 300px;
   max-width: 300px;
