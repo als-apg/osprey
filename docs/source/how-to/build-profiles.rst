@@ -5,7 +5,7 @@ Build Profiles
 ==============
 
 Assemble facility-specific assistants from OSPREY templates using declarative YAML profiles.
-Build profiles separate **what makes your facility unique** (channel data, safety limits,
+Build profiles separate **facility-specific inputs** (channel data, safety limits,
 custom MCP servers) from **what OSPREY provides** (agents, rules, hooks, safety infrastructure).
 
 .. dropdown:: What You'll Learn

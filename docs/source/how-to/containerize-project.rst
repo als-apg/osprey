@@ -24,9 +24,9 @@ Overview
 Every project built by ``osprey build`` includes a reference container
 recipe at the project root:
 
-- ``Dockerfile`` — a complete, self-documenting image definition that
-  installs Claude Code and OSPREY, copies the project in, relocates its
-  recorded paths, and serves the web terminal.
+- ``Dockerfile`` — an image definition that installs Claude Code and OSPREY,
+  copies the project in, relocates its recorded paths, and serves the web
+  terminal.
 - ``.dockerignore`` — keeps secrets (``.env``) and host-specific state
   (``.venv``, ``.git``, ``_agent_data/``) out of the image.
 

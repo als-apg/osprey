@@ -6,14 +6,14 @@ Add a Connector
 Overview
 ========
 
-The Control System Integration system provides a **two-layer abstraction** for working with control systems and archivers. This enables development and R&D work using mock connectors (without hardware access) and seamless migration to production by changing a single configuration line.
+The Control System Integration system provides a **two-layer abstraction** for working with control systems and archivers. This enables development and R&D work using mock connectors (without hardware access) and migration to production by changing a single configuration line.
 
-**Key Features:**
+**Capabilities:**
 
 - **Mock Mode**: Work with any channel names without hardware access
 - **Production Mode**: EPICS in-tree; LabVIEW, Tango, and other stacks via user-registered custom connectors
-- **Unified API**: Same code works with mock and production connectors
-- **Pluggable Architecture**: Register custom connectors via ``ConnectorFactory``
+- **One API**: the same code works with mock and production connectors
+- **Custom connectors**: register your own via ``ConnectorFactory``
 
 **Built-in Connectors:**
 
