@@ -26,8 +26,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 - The Web Terminal's first-run theme default changed from forced-dark to `auto`; use the in-app theme toggle if you want a fixed theme regardless of OS preference.
 - All web interface factories now share one app-setup helper for CORS, middleware, and static mounts; the Lattice dashboard picks up the standardized CORS policy and two request middlewares it was previously missing.
 - The ES-module browser interfaces now import shared front-end helpers (`el`, `escapeHtml`, `debounce`) from a single `dom.js` module instead of per-file copies.
+- The Artifacts gallery, the Web Terminal's Scaffold gallery, and the Lattice dashboard are now ES modules broken into focused files instead of single monolithic scripts; behavior is unchanged.
 - The Lattice dashboard's accent color changed from a cyan-blue hue to OSPREY's canonical teal accent, matching every other interface.
 - The event dispatcher dashboard now themes itself from the shared OSPREY design system instead of a hardcoded dark palette, and follows the web-terminal hub's theme when embedded as the EVENTS panel. **Requires a dispatcher container redeploy** to pick up the new `/design-system/*` asset route.
+- Every interface's light/dark toggle is now the shared `<osprey-theme-switcher>` custom element (previously per-interface markup); it's consistently hidden when a panel is embedded in the Web Terminal hub (the hub owns theme chrome there) and visible when opened standalone.
+- JSON artifacts in the Artifacts gallery now render through a syntax-highlighted, collapsible inline viewer instead of a plain read-only iframe of the raw file.
 
 ### Removed
 
@@ -44,6 +47,9 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Anthropic-native providers configured with a `/v1` base URL (e.g. Argo via `api_protocol: anthropic`) no longer resolve to a doubled `…/v1/v1/messages`: the Claude-Code-facing `ANTHROPIC_BASE_URL` is stripped of a trailing `/v1` (Claude Code appends `/v1/messages` itself), while the translation-proxy upstream keeps its `/v1`. All four launch paths (CLI, web terminal, SDK runner, dispatch worker) now start the proxy from the resolved `upstream_base_url` field rather than the stripped env var, so OpenAI-compatible providers still forward to `…/v1/chat/completions` (#312).
 - Headless dispatch runs now enforce the trigger's `allowed_tools` as the single authority via a PreToolUse hook: project `settings.json` allow-rules and the approval hook's explicit allows can no longer widen a run's tool surface, and declared subagents (`.claude/agents/*.md`) work with exactly their declared tools — no trigger changes needed.
 - `osprey web --project X` launched from another directory now spawns the interactive terminal's OSPREY agent with `cwd = X`, so it reads `X/.mcp.json` and starts the project's MCP servers (the PTY path previously ignored `--project` and inherited the launch directory) (#313).
+- Channel Finder's embedded mode no longer hides its whole header: only the logo is hidden now, so the pipeline switcher and navigation stay visible and usable when embedded in the Web Terminal hub (previously the entire header — including those controls — was hidden, with no compensating layout change).
+- Toggling the theme (in the Web Terminal hub or any standalone interface) no longer leaves a stale `?theme=` in the URL; reloading after a toggle now falls back to your saved preference (or the OS setting in `auto` mode) instead of being pinned to whatever value was in the URL at toggle time.
+- Creating a new artifact from the Web Terminal's Scaffold gallery no longer fails with an HTTP 405 — the create-artifact request now uses `POST` directly instead of being routed through a GET-only fetch helper.
 
 ## [2026.6.3] - 2026-06-29
 
