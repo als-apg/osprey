@@ -27,6 +27,7 @@ import {
   setSelectedArtifact,
   setActiveFilter,
 } from '../../../src/osprey/interfaces/artifacts/static/js/state.js';
+import * as stateModule from '../../../src/osprey/interfaces/artifacts/static/js/state.js';
 import {
   initSplitPaneResize,
   createSidebarRenderer,
@@ -157,6 +158,21 @@ describe('activity-mode chronological ordering', () => {
 });
 
 describe('filter-chip active-state logic', () => {
+  /**
+   * 2x initFilterBar (a stray extra bootstrap invocation) + 5x
+   * rebuildTypeChips (simulating refetch/SSE cycles): 7 opportunities to
+   * re-wire the delegated #filter-bar listener, all but the first of which
+   * must be no-ops.
+   * @param {ReturnType<typeof createSidebarRenderer>} sidebarRenderer
+   */
+  function churnFilterBarWiring(sidebarRenderer) {
+    sidebarRenderer.initFilterBar();
+    sidebarRenderer.initFilterBar();
+    for (let i = 0; i < 5; i++) {
+      sidebarRenderer.rebuildTypeChips();
+    }
+  }
+
   test('initFilterBar wires clicks so the clicked chip becomes active and others deactivate', () => {
     setArtifacts(makeFixtureArtifacts()); // gives the "pinned" chip a count > 0, unhiding it
     const sidebarRenderer = createSidebarRenderer(makeCallbacks());
@@ -198,6 +214,100 @@ describe('filter-chip active-state logic', () => {
     // Only pinned artifacts (ids 2, 4) should now be rendered.
     const ids = Array.from(document.querySelectorAll('#sidebar-body [data-id]')).map((el) => el.dataset.id).sort();
     expect(ids).toEqual(['2', '4']);
+  });
+
+  test('a delegated #filter-bar click listener is registered exactly once across repeated rebuild/refetch cycles (no handler pileup)', () => {
+    setArtifacts(makeFixtureArtifacts());
+    const sidebarRenderer = createSidebarRenderer(makeCallbacks());
+    const filterBar = document.getElementById('filter-bar');
+    const addEventListenerSpy = vi.spyOn(filterBar, 'addEventListener');
+
+    churnFilterBarWiring(sidebarRenderer);
+
+    // Exactly one 'click' registration across all seven re-wire opportunities.
+    const clickRegistrations = addEventListenerSpy.mock.calls.filter((call) => call[0] === 'click');
+    expect(clickRegistrations.length).toBe(1);
+    addEventListenerSpy.mockRestore();
+
+    const allChip = document.querySelector('.filter-chip[data-filter="all"]');
+    const pinnedChip = document.querySelector('.filter-chip[data-filter="pinned"]');
+
+    // Click the static "pinned" chip once: exactly one filter/active-state
+    // change must fire, not once per (would-be) registered listener.
+    pinnedChip.click();
+
+    expect(pinnedChip.classList.contains('active')).toBe(true);
+    expect(allChip.classList.contains('active')).toBe(false);
+    const ids = Array.from(document.querySelectorAll('#sidebar-body [data-id]')).map((el) => el.dataset.id).sort();
+    expect(ids).toEqual(['2', '4']);
+
+    allChip.click();
+    expect(allChip.classList.contains('active')).toBe(true);
+    expect(pinnedChip.classList.contains('active')).toBe(false);
+  });
+
+  test('bounded handler-invocation count: a single click fires the filter change exactly once even after many rebuilds', () => {
+    setArtifacts(makeFixtureArtifacts());
+    const sidebarRenderer = createSidebarRenderer(makeCallbacks());
+
+    churnFilterBarWiring(sidebarRenderer);
+
+    const pinnedChip = document.querySelector('.filter-chip[data-filter="pinned"]');
+    const allChip = document.querySelector('.filter-chip[data-filter="all"]');
+
+    // The delegated handler's only externally-visible side effect on state
+    // is calling setActiveFilter(). Spy on it directly: if the listener had
+    // piled up (registered N times), a single click would call it N times
+    // instead of once.
+    const setActiveFilterSpy = vi.spyOn(stateModule, 'setActiveFilter');
+    pinnedChip.click();
+    expect(setActiveFilterSpy).toHaveBeenCalledTimes(1);
+    expect(setActiveFilterSpy).toHaveBeenCalledWith('pinned');
+    setActiveFilterSpy.mockRestore();
+
+    expect(pinnedChip.classList.contains('active')).toBe(true);
+    expect(allChip.classList.contains('active')).toBe(false);
+  });
+
+  test('type chips still filter correctly after several rebuild cycles', async () => {
+    // Type chips only render once the registry has category info (mirrors
+    // the "XSS hardening" block's own setup below).
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({
+        categories: {
+          visualization: { label: 'Visualization' },
+          channel_values: { label: 'Channel Values' },
+          document: { label: 'Document' },
+        },
+      }),
+    }));
+    await initTypeRegistry();
+
+    setArtifacts(makeFixtureArtifacts());
+    const sidebarRenderer = createSidebarRenderer(makeCallbacks());
+    sidebarRenderer.initFilterBar();
+    sidebarRenderer.renderSidebar();
+
+    // Simulate several refetch/SSE-driven rebuilds before the user acts.
+    for (let i = 0; i < 5; i++) {
+      sidebarRenderer.rebuildTypeChips();
+    }
+
+    const visualizationChip = document.querySelector('.filter-chip[data-filter="visualization"]');
+    expect(visualizationChip).not.toBeNull();
+
+    visualizationChip.click();
+    sidebarRenderer.renderSidebar();
+
+    expect(visualizationChip.classList.contains('active')).toBe(true);
+    const ids = Array.from(document.querySelectorAll('#sidebar-body [data-id]')).map((el) => el.dataset.id).sort();
+    // visualization category: ids 1 (Beam Profile) and 3 (Lattice Table).
+    expect(ids).toEqual(['1', '3']);
+
+    // Reset the module-level type registry so later tests aren't polluted.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ json: () => Promise.resolve({}) }));
+    await initTypeRegistry();
+    vi.unstubAllGlobals();
   });
 });
 

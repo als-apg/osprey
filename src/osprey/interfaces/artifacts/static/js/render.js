@@ -132,6 +132,10 @@ export function createSidebarRenderer(callbacks) {
   let browseMode = "tree";
   /** @type {"list"|"gallery"} */
   let sidebarLayout = "list";
+  // Guards wireFilterChips so the delegated #filter-bar click listener is
+  // registered exactly once per renderer instance, no matter how many times
+  // initFilterBar/rebuildTypeChips run over the page lifetime (refetch, SSE).
+  let filterBarWired = false;
 
   /** @returns {"tree"|"activity"} */
   function getBrowseMode() { return browseMode; }
@@ -202,20 +206,22 @@ export function createSidebarRenderer(callbacks) {
       });
     }
 
-    wireFilterChips();
     updateFilterBarActive();
   }
 
+  /** Wire a single delegated click listener on #filter-bar (registered once). */
   function wireFilterChips() {
+    if (filterBarWired) return;
     const filterBar = document.getElementById("filter-bar");
     if (!filterBar) return;
-    filterBar.querySelectorAll(".filter-chip").forEach((chip) => {
-      chip.addEventListener("click", () => {
-        setActiveFilter(/** @type {HTMLElement} */ (chip).dataset.filter || "all");
-        updateFilterBarActive();
-        renderSidebar();
-      });
+    filterBar.addEventListener("click", (e) => {
+      const chip = /** @type {HTMLElement|null} */ (/** @type {HTMLElement} */ (e.target).closest(".filter-chip"));
+      if (!chip) return;
+      setActiveFilter(chip.dataset.filter || "all");
+      updateFilterBarActive();
+      renderSidebar();
     });
+    filterBarWired = true;
   }
 
   function updateFilterBarActive() {
