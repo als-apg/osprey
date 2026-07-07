@@ -9,6 +9,7 @@ wrapper, limits_validator) as-is.
 
 import asyncio
 import logging
+import os
 import time
 import traceback
 import uuid
@@ -16,7 +17,15 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from osprey.mcp_server.sandbox_env import _scrub_sensitive_env
+
 logger = logging.getLogger("osprey.mcp_server.python_executor.executor")
+
+# _scrub_sensitive_env (and its deny-list constants) used to be defined here.
+# The implementation now lives in osprey.mcp_server.sandbox_env (imported
+# above) so this module and the workspace sandbox
+# (osprey.mcp_server.workspace.execution.sandbox_executor) share one deny-list
+# instead of two that could drift.
 
 
 @dataclass
@@ -200,6 +209,8 @@ async def _execute_via_local(
     # paths (e.g. "_agent_data/data/002_archiver_read.json")
     project_root = _resolve_project_root()
 
+    sandbox_env = _scrub_sensitive_env(os.environ.copy())
+
     try:
         proc = await asyncio.create_subprocess_exec(
             python_bin,
@@ -207,6 +218,7 @@ async def _execute_via_local(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(project_root),
+            env=sandbox_env,
         )
         stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         stdout_text = stdout_bytes.decode("utf-8", errors="replace")

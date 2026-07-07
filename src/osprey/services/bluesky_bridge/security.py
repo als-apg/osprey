@@ -8,6 +8,22 @@ This is arming/network protection only — the authoritative safety check is the
 agent-side ``launch_scan`` tool's in-tool ``writes_enabled`` re-read (task 1.8),
 which runs before this token is ever sent. Mirrors BELLA's
 ``runs.require_armed`` / ``promote_intent`` token check.
+
+Threat model note (task 2.11c): arming/network protection assumes the agent's
+own code execution can't read this token back out of the deploy environment.
+That assumption holds for the python-executor's container execution_method
+(fs/network isolated from the project ``.env``), but NOT for its local
+execution_method — agent-authored code there runs unsandboxed on the host
+(cwd=project_root) and can trivially ``open(".env")`` or read
+``config.yml``'s ``scan.promote_token``, then call this route directly,
+bypassing ``launch_scan``'s ``writes_enabled`` gate entirely. Because of this,
+``osprey.deployment.container_lifecycle`` refuses to mint
+``BLUESKY_PROMOTE_TOKEN`` (leaving this bridge permanently unarmed, i.e.
+``require_armed`` keeps 503ing) whenever ``control_system.writes_enabled`` and
+``execution.execution_method: local`` are both set — see
+``container_lifecycle._local_exec_arming_unsafe``. Container execution is
+required to use this feature with writes enabled. Full write-safety
+threat-model writeup: Phase 3 task 3.6 (how-to guide, not yet written).
 """
 
 from __future__ import annotations
