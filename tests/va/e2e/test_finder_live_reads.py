@@ -1,10 +1,11 @@
 """SC6 acceptance: every address a channel-finder pipeline surfaces is live over CA.
 
 The Control Assistant preset ships the SAME ~1,228-address namespace in three
-interchangeable channel-finder paradigms (``docker/virtual-accelerator/manifest``'s
-own build step cross-checks this: ``build_manifest()`` raises
-``ParadigmMismatchError`` if the three tier-3 DBs ever disagree on their
-expanded address set -- see ``manifest/build.py``). This suite proves that
+interchangeable channel-finder paradigms
+(``osprey.services.virtual_accelerator.manifest``'s own build step
+cross-checks this: ``build_manifest()`` raises ``ParadigmMismatchError`` if
+the three tier-3 DBs ever disagree on their expanded address set -- see
+``manifest/build.py``). This suite proves that
 guarantee holds against a *live* container by expanding each paradigm DB
 through its own loader (the same loaders ``manifest/build.py`` uses, so this
 exercises the real per-pipeline expansion path rather than re-deriving
@@ -57,19 +58,19 @@ def _representative_addresses(all_addresses: set[str]) -> dict[str, list[str]]:
 
 
 def _hierarchical_addresses() -> set[str]:
-    from manifest import loaders
+    from osprey.services.virtual_accelerator.manifest import loaders
 
     return {c.address for c in loaders.load_hierarchical_channels()}
 
 
 def _in_context_addresses() -> set[str]:
-    from manifest import loaders
+    from osprey.services.virtual_accelerator.manifest import loaders
 
     return loaders.load_in_context_addresses()
 
 
 def _middle_layer_addresses() -> set[str]:
-    from manifest import loaders
+    from osprey.services.virtual_accelerator.manifest import loaders
 
     return loaders.load_middle_layer_addresses()
 

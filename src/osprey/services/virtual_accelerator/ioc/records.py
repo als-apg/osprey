@@ -28,7 +28,9 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from manifest import (
+from softioc import builder
+
+from osprey.services.virtual_accelerator.manifest import (
     PARTITION_PYAT_COUPLED,
     PARTITION_SP_ECHO,
     PARTITION_STATIC_NOISY,
@@ -36,7 +38,6 @@ from manifest import (
     RECORD_TYPE_BINARY,
     RECORD_TYPE_STRING,
 )
-from softioc import builder
 
 SETPOINT_SUBFIELD = "SP"
 READBACK_SUBFIELD = "RB"
@@ -98,6 +99,7 @@ def build_records(
     channels: list[dict],
     *,
     on_pyat_setpoint: Callable[[str, float], None] | None = None,
+    stuck_setpoints: frozenset[str] = frozenset(),
 ) -> IOCRecords:
     """Build one softioc record per manifest channel.
 
@@ -113,6 +115,14 @@ def build_records(
             readbacks/BPM positions back out. If omitted (as in these unit
             tests), setpoint writes are accepted but produce no readback
             movement -- there is no physics without an injected hook.
+        stuck_setpoints: build-time, per-channel apply fault. A ``:SP``
+            address in this set still latches the caput value onto its own
+            ``aOut`` record, but its normal write-time behavior (the sp-echo
+            copy into ``:RB``, or the pyat-coupled hook call) is replaced
+            with a no-op -- so that device's readback simply never moves.
+            This is a substrate-honesty fixture: any Channel Access client
+            reading the frozen readback sees the identical stale value, not
+            a per-client divergence. Empty by default (no fault).
 
     Returns:
         An :class:`IOCRecords` with every built record plus the two
@@ -182,6 +192,13 @@ def build_records(
             raise ManifestContractError(
                 f"unexpected partition {partition!r} for setpoint channel {address!r}"
             )
+
+        if address in stuck_setpoints:
+            # Apply fault: the SP still latches its own written value below,
+            # but whatever would normally propagate that write outward (the
+            # sp-echo copy, or the pyat-coupled hook call) is dropped -- the
+            # readback freezes at its last value, honestly, for every reader.
+            on_update = lambda value: None  # noqa: E731
 
         rec = _OUT_BUILDERS[record_type](
             address, initial_value=_DEFAULT_VALUE[record_type], on_update=on_update

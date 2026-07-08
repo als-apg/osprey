@@ -5,7 +5,7 @@ Assembles the full VA soft-IOC in one process, in dependency order:
     manifest -> records -> physics bridge (partition a) -> engine source (partition c)
 
 then serves Channel Access via the probe-proven configuration (TCP
-name-server; see docker/virtual-accelerator/probe/README.md and
+name-server; see src/osprey/services/virtual_accelerator/probe/README.md and
 src/osprey/templates/data/facility_gateways.py's "Local Simulation" preset,
 which points at exactly this container's published port).
 
@@ -22,26 +22,14 @@ from __future__ import annotations
 
 import asyncio
 import os
-import sys
 import time
 from pathlib import Path
 
-# This file's own directory (docker/virtual-accelerator, preserved at the same
-# relative depth inside the image -- see the Containerfile) is where
-# "manifest", "lattice", and "ioc" live as top-level, non-dotted packages
-# (their real parent directory names contain a hyphen). Python already
-# prepends a script's own directory to sys.path, but this is made explicit
-# for clarity and to match every other module in this tree.
-_VA_ROOT = Path(__file__).resolve().parent
-if str(_VA_ROOT) not in sys.path:
-    sys.path.insert(0, str(_VA_ROOT))
-
-from ioc.engine_source import EngineSource  # noqa: E402
-from ioc.physics_bridge import PhysicsBridge  # noqa: E402
-from ioc.records import build_records  # noqa: E402
-from manifest import build_manifest  # noqa: E402
-
-from osprey.simulation.engine import SimulationEngine  # noqa: E402
+from osprey.services.virtual_accelerator.ioc.engine_source import EngineSource
+from osprey.services.virtual_accelerator.ioc.physics_bridge import PhysicsBridge
+from osprey.services.virtual_accelerator.ioc.records import build_records
+from osprey.services.virtual_accelerator.manifest import build_manifest
+from osprey.simulation.engine import SimulationEngine
 
 DEFAULT_DATA_DIR = "/data/simulation"
 ENGINE_POLL_INTERVAL_S = 1.0
@@ -60,8 +48,18 @@ def main() -> None:
     print(f"Building channel manifest and IOC records (data dir: {data_dir}) ...", flush=True)
     channels = build_manifest()["channels"]
 
+    stuck_setpoints = frozenset(
+        addr.strip()
+        for addr in os.environ.get("VA_STUCK_SETPOINTS", "").split(",")
+        if addr.strip()
+    )
+    if stuck_setpoints:
+        print(f"VA apply-fault active: {sorted(stuck_setpoints)}", flush=True)
+
     bridge = PhysicsBridge()
-    records = build_records(channels, on_pyat_setpoint=bridge.on_setpoint)
+    records = build_records(
+        channels, on_pyat_setpoint=bridge.on_setpoint, stuck_setpoints=stuck_setpoints
+    )
     bridge.bind(records.pyat_coupled)
 
     print(f"Loading simulation engine from {machine_path} ...", flush=True)

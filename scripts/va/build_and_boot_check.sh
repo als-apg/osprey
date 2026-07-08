@@ -2,12 +2,12 @@
 # Validation gate for the full Virtual Accelerator image (task 3.6).
 #
 # Stages a minimal build context (pyproject.toml, README.md, src/,
-# docker/virtual-accelerator/ -- never the repo root, which also contains
-# .venv/.git/worktrees), builds the image, boots a container with the
-# packaged control_assistant preset's data/simulation/ directory bind-mounted
-# (a real machine.json, so the engine source has something to serve), waits
-# for it to report ready, then confirms a live CA read succeeds. Exits 0
-# only if the image builds, boots to serving PVs within
+# docker/virtual-accelerator/Containerfile -- never the repo root, which
+# also contains .venv/.git/worktrees), builds the image, boots a container
+# with the packaged control_assistant preset's data/simulation/ directory
+# bind-mounted (a real machine.json, so the engine source has something to
+# serve), waits for it to report ready, then confirms a live CA read
+# succeeds. Exits 0 only if the image builds, boots to serving PVs within
 # BOOT_TIMEOUT_SECS (<60s per the gate), and the caget succeeds.
 #
 # Idempotent: safe to re-run. Removes any prior gate container first.
@@ -68,9 +68,9 @@ trap cleanup EXIT
 
 echo "--- Staging minimal build context at ${STAGING_DIR} ---"
 cp "${WORKTREE_ROOT}/pyproject.toml" "${WORKTREE_ROOT}/README.md" "${STAGING_DIR}/"
-mkdir -p "${STAGING_DIR}/src" "${STAGING_DIR}/docker"
+mkdir -p "${STAGING_DIR}/src" "${STAGING_DIR}/docker/virtual-accelerator"
 cp -R "${WORKTREE_ROOT}/src/." "${STAGING_DIR}/src/"
-cp -R "${VA_DIR}" "${STAGING_DIR}/docker/virtual-accelerator"
+cp "${VA_DIR}/Containerfile" "${STAGING_DIR}/docker/virtual-accelerator/Containerfile"
 find "${STAGING_DIR}" -name "__pycache__" -type d -prune -exec rm -rf {} +
 
 echo "--- Building ${IMAGE} (linux/amd64) ---"

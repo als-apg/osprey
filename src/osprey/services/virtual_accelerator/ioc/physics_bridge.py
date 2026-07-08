@@ -35,18 +35,13 @@ physical magnet model):
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
 from typing import Any
 
-_IOC_PARENT = Path(__file__).resolve().parents[1]  # docker/virtual-accelerator
-if str(_IOC_PARENT) not in sys.path:
-    sys.path.insert(0, str(_IOC_PARENT))
+import at
 
-import at  # noqa: E402
-from lattice import build_ring  # noqa: E402
-from lattice.response import AMPS_PER_RADIAN_KICK  # noqa: E402
-from lattice.ring import QD_K, QF_K  # noqa: E402
+from osprey.services.virtual_accelerator.lattice import build_ring
+from osprey.services.virtual_accelerator.lattice.response import AMPS_PER_RADIAN_KICK
+from osprey.services.virtual_accelerator.lattice.ring import QD_K, QF_K
 
 # Reference currents (Amps) at which a quad/dipole reproduces the ring's
 # built-in nominal strength. Chosen from the DB's own stated typical ranges

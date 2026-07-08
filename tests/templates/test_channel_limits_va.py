@@ -1,15 +1,16 @@
 """Consistency test for ``channel_limits.json``.
 
 ``channel_limits.json`` is a pure projection of the namespace-union manifest
-(docker/virtual-accelerator/manifest): it carries exactly one entry for every
-address the manifest defines, and the write-safety contract is a single rule --
+(``osprey.services.virtual_accelerator.manifest``): it carries exactly one
+entry for every address the manifest defines, and the write-safety contract
+is a single rule --
 
     a channel is writable if and only if it is a setpoint (``:SP``).
 
 The manifest's 168 writable ``:SP`` addresses each get a writable entry with
 min/max bounds (family-banded from the SR lattice model's device inventory,
-docker/virtual-accelerator/lattice, and machine.json's simulated nominal
-values) plus readback verification. Every other manifest address -- readbacks
+``osprey.services.virtual_accelerator.lattice``, and machine.json's simulated
+nominal values) plus readback verification. Every other manifest address -- readbacks
 (``:RB``, BPM ``:X``/``:Y``), status/fault flags, golden references and slow
 telemetry -- gets a read-only entry (``writable: false``) so OSPREY's own
 software safety layer refuses a write to it, rather than leaving the block to
@@ -37,10 +38,11 @@ outside its limits is rejected" (SC9) without that failure mode.
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
+
+from osprey.services.virtual_accelerator.manifest import build_manifest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LIMITS_PATH = (
@@ -54,18 +56,10 @@ LIMITS_PATH = (
     / "channel_limits.json"
 )
 
-# docker/virtual-accelerator/manifest is not an importable dotted package
-# (its parent directory name contains a hyphen); see tests/va/test_manifest.py
-# for the same import shim.
-_MANIFEST_PARENT = REPO_ROOT / "docker" / "virtual-accelerator"
-if str(_MANIFEST_PARENT) not in sys.path:
-    sys.path.insert(0, str(_MANIFEST_PARENT))
-
-from manifest import build_manifest  # noqa: E402
-
 # The FR3/3.8 demo write: orbit_response's own convention (see
-# docker/virtual-accelerator/lattice/response.py and tests/va/test_lattice.py's
-# orbit_response("HCM01", 10.0)) is a corrector CURRENT:SP of 10.0 A.
+# src/osprey/services/virtual_accelerator/lattice/response.py and
+# tests/va/test_lattice.py's orbit_response("HCM01", 10.0)) is a corrector
+# CURRENT:SP of 10.0 A.
 DEMO_WRITE_CHANNEL = "SR:MAG:HCM:01:CURRENT:SP"
 DEMO_WRITE_VALUE = 10.0
 

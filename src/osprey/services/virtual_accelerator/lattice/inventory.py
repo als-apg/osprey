@@ -1,22 +1,16 @@
 """Derives the SR pyat-coupled device inventory from the namespace-union manifest.
 
-The manifest (docker/virtual-accelerator/manifest) is the single source of truth
-for which SR magnet/BPM devices exist and how many of each -- this module never
-hardcodes device counts. If the paradigm channel DBs change, the manifest's
-partition changes, and this inventory (and the lattice built from it) changes
-with it: the DB fixes the lattice, not vice versa.
+The manifest (osprey.services.virtual_accelerator.manifest) is the single
+source of truth for which SR magnet/BPM devices exist and how many of each --
+this module never hardcodes device counts. If the paradigm channel DBs
+change, the manifest's partition changes, and this inventory (and the
+lattice built from it) changes with it: the DB fixes the lattice, not vice
+versa.
 """
 
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-_LATTICE_PARENT = Path(__file__).resolve().parents[1]  # docker/virtual-accelerator
-if str(_LATTICE_PARENT) not in sys.path:
-    sys.path.insert(0, str(_LATTICE_PARENT))
-
-from manifest import PARTITION_PYAT_COUPLED, build_manifest  # noqa: E402
+from osprey.services.virtual_accelerator.manifest import PARTITION_PYAT_COUPLED, build_manifest
 
 # The MAG families plus the DIAG BPM family that make up partition (a).
 PYAT_COUPLED_FAMILIES = frozenset({"DIPOLE", "QF", "QD", "HCM", "VCM", "SF", "SD", "BPM"})

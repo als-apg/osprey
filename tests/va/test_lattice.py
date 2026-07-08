@@ -1,9 +1,4 @@
-"""Tests for the generic SR PyAT lattice model.
-
-docker/virtual-accelerator/lattice is importable here as a top-level module
-name ("lattice") via the sys.path setup in tests/va/conftest.py -- see that
-module's docstring.
-"""
+"""Tests for the generic SR PyAT lattice model."""
 
 from __future__ import annotations
 
@@ -11,8 +6,9 @@ import time
 
 import at
 import pytest
-from lattice import N_ARC_CELLS, build_ring, orbit_response
-from lattice.inventory import pyat_coupled_device_ids
+
+from osprey.services.virtual_accelerator.lattice import N_ARC_CELLS, build_ring, orbit_response
+from osprey.services.virtual_accelerator.lattice.inventory import pyat_coupled_device_ids
 
 SOLVE_TIME_BUDGET_MS = 100.0  # supports the synchronous FR3 recompute contract
 

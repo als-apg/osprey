@@ -5,7 +5,7 @@ separate channel lists (fictional FEL names for ``in_context``, ``SR01C:``-
 style names for ``middle_layer``, obsolete bracket names ``MAG:DIPOLE[B01]``
 for ``hierarchical``) -- none of which exist in any channel-finder DB or the
 namespace-union manifest (see ``tests/va/test_manifest.py`` /
-``docker/virtual-accelerator/manifest``). The template now emits ONE
+``osprey.services.virtual_accelerator.manifest``). The template now emits ONE
 canonical channel list, independent of pipeline mode, drawn from real
 ``RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD`` addresses that the manifest
 actually contains.
@@ -17,23 +17,11 @@ be a real address in the manifest's namespace.
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
 
 import pytest
 
 from osprey.cli.templates.manager import TemplateManager
-
-REPO_ROOT = Path(__file__).resolve().parents[2]
-
-# docker/virtual-accelerator/manifest is not an importable dotted package
-# (its parent directory name contains a hyphen); see tests/va/test_manifest.py
-# for the same import shim.
-_MANIFEST_PARENT = REPO_ROOT / "docker" / "virtual-accelerator"
-if str(_MANIFEST_PARENT) not in sys.path:
-    sys.path.insert(0, str(_MANIFEST_PARENT))
-
-from manifest import build_manifest  # noqa: E402
+from osprey.services.virtual_accelerator.manifest import build_manifest
 
 TEMPLATE_PATH = "apps/control_assistant/data/machine_state_channels.json.j2"
 

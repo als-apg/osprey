@@ -5,7 +5,7 @@ Uses device 01 (``SR:MAG:HCM:01`` <-> ``SR:DIAG:BPM:01``) -- no other test in
 this suite touches device 01's correctors, so its lattice state is exclusively
 owned here for the life of the session container.
 
-The physics bridge (docker/virtual-accelerator/ioc/physics_bridge.py) applies
+The physics bridge (osprey.services.virtual_accelerator.ioc.physics_bridge) applies
 a purely linear kick-angle map and AT's find_orbit4 closed-orbit solve, with
 sextupole strength at zero (h=0, no chromaticity wired) -- so the response is
 exactly linear and antisymmetric about zero current, not merely "moves in the

@@ -1,14 +1,10 @@
-"""Tests for the namespace-union manifest generator.
-
-docker/virtual-accelerator/manifest is importable here as a top-level module
-name ("manifest") via the sys.path setup in tests/va/conftest.py -- see that
-module's docstring.
-"""
+"""Tests for the namespace-union manifest generator."""
 
 from __future__ import annotations
 
 import pytest
-from manifest import (
+
+from osprey.services.virtual_accelerator.manifest import (
     PARTITION_PYAT_COUPLED,
     PARTITION_SP_ECHO,
     PARTITION_STATIC_NOISY,
@@ -19,8 +15,9 @@ from manifest import (
     loaders,
 )
 
-# Measured tier-3 expansion counts (see docker/virtual-accelerator/manifest/paths.py
-# for why tier 3 is the build-resolved default for this preset).
+# Measured tier-3 expansion counts (see
+# src/osprey/services/virtual_accelerator/manifest/paths.py for why tier 3
+# is the build-resolved default for this preset).
 EXPECTED_RING_COUNTS = {"SR": 1066, "BR": 90, "BTS": 72}
 EXPECTED_TOTAL = 1228
 EXPECTED_SETPOINTS = 168

@@ -15,14 +15,12 @@ adds its own synthetic scenario), so the fixture is free to write into it.
 
 Process-boundary note (mirrors ``tests/va/test_record_factory.py``): this
 conftest and every test module in this directory may import ``epics``
-(pyepics, a CA *client*) and the softioc-free ``manifest`` package, but must
-NEVER import ``ioc.records`` or ``softioc.builder`` -- doing so in-process
+(pyepics, a CA *client*) and the softioc-free
+``osprey.services.virtual_accelerator.manifest`` package, but must NEVER
+import ``ioc.records`` or ``softioc.builder`` -- doing so in-process
 permanently breaks this process's ability to act as a CA client (see that
 module's docstring for the empirical finding). The IOC itself only ever runs
 inside the container, in its own process.
-
-``manifest`` is importable here as a top-level module name via the sys.path
-setup in tests/va/conftest.py (pytest loads it before this conftest).
 
 ``sweep_check`` (below) is loaded here, once, from its file path -- it's a
 script under ``scripts/va/``, not an importable dotted package -- so

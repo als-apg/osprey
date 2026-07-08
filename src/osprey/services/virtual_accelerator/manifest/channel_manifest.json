@@ -1,6 +1,6 @@
 {
   "_metadata": {
-    "generator": "docker/virtual-accelerator/manifest",
+    "generator": "osprey.services.virtual_accelerator.manifest",
     "source_tier": 3,
     "total_channels": 1228,
     "by_ring": {

@@ -1,9 +1,5 @@
 """Tests for the SR magnet setpoint -> PyAT orbit-recompute physics bridge.
 
-docker/virtual-accelerator/{lattice,ioc} are importable here as top-level
-module names ("lattice", "ioc") via the sys.path setup in
-tests/va/conftest.py -- see that module's docstring.
-
 Unlike test_record_factory.py, this module never imports ioc.records (hence
 never touches softioc.builder): PhysicsBridge itself has no softioc
 dependency (see physics_bridge.py -- it only imports `at` and `lattice`), so
@@ -17,7 +13,8 @@ end-to-end wiring through live softioc records is orbit-response-e2e's job.
 from __future__ import annotations
 
 import pytest
-from ioc.physics_bridge import (
+
+from osprey.services.virtual_accelerator.ioc.physics_bridge import (
     NOMINAL_DIPOLE_CURRENT_A,
     NOMINAL_QD_CURRENT_A,
     NOMINAL_QF_CURRENT_A,
@@ -25,7 +22,7 @@ from ioc.physics_bridge import (
     PhysicsBridge,
     UnknownDeviceError,
 )
-from lattice import orbit_response
+from osprey.services.virtual_accelerator.lattice import orbit_response
 
 
 class FakeRecord:

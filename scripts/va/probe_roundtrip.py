@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Phase-1 hard gate: SC1/SC2 -- drive a real read_channel + verified write_channel
-round trip against the toy probe IOC (docker/virtual-accelerator/probe) through the
-UNMODIFIED, production `EPICSConnector`, via `ConnectorFactory`.
+round trip against the toy probe IOC
+(src/osprey/services/virtual_accelerator/probe) through the UNMODIFIED,
+production `EPICSConnector`, via `ConnectorFactory`.
 
 This script makes NO changes to src/osprey/. It only:
   1. Starts a container from the probe image built by task 1.1 (building it first
@@ -46,7 +47,7 @@ import time
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-PROBE_DIR = REPO_ROOT / "docker" / "virtual-accelerator" / "probe"
+PROBE_DIR = REPO_ROOT / "src" / "osprey" / "services" / "virtual_accelerator" / "probe"
 IMAGE = "osprey-va-probe:latest"
 CONTAINER = "osprey-va-probe-roundtrip"
 LABEL = "io.osprey=va-probe"

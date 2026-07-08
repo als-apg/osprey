@@ -1,6 +1,6 @@
 """Phase-1 probe IOC: toy PyAT line (1 corrector, 1 BPM) served over Channel
 Access with pythonSoftIOC. Proves CA reachability from a container, not
-physics fidelity -- see docker/virtual-accelerator/probe/README.md.
+physics fidelity -- see src/osprey/services/virtual_accelerator/probe/README.md.
 """
 
 import time

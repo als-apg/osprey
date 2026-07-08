@@ -36,14 +36,9 @@ from typing import Any
 
 import numpy as np
 
-_IOC_PARENT = Path(__file__).resolve().parents[1]  # docker/virtual-accelerator
-if str(_IOC_PARENT) not in sys.path:
-    sys.path.insert(0, str(_IOC_PARENT))
-
-from manifest import PARTITION_STATIC_NOISY, RECORD_TYPE_BINARY  # noqa: E402
-
-from osprey.connectors.pv_taxonomy import classify_pv  # noqa: E402
-from osprey.simulation.engine import SimulationEngine, engine_serves  # noqa: E402
+from osprey.connectors.pv_taxonomy import classify_pv
+from osprey.services.virtual_accelerator.manifest import PARTITION_STATIC_NOISY, RECORD_TYPE_BINARY
+from osprey.simulation.engine import SimulationEngine, engine_serves
 
 ACTIVE_SCENARIOS_FILENAME = "active_scenarios"
 DEFAULT_POLL_INTERVAL_S = 1.0

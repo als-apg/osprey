@@ -48,7 +48,10 @@ jobs:
       run: uv python install ${{ matrix.python-version }}
 
     - name: Install dependencies
-      run: uv sync --extra dev
+      # virtual-accelerator: tests/va/{test_record_factory,test_apply_fault}.py
+      # import softioc, which lives in the virtual-accelerator extra (not dev).
+      # Without it these unit tests error at collection on a fresh runner.
+      run: uv sync --extra dev --extra virtual-accelerator
 
     - name: Run unit tests
       run: |

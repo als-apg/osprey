@@ -1,9 +1,5 @@
 """Tests for the partition-(c) engine-source poller (task 3.5).
 
-docker/virtual-accelerator/{manifest,ioc} are importable here as top-level
-module names ("manifest", "ioc") via the sys.path setup in
-tests/va/conftest.py -- see that module's docstring.
-
 No container and no live softIOC needed: ``EngineSource`` only needs a real
 ``SimulationEngine`` (built from a small fake ``data/simulation/`` directory)
 and plain fake record objects recording ``.set()`` calls.
@@ -16,9 +12,13 @@ import os
 from pathlib import Path
 
 import pytest
-from ioc.engine_source import EngineSource
-from manifest import PARTITION_STATIC_NOISY, RECORD_TYPE_ANALOG, RECORD_TYPE_BINARY
 
+from osprey.services.virtual_accelerator.ioc.engine_source import EngineSource
+from osprey.services.virtual_accelerator.manifest import (
+    PARTITION_STATIC_NOISY,
+    RECORD_TYPE_ANALOG,
+    RECORD_TYPE_BINARY,
+)
 from osprey.simulation.engine import SimulationEngine
 
 VAC_RB = "ZZTEST:VAC:PRESSURE:01:RB"
