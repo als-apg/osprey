@@ -200,9 +200,9 @@ def test_render_tokens_js_escapes_label_safely() -> None:
 
 def _boot_globals(content: str) -> dict[str, object]:
     """Extract STORAGE_KEY/VALID_IDS/DEFAULTS literals from theme-boot.js source."""
-    storage_key = re.search(r'var STORAGE_KEY = ("(?:[^"\\]|\\.)*");', content)
-    valid_ids = re.search(r"var VALID_IDS = (\[.*?\]);", content)
-    defaults = re.search(r"var DEFAULTS = (\{.*?\});", content, re.DOTALL)
+    storage_key = re.search(r'const STORAGE_KEY = ("(?:[^"\\]|\\.)*");', content)
+    valid_ids = re.search(r"const VALID_IDS = (\[.*?\]);", content)
+    defaults = re.search(r"const DEFAULTS = (\{.*?\});", content, re.DOTALL)
     assert storage_key and valid_ids and defaults
     return {
         "STORAGE_KEY": json.loads(storage_key.group(1)),
@@ -214,7 +214,11 @@ def _boot_globals(content: str) -> dict[str, object]:
 def test_render_theme_boot_js_starts_with_generated_header() -> None:
     content = render_theme_boot_js(_tree({"dark": {"id": "dark", "label": "Dark", "mode": "dark"}}))
 
-    assert content.startswith("\n".join(GENERATED_HEADER_LINES))
+    # theme-boot.js leads with an @ts-nocheck grandfather header (design_system is
+    # retrofitted under the front-end type/lint gates in a later phase), followed
+    # by the shared generated-file preamble.
+    assert content.startswith("// @ts-nocheck\n")
+    assert "\n".join(GENERATED_HEADER_LINES) in content
 
 
 def test_render_theme_boot_js_is_a_classic_iife_not_a_module() -> None:
@@ -246,7 +250,7 @@ def test_render_theme_boot_js_bakes_in_storage_key_and_manifest() -> None:
 
 
 def test_render_theme_boot_js_multiline_defaults_are_reindented() -> None:
-    # Regression: json.dumps(..., indent=2) embedded after "  var DEFAULTS = "
+    # Regression: json.dumps(..., indent=2) embedded after "  const DEFAULTS = "
     # must have every continuation line re-indented to the surrounding
     # 2-space block, not left at column 0.
     tree = _tree(
@@ -258,7 +262,7 @@ def test_render_theme_boot_js_multiline_defaults_are_reindented() -> None:
 
     content = render_theme_boot_js(tree)
 
-    assert '  var DEFAULTS = {\n    "dark": "dark",\n    "light": "light"\n  };' in content
+    assert '  const DEFAULTS = {\n    "dark": "dark",\n    "light": "light"\n  };' in content
 
 
 def test_render_theme_boot_js_reads_query_before_storage_and_falls_back_to_auto() -> None:
@@ -269,7 +273,7 @@ def test_render_theme_boot_js_reads_query_before_storage_and_falls_back_to_auto(
 
     query_pos = content.index("readQueryTheme")
     storage_pos = content.index("readStoredTheme")
-    candidate_block = content[content.index("var candidate = ") :]
+    candidate_block = content[content.index("let candidate = ") :]
     assert query_pos < storage_pos
     assert 'candidate = "auto"' in content
     assert "isKnownId(queryTheme)" in candidate_block
