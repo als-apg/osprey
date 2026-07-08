@@ -137,6 +137,7 @@ export function parseFrontMatter(content) {
   /** @type {Record<string, string>} */
   const fields = {};
   for (const line of yamlBlock.split('\n')) {
+    // eslint-disable-next-line no-useless-escape -- escaped hyphen retained for readability of the key-name char class
     const kv = line.match(/^(\w[\w\-]*):\s*(.*)$/);
     if (kv) {
       let value = kv[2].trim();

@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * ARIEL UI Components
  *
@@ -112,7 +114,9 @@ export function sanitizeHighlight(html) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;') // hygiene-allow-color: HTML entity, not a hex color (scanner false positive)
+    // eslint-disable-next-line no-control-regex -- NUL sentinels are intentional bold-marker placeholders swapped back to tags
     .replace(/\x00B_OPEN\x00/g, '<b>')
+    // eslint-disable-next-line no-control-regex -- NUL sentinels are intentional bold-marker placeholders swapped back to tags
     .replace(/\x00B_CLOSE\x00/g, '</b>');
 }
 

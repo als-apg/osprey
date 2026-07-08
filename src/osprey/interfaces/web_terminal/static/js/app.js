@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /* OSPREY Web Terminal — Application Entry Point */
 
 import { initTerminal, fitTerminal, focusTerminal, getTerminalDimensions, stopTerminal, startTerminal, restartTerminal, pasteToTerminal } from './terminal.js';

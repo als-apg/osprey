@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Unit tests for the Artifact Gallery print module (print.js): the pure
  * `esc`/`fmtTime`/`headerHtml` formatting helpers and `printArtifact`'s

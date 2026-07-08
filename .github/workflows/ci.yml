@@ -281,7 +281,7 @@ jobs:
         commit_user_email: "github-actions[bot]@users.noreply.github.com"
 
   frontend-js:
-    name: Frontend JS (typecheck + vitest)
+    name: Frontend JS (typecheck + lint + vitest)
     runs-on: ubuntu-latest
 
     steps:
@@ -307,6 +307,9 @@ jobs:
 
     - name: Typecheck (tsc --noEmit)
       run: npm run typecheck
+
+    - name: Lint (eslint)
+      run: npm run lint
 
     - name: Run JS tests (vitest)
       run: npm run test:js

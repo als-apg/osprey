@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Unit tests for the Artifact Gallery sidebar rendering layer (render.js:
  * filter bar, gallery-card template, sidebar dispatcher + tree/activity

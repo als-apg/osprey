@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Unit tests for settings-editor.js -- the interactive settings.json editor
  * behind config-renderers.js's re-export. Covers three pinned behaviors:

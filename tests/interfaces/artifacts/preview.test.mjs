@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Unit tests for the Artifact Gallery preview pane shell (preview.js, task
  * 5.4 extraction: renderPreview's per-type viewport dispatch, pin toggling,

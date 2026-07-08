@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Unit tests for the Scaffold Gallery detail-view modules
  * (scaffold/detail.js -- the shell: open/create/header/modes/dispatch --

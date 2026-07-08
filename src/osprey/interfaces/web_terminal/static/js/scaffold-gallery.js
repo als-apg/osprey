@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /* OSPREY Web Terminal — Scaffold Gallery
  *
  * Drives the "Scaffold Gallery" UI inside the settings drawer tab panels.

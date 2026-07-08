@@ -230,7 +230,7 @@ function setButtonDisabled(id, disabled) {
  */
 export function createRenderer(figureNames, callbacks) {
   /** @type {Record<string, ReturnType<typeof setTimeout>>} */
-  let sliderDebounceTimers = {};
+  const sliderDebounceTimers = {};
 
   /** @param {any} state */
   function renderState(state) {

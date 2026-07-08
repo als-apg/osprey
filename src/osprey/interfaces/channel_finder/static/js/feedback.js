@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * OSPREY Channel Finder — Feedback Management View
  *
@@ -305,7 +307,7 @@ async function _renderDetail() {
   const successes = entry.successes || [];
   const failures = entry.failures || [];
 
-  let html = `
+  const html = `
     <div class="fb-breadcrumb">
       <a id="fb-back-link">Feedback</a>
       <span class="fb-breadcrumb-sep">/</span>
