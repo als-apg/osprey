@@ -83,9 +83,7 @@ async def _do(spec: dict[str, Any]) -> dict[str, Any]:
         return overrides.get(key, default)
 
     with patch("osprey.utils.config.get_config_value", side_effect=_get_config_value):
-        connector = await ConnectorFactory.create_control_system_connector(
-            spec["connector_config"]
-        )
+        connector = await ConnectorFactory.create_control_system_connector(spec["connector_config"])
         result: dict[str, Any] = {"write_success": None, "write_verified": None}
 
         write = spec.get("write")

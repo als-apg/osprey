@@ -250,7 +250,9 @@ def _write_scan_env(project_dir: Path, pairs: dict[str, tuple[str, str]]) -> Non
 class DeployedStack:
     """Everything the P1-P5 tests need about the one co-deployed project."""
 
-    def __init__(self, project_dir: Path, pairs: dict[str, tuple[str, str]], limits: dict[str, Any]):
+    def __init__(
+        self, project_dir: Path, pairs: dict[str, tuple[str, str]], limits: dict[str, Any]
+    ):
         self.project_dir = project_dir
         self.pairs = pairs
         self.limits = limits
@@ -523,7 +525,9 @@ def _parse_host_ca_result(proc: subprocess.CompletedProcess) -> dict[str, Any]:
     )
 
 
-def _run_host_ca_op(spec: dict[str, Any], timeout: float = HOST_CA_OP_TIMEOUT_SEC) -> dict[str, Any]:
+def _run_host_ca_op(
+    spec: dict[str, Any], timeout: float = HOST_CA_OP_TIMEOUT_SEC
+) -> dict[str, Any]:
     """Run one host CA op to completion (blocking) and return its parsed result."""
     proc = subprocess.run(
         [sys.executable, str(HOST_CA_OP_SCRIPT), json.dumps(spec)],
@@ -556,14 +560,20 @@ def test_p1_co_deploy_health_binding_and_ordering(deployed_stack: DeployedStack)
     )
     assert va_ports.returncode == 0, f"docker port {VA_CONTAINER} failed: {va_ports.stderr}"
     assert "127.0.0.1" in va_ports.stdout, f"VA CA port not on loopback: {va_ports.stdout!r}"
-    assert "0.0.0.0" not in va_ports.stdout, f"VA CA port must never bind 0.0.0.0: {va_ports.stdout!r}"
+    assert "0.0.0.0" not in va_ports.stdout, (
+        f"VA CA port must never bind 0.0.0.0: {va_ports.stdout!r}"
+    )
 
     bridge_ports = subprocess.run(
         ["docker", "port", BRIDGE_CONTAINER], capture_output=True, text=True, timeout=30
     )
-    assert bridge_ports.returncode == 0, f"docker port {BRIDGE_CONTAINER} failed: {bridge_ports.stderr}"
+    assert bridge_ports.returncode == 0, (
+        f"docker port {BRIDGE_CONTAINER} failed: {bridge_ports.stderr}"
+    )
     assert "127.0.0.1" in bridge_ports.stdout, f"bridge not on loopback: {bridge_ports.stdout!r}"
-    assert "0.0.0.0" not in bridge_ports.stdout, f"bridge must never bind 0.0.0.0: {bridge_ports.stdout!r}"
+    assert "0.0.0.0" not in bridge_ports.stdout, (
+        f"bridge must never bind 0.0.0.0: {bridge_ports.stdout!r}"
+    )
 
     # depends_on: condition: service_healthy (task 4.2) — the bridge container
     # cannot even start until the VA's healthcheck passes, so the VA's
@@ -643,7 +653,9 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     run_id, status_body = await _run_scan(
         "count", {"detectors": [P3_DETECTOR], "num": 1}, deployed_stack.project_dir
     )
-    assert status_body.get("status") == "completed", f"P3 count scan did not complete: {status_body}"
+    assert status_body.get("status") == "completed", (
+        f"P3 count scan did not complete: {status_body}"
+    )
 
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
@@ -659,8 +671,7 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
         f"({value}) — sp-echo should be an exact copy"
     )
     assert abs(host_read - bridge_value) <= 1e-6, (
-        f"host (pyepics) read of {rb} = {host_read} != bridge (ophyd-async) "
-        f"read = {bridge_value}"
+        f"host (pyepics) read of {rb} = {host_read} != bridge (ophyd-async) read = {bridge_value}"
     )
 
 
@@ -783,9 +794,7 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
     # Host side (pyepics), isolated in its own process: write the pre-faulted SP,
     # then read the sibling RB back — one connect/write/read in one subprocess.
     host = _run_host_ca_op(
-        _host_ca_op_spec(
-            deployed_stack.project_dir, read=rb, write={"address": sp, "value": value}
-        )
+        _host_ca_op_spec(deployed_stack.project_dir, read=rb, write={"address": sp, "value": value})
     )
     # The SP always latches its own written value (records.py) even when stuck --
     # only the propagation to RB is dropped. write_channel's readback
@@ -808,7 +817,9 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
     run_id, status_body = await _run_scan(
         "count", {"detectors": [P5_DETECTOR], "num": 1}, deployed_stack.project_dir
     )
-    assert status_body.get("status") == "completed", f"P5 count scan did not complete: {status_body}"
+    assert status_body.get("status") == "completed", (
+        f"P5 count scan did not complete: {status_body}"
+    )
 
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"

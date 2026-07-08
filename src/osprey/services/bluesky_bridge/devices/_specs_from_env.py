@@ -59,7 +59,9 @@ def parse_motor_specs(raw: str) -> list[EpicsMotorSpec]:
         name, sep, spec_text = entry.partition("=")
         name = name.strip()
         if not sep or not name:
-            logger.warning("%s: skipping malformed motor entry %r (expected name=SP_PV)", MOTORS_ENV, entry)
+            logger.warning(
+                "%s: skipping malformed motor entry %r (expected name=SP_PV)", MOTORS_ENV, entry
+            )
             continue
 
         pv_parts = spec_text.split("|")
@@ -75,10 +77,14 @@ def parse_motor_specs(raw: str) -> list[EpicsMotorSpec]:
             logger.warning("%s: skipping motor entry %r (empty setpoint PV)", MOTORS_ENV, entry)
             continue
         if len(pv_parts) == 2 and not readback_pv:
-            logger.warning("%s: skipping motor entry %r (empty readback PV after '|')", MOTORS_ENV, entry)
+            logger.warning(
+                "%s: skipping motor entry %r (empty readback PV after '|')", MOTORS_ENV, entry
+            )
             continue
 
-        specs.append(EpicsMotorSpec(name=name, setpoint_pv=setpoint_pv, readback_pv=readback_pv or None))
+        specs.append(
+            EpicsMotorSpec(name=name, setpoint_pv=setpoint_pv, readback_pv=readback_pv or None)
+        )
     return specs
 
 
@@ -95,7 +101,9 @@ def parse_detector_specs(raw: str) -> list[EpicsDetectorSpec]:
         read_pv = read_pv.strip()
         if not sep or not name or not read_pv:
             logger.warning(
-                "%s: skipping malformed detector entry %r (expected name=READ_PV)", DETECTORS_ENV, entry
+                "%s: skipping malformed detector entry %r (expected name=READ_PV)",
+                DETECTORS_ENV,
+                entry,
             )
             continue
         specs.append(EpicsDetectorSpec(name=name, read_pv=read_pv))

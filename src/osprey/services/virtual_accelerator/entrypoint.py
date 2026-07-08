@@ -49,9 +49,7 @@ def main() -> None:
     channels = build_manifest()["channels"]
 
     stuck_setpoints = frozenset(
-        addr.strip()
-        for addr in os.environ.get("VA_STUCK_SETPOINTS", "").split(",")
-        if addr.strip()
+        addr.strip() for addr in os.environ.get("VA_STUCK_SETPOINTS", "").split(",") if addr.strip()
     )
     if stuck_setpoints:
         print(f"VA apply-fault active: {sorted(stuck_setpoints)}", flush=True)

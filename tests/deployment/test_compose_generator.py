@@ -305,6 +305,7 @@ def test_bluesky_va_ca_port_defaults_when_va_config_block_absent() -> None:
     aborts the whole compose render.
     """
     rendered = _render_bluesky_template(
-        va_deployed=True, services={"bluesky": {"port": 8090}}  # no virtual_accelerator key
+        va_deployed=True,
+        services={"bluesky": {"port": 8090}},  # no virtual_accelerator key
     )
     assert 'EPICS_CA_NAME_SERVERS: "virtual-accelerator:5064"' in rendered

@@ -537,9 +537,7 @@ class BuildProfile:
         if self.virtual_accelerator is not None:
             va = self.virtual_accelerator
             if not (1 <= va.port <= 65535):
-                errors.append(
-                    f"virtual_accelerator.port must be in 1..65535 (got {va.port})"
-                )
+                errors.append(f"virtual_accelerator.port must be in 1..65535 (got {va.port})")
 
         if errors:
             raise BuildProfileError(

@@ -21,9 +21,7 @@ from osprey.services.bluesky_bridge.devices._specs_from_env import specs_from_en
 
 def test_duplicate_motor_name_drops_the_later_entry() -> None:
     """Two motor entries with the same device name keep only the first."""
-    motors, _ = specs_from_env(
-        {"BLUESKY_EPICS_MOTORS": "m=A:SP|A:RB,m=B:SP|B:RB"}
-    )
+    motors, _ = specs_from_env({"BLUESKY_EPICS_MOTORS": "m=A:SP|A:RB,m=B:SP|B:RB"})
     assert [s.name for s in motors] == ["m"]
     assert motors[0].setpoint_pv == "A:SP"  # first wins, not the shadowing second
 
