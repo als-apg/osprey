@@ -1,5 +1,4 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
+// @ts-check
 /**
  * Tuning — hostile-field security regression suite.
  *
@@ -35,7 +34,7 @@ import {
 // plots.js calls the vendored global `Plotly` at runtime; it is absent under
 // Vitest. These render sinks set `innerHTML` synchronously (the assertion runs
 // before any chart draw), so a no-op stub just prevents an unrelated crash.
-globalThis.Plotly = {
+/** @type {any} */ (globalThis).Plotly = {
   react() {},
   newPlot() {},
   purge() {},
@@ -59,6 +58,9 @@ const PAYLOADS = [
  *   1. No injected element got built from any payload.
  *   2. No element carries an inline `on*` event-handler attribute (which is
  *      what a successful attribute breakout would create).
+ *
+ * @param {Element} container
+ * @returns {void}
  */
 function assertInert(container) {
   expect(container.querySelector('img, svg, script')).toBeNull();
@@ -108,7 +110,11 @@ describe('progress-display results table — backend objective/phase sink', () =
         lhs_data: [{ objective: payload, objective_value: null }],
         bo_data: [],
       });
-      assertInert(document.getElementById('results-table-body'));
+      const tbody = /** @type {Element} */ (document.getElementById('results-table-body'));
+      assertInert(tbody);
+      // Prove the hostile value actually flowed through the sink (survived only
+      // as inert text) — guards against a future refactor silently dropping it.
+      expect(tbody.textContent).toContain(payload);
     });
   }
 });
@@ -122,7 +128,10 @@ describe('results-viewer renderAnalysis — backend timestamp sink', () => {
   for (const payload of PAYLOADS) {
     test(`neutralises timestamp ${JSON.stringify(payload)}`, () => {
       renderAnalysis([{ objective_value: 1 }], payload);
-      assertInert(document.getElementById('analysis-content'));
+      const content = /** @type {Element} */ (document.getElementById('analysis-content'));
+      assertInert(content);
+      // Prove the hostile timestamp actually reached the sink (inert text only).
+      expect(content.textContent).toContain(payload);
     });
   }
 });

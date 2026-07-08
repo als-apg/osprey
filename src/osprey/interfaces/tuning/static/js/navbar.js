@@ -1,27 +1,38 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
+// @ts-check
 /**
  * OSPREY Tuning — Navbar (Environment selector, status, run selector)
+ * @module navbar
  */
 
 import { api } from './api.js';
 import { state } from './state.js';
 
+/** @type {HTMLSelectElement} */
 let envSelect;
+/** @type {HTMLSelectElement} */
 let runSelect;
+/** @type {HTMLElement | null} */
 let statusBadge;
+/** @type {Element | null | undefined} */
 let statusDot;
+/** @type {Element | null | undefined} */
 let statusText;
+/** @type {HTMLButtonElement} */
 let newRunBtn;
+/** @type {ReturnType<typeof setInterval> | null} */
 let statusPollTimer = null;
 
+/**
+ * Wire up the navbar controls and initial data loads.
+ * @returns {void}
+ */
 export function initNavbar() {
-  envSelect = document.getElementById('env-select');
-  runSelect = document.getElementById('run-select');
+  envSelect = /** @type {HTMLSelectElement} */ (document.getElementById('env-select'));
+  runSelect = /** @type {HTMLSelectElement} */ (document.getElementById('run-select'));
   statusBadge = document.getElementById('env-status-badge');
   statusDot = statusBadge?.querySelector('.status-dot');
   statusText = statusBadge?.querySelector('.status-text');
-  newRunBtn = document.getElementById('new-run-btn');
+  newRunBtn = /** @type {HTMLButtonElement} */ (document.getElementById('new-run-btn'));
 
   loadEnvironments();
   loadRuns();
@@ -37,6 +48,10 @@ export function initNavbar() {
   });
 }
 
+/**
+ * Fetch environments and populate the environment `<select>`.
+ * @returns {Promise<void>}
+ */
 async function loadEnvironments() {
   try {
     const result = await api.listEnvironments();
@@ -57,6 +72,10 @@ async function loadEnvironments() {
   }
 }
 
+/**
+ * Fetch available runs and populate the run `<select>`.
+ * @returns {Promise<void>}
+ */
 async function loadRuns() {
   try {
     const result = await api.getAvailableRuns();
@@ -76,6 +95,10 @@ async function loadRuns() {
   }
 }
 
+/**
+ * Handle environment selection: load details, toggle testing indicator, poll status.
+ * @returns {Promise<void>}
+ */
 async function onEnvironmentChange() {
   const name = envSelect.value;
   if (!name) {
@@ -102,6 +125,10 @@ async function onEnvironmentChange() {
   }
 }
 
+/**
+ * Handle run selection: emit a historical-run load and activate the analysis tab.
+ * @returns {void}
+ */
 function onRunChange() {
   const ts = runSelect.value;
   if (!ts) return;
@@ -110,15 +137,26 @@ function onRunChange() {
   state.emit('loadHistoricalRun', ts);
 
   // Activate analysis tab
-  const analysisTab = document.querySelector('[data-tab="analysis-tab"]');
+  const analysisTab = /** @type {HTMLElement | null} */ (
+    document.querySelector('[data-tab="analysis-tab"]')
+  );
   if (analysisTab) analysisTab.click();
 }
 
+/**
+ * Reset optimization state for a fresh run and clear the run selector.
+ * @returns {void}
+ */
 function onNewRun() {
   state.resetForNewRun();
   runSelect.value = '';
 }
 
+/**
+ * Query connection status for an environment and update the badge.
+ * @param {string} envName
+ * @returns {Promise<void>}
+ */
 async function checkStatus(envName) {
   try {
     const result = await api.checkEnvironmentStatus(envName);
@@ -129,6 +167,11 @@ async function checkStatus(envName) {
   }
 }
 
+/**
+ * Reflect a connection status in the status dot and text.
+ * @param {string} status
+ * @returns {void}
+ */
 function updateStatusDisplay(status) {
   if (!statusDot || !statusText) return;
 
@@ -142,11 +185,20 @@ function updateStatusDisplay(status) {
   }
 }
 
+/**
+ * Begin polling environment status on a fixed interval.
+ * @param {string} envName
+ * @returns {void}
+ */
 function startStatusPolling(envName) {
   stopStatusPolling();
   statusPollTimer = setInterval(() => checkStatus(envName), 60000);
 }
 
+/**
+ * Stop any active status polling timer.
+ * @returns {void}
+ */
 function stopStatusPolling() {
   if (statusPollTimer) {
     clearInterval(statusPollTimer);

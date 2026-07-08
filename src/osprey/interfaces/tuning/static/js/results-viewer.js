@@ -1,9 +1,9 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
+// @ts-check
 /**
  * OSPREY Tuning — Results Viewer (Analysis Tab)
  *
  * Historical run display with 4 Plotly charts.
+ * @module results-viewer
  */
 
 import { api } from './api.js';
@@ -16,15 +16,28 @@ import {
   createBestPointTable,
 } from './plots.js';
 
+/** @typedef {import('./plots.js').DataPoint} DataPoint */
+
+/** @type {HTMLElement} */
 let contentEl;
 
+/**
+ * Extract a message from an unknown catch binding.
+ * @param {unknown} e  @returns {string}
+ */
+function messageOf(e) {
+  return e instanceof Error ? e.message : String(e);
+}
+
+/** @returns {void} */
 export function initResultsViewer() {
-  contentEl = document.getElementById('analysis-content');
+  contentEl = /** @type {HTMLElement} */ (document.getElementById('analysis-content'));
 
   // Listen for historical run selection
   state.on('loadHistoricalRun', loadRun);
 }
 
+/** @param {string} timestamp  @returns {Promise<void>} */
 async function loadRun(timestamp) {
   if (!contentEl) return;
 
@@ -51,12 +64,16 @@ async function loadRun(timestamp) {
       <div class="analysis-empty">
         <div class="analysis-empty-icon">&#9888;</div>
         <div class="analysis-empty-title">Error Loading Run</div>
-        <div class="analysis-empty-text">${escapeHtml(err.message)}</div>
+        <div class="analysis-empty-text">${escapeHtml(messageOf(err))}</div>
       </div>
     `;
   }
 }
 
+/**
+ * Render the analysis view (header + 4 Plotly charts) for a historical run.
+ * @param {DataPoint[]} data  @param {string} timestamp  @returns {void}
+ */
 export function renderAnalysis(data, timestamp) {
   contentEl.innerHTML = `
     <div class="analysis-header" style="margin-bottom: 1rem;">
@@ -85,9 +102,9 @@ export function renderAnalysis(data, timestamp) {
 
   // Render charts after DOM is ready
   requestAnimationFrame(() => {
-    createEfficiencyPlot(document.getElementById('chart-efficiency'), data);
-    createConvergencePlot(document.getElementById('chart-convergence'), data);
-    createParameterSpacePlot(document.getElementById('chart-params'), data);
-    createBestPointTable(document.getElementById('chart-best'), data);
+    createEfficiencyPlot(/** @type {HTMLElement} */ (document.getElementById('chart-efficiency')), data);
+    createConvergencePlot(/** @type {HTMLElement} */ (document.getElementById('chart-convergence')), data);
+    createParameterSpacePlot(/** @type {HTMLElement} */ (document.getElementById('chart-params')), data);
+    createBestPointTable(/** @type {HTMLElement} */ (document.getElementById('chart-best')), data);
   });
 }
