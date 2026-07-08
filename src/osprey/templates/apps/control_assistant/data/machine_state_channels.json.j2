@@ -1,27 +1,11 @@
 {
-  "_comment": "Machine state channels — generated for {{ default_pipeline }} pipeline",
-  "_version": "1.0",
+  "_comment": "Machine state channels — a small representative set from the RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD namespace shared by all channel-finder pipelines (see channel_databases/). One canonical list regardless of pipeline mode.",
+  "_version": "2.0",
 
-  {% if default_pipeline == "in_context" %}
-  "TerminalVoltageReadBack": { "label": "Terminal voltage", "group": "beam" },
-  "GunPressure": { "label": "Gun pressure", "group": "vacuum" },
-  "CollectorPressure": { "label": "Collector pressure", "group": "vacuum" },
-  "IP41Pressure": { "label": "Accelerating tube end pressure", "group": "vacuum" },
-  "Terminal temperature": { "label": "Terminal temperature", "group": "thermal" },
-  "CoronaTriodCurrent": { "label": "Corona triod current", "group": "beam" }
-  {% elif default_pipeline == "middle_layer" %}
-  "SR01C:BPM1:X": { "label": "BPM 1-1 horizontal", "group": "orbit" },
-  "SR01C:BPM1:Y": { "label": "BPM 1-1 vertical", "group": "orbit" },
-  "SR01C:HCM1:Current": { "label": "Horiz. corrector 1-1", "group": "magnets" },
-  "SR01C:VCM1:Current": { "label": "Vert. corrector 1-1", "group": "magnets" },
-  "SR:DCCT:Current": { "label": "Beam current", "group": "beam" },
-  "SR:RF1:Freq": { "label": "RF cavity 1 frequency", "group": "rf" }
-  {% else %}
-  "MAG:DIPOLE[B01]:CURRENT:RB": { "label": "Dipole B01 current", "group": "magnets" },
-  "MAG:QF[QF01]:CURRENT:RB": { "label": "Quad QF01 current", "group": "magnets" },
-  "MAG:QD[QD01]:CURRENT:RB": { "label": "Quad QD01 current", "group": "magnets" },
-  "MAG:HCM[H01]:CURRENT:RB": { "label": "Horiz. corrector H01", "group": "magnets" },
-  "MAG:VCM[V01]:CURRENT:RB": { "label": "Vert. corrector V01", "group": "magnets" },
-  "RF:CAVITY[C1]:VOLTAGE:RB": { "label": "RF cavity voltage", "group": "rf" }
-  {% endif %}
+  "SR:DIAG:DCCT:01:CURRENT:RB": { "label": "Beam current (DCCT)", "group": "beam" },
+  "SR:RF:CAVITY:01:VOLTAGE:RB": { "label": "RF cavity 1 voltage", "group": "rf" },
+  "SR:DIAG:BPM:01:POSITION:X": { "label": "BPM 1 horizontal position", "group": "orbit" },
+  "SR:DIAG:BPM:01:POSITION:Y": { "label": "BPM 1 vertical position", "group": "orbit" },
+  "SR:MAG:HCM:01:CURRENT:RB": { "label": "Horizontal corrector 1 current", "group": "magnets" },
+  "SR:VAC:GAUGE:SR01:PRESSURE:RB": { "label": "Vacuum gauge SR01 pressure", "group": "vacuum" }
 }

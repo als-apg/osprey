@@ -21,6 +21,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from osprey.connectors.types import MOCK
 from osprey.simulation.engine import SimulationEngine
 from osprey.utils.config import get_facility_timezone, load_config
 from osprey.utils.logger import get_logger
@@ -33,6 +34,44 @@ if TYPE_CHECKING:
     from osprey.simulation.machine import ScenarioLogEntry
 
 logger = get_logger("simulation_apply")
+
+
+def resolve_simulation_file(config: dict, project_dir: Path) -> tuple[Path | None, str, str, str]:
+    """Resolve the simulation-model file for the active control-system type.
+
+    Looks up ``control_system.connector.<type>.simulation_file`` for the active
+    ``control_system.type`` (defaulting to ``mock`` when unset). Non-mock types
+    fall back to ``connector.mock.simulation_file`` when their own key is unset;
+    for the mock type itself this fallback is a no-op (it's the same key it
+    already tried), so mock resolution is unaffected by the fallback.
+
+    Shared by :func:`apply_scenarios` and the ``sim`` CLI so the two call sites
+    agree on exactly which config keys back a simulation-backed project.
+
+    Returns:
+        A 4-tuple ``(path, active_type, type_key, mock_key)``. ``path`` is the
+        resolved file path (made absolute against ``project_dir`` if relative),
+        or ``None`` if neither key had a value. ``type_key``/``mock_key`` are
+        the dotted config paths that were tried, for error messages.
+    """
+    control_system = config.get("control_system", {})
+    active_type = control_system.get("type", MOCK)
+    connector = control_system.get("connector", {})
+
+    type_key = f"control_system.connector.{active_type}.simulation_file"
+    mock_key = "control_system.connector.mock.simulation_file"
+
+    sim_file = connector.get(active_type, {}).get("simulation_file")
+    if not sim_file and active_type != MOCK:
+        sim_file = connector.get(MOCK, {}).get("simulation_file")
+
+    if not sim_file:
+        return None, active_type, type_key, mock_key
+
+    machine_path = Path(sim_file)
+    if not machine_path.is_absolute():
+        machine_path = Path(project_dir) / machine_path
+    return machine_path, active_type, type_key, mock_key
 
 
 def _run_coro(make_coro: Callable[[], Coroutine]):
@@ -92,18 +131,18 @@ def apply_scenarios(
     project_dir = Path(project_dir)
     config = load_config(str(project_dir / "config.yml"))
 
-    sim_file = (
-        config.get("control_system", {}).get("connector", {}).get("mock", {}).get("simulation_file")
-    )
-    if not sim_file:
+    machine_path, active_type, type_key, mock_key = resolve_simulation_file(config, project_dir)
+    if machine_path is None:
+        if active_type == MOCK:
+            raise ValueError(
+                f"Project {project_dir} has no mock 'simulation_file' configured; "
+                f"`sim apply` only applies to simulation-backed projects (guards a real DB)."
+            )
         raise ValueError(
-            f"Project {project_dir} has no mock 'simulation_file' configured; "
+            f"Project {project_dir} has no simulation_file configured for "
+            f"control_system.type '{active_type}' (tried {type_key} and {mock_key}); "
             f"`sim apply` only applies to simulation-backed projects (guards a real DB)."
         )
-
-    machine_path = Path(sim_file)
-    if not machine_path.is_absolute():
-        machine_path = project_dir / machine_path
     engine = SimulationEngine.from_file(machine_path)
 
     # Default anchor in the FACILITY zone (not UTC): the anchor's tzinfo is the

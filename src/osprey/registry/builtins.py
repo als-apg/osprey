@@ -6,7 +6,14 @@ that all Osprey applications build upon.
 .. seealso:: :class:`RegistryConfigProvider`, :class:`RegistryManager`
 """
 
-from osprey.connectors.types import EPICS, EPICS_ARCHIVER, MOCK, MOCK_ARCHIVER, MONGODB_ARCHIVER
+from osprey.connectors.types import (
+    EPICS,
+    EPICS_ARCHIVER,
+    MOCK,
+    MOCK_ARCHIVER,
+    MONGODB_ARCHIVER,
+    VIRTUAL_ACCELERATOR,
+)
 
 from .base import (
     ArielEnhancementModuleRegistration,
@@ -62,6 +69,13 @@ class FrameworkRegistryProvider(RegistryConfigProvider):
                     module_path="osprey.connectors.control_system.epics_connector",
                     class_name="EPICSConnector",
                     description="EPICS Channel Access control system connector",
+                ),
+                ConnectorRegistration(
+                    name=VIRTUAL_ACCELERATOR,
+                    connector_type="control_system",
+                    module_path="osprey.connectors.control_system.va_connector",
+                    class_name="VirtualAcceleratorConnector",
+                    description="Virtual Accelerator connector for PyAT-backed soft-IOC simulations",
                 ),
                 # Archiver connectors
                 ConnectorRegistration(

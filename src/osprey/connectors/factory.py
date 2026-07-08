@@ -241,6 +241,7 @@ def register_builtin_connectors() -> None:
     from osprey.connectors.archiver.mock_archiver_connector import MockArchiverConnector
     from osprey.connectors.control_system.epics_connector import EPICSConnector
     from osprey.connectors.control_system.mock_connector import MockConnector
+    from osprey.connectors.control_system.va_connector import VirtualAcceleratorConnector
 
     try:
         from osprey.connectors.archiver.mongodb_archiver_connector import (
@@ -253,6 +254,7 @@ def register_builtin_connectors() -> None:
 
     ConnectorFactory.register_control_system(types.MOCK, MockConnector)
     ConnectorFactory.register_control_system(types.EPICS, EPICSConnector)
+    ConnectorFactory.register_control_system(types.VIRTUAL_ACCELERATOR, VirtualAcceleratorConnector)
     ConnectorFactory.register_archiver(types.MOCK_ARCHIVER, MockArchiverConnector)
     ConnectorFactory.register_archiver(types.EPICS_ARCHIVER, EPICSArchiverConnector)
     if _mongo_available:

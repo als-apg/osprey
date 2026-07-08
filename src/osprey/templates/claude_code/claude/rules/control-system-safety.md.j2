@@ -31,7 +31,7 @@ write_channel("SR:MAG:QF:01:CURRENT:SP", 150.0)
 
 ### Prohibited
 
-{% if cs_type == 'epics' %}
+{% if cs_type in ('epics', 'virtual_accelerator') %}
 ```python
 # DO NOT use these — they bypass safety controls
 import epics

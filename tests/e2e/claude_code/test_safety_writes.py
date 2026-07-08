@@ -23,7 +23,7 @@ from tests.e2e.sdk_helpers import run_sdk_query_with_hooks
 async def test_write_within_limits_succeeds(safety_project):
     """Scenario 2: Writing a value within limits should succeed.
 
-    DIAGNOSTICS:TEMPERATURE:SP has limits min=0, max=100, writable=true.
+    SR:DIAG:TEMP:01:TEMPERATURE:SP has limits min=0, max=100, writable=true.
     Writing 50.0 is within bounds. The approval hook returns "ask" in
     selective mode (default). The test's auto_approve policy approves
     the callback, allowing the write to proceed.
@@ -32,7 +32,7 @@ async def test_write_within_limits_succeeds(safety_project):
     """
     prompt = (
         "Use the channel_write tool to write the value 50.0 to the channel "
-        "'DIAGNOSTICS:TEMPERATURE:SP'. Report the result."
+        "'SR:DIAG:TEMP:01:TEMPERATURE:SP'. Report the result."
     )
 
     result = await run_sdk_query_with_hooks(
@@ -86,7 +86,7 @@ async def test_write_within_limits_succeeds(safety_project):
 async def test_write_over_limits_denied(safety_project):
     """Scenario 3: Writing a value that exceeds limits should be denied.
 
-    DIAGNOSTICS:TEMPERATURE:SP has limits min=0, max=100.
+    SR:DIAG:TEMP:01:TEMPERATURE:SP has limits min=0, max=100.
     Writing 999.0 far exceeds the limit. The limits hook should deny
     the tool call with permissionDecision: deny.
 
@@ -94,7 +94,7 @@ async def test_write_over_limits_denied(safety_project):
     """
     prompt = (
         "Use the channel_write tool to write the value 999.0 to the channel "
-        "'DIAGNOSTICS:TEMPERATURE:SP'. Report the result."
+        "'SR:DIAG:TEMP:01:TEMPERATURE:SP'. Report the result."
     )
 
     result = await run_sdk_query_with_hooks(
@@ -154,15 +154,15 @@ async def test_write_over_limits_denied(safety_project):
 async def test_write_to_readonly_denied(safety_project):
     """Scenario 4: Writing to a read-only channel should be denied.
 
-    MAG:QF[QF01]:CURRENT:SP is marked writable=false in the limits DB.
-    The limits hook should deny the tool call. Note: the bracket notation
-    is the literal key in the limits database (exact string match).
+    SR:MAG:QF:01:CURRENT:RB is a readback channel marked writable=false in
+    the limits DB. The limits hook should deny the write (READ_ONLY_CHANNEL) --
+    a measurement readback is never a valid write target.
 
     Cost budget: $0.50
     """
     prompt = (
         "Use the channel_write tool to write the value 1.0 to the channel "
-        "'MAG:QF[QF01]:CURRENT:SP'. Report the result."
+        "'SR:MAG:QF:01:CURRENT:RB'. Report the result."
     )
 
     result = await run_sdk_query_with_hooks(

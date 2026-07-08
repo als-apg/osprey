@@ -1,0 +1,23 @@
+{
+  "_comment": "Dedicated write-safety fixture limits DB for the generic Claude Code safety e2e (test_safety_writes.py, test_safety_approval_e2e.py). Intentionally decoupled from any preset's production channel_limits.json so those e2e never depend on real lattice data. Two channels model the two safety properties the tests need: a bounded writable setpoint and a read-only readback. Names follow the standard RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD grammar; they need not exist in the manifest because the safety project points its limits database_path here.",
+  "_version": "1.0",
+  "defaults": {
+    "_comment": "Default settings inherited by all channels unless overridden.",
+    "writable": true,
+    "verification": {
+      "level": "callback"
+    }
+  },
+  "SR:DIAG:TEMP:01:TEMPERATURE:SP": {
+    "_comment": "Bounded, low-criticality writable setpoint. Writes within [0, 100] succeed; writes outside are denied by the limits layer. verification:none = fastest write mode.",
+    "min_value": 0.0,
+    "max_value": 100.0,
+    "verification": {
+      "level": "none"
+    }
+  },
+  "SR:MAG:QF:01:CURRENT:RB": {
+    "_comment": "Read-only readback: any write must be blocked with READ_ONLY_CHANNEL.",
+    "writable": false
+  }
+}

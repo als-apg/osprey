@@ -451,6 +451,2652 @@
       "value": 0,
       "noise": 0,
       "description": "Klystron 02 fault summary (0=ok, 1=faulted)"
+    },
+    "SR:MAG:DIPOLE:01:CURRENT:RB": {
+      "value": 913.348,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 01 current readback (nominal ~913.348 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:01:CURRENT:SP": {
+      "value": 913.348,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 01 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:02:CURRENT:RB": {
+      "value": 923.171,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 02 current readback (nominal ~923.171 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:02:CURRENT:SP": {
+      "value": 923.171,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 02 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:03:CURRENT:RB": {
+      "value": 923.513,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 03 current readback (nominal ~923.513 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:03:CURRENT:SP": {
+      "value": 923.513,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 03 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:04:CURRENT:RB": {
+      "value": 914.246,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 04 current readback (nominal ~914.246 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:04:CURRENT:SP": {
+      "value": 914.246,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 04 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:05:CURRENT:RB": {
+      "value": 898.82,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 05 current readback (nominal ~898.82 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:05:CURRENT:SP": {
+      "value": 898.82,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 05 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:06:CURRENT:RB": {
+      "value": 882.977,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 06 current readback (nominal ~882.977 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:06:CURRENT:SP": {
+      "value": 882.977,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 06 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:07:CURRENT:RB": {
+      "value": 872.615,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 07 current readback (nominal ~872.615 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:07:CURRENT:SP": {
+      "value": 872.615,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 07 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:08:CURRENT:RB": {
+      "value": 871.59,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 08 current readback (nominal ~871.59 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:08:CURRENT:SP": {
+      "value": 871.59,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 08 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:09:CURRENT:RB": {
+      "value": 880.285,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 09 current readback (nominal ~880.285 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:09:CURRENT:SP": {
+      "value": 880.285,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 09 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:10:CURRENT:RB": {
+      "value": 895.462,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 10 current readback (nominal ~895.462 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:10:CURRENT:SP": {
+      "value": 895.462,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 10 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:11:CURRENT:RB": {
+      "value": 911.473,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 11 current readback (nominal ~911.473 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:11:CURRENT:SP": {
+      "value": 911.473,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 11 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:12:CURRENT:RB": {
+      "value": 922.356,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 12 current readback (nominal ~922.356 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:12:CURRENT:SP": {
+      "value": 922.356,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 12 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:13:CURRENT:RB": {
+      "value": 924.061,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 13 current readback (nominal ~924.061 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:13:CURRENT:SP": {
+      "value": 924.061,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 13 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:14:CURRENT:RB": {
+      "value": 915.954,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 14 current readback (nominal ~915.954 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:14:CURRENT:SP": {
+      "value": 915.954,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 14 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:15:CURRENT:RB": {
+      "value": 901.052,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 15 current readback (nominal ~901.052 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:15:CURRENT:SP": {
+      "value": 901.052,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 15 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:16:CURRENT:RB": {
+      "value": 884.902,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 16 current readback (nominal ~884.902 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:16:CURRENT:SP": {
+      "value": 884.902,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 16 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:17:CURRENT:RB": {
+      "value": 873.516,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 17 current readback (nominal ~873.516 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:17:CURRENT:SP": {
+      "value": 873.516,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 17 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:18:CURRENT:RB": {
+      "value": 871.132,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 18 current readback (nominal ~871.132 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:18:CURRENT:SP": {
+      "value": 871.132,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 18 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:19:CURRENT:RB": {
+      "value": 878.638,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 19 current readback (nominal ~878.638 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:19:CURRENT:SP": {
+      "value": 878.638,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 19 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:20:CURRENT:RB": {
+      "value": 893.24,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 20 current readback (nominal ~893.24 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:20:CURRENT:SP": {
+      "value": 893.24,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 20 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:21:CURRENT:RB": {
+      "value": 909.502,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 21 current readback (nominal ~909.502 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:21:CURRENT:SP": {
+      "value": 909.502,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 21 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:22:CURRENT:RB": {
+      "value": 921.371,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 22 current readback (nominal ~921.371 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:22:CURRENT:SP": {
+      "value": 921.371,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 22 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:23:CURRENT:RB": {
+      "value": 924.428,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 23 current readback (nominal ~924.428 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:23:CURRENT:SP": {
+      "value": 924.428,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 23 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:24:CURRENT:RB": {
+      "value": 917.536,
+      "noise": 0.0008,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 24 current readback (nominal ~917.536 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:DIPOLE:24:CURRENT:SP": {
+      "value": 917.536,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring dipole bend magnet 24 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QF:01:CURRENT:RB": {
+      "value": 356.101,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 01 current readback (nominal ~356.101 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QF:01:CURRENT:SP": {
+      "value": 356.101,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 01 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QF:02:CURRENT:RB": {
+      "value": 359.931,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 02 current readback (nominal ~359.931 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QF:02:CURRENT:SP": {
+      "value": 359.931,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 02 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QF:03:CURRENT:RB": {
+      "value": 360.064,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 03 current readback (nominal ~360.064 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QF:03:CURRENT:SP": {
+      "value": 360.064,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 03 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QF:04:CURRENT:RB": {
+      "value": 356.451,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 04 current readback (nominal ~356.451 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QF:04:CURRENT:SP": {
+      "value": 356.451,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 04 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QF:05:CURRENT:RB": {
+      "value": 350.437,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 05 current readback (nominal ~350.437 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QF:05:CURRENT:SP": {
+      "value": 350.437,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 05 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QF:06:CURRENT:RB": {
+      "value": 344.26,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 06 current readback (nominal ~344.26 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QF:06:CURRENT:SP": {
+      "value": 344.26,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 06 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QF:07:CURRENT:RB": {
+      "value": 340.22,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 07 current readback (nominal ~340.22 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QF:07:CURRENT:SP": {
+      "value": 340.22,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 07 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QF:08:CURRENT:RB": {
+      "value": 339.82,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 08 current readback (nominal ~339.82 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QF:08:CURRENT:SP": {
+      "value": 339.82,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 08 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QF:09:CURRENT:RB": {
+      "value": 343.21,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 09 current readback (nominal ~343.21 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QF:09:CURRENT:SP": {
+      "value": 343.21,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 09 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QF:10:CURRENT:RB": {
+      "value": 349.128,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 10 current readback (nominal ~349.128 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QF:10:CURRENT:SP": {
+      "value": 349.128,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 10 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QF:11:CURRENT:RB": {
+      "value": 355.37,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 11 current readback (nominal ~355.37 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QF:11:CURRENT:SP": {
+      "value": 355.37,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 11 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QF:12:CURRENT:RB": {
+      "value": 359.613,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 12 current readback (nominal ~359.613 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QF:12:CURRENT:SP": {
+      "value": 359.613,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 12 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QF:13:CURRENT:RB": {
+      "value": 360.278,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 13 current readback (nominal ~360.278 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QF:13:CURRENT:SP": {
+      "value": 360.278,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 13 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QF:14:CURRENT:RB": {
+      "value": 357.117,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 14 current readback (nominal ~357.117 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QF:14:CURRENT:SP": {
+      "value": 357.117,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 14 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QF:15:CURRENT:RB": {
+      "value": 351.307,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 15 current readback (nominal ~351.307 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QF:15:CURRENT:SP": {
+      "value": 351.307,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 15 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QF:16:CURRENT:RB": {
+      "value": 345.01,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 16 current readback (nominal ~345.01 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QF:16:CURRENT:SP": {
+      "value": 345.01,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing quadrupole 16 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QD:01:CURRENT:RB": {
+      "value": 284.881,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 01 current readback (nominal ~284.881 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QD:01:CURRENT:SP": {
+      "value": 284.881,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 01 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QD:02:CURRENT:RB": {
+      "value": 287.945,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 02 current readback (nominal ~287.945 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QD:02:CURRENT:SP": {
+      "value": 287.945,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 02 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QD:03:CURRENT:RB": {
+      "value": 288.051,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 03 current readback (nominal ~288.051 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QD:03:CURRENT:SP": {
+      "value": 288.051,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 03 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QD:04:CURRENT:RB": {
+      "value": 285.161,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 04 current readback (nominal ~285.161 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QD:04:CURRENT:SP": {
+      "value": 285.161,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 04 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QD:05:CURRENT:RB": {
+      "value": 280.349,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 05 current readback (nominal ~280.349 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QD:05:CURRENT:SP": {
+      "value": 280.349,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 05 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QD:06:CURRENT:RB": {
+      "value": 275.408,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 06 current readback (nominal ~275.408 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QD:06:CURRENT:SP": {
+      "value": 275.408,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 06 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QD:07:CURRENT:RB": {
+      "value": 272.176,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 07 current readback (nominal ~272.176 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QD:07:CURRENT:SP": {
+      "value": 272.176,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 07 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QD:08:CURRENT:RB": {
+      "value": 271.856,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 08 current readback (nominal ~271.856 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QD:08:CURRENT:SP": {
+      "value": 271.856,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 08 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QD:09:CURRENT:RB": {
+      "value": 274.568,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 09 current readback (nominal ~274.568 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QD:09:CURRENT:SP": {
+      "value": 274.568,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 09 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QD:10:CURRENT:RB": {
+      "value": 279.302,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 10 current readback (nominal ~279.302 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QD:10:CURRENT:SP": {
+      "value": 279.302,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 10 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QD:11:CURRENT:RB": {
+      "value": 284.296,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 11 current readback (nominal ~284.296 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QD:11:CURRENT:SP": {
+      "value": 284.296,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 11 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QD:12:CURRENT:RB": {
+      "value": 287.69,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 12 current readback (nominal ~287.69 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QD:12:CURRENT:SP": {
+      "value": 287.69,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 12 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QD:13:CURRENT:RB": {
+      "value": 288.222,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 13 current readback (nominal ~288.222 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QD:13:CURRENT:SP": {
+      "value": 288.222,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 13 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QD:14:CURRENT:RB": {
+      "value": 285.694,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 14 current readback (nominal ~285.694 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QD:14:CURRENT:SP": {
+      "value": 285.694,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 14 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QD:15:CURRENT:RB": {
+      "value": 281.045,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 15 current readback (nominal ~281.045 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QD:15:CURRENT:SP": {
+      "value": 281.045,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 15 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:QD:16:CURRENT:RB": {
+      "value": 276.008,
+      "noise": 0.001,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 16 current readback (nominal ~276.008 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:QD:16:CURRENT:SP": {
+      "value": 276.008,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing quadrupole 16 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SF:01:CURRENT:RB": {
+      "value": 122.092,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 01 current readback (nominal ~122.092 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SF:01:CURRENT:SP": {
+      "value": 122.092,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 01 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SF:02:CURRENT:RB": {
+      "value": 123.405,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 02 current readback (nominal ~123.405 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SF:02:CURRENT:SP": {
+      "value": 123.405,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 02 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SF:03:CURRENT:RB": {
+      "value": 123.45,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 03 current readback (nominal ~123.45 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SF:03:CURRENT:SP": {
+      "value": 123.45,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 03 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SF:04:CURRENT:RB": {
+      "value": 122.212,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 04 current readback (nominal ~122.212 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SF:04:CURRENT:SP": {
+      "value": 122.212,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 04 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SF:05:CURRENT:RB": {
+      "value": 120.15,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 05 current readback (nominal ~120.15 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SF:05:CURRENT:SP": {
+      "value": 120.15,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 05 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SF:06:CURRENT:RB": {
+      "value": 118.032,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 06 current readback (nominal ~118.032 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SF:06:CURRENT:SP": {
+      "value": 118.032,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 06 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SF:07:CURRENT:RB": {
+      "value": 116.647,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 07 current readback (nominal ~116.647 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SF:07:CURRENT:SP": {
+      "value": 116.647,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 07 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SF:08:CURRENT:RB": {
+      "value": 116.51,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 08 current readback (nominal ~116.51 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SF:08:CURRENT:SP": {
+      "value": 116.51,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 08 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SF:09:CURRENT:RB": {
+      "value": 117.672,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 09 current readback (nominal ~117.672 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SF:09:CURRENT:SP": {
+      "value": 117.672,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 09 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SF:10:CURRENT:RB": {
+      "value": 119.701,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 10 current readback (nominal ~119.701 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SF:10:CURRENT:SP": {
+      "value": 119.701,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 10 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SF:11:CURRENT:RB": {
+      "value": 121.841,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 11 current readback (nominal ~121.841 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SF:11:CURRENT:SP": {
+      "value": 121.841,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 11 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SF:12:CURRENT:RB": {
+      "value": 123.296,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 12 current readback (nominal ~123.296 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SF:12:CURRENT:SP": {
+      "value": 123.296,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring focusing sextupole 12 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SD:01:CURRENT:RB": {
+      "value": 96.656,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 01 current readback (nominal ~96.656 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SD:01:CURRENT:SP": {
+      "value": 96.656,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 01 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SD:02:CURRENT:RB": {
+      "value": 97.695,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 02 current readback (nominal ~97.695 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SD:02:CURRENT:SP": {
+      "value": 97.695,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 02 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SD:03:CURRENT:RB": {
+      "value": 97.732,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 03 current readback (nominal ~97.732 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SD:03:CURRENT:SP": {
+      "value": 97.732,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 03 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SD:04:CURRENT:RB": {
+      "value": 96.751,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 04 current readback (nominal ~96.751 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SD:04:CURRENT:SP": {
+      "value": 96.751,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 04 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SD:05:CURRENT:RB": {
+      "value": 95.119,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 05 current readback (nominal ~95.119 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SD:05:CURRENT:SP": {
+      "value": 95.119,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 05 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SD:06:CURRENT:RB": {
+      "value": 93.442,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 06 current readback (nominal ~93.442 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SD:06:CURRENT:SP": {
+      "value": 93.442,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 06 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SD:07:CURRENT:RB": {
+      "value": 92.345,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 07 current readback (nominal ~92.345 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SD:07:CURRENT:SP": {
+      "value": 92.345,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 07 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SD:08:CURRENT:RB": {
+      "value": 92.237,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 08 current readback (nominal ~92.237 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SD:08:CURRENT:SP": {
+      "value": 92.237,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 08 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SD:09:CURRENT:RB": {
+      "value": 93.157,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 09 current readback (nominal ~93.157 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SD:09:CURRENT:SP": {
+      "value": 93.157,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 09 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SD:10:CURRENT:RB": {
+      "value": 94.763,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 10 current readback (nominal ~94.763 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SD:10:CURRENT:SP": {
+      "value": 94.763,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 10 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SD:11:CURRENT:RB": {
+      "value": 96.457,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 11 current readback (nominal ~96.457 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SD:11:CURRENT:SP": {
+      "value": 96.457,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 11 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:SD:12:CURRENT:RB": {
+      "value": 97.609,
+      "noise": 0.0015,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 12 current readback (nominal ~97.609 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:SD:12:CURRENT:SP": {
+      "value": 97.609,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring defocusing sextupole 12 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:01:CURRENT:RB": {
+      "value": 2.544,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 01 current readback (nominal ~2.544 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:01:CURRENT:SP": {
+      "value": 2.544,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 01 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:02:CURRENT:RB": {
+      "value": 2.571,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 02 current readback (nominal ~2.571 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:02:CURRENT:SP": {
+      "value": 2.571,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 02 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:03:CURRENT:RB": {
+      "value": 2.572,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 03 current readback (nominal ~2.572 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:03:CURRENT:SP": {
+      "value": 2.572,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 03 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:04:CURRENT:RB": {
+      "value": 2.546,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 04 current readback (nominal ~2.546 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:04:CURRENT:SP": {
+      "value": 2.546,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 04 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:05:CURRENT:RB": {
+      "value": 2.503,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 05 current readback (nominal ~2.503 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:05:CURRENT:SP": {
+      "value": 2.503,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 05 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:06:CURRENT:RB": {
+      "value": 2.459,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 06 current readback (nominal ~2.459 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:06:CURRENT:SP": {
+      "value": 2.459,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 06 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:07:CURRENT:RB": {
+      "value": 2.43,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 07 current readback (nominal ~2.43 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:07:CURRENT:SP": {
+      "value": 2.43,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 07 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:08:CURRENT:RB": {
+      "value": 2.427,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 08 current readback (nominal ~2.427 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:08:CURRENT:SP": {
+      "value": 2.427,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 08 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:09:CURRENT:RB": {
+      "value": 2.452,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 09 current readback (nominal ~2.452 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:09:CURRENT:SP": {
+      "value": 2.452,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 09 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:10:CURRENT:RB": {
+      "value": 2.494,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 10 current readback (nominal ~2.494 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:10:CURRENT:SP": {
+      "value": 2.494,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 10 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:11:CURRENT:RB": {
+      "value": 2.538,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 11 current readback (nominal ~2.538 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:11:CURRENT:SP": {
+      "value": 2.538,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 11 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:12:CURRENT:RB": {
+      "value": 2.569,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 12 current readback (nominal ~2.569 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:12:CURRENT:SP": {
+      "value": 2.569,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 12 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:13:CURRENT:RB": {
+      "value": 2.573,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 13 current readback (nominal ~2.573 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:13:CURRENT:SP": {
+      "value": 2.573,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 13 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:14:CURRENT:RB": {
+      "value": 2.551,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 14 current readback (nominal ~2.551 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:14:CURRENT:SP": {
+      "value": 2.551,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 14 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:15:CURRENT:RB": {
+      "value": 2.509,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 15 current readback (nominal ~2.509 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:15:CURRENT:SP": {
+      "value": 2.509,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 15 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:16:CURRENT:RB": {
+      "value": 2.464,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 16 current readback (nominal ~2.464 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:16:CURRENT:SP": {
+      "value": 2.464,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 16 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:17:CURRENT:RB": {
+      "value": 2.433,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 17 current readback (nominal ~2.433 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:17:CURRENT:SP": {
+      "value": 2.433,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 17 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:18:CURRENT:RB": {
+      "value": 2.426,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 18 current readback (nominal ~2.426 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:18:CURRENT:SP": {
+      "value": 2.426,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 18 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:19:CURRENT:RB": {
+      "value": 2.447,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 19 current readback (nominal ~2.447 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:19:CURRENT:SP": {
+      "value": 2.447,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 19 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:20:CURRENT:RB": {
+      "value": 2.488,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 20 current readback (nominal ~2.488 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:HCM:20:CURRENT:SP": {
+      "value": 2.488,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring horizontal corrector 20 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:01:CURRENT:RB": {
+      "value": 1.831,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 01 current readback (nominal ~1.831 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:01:CURRENT:SP": {
+      "value": 1.831,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 01 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:02:CURRENT:RB": {
+      "value": 1.851,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 02 current readback (nominal ~1.851 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:02:CURRENT:SP": {
+      "value": 1.851,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 02 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:03:CURRENT:RB": {
+      "value": 1.852,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 03 current readback (nominal ~1.852 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:03:CURRENT:SP": {
+      "value": 1.852,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 03 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:04:CURRENT:RB": {
+      "value": 1.833,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 04 current readback (nominal ~1.833 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:04:CURRENT:SP": {
+      "value": 1.833,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 04 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:05:CURRENT:RB": {
+      "value": 1.802,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 05 current readback (nominal ~1.802 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:05:CURRENT:SP": {
+      "value": 1.802,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 05 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:06:CURRENT:RB": {
+      "value": 1.77,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 06 current readback (nominal ~1.77 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:06:CURRENT:SP": {
+      "value": 1.77,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 06 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:07:CURRENT:RB": {
+      "value": 1.75,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 07 current readback (nominal ~1.75 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:07:CURRENT:SP": {
+      "value": 1.75,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 07 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:08:CURRENT:RB": {
+      "value": 1.748,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 08 current readback (nominal ~1.748 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:08:CURRENT:SP": {
+      "value": 1.748,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 08 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:09:CURRENT:RB": {
+      "value": 1.765,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 09 current readback (nominal ~1.765 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:09:CURRENT:SP": {
+      "value": 1.765,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 09 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:10:CURRENT:RB": {
+      "value": 1.796,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 10 current readback (nominal ~1.796 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:10:CURRENT:SP": {
+      "value": 1.796,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 10 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:11:CURRENT:RB": {
+      "value": 1.828,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 11 current readback (nominal ~1.828 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:11:CURRENT:SP": {
+      "value": 1.828,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 11 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:12:CURRENT:RB": {
+      "value": 1.849,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 12 current readback (nominal ~1.849 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:12:CURRENT:SP": {
+      "value": 1.849,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 12 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:13:CURRENT:RB": {
+      "value": 1.853,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 13 current readback (nominal ~1.853 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:13:CURRENT:SP": {
+      "value": 1.853,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 13 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:14:CURRENT:RB": {
+      "value": 1.837,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 14 current readback (nominal ~1.837 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:14:CURRENT:SP": {
+      "value": 1.837,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 14 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:15:CURRENT:RB": {
+      "value": 1.807,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 15 current readback (nominal ~1.807 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:15:CURRENT:SP": {
+      "value": 1.807,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 15 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:16:CURRENT:RB": {
+      "value": 1.774,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 16 current readback (nominal ~1.774 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:16:CURRENT:SP": {
+      "value": 1.774,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 16 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:17:CURRENT:RB": {
+      "value": 1.752,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 17 current readback (nominal ~1.752 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:17:CURRENT:SP": {
+      "value": 1.752,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 17 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:18:CURRENT:RB": {
+      "value": 1.747,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 18 current readback (nominal ~1.747 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:18:CURRENT:SP": {
+      "value": 1.747,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 18 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:19:CURRENT:RB": {
+      "value": 1.762,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 19 current readback (nominal ~1.762 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:19:CURRENT:SP": {
+      "value": 1.762,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 19 current setpoint",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:20:CURRENT:RB": {
+      "value": 1.791,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 20 current readback (nominal ~1.791 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": 0.0
+    },
+    "SR:MAG:VCM:20:CURRENT:SP": {
+      "value": 1.791,
+      "noise": 0,
+      "units": "A",
+      "description": "Storage-ring vertical corrector 20 current setpoint",
+      "min": 0.0
+    },
+    "SR:DIAG:BPM:01:POSITION:X": {
+      "value": 0.0439,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 01 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0439 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:01:POSITION:Y": {
+      "value": 0.0722,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 01 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0722 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:02:POSITION:X": {
+      "value": 0.0767,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 02 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0767 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:02:POSITION:Y": {
+      "value": 0.0368,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 02 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0368 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:03:POSITION:X": {
+      "value": 0.0899,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 03 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0899 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:03:POSITION:Y": {
+      "value": -0.0079,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 03 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0079 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:04:POSITION:X": {
+      "value": 0.0803,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 04 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0803 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:04:POSITION:Y": {
+      "value": -0.0507,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 04 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0507 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:05:POSITION:X": {
+      "value": 0.0502,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 05 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0502 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:05:POSITION:Y": {
+      "value": -0.0805,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 05 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0805 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:06:POSITION:X": {
+      "value": 0.0073,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 06 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0073 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:06:POSITION:Y": {
+      "value": -0.0899,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 06 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0899 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:07:POSITION:X": {
+      "value": -0.0374,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 07 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0374 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:07:POSITION:Y": {
+      "value": -0.0764,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 07 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0764 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:08:POSITION:X": {
+      "value": -0.0726,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 08 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0726 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:08:POSITION:Y": {
+      "value": -0.0434,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 08 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0434 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:09:POSITION:X": {
+      "value": -0.0893,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 09 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0893 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:09:POSITION:Y": {
+      "value": 0.0006,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 09 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0006 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:10:POSITION:X": {
+      "value": -0.0833,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 10 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0833 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:10:POSITION:Y": {
+      "value": 0.0445,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 10 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0445 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:11:POSITION:X": {
+      "value": -0.0561,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 11 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0561 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:11:POSITION:Y": {
+      "value": 0.077,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 11 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.077 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:12:POSITION:X": {
+      "value": -0.0146,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 12 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0146 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:12:POSITION:Y": {
+      "value": 0.0899,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 12 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0899 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:13:POSITION:X": {
+      "value": 0.0306,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 13 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0306 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:13:POSITION:Y": {
+      "value": 0.08,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 13 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.08 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:14:POSITION:X": {
+      "value": 0.068,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 14 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.068 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:14:POSITION:Y": {
+      "value": 0.0497,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 14 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0497 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:15:POSITION:X": {
+      "value": 0.0881,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 15 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0881 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:15:POSITION:Y": {
+      "value": 0.0067,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 15 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0067 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:16:POSITION:X": {
+      "value": 0.0858,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 16 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0858 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:16:POSITION:Y": {
+      "value": -0.0379,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 16 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0379 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:17:POSITION:X": {
+      "value": 0.0617,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 17 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0617 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:17:POSITION:Y": {
+      "value": -0.073,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 17 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.073 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:18:POSITION:X": {
+      "value": 0.0218,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 18 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0218 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:18:POSITION:Y": {
+      "value": -0.0894,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 18 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0894 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:19:POSITION:X": {
+      "value": -0.0236,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 19 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0236 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:19:POSITION:Y": {
+      "value": -0.0831,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 19 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0831 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:20:POSITION:X": {
+      "value": -0.063,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 20 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.063 mm closed-orbit offset)"
+    },
+    "SR:DIAG:BPM:20:POSITION:Y": {
+      "value": -0.0556,
+      "noise": 0.2,
+      "units": "mm",
+      "description": "Storage-ring BPM 20 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0556 mm closed-orbit offset)"
+    },
+    "BR:MAG:DIPOLE:01:CURRENT:RB": {
+      "value": 325.578,
+      "noise": 0.002,
+      "units": "A",
+      "description": "Booster-ring dipole bend magnet 01 current readback (nominal ~325.578 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BR:MAG:DIPOLE:01:CURRENT:SP": {
+      "value": 325.578,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-ring dipole bend magnet 01 current setpoint",
+      "min": 0.0
+    },
+    "BR:MAG:DIPOLE:01:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Booster-ring dipole bend magnet 01 fault summary (0=ok, 1=faulted)"
+    },
+    "BR:MAG:DIPOLE:01:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-ring dipole bend magnet 01 ready (1=ready, 0=not ready)"
+    },
+    "BR:MAG:DIPOLE:02:CURRENT:RB": {
+      "value": 329.08,
+      "noise": 0.002,
+      "units": "A",
+      "description": "Booster-ring dipole bend magnet 02 current readback (nominal ~329.08 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BR:MAG:DIPOLE:02:CURRENT:SP": {
+      "value": 329.08,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-ring dipole bend magnet 02 current setpoint",
+      "min": 0.0
+    },
+    "BR:MAG:DIPOLE:02:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Booster-ring dipole bend magnet 02 fault summary (0=ok, 1=faulted)"
+    },
+    "BR:MAG:DIPOLE:02:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-ring dipole bend magnet 02 ready (1=ready, 0=not ready)"
+    },
+    "BR:MAG:DIPOLE:03:CURRENT:RB": {
+      "value": 329.201,
+      "noise": 0.002,
+      "units": "A",
+      "description": "Booster-ring dipole bend magnet 03 current readback (nominal ~329.201 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BR:MAG:DIPOLE:03:CURRENT:SP": {
+      "value": 329.201,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-ring dipole bend magnet 03 current setpoint",
+      "min": 0.0
+    },
+    "BR:MAG:DIPOLE:03:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Booster-ring dipole bend magnet 03 fault summary (0=ok, 1=faulted)"
+    },
+    "BR:MAG:DIPOLE:03:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-ring dipole bend magnet 03 ready (1=ready, 0=not ready)"
+    },
+    "BR:MAG:DIPOLE:04:CURRENT:RB": {
+      "value": 325.898,
+      "noise": 0.002,
+      "units": "A",
+      "description": "Booster-ring dipole bend magnet 04 current readback (nominal ~325.898 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BR:MAG:DIPOLE:04:CURRENT:SP": {
+      "value": 325.898,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-ring dipole bend magnet 04 current setpoint",
+      "min": 0.0
+    },
+    "BR:MAG:DIPOLE:04:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Booster-ring dipole bend magnet 04 fault summary (0=ok, 1=faulted)"
+    },
+    "BR:MAG:DIPOLE:04:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-ring dipole bend magnet 04 ready (1=ready, 0=not ready)"
+    },
+    "BR:MAG:DIPOLE:05:CURRENT:RB": {
+      "value": 320.399,
+      "noise": 0.002,
+      "units": "A",
+      "description": "Booster-ring dipole bend magnet 05 current readback (nominal ~320.399 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BR:MAG:DIPOLE:05:CURRENT:SP": {
+      "value": 320.399,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-ring dipole bend magnet 05 current setpoint",
+      "min": 0.0
+    },
+    "BR:MAG:DIPOLE:05:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Booster-ring dipole bend magnet 05 fault summary (0=ok, 1=faulted)"
+    },
+    "BR:MAG:DIPOLE:05:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-ring dipole bend magnet 05 ready (1=ready, 0=not ready)"
+    },
+    "BR:MAG:DIPOLE:06:CURRENT:RB": {
+      "value": 314.752,
+      "noise": 0.002,
+      "units": "A",
+      "description": "Booster-ring dipole bend magnet 06 current readback (nominal ~314.752 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BR:MAG:DIPOLE:06:CURRENT:SP": {
+      "value": 314.752,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-ring dipole bend magnet 06 current setpoint",
+      "min": 0.0
+    },
+    "BR:MAG:DIPOLE:06:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Booster-ring dipole bend magnet 06 fault summary (0=ok, 1=faulted)"
+    },
+    "BR:MAG:DIPOLE:06:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-ring dipole bend magnet 06 ready (1=ready, 0=not ready)"
+    },
+    "BR:MAG:DIPOLE:07:CURRENT:RB": {
+      "value": 311.058,
+      "noise": 0.002,
+      "units": "A",
+      "description": "Booster-ring dipole bend magnet 07 current readback (nominal ~311.058 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BR:MAG:DIPOLE:07:CURRENT:SP": {
+      "value": 311.058,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-ring dipole bend magnet 07 current setpoint",
+      "min": 0.0
+    },
+    "BR:MAG:DIPOLE:07:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Booster-ring dipole bend magnet 07 fault summary (0=ok, 1=faulted)"
+    },
+    "BR:MAG:DIPOLE:07:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-ring dipole bend magnet 07 ready (1=ready, 0=not ready)"
+    },
+    "BR:MAG:DIPOLE:08:CURRENT:RB": {
+      "value": 310.693,
+      "noise": 0.002,
+      "units": "A",
+      "description": "Booster-ring dipole bend magnet 08 current readback (nominal ~310.693 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BR:MAG:DIPOLE:08:CURRENT:SP": {
+      "value": 310.693,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-ring dipole bend magnet 08 current setpoint",
+      "min": 0.0
+    },
+    "BR:MAG:DIPOLE:08:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Booster-ring dipole bend magnet 08 fault summary (0=ok, 1=faulted)"
+    },
+    "BR:MAG:DIPOLE:08:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-ring dipole bend magnet 08 ready (1=ready, 0=not ready)"
+    },
+    "BR:MAG:QF:01:CURRENT:RB": {
+      "value": 45.784,
+      "noise": 0.004,
+      "units": "A",
+      "description": "Booster-ring focusing quadrupole 01 current readback (nominal ~45.784 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BR:MAG:QF:01:CURRENT:SP": {
+      "value": 45.784,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-ring focusing quadrupole 01 current setpoint",
+      "min": 0.0
+    },
+    "BR:MAG:QF:01:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Booster-ring focusing quadrupole 01 fault summary (0=ok, 1=faulted)"
+    },
+    "BR:MAG:QF:01:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-ring focusing quadrupole 01 ready (1=ready, 0=not ready)"
+    },
+    "BR:MAG:QF:02:CURRENT:RB": {
+      "value": 46.277,
+      "noise": 0.004,
+      "units": "A",
+      "description": "Booster-ring focusing quadrupole 02 current readback (nominal ~46.277 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BR:MAG:QF:02:CURRENT:SP": {
+      "value": 46.277,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-ring focusing quadrupole 02 current setpoint",
+      "min": 0.0
+    },
+    "BR:MAG:QF:02:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Booster-ring focusing quadrupole 02 fault summary (0=ok, 1=faulted)"
+    },
+    "BR:MAG:QF:02:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-ring focusing quadrupole 02 ready (1=ready, 0=not ready)"
+    },
+    "BR:MAG:QF:03:CURRENT:RB": {
+      "value": 46.294,
+      "noise": 0.004,
+      "units": "A",
+      "description": "Booster-ring focusing quadrupole 03 current readback (nominal ~46.294 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BR:MAG:QF:03:CURRENT:SP": {
+      "value": 46.294,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-ring focusing quadrupole 03 current setpoint",
+      "min": 0.0
+    },
+    "BR:MAG:QF:03:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Booster-ring focusing quadrupole 03 fault summary (0=ok, 1=faulted)"
+    },
+    "BR:MAG:QF:03:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-ring focusing quadrupole 03 ready (1=ready, 0=not ready)"
+    },
+    "BR:MAG:QF:04:CURRENT:RB": {
+      "value": 45.829,
+      "noise": 0.004,
+      "units": "A",
+      "description": "Booster-ring focusing quadrupole 04 current readback (nominal ~45.829 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BR:MAG:QF:04:CURRENT:SP": {
+      "value": 45.829,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-ring focusing quadrupole 04 current setpoint",
+      "min": 0.0
+    },
+    "BR:MAG:QF:04:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Booster-ring focusing quadrupole 04 fault summary (0=ok, 1=faulted)"
+    },
+    "BR:MAG:QF:04:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-ring focusing quadrupole 04 ready (1=ready, 0=not ready)"
+    },
+    "BR:MAG:QD:01:CURRENT:RB": {
+      "value": 38.662,
+      "noise": 0.004,
+      "units": "A",
+      "description": "Booster-ring defocusing quadrupole 01 current readback (nominal ~38.662 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BR:MAG:QD:01:CURRENT:SP": {
+      "value": 38.662,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-ring defocusing quadrupole 01 current setpoint",
+      "min": 0.0
+    },
+    "BR:MAG:QD:01:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Booster-ring defocusing quadrupole 01 fault summary (0=ok, 1=faulted)"
+    },
+    "BR:MAG:QD:01:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-ring defocusing quadrupole 01 ready (1=ready, 0=not ready)"
+    },
+    "BR:MAG:QD:02:CURRENT:RB": {
+      "value": 39.078,
+      "noise": 0.004,
+      "units": "A",
+      "description": "Booster-ring defocusing quadrupole 02 current readback (nominal ~39.078 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BR:MAG:QD:02:CURRENT:SP": {
+      "value": 39.078,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-ring defocusing quadrupole 02 current setpoint",
+      "min": 0.0
+    },
+    "BR:MAG:QD:02:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Booster-ring defocusing quadrupole 02 fault summary (0=ok, 1=faulted)"
+    },
+    "BR:MAG:QD:02:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-ring defocusing quadrupole 02 ready (1=ready, 0=not ready)"
+    },
+    "BR:MAG:QD:03:CURRENT:RB": {
+      "value": 39.093,
+      "noise": 0.004,
+      "units": "A",
+      "description": "Booster-ring defocusing quadrupole 03 current readback (nominal ~39.093 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BR:MAG:QD:03:CURRENT:SP": {
+      "value": 39.093,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-ring defocusing quadrupole 03 current setpoint",
+      "min": 0.0
+    },
+    "BR:MAG:QD:03:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Booster-ring defocusing quadrupole 03 fault summary (0=ok, 1=faulted)"
+    },
+    "BR:MAG:QD:03:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-ring defocusing quadrupole 03 ready (1=ready, 0=not ready)"
+    },
+    "BR:MAG:QD:04:CURRENT:RB": {
+      "value": 38.7,
+      "noise": 0.004,
+      "units": "A",
+      "description": "Booster-ring defocusing quadrupole 04 current readback (nominal ~38.7 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BR:MAG:QD:04:CURRENT:SP": {
+      "value": 38.7,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-ring defocusing quadrupole 04 current setpoint",
+      "min": 0.0
+    },
+    "BR:MAG:QD:04:STATUS:FAULT": {
+      "value": 0,
+      "noise": 0,
+      "description": "Booster-ring defocusing quadrupole 04 fault summary (0=ok, 1=faulted)"
+    },
+    "BR:MAG:QD:04:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-ring defocusing quadrupole 04 ready (1=ready, 0=not ready)"
+    },
+    "BTS:MAG:HCM:01:CURRENT:RB": {
+      "value": 1.221,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Booster-to-storage transport-line horizontal corrector 01 current readback (nominal ~1.221 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BTS:MAG:HCM:01:CURRENT:SP": {
+      "value": 1.221,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-to-storage transport-line horizontal corrector 01 current setpoint",
+      "min": 0.0
+    },
+    "BTS:MAG:HCM:01:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-to-storage transport-line horizontal corrector 01 ready (1=ready, 0=not ready)"
+    },
+    "BTS:MAG:HCM:02:CURRENT:RB": {
+      "value": 1.234,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Booster-to-storage transport-line horizontal corrector 02 current readback (nominal ~1.234 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BTS:MAG:HCM:02:CURRENT:SP": {
+      "value": 1.234,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-to-storage transport-line horizontal corrector 02 current setpoint",
+      "min": 0.0
+    },
+    "BTS:MAG:HCM:02:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-to-storage transport-line horizontal corrector 02 ready (1=ready, 0=not ready)"
+    },
+    "BTS:MAG:HCM:03:CURRENT:RB": {
+      "value": 1.235,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Booster-to-storage transport-line horizontal corrector 03 current readback (nominal ~1.235 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BTS:MAG:HCM:03:CURRENT:SP": {
+      "value": 1.235,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-to-storage transport-line horizontal corrector 03 current setpoint",
+      "min": 0.0
+    },
+    "BTS:MAG:HCM:03:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-to-storage transport-line horizontal corrector 03 ready (1=ready, 0=not ready)"
+    },
+    "BTS:MAG:HCM:04:CURRENT:RB": {
+      "value": 1.222,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Booster-to-storage transport-line horizontal corrector 04 current readback (nominal ~1.222 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BTS:MAG:HCM:04:CURRENT:SP": {
+      "value": 1.222,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-to-storage transport-line horizontal corrector 04 current setpoint",
+      "min": 0.0
+    },
+    "BTS:MAG:HCM:04:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-to-storage transport-line horizontal corrector 04 ready (1=ready, 0=not ready)"
+    },
+    "BTS:MAG:HCM:05:CURRENT:RB": {
+      "value": 1.201,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Booster-to-storage transport-line horizontal corrector 05 current readback (nominal ~1.201 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BTS:MAG:HCM:05:CURRENT:SP": {
+      "value": 1.201,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-to-storage transport-line horizontal corrector 05 current setpoint",
+      "min": 0.0
+    },
+    "BTS:MAG:HCM:05:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-to-storage transport-line horizontal corrector 05 ready (1=ready, 0=not ready)"
+    },
+    "BTS:MAG:HCM:06:CURRENT:RB": {
+      "value": 1.18,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Booster-to-storage transport-line horizontal corrector 06 current readback (nominal ~1.18 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BTS:MAG:HCM:06:CURRENT:SP": {
+      "value": 1.18,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-to-storage transport-line horizontal corrector 06 current setpoint",
+      "min": 0.0
+    },
+    "BTS:MAG:HCM:06:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-to-storage transport-line horizontal corrector 06 ready (1=ready, 0=not ready)"
+    },
+    "BTS:MAG:QF:01:CURRENT:RB": {
+      "value": 40.697,
+      "noise": 0.004,
+      "units": "A",
+      "description": "Booster-to-storage transport-line focusing quadrupole 01 current readback (nominal ~40.697 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BTS:MAG:QF:01:CURRENT:SP": {
+      "value": 40.697,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-to-storage transport-line focusing quadrupole 01 current setpoint",
+      "min": 0.0
+    },
+    "BTS:MAG:QF:01:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-to-storage transport-line focusing quadrupole 01 ready (1=ready, 0=not ready)"
+    },
+    "BTS:MAG:QF:02:CURRENT:RB": {
+      "value": 41.135,
+      "noise": 0.004,
+      "units": "A",
+      "description": "Booster-to-storage transport-line focusing quadrupole 02 current readback (nominal ~41.135 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BTS:MAG:QF:02:CURRENT:SP": {
+      "value": 41.135,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-to-storage transport-line focusing quadrupole 02 current setpoint",
+      "min": 0.0
+    },
+    "BTS:MAG:QF:02:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-to-storage transport-line focusing quadrupole 02 ready (1=ready, 0=not ready)"
+    },
+    "BTS:MAG:QF:03:CURRENT:RB": {
+      "value": 41.15,
+      "noise": 0.004,
+      "units": "A",
+      "description": "Booster-to-storage transport-line focusing quadrupole 03 current readback (nominal ~41.15 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BTS:MAG:QF:03:CURRENT:SP": {
+      "value": 41.15,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-to-storage transport-line focusing quadrupole 03 current setpoint",
+      "min": 0.0
+    },
+    "BTS:MAG:QF:03:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-to-storage transport-line focusing quadrupole 03 ready (1=ready, 0=not ready)"
+    },
+    "BTS:MAG:QF:04:CURRENT:RB": {
+      "value": 40.737,
+      "noise": 0.004,
+      "units": "A",
+      "description": "Booster-to-storage transport-line focusing quadrupole 04 current readback (nominal ~40.737 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BTS:MAG:QF:04:CURRENT:SP": {
+      "value": 40.737,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-to-storage transport-line focusing quadrupole 04 current setpoint",
+      "min": 0.0
+    },
+    "BTS:MAG:QF:04:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-to-storage transport-line focusing quadrupole 04 ready (1=ready, 0=not ready)"
+    },
+    "BTS:MAG:QF:05:CURRENT:RB": {
+      "value": 40.05,
+      "noise": 0.004,
+      "units": "A",
+      "description": "Booster-to-storage transport-line focusing quadrupole 05 current readback (nominal ~40.05 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BTS:MAG:QF:05:CURRENT:SP": {
+      "value": 40.05,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-to-storage transport-line focusing quadrupole 05 current setpoint",
+      "min": 0.0
+    },
+    "BTS:MAG:QF:05:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-to-storage transport-line focusing quadrupole 05 ready (1=ready, 0=not ready)"
+    },
+    "BTS:MAG:QF:06:CURRENT:RB": {
+      "value": 39.344,
+      "noise": 0.004,
+      "units": "A",
+      "description": "Booster-to-storage transport-line focusing quadrupole 06 current readback (nominal ~39.344 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BTS:MAG:QF:06:CURRENT:SP": {
+      "value": 39.344,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-to-storage transport-line focusing quadrupole 06 current setpoint",
+      "min": 0.0
+    },
+    "BTS:MAG:QF:06:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-to-storage transport-line focusing quadrupole 06 ready (1=ready, 0=not ready)"
+    },
+    "BTS:MAG:VCM:01:CURRENT:RB": {
+      "value": 1.017,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Booster-to-storage transport-line vertical corrector 01 current readback (nominal ~1.017 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BTS:MAG:VCM:01:CURRENT:SP": {
+      "value": 1.017,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-to-storage transport-line vertical corrector 01 current setpoint",
+      "min": 0.0
+    },
+    "BTS:MAG:VCM:01:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-to-storage transport-line vertical corrector 01 ready (1=ready, 0=not ready)"
+    },
+    "BTS:MAG:VCM:02:CURRENT:RB": {
+      "value": 1.028,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Booster-to-storage transport-line vertical corrector 02 current readback (nominal ~1.028 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BTS:MAG:VCM:02:CURRENT:SP": {
+      "value": 1.028,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-to-storage transport-line vertical corrector 02 current setpoint",
+      "min": 0.0
+    },
+    "BTS:MAG:VCM:02:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-to-storage transport-line vertical corrector 02 ready (1=ready, 0=not ready)"
+    },
+    "BTS:MAG:VCM:03:CURRENT:RB": {
+      "value": 1.029,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Booster-to-storage transport-line vertical corrector 03 current readback (nominal ~1.029 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BTS:MAG:VCM:03:CURRENT:SP": {
+      "value": 1.029,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-to-storage transport-line vertical corrector 03 current setpoint",
+      "min": 0.0
+    },
+    "BTS:MAG:VCM:03:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-to-storage transport-line vertical corrector 03 ready (1=ready, 0=not ready)"
+    },
+    "BTS:MAG:VCM:04:CURRENT:RB": {
+      "value": 1.018,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Booster-to-storage transport-line vertical corrector 04 current readback (nominal ~1.018 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BTS:MAG:VCM:04:CURRENT:SP": {
+      "value": 1.018,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-to-storage transport-line vertical corrector 04 current setpoint",
+      "min": 0.0
+    },
+    "BTS:MAG:VCM:04:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-to-storage transport-line vertical corrector 04 ready (1=ready, 0=not ready)"
+    },
+    "BTS:MAG:VCM:05:CURRENT:RB": {
+      "value": 1.001,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Booster-to-storage transport-line vertical corrector 05 current readback (nominal ~1.001 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BTS:MAG:VCM:05:CURRENT:SP": {
+      "value": 1.001,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-to-storage transport-line vertical corrector 05 current setpoint",
+      "min": 0.0
+    },
+    "BTS:MAG:VCM:05:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-to-storage transport-line vertical corrector 05 ready (1=ready, 0=not ready)"
+    },
+    "BTS:MAG:VCM:06:CURRENT:RB": {
+      "value": 0.984,
+      "noise": 0.01,
+      "units": "A",
+      "description": "Booster-to-storage transport-line vertical corrector 06 current readback (nominal ~0.984 A; sp-echo -- physics-free, no lattice model behind BR/BTS)",
+      "min": 0.0
+    },
+    "BTS:MAG:VCM:06:CURRENT:SP": {
+      "value": 0.984,
+      "noise": 0,
+      "units": "A",
+      "description": "Booster-to-storage transport-line vertical corrector 06 current setpoint",
+      "min": 0.0
+    },
+    "BTS:MAG:VCM:06:STATUS:READY": {
+      "value": 1,
+      "noise": 0,
+      "description": "Booster-to-storage transport-line vertical corrector 06 ready (1=ready, 0=not ready)"
     }
   }
 }
