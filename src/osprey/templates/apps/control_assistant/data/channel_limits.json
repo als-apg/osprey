@@ -1,26 +1,13 @@
 {
-  "_comment": "Channel Limits Database - defines safety limits and verification for runtime validation. All 168 writable :SP addresses from the namespace-union manifest (docker/virtual-accelerator/manifest) are covered below, family-banded from the SR lattice model's device inventory and machine.json's simulated nominal values (see docker/virtual-accelerator/lattice/response.py for the SR corrector +-10A convention that sizes the HCM/VCM band; other families use a generous band around their machine.json nominal spread).",
-  "_version": "2.0",
-  "_description": "This database configures automatic limits validation and verification for channel writes. The connector reads this configuration and applies it automatically - capabilities don't need to know about these details. Note: max_step is intentionally NOT set on the real channels below -- LimitsValidator's max_step check reads the current value via a direct pyepics caget regardless of connector type (not connector-abstracted), which would block every write to these channels in the default mock control-system type (no live EPICS server behind mock addresses). min/max bounds plus readback verification below already enforce 'value must fit inside its own limits' without that failure mode.",
+  "_comment": "Channel Limits Database - safety limits and verification for runtime write validation. This file is a pure projection of the namespace-union manifest (docker/virtual-accelerator/manifest): it carries exactly one entry per manifest address, and the write-safety contract is a single rule -- a channel is writable if and only if it is a setpoint (:SP). The 168 :SP addresses are writable with min/max bounds (family-banded from the SR lattice model's device inventory and machine.json nominal values); every other manifest address (readbacks :RB / :X / :Y, status and fault flags, golden references, telemetry) is writable:false so the software safety layer -- not just the IOC -- refuses writes to it. Regenerate with the manifest; tests/templates/test_channel_limits_va.py guards the projection.",
+  "_version": "3.0",
+  "_description": "This database configures automatic limits validation and verification for channel writes. The connector reads it automatically - capabilities need not know these details. max_step is intentionally NOT set on any entry: LimitsValidator's max_step check reads the current value via a direct pyepics caget regardless of connector type (not connector-abstracted), which would block every write under the default mock control-system type (no live EPICS server behind mock addresses). min/max bounds plus readback verification already enforce 'a value must fit inside its own limits' without that failure mode.",
   "defaults": {
     "_comment": "Default settings inherited by all channels unless overridden",
     "writable": true,
     "verification": {
       "level": "callback",
       "_comment": "Default verification: callback (fast, EPICS IOC confirmation)"
-    }
-  },
-  "MAG:QF[QF01]:CURRENT:SP": {
-    "_comment": "Example: read-only channel (writes blocked). Retained alongside the VA lattice entries because the generic control-assistant write-safety e2e (tests/e2e/claude_code/test_safety_writes.py, test_safety_approval_e2e.py) depend on it; do not remove.",
-    "writable": false
-  },
-  "DIAGNOSTICS:TEMPERATURE:SP": {
-    "_comment": "Example: low-criticality bounded channel (no verification, fastest writes). Retained for the generic write-safety/limits-deny e2e; do not remove.",
-    "min_value": 0.0,
-    "max_value": 100.0,
-    "verification": {
-      "level": "none",
-      "_comment": "No verification - fastest write mode (use for non-critical channels)"
     }
   },
   "BR:MAG:DIPOLE:01:CURRENT:SP": {
@@ -1366,5 +1353,3185 @@
       "level": "readback",
       "tolerance_percent": 2.0
     }
+  },
+  "BR:DIAG:BPM:01:POSITION:X": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:01:POSITION:Y": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:01:STATUS:VALID": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:02:POSITION:X": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:02:POSITION:Y": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:02:STATUS:VALID": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:03:POSITION:X": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:03:POSITION:Y": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:03:STATUS:VALID": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:04:POSITION:X": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:04:POSITION:Y": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:04:STATUS:VALID": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:05:POSITION:X": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:05:POSITION:Y": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:05:STATUS:VALID": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:06:POSITION:X": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:06:POSITION:Y": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:06:STATUS:VALID": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:07:POSITION:X": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:07:POSITION:Y": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:07:STATUS:VALID": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:08:POSITION:X": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:08:POSITION:Y": {
+    "writable": false
+  },
+  "BR:DIAG:BPM:08:STATUS:VALID": {
+    "writable": false
+  },
+  "BR:DIAG:DCCT:01:CURRENT:RB": {
+    "writable": false
+  },
+  "BR:DIAG:DCCT:01:STATUS:VALID": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:01:CURRENT:RB": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:01:STATUS:FAULT": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:01:STATUS:READY": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:02:CURRENT:RB": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:02:STATUS:FAULT": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:02:STATUS:READY": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:03:CURRENT:RB": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:03:STATUS:FAULT": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:03:STATUS:READY": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:04:CURRENT:RB": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:04:STATUS:FAULT": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:04:STATUS:READY": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:05:CURRENT:RB": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:05:STATUS:FAULT": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:05:STATUS:READY": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:06:CURRENT:RB": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:06:STATUS:FAULT": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:06:STATUS:READY": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:07:CURRENT:RB": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:07:STATUS:FAULT": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:07:STATUS:READY": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:08:CURRENT:RB": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:08:STATUS:FAULT": {
+    "writable": false
+  },
+  "BR:MAG:DIPOLE:08:STATUS:READY": {
+    "writable": false
+  },
+  "BR:MAG:QD:01:CURRENT:RB": {
+    "writable": false
+  },
+  "BR:MAG:QD:01:STATUS:FAULT": {
+    "writable": false
+  },
+  "BR:MAG:QD:01:STATUS:READY": {
+    "writable": false
+  },
+  "BR:MAG:QD:02:CURRENT:RB": {
+    "writable": false
+  },
+  "BR:MAG:QD:02:STATUS:FAULT": {
+    "writable": false
+  },
+  "BR:MAG:QD:02:STATUS:READY": {
+    "writable": false
+  },
+  "BR:MAG:QD:03:CURRENT:RB": {
+    "writable": false
+  },
+  "BR:MAG:QD:03:STATUS:FAULT": {
+    "writable": false
+  },
+  "BR:MAG:QD:03:STATUS:READY": {
+    "writable": false
+  },
+  "BR:MAG:QD:04:CURRENT:RB": {
+    "writable": false
+  },
+  "BR:MAG:QD:04:STATUS:FAULT": {
+    "writable": false
+  },
+  "BR:MAG:QD:04:STATUS:READY": {
+    "writable": false
+  },
+  "BR:MAG:QF:01:CURRENT:RB": {
+    "writable": false
+  },
+  "BR:MAG:QF:01:STATUS:FAULT": {
+    "writable": false
+  },
+  "BR:MAG:QF:01:STATUS:READY": {
+    "writable": false
+  },
+  "BR:MAG:QF:02:CURRENT:RB": {
+    "writable": false
+  },
+  "BR:MAG:QF:02:STATUS:FAULT": {
+    "writable": false
+  },
+  "BR:MAG:QF:02:STATUS:READY": {
+    "writable": false
+  },
+  "BR:MAG:QF:03:CURRENT:RB": {
+    "writable": false
+  },
+  "BR:MAG:QF:03:STATUS:FAULT": {
+    "writable": false
+  },
+  "BR:MAG:QF:03:STATUS:READY": {
+    "writable": false
+  },
+  "BR:MAG:QF:04:CURRENT:RB": {
+    "writable": false
+  },
+  "BR:MAG:QF:04:STATUS:FAULT": {
+    "writable": false
+  },
+  "BR:MAG:QF:04:STATUS:READY": {
+    "writable": false
+  },
+  "BTS:DIAG:BPM:01:POSITION:X": {
+    "writable": false
+  },
+  "BTS:DIAG:BPM:01:POSITION:Y": {
+    "writable": false
+  },
+  "BTS:DIAG:BPM:01:STATUS:VALID": {
+    "writable": false
+  },
+  "BTS:DIAG:BPM:02:POSITION:X": {
+    "writable": false
+  },
+  "BTS:DIAG:BPM:02:POSITION:Y": {
+    "writable": false
+  },
+  "BTS:DIAG:BPM:02:STATUS:VALID": {
+    "writable": false
+  },
+  "BTS:DIAG:BPM:03:POSITION:X": {
+    "writable": false
+  },
+  "BTS:DIAG:BPM:03:POSITION:Y": {
+    "writable": false
+  },
+  "BTS:DIAG:BPM:03:STATUS:VALID": {
+    "writable": false
+  },
+  "BTS:DIAG:BPM:04:POSITION:X": {
+    "writable": false
+  },
+  "BTS:DIAG:BPM:04:POSITION:Y": {
+    "writable": false
+  },
+  "BTS:DIAG:BPM:04:STATUS:VALID": {
+    "writable": false
+  },
+  "BTS:DIAG:BPM:05:POSITION:X": {
+    "writable": false
+  },
+  "BTS:DIAG:BPM:05:POSITION:Y": {
+    "writable": false
+  },
+  "BTS:DIAG:BPM:05:STATUS:VALID": {
+    "writable": false
+  },
+  "BTS:DIAG:BPM:06:POSITION:X": {
+    "writable": false
+  },
+  "BTS:DIAG:BPM:06:POSITION:Y": {
+    "writable": false
+  },
+  "BTS:DIAG:BPM:06:STATUS:VALID": {
+    "writable": false
+  },
+  "BTS:MAG:HCM:01:CURRENT:RB": {
+    "writable": false
+  },
+  "BTS:MAG:HCM:01:STATUS:READY": {
+    "writable": false
+  },
+  "BTS:MAG:HCM:02:CURRENT:RB": {
+    "writable": false
+  },
+  "BTS:MAG:HCM:02:STATUS:READY": {
+    "writable": false
+  },
+  "BTS:MAG:HCM:03:CURRENT:RB": {
+    "writable": false
+  },
+  "BTS:MAG:HCM:03:STATUS:READY": {
+    "writable": false
+  },
+  "BTS:MAG:HCM:04:CURRENT:RB": {
+    "writable": false
+  },
+  "BTS:MAG:HCM:04:STATUS:READY": {
+    "writable": false
+  },
+  "BTS:MAG:HCM:05:CURRENT:RB": {
+    "writable": false
+  },
+  "BTS:MAG:HCM:05:STATUS:READY": {
+    "writable": false
+  },
+  "BTS:MAG:HCM:06:CURRENT:RB": {
+    "writable": false
+  },
+  "BTS:MAG:HCM:06:STATUS:READY": {
+    "writable": false
+  },
+  "BTS:MAG:QF:01:CURRENT:RB": {
+    "writable": false
+  },
+  "BTS:MAG:QF:01:STATUS:READY": {
+    "writable": false
+  },
+  "BTS:MAG:QF:02:CURRENT:RB": {
+    "writable": false
+  },
+  "BTS:MAG:QF:02:STATUS:READY": {
+    "writable": false
+  },
+  "BTS:MAG:QF:03:CURRENT:RB": {
+    "writable": false
+  },
+  "BTS:MAG:QF:03:STATUS:READY": {
+    "writable": false
+  },
+  "BTS:MAG:QF:04:CURRENT:RB": {
+    "writable": false
+  },
+  "BTS:MAG:QF:04:STATUS:READY": {
+    "writable": false
+  },
+  "BTS:MAG:QF:05:CURRENT:RB": {
+    "writable": false
+  },
+  "BTS:MAG:QF:05:STATUS:READY": {
+    "writable": false
+  },
+  "BTS:MAG:QF:06:CURRENT:RB": {
+    "writable": false
+  },
+  "BTS:MAG:QF:06:STATUS:READY": {
+    "writable": false
+  },
+  "BTS:MAG:VCM:01:CURRENT:RB": {
+    "writable": false
+  },
+  "BTS:MAG:VCM:01:STATUS:READY": {
+    "writable": false
+  },
+  "BTS:MAG:VCM:02:CURRENT:RB": {
+    "writable": false
+  },
+  "BTS:MAG:VCM:02:STATUS:READY": {
+    "writable": false
+  },
+  "BTS:MAG:VCM:03:CURRENT:RB": {
+    "writable": false
+  },
+  "BTS:MAG:VCM:03:STATUS:READY": {
+    "writable": false
+  },
+  "BTS:MAG:VCM:04:CURRENT:RB": {
+    "writable": false
+  },
+  "BTS:MAG:VCM:04:STATUS:READY": {
+    "writable": false
+  },
+  "BTS:MAG:VCM:05:CURRENT:RB": {
+    "writable": false
+  },
+  "BTS:MAG:VCM:05:STATUS:READY": {
+    "writable": false
+  },
+  "BTS:MAG:VCM:06:CURRENT:RB": {
+    "writable": false
+  },
+  "BTS:MAG:VCM:06:STATUS:READY": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:01:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:01:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:01:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:01:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:01:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:01:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:01:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:01:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:02:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:02:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:02:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:02:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:02:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:02:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:02:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:02:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:03:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:03:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:03:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:03:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:03:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:03:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:03:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:03:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:04:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:04:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:04:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:04:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:04:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:04:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:04:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:04:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:05:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:05:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:05:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:05:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:05:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:05:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:05:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:05:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:06:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:06:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:06:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:06:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:06:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:06:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:06:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:06:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:07:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:07:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:07:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:07:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:07:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:07:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:07:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:07:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:08:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:08:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:08:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:08:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:08:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:08:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:08:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:08:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:09:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:09:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:09:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:09:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:09:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:09:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:09:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:09:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:10:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:10:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:10:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:10:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:10:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:10:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:10:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:10:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:11:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:11:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:11:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:11:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:11:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:11:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:11:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:11:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:12:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:12:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:12:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:12:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:12:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:12:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:12:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:12:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:13:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:13:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:13:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:13:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:13:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:13:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:13:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:13:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:14:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:14:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:14:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:14:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:14:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:14:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:14:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:14:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:15:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:15:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:15:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:15:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:15:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:15:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:15:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:15:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:16:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:16:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:16:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:16:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:16:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:16:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:16:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:16:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:17:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:17:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:17:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:17:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:17:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:17:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:17:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:17:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:18:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:18:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:18:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:18:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:18:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:18:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:18:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:18:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:19:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:19:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:19:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:19:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:19:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:19:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:19:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:19:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:20:GOLDEN:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:20:GOLDEN:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:20:OFFSET:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:20:OFFSET:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:20:POSITION:X": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:20:POSITION:Y": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:20:STATUS:CONNECTED": {
+    "writable": false
+  },
+  "SR:DIAG:BPM:20:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:DCCT:01:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:DIAG:DCCT:01:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:01:DOSE_RATE:AVG_1HR": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:01:DOSE_RATE:AVG_1MIN": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:01:DOSE_RATE:INST": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:01:STATUS:ALARM": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:01:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:02:DOSE_RATE:AVG_1HR": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:02:DOSE_RATE:AVG_1MIN": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:02:DOSE_RATE:INST": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:02:STATUS:ALARM": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:02:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:03:DOSE_RATE:AVG_1HR": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:03:DOSE_RATE:AVG_1MIN": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:03:DOSE_RATE:INST": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:03:STATUS:ALARM": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:03:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:04:DOSE_RATE:AVG_1HR": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:04:DOSE_RATE:AVG_1MIN": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:04:DOSE_RATE:INST": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:04:STATUS:ALARM": {
+    "writable": false
+  },
+  "SR:DIAG:GAMMA:04:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:01:DOSE_RATE:AVG_1HR": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:01:DOSE_RATE:AVG_1MIN": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:01:DOSE_RATE:INST": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:01:STATUS:ALARM": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:01:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:02:DOSE_RATE:AVG_1HR": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:02:DOSE_RATE:AVG_1MIN": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:02:DOSE_RATE:INST": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:02:STATUS:ALARM": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:02:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:03:DOSE_RATE:AVG_1HR": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:03:DOSE_RATE:AVG_1MIN": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:03:DOSE_RATE:INST": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:03:STATUS:ALARM": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:03:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:04:DOSE_RATE:AVG_1HR": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:04:DOSE_RATE:AVG_1MIN": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:04:DOSE_RATE:INST": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:04:STATUS:ALARM": {
+    "writable": false
+  },
+  "SR:DIAG:NEUTRON:04:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:01:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:01:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:01:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:01:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:01:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:02:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:02:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:02:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:02:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:02:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:03:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:03:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:03:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:03:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:03:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:04:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:04:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:04:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:04:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:04:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:05:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:05:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:05:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:05:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:05:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:06:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:06:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:06:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:06:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:06:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:07:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:07:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:07:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:07:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:07:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:08:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:08:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:08:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:08:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:08:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:09:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:09:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:09:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:09:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:09:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:10:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:10:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:10:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:10:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:10:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:11:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:11:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:11:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:11:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:11:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:12:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:12:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:12:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:12:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:12:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:13:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:13:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:13:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:13:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:13:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:14:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:14:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:14:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:14:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:14:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:15:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:15:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:15:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:15:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:15:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:16:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:16:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:16:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:16:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:16:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:17:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:17:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:17:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:17:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:17:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:18:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:18:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:18:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:18:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:18:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:19:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:19:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:19:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:19:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:19:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:20:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:20:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:20:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:20:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:20:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:21:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:21:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:21:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:21:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:21:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:22:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:22:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:22:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:22:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:22:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:23:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:23:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:23:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:23:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:23:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:24:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:24:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:24:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:24:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:DIPOLE:24:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:01:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:01:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:01:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:01:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:02:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:02:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:02:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:02:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:03:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:03:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:03:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:03:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:04:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:04:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:04:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:04:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:05:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:05:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:05:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:05:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:06:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:06:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:06:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:06:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:07:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:07:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:07:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:07:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:08:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:08:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:08:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:08:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:09:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:09:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:09:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:09:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:10:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:10:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:10:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:10:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:11:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:11:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:11:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:11:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:12:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:12:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:12:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:12:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:13:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:13:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:13:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:13:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:14:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:14:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:14:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:14:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:15:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:15:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:15:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:15:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:16:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:16:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:16:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:16:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:17:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:17:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:17:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:17:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:18:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:18:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:18:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:18:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:19:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:19:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:19:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:19:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:HCM:20:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:HCM:20:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:HCM:20:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:HCM:20:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:01:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:01:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:01:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:01:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:01:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:02:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:02:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:02:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:02:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:02:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:03:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:03:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:03:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:03:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:03:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:04:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:04:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:04:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:04:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:04:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:05:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:05:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:05:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:05:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:05:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:06:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:06:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:06:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:06:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:06:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:07:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:07:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:07:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:07:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:07:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:08:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:08:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:08:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:08:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:08:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:09:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:09:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:09:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:09:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:09:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:10:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:10:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:10:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:10:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:10:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:11:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:11:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:11:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:11:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:11:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:12:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:12:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:12:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:12:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:12:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:13:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:13:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:13:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:13:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:13:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:14:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:14:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:14:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:14:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:14:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:15:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:15:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:15:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:15:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:15:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QD:16:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QD:16:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QD:16:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QD:16:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QD:16:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:01:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:01:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:01:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:01:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:01:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:02:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:02:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:02:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:02:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:02:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:03:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:03:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:03:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:03:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:03:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:04:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:04:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:04:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:04:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:04:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:05:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:05:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:05:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:05:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:05:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:06:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:06:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:06:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:06:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:06:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:07:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:07:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:07:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:07:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:07:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:08:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:08:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:08:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:08:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:08:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:09:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:09:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:09:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:09:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:09:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:10:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:10:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:10:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:10:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:10:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:11:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:11:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:11:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:11:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:11:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:12:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:12:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:12:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:12:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:12:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:13:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:13:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:13:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:13:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:13:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:14:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:14:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:14:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:14:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:14:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:15:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:15:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:15:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:15:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:15:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:QF:16:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:QF:16:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:QF:16:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:QF:16:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:QF:16:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:01:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:01:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:01:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:01:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:01:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:02:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:02:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:02:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:02:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:02:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:03:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:03:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:03:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:03:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:03:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:04:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:04:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:04:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:04:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:04:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:05:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:05:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:05:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:05:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:05:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:06:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:06:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:06:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:06:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:06:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:07:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:07:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:07:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:07:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:07:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:08:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:08:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:08:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:08:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:08:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:09:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:09:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:09:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:09:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:09:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:10:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:10:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:10:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:10:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:10:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:11:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:11:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:11:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:11:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:11:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SD:12:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SD:12:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SD:12:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SD:12:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SD:12:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:01:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:01:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:01:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:01:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:01:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:02:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:02:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:02:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:02:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:02:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:03:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:03:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:03:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:03:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:03:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:04:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:04:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:04:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:04:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:04:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:05:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:05:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:05:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:05:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:05:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:06:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:06:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:06:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:06:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:06:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:07:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:07:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:07:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:07:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:07:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:08:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:08:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:08:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:08:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:08:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:09:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:09:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:09:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:09:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:09:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:10:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:10:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:10:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:10:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:10:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:11:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:11:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:11:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:11:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:11:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:SF:12:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:SF:12:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:SF:12:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:MAG:SF:12:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:SF:12:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:01:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:01:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:01:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:01:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:02:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:02:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:02:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:02:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:03:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:03:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:03:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:03:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:04:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:04:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:04:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:04:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:05:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:05:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:05:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:05:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:06:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:06:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:06:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:06:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:07:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:07:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:07:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:07:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:08:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:08:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:08:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:08:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:09:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:09:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:09:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:09:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:10:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:10:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:10:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:10:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:11:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:11:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:11:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:11:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:12:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:12:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:12:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:12:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:13:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:13:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:13:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:13:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:14:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:14:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:14:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:14:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:15:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:15:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:15:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:15:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:16:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:16:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:16:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:16:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:17:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:17:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:17:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:17:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:18:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:18:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:18:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:18:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:19:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:19:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:19:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:19:STATUS:READY": {
+    "writable": false
+  },
+  "SR:MAG:VCM:20:CURRENT:GOLDEN": {
+    "writable": false
+  },
+  "SR:MAG:VCM:20:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:MAG:VCM:20:STATUS:ON": {
+    "writable": false
+  },
+  "SR:MAG:VCM:20:STATUS:READY": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:01:FREQUENCY:RB": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:01:POWER:FWD": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:01:POWER:NET": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:01:POWER:REV": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:01:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:01:STATUS:INTERLOCK": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:01:STATUS:READY": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:01:TEMPERATURE:RB": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:01:TUNER:RB": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:01:VOLTAGE:GOLDEN": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:01:VOLTAGE:RB": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:02:FREQUENCY:RB": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:02:POWER:FWD": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:02:POWER:NET": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:02:POWER:REV": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:02:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:02:STATUS:INTERLOCK": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:02:STATUS:READY": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:02:TEMPERATURE:RB": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:02:TUNER:RB": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:02:VOLTAGE:GOLDEN": {
+    "writable": false
+  },
+  "SR:RF:CAVITY:02:VOLTAGE:RB": {
+    "writable": false
+  },
+  "SR:RF:KLYSTRON:01:POWER:RB": {
+    "writable": false
+  },
+  "SR:RF:KLYSTRON:01:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:RF:KLYSTRON:01:STATUS:ON": {
+    "writable": false
+  },
+  "SR:RF:KLYSTRON:01:STATUS:READY": {
+    "writable": false
+  },
+  "SR:RF:KLYSTRON:01:VOLTAGE:RB": {
+    "writable": false
+  },
+  "SR:RF:KLYSTRON:02:POWER:RB": {
+    "writable": false
+  },
+  "SR:RF:KLYSTRON:02:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:RF:KLYSTRON:02:STATUS:ON": {
+    "writable": false
+  },
+  "SR:RF:KLYSTRON:02:STATUS:READY": {
+    "writable": false
+  },
+  "SR:RF:KLYSTRON:02:VOLTAGE:RB": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR01:PRESSURE:RB": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR01:STATUS:ON": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR01:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR02:PRESSURE:RB": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR02:STATUS:ON": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR02:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR03:PRESSURE:RB": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR03:STATUS:ON": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR03:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR04:PRESSURE:RB": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR04:STATUS:ON": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR04:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR05:PRESSURE:RB": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR05:STATUS:ON": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR05:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR06:PRESSURE:RB": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR06:STATUS:ON": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR06:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR07:PRESSURE:RB": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR07:STATUS:ON": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR07:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR08:PRESSURE:RB": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR08:STATUS:ON": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR08:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR09:PRESSURE:RB": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR09:STATUS:ON": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR09:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR10:PRESSURE:RB": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR10:STATUS:ON": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR10:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR11:PRESSURE:RB": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR11:STATUS:ON": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR11:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR12:PRESSURE:RB": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR12:STATUS:ON": {
+    "writable": false
+  },
+  "SR:VAC:GAUGE:SR12:STATUS:VALID": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:01:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:01:PRESSURE:RB": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:01:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:01:STATUS:ON": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:01:VOLTAGE:RB": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:02:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:02:PRESSURE:RB": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:02:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:02:STATUS:ON": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:02:VOLTAGE:RB": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:03:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:03:PRESSURE:RB": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:03:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:03:STATUS:ON": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:03:VOLTAGE:RB": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:04:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:04:PRESSURE:RB": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:04:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:04:STATUS:ON": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:04:VOLTAGE:RB": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:05:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:05:PRESSURE:RB": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:05:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:05:STATUS:ON": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:05:VOLTAGE:RB": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:06:CURRENT:RB": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:06:PRESSURE:RB": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:06:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:06:STATUS:ON": {
+    "writable": false
+  },
+  "SR:VAC:ION-PUMP:06:VOLTAGE:RB": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:01:CONTROL:CLOSE": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:01:CONTROL:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:01:POSITION:CLOSED": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:01:POSITION:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:01:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:01:STATUS:READY": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:02:CONTROL:CLOSE": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:02:CONTROL:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:02:POSITION:CLOSED": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:02:POSITION:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:02:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:02:STATUS:READY": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:03:CONTROL:CLOSE": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:03:CONTROL:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:03:POSITION:CLOSED": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:03:POSITION:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:03:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:03:STATUS:READY": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:04:CONTROL:CLOSE": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:04:CONTROL:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:04:POSITION:CLOSED": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:04:POSITION:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:04:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:04:STATUS:READY": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:05:CONTROL:CLOSE": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:05:CONTROL:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:05:POSITION:CLOSED": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:05:POSITION:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:05:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:05:STATUS:READY": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:06:CONTROL:CLOSE": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:06:CONTROL:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:06:POSITION:CLOSED": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:06:POSITION:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:06:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:06:STATUS:READY": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:07:CONTROL:CLOSE": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:07:CONTROL:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:07:POSITION:CLOSED": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:07:POSITION:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:07:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:07:STATUS:READY": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:08:CONTROL:CLOSE": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:08:CONTROL:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:08:POSITION:CLOSED": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:08:POSITION:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:08:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:08:STATUS:READY": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:09:CONTROL:CLOSE": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:09:CONTROL:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:09:POSITION:CLOSED": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:09:POSITION:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:09:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:09:STATUS:READY": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:10:CONTROL:CLOSE": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:10:CONTROL:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:10:POSITION:CLOSED": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:10:POSITION:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:10:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:10:STATUS:READY": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:11:CONTROL:CLOSE": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:11:CONTROL:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:11:POSITION:CLOSED": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:11:POSITION:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:11:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:11:STATUS:READY": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:12:CONTROL:CLOSE": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:12:CONTROL:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:12:POSITION:CLOSED": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:12:POSITION:OPEN": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:12:STATUS:FAULT": {
+    "writable": false
+  },
+  "SR:VAC:VALVE:12:STATUS:READY": {
+    "writable": false
   }
 }

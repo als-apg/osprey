@@ -4,6 +4,8 @@ Provides module-scoped project fixtures and overrides the parent conftest's
 autouse registry-reset fixture (not needed for subprocess-based SDK tests).
 """
 
+from pathlib import Path
+
 import pytest
 import yaml
 
@@ -12,6 +14,28 @@ from tests.e2e.sdk_helpers import (
     init_project,
     is_claude_code_available,
 )
+
+# Dedicated, preset-decoupled limits DB for the write-safety scenarios. The
+# generic safety e2e must not depend on any preset's production
+# channel_limits.json (which is a pure projection of the VA manifest and
+# carries no example read-only/bounded channels). This fixture supplies exactly
+# the two channels those tests need: a bounded writable setpoint and a
+# read-only readback.
+SAFETY_LIMITS_DB = Path(__file__).parent / "fixtures" / "safety_limits.json"
+
+
+def _point_at_safety_limits_db(project_dir: Path) -> None:
+    """Repoint a rendered project's limits database at the safety fixture.
+
+    ``control_system.limits_checking.database_path`` is read live by both the
+    limits PreToolUse hook and the channel_write MCP tool via
+    ``LimitsValidator.from_config()``; the path is resolved at runtime rather
+    than baked into settings.json, so no ``osprey claude regen`` is needed.
+    """
+    config_path = project_dir / "config.yml"
+    config = yaml.safe_load(config_path.read_text())
+    config["control_system"]["limits_checking"]["database_path"] = str(SAFETY_LIMITS_DB)
+    config_path.write_text(yaml.dump(config, default_flow_style=False))
 
 
 # Override parent conftest's autouse fixture (no-op for subprocess-based tests)
@@ -40,7 +64,9 @@ def safety_project(tmp_path_factory):
     across all tests in that file. Writes are enabled (default).
     """
     tmp = tmp_path_factory.mktemp("safety")
-    return init_project(tmp, "safety-test-project", provider="als-apg")
+    project_dir = init_project(tmp, "safety-test-project", provider="als-apg")
+    _point_at_safety_limits_db(project_dir)
+    return project_dir
 
 
 @pytest.fixture(scope="module")
@@ -105,6 +131,7 @@ def safety_project_selective(tmp_path_factory):
         },
     }
     config["control_system"]["writes_enabled"] = True
+    config["control_system"]["limits_checking"]["database_path"] = str(SAFETY_LIMITS_DB)
     config_path.write_text(yaml.dump(config, default_flow_style=False))
     return project_dir
 

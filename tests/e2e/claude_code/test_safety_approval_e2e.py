@@ -34,7 +34,7 @@ async def test_channel_write_triggers_approval_callback(safety_project_selective
     """
     prompt = (
         "Use the channel_write tool to write the value 50.0 to the channel "
-        "'DIAGNOSTICS:TEMPERATURE:SP'. Report the result."
+        "'SR:DIAG:TEMP:01:TEMPERATURE:SP'. Report the result."
     )
 
     result = await run_sdk_query_with_hooks(
@@ -94,7 +94,7 @@ async def test_approval_denial_propagates_to_claude(safety_project_selective):
     """
     prompt = (
         "Use the channel_write tool to write the value 50.0 to the channel "
-        "'DIAGNOSTICS:TEMPERATURE:SP'. Report the result."
+        "'SR:DIAG:TEMP:01:TEMPERATURE:SP'. Report the result."
     )
 
     result = await run_sdk_query_with_hooks(
@@ -214,7 +214,7 @@ async def test_default_policy_always_asks_for_reads(safety_project_default_polic
 async def test_limits_deny_blocks_before_approval(safety_project_selective):
     """Scenario 2e: Limits violation should deny before approval hook fires.
 
-    Writing 999.0 exceeds DIAGNOSTICS:TEMPERATURE:SP limits (max=100).
+    Writing 999.0 exceeds SR:DIAG:TEMP:01:TEMPERATURE:SP limits (max=100).
     The limits hook returns "deny" directly, so the approval hook never
     reaches "ask" and hook_events should be EMPTY.
 
@@ -222,7 +222,7 @@ async def test_limits_deny_blocks_before_approval(safety_project_selective):
     """
     prompt = (
         "Use the channel_write tool to write the value 999.0 to the channel "
-        "'DIAGNOSTICS:TEMPERATURE:SP'. Report the result."
+        "'SR:DIAG:TEMP:01:TEMPERATURE:SP'. Report the result."
     )
 
     result = await run_sdk_query_with_hooks(
