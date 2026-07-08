@@ -249,3 +249,62 @@ def test_dev_wheel_build_uses_sys_executable(monkeypatch: pytest.MonkeyPatch) ->
         f"wheel build must use sys.executable ({sys.executable}), not {captured['cmd'][0]!r}"
     )
     assert captured["cmd"][1:4] == ["-m", "build", "--wheel"]
+
+
+def _render_bluesky_template(*, va_deployed: bool, services: dict | None = None) -> str:
+    # Load the packaged template directly (CWD-independent — mirrors
+    # _render_worker_template above). Bare jinja2.Template uses the default
+    # Undefined, the same mode compose_generator's Environment uses, so this
+    # faithfully reproduces production render behavior.
+    from importlib import resources
+
+    from jinja2 import Template
+
+    tpl = resources.files("osprey").joinpath("templates/services/bluesky/docker-compose.yml.j2")
+    template = Template(tpl.read_text(encoding="utf-8"))
+    deployed = ["bluesky"] + (["virtual_accelerator"] if va_deployed else [])
+    return template.render(
+        services=services or {"bluesky": {"port": 8090}, "virtual_accelerator": {"port": 5064}},
+        deployment={},
+        system={"timezone": "UTC"},
+        deployed_services=deployed,
+        osprey_labels={"project_name": "p", "project_root": "/r", "deployed_at": "now"},
+        osprey_version="",
+    )
+
+
+def test_bluesky_wires_va_ca_env_and_ordering_only_when_va_co_deployed() -> None:
+    """The bridge's EPICS_CA_* env + ``depends_on: virtual-accelerator`` must
+    render IFF the Virtual Accelerator is co-deployed (Task 4.2's conditional).
+
+    A bridge-only deploy that still emitted ``depends_on: virtual-accelerator``
+    would make ``docker compose up`` fail ("depends_on undefined service"), and
+    CA env pointing at an absent VA would be dead config — so the whole block is
+    gated on ``'virtual_accelerator' in deployed_services``.
+    """
+    with_va = _render_bluesky_template(va_deployed=True)
+    assert "EPICS_CA_NAME_SERVERS:" in with_va
+    assert "EPICS_CA_AUTO_ADDR_LIST:" in with_va
+    assert "condition: service_healthy" in with_va
+    assert "virtual-accelerator" in with_va
+
+    without_va = _render_bluesky_template(va_deployed=False)
+    assert "EPICS_CA_NAME_SERVERS:" not in without_va
+    assert "depends_on:" not in without_va
+    assert "virtual-accelerator" not in without_va
+
+
+def test_bluesky_va_ca_port_defaults_when_va_config_block_absent() -> None:
+    """VA in ``deployed_services`` but no ``services.virtual_accelerator`` config
+    block must still render the default CA port (5064), never raise.
+
+    ``'virtual_accelerator' in deployed_services`` (a list membership) does not
+    guarantee a populated ``services.virtual_accelerator`` mapping. The port
+    lookup defaults the intermediate to ``{}`` so a missing config key falls back
+    cleanly; without that, the chained access raises ``UndefinedError`` and
+    aborts the whole compose render.
+    """
+    rendered = _render_bluesky_template(
+        va_deployed=True, services={"bluesky": {"port": 8090}}  # no virtual_accelerator key
+    )
+    assert 'EPICS_CA_NAME_SERVERS: "virtual-accelerator:5064"' in rendered

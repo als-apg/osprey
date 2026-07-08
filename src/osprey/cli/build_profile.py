@@ -125,6 +125,22 @@ class BlueskyConfig:
     """
 
 
+@dataclass
+class VAConfig:
+    """Virtual Accelerator soft-IOC configuration for a build profile (opt-in
+    via the ``virtual_accelerator:`` key).
+
+    Consumed by the build pipeline's VA-injection step to deploy the single
+    ``virtual_accelerator`` service (compose service ``virtual-accelerator``,
+    container ``osprey-virtual-accelerator``). Port is validated by
+    :meth:`BuildProfile.validate`.
+    """
+
+    port: int = 5064
+    """Channel Access TCP port the soft-IOC serves PVs on (see
+    src/osprey/services/virtual_accelerator/entrypoint.py's run contract)."""
+
+
 _ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 
 
@@ -280,6 +296,7 @@ class BuildProfile:
     categories: dict[str, dict[str, str]] = field(default_factory=dict)
     dispatch: DispatchConfig | None = None
     bluesky: BlueskyConfig | None = None
+    virtual_accelerator: VAConfig | None = None
 
     def resolved_tier(self) -> int:
         """Resolve the build-time tier, applying a paradigm-aware default.
@@ -516,6 +533,14 @@ class BuildProfile:
                         f"bluesky.tiled_port must differ from bluesky.port (both {b.port})"
                     )
 
+        # Validate virtual_accelerator configuration
+        if self.virtual_accelerator is not None:
+            va = self.virtual_accelerator
+            if not (1 <= va.port <= 65535):
+                errors.append(
+                    f"virtual_accelerator.port must be in 1..65535 (got {va.port})"
+                )
+
         if errors:
             raise BuildProfileError(
                 "Build profile validation failed:\n  - " + "\n  - ".join(errors)
@@ -586,6 +611,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "categories",
         "dispatch",
         "bluesky",
+        "virtual_accelerator",
     }
 )
 
@@ -706,6 +732,15 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             demo_scanner=bluesky_raw.get("demo_scanner", False),
         )
 
+    va_raw = raw.get("virtual_accelerator")
+    virtual_accelerator = None
+    if va_raw is not None:
+        if not isinstance(va_raw, dict):
+            raise BuildProfileError("Profile 'virtual_accelerator' must be a mapping")
+        virtual_accelerator = VAConfig(
+            port=va_raw.get("port", 5064),
+        )
+
     return BuildProfile(
         name=raw.get("name", ""),
         data_bundle=raw.get("data_bundle", "control_assistant"),
@@ -734,6 +769,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         categories=raw.get("categories", {}),
         dispatch=dispatch,
         bluesky=bluesky,
+        virtual_accelerator=virtual_accelerator,
     )
 
 
