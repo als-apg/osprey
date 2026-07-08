@@ -85,7 +85,7 @@ function galleryCardHtml(a, i) {
   return `
     <div class="gallery-card${sel}${pinnedCls}"
          data-id="${a.id}"
-         data-type="${a.category || a.artifact_type}"
+         data-type="${escapeHtml(a.category || a.artifact_type)}"
          style="animation-delay: ${i * 30}ms">
       <div class="gallery-card-thumb">${thumbnailHtml(a)}</div>
       <div class="gallery-card-info">
@@ -132,6 +132,10 @@ export function createSidebarRenderer(callbacks) {
   let browseMode = "tree";
   /** @type {"list"|"gallery"} */
   let sidebarLayout = "list";
+  // Guards wireFilterChips so the delegated #filter-bar click listener is
+  // registered exactly once per renderer instance, no matter how many times
+  // initFilterBar/rebuildTypeChips run over the page lifetime (refetch, SSE).
+  let filterBarWired = false;
 
   /** @returns {"tree"|"activity"} */
   function getBrowseMode() { return browseMode; }
@@ -191,25 +195,33 @@ export function createSidebarRenderer(callbacks) {
         const chip = document.createElement("button");
         chip.className = "filter-chip type-chip";
         chip.dataset.filter = type;
-        chip.innerHTML = `<span class="chip-icon">${typeIcon(type)}</span>${(/** @type {any} */ (info)).label || type} <span class="chip-count">${count}</span>`;
+        // typeIcon(type) is intentionally NOT escaped here: it returns
+        // hardcoded SVG markup from an internal map keyed by `icons[type] ||
+        // icons.text` — the `type` argument never reaches the output, so
+        // there is nothing agent-controlled in its return value (audited
+        // 2026-07-07). The label text below IS agent-controlled (registry
+        // label or the raw category/artifact_type) and must be escaped.
+        chip.innerHTML = `<span class="chip-icon">${typeIcon(type)}</span>${escapeHtml((/** @type {any} */ (info)).label || type)} <span class="chip-count">${count}</span>`;
         typesContainer.appendChild(chip);
       });
     }
 
-    wireFilterChips();
     updateFilterBarActive();
   }
 
+  /** Wire a single delegated click listener on #filter-bar (registered once). */
   function wireFilterChips() {
+    if (filterBarWired) return;
     const filterBar = document.getElementById("filter-bar");
     if (!filterBar) return;
-    filterBar.querySelectorAll(".filter-chip").forEach((chip) => {
-      chip.addEventListener("click", () => {
-        setActiveFilter(/** @type {HTMLElement} */ (chip).dataset.filter || "all");
-        updateFilterBarActive();
-        renderSidebar();
-      });
+    filterBar.addEventListener("click", (e) => {
+      const chip = /** @type {HTMLElement|null} */ (/** @type {HTMLElement} */ (e.target).closest(".filter-chip"));
+      if (!chip) return;
+      setActiveFilter(chip.dataset.filter || "all");
+      updateFilterBarActive();
+      renderSidebar();
     });
+    filterBarWired = true;
   }
 
   function updateFilterBarActive() {
@@ -281,8 +293,8 @@ export function createSidebarRenderer(callbacks) {
 
       if (isGallery) {
         html += `
-          <div class="tree-section" data-type="${type}">
-            <div class="gallery-section-header" data-type="${type}">
+          <div class="tree-section" data-type="${escapeHtml(type)}">
+            <div class="gallery-section-header" data-type="${escapeHtml(type)}">
               ${chevronSvg}
               <span class="tree-section-icon">${typeIcon(type)}</span>
               <span>${typeBadge(type)}</span>
@@ -294,8 +306,8 @@ export function createSidebarRenderer(callbacks) {
           </div>`;
       } else {
         html += `
-          <div class="tree-section" data-type="${type}">
-            <div class="tree-section-header" data-type="${type}">
+          <div class="tree-section" data-type="${escapeHtml(type)}">
+            <div class="tree-section-header" data-type="${escapeHtml(type)}">
               ${chevronSvg}
               <span class="tree-section-icon">${typeIcon(type)}</span>
               <span>${typeBadge(type)}</span>
@@ -357,7 +369,7 @@ export function createSidebarRenderer(callbacks) {
           html += `
             <div class="timeline-item${getSelectedArtifact() && getSelectedArtifact().id === a.id ? " selected" : ""}${a.pinned ? " pinned" : ""}"
                  data-id="${a.id}"
-                 data-type="${a.category || a.artifact_type}"
+                 data-type="${escapeHtml(a.category || a.artifact_type)}"
                  style="animation-delay: ${itemIndex * 25}ms">
               <span class="timeline-dot"></span>
               <div class="timeline-item-body">

@@ -6,6 +6,7 @@
 
 import { api } from './api.js';
 import { state } from './state.js';
+import { escapeHtml } from '/design-system/js/dom.js';
 import {
   createEfficiencyPlot,
   createConvergencePlot,
@@ -48,16 +49,16 @@ async function loadRun(timestamp) {
       <div class="analysis-empty">
         <div class="analysis-empty-icon">&#9888;</div>
         <div class="analysis-empty-title">Error Loading Run</div>
-        <div class="analysis-empty-text">${err.message}</div>
+        <div class="analysis-empty-text">${escapeHtml(err.message)}</div>
       </div>
     `;
   }
 }
 
-function renderAnalysis(data, timestamp) {
+export function renderAnalysis(data, timestamp) {
   contentEl.innerHTML = `
     <div class="analysis-header" style="margin-bottom: 1rem;">
-      <span style="font-weight: 600; color: var(--text-primary);">Run: ${timestamp}</span>
+      <span style="font-weight: 600; color: var(--text-primary);">Run: ${escapeHtml(timestamp)}</span>
       <span style="color: var(--text-muted); margin-left: 0.5rem;">${data.length} points</span>
     </div>
     <div class="analysis-grid">

@@ -31,6 +31,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 - The event dispatcher dashboard now themes itself from the shared OSPREY design system instead of a hardcoded dark palette, and follows the web-terminal hub's theme when embedded as the EVENTS panel. **Requires a dispatcher container redeploy** to pick up the new `/design-system/*` asset route.
 - Every interface's light/dark toggle is now the shared `<osprey-theme-switcher>` custom element (previously per-interface markup); it's consistently hidden when a panel is embedded in the Web Terminal hub (the hub owns theme chrome there) and visible when opened standalone.
 - JSON artifacts in the Artifacts gallery now render through a syntax-highlighted, collapsible inline viewer instead of a plain read-only iframe of the raw file.
+- Artifacts gallery: timeseries table values now use magnitude-adaptive precision (≤5 significant figures, scientific notation for extremes) and a compact month/day + HH:MM:SS index format.
 
 ### Removed
 
@@ -50,6 +51,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Channel Finder's embedded mode no longer hides its whole header: only the logo is hidden now, so the pipeline switcher and navigation stay visible and usable when embedded in the Web Terminal hub (previously the entire header — including those controls — was hidden, with no compensating layout change).
 - Toggling the theme (in the Web Terminal hub or any standalone interface) no longer leaves a stale `?theme=` in the URL; reloading after a toggle now falls back to your saved preference (or the OS setting in `auto` mode) instead of being pinned to whatever value was in the URL at toggle time.
 - Creating a new artifact from the Web Terminal's Scaffold gallery no longer fails with an HTTP 405 — the create-artifact request now uses `POST` directly instead of being routed through a GET-only fetch helper.
+- Artifacts gallery: filter chips no longer accumulate click listeners across live-refresh cycles, and a failed Plotly script load is retried on the next chart render instead of failing for the rest of the page's lifetime.
+
+### Security
+
+- Artifacts gallery: agent-supplied artifact metadata (`category`, `artifact_type`, type-registry labels) is now HTML-escaped at every render sink, the shared `escapeHtml` escapes quotes for attribute contexts, and artifact ids are percent-encoded in URL paths — closing a stored-XSS in the gallery sidebar.
 
 ## [2026.6.3] - 2026-06-29
 

@@ -7,6 +7,7 @@
 import { api } from './api.js';
 import { state } from './state.js';
 import { createOptimizationPlot } from './plots.js';
+import { escapeHtml } from '/design-system/js/dom.js';
 
 let pollTimer = null;
 let plotContainer;
@@ -173,8 +174,8 @@ function updateResultsTable(optState) {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${d.iter}</td>
-      <td class="muted">${typeof d.objective_value === 'number' ? d.objective_value.toFixed(6) : (d.objective ?? '--')}</td>
-      <td>${d.phase}</td>
+      <td class="muted">${typeof d.objective_value === 'number' ? d.objective_value.toFixed(6) : escapeHtml(d.objective ?? '--')}</td>
+      <td>${escapeHtml(d.phase)}</td>
     `;
     resultsTableBody.appendChild(tr);
   }

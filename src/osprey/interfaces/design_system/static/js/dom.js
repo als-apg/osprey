@@ -24,10 +24,13 @@ export function el(tag, className) {
 }
 
 /**
- * HTML-escape a value using the textContent -> innerHTML trick.
+ * HTML-escape a value using the textContent -> innerHTML trick, then also
+ * escape double- and single-quotes.
  *
- * Nullish input yields "" (not "undefined"/"null"). Double-quotes are left
- * as-is, matching the call sites this replaces.
+ * Nullish input yields "" (not "undefined"/"null"). The result is safe to
+ * interpolate both into element text/HTML content AND into a quoted
+ * attribute value (single- or double-quoted), since `"` and `'` are escaped
+ * in addition to `&`, `<`, and `>`.
  *
  * @param {unknown} value
  * @returns {string}
@@ -35,7 +38,7 @@ export function el(tag, className) {
 export function escapeHtml(value) {
   const div = document.createElement("div");
   div.textContent = String(value ?? "");
-  return div.innerHTML;
+  return div.innerHTML.replaceAll('"', "&quot;").replaceAll("'", "&#39;");
 }
 
 /**

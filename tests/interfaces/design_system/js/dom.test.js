@@ -6,10 +6,10 @@
  *
  * Covers el(), escapeHtml(), and the trailing-edge debounce().
  *
- * NOTE: dom.js is imported by RELATIVE path, not the absolute
- * `/design-system/js/dom.js` runtime specifier — Vitest/Vite resolves against
- * the repo root with no alias configured, so the absolute path would not load.
- * This mirrors tests/interfaces/channel_finder/chunk-filter.test.mjs.
+ * NOTE: dom.js is imported by RELATIVE path here rather than the absolute
+ * `/design-system/js/dom.js` runtime specifier. vitest.config.js does
+ * configure that alias (see alias-smoke.test.mjs), but this file predates it
+ * and mirrors tests/interfaces/channel_finder/chunk-filter.test.mjs.
  */
 
 import { test, expect, vi, describe, afterEach } from 'vitest';
@@ -47,10 +47,20 @@ describe('escapeHtml', () => {
     expect(escapeHtml(42)).toBe("42");
   });
 
-  test('does NOT escape a double-quote', () => {
-    const out = escapeHtml('a"b');
-    expect(out).toContain('"');
-    expect(out).toBe('a"b');
+  test('coerces 0 to "0" (not the empty string)', () => {
+    expect(escapeHtml(0)).toBe("0");
+  });
+
+  test('coerces false to "false"', () => {
+    expect(escapeHtml(false)).toBe("false");
+  });
+
+  test('escapes a double-quote to &quot;', () => {
+    expect(escapeHtml('a"b')).toBe('a&quot;b');
+  });
+
+  test('escapes a single-quote to &#39;', () => {
+    expect(escapeHtml("a'b")).toBe('a&#39;b');
   });
 });
 

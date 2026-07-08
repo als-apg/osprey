@@ -21,8 +21,11 @@
  *     Plotly.toImage() as PNG, then populates the window and prints.
  */
 
+import { escapeHtml as esc } from "/design-system/js/dom.js";
 import { getSelectedArtifact, fileUrl } from "./state.js";
-import { openUrl } from "./types.js";
+import { openUrl, isTimeseries, isoToDate } from "./types.js";
+
+export { esc };
 
 // ---- SVG icon (printer) ----
 
@@ -57,21 +60,21 @@ const MSG_POPUP_BLOCKED = "Print blocked \u2014 please allow pop-ups for this si
 
 // ---- Helpers ----
 
-/** @param {unknown} str */
-function esc(str) {
-  if (!str) return "";
-  return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-}
-
-/** @param {any} ts */
-function fmtTime(ts) {
-  if (!ts) return "";
-  return new Date(ts).toLocaleString();
+/**
+ * Full locale timestamp for the print header. Deliberately keeps the
+ * with-seconds `toLocaleString()` form (a print/PDF header wants precision,
+ * unlike the gallery's compact `formatFullTime`), but shares types.js's
+ * `isoToDate` guard so a malformed/non-ISO timestamp renders "" rather than
+ * a fabricated year-2000/epoch date.
+ * @param {any} ts
+ */
+export function fmtTime(ts) {
+  const d = isoToDate(ts);
+  return d ? d.toLocaleString() : "";
 }
 
 /** @param {any} a */
-function headerHtml(a) {
+export function headerHtml(a) {
   let meta = "";
   if (a.timestamp) meta += "<span>" + esc(fmtTime(a.timestamp)) + "</span>";
   if (a.tool_source) meta += " &middot; <span>Source: " + esc(a.tool_source) + "</span>";
@@ -80,6 +83,39 @@ function headerHtml(a) {
     "<h1>" + esc(a.title || a.filename || "Artifact") + "</h1>" +
     (meta ? '<div class="print-meta">' + meta + "</div>" : "") +
     "</div>";
+}
+
+/**
+ * Replace a target window's document with parsed HTML via DOM adoption.
+ *
+ * Resets the window to a minimal shell, parses `html` in the opener's
+ * document, then moves the parsed head/body nodes across with adoptNode.
+ * Adoption (rather than `document.write(html)`) keeps the about:blank
+ * window on the opener's origin, so relative image URLs in `html` resolve
+ * and iframed openers aren't blocked. `html` is always assembled from
+ * `esc()`-escaped fields by the callers.
+ *
+ * Shared by `openBlobAndPrint` (image path) and `printTimeseries` (chart
+ * capture) so this security-sensitive adoption path has a single copy.
+ * @param {Window} w
+ * @param {string} html
+ */
+function populateWindow(w, html) {
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+
+  // Initialize the target document with a minimal shell.
+  // Safe: writing a hardcoded empty document to our own window.
+  w.document.open();  // eslint-disable-line no-restricted-syntax
+  w.document.write("<!DOCTYPE html><html><head></head><body></body></html>");  // static content only
+  w.document.close();
+
+  // Transfer parsed content into the live document via DOM adoption
+  while (parsed.head.childNodes.length) {
+    w.document.head.appendChild(w.document.adoptNode(parsed.head.childNodes[0]));
+  }
+  while (parsed.body.childNodes.length) {
+    w.document.body.appendChild(w.document.adoptNode(parsed.body.childNodes[0]));
+  }
 }
 
 /**
@@ -98,21 +134,7 @@ function openBlobAndPrint(html) {
     return;
   }
 
-  const parsed = new DOMParser().parseFromString(html, "text/html");
-
-  // Initialize the about:blank document with a minimal shell.
-  // Safe: writing a hardcoded empty document to our own about:blank window.
-  w.document.open();  // eslint-disable-line no-restricted-syntax
-  w.document.write("<!DOCTYPE html><html><head></head><body></body></html>");  // static content only
-  w.document.close();
-
-  // Transfer parsed content into the live document via DOM adoption
-  while (parsed.head.childNodes.length) {
-    w.document.head.appendChild(w.document.adoptNode(parsed.head.childNodes[0]));
-  }
-  while (parsed.body.childNodes.length) {
-    w.document.body.appendChild(w.document.adoptNode(parsed.body.childNodes[0]));
-  }
+  populateWindow(w, html);
 
   // Wait for images/stylesheets to load before printing
   w.addEventListener("load", function () { w.focus(); w.print(); });
@@ -208,19 +230,8 @@ function printTimeseries(a) {
         '<div class="print-body"><img src="' + dataUrl +
         '" alt="' + esc(a.title) + ' chart"></div></body></html>';
 
-      var parsed = new DOMParser().parseFromString(html, "text/html");
-
-      // Replace the loading content with the chart
-      // Safe: writing a hardcoded empty document to our own window.
-      w.document.open();  // eslint-disable-line no-restricted-syntax
-      w.document.write("<!DOCTYPE html><html><head></head><body></body></html>");  // static content only
-      w.document.close();
-      while (parsed.head.childNodes.length) {
-        w.document.head.appendChild(w.document.adoptNode(parsed.head.childNodes[0]));
-      }
-      while (parsed.body.childNodes.length) {
-        w.document.body.appendChild(w.document.adoptNode(parsed.body.childNodes[0]));
-      }
+      // Replace the loading content with the captured chart.
+      populateWindow(w, html);
       w.focus();
       w.print();
     })
@@ -234,14 +245,10 @@ function printTimeseries(a) {
 // ---- Dispatch ----
 
 /** @param {any} a */
-function printArtifact(a) {
+export function printArtifact(a) {
   if (!a) return;
 
-  const isTimeseries =
-    (a.metadata && a.metadata.data_type === "timeseries") ||
-    a.category === "archiver_data";
-
-  if (isTimeseries) { printTimeseries(a); return; }
+  if (isTimeseries(a)) { printTimeseries(a); return; }
 
   switch (a.artifact_type) {
     case "plot_html":

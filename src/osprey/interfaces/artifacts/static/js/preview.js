@@ -45,11 +45,33 @@ import {
   formatSize,
   formatFullTime,
   openUrl,
+  hasTimeseriesData,
   requestColorPass,
 } from "./types.js";
 import { renderMarkdownView, renderJsonView } from "./preview-content.js";
 import { injectLogbookButtons } from "./logbook.js";
 import { injectPrintButton } from "./print.js";
+
+/**
+ * Nudge the preview's embedded media to re-measure after a fullscreen
+ * layout change: fire a `resize` event at any preview iframe (Plotly-HTML
+ * artifacts listen for it) and ask Plotly to re-fit a visible timeseries
+ * chart. Both are best-effort and cross-origin/undefined-safe. Shared by
+ * `enterFullscreen` and `exitFullscreen`, which each run it on the next
+ * animation frame once the fullscreen class toggle has taken effect.
+ * @returns {void}
+ */
+function resizePreviewMedia() {
+  const previewContent = document.getElementById("preview-content");
+  const iframe = previewContent?.querySelector("iframe");
+  if (iframe?.contentWindow) {
+    try { iframe.contentWindow.dispatchEvent(new Event("resize")); } catch {}
+  }
+  const tsChart = document.getElementById("ts-viewport");
+  if (tsChart && typeof Plotly !== "undefined") {
+    try { Plotly.Plots.resize(tsChart); } catch {}
+  }
+}
 
 // ---- Preview Renderer (factory: fullscreen state + effects this module doesn't own) ---- //
 
@@ -95,7 +117,7 @@ export function createPreviewRenderer(callbacks) {
     let viewportHtml = "";
 
     // Check for timeseries data
-    if ((a.metadata && a.metadata.data_type === "timeseries" || a.category === "archiver_data") && (a.data_file || (a.metadata && a.metadata.data_file))) {
+    if (hasTimeseriesData(a)) {
       viewportHtml = `<div id="ts-viewport" class="ts-viewport-container"></div>`;
     } else {
       switch (a.artifact_type) {
@@ -106,7 +128,7 @@ export function createPreviewRenderer(callbacks) {
           viewportHtml = `<iframe src="${url}" class="preview-iframe-light" sandbox="allow-scripts allow-same-origin"></iframe>`;
           break;
         case "notebook":
-          viewportHtml = `<iframe src="/api/notebooks/${a.id}/rendered" class="preview-iframe-light" sandbox="allow-scripts allow-same-origin"></iframe>`;
+          viewportHtml = `<iframe src="/api/notebooks/${encodeURIComponent(a.id)}/rendered" class="preview-iframe-light" sandbox="allow-scripts allow-same-origin"></iframe>`;
           break;
         case "plot_png":
         case "image":
@@ -144,7 +166,7 @@ export function createPreviewRenderer(callbacks) {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
             Back
           </button>
-          <span class="badge badge-${a.category || a.artifact_type}">${typeBadge(a.category || a.artifact_type)}</span>
+          <span class="badge badge-${escapeHtml(a.category || a.artifact_type)}">${typeBadge(a.category || a.artifact_type)}</span>
           <span class="preview-header-title">${escapeHtml(a.title)}</span>
         </div>
         <div class="preview-header-actions">
@@ -240,7 +262,7 @@ export function createPreviewRenderer(callbacks) {
     if (isFullscreen) updateNewArtifactBadge();
 
     // Render timeseries if applicable
-    if ((a.metadata && a.metadata.data_type === "timeseries" || a.category === "archiver_data") && (a.data_file || (a.metadata && a.metadata.data_file))) {
+    if (hasTimeseriesData(a)) {
       const tsEl = document.getElementById("ts-viewport");
       if (tsEl) callbacks.onTimeseriesNeeded(tsEl, a);
     }
@@ -302,18 +324,8 @@ export function createPreviewRenderer(callbacks) {
     updateNewArtifactBadge();
     renderPreview();
 
-    // Resize iframes / Plotly charts
-    requestAnimationFrame(() => {
-      const previewContent = document.getElementById("preview-content");
-      const iframe = previewContent?.querySelector('iframe');
-      if (iframe?.contentWindow) {
-        try { iframe.contentWindow.dispatchEvent(new Event('resize')); } catch {}
-      }
-      const tsChart = document.getElementById('ts-viewport');
-      if (tsChart && typeof Plotly !== 'undefined') {
-        try { Plotly.Plots.resize(tsChart); } catch {}
-      }
-    });
+    // Re-fit embedded media once the fullscreen layout has applied.
+    requestAnimationFrame(resizePreviewMedia);
   }
 
   /** @returns {void} */
@@ -327,18 +339,9 @@ export function createPreviewRenderer(callbacks) {
     renderPreview();
     callbacks.onFullscreenExit();
 
-    // Resize iframes / Plotly charts
+    // Re-fit embedded media, then scroll the selected item back into view.
     requestAnimationFrame(() => {
-      const previewContent = document.getElementById("preview-content");
-      const iframe = previewContent?.querySelector('iframe');
-      if (iframe?.contentWindow) {
-        try { iframe.contentWindow.dispatchEvent(new Event('resize')); } catch {}
-      }
-      const tsChart = document.getElementById('ts-viewport');
-      if (tsChart && typeof Plotly !== 'undefined') {
-        try { Plotly.Plots.resize(tsChart); } catch {}
-      }
-      // Scroll selected item into view in sidebar
+      resizePreviewMedia();
       if (getSelectedArtifact()) {
         const sidebarBody = document.getElementById("sidebar-body");
         const sel = sidebarBody?.querySelector(`[data-id="${getSelectedArtifact().id}"]`);
