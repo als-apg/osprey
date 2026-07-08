@@ -1,5 +1,4 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
+// @ts-check
 /**
  * Regression tests for the in-context Explore filter/chunk logic (issue #299).
  *

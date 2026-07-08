@@ -1,5 +1,4 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
+// @ts-check
 /**
  * OSPREY Channel Finder — In-Context filter + chunk helpers (pure logic).
  *
@@ -17,9 +16,9 @@
  * Filter channels by a lowercased query over name / address / description.
  * Mirrors the field fallbacks used when rendering rows.
  *
- * @param {Array<object>} channels - the full channel set
+ * @param {Array<Record<string, any>>} channels - the full channel set
  * @param {string} filterText - already-lowercased query ('' returns all)
- * @returns {Array<object>} matching channels (the same object references)
+ * @returns {Array<Record<string, any>>} matching channels (the same object references)
  */
 export function filterChannels(channels, filterText) {
   if (!filterText) return channels;
@@ -61,10 +60,10 @@ export function clampChunkIdx(chunkIdx, count, chunkSize) {
 /**
  * Return the page-slice of `items` for the given chunk index.
  *
- * @param {Array<object>} items
+ * @param {Array<Record<string, any>>} items
  * @param {number} chunkIdx
  * @param {number} chunkSize
- * @returns {Array<object>}
+ * @returns {Array<Record<string, any>>}
  */
 export function pageSlice(items, chunkIdx, chunkSize) {
   const start = chunkIdx * chunkSize;

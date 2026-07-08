@@ -1,5 +1,4 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
+// @ts-check
 /**
  * OSPREY Channel Finder — Modal System
  *
@@ -8,22 +7,34 @@
 
 import { esc } from './utils.js';
 
+/**
+ * @typedef {object} ModalField
+ * @property {string} name - Field key (returned in the result map).
+ * @property {string} label - Visible label.
+ * @property {string} [type] - Input type: 'text' | 'number' | 'textarea' | 'select' | ...
+ * @property {boolean} [required] - Whether the field must be non-empty to submit.
+ * @property {string} [value] - Initial value.
+ * @property {string} [placeholder] - Placeholder text (non-select inputs).
+ * @property {Array<{value: string, label: string}>} [options] - Options for a select field.
+ */
+
+/** @type {{close: () => void}|null} */
 let _activeModal = null;
 
 /**
  * Show a form modal that collects named fields.
  * @param {object} opts
  * @param {string} opts.title - Dialog title.
- * @param {Array<{name:string, label:string, type?:string, required?:boolean, value?:string}>} opts.fields
+ * @param {ModalField[]} opts.fields
  * @param {string} [opts.submitLabel='Save'] - Submit button label.
- * @returns {Promise<object|null>} Field values keyed by name, or null on cancel.
+ * @returns {Promise<Record<string, string>|null>} Field values keyed by name, or null on cancel.
  */
 export function formModal({ title, fields, submitLabel = 'Save' }) {
   return new Promise(resolve => {
     const fieldHTML = fields.map(f => {
       const id = `modal-field-${f.name}`;
       const req = f.required ? 'required' : '';
-      const val = f.value != null ? esc(f.value) : '';
+      const val = f.value !== null && f.value !== undefined ? esc(f.value) : '';
       if (f.type === 'textarea') {
         return `<div class="form-group">
           <label class="form-label" for="${id}">${esc(f.label)}</label>
@@ -55,9 +66,9 @@ export function formModal({ title, fields, submitLabel = 'Save' }) {
 
     const { close, el } = showModal({ title, body: fieldHTML, actions });
 
-    const submitBtn = el.querySelector('.modal-submit');
-    const cancelBtn = el.querySelector('.modal-cancel');
-    const inputs = el.querySelectorAll('.modal-field');
+    const submitBtn = /** @type {HTMLButtonElement} */ (el.querySelector('.modal-submit'));
+    const cancelBtn = /** @type {HTMLButtonElement} */ (el.querySelector('.modal-cancel'));
+    const inputs = /** @type {NodeListOf<HTMLInputElement>} */ (el.querySelectorAll('.modal-field'));
 
     // Focus first input
     inputs[0]?.focus();
@@ -73,8 +84,12 @@ export function formModal({ title, fields, submitLabel = 'Save' }) {
     checkValidity();
 
     const submit = () => {
+      /** @type {Record<string, string>} */
       const result = {};
-      inputs.forEach(inp => { result[inp.dataset.name] = inp.value.trim(); });
+      inputs.forEach(inp => {
+        const name = inp.dataset.name;
+        if (name) result[name] = inp.value.trim();
+      });
       close();
       resolve(result);
     };
@@ -118,9 +133,11 @@ export function confirmModal({ title, message, impact, confirmLabel = 'Delete', 
 
     const { close, el } = showModal({ title, body, actions, size: 'sm' });
 
-    el.querySelector('.modal-confirm').addEventListener('click', () => { close(); resolve(true); });
-    el.querySelector('.modal-cancel').addEventListener('click', () => { close(); resolve(false); });
-    el.querySelector('.modal-confirm').focus();
+    const confirmBtn = /** @type {HTMLElement} */ (el.querySelector('.modal-confirm'));
+    const cancelBtn = /** @type {HTMLElement} */ (el.querySelector('.modal-cancel'));
+    confirmBtn.addEventListener('click', () => { close(); resolve(true); });
+    cancelBtn.addEventListener('click', () => { close(); resolve(false); });
+    confirmBtn.focus();
   });
 }
 
@@ -131,7 +148,7 @@ export function confirmModal({ title, message, impact, confirmLabel = 'Delete', 
  * @param {string} opts.body - Inner HTML for modal body.
  * @param {string} opts.actions - Inner HTML for footer buttons.
  * @param {string} [opts.size='md'] - Size class: 'sm' | 'md'.
- * @returns {{ close: Function, el: HTMLElement }} Close function and panel element.
+ * @returns {{ close: () => void, el: HTMLElement }} Close function and panel element.
  */
 export function showModal({ title, body, actions, size = 'md' }) {
   // Close any existing modal
@@ -152,7 +169,7 @@ export function showModal({ title, body, actions, size = 'md' }) {
 
   document.body.appendChild(backdrop);
 
-  const panel = backdrop.querySelector('.modal-panel');
+  const panel = /** @type {HTMLElement} */ (backdrop.querySelector('.modal-panel'));
 
   const close = () => {
     backdrop.remove();
@@ -162,10 +179,11 @@ export function showModal({ title, body, actions, size = 'md' }) {
   // Close on backdrop click (not panel)
   backdrop.addEventListener('click', e => { if (e.target === backdrop) close(); });
   // Close on ESC
+  /** @param {KeyboardEvent} e */
   const onKey = e => { if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); } };
   document.addEventListener('keydown', onKey);
   // Close button
-  backdrop.querySelector('.modal-close').addEventListener('click', close);
+  backdrop.querySelector('.modal-close')?.addEventListener('click', close);
 
   _activeModal = { close };
   return { close, el: panel };
