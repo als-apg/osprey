@@ -285,6 +285,41 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         ],
         hooks_post=[_post_error("mcp__osprey_facility_knowledge__.*")],
     ),
+    "scan": ServerDefinition(
+        name="scan",
+        module="osprey.mcp_server.scan",
+        # Off by default: only profiles that opt in (claude_code.servers.scan.enabled
+        # = true) get the Bluesky bridge client tools — running them requires a live
+        # facility-side Bluesky bridge process (mirrors phoebus's opt-in reasoning).
+        default_enabled=False,
+        env={
+            "OSPREY_CONFIG": "{project_root}/config.yml",
+            "CONFIG_FILE": "{project_root}/config.yml",
+            "BLUESKY_BRIDGE_URL": "${BLUESKY_BRIDGE_URL:-http://127.0.0.1:8090}",
+            "BLUESKY_PROMOTE_TOKEN": "${BLUESKY_PROMOTE_TOKEN:-}",
+        },
+        permissions_allow=[
+            "create_scan_intent",
+            "scan_status",
+            "list_scan_plans",
+            "list_runs",
+            "read_scan_data",
+        ],
+        # launch_scan starts a real scan (promote); stop_scan is the safe direction
+        # and must never be kill-switch-blocked, so it carries approval only.
+        permissions_ask=["launch_scan", "stop_scan"],
+        hooks_pre=[
+            HookRule(
+                matcher="mcp__scan__launch_scan",
+                hooks=[_WRITES_CHECK, _APPROVAL],
+            ),
+            HookRule(
+                matcher="mcp__scan__stop_scan",
+                hooks=[_APPROVAL],
+            ),
+        ],
+        hooks_post=[_post_error("mcp__scan__.*")],
+    ),
     "channel-finder": ServerDefinition(
         name="channel-finder",
         module="osprey.mcp_server.channel_finder_{channel_finder_pipeline}",

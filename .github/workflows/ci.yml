@@ -478,13 +478,14 @@ jobs:
           uv run pytest $E2E_FILTER -v --tb=short
         else
           # Tier 3 per-preset agentic flows live in their own matrix job
-          # (agentic-per-preset). The full Docker-stack dispatch test
-          # (dispatch-deploy-e2e) and the Dockerfile e2e (dockerfile-e2e) each
+          # (agentic-per-preset). The full Docker-stack tests (dispatch-deploy-e2e,
+          # scan-deploy-e2e) and the Dockerfile e2e (dockerfile-e2e) each
           # have their own job because they build container images. Exclude all
-          # three here to avoid double-execution.
+          # four here to avoid double-execution.
           uv run pytest tests/e2e/ -v --tb=short \
             --ignore=tests/e2e/test_preset_agentic.py \
             --ignore=tests/e2e/test_dispatch_deploy.py \
+            --ignore=tests/e2e/test_scan_deploy.py \
             --ignore=tests/e2e/test_dockerfile_e2e.py
         fi
 
@@ -600,6 +601,39 @@ jobs:
       run: |
         uv run pytest tests/e2e/test_dispatch_deploy.py -v --tb=short
 
+  scan-deploy-e2e:
+    name: Scan Deploy E2E (bluesky bridge, full Docker stack)
+    runs-on: ubuntu-latest
+    # Only run on PRs from same repo (mirrors dispatch-deploy-e2e/deploy-e2e
+    # gating). This job needs no secrets — the bluesky bridge never shells out
+    # to an LLM — but the same-repo restriction is the house policy for any
+    # extra Docker-build-and-deploy job, not just secret-gated ones.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Run scan deploy E2E
+      run: |
+        uv run pytest tests/e2e/test_scan_deploy.py -v --tb=short
+
   dockerfile-e2e:
     name: Dockerfile E2E (generated container image)
     runs-on: ubuntu-latest
@@ -637,7 +671,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dockerfile-e2e, agentic-per-preset]
+    needs: [test, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, scan-deploy-e2e, dockerfile-e2e, agentic-per-preset]
     runs-on: ubuntu-latest
     if: always()
 
@@ -707,6 +741,14 @@ jobs:
           echo "⏭️  Dispatch deploy E2E skipped (only run on PRs)"
         else
           echo "✅ Dispatch deploy E2E passed"
+        fi
+        # Scan Deploy E2E: advisory (Docker-dependent, no LLM involved)
+        if [[ "${{ needs.scan-deploy-e2e.result }}" == "failure" ]]; then
+          echo "⚠️  Scan deploy E2E failed (non-blocking, Docker-dependent)"
+        elif [[ "${{ needs.scan-deploy-e2e.result }}" == "skipped" ]]; then
+          echo "⏭️  Scan deploy E2E skipped (only run on PRs)"
+        else
+          echo "✅ Scan deploy E2E passed"
         fi
         # Dockerfile E2E: advisory (network-dependent: PyPI, claude.ai installer)
         if [[ "${{ needs.dockerfile-e2e.result }}" == "failure" ]]; then

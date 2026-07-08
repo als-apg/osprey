@@ -35,7 +35,7 @@ from osprey.utils.logger import get_logger
 from .templates.manager import TemplateManager
 
 if TYPE_CHECKING:
-    from osprey.cli.build_profile import DispatchConfig
+    from osprey.cli.build_profile import BlueskyConfig, DispatchConfig
 
 logger = get_logger("build")
 
@@ -422,6 +422,10 @@ def build(
         # 10b. Inject event-dispatch services + triggers
         if build_profile.dispatch is not None:
             _inject_dispatch(build_profile.dispatch, profile_dir, project_path)
+
+        # 10c. Inject the Bluesky scan-bridge service
+        if build_profile.bluesky is not None:
+            _inject_bluesky(build_profile.bluesky, project_path)
 
         # 11. Copy overlay files
         if build_profile.overlay:
@@ -1063,6 +1067,22 @@ def _apply_config_overrides(project_path: Path, config_dict: dict[str, Any]) -> 
     config_update_fields(config_path, config_dict)
 
 
+def _locate_pkg_services() -> Path:
+    """Locate the OSPREY package's bundled ``templates/services`` directory.
+
+    Prefers the installed ``osprey.templates`` package's location; falls back to
+    a path relative to this module for source/editable checkouts where the
+    package metadata is unavailable. Callers check ``.is_dir()`` on the result,
+    since the directory may be absent in a stripped-down install.
+    """
+    try:
+        import osprey.templates
+
+        return Path(osprey.templates.__file__).parent / "services"
+    except (ImportError, AttributeError):
+        return Path(__file__).parent.parent / "templates" / "services"
+
+
 def _copy_service_templates(project_path: Path) -> int:
     """Copy service compose templates from the OSPREY package into the project.
 
@@ -1085,12 +1105,7 @@ def _copy_service_templates(project_path: Path) -> int:
         config = yaml.load(fh)
 
     # Locate the package's service templates directory
-    try:
-        import osprey.templates
-
-        pkg_services = Path(osprey.templates.__file__).parent / "services"
-    except (ImportError, AttributeError):
-        pkg_services = Path(__file__).parent.parent / "templates" / "services"
+    pkg_services = _locate_pkg_services()
 
     if not pkg_services.is_dir():
         logger.warning("Service templates directory not found — skipping")
@@ -1256,12 +1271,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
             _trigger_yaml.dump(triggers_doc, fh)
 
     # 2. Copy bundled compose templates (located the same way as service templates).
-    try:
-        import osprey.templates
-
-        pkg_services = Path(osprey.templates.__file__).parent / "services"
-    except (ImportError, AttributeError):
-        pkg_services = Path(__file__).parent.parent / "templates" / "services"
+    pkg_services = _locate_pkg_services()
 
     dest_services_root = project_path / "services"
     dest_services_root.mkdir(exist_ok=True)
@@ -1357,6 +1367,93 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
         "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_DISPATCH_IMAGE/OSPREY_WORKER_IMAGE to use a published image."
     )
+
+
+def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
+    """Wire the Bluesky scan-bridge feature into a built project.
+
+    1. Copy the bundled ``templates/services/bluesky/`` compose template into
+       ``<project>/services/bluesky/``.
+    2. Write ``services.bluesky`` config + register it in ``deployed_services``
+       (so ``find_service_config`` resolves it, mirroring ``_inject_dispatch``).
+    3. Print a post-build hint (promote-token env var + image prerequisite).
+
+    Simpler than ``_inject_dispatch``: no triggers file to resolve and no
+    multi-instance worker loop — a project deploys exactly one bluesky-bridge
+    process. The ``scan`` MCP server itself is a separate, always-available
+    framework server (see ``osprey.mcp_server.scan``); this step only wires
+    the *deploy-time* container that server talks to over HTTP.
+
+    Args:
+        bluesky: Validated bluesky configuration from the build profile.
+        project_path: Root of the built project.
+    """
+    from ruamel.yaml import YAML
+
+    # 1. Copy the bundled compose template (located the same way as service templates).
+    pkg_services = _locate_pkg_services()
+
+    src_dir = pkg_services / "bluesky"
+    if not src_dir.is_dir():
+        logger.warning("No package template for bluesky service at %s", src_dir)
+        return
+
+    dest_services_root = project_path / "services"
+    dest_services_root.mkdir(exist_ok=True)
+    dest_dir = dest_services_root / "bluesky"
+    if dest_dir.exists():
+        shutil.rmtree(dest_dir)
+    shutil.copytree(src_dir, dest_dir)
+
+    # 2. Write config.yml entries + register in deployed_services.
+    config_path = project_path / "config.yml"
+    if not config_path.exists():
+        logger.warning("config.yml not found — skipping bluesky config registration")
+        return
+
+    yaml = YAML()
+    yaml.preserve_quotes = True
+    with open(config_path) as fh:
+        config = yaml.load(fh)
+
+    # No ``image`` key: the service builds the local bluesky-bridge image on
+    # first ``osprey deploy up``. Override with OSPREY_BLUESKY_BRIDGE_IMAGE, or
+    # set ``services.bluesky.image`` here, to use a prebuilt/published image.
+    config.setdefault("services", {})
+    config["services"]["bluesky"] = {
+        "path": "./services/bluesky",
+        "port": bluesky.port,
+        "tiled_enabled": bluesky.tiled_enabled,
+        "tiled_port": bluesky.tiled_port,
+        "demo_scanner": bluesky.demo_scanner,
+    }
+    deployed = config.get("deployed_services", []) or []
+    if "bluesky" not in [str(s) for s in deployed]:
+        deployed.append("bluesky")
+    config["deployed_services"] = deployed
+
+    with open(config_path, "w") as fh:
+        yaml.dump(config, fh)
+
+    # 3. Post-build hint.
+    logger.info("  ✓ Injected Bluesky scan bridge (port %d)", bluesky.port)
+    logger.info(
+        "    Token:      `osprey deploy up` writes BLUESKY_PROMOTE_TOKEN to .env; "
+        "the `scan` MCP server's launch_scan tool reads it automatically."
+    )
+    logger.info(
+        "    Images:     `osprey deploy up` builds the bluesky-bridge image locally "
+        "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
+        "set OSPREY_BLUESKY_BRIDGE_IMAGE to use a published image."
+    )
+    if bluesky.tiled_enabled:
+        logger.info("    Tiled:      enabled on port %d", bluesky.tiled_port)
+    if bluesky.demo_scanner:
+        logger.warning(
+            "    Demo mode:  BLUESKY_DEMO_SCANNER is set — the bridge runs a real "
+            "bluesky RunEngine against MOCK devices only. Never enable this for a "
+            "facility wiring real EPICS hardware."
+        )
 
 
 def _copy_overlay_files(

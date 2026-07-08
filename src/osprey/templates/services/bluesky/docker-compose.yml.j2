@@ -1,0 +1,92 @@
+# The bluesky-bridge service owns the Bluesky RunEngine + ophyd-async devices
+# behind a FastAPI HTTP boundary (see src/osprey/services/bluesky_bridge/).
+# `osprey deploy up` builds its image locally on first run; subsequent runs
+# reuse the local tag. To use a prebuilt/published image instead, set
+# OSPREY_BLUESKY_BRIDGE_IMAGE (e.g. OSPREY_BLUESKY_BRIDGE_IMAGE=my-registry/osprey-bluesky-bridge:dev).
+# Use `osprey deploy up --dev` to bake in your local osprey checkout (incl.
+# unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
+
+services:
+  bluesky-bridge:
+    image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-{{ services.bluesky.image | default('osprey-bluesky-bridge:local') }}}
+    build:
+      # With multiple `-f` compose files, ALL relative paths (build contexts and
+      # bind mounts alike) resolve against the FIRST file's dir — the compose
+      # project directory, build/services/ — not this file's own subdir. So the
+      # context is ./bluesky, matching the volume-path convention below.
+      context: ./bluesky
+      dockerfile: Dockerfile
+      args:
+        OSPREY_VERSION: "{{ osprey_version | default('') }}"
+    container_name: osprey-bluesky-bridge
+    command:
+      [
+        "uvicorn",
+        "osprey.services.bluesky_bridge.app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "{{ services.bluesky.port | default(8090) }}",
+      ]
+    labels:
+      osprey.project.name: "{{ osprey_labels.project_name }}"
+      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+    restart: unless-stopped
+    ports:
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky.port | default(8090) }}:{{ services.bluesky.port | default(8090) }}"
+    environment:
+      # No :-default — an unset token must stay EMPTY so the bridge's
+      # POST /runs/{id}/promote route fails closed (HTTP 503) rather than
+      # booting with a guessable secret. `osprey deploy up` auto-generates a
+      # strong random token into the project .env when unset (see
+      # container_lifecycle.py's per-service token-mint map).
+      BLUESKY_PROMOTE_TOKEN: ${BLUESKY_PROMOTE_TOKEN}
+      TZ: {{ system.timezone }}
+{% if services.bluesky.demo_scanner | default(false) %}
+      # Deploy-smoke-demo / tutorial only: tells app.py's guarded startup hook
+      # (task 2.14a) to wire a real bluesky RunEngine against MOCK ophyd-async
+      # devices (devices/mock.py) instead of the Phase 1 no-op FakeScanner.
+      # NEVER set services.bluesky.demo_scanner for a facility wiring real
+      # EPICS hardware — it would silently override real device/plan wiring
+      # with an in-memory mock scanner.
+      BLUESKY_DEMO_SCANNER: "true"
+{% endif %}
+    networks:
+      - osprey-network
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:{{ services.bluesky.port | default(8090) }}/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # Grace period before failed probes count — uvicorn/FastAPI startup and
+      # the first image build (which bakes in the bluesky-bridge extra's
+      # dependencies at build time, not at container start) take a few seconds.
+      start_period: 15s
+{% if services.bluesky.tiled_enabled | default(false) %}
+
+  # OPTIONAL: a local Tiled server for the bridge's TiledWriter subscription
+  # (Task 2.7) to persist run documents to. Enabled by setting
+  # `services.bluesky.tiled_enabled: true` in config.yml; loopback/osprey-network
+  # only, same as the bridge itself. Not required for Phase 2's FakeScanner path.
+  tiled:
+    image: ${OSPREY_TILED_IMAGE:-ghcr.io/bluesky/tiled:latest}
+    container_name: osprey-bluesky-tiled
+    restart: unless-stopped
+    ports:
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky.tiled_port | default(8091) }}:8000"
+    environment:
+      TZ: {{ system.timezone }}
+    volumes:
+      - bluesky_tiled_catalog:/data
+    networks:
+      - osprey-network
+{% endif %}
+
+networks:
+  osprey-network:
+{% if services.bluesky.tiled_enabled | default(false) %}
+
+volumes:
+  bluesky_tiled_catalog:
+{% endif %}

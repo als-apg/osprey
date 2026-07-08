@@ -24,32 +24,107 @@ from osprey.utils.logger import get_logger
 
 logger = get_logger("deployment.lifecycle")
 
-# The event-dispatch services fail closed on an unset bearer token (no insecure
-# default in their compose templates), so a deploy must supply real secrets.
-_DISPATCH_SERVICES = {"event_dispatcher", "dispatch_worker"}
-_DISPATCH_TOKEN_VARS = ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN")
+# Services that fail closed on an unset bearer token (no insecure default in
+# their compose templates), so a deploy must supply real secrets. Maps each
+# deployed-service name to the token env var(s) it requires. event_dispatcher
+# and dispatch_worker both list the same pair because they share one .env:
+# the dispatcher forwards routed requests to workers using DISPATCH_WORKER_TOKEN,
+# so either service alone still needs both vars minted. bluesky is a single
+# fail-closed bridge instance needing only its own promote token — see
+# ``security.require_armed`` in ``osprey.services.bluesky_bridge``.
+_SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
+    "event_dispatcher": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
+    "dispatch_worker": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
+    "bluesky": ("BLUESKY_PROMOTE_TOKEN",),
+}
+
+# Services whose fail-closed token must NOT be auto-armed when the agent's code
+# execution is unsandboxed on the host (see _local_exec_arming_unsafe below).
+# Their bearer token gates a write-capable HTTP route (bluesky-bridge's
+# POST /runs/{id}/promote); under local exec, agent-authored code can read that
+# token straight out of .env/config.yml and call the route directly, bypassing
+# the in-tool writes_enabled re-check that's supposed to gate it. The
+# event-dispatch services aren't in this set: their tokens gate an inbound
+# webhook/worker-routing boundary, not a write path the agent itself walks.
+_LOCAL_EXEC_GATED_SERVICES = {"bluesky"}
 
 
-def _ensure_dispatch_tokens(
-    deployed_services, expose_network: bool, env_path: Path | None = None
+def _local_exec_arming_unsafe(config: dict) -> bool:
+    """True when writes are enabled AND python-executor code runs unsandboxed on the host.
+
+    ``control_system.writes_enabled`` (default False) and
+    ``execution.execution_method`` (default "container") are read directly from
+    the raw config dict, mirroring how every other consumer of these two flags
+    resolves them (e.g. ``osprey.connectors.control_system.base``,
+    ``osprey.cli.templates.claude_code``, the ``osprey_writes_check`` hook, and
+    ``osprey.mcp_server.python_executor.executor._read_config``).
+
+    The container execution_method runs agent code fs/network-isolated from the
+    project's ``.env`` and has no equivalent exposure.
+    """
+    writes_enabled = bool(config.get("control_system", {}).get("writes_enabled", False))
+    execution_method = config.get("execution", {}).get("execution_method", "container")
+    return writes_enabled and execution_method == "local"
+
+
+def _ensure_service_tokens(
+    config: dict, expose_network: bool, env_path: Path | None = None
 ) -> None:
-    """Self-provision the dispatch bearer tokens into the project ``.env``.
+    """Self-provision required fail-closed service tokens into the project ``.env``.
 
-    For any dispatch token unset in BOTH the process env and the project
-    ``.env``, generate a strong random value (``secrets.token_urlsafe(32)``,
-    the same recipe the ``.env.template`` documents) and append it to ``.env``
+    For any token var (per ``_SERVICE_TOKEN_VARS``, keyed by the deployed
+    services present) unset in BOTH the process env and the project ``.env``,
+    generate a strong random value (``secrets.token_urlsafe(32)``, the same
+    recipe the ``.env.template`` documents) and append it to ``.env``
     (``chmod 0o600``, matching the build-time convention). Existing values are
-    never overwritten, so re-running ``deploy up`` is idempotent. No-op unless a
-    dispatch service is actually deployed.
+    never overwritten, so re-running ``deploy up`` is idempotent. No-op unless
+    a token-requiring service is actually deployed.
 
     A token that is *present but explicitly empty* (e.g. ``TOKEN=`` exported in
     the shell) is left untouched — generating would silently override a
     deliberate value. For a loopback deploy the server simply fails closed; for
     an exposed deploy (``--expose`` / bind 0.0.0.0) we refuse rather than bind a
     fail-open-at-bind server to all interfaces.
+
+    A service in ``_LOCAL_EXEC_GATED_SERVICES`` is skipped entirely (no token
+    minted, existing values in .env/env left untouched but not read either) when
+    ``_local_exec_arming_unsafe(config)`` — see that function's docstring. The
+    bridge's own ``require_armed()`` then keeps returning 503, i.e. it never
+    arms, rather than being armed with a token any local agent-code execution
+    can trivially read back out of ``.env``.
     """
+    deployed_services = config.get("deployed_services")
     services = {str(s) for s in (deployed_services or [])}
-    if not (_DISPATCH_SERVICES & services):
+    unsafe_local_exec = _local_exec_arming_unsafe(config)
+
+    # Iterate the map (not the deployed `services` set) so var order is
+    # deterministic regardless of set iteration order or config.yml ordering.
+    required_vars: list[str] = []
+    seen: set[str] = set()
+    for svc_name, token_vars in _SERVICE_TOKEN_VARS.items():
+        if svc_name not in services:
+            continue
+        if svc_name in _LOCAL_EXEC_GATED_SERVICES and unsafe_local_exec:
+            logger.warning(
+                "Refusing to arm %r: control_system.writes_enabled is true but "
+                "execution.execution_method is 'local' (agent code runs unsandboxed "
+                "on the host, cwd=project_root). Local execution can read %s "
+                "straight out of .env/config.yml and call the write-capable route "
+                "it gates directly, bypassing the in-tool writes_enabled re-check. "
+                "NOT minting %s — the service stays unarmed. Set "
+                "execution.execution_method: container to use this feature with "
+                "writes_enabled: true.",
+                svc_name,
+                ", ".join(token_vars),
+                ", ".join(token_vars),
+            )
+            continue
+        for var in token_vars:
+            if var not in seen:
+                seen.add(var)
+                required_vars.append(var)
+
+    if not required_vars:
         return
 
     if env_path is None:
@@ -58,7 +133,7 @@ def _ensure_dispatch_tokens(
     existing = parse_dotenv_file(env_path) if env_path.is_file() else {}
 
     generated: dict[str, str] = {}
-    for name in _DISPATCH_TOKEN_VARS:
+    for name in required_vars:
         # Process env wins over .env (matches docker compose --env-file).
         present = name in os.environ or name in existing
         if present:
@@ -73,23 +148,23 @@ def _ensure_dispatch_tokens(
                 prefix = "\n"
         block = "".join(f"{k}={v}\n" for k, v in generated.items())
         with env_path.open("a", encoding="utf-8") as fh:
-            fh.write(f"{prefix}# Auto-generated dispatch auth tokens (osprey deploy up)\n{block}")
+            fh.write(f"{prefix}# Auto-generated service auth tokens (osprey deploy up)\n{block}")
         os.chmod(env_path, 0o600)
         # Log the path and which keys — NEVER the values.
         logger.key_info(
-            "Generated dispatch auth token(s) %s in %s (gitignored) — keep them secret",
+            "Generated auth token(s) %s in %s (gitignored) — keep them secret",
             ", ".join(generated),
             env_path.resolve(),
         )
 
     if expose_network:
         post = parse_dotenv_file(env_path) if env_path.is_file() else {}
-        for name in _DISPATCH_TOKEN_VARS:
+        for name in required_vars:
             effective = os.environ.get(name, post.get(name, ""))
             if not effective.strip():
                 raise RuntimeError(
                     f"{name} is empty; refusing to --expose (bind 0.0.0.0) with an "
-                    f"empty dispatch token. Set {name} in .env to a strong secret."
+                    f"empty token. Set {name} in .env to a strong secret."
                 )
 
 
@@ -119,12 +194,13 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     if not is_running:
         raise RuntimeError(error_msg)
 
-    # Self-provision dispatch auth tokens into .env (before the --env-file check
-    # below) so a fresh deploy is secure by default. The worker mounts the same
-    # .env for provider auth; a deploy where .env already carries provider keys
-    # renders with osprey_env_present=True and picks up the appended tokens, and
-    # a tokens-only .env carries no provider secret to mount in the first place.
-    _ensure_dispatch_tokens(config.get("deployed_services"), expose_network)
+    # Self-provision fail-closed service tokens into .env (before the --env-file
+    # check below) so a fresh deploy is secure by default. The dispatch worker
+    # mounts the same .env for provider auth; a deploy where .env already
+    # carries provider keys renders with osprey_env_present=True and picks up
+    # the appended tokens, and a tokens-only .env carries no provider secret to
+    # mount in the first place.
+    _ensure_service_tokens(config, expose_network)
 
     # Set up environment for containers
     env = os.environ.copy()
@@ -229,7 +305,7 @@ def deploy_restart(config_path, detached=False, expose_network=False):
 
     # Honor the same fail-closed/expose guard as deploy_up when re-rendering with
     # a (possibly newly exposed) bind address.
-    _ensure_dispatch_tokens(config.get("deployed_services"), expose_network)
+    _ensure_service_tokens(config, expose_network)
 
     cmd = get_runtime_command(config)
     for compose_file in compose_files:
@@ -263,8 +339,8 @@ def rebuild_deployment(config_path, detached=False, dev_mode=False, expose_netwo
     if not is_running:
         raise RuntimeError(error_msg)
 
-    # Self-provision dispatch auth tokens (see deploy_up) before rebuilding.
-    _ensure_dispatch_tokens(config.get("deployed_services"), expose_network)
+    # Self-provision fail-closed service tokens (see deploy_up) before rebuilding.
+    _ensure_service_tokens(config, expose_network)
 
     # Clean first
     clean_deployment(compose_files, config)

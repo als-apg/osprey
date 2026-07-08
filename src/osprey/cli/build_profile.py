@@ -101,6 +101,30 @@ class DispatchConfig:
     pv_strip_prefix: str = ""
 
 
+@dataclass
+class BlueskyConfig:
+    """Bluesky scan-bridge configuration for a build profile (opt-in via the ``bluesky:`` key).
+
+    Consumed by the build pipeline's bluesky-injection step to deploy the
+    single ``bluesky_bridge`` service (see NAMING-ADDENDUM.md: deploy key
+    ``bluesky``, env var ``BLUESKY_PROMOTE_TOKEN``, MCP server name ``scan``).
+    Ports are validated by :meth:`BuildProfile.validate`.
+    """
+
+    port: int = 8090
+    tiled_enabled: bool = False
+    tiled_port: int = 8091
+    demo_scanner: bool = False
+    """Opt-in only for the deploy-smoke-demo / tutorial case: wires the
+    container's bridge process to a real bluesky RunEngine against mock
+    ophyd-async devices (``devices/mock.py``) via app.py's guarded startup
+    hook (task 2.14a), instead of the Phase 1 no-op ``FakeScanner`` default.
+    MUST stay False for any facility wiring real EPICS hardware — turning
+    this on would silently override real device/plan wiring with an
+    in-memory mock scanner.
+    """
+
+
 _ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 
 
@@ -255,6 +279,7 @@ class BuildProfile:
     """
     categories: dict[str, dict[str, str]] = field(default_factory=dict)
     dispatch: DispatchConfig | None = None
+    bluesky: BlueskyConfig | None = None
 
     def resolved_tier(self) -> int:
         """Resolve the build-time tier, applying a paradigm-aware default.
@@ -478,6 +503,19 @@ class BuildProfile:
                     stacklevel=2,
                 )
 
+        # Validate bluesky configuration
+        if self.bluesky is not None:
+            b = self.bluesky
+            if not (1 <= b.port <= 65535):
+                errors.append(f"bluesky.port must be in 1..65535 (got {b.port})")
+            if b.tiled_enabled:
+                if not (1 <= b.tiled_port <= 65535):
+                    errors.append(f"bluesky.tiled_port must be in 1..65535 (got {b.tiled_port})")
+                elif b.tiled_port == b.port:
+                    errors.append(
+                        f"bluesky.tiled_port must differ from bluesky.port (both {b.port})"
+                    )
+
         if errors:
             raise BuildProfileError(
                 "Build profile validation failed:\n  - " + "\n  - ".join(errors)
@@ -547,6 +585,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "claude_md_template",
         "categories",
         "dispatch",
+        "bluesky",
     }
 )
 
@@ -655,6 +694,18 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             pv_strip_prefix=dispatch_raw.get("pv_strip_prefix", ""),
         )
 
+    bluesky_raw = raw.get("bluesky")
+    bluesky = None
+    if bluesky_raw is not None:
+        if not isinstance(bluesky_raw, dict):
+            raise BuildProfileError("Profile 'bluesky' must be a mapping")
+        bluesky = BlueskyConfig(
+            port=bluesky_raw.get("port", 8090),
+            tiled_enabled=bluesky_raw.get("tiled_enabled", False),
+            tiled_port=bluesky_raw.get("tiled_port", 8091),
+            demo_scanner=bluesky_raw.get("demo_scanner", False),
+        )
+
     return BuildProfile(
         name=raw.get("name", ""),
         data_bundle=raw.get("data_bundle", "control_assistant"),
@@ -682,6 +733,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         claude_md_template=raw.get("claude_md_template"),
         categories=raw.get("categories", {}),
         dispatch=dispatch,
+        bluesky=bluesky,
     )
 
 

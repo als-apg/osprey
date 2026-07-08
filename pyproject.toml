@@ -187,6 +187,19 @@ screen-capture-linux = [
     "python-xlib>=0.33",
 ]
 
+# Bluesky bridge (osprey.services.bluesky_bridge): the RunEngine, ophyd-async
+# devices, and Tiled writer/reader the bridge's Phase 2 submodules (plans.py,
+# scanner_bluesky.py, devices/*.py) import behind this extra. The bridge's
+# lifecycle core (app.py, runs.py, security.py, scanner.py) stays import-clean
+# of all of these — installed only in the bridge process's own container venv,
+# never required in OSPREY's main venv. fastapi/uvicorn/httpx are already core
+# dependencies, so they're not repeated here.
+bluesky-bridge = [
+    "bluesky>=1.12",
+    "ophyd-async>=0.16,<1.0",
+    "tiled[client]>=0.1",
+]
+
 # All optional dependencies for complete installation
 all = [
     "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,archiver-mongodb,knowledge]"
@@ -249,6 +262,19 @@ module = [
     "podman.*",
     "pymongo.*",
     "doocs4py.*",
+]
+ignore_missing_imports = true
+
+# Bluesky bridge (osprey.services.bluesky_bridge): the lifecycle core (runs.py,
+# app.py, security.py, scanner.py) stays import-clean of these, but Phase 2's
+# submodules (scanner_bluesky.py, devices/epics.py, plans.py, ...) will import
+# them behind the optional `osprey-framework[bluesky-bridge]` extra.
+[[tool.mypy.overrides]]
+module = [
+    "bluesky.*",
+    "ophyd.*",
+    "ophyd_async.*",
+    "tiled.*",
 ]
 ignore_missing_imports = true
 
