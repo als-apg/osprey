@@ -10,6 +10,19 @@
       "_comment": "Default verification: callback (fast, EPICS IOC confirmation)"
     }
   },
+  "MAG:QF[QF01]:CURRENT:SP": {
+    "_comment": "Example: read-only channel (writes blocked). Retained alongside the VA lattice entries because the generic control-assistant write-safety e2e (tests/e2e/claude_code/test_safety_writes.py, test_safety_approval_e2e.py) depend on it; do not remove.",
+    "writable": false
+  },
+  "DIAGNOSTICS:TEMPERATURE:SP": {
+    "_comment": "Example: low-criticality bounded channel (no verification, fastest writes). Retained for the generic write-safety/limits-deny e2e; do not remove.",
+    "min_value": 0.0,
+    "max_value": 100.0,
+    "verification": {
+      "level": "none",
+      "_comment": "No verification - fastest write mode (use for non-critical channels)"
+    }
+  },
   "BR:MAG:DIPOLE:01:CURRENT:SP": {
     "min_value": 280.0,
     "max_value": 360.0,
