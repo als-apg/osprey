@@ -129,6 +129,13 @@ Services & Connectors
       Search, filter, and explore control system channels using the Channel Finder
       service and its web interface.
 
+   .. grid-item-card:: Use the Virtual Accelerator
+      :link: use-virtual-accelerator
+      :link-type: doc
+
+      Run the Control Assistant tutorial against a containerized PyAT soft-IOC that
+      serves real EPICS Channel Access with live storage-ring physics.
+
    .. grid-item-card:: ARIEL Logbook Search
       :link: ariel/index
       :link-type: doc
@@ -164,6 +171,7 @@ Services & Connectors
    event-dispatch
    add-connector
    use-channel-finder
+   use-virtual-accelerator
    ariel/index
    use-facility-knowledge
    /cli-reference/index
