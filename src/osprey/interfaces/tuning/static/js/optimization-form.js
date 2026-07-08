@@ -7,6 +7,7 @@
 
 import { api } from './api.js';
 import { state } from './state.js';
+import { escapeHtml } from '/design-system/js/dom.js';
 
 // ---- DOM refs ----
 
@@ -116,7 +117,7 @@ function renderTables() {
   renderTable(els.boTableBody, true);
 }
 
-function renderTable(tbody, showBoRange) {
+export function renderTable(tbody, showBoRange) {
   const data = state.variableTableData;
 
   if (data.length === 0) {
@@ -130,14 +131,15 @@ function renderTable(tbody, showBoRange) {
     const tr = document.createElement('tr');
     tr.className = v.selected ? 'selected' : '';
 
+    const pv = escapeHtml(v.pv_name);
     tr.innerHTML = `
-      <td class="col-check"><input type="checkbox" data-pv="${v.pv_name}" ${v.selected ? 'checked' : ''}></td>
-      <td class="pv-name">${v.pv_name}</td>
+      <td class="col-check"><input type="checkbox" data-pv="${pv}" ${v.selected ? 'checked' : ''}></td>
+      <td class="pv-name">${pv}</td>
       <td class="muted">${formatNum(v.current_value)}</td>
-      <td><input class="input" type="number" data-pv="${v.pv_name}" data-field="min" value="${v.min ?? ''}" step="any"></td>
-      <td><input class="input" type="number" data-pv="${v.pv_name}" data-field="max" value="${v.max ?? ''}" step="any"></td>
-      <td><input class="input" type="number" data-pv="${v.pv_name}" data-field="step_size" value="${v.step_size ?? ''}" step="any"></td>
-      ${showBoRange ? `<td><input class="input" type="number" data-pv="${v.pv_name}" data-field="bo_range_factor" value="${v.bo_range_factor ?? 1}" step="0.1"></td>` : ''}
+      <td><input class="input" type="number" data-pv="${pv}" data-field="min" value="${v.min ?? ''}" step="any"></td>
+      <td><input class="input" type="number" data-pv="${pv}" data-field="max" value="${v.max ?? ''}" step="any"></td>
+      <td><input class="input" type="number" data-pv="${pv}" data-field="step_size" value="${v.step_size ?? ''}" step="any"></td>
+      ${showBoRange ? `<td><input class="input" type="number" data-pv="${pv}" data-field="bo_range_factor" value="${v.bo_range_factor ?? 1}" step="0.1"></td>` : ''}
     `;
 
     // Checkbox toggle
