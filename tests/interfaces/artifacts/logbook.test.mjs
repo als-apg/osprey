@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Unit tests for the Artifact Gallery logbook entry composer (logbook.js):
  * the client-side DOM gap left by the backend `test_logbook.py` suite

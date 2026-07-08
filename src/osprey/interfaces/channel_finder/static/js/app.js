@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * OSPREY Channel Finder — Application Entry Point
  *
@@ -8,6 +9,7 @@ import { initTheme } from '/design-system/js/theme-manager.js';
 import { applyEmbedded } from '/design-system/js/frame-params.js';
 import '/design-system/js/components/osprey-theme-switcher.js';
 import { fetchJSON, putJSON } from './api.js';
+import { esc, messageOf } from './utils.js';
 import { state } from './state.js';
 import { mountExplore, unmountExplore } from './explore.js';
 import { mountFeedback, unmountFeedback } from './feedback.js';
@@ -20,11 +22,15 @@ initTheme({ role: 'follower' });
 
 applyEmbedded();
 
+/** @typedef {{ mount: (container: HTMLElement) => void, unmount: () => void }} ViewModule */
+
+/** @type {Record<string, ViewModule>} */
 const VIEWS = {
   explore:  { mount: mountExplore,  unmount: unmountExplore },
   feedback: { mount: mountFeedback, unmount: unmountFeedback },
 };
 
+/** @type {string|null} */
 let currentView = null;
 let _initialized = false;
 
@@ -65,6 +71,9 @@ function routeFromHash() {
   activateView(view);
 }
 
+/**
+ * @param {string} viewName
+ */
 function activateView(viewName) {
   if (currentView === viewName) return;
 
@@ -72,8 +81,9 @@ function activateView(viewName) {
   if (!container) return;
 
   // Unmount previous view
-  if (currentView && VIEWS[currentView]?.unmount) {
-    VIEWS[currentView].unmount();
+  if (currentView) {
+    const prev = VIEWS[currentView];
+    if (prev) prev.unmount();
   }
 
   // Clear container
@@ -81,7 +91,7 @@ function activateView(viewName) {
 
   // Update nav links
   document.querySelectorAll('.nav-link').forEach(link => {
-    link.classList.toggle('active', link.dataset.view === viewName);
+    link.classList.toggle('active', /** @type {HTMLElement} */ (link).dataset.view === viewName);
   });
 
   // Mount new view
@@ -96,24 +106,28 @@ function setupNav() {
   document.querySelectorAll('.nav-link').forEach(link => {
     link.addEventListener('click', (e) => {
       e.preventDefault();
-      const view = link.dataset.view;
-      location.hash = view;
+      const view = /** @type {HTMLElement} */ (link).dataset.view;
+      if (view) location.hash = view;
     });
   });
 }
 
 // ---- Pipeline Switcher ----
 
+/** @type {Record<string, string>} */
 const PIPELINE_LABELS = {
   hierarchical: 'HIERARCHICAL',
   in_context: 'IN-CONTEXT',
   middle_layer: 'MIDDLE LAYER',
 };
 
+/**
+ * @param {any} type
+ */
 function updatePipelineBadge(type) {
   const badge = document.getElementById('pipeline-badge');
   if (!badge) return;
-  badge.textContent = (PIPELINE_LABELS[type] || type?.toUpperCase() || '') + ' \u25BE';
+  badge.textContent = (PIPELINE_LABELS[type] || type?.toUpperCase() || '') + ' ▾';
 }
 
 function buildPipelineDropdown() {
@@ -124,14 +138,14 @@ function buildPipelineDropdown() {
   const available = state.availablePipelines || [];
   if (available.length <= 1) {
     // Only one pipeline — no switcher needed, remove caret
-    badge.textContent = badge.textContent.replace(' \u25BE', '');
+    badge.textContent = (badge.textContent ?? '').replace(' ▾', '');
     badge.style.cursor = 'default';
     return;
   }
 
   dropdown.innerHTML = available.map(pt => {
     const active = pt === state.pipelineType ? ' active' : '';
-    return `<button class="pipeline-dropdown-item${active}" data-pipeline="${pt}">${PIPELINE_LABELS[pt] || pt}</button>`;
+    return `<button class="pipeline-dropdown-item${active}" data-pipeline="${esc(pt)}">${esc(PIPELINE_LABELS[pt] || pt)}</button>`;
   }).join('');
 
   // Toggle dropdown on badge click
@@ -148,13 +162,16 @@ function buildPipelineDropdown() {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       dropdown.classList.remove('open');
-      const pt = btn.dataset.pipeline;
-      if (pt === state.pipelineType) return;
+      const pt = /** @type {HTMLElement} */ (btn).dataset.pipeline;
+      if (!pt || pt === state.pipelineType) return;
       await switchPipeline(pt);
     });
   });
 }
 
+/**
+ * @param {string} newType
+ */
 async function switchPipeline(newType) {
   try {
     await putJSON('/api/pipeline', { pipeline_type: newType });
@@ -167,7 +184,7 @@ async function switchPipeline(newType) {
 
     // Update dropdown active state
     document.querySelectorAll('.pipeline-dropdown-item').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.pipeline === info.pipeline_type);
+      btn.classList.toggle('active', /** @type {HTMLElement} */ (btn).dataset.pipeline === info.pipeline_type);
     });
 
     // Refresh stats and re-mount current view
@@ -177,12 +194,16 @@ async function switchPipeline(newType) {
 
     showToast(`Switched to ${PIPELINE_LABELS[newType] || newType}`, 'success');
   } catch (e) {
-    showToast(`Failed to switch pipeline: ${e.message}`, 'error');
+    showToast(`Failed to switch pipeline: ${messageOf(e)}`, 'error');
   }
 }
 
 // ---- Toast ----
 
+/**
+ * @param {string} message
+ * @param {string} [type='info']
+ */
 export function showToast(message, type = 'info') {
   const container = document.getElementById('toast-container');
   if (!container) return;

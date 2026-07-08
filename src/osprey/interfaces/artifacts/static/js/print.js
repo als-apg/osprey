@@ -105,7 +105,7 @@ function populateWindow(w, html) {
 
   // Initialize the target document with a minimal shell.
   // Safe: writing a hardcoded empty document to our own window.
-  w.document.open();  // eslint-disable-line no-restricted-syntax
+  w.document.open();
   w.document.write("<!DOCTYPE html><html><head></head><body></body></html>");  // static content only
   w.document.close();
 
@@ -213,7 +213,7 @@ function printTimeseries(a) {
   // Safe: writing static HTML to our own about:blank window.
   // This capture window is part of the always-light print flow (see the
   // PRINT_STYLES comment above) \u2014 the hardcoded gray is intentional.
-  w.document.open();  // eslint-disable-line no-restricted-syntax
+  w.document.open();
   w.document.write(  // static content only
     "<!DOCTYPE html><html><head><style>body{display:flex;align-items:center;" +
     "justify-content:center;height:100vh;font-family:system-ui;color:#666;}" + // hygiene-allow-color
@@ -223,7 +223,7 @@ function printTimeseries(a) {
 
   Plotly.toImage(chartEl, { format: "png", width: 1200, height: 600 })
     .then(function (/** @type {string} */ dataUrl) {
-      var html = "<!DOCTYPE html><html><head><meta charset='UTF-8'>" +
+      const html = "<!DOCTYPE html><html><head><meta charset='UTF-8'>" +
         "<title>" + esc(a.title) + "</title>" +
         "<style>" + PRINT_STYLES + "</style></head><body>" +
         headerHtml(a) +
@@ -237,6 +237,7 @@ function printTimeseries(a) {
     })
     .catch(function (/** @type {unknown} */ err) {
       console.error("[print.js] Plotly.toImage failed:", err);
+      // eslint-disable-next-line no-empty -- intentional empty catch: closing an already-gone print window is best-effort
       try { w.close(); } catch (_) {}
       alert("Could not capture chart for printing.");
     });
@@ -278,7 +279,7 @@ function createPrintBtn(a) {
   btn.className = "btn-action-icon print-action-btn";
   btn.title = "Print / Save as PDF";
   // PRINT_ICON is a hardcoded SVG constant — safe for innerHTML
-  btn.innerHTML = PRINT_ICON;  // eslint-disable-line no-unsanitized/property
+  btn.innerHTML = PRINT_ICON;  // PRINT_ICON is a trusted module-level SVG constant (no user input) — safe innerHTML assignment
   btn.addEventListener("click", function (e) {
     e.stopPropagation();
     printArtifact(a);

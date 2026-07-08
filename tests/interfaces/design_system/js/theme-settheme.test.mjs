@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Unit tests for theme-manager.js's setTheme() -- the explicit user-toggle
  * path -- covering:

@@ -6,11 +6,15 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test:js": "vitest run",
-    "test:js:watch": "vitest"
+    "test:js:watch": "vitest",
+    "lint": "eslint ."
   },
   "devDependencies": {
     "typescript": "^5.7.3",
     "vitest": "^3.0.5",
-    "happy-dom": "^20.10.6"
+    "happy-dom": "^20.10.6",
+    "eslint": "^9",
+    "@eslint/js": "^9",
+    "globals": "^17"
   }
 }

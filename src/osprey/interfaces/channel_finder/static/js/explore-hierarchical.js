@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * OSPREY Channel Finder — Hierarchical Explore (Miller Columns)
  *
@@ -8,32 +9,40 @@
 
 import { fetchJSON, postJSON, putJSON, deleteJSON } from './api.js';
 import { showToast } from './app.js';
-import { esc } from './utils.js';
+import { esc, messageOf } from './utils.js';
 import { formModal, confirmModal } from './modal.js';
 import { refreshStatsBadges } from './stats-badges.js';
+import { isTreeLevel, computeSelection } from './explore-selection.js';
 
-let containerEl = null;
+/**
+ * @typedef {object} Column
+ * @property {string} level
+ * @property {any[]} options
+ * @property {Set<string>} selectedValues
+ * @property {any} [expansion]
+ */
+
+/** @type {any} */
 let hierInfo = null;
+/** @type {Record<string, string|string[]>} */
 let selections = {};  // level -> value(s)
+/** @type {Column[]} */
 let columns = [];     // array of { level, options, selectedValues }
 let showDescriptions = false;
 
-/** Return true if the named level is a tree-type (editable) level. */
-function isTreeLevel(levelName) {
-  const levels = hierInfo?.hierarchy_config?.levels;
-  if (!levels || !levels[levelName]) return true;  // default to tree
-  return levels[levelName].type === 'tree';
-}
-
-/** Toggle description visibility and re-render (called from explore.js). */
+/**
+ * Toggle description visibility and re-render (called from explore.js).
+ * @param {boolean} val
+ */
 export function setShowDescriptions(val) {
   showDescriptions = val;
   renderColumns();
 }
 
+/**
+ * @param {HTMLElement} container
+ */
 export async function mountHierarchical(container) {
-  containerEl = container;
-
   container.innerHTML = `
     <div class="miller-container" id="miller-container">
       <div class="loading-center"><div class="loading-spinner"></div> Loading hierarchy...</div>
@@ -46,18 +55,20 @@ export async function mountHierarchical(container) {
     columns = [];
     await loadLevel(0);
   } catch (e) {
-    container.innerHTML = `<div class="empty-state">Failed to load hierarchy: ${e.message}</div>`;
+    container.innerHTML = `<div class="empty-state">Failed to load hierarchy: ${esc(messageOf(e))}</div>`;
   }
 
 }
 
 export function unmountHierarchical() {
-  containerEl = null;
   hierInfo = null;
   selections = {};
   columns = [];
 }
 
+/**
+ * @param {number} levelIdx
+ */
 async function loadLevel(levelIdx) {
   if (!hierInfo?.hierarchy_levels) return;
   const levels = hierInfo.hierarchy_levels;
@@ -68,6 +79,7 @@ async function loadLevel(levelIdx) {
     : (levels[levelIdx].name || levels[levelIdx].level);
 
   // Build selections dict for API call
+  /** @type {Record<string, any>} */
   const apiSelections = {};
   for (let i = 0; i < levelIdx; i++) {
     const prevLevel = typeof levels[i] === 'string' ? levels[i] : (levels[i].name || levels[i].level);
@@ -87,7 +99,7 @@ async function loadLevel(levelIdx) {
 
     // For instance-type levels, eagerly fetch expansion config
     let expansion = null;
-    if (!isTreeLevel(level)) {
+    if (!isTreeLevel(hierInfo?.hierarchy_config?.levels, level)) {
       try {
         const expSelParam = Object.keys(apiSelections).length > 0
           ? `?selections=${encodeURIComponent(JSON.stringify(apiSelections))}&level=${encodeURIComponent(level)}`
@@ -106,7 +118,7 @@ async function loadLevel(levelIdx) {
 
     renderColumns();
   } catch (e) {
-    showToast(`Failed to load ${level}: ${e.message}`, 'error');
+    showToast(`Failed to load ${level}: ${messageOf(e)}`, 'error');
   }
 }
 
@@ -115,10 +127,10 @@ function renderColumns() {
   if (!mc) return;
 
   mc.innerHTML = columns.map((col, colIdx) => {
-    const treeLevel = isTreeLevel(col.level);
-    const items = (col.options || []).map(opt => {
+    const treeLevel = isTreeLevel(hierInfo?.hierarchy_config?.levels, col.level);
+    const items = (col.options || []).map((/** @type {any} */ opt) => {
       const name = typeof opt === 'string' ? opt : (opt.name || opt.label || opt.value || '');
-      const count = (typeof opt === 'object' && opt.count != null) ? opt.count : null;
+      const count = (typeof opt === 'object' && opt.count !== null && opt.count !== undefined) ? opt.count : null;
       const desc = (typeof opt === 'object' && opt.description) ? opt.description : '';
       const isSelected = col.selectedValues.has(name);
 
@@ -142,7 +154,7 @@ function renderColumns() {
             <span class="item-label">${esc(name)}</span>
             ${descHtml}
           </div>
-          <span>${count != null ? `<span class="item-count">${count}</span>` : ''}</span>
+          <span>${count !== null && count !== undefined ? `<span class="item-count">${esc(count)}</span>` : ''}</span>
           ${actionBtns}
         </div>
       `;
@@ -165,9 +177,11 @@ function renderColumns() {
   mc.querySelectorAll('.miller-item').forEach(item => {
     item.addEventListener('click', (e) => {
       // Don't select when clicking action buttons
-      if (e.target.closest('.item-action-btn')) return;
-      const colIdx = parseInt(item.dataset.col, 10);
-      const value = item.dataset.value;
+      if (/** @type {HTMLElement} */ (e.target).closest('.item-action-btn')) return;
+      const el = /** @type {HTMLElement} */ (item);
+      const colIdx = parseInt(el.dataset.col ?? '', 10);
+      const value = el.dataset.value;
+      if (value === undefined) return;
       handleSelect(colIdx, value);
     });
   });
@@ -176,26 +190,32 @@ function renderColumns() {
   mc.querySelectorAll('.item-action-btn.action-edit').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      handleEdit(parseInt(btn.dataset.col, 10), btn.dataset.name);
+      const el = /** @type {HTMLElement} */ (btn);
+      const name = el.dataset.name;
+      if (!name) return;
+      handleEdit(parseInt(el.dataset.col ?? '', 10), name);
     });
   });
 
   mc.querySelectorAll('.item-action-btn.action-delete').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      handleDelete(parseInt(btn.dataset.col, 10), btn.dataset.name);
+      const el = /** @type {HTMLElement} */ (btn);
+      const name = el.dataset.name;
+      if (!name) return;
+      handleDelete(parseInt(el.dataset.col ?? '', 10), name);
     });
   });
 
   mc.querySelectorAll('.column-add-btn:not(.column-edit-expansion-btn)').forEach(btn => {
     btn.addEventListener('click', () => {
-      handleAdd(parseInt(btn.dataset.col, 10));
+      handleAdd(parseInt(/** @type {HTMLElement} */ (btn).dataset.col ?? '', 10));
     });
   });
 
   mc.querySelectorAll('.column-edit-expansion-btn').forEach(btn => {
     btn.addEventListener('click', () => {
-      handleEditExpansion(parseInt(btn.dataset.col, 10));
+      handleEditExpansion(parseInt(/** @type {HTMLElement} */ (btn).dataset.col ?? '', 10));
     });
   });
 
@@ -203,6 +223,9 @@ function renderColumns() {
 
 // ---- CRUD Handlers ----
 
+/**
+ * @param {number} colIdx
+ */
 async function handleAdd(colIdx) {
   const col = columns[colIdx];
   if (!col) return;
@@ -218,6 +241,7 @@ async function handleAdd(colIdx) {
   if (!result) return;
 
   // Build parent_selections — include instance levels so backend can navigate
+  /** @type {Record<string, any>} */
   const parentSelections = {};
   for (let i = 0; i < colIdx; i++) {
     const lvl = columns[i].level;
@@ -238,18 +262,22 @@ async function handleAdd(colIdx) {
     await loadLevel(colIdx);
     refreshStatsBadges();
   } catch (e) {
-    showToast(`Failed to add: ${e.message}`, 'error');
+    showToast(`Failed to add: ${messageOf(e)}`, 'error');
   }
 }
 
+/**
+ * @param {number} colIdx
+ * @param {string} name
+ */
 async function handleEdit(colIdx, name) {
   const col = columns[colIdx];
   if (!col) return;
 
   // Find current description from the DOM data attribute
-  const itemEl = document.querySelector(
+  const itemEl = /** @type {HTMLElement|null} */ (document.querySelector(
     `.miller-item[data-col="${colIdx}"][data-value="${CSS.escape(name)}"]`
-  );
+  ));
   const currentDesc = itemEl?.dataset.desc || '';
 
   const result = await formModal({
@@ -268,6 +296,7 @@ async function handleEdit(colIdx, name) {
   if (!nameChanged && !descChanged) return;
 
   // Build selections for parent path
+  /** @type {Record<string, any>} */
   const parentSelections = {};
   for (let i = 0; i < colIdx; i++) {
     const lvl = columns[i].level;
@@ -292,15 +321,20 @@ async function handleEdit(colIdx, name) {
     await loadLevel(colIdx);
     refreshStatsBadges();
   } catch (e) {
-    showToast(`Failed to edit: ${e.message}`, 'error');
+    showToast(`Failed to edit: ${messageOf(e)}`, 'error');
   }
 }
 
+/**
+ * @param {number} colIdx
+ * @param {string} name
+ */
 async function handleDelete(colIdx, name) {
   const col = columns[colIdx];
   if (!col) return;
 
   // Build selections for parent path
+  /** @type {Record<string, any>} */
   const parentSelections = {};
   for (let i = 0; i < colIdx; i++) {
     const lvl = columns[i].level;
@@ -356,15 +390,19 @@ async function handleDelete(colIdx, name) {
     await loadLevel(colIdx);
     refreshStatsBadges();
   } catch (e) {
-    showToast(`Failed to delete: ${e.message}`, 'error');
+    showToast(`Failed to delete: ${messageOf(e)}`, 'error');
   }
 }
 
+/**
+ * @param {number} colIdx
+ */
 async function handleEditExpansion(colIdx) {
   const col = columns[colIdx];
   if (!col) return;
 
   // Build parent selections for the API call
+  /** @type {Record<string, any>} */
   const parentSelections = {};
   for (let i = 0; i < colIdx; i++) {
     const lvl = columns[i].level;
@@ -376,7 +414,7 @@ async function handleEditExpansion(colIdx) {
 
   // Use expansion config cached at column load time
   const currentExpansion = col.expansion || {};
-  const hasRange = currentExpansion.range != null;
+  const hasRange = currentExpansion.range !== null && currentExpansion.range !== undefined;
   const result = await formModal({
     title: `Edit ${col.level} expansion`,
     fields: [
@@ -401,12 +439,16 @@ async function handleEditExpansion(colIdx) {
     await loadLevel(colIdx);
     refreshStatsBadges();
   } catch (e) {
-    showToast(`Failed to update expansion: ${e.message}`, 'error');
+    showToast(`Failed to update expansion: ${messageOf(e)}`, 'error');
   }
 }
 
 // ---- Selection ----
 
+/**
+ * @param {number} colIdx
+ * @param {string} value
+ */
 function handleSelect(colIdx, value) {
   const col = columns[colIdx];
   if (!col) return;
@@ -414,24 +456,15 @@ function handleSelect(colIdx, value) {
   const isLastLevel = colIdx === columns.length - 1 &&
     hierInfo?.hierarchy_levels?.length === columns.length;
 
-  // Toggle selection
-  if (col.selectedValues.has(value)) {
-    col.selectedValues.delete(value);
-  } else {
-    if (!isLastLevel) {
-      // Single select for non-terminal levels
-      col.selectedValues.clear();
-    }
-    col.selectedValues.add(value);
-  }
+  const { selectedValues, selectionValue, loadNext } =
+    computeSelection([...col.selectedValues], value, isLastLevel);
 
-  // Update selections dict
-  if (col.selectedValues.size === 0) {
+  // Apply the computed selection to column + module state
+  col.selectedValues = new Set(selectedValues);
+  if (selectionValue === null) {
     delete selections[col.level];
-  } else if (col.selectedValues.size === 1) {
-    selections[col.level] = [...col.selectedValues][0];
   } else {
-    selections[col.level] = [...col.selectedValues];
+    selections[col.level] = selectionValue;
   }
 
   // Remove deeper selections
@@ -443,7 +476,7 @@ function handleSelect(colIdx, value) {
   renderColumns();
 
   // Load next level (only for single selection on non-terminal)
-  if (!isLastLevel && col.selectedValues.size === 1) {
+  if (loadNext) {
     loadLevel(colIdx + 1);
   }
 }

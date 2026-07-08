@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * OSPREY Tuning — Plotly Chart Builders
  *
@@ -24,6 +25,27 @@
 
 import { chartSeries, chartTheme, subscribe } from '/design-system/js/theme-manager.js';
 
+/**
+ * A single optimization sample. Extra keys (`phase`, `idx`) are attached to
+ * the merged point records built inside `createOptimizationPlot`.
+ * @typedef {object} DataPoint
+ * @property {number} [objective_value]
+ * @property {number} [objective]
+ * @property {number} [efficiency]
+ * @property {number} [improvement]
+ * @property {Record<string, number>} [variables]
+ * @property {Record<string, {min: number, max: number}>} [variable_bounds]
+ */
+
+/**
+ * Optimization run state consumed by the dual-axis objective/variable plot.
+ * @typedef {object} OptState
+ * @property {DataPoint[]} [lhs_data]
+ * @property {DataPoint[]} [bo_data]
+ * @property {DataPoint[]} [snapshots]
+ */
+
+/** @param {string} name  @returns {string} */
 function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
@@ -72,7 +94,8 @@ subscribe(() => {
   }
 });
 
-/** Run `render` now and register it to re-run (with the same closed-over data) on every theme change. */
+/** Run `render` now and register it to re-run (with the same closed-over data) on every theme change.
+ * @param {HTMLElement} container  @param {() => void} render  @returns {void} */
 function withRerender(container, render) {
   render();
   _rerenderByContainer.set(container, render);
@@ -80,15 +103,21 @@ function withRerender(container, render) {
 
 /**
  * Build the dual-axis optimization plot (objective + variables).
+ * @param {HTMLElement} container
+ * @param {OptState} optState
+ * @param {string} [displayMode]
+ * @returns {void}
  */
 export function createOptimizationPlot(container, optState, displayMode = 'normalized') {
   const render = () => {
     const colors = roleColors();
     const palette = chartSeries();
+    /** @type {any[]} */
     const traces = [];
     const { lhs_data, bo_data, snapshots } = optState;
 
     // Combine all data points
+    /** @type {any[]} */
     const allPoints = [];
 
     // Initial point (index 0 if exists)
@@ -190,6 +219,7 @@ export function createOptimizationPlot(container, optState, displayMode = 'norma
 
 /**
  * Efficiency over iterations — line chart.
+ * @param {HTMLElement} container  @param {DataPoint[]} data  @returns {void}
  */
 export function createEfficiencyPlot(container, data) {
   if (!data || data.length === 0) return;
@@ -228,6 +258,7 @@ export function createEfficiencyPlot(container, data) {
 
 /**
  * Convergence comparison — cumulative best.
+ * @param {HTMLElement} container  @param {DataPoint[]} data  @returns {void}
  */
 export function createConvergencePlot(container, data) {
   if (!data || data.length === 0) return;
@@ -270,13 +301,14 @@ export function createConvergencePlot(container, data) {
 
 /**
  * Parameter space — parallel coordinates.
+ * @param {HTMLElement} container  @param {DataPoint[]} data  @returns {void}
  */
 export function createParameterSpacePlot(container, data) {
   if (!data || data.length === 0 || !data[0]?.variables) return;
 
   const render = () => {
     const palette = chartSeries();
-    const varNames = Object.keys(data[0].variables);
+    const varNames = Object.keys(data[0].variables || {});
     const objectives = data.map((d) => d.objective_value ?? d.objective ?? 0);
 
     const dimensions = [
@@ -324,6 +356,7 @@ export function createParameterSpacePlot(container, data) {
 
 /**
  * Best point table — rendered as a Plotly table.
+ * @param {HTMLElement} container  @param {DataPoint[]} data  @returns {void}
  */
 export function createBestPointTable(container, data) {
   if (!data || data.length === 0) return;

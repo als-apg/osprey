@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Unit tests for <osprey-theme-switcher>
  * (design_system/static/js/components/osprey-theme-switcher.js).

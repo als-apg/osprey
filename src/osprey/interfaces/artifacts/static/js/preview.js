@@ -65,10 +65,12 @@ function resizePreviewMedia() {
   const previewContent = document.getElementById("preview-content");
   const iframe = previewContent?.querySelector("iframe");
   if (iframe?.contentWindow) {
+    // eslint-disable-next-line no-empty -- intentional empty catch: dispatching resize into a cross-origin frame is best-effort
     try { iframe.contentWindow.dispatchEvent(new Event("resize")); } catch {}
   }
   const tsChart = document.getElementById("ts-viewport");
   if (tsChart && typeof Plotly !== "undefined") {
+    // eslint-disable-next-line no-empty -- intentional empty catch: Plotly resize is best-effort when chart not yet ready
     try { Plotly.Plots.resize(tsChart); } catch {}
   }
 }

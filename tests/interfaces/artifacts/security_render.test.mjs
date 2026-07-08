@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Consolidated hostile-metadata security regression suite (Phase 4, Task
  * 1.5) — the machine-checkable gate proving Phase 1's security fixes

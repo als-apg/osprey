@@ -177,7 +177,7 @@ function createLogbookModal() {
   /** @type {NodeListOf<HTMLInputElement>} */
   (overlay.querySelectorAll('input[name="logbook-artifact-scope"]')).forEach(function (radio) {
     radio.addEventListener("change", function () {
-      var picker = document.getElementById("logbook-artifact-picker");
+      const picker = document.getElementById("logbook-artifact-picker");
       if (!picker) return;
       if (radio.value === "choose" && radio.checked) {
         picker.style.display = "";
@@ -194,9 +194,9 @@ function createLogbookModal() {
 // ---- Artifact picker ----
 
 function loadArtifactPicker() {
-  var list = document.getElementById("logbook-artifact-picker-list");
+  const list = document.getElementById("logbook-artifact-picker-list");
   if (!list) return;
-  var el = list;
+  const el = list;
 
   // If already loaded, don't reload
   if (allArtifacts.length > 0) {
@@ -224,8 +224,8 @@ function renderArtifactPicker(list) {
 
   list.innerHTML = "";
   allArtifacts.forEach(function (art) {
-    var isCurrentArtifact = (art.id === currentOpts.artifact_id);
-    var label = document.createElement("label");
+    const isCurrentArtifact = (art.id === currentOpts.artifact_id);
+    const label = document.createElement("label");
     label.className = "logbook-checkbox-label logbook-artifact-pick-item";
     label.innerHTML =
       '<input type="checkbox"' + (isCurrentArtifact ? " checked" : "") + '>' +
@@ -235,7 +235,7 @@ function renderArtifactPicker(list) {
     // string above) so the id can never break out of the attribute —
     // property assignment bypasses HTML parsing entirely. getContextValues()
     // reads it back via `cb.value`, which is unaffected by this change.
-    var checkbox = /** @type {HTMLInputElement} */ (label.querySelector('input[type=checkbox]'));
+    const checkbox = /** @type {HTMLInputElement} */ (label.querySelector('input[type=checkbox]'));
     checkbox.value = art.id;
     list.appendChild(label);
   });
@@ -249,7 +249,7 @@ const PHASES = ["steering", "preview", "editor", "composing", "review"];
 function showPhase(phase) {
   currentPhase = phase;
   PHASES.forEach(function (p) {
-    var el = document.getElementById("logbook-phase-" + p);
+    const el = document.getElementById("logbook-phase-" + p);
     if (el) el.style.display = (p === phase) ? "" : "none";
   });
   // Do NOT hide errors here — errors must persist across phase transitions
@@ -260,16 +260,16 @@ function showPhase(phase) {
 }
 
 function clearError() {
-  var err = document.getElementById("logbook-error");
+  const err = document.getElementById("logbook-error");
   if (err) err.style.display = "none";
 }
 
 /** @param {string} phase */
 function updateHeaderTitle(phase) {
-  var title = document.getElementById("logbook-header-title");
+  const title = document.getElementById("logbook-header-title");
   if (!title) return;
   /** @type {Record<string, string>} */
-  var titles = {
+  const titles = {
     steering: "Compose Logbook Entry",
     preview: "Prompt Preview",
     editor: "Edit Prompt",
@@ -281,7 +281,7 @@ function updateHeaderTitle(phase) {
 
 /** @param {string} phase */
 function renderFooterButtons(phase) {
-  var container = document.getElementById("logbook-actions");
+  const container = document.getElementById("logbook-actions");
   if (!container) return;
   container.innerHTML = "";
 
@@ -310,7 +310,7 @@ function renderFooterButtons(phase) {
  * @param {(e: MouseEvent) => void} handler
  */
 function makeBtn(label, style, handler) {
-  var btn = document.createElement("button");
+  const btn = document.createElement("button");
   btn.className = "logbook-btn logbook-btn-" + style;
   btn.textContent = label;
   btn.addEventListener("click", handler);
@@ -320,10 +320,10 @@ function makeBtn(label, style, handler) {
 // ---- Steering getters ----
 
 function getSteeringValues() {
-  var purpose = /** @type {HTMLSelectElement|null} */ (document.getElementById("logbook-purpose"));
-  var activeDetail = /** @type {HTMLElement|null} */ (document.querySelector(".logbook-detail-btn.active"));
-  var nudge = /** @type {HTMLInputElement|null} */ (document.getElementById("logbook-nudge"));
-  var model = /** @type {HTMLSelectElement|null} */ (document.getElementById("logbook-model"));
+  const purpose = /** @type {HTMLSelectElement|null} */ (document.getElementById("logbook-purpose"));
+  const activeDetail = /** @type {HTMLElement|null} */ (document.querySelector(".logbook-detail-btn.active"));
+  const nudge = /** @type {HTMLInputElement|null} */ (document.getElementById("logbook-nudge"));
+  const model = /** @type {HTMLSelectElement|null} */ (document.getElementById("logbook-model"));
   return {
     purpose: purpose ? purpose.value : "general",
     detail_level: activeDetail ? activeDetail.dataset.level : "standard",
@@ -333,14 +333,14 @@ function getSteeringValues() {
 }
 
 function getContextValues() {
-  var sessionLog = /** @type {HTMLInputElement|null} */ (document.getElementById("logbook-ctx-session"));
-  var include_session_log = sessionLog ? sessionLog.checked : true;
+  const sessionLog = /** @type {HTMLInputElement|null} */ (document.getElementById("logbook-ctx-session"));
+  const include_session_log = sessionLog ? sessionLog.checked : true;
 
-  var scopeRadio = /** @type {HTMLInputElement|null} */ (document.querySelector('input[name="logbook-artifact-scope"]:checked'));
-  var scope = scopeRadio ? scopeRadio.value : "this";
+  const scopeRadio = /** @type {HTMLInputElement|null} */ (document.querySelector('input[name="logbook-artifact-scope"]:checked'));
+  const scope = scopeRadio ? scopeRadio.value : "this";
 
   /** @type {string[]|null} */
-  var artifact_ids = null;
+  let artifact_ids = null;
   if (scope === "all") {
     artifact_ids = ["all"];
   } else if (scope === "choose") {
@@ -363,23 +363,23 @@ function getContextValues() {
 
 async function onShowPrompt() {
   clearError();
-  var vals = getSteeringValues();
+  const vals = getSteeringValues();
   /** @type {any} */
-  var body = { purpose: vals.purpose, detail_level: vals.detail_level };
+  const body = { purpose: vals.purpose, detail_level: vals.detail_level };
   if (vals.nudge) body.nudge = vals.nudge;
 
   try {
-    var resp = await fetch("/api/logbook/assemble-prompt", {
+    const resp = await fetch("/api/logbook/assemble-prompt", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     if (!resp.ok) {
-      var err = await resp.json().catch(function () { return {}; });
+      const err = await resp.json().catch(function () { return {}; });
       showError(err.detail || "Failed to assemble prompt (" + resp.status + ")");
       return;
     }
-    var data = await resp.json();
+    const data = await resp.json();
     /** @type {HTMLElement} */ (document.getElementById("logbook-prompt-text")).textContent = data.prompt;
     showPhase("preview");
   } catch (e) {
@@ -388,7 +388,7 @@ async function onShowPrompt() {
 }
 
 function onManualEdit() {
-  var previewText = /** @type {HTMLElement} */ (document.getElementById("logbook-prompt-text")).textContent;
+  const previewText = /** @type {HTMLElement} */ (document.getElementById("logbook-prompt-text")).textContent;
   /** @type {HTMLTextAreaElement} */ (document.getElementById("logbook-prompt-edit")).value = /** @type {string} */ (previewText);
   showPhase("editor");
 }
@@ -396,16 +396,16 @@ function onManualEdit() {
 async function onCreateDraft() {
   clearError();
 
-  var sourcePhase = currentPhase;
-  var fromEditor = (sourcePhase === "editor");
+  const sourcePhase = currentPhase;
+  const fromEditor = (sourcePhase === "editor");
 
   // Gather all values BEFORE switching to composing phase (while controls are live)
-  var ctxVals = getContextValues();
-  var steering = getSteeringValues();
+  const ctxVals = getContextValues();
+  const steering = getSteeringValues();
 
   // Build request body
   /** @type {any} */
-  var body = {};
+  const body = {};
 
   // Artifact identity
   if (ctxVals.artifact_ids) {
@@ -418,7 +418,7 @@ async function onCreateDraft() {
 
   // Prompt source
   if (fromEditor) {
-    var editorEl = /** @type {HTMLTextAreaElement|null} */ (document.getElementById("logbook-prompt-edit"));
+    const editorEl = /** @type {HTMLTextAreaElement|null} */ (document.getElementById("logbook-prompt-edit"));
     if (editorEl && editorEl.value.trim()) {
       body.custom_prompt = editorEl.value.trim();
     }
@@ -435,19 +435,19 @@ async function onCreateDraft() {
   showPhase("composing");
 
   try {
-    var resp = await fetch("/api/logbook/compose", {
+    const resp = await fetch("/api/logbook/compose", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     if (!resp.ok) {
-      var err = await resp.json().catch(function () { return {}; });
+      const err = await resp.json().catch(function () { return {}; });
       // Return to source phase FIRST, then show error (so error persists)
       showPhase(fromEditor ? "editor" : "steering");
       showError(err.detail || "Compose failed (" + resp.status + ")");
       return;
     }
-    var data = await resp.json();
+    const data = await resp.json();
     showReviewForm(data);
   } catch (e) {
     showPhase(fromEditor ? "editor" : "steering");
@@ -461,7 +461,7 @@ function showReviewForm(data) {
   /** @type {HTMLTextAreaElement} */ (document.getElementById("logbook-details")).value = data.details || "";
   /** @type {HTMLInputElement} */ (document.getElementById("logbook-tags")).value = (data.tags || []).join(", ");
 
-  var reviewEl = document.getElementById("logbook-phase-review");
+  const reviewEl = document.getElementById("logbook-phase-review");
   if (reviewEl) reviewEl.dataset.artifactIds = JSON.stringify(data.artifact_ids || []);
 
   showPhase("review");
@@ -470,7 +470,7 @@ function showReviewForm(data) {
 // ---- Shared helpers ----
 
 function showModal() {
-  var m = createLogbookModal();
+  const m = createLogbookModal();
   m.style.display = "";
 }
 
@@ -480,9 +480,9 @@ function hideModal() {
 }
 
 function resetModal() {
-  var purpose = /** @type {HTMLSelectElement|null} */ (document.getElementById("logbook-purpose"));
+  const purpose = /** @type {HTMLSelectElement|null} */ (document.getElementById("logbook-purpose"));
   if (purpose) purpose.value = "observation";
-  var nudge = /** @type {HTMLInputElement|null} */ (document.getElementById("logbook-nudge"));
+  const nudge = /** @type {HTMLInputElement|null} */ (document.getElementById("logbook-nudge"));
   if (nudge) nudge.value = "";
   if (modal) {
     /** @type {NodeListOf<HTMLElement>} */
@@ -491,25 +491,25 @@ function resetModal() {
     });
   }
   // Reset context controls
-  var sessionCb = /** @type {HTMLInputElement|null} */ (document.getElementById("logbook-ctx-session"));
+  const sessionCb = /** @type {HTMLInputElement|null} */ (document.getElementById("logbook-ctx-session"));
   if (sessionCb) sessionCb.checked = true;
-  var thisRadio = /** @type {HTMLInputElement|null} */ (document.querySelector('input[name="logbook-artifact-scope"][value="this"]'));
+  const thisRadio = /** @type {HTMLInputElement|null} */ (document.querySelector('input[name="logbook-artifact-scope"][value="this"]'));
   if (thisRadio) thisRadio.checked = true;
-  var picker = document.getElementById("logbook-artifact-picker");
+  const picker = document.getElementById("logbook-artifact-picker");
   if (picker) picker.style.display = "none";
   // Reset model
-  var model = /** @type {HTMLSelectElement|null} */ (document.getElementById("logbook-model"));
+  const model = /** @type {HTMLSelectElement|null} */ (document.getElementById("logbook-model"));
   if (model) model.value = "haiku";
   // Clear editor/preview/review
-  var promptText = document.getElementById("logbook-prompt-text");
+  const promptText = document.getElementById("logbook-prompt-text");
   if (promptText) promptText.textContent = "";
-  var promptEdit = /** @type {HTMLTextAreaElement|null} */ (document.getElementById("logbook-prompt-edit"));
+  const promptEdit = /** @type {HTMLTextAreaElement|null} */ (document.getElementById("logbook-prompt-edit"));
   if (promptEdit) promptEdit.value = "";
-  var subject = /** @type {HTMLInputElement|null} */ (document.getElementById("logbook-subject"));
+  const subject = /** @type {HTMLInputElement|null} */ (document.getElementById("logbook-subject"));
   if (subject) subject.value = "";
-  var details = /** @type {HTMLTextAreaElement|null} */ (document.getElementById("logbook-details"));
+  const details = /** @type {HTMLTextAreaElement|null} */ (document.getElementById("logbook-details"));
   if (details) details.value = "";
-  var tags = /** @type {HTMLInputElement|null} */ (document.getElementById("logbook-tags"));
+  const tags = /** @type {HTMLInputElement|null} */ (document.getElementById("logbook-tags"));
   if (tags) tags.value = "";
   // Clear cached artifacts so picker refreshes next open
   allArtifacts = [];
@@ -517,7 +517,7 @@ function resetModal() {
 
 /** @param {string} msg */
 function showError(msg) {
-  var error = document.getElementById("logbook-error");
+  const error = document.getElementById("logbook-error");
   if (error) {
     error.textContent = msg;
     error.style.display = "";
@@ -529,23 +529,23 @@ function showError(msg) {
 async function submitLogbook() {
   clearError();
 
-  var subject = /** @type {HTMLInputElement} */ (document.getElementById("logbook-subject")).value.trim();
-  var details = /** @type {HTMLTextAreaElement} */ (document.getElementById("logbook-details")).value.trim();
-  var tagsStr = /** @type {HTMLInputElement} */ (document.getElementById("logbook-tags")).value;
-  var tags = tagsStr ? tagsStr.split(",").map(function (/** @type {string} */ t) { return t.trim(); }).filter(Boolean) : [];
-  var reviewEl = document.getElementById("logbook-phase-review");
-  var artifactIds = reviewEl ? JSON.parse(reviewEl.dataset.artifactIds || "[]") : [];
+  const subject = /** @type {HTMLInputElement} */ (document.getElementById("logbook-subject")).value.trim();
+  const details = /** @type {HTMLTextAreaElement} */ (document.getElementById("logbook-details")).value.trim();
+  const tagsStr = /** @type {HTMLInputElement} */ (document.getElementById("logbook-tags")).value;
+  const tags = tagsStr ? tagsStr.split(",").map(function (/** @type {string} */ t) { return t.trim(); }).filter(Boolean) : [];
+  const reviewEl = document.getElementById("logbook-phase-review");
+  const artifactIds = reviewEl ? JSON.parse(reviewEl.dataset.artifactIds || "[]") : [];
 
   if (!subject || !details) {
     showError("Subject and details are required.");
     return;
   }
 
-  var btns = /** @type {NodeListOf<HTMLButtonElement>} */ (document.querySelectorAll("#logbook-actions .logbook-btn-primary"));
+  const btns = /** @type {NodeListOf<HTMLButtonElement>} */ (document.querySelectorAll("#logbook-actions .logbook-btn-primary"));
   btns.forEach(function (b) { b.disabled = true; });
 
   try {
-    var resp = await fetch("/api/logbook/submit", {
+    const resp = await fetch("/api/logbook/submit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -556,13 +556,13 @@ async function submitLogbook() {
       }),
     });
     if (!resp.ok) {
-      var err = await resp.json().catch(function () { return {}; });
+      const err = await resp.json().catch(function () { return {}; });
       showError(err.detail || "Submit failed (" + resp.status + ")");
       btns.forEach(function (b) { b.disabled = false; });
       return;
     }
-    var data = await resp.json();
-    var body = document.getElementById("logbook-body");
+    const data = await resp.json();
+    const body = document.getElementById("logbook-body");
     if (body) {
       body.innerHTML = `
         <div style="text-align:center; padding:var(--space-6); color:var(--color-success);">
@@ -575,7 +575,7 @@ async function submitLogbook() {
         </div>
       `;
     }
-    var actions = document.getElementById("logbook-actions");
+    const actions = document.getElementById("logbook-actions");
     if (actions) actions.innerHTML = "";
     modal = null;
     setTimeout(hideModal, 3000);
@@ -599,7 +599,7 @@ async function openComposeModal(opts) {
 
 /** @param {any} opts */
 function createLogbookBtn(opts) {
-  var btn = document.createElement("button");
+  const btn = document.createElement("button");
   btn.className = "logbook-action-btn";
   btn.title = "Compose logbook entry";
   btn.innerHTML = PENCIL_ICON + " Logbook";
@@ -617,11 +617,11 @@ function createLogbookBtn(opts) {
 function injectLogbookButtons() {
   document.querySelectorAll(".logbook-action-btn").forEach(function (b) { b.remove(); });
 
-  var selectedArtifact = getSelectedArtifact();
+  const selectedArtifact = getSelectedArtifact();
   if (selectedArtifact) {
-    var bar = document.querySelector("#preview-content .preview-header-actions");
+    const bar = document.querySelector("#preview-content .preview-header-actions");
     if (bar) {
-      var deleteBtn = bar.querySelector(".btn-action-danger");
+      const deleteBtn = bar.querySelector(".btn-action-danger");
       if (deleteBtn) {
         bar.insertBefore(createLogbookBtn({ artifact_id: selectedArtifact.id }), deleteBtn);
       } else {

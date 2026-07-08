@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 // AUTO-GENERATED — DO NOT EDIT.
 // Source: src/osprey/interfaces/design_system/tokens/
 // Regenerate with: python -m osprey.interfaces.design_system.generator.build
@@ -9,9 +11,9 @@
 (function () {
   "use strict";
 
-  var STORAGE_KEY = "osprey-theme";
-  var VALID_IDS = ["dark", "light"];
-  var DEFAULTS = {
+  const STORAGE_KEY = "osprey-theme";
+  const VALID_IDS = ["dark", "light"];
+  const DEFAULTS = {
     "dark": "dark",
     "light": "light"
   };
@@ -21,7 +23,7 @@
   }
 
   function resolveAuto() {
-    var prefersDark = true;
+    let prefersDark = true;
     try {
       prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     } catch (error) {
@@ -46,16 +48,16 @@
     }
   }
 
-  var candidate = "auto";
-  var queryTheme = readQueryTheme();
-  var storedTheme = readStoredTheme();
+  let candidate = "auto";
+  const queryTheme = readQueryTheme();
+  const storedTheme = readStoredTheme();
   if (isKnownId(queryTheme)) {
     candidate = queryTheme;
   } else if (isKnownId(storedTheme)) {
     candidate = storedTheme;
   }
 
-  var resolved = candidate === "auto" ? resolveAuto() : candidate;
+  let resolved = candidate === "auto" ? resolveAuto() : candidate;
   if (!resolved && VALID_IDS.length > 0) {
     resolved = VALID_IDS[0];
   }

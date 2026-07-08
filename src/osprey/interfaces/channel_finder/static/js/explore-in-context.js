@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * OSPREY Channel Finder — In-Context Explore (Chunk-Paginated Table)
  *
@@ -13,12 +14,12 @@
 
 import { fetchJSON, postJSON, putJSON, deleteJSON } from './api.js';
 import { showToast } from './app.js';
-import { esc } from './utils.js';
+import { esc, messageOf } from './utils.js';
 import { formModal, confirmModal } from './modal.js';
 import { refreshStatsBadges } from './stats-badges.js';
 import { filterChannels, totalChunksFor, clampChunkIdx, pageSlice } from './chunk-filter.js';
 
-let containerEl = null;
+/** @type {any[]} */
 let allChannels = [];   // the ENTIRE in-context database (loaded once)
 let filterText = '';
 let chunkIdx = 0;
@@ -30,9 +31,10 @@ function getFiltered() {
   return filterChannels(allChannels, filterText);
 }
 
+/**
+ * @param {HTMLElement} container
+ */
 export async function mountInContext(container) {
-  containerEl = container;
-
   container.innerHTML = `
     <div class="filter-bar">
       <span class="filter-label">Filter:</span>
@@ -48,7 +50,7 @@ export async function mountInContext(container) {
   `;
 
   document.getElementById('ic-filter')?.addEventListener('input', (e) => {
-    filterText = e.target.value.toLowerCase();
+    filterText = /** @type {HTMLInputElement} */ (e.target).value.toLowerCase();
     // Reset to the first page of the NEW filtered set, and re-render the pager:
     // the filtered set (and thus the chunk count) changes on every keystroke.
     chunkIdx = 0;
@@ -62,7 +64,6 @@ export async function mountInContext(container) {
 }
 
 export function unmountInContext() {
-  containerEl = null;
   allChannels = [];
   filterText = '';
   chunkIdx = 0;
@@ -81,10 +82,11 @@ async function loadAll() {
     renderPagination();
   } catch (e) {
     const area = document.getElementById('ic-table-area');
-    if (area) area.innerHTML = `<div class="empty-state">Failed to load channels: ${e.message}</div>`;
+    if (area) area.innerHTML = `<div class="empty-state">Failed to load channels: ${esc(messageOf(e))}</div>`;
   }
 }
 
+/** @type {string|null} */
 let editingRow = null;
 
 function renderTable() {
@@ -175,25 +177,30 @@ function renderTable() {
   `;
 
   area.querySelectorAll('.item-action-btn.action-delete').forEach(btn => {
-    btn.addEventListener('click', () => handleDeleteChannel(btn.dataset.channel));
+    btn.addEventListener('click', () => {
+      const channel = /** @type {HTMLElement} */ (btn).dataset.channel;
+      if (channel) handleDeleteChannel(channel);
+    });
   });
 
   area.querySelectorAll('.item-action-btn.action-edit').forEach(btn => {
     btn.addEventListener('click', () => {
-      editingRow = btn.dataset.channel;
+      editingRow = /** @type {HTMLElement} */ (btn).dataset.channel ?? null;
       renderTable();
-      const input = document.getElementById('ic-edit-name');
+      const input = /** @type {HTMLInputElement|null} */ (document.getElementById('ic-edit-name'));
       if (input) { input.focus(); input.select(); }
     });
   });
 
   area.querySelectorAll('.item-action-btn.action-save').forEach(btn => {
     btn.addEventListener('click', () => {
-      const nameInput = document.getElementById('ic-edit-name');
-      const addrInput = document.getElementById('ic-edit-addr');
-      const descInput = document.getElementById('ic-edit-desc');
+      const origName = /** @type {HTMLElement} */ (btn).dataset.channel;
+      if (!origName) return;
+      const nameInput = /** @type {HTMLInputElement|null} */ (document.getElementById('ic-edit-name'));
+      const addrInput = /** @type {HTMLInputElement|null} */ (document.getElementById('ic-edit-addr'));
+      const descInput = /** @type {HTMLInputElement|null} */ (document.getElementById('ic-edit-desc'));
       handleSaveEdit(
-        btn.dataset.channel,
+        origName,
         nameInput?.value.trim(),
         addrInput?.value.trim(),
         descInput?.value.trim(),
@@ -208,21 +215,22 @@ function renderTable() {
     });
   });
 
-  const editInputs = [
+  /** @type {HTMLElement[]} */
+  const editInputs = /** @type {HTMLElement[]} */ ([
     document.getElementById('ic-edit-name'),
     document.getElementById('ic-edit-addr'),
     document.getElementById('ic-edit-desc'),
-  ].filter(Boolean);
+  ].filter(Boolean));
   editInputs.forEach(input => {
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        const row = input.closest('tr');
+      if (/** @type {KeyboardEvent} */ (e).key === 'Enter') {
+        const row = /** @type {HTMLElement|null} */ (input.closest('tr'));
         const origName = row?.dataset.channel;
-        const newName = document.getElementById('ic-edit-name')?.value.trim();
-        const addrVal = document.getElementById('ic-edit-addr')?.value.trim();
-        const descVal = document.getElementById('ic-edit-desc')?.value.trim();
+        const newName = /** @type {HTMLInputElement|null} */ (document.getElementById('ic-edit-name'))?.value.trim();
+        const addrVal = /** @type {HTMLInputElement|null} */ (document.getElementById('ic-edit-addr'))?.value.trim();
+        const descVal = /** @type {HTMLInputElement|null} */ (document.getElementById('ic-edit-desc'))?.value.trim();
         if (origName) handleSaveEdit(origName, newName, addrVal, descVal);
-      } else if (e.key === 'Escape') {
+      } else if (/** @type {KeyboardEvent} */ (e).key === 'Escape') {
         editingRow = null;
         renderTable();
       }
@@ -261,6 +269,12 @@ function renderPagination() {
 
 // ---- CRUD Handlers ----
 
+/**
+ * @param {string} origName
+ * @param {string|undefined} newName
+ * @param {string|undefined} newAddr
+ * @param {string|undefined} newDesc
+ */
 async function handleSaveEdit(origName, newName, newAddr, newDesc) {
   try {
     const renamed = newName && newName !== origName;
@@ -274,6 +288,7 @@ async function handleSaveEdit(origName, newName, newAddr, newDesc) {
       });
       showToast(`Renamed "${origName}" → "${newName}"`, 'success');
     } else {
+      /** @type {Record<string, any>} */
       const body = {};
       if (newAddr !== undefined) body.address = newAddr;
       if (newDesc !== undefined) body.description = newDesc;
@@ -285,7 +300,7 @@ async function handleSaveEdit(origName, newName, newAddr, newDesc) {
     await loadAll();
     if (renamed) refreshStatsBadges();
   } catch (e) {
-    showToast(`Failed to update: ${e.message}`, 'error');
+    showToast(`Failed to update: ${messageOf(e)}`, 'error');
   }
 }
 
@@ -311,10 +326,13 @@ async function handleAddChannel() {
     await loadAll();
     refreshStatsBadges();
   } catch (e) {
-    showToast(`Failed to add channel: ${e.message}`, 'error');
+    showToast(`Failed to add channel: ${messageOf(e)}`, 'error');
   }
 }
 
+/**
+ * @param {string} channelName
+ */
 async function handleDeleteChannel(channelName) {
   const confirmed = await confirmModal({
     title: `Delete "${channelName}"?`,
@@ -331,6 +349,6 @@ async function handleDeleteChannel(channelName) {
     await loadAll();
     refreshStatsBadges();
   } catch (e) {
-    showToast(`Failed to delete: ${e.message}`, 'error');
+    showToast(`Failed to delete: ${messageOf(e)}`, 'error');
   }
 }

@@ -57,6 +57,7 @@ const resizeHandle = document.getElementById("resize-handle");
 // until well after both are constructed — can close over it.
 
 /** @type {any} */
+// eslint-disable-next-line prefer-const -- intentional forward reference: assigned later after previewRenderer is constructed
 let sidebarRenderer;
 
 const previewRenderer = createPreviewRenderer({
@@ -325,6 +326,7 @@ applyEmbedded();
 function _forwardThemeToPreviewFrames(theme) {
   document.querySelectorAll(".preview-viewport iframe, .browse-preview-pane iframe").forEach((iframe) => {
     // Intentional '*' (same-origin contract exception): nested preview iframe may be null/cross-origin.
+    // eslint-disable-next-line no-empty -- intentional empty catch: postMessage to a stale/cross-origin frame is best-effort
     try { /** @type {any} */ (iframe).contentWindow.postMessage({ type: "osprey-theme-change", theme }, "*"); } catch {}
   });
 }
@@ -343,6 +345,7 @@ function _restyleTimeseriesChart() {
       "yaxis.gridcolor": t.yaxis.gridcolor, "yaxis.linecolor": t.line,
       "legend.bgcolor": t.legendBg, "legend.bordercolor": t.legendBorder,
     });
+  // eslint-disable-next-line no-empty -- intentional empty catch: Plotly relayout is best-effort restyle
   } catch {}
 }
 

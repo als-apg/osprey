@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * OSPREY Tuning — App Entry Point
  *
@@ -32,12 +33,12 @@ function initTabs() {
 
   tabs.forEach(tab => {
     tab.addEventListener('click', () => {
-      const targetId = tab.dataset.tab;
+      const targetId = /** @type {HTMLElement} */ (tab).dataset.tab;
 
       tabs.forEach(t => t.classList.toggle('active', t === tab));
       panels.forEach(p => p.classList.toggle('active', p.id === targetId));
 
-      state.setActiveTab(targetId);
+      state.setActiveTab(/** @type {string} */ (targetId));
     });
   });
 }
@@ -60,7 +61,7 @@ function initCollapsibles() {
   document.querySelectorAll('.collapsible-toggle').forEach(toggle => {
     toggle.addEventListener('click', () => {
       toggle.classList.toggle('open');
-      const body = toggle.nextElementSibling;
+      const body = /** @type {HTMLElement | null} */ (toggle.nextElementSibling);
       if (body) {
         body.style.display = body.style.display === 'none' ? '' : 'none';
       }
@@ -74,7 +75,10 @@ function initAlerts() {
   const dismiss = document.getElementById('validation-dismiss');
   if (dismiss) {
     dismiss.addEventListener('click', () => {
-      document.getElementById('validation-alert').style.display = 'none';
+      const alert = /** @type {HTMLElement | null} */ (
+        document.getElementById('validation-alert')
+      );
+      if (alert) alert.style.display = 'none';
     });
   }
 }

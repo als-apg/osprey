@@ -238,16 +238,16 @@ def render_theme_boot_js(tree: TokenTree) -> str:
 (function () {{
   "use strict";
 
-  var STORAGE_KEY = {storage_key_json};
-  var VALID_IDS = {valid_ids_json};
-  var DEFAULTS = {defaults_json};
+  const STORAGE_KEY = {storage_key_json};
+  const VALID_IDS = {valid_ids_json};
+  const DEFAULTS = {defaults_json};
 
   function isKnownId(value) {{
     return value === "auto" || VALID_IDS.indexOf(value) !== -1;
   }}
 
   function resolveAuto() {{
-    var prefersDark = true;
+    let prefersDark = true;
     try {{
       prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     }} catch (error) {{
@@ -272,16 +272,16 @@ def render_theme_boot_js(tree: TokenTree) -> str:
     }}
   }}
 
-  var candidate = "auto";
-  var queryTheme = readQueryTheme();
-  var storedTheme = readStoredTheme();
+  let candidate = "auto";
+  const queryTheme = readQueryTheme();
+  const storedTheme = readStoredTheme();
   if (isKnownId(queryTheme)) {{
     candidate = queryTheme;
   }} else if (isKnownId(storedTheme)) {{
     candidate = storedTheme;
   }}
 
-  var resolved = candidate === "auto" ? resolveAuto() : candidate;
+  let resolved = candidate === "auto" ? resolveAuto() : candidate;
   if (!resolved && VALID_IDS.length > 0) {{
     resolved = VALID_IDS[0];
   }}
@@ -290,4 +290,13 @@ def render_theme_boot_js(tree: TokenTree) -> str:
   }}
 }})();\
 """
-    return _render(GENERATED_HEADER_LINES, body)
+    # theme-boot.js is generated JS that isn't type-annotated yet; grandfather it
+    # under @ts-nocheck (design_system is retrofitted in a later hardening phase)
+    # while still emitting no-var/prefer-const-clean code, so the enforced JS gates
+    # pass on the generated artifact without a post-generation hand-edit.
+    header_lines = (
+        "// @ts-nocheck",
+        "// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)",
+        *GENERATED_HEADER_LINES,
+    )
+    return _render(header_lines, body)

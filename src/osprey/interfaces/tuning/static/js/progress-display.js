@@ -1,7 +1,9 @@
+// @ts-check
 /**
  * OSPREY Tuning — Progress Display
  *
  * Status badge, Plotly graph, results table, logs, polling.
+ * @module tuning/progress-display
  */
 
 import { api } from './api.js';
@@ -9,17 +11,39 @@ import { state } from './state.js';
 import { createOptimizationPlot } from './plots.js';
 import { escapeHtml } from '/design-system/js/dom.js';
 
+/** @typedef {import('./state.js').OptimizationState} OptimizationState */
+
+/**
+ * One row of the results table, built by merging a raw LHS/BO data point with
+ * its display phase and iteration index.
+ * @typedef {object} ResultRow
+ * @property {string} phase
+ * @property {number} iter
+ * @property {number} [objective_value]
+ * @property {*} [objective]
+ */
+
+/** Extract a message from an unknown catch binding.
+ *  @param {unknown} e  @returns {string} */
+function messageOf(e) { return e instanceof Error ? e.message : String(e); }
+
+/** @type {ReturnType<typeof setInterval> | null} */
 let pollTimer = null;
-let plotContainer;
-let logOutput;
-let resultsTableBody;
-let resultsPagination;
+/** @type {HTMLElement | null} */
+let plotContainer = null;
+/** @type {HTMLTextAreaElement | null} */
+let logOutput = null;
+/** @type {HTMLElement | null} */
+let resultsTableBody = null;
+/** @type {HTMLElement | null} */
+let resultsPagination = null;
 let currentPage = 0;
 const PAGE_SIZE = 10;
 
+/** @returns {void} */
 export function initProgressDisplay() {
   plotContainer = document.getElementById('optimization-plot');
-  logOutput = document.getElementById('log-output');
+  logOutput = /** @type {HTMLTextAreaElement | null} */ (document.getElementById('log-output'));
   resultsTableBody = document.getElementById('results-table-body');
   resultsPagination = document.getElementById('results-pagination');
 
@@ -27,7 +51,8 @@ export function initProgressDisplay() {
   const displayMode = document.getElementById('display-mode');
   if (displayMode) {
     displayMode.addEventListener('change', (e) => {
-      state.setDisplayMode(e.target.value);
+      const target = /** @type {HTMLSelectElement} */ (e.target);
+      state.setDisplayMode(target.value);
     });
   }
 
@@ -44,6 +69,7 @@ export function initProgressDisplay() {
   state.on('selectedPointChanged', onSelectedPointChanged);
 }
 
+/** @param {OptimizationState} optState  @returns {void} */
 function onStateChanged(optState) {
   updateStatusBadge(optState.status);
   updatePlot(optState);
@@ -51,6 +77,7 @@ function onStateChanged(optState) {
   updateLogs(optState);
 }
 
+/** @param {any} ps  @returns {void} */
 function onPageStateChanged(ps) {
   if (ps.pollingEnabled && !pollTimer) {
     startPolling();
@@ -59,10 +86,12 @@ function onPageStateChanged(ps) {
   }
 }
 
+/** @returns {void} */
 function onDisplayModeChanged() {
   updatePlot(state.optimizationState);
 }
 
+/** @param {any} point  @returns {void} */
 function onSelectedPointChanged(point) {
   const el = document.getElementById('selected-point');
   const textEl = document.getElementById('selected-point-text');
@@ -81,12 +110,13 @@ function onSelectedPointChanged(point) {
 
 // ---- Status Badge ----
 
+/** @param {string} status  @returns {void} */
 function updateStatusBadge(status) {
   const badge = document.getElementById('run-status-badge');
   if (!badge) return;
 
-  const dot = badge.querySelector('.status-dot');
-  const text = badge.querySelector('.status-text');
+  const dot = /** @type {HTMLElement} */ (badge.querySelector('.status-dot'));
+  const text = /** @type {HTMLElement} */ (badge.querySelector('.status-text'));
 
   dot.className = 'status-dot';
   switch (status) {
@@ -117,6 +147,7 @@ function updateStatusBadge(status) {
 
 // ---- Plot ----
 
+/** @param {OptimizationState} optState  @returns {void} */
 function updatePlot(optState) {
   if (!plotContainer) return;
 
@@ -134,8 +165,9 @@ function updatePlot(optState) {
   createOptimizationPlot(plotContainer, optState, state.displayMode);
 
   // Click handler for point selection
-  plotContainer.removeAllListeners?.('plotly_click');
-  plotContainer.on?.('plotly_click', (data) => {
+  const plotly = /** @type {any} */ (plotContainer);
+  plotly.removeAllListeners?.('plotly_click');
+  plotly.on?.('plotly_click', (/** @type {any} */ data) => {
     if (!data?.points?.[0]) return;
     const pt = data.points[0];
     const allData = [
@@ -150,9 +182,11 @@ function updatePlot(optState) {
 
 // ---- Results Table ----
 
+/** @param {OptimizationState} optState  @returns {void} */
 function updateResultsTable(optState) {
   if (!resultsTableBody) return;
 
+  /** @type {ResultRow[]} */
   const allData = [
     ...(optState.lhs_data || []).map((d, i) => ({ ...d, phase: 'LHS', iter: i + 1 })),
     ...(optState.bo_data || []).map((d, i) => ({ ...d, phase: 'BO', iter: (optState.lhs_data?.length || 0) + i + 1 })),
@@ -192,7 +226,7 @@ function updateResultsTable(optState) {
 
     for (let i = 0; i < totalPages; i++) {
       const btn = document.createElement('button');
-      btn.textContent = i + 1;
+      btn.textContent = String(i + 1);
       btn.className = i === currentPage ? 'active' : '';
       btn.addEventListener('click', () => { currentPage = i; updateResultsTable(optState); });
       resultsPagination.appendChild(btn);
@@ -210,6 +244,7 @@ function updateResultsTable(optState) {
 
 // ---- Logs ----
 
+/** @param {OptimizationState} optState  @returns {void} */
 function updateLogs(optState) {
   if (!logOutput) return;
   const logs = optState.logs || [];
@@ -222,14 +257,15 @@ function updateLogs(optState) {
 
 // ---- Apply Selected Point ----
 
+/** @returns {Promise<void>} */
 async function applySelectedPoint() {
-  const point = state.selectedPoint;
+  const point = /** @type {any} */ (state.selectedPoint);
   if (!point?.variables || !state.environment) return;
 
   try {
     await api.setMachineVariables(state.environment, point.variables);
     // Flash success
-    const btn = document.getElementById('apply-point-btn');
+    const btn = /** @type {HTMLButtonElement | null} */ (document.getElementById('apply-point-btn'));
     if (btn) {
       const orig = btn.textContent;
       btn.textContent = 'Applied!';
@@ -240,7 +276,7 @@ async function applySelectedPoint() {
     const alert = document.getElementById('validation-alert');
     const text = document.getElementById('validation-text');
     if (alert && text) {
-      text.textContent = `Failed to apply: ${err.message}`;
+      text.textContent = `Failed to apply: ${messageOf(err)}`;
       alert.style.display = '';
     }
   }
@@ -248,11 +284,13 @@ async function applySelectedPoint() {
 
 // ---- Polling ----
 
+/** @returns {void} */
 function startPolling() {
   if (pollTimer) return;
   pollTimer = setInterval(pollState, 500);
 }
 
+/** @returns {void} */
 function stopPolling() {
   if (pollTimer) {
     clearInterval(pollTimer);
@@ -260,6 +298,7 @@ function stopPolling() {
   }
 }
 
+/** @returns {Promise<void>} */
 async function pollState() {
   if (!state.jobId) return;
 

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Regression tests for the in-context Explore filter/chunk logic (issue #299).
  *

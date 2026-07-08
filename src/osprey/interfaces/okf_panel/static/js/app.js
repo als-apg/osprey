@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /*
  * OKF Knowledge Panel — read-only SPA shell.
  *
@@ -12,7 +14,7 @@
  * any response whose content-type is text/html, (text|application)/javascript,
  * or text/css. The `_REWRITE_PREFIXES` tuple includes `/static/` and `/api/`
  * (plus a bare `/api`). So a literal like fetch("/api/concept") served from
- * /static/app.js becomes fetch("/panel/okf/api/concept") in the browser.
+ * /static/js/app.js becomes fetch("/panel/okf/api/concept") in the browser.
  *
  * Therefore we use PLAIN ROOT-ABSOLUTE paths everywhere (both HTML asset refs
  * and JS fetch() literals). No runtime base-prefix derivation is needed — the

@@ -1,54 +1,109 @@
+// @ts-check
 /**
  * OSPREY Tuning — Optimization Form
  *
  * Accordion phases, variable tables, add-variable forms, control buttons.
  * LHS and BO tables stay synced.
+ * @module tuning/optimization-form
  */
 
 import { api } from './api.js';
 import { state } from './state.js';
 import { escapeHtml } from '/design-system/js/dom.js';
 
+/**
+ * @typedef {object} Els
+ * @property {HTMLSelectElement} lhsObjective
+ * @property {HTMLInputElement} lhsSamples
+ * @property {HTMLElement} lhsTableBody
+ * @property {HTMLInputElement} lhsAddPv
+ * @property {HTMLButtonElement} lhsCheckValue
+ * @property {HTMLButtonElement} lhsAddBtn
+ * @property {HTMLElement} lhsAddResult
+ * @property {HTMLButtonElement} lhsSelectAll
+ * @property {HTMLButtonElement} lhsDeselectAll
+ * @property {HTMLInputElement} lhsCheckAll
+ * @property {HTMLButtonElement} lhsResetBtn
+ * @property {HTMLButtonElement} lhsUpdateBtn
+ * @property {HTMLSelectElement} boObjective
+ * @property {HTMLSelectElement} boAlgorithm
+ * @property {HTMLInputElement} boTopPoints
+ * @property {HTMLInputElement} boIterations
+ * @property {HTMLElement} boTableBody
+ * @property {HTMLInputElement} boAddPv
+ * @property {HTMLButtonElement} boCheckValue
+ * @property {HTMLButtonElement} boAddBtn
+ * @property {HTMLElement} boAddResult
+ * @property {HTMLButtonElement} boSelectAll
+ * @property {HTMLButtonElement} boDeselectAll
+ * @property {HTMLInputElement} boCheckAll
+ * @property {HTMLButtonElement} boResetBtn
+ * @property {HTMLButtonElement} boUpdateBtn
+ * @property {HTMLButtonElement} startBtn
+ * @property {HTMLButtonElement} pauseBtn
+ * @property {HTMLButtonElement} resumeBtn
+ * @property {HTMLButtonElement} cancelBtn
+ */
+
+/**
+ * @typedef {object} Variable
+ * @property {string} pv_name
+ * @property {number | null} current_value
+ * @property {number | null} min
+ * @property {number | null} max
+ * @property {number | null} step_size
+ * @property {number} bo_range_factor
+ * @property {boolean} selected
+ */
+
+/** Extract a message from an unknown catch binding.
+ *  @param {unknown} e  @returns {string} */
+function messageOf(e) {
+  return e instanceof Error ? e.message : String(e);
+}
+
 // ---- DOM refs ----
 
-const els = {};
+/** @type {Els} */
+const els = /** @type {any} */ ({});
 
+/** @returns {void} */
 export function initOptimizationForm() {
   // LHS elements
-  els.lhsObjective = document.getElementById('lhs-objective');
-  els.lhsSamples = document.getElementById('lhs-samples');
-  els.lhsTableBody = document.getElementById('lhs-table-body');
-  els.lhsAddPv = document.getElementById('lhs-add-pv');
-  els.lhsCheckValue = document.getElementById('lhs-check-value');
-  els.lhsAddBtn = document.getElementById('lhs-add-btn');
-  els.lhsAddResult = document.getElementById('lhs-add-result');
-  els.lhsSelectAll = document.getElementById('lhs-select-all');
-  els.lhsDeselectAll = document.getElementById('lhs-deselect-all');
-  els.lhsCheckAll = document.getElementById('lhs-check-all');
-  els.lhsResetBtn = document.getElementById('lhs-reset-btn');
-  els.lhsUpdateBtn = document.getElementById('lhs-update-btn');
+  els.lhsObjective = /** @type {HTMLSelectElement} */ (document.getElementById('lhs-objective'));
+  els.lhsSamples = /** @type {HTMLInputElement} */ (document.getElementById('lhs-samples'));
+  els.lhsTableBody = /** @type {HTMLElement} */ (document.getElementById('lhs-table-body'));
+  els.lhsAddPv = /** @type {HTMLInputElement} */ (document.getElementById('lhs-add-pv'));
+  els.lhsCheckValue = /** @type {HTMLButtonElement} */ (document.getElementById('lhs-check-value'));
+  els.lhsAddBtn = /** @type {HTMLButtonElement} */ (document.getElementById('lhs-add-btn'));
+  els.lhsAddResult = /** @type {HTMLElement} */ (document.getElementById('lhs-add-result'));
+  els.lhsSelectAll = /** @type {HTMLButtonElement} */ (document.getElementById('lhs-select-all'));
+  els.lhsDeselectAll = /** @type {HTMLButtonElement} */ (document.getElementById('lhs-deselect-all'));
+  els.lhsCheckAll = /** @type {HTMLInputElement} */ (document.getElementById('lhs-check-all'));
+  els.lhsResetBtn = /** @type {HTMLButtonElement} */ (document.getElementById('lhs-reset-btn'));
+  els.lhsUpdateBtn = /** @type {HTMLButtonElement} */ (document.getElementById('lhs-update-btn'));
 
   // BO elements
-  els.boObjective = document.getElementById('bo-objective');
-  els.boAlgorithm = document.getElementById('bo-algorithm');
-  els.boTopPoints = document.getElementById('bo-top-points');
-  els.boIterations = document.getElementById('bo-iterations');
-  els.boTableBody = document.getElementById('bo-table-body');
-  els.boAddPv = document.getElementById('bo-add-pv');
-  els.boCheckValue = document.getElementById('bo-check-value');
-  els.boAddBtn = document.getElementById('bo-add-btn');
-  els.boAddResult = document.getElementById('bo-add-result');
-  els.boSelectAll = document.getElementById('bo-select-all');
-  els.boDeselectAll = document.getElementById('bo-deselect-all');
-  els.boCheckAll = document.getElementById('bo-check-all');
-  els.boResetBtn = document.getElementById('bo-reset-btn');
-  els.boUpdateBtn = document.getElementById('bo-update-btn');
+  els.boObjective = /** @type {HTMLSelectElement} */ (document.getElementById('bo-objective'));
+  els.boAlgorithm = /** @type {HTMLSelectElement} */ (document.getElementById('bo-algorithm'));
+  els.boTopPoints = /** @type {HTMLInputElement} */ (document.getElementById('bo-top-points'));
+  els.boIterations = /** @type {HTMLInputElement} */ (document.getElementById('bo-iterations'));
+  els.boTableBody = /** @type {HTMLElement} */ (document.getElementById('bo-table-body'));
+  els.boAddPv = /** @type {HTMLInputElement} */ (document.getElementById('bo-add-pv'));
+  els.boCheckValue = /** @type {HTMLButtonElement} */ (document.getElementById('bo-check-value'));
+  els.boAddBtn = /** @type {HTMLButtonElement} */ (document.getElementById('bo-add-btn'));
+  els.boAddResult = /** @type {HTMLElement} */ (document.getElementById('bo-add-result'));
+  els.boSelectAll = /** @type {HTMLButtonElement} */ (document.getElementById('bo-select-all'));
+  els.boDeselectAll = /** @type {HTMLButtonElement} */ (document.getElementById('bo-deselect-all'));
+  els.boCheckAll = /** @type {HTMLInputElement} */ (document.getElementById('bo-check-all'));
+  els.boResetBtn = /** @type {HTMLButtonElement} */ (document.getElementById('bo-reset-btn'));
+  els.boUpdateBtn = /** @type {HTMLButtonElement} */ (document.getElementById('bo-update-btn'));
 
   // Control buttons
-  els.startBtn = document.getElementById('start-btn');
-  els.pauseBtn = document.getElementById('pause-btn');
-  els.resumeBtn = document.getElementById('resume-btn');
-  els.cancelBtn = document.getElementById('cancel-btn');
+  els.startBtn = /** @type {HTMLButtonElement} */ (document.getElementById('start-btn'));
+  els.pauseBtn = /** @type {HTMLButtonElement} */ (document.getElementById('pause-btn'));
+  els.resumeBtn = /** @type {HTMLButtonElement} */ (document.getElementById('resume-btn'));
+  els.cancelBtn = /** @type {HTMLButtonElement} */ (document.getElementById('cancel-btn'));
 
   // Event listeners — add variable
   els.lhsCheckValue.addEventListener('click', () => checkValue('lhs'));
@@ -61,8 +116,8 @@ export function initOptimizationForm() {
   els.lhsDeselectAll.addEventListener('click', () => toggleAllVariables(false));
   els.boSelectAll.addEventListener('click', () => toggleAllVariables(true));
   els.boDeselectAll.addEventListener('click', () => toggleAllVariables(false));
-  els.lhsCheckAll.addEventListener('change', (e) => toggleAllVariables(e.target.checked));
-  els.boCheckAll.addEventListener('change', (e) => toggleAllVariables(e.target.checked));
+  els.lhsCheckAll.addEventListener('change', (e) => toggleAllVariables(/** @type {HTMLInputElement} */ (e.target).checked));
+  els.boCheckAll.addEventListener('change', (e) => toggleAllVariables(/** @type {HTMLInputElement} */ (e.target).checked));
 
   // Reset
   els.lhsResetBtn.addEventListener('click', resetVariables);
@@ -94,6 +149,7 @@ export function initOptimizationForm() {
 
 // ---- Objective Dropdowns ----
 
+/** @param {{ details?: any }} arg  @returns {void} */
 function populateObjectiveDropdowns({ details }) {
   if (!details?.variables) return;
 
@@ -112,11 +168,13 @@ function populateObjectiveDropdowns({ details }) {
 
 // ---- Variable Table Rendering ----
 
+/** @returns {void} */
 function renderTables() {
   renderTable(els.lhsTableBody, false);
   renderTable(els.boTableBody, true);
 }
 
+/** @param {HTMLElement} tbody  @param {boolean} showBoRange  @returns {void} */
 export function renderTable(tbody, showBoRange) {
   const data = state.variableTableData;
 
@@ -143,15 +201,18 @@ export function renderTable(tbody, showBoRange) {
     `;
 
     // Checkbox toggle
-    tr.querySelector('input[type="checkbox"]').addEventListener('change', (e) => {
-      state.updateVariable(v.pv_name, { selected: e.target.checked });
+    const checkbox = /** @type {HTMLInputElement} */ (tr.querySelector('input[type="checkbox"]'));
+    checkbox.addEventListener('change', (e) => {
+      const t = /** @type {HTMLInputElement} */ (e.target);
+      state.updateVariable(v.pv_name, { selected: t.checked });
     });
 
     // Editable fields
-    tr.querySelectorAll('input[data-field]').forEach(input => {
+    tr.querySelectorAll('input[data-field]').forEach((input) => {
       input.addEventListener('change', (e) => {
-        const field = e.target.dataset.field;
-        const val = e.target.value === '' ? null : parseFloat(e.target.value);
+        const t = /** @type {HTMLInputElement} */ (e.target);
+        const field = /** @type {string} */ (t.dataset.field);
+        const val = t.value === '' ? null : parseFloat(t.value);
         state.updateVariable(v.pv_name, { [field]: val });
       });
     });
@@ -160,6 +221,7 @@ export function renderTable(tbody, showBoRange) {
   }
 }
 
+/** @param {number | string | null | undefined} v  @returns {string} */
 function formatNum(v) {
   if (v === null || v === undefined) return '--';
   return typeof v === 'number' ? v.toPrecision(6) : String(v);
@@ -167,8 +229,10 @@ function formatNum(v) {
 
 // ---- Add Variable ----
 
+/** @type {Variable | null} */
 let pendingValue = null;
 
+/** @param {'lhs' | 'bo'} phase  @returns {Promise<void>} */
 async function checkValue(phase) {
   const pvInput = phase === 'lhs' ? els.lhsAddPv : els.boAddPv;
   const resultEl = phase === 'lhs' ? els.lhsAddResult : els.boAddResult;
@@ -194,22 +258,24 @@ async function checkValue(phase) {
     resultEl.textContent = `Value: ${formatNum(pendingValue.current_value)} | Range: [${pendingValue.min ?? '?'}, ${pendingValue.max ?? '?'}]`;
     addBtn.disabled = false;
   } catch (err) {
-    resultEl.textContent = `Error: ${err.message}`;
+    resultEl.textContent = `Error: ${messageOf(err)}`;
     pendingValue = null;
     addBtn.disabled = true;
   }
 }
 
+/** @param {'lhs' | 'bo'} phase  @returns {void} */
 function addVariable(phase) {
-  if (!pendingValue) return;
+  const pending = pendingValue;
+  if (!pending) return;
 
   // Prevent duplicates
-  if (state.variableTableData.some(v => v.pv_name === pendingValue.pv_name)) {
-    showValidation(`Variable ${pendingValue.pv_name} already exists`);
+  if (state.variableTableData.some(v => v.pv_name === pending.pv_name)) {
+    showValidation(`Variable ${pending.pv_name} already exists`);
     return;
   }
 
-  state.addVariable({ ...pendingValue });
+  state.addVariable({ ...pending });
 
   // Clear form
   const pvInput = phase === 'lhs' ? els.lhsAddPv : els.boAddPv;
@@ -227,15 +293,18 @@ function addVariable(phase) {
 
 // ---- Select All / Reset ----
 
+/** @param {boolean} selected  @returns {void} */
 function toggleAllVariables(selected) {
   const data = state.variableTableData.map(v => ({ ...v, selected }));
   state.setVariableTableData(data);
 }
 
+/** @returns {void} */
 function resetVariables() {
   state.setVariableTableData([]);
 }
 
+/** @returns {void} */
 function resetForm() {
   els.lhsObjective.value = '';
   els.boObjective.value = '';
@@ -247,6 +316,7 @@ function resetForm() {
 
 // ---- Control Buttons ----
 
+/** @param {any} ps  @returns {void} */
 function updateControlButtons(ps) {
   els.startBtn.disabled = !ps.canStart;
   els.pauseBtn.disabled = !ps.canPause;
@@ -259,18 +329,21 @@ function updateControlButtons(ps) {
 
   // Disable form inputs when running
   const formInputs = document.querySelectorAll('#optimization-form input, #optimization-form select');
-  formInputs.forEach(el => {
-    if (el.id === 'display-mode') return; // Display mode always enabled
-    el.disabled = ps.formDisabled;
+  formInputs.forEach((el) => {
+    const inp = /** @type {HTMLInputElement} */ (el);
+    if (inp.id === 'display-mode') return; // Display mode always enabled
+    inp.disabled = ps.formDisabled;
   });
 }
 
+/** @returns {void} */
 function onEnvironmentChanged() {
   els.startBtn.disabled = !state.environment;
 }
 
 // ---- Start / Pause / Resume / Cancel ----
 
+/** @returns {Promise<void>} */
 async function startOptimization() {
   if (!validateForm()) return;
 
@@ -297,43 +370,47 @@ async function startOptimization() {
     state.setJobId(result.job_id || result.id);
     state.setOptimizationState({ status: 'RUNNING', phase: 'LHS' });
   } catch (err) {
-    showValidation(`Failed to start: ${err.message}`);
+    showValidation(`Failed to start: ${messageOf(err)}`);
     els.startBtn.disabled = false;
   }
 }
 
+/** @returns {Promise<void>} */
 async function pauseOptimization() {
   if (!state.jobId) return;
   try {
     await api.pause(state.jobId);
     state.setOptimizationState({ status: 'PAUSED' });
   } catch (err) {
-    showValidation(`Failed to pause: ${err.message}`);
+    showValidation(`Failed to pause: ${messageOf(err)}`);
   }
 }
 
+/** @returns {Promise<void>} */
 async function resumeOptimization() {
   if (!state.jobId) return;
   try {
     await api.resume(state.jobId);
     state.setOptimizationState({ status: 'RUNNING' });
   } catch (err) {
-    showValidation(`Failed to resume: ${err.message}`);
+    showValidation(`Failed to resume: ${messageOf(err)}`);
   }
 }
 
+/** @returns {Promise<void>} */
 async function cancelOptimization() {
   if (!state.jobId) return;
   try {
     await api.cancel(state.jobId);
     state.setOptimizationState({ status: 'CANCELLED' });
   } catch (err) {
-    showValidation(`Failed to cancel: ${err.message}`);
+    showValidation(`Failed to cancel: ${messageOf(err)}`);
   }
 }
 
 // ---- Validation ----
 
+/** @returns {boolean} */
 function validateForm() {
   const objective = els.lhsObjective.value;
   if (!objective) {
@@ -361,6 +438,7 @@ function validateForm() {
   return true;
 }
 
+/** @param {string} msg  @returns {void} */
 function showValidation(msg) {
   const alert = document.getElementById('validation-alert');
   const text = document.getElementById('validation-text');

@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /* OSPREY Web Terminal — Tabbed Panel Manager
  *
  * Manages horizontal header tabs for the right panel. Each tab corresponds

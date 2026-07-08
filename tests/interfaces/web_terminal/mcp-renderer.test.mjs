@@ -1,3 +1,5 @@
+// @ts-nocheck
+// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Unit tests for mcp-renderer.js -- the .mcp.json renderer behind
  * config-renderers.js's re-export (same seam as settings-editor.js).
