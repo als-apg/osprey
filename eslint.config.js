@@ -54,11 +54,6 @@ export default [
     files: [
       'src/osprey/interfaces/ariel/static/js/advanced-options.js',
       'src/osprey/interfaces/artifacts/static/js/print.js',
-      'src/osprey/interfaces/channel_finder/static/js/explore-hierarchical.js',
-      'src/osprey/interfaces/channel_finder/static/js/explore-in-context.js',
-      'src/osprey/interfaces/channel_finder/static/js/explore-middle-layer.js',
-      'src/osprey/interfaces/channel_finder/static/js/feedback.js',
-      'src/osprey/interfaces/channel_finder/static/js/stats-badges.js',
       'src/osprey/interfaces/design_system/static/js/theme-boot.js',
       'src/osprey/interfaces/design_system/static/js/theme-manager.js',
       'src/osprey/interfaces/okf_panel/static/js/app.js',
@@ -74,9 +69,6 @@ export default [
   },
   {
     files: [
-      'src/osprey/interfaces/channel_finder/static/js/explore-hierarchical.js',
-      'src/osprey/interfaces/channel_finder/static/js/modal.js',
-      'src/osprey/interfaces/channel_finder/static/js/stats-badges.js',
       'src/osprey/interfaces/lattice_dashboard/static/js/render.js',
       'src/osprey/interfaces/lattice_dashboard/static/js/settings.js',
       'src/osprey/interfaces/okf_panel/static/js/app.js',
@@ -91,7 +83,6 @@ export default [
     files: [
       'src/osprey/interfaces/ariel/static/js/entries.js',
       'src/osprey/interfaces/artifacts/static/js/logbook.js',
-      'src/osprey/interfaces/channel_finder/static/js/feedback.js',
     ],
     rules: { 'max-lines': 'off' },
   },
