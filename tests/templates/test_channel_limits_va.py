@@ -147,7 +147,9 @@ class TestDemoWriteFitsInsideItsOwnLimits:
         """Every SR HCM/VCM corrector (not just BPM01's) must hold +-10A, since
         orbit-response-e2e (task 3.8) may exercise any of them."""
         correctors = [
-            a for a in manifest_sp_addresses if a.startswith("SR:MAG:HCM:") or a.startswith("SR:MAG:VCM:")
+            a
+            for a in manifest_sp_addresses
+            if a.startswith("SR:MAG:HCM:") or a.startswith("SR:MAG:VCM:")
         ]
         assert len(correctors) == 40  # 20 HCM + 20 VCM
         for address in correctors:

@@ -81,7 +81,9 @@ def test_virtual_accelerator_simulation_file_matches_mock_connector():
     connector's value so both types resolve the same machine model."""
     connector = _render_connector_config()["connector"]
     assert "simulation_file" in connector["virtual_accelerator"]
-    assert connector["virtual_accelerator"]["simulation_file"] == connector["mock"]["simulation_file"]
+    assert (
+        connector["virtual_accelerator"]["simulation_file"] == connector["mock"]["simulation_file"]
+    )
 
 
 def test_epics_block_is_unchanged():

@@ -33,13 +33,11 @@ class TestFullSweep:
         )
         assert not result.missing_connect, (
             f"{len(result.missing_connect)} addresses never connected: "
-            f"{result.missing_connect[:20]}"
-            + (" ..." if len(result.missing_connect) > 20 else "")
+            f"{result.missing_connect[:20]}" + (" ..." if len(result.missing_connect) > 20 else "")
         )
         assert not result.missing_value, (
             f"{len(result.missing_value)} addresses connected but returned no value: "
-            f"{result.missing_value[:20]}"
-            + (" ..." if len(result.missing_value) > 20 else "")
+            f"{result.missing_value[:20]}" + (" ..." if len(result.missing_value) > 20 else "")
         )
         assert result.connected == result.total == len(addresses)
 

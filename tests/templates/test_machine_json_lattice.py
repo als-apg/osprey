@@ -27,8 +27,7 @@ from osprey.simulation.machine import parse_machine
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MANIFEST_PATH = REPO_ROOT / "docker/virtual-accelerator/manifest/channel_manifest.json"
 MACHINE_PATH = (
-    REPO_ROOT
-    / "src/osprey/templates/apps/control_assistant/data/simulation/machine.json"
+    REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/simulation/machine.json"
 )
 
 
@@ -54,7 +53,9 @@ def test_every_partition_a_channel_exists_in_machine_json(manifest_channels, mac
     assert len(partition_a) == 280  # SR magnet CURRENT SP/RB + SR BPM POSITION X/Y
 
     missing = [addr for addr in partition_a if addr not in machine_channels]
-    assert not missing, f"{len(missing)} partition (a) channels missing from machine.json: {missing[:10]}"
+    assert not missing, (
+        f"{len(missing)} partition (a) channels missing from machine.json: {missing[:10]}"
+    )
 
 
 def test_br_bts_echo_setpoint_families_exist_in_machine_json(manifest_channels, machine_channels):
@@ -69,7 +70,9 @@ def test_br_bts_echo_setpoint_families_exist_in_machine_json(manifest_channels, 
     assert len(br_bts_echo) == 118
 
     missing = [addr for addr in br_bts_echo if addr not in machine_channels]
-    assert not missing, f"{len(missing)} BR/BTS sp-echo channels missing from machine.json: {missing[:10]}"
+    assert not missing, (
+        f"{len(missing)} BR/BTS sp-echo channels missing from machine.json: {missing[:10]}"
+    )
 
 
 def test_sr_rf_vac_sp_echo_channels_out_of_scope_not_required(manifest_channels, machine_channels):
@@ -78,9 +81,7 @@ def test_sr_rf_vac_sp_echo_channels_out_of_scope_not_required(manifest_channels,
     against machine.json (some already exist there by hand) -- just a
     record that their absence/presence isn't gated here."""
     sr_echo = [
-        c["address"]
-        for c in manifest_channels
-        if c["partition"] == "sp-echo" and c["ring"] == "SR"
+        c["address"] for c in manifest_channels if c["partition"] == "sp-echo" and c["ring"] == "SR"
     ]
     assert len(sr_echo) == 28
 

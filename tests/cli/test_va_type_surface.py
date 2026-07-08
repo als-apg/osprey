@@ -28,9 +28,7 @@ class TestSetControlSystemCliAcceptsVirtualAccelerator:
 
     def test_click_choice_includes_virtual_accelerator(self):
         """The underlying click.Choice for the argument lists virtual_accelerator."""
-        system_type_param = next(
-            p for p in set_control_system.params if p.name == "system_type"
-        )
+        system_type_param = next(p for p in set_control_system.params if p.name == "system_type")
         assert "virtual_accelerator" in system_type_param.type.choices
 
     def test_set_control_system_accepts_virtual_accelerator(self, cli_runner, tmp_path):
@@ -80,7 +78,9 @@ class TestConfigWriterAcceptsVirtualAccelerator:
 
     def test_set_control_system_type_to_virtual_accelerator(self, tmp_path):
         config_path = tmp_path / "config.yml"
-        config_path.write_text("control_system:\n  type: mock\n\narchiver:\n  type: mock_archiver\n")
+        config_path.write_text(
+            "control_system:\n  type: mock\n\narchiver:\n  type: mock_archiver\n"
+        )
 
         new_content, preview = set_control_system_type(
             config_path, "virtual_accelerator", "epics_archiver"

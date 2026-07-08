@@ -59,7 +59,9 @@ class SweepResult:
         return not self.missing_connect and not self.missing_value
 
 
-def sweep(addresses: list[str], *, timeout: float = 45.0, value_timeout: float = 5.0) -> SweepResult:
+def sweep(
+    addresses: list[str], *, timeout: float = 45.0, value_timeout: float = 5.0
+) -> SweepResult:
     """Bulk-read every address in ``addresses`` under one shared connect deadline.
 
     Args:

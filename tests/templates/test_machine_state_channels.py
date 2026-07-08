@@ -86,9 +86,7 @@ class TestRendersAsOneCanonicalList:
         assert isinstance(rendered, dict)
         assert _channels(rendered), "expected at least one machine_state channel"
 
-    @pytest.mark.parametrize(
-        "pipeline_mode", ["in_context", "hierarchical", "middle_layer", None]
-    )
+    @pytest.mark.parametrize("pipeline_mode", ["in_context", "hierarchical", "middle_layer", None])
     def test_output_is_identical_regardless_of_pipeline_mode(self, pipeline_mode):
         """The template no longer branches on default_pipeline -- passing any
         (or no) pipeline mode must render the same canonical channel set."""
@@ -115,7 +113,9 @@ class TestManifestConsistency:
         channels = _channels(_render_machine_state())
         for address in channels:
             parts = address.split(":")
-            assert len(parts) == 6, f"{address!r} does not match RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD"
+            assert len(parts) == 6, (
+                f"{address!r} does not match RING:SYSTEM:FAMILY:DEVICE:FIELD:SUBFIELD"
+            )
             assert "[" not in address and "]" not in address
 
 

@@ -235,7 +235,9 @@ async def _run_roundtrip() -> bool:
 
         expected_bpm = write_value * 1e-4 * 2.0 * 1000.0  # kick_rad * drift_m * mm/m
         if abs(rb.value - write_value) > 0.5:
-            print(f"FATAL: RB did not reflect the write: {rb.value} != {write_value}", file=sys.stderr)
+            print(
+                f"FATAL: RB did not reflect the write: {rb.value} != {write_value}", file=sys.stderr
+            )
             return False
         if abs(bpm.value - expected_bpm) > 0.5:
             print(

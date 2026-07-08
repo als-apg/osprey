@@ -101,8 +101,7 @@ class TestOrbitResponse:
             )
             # Linear: 2x the current doubles the shift.
             assert delta_p20 == pytest.approx(2 * delta_p10, rel=LINEAR_REL_TOL), (
-                f"cycle {i}: +20A shift ({delta_p20}) is not double the +10A shift "
-                f"({delta_p10})"
+                f"cycle {i}: +20A shift ({delta_p20}) is not double the +10A shift ({delta_p10})"
             )
             # Plane decoupling: HCM steers x only -- y stays put at BPM01.
             assert y_p10 == pytest.approx(y0, abs=1e-6), (
@@ -111,6 +110,5 @@ class TestOrbitResponse:
             )
 
         assert elapsed < 5 * SETTLE_BOUND_S * 4 + 30, (
-            "orbit-response cycles took implausibly long; "
-            f"5 cycles x 4 writes took {elapsed:.1f}s"
+            f"orbit-response cycles took implausibly long; 5 cycles x 4 writes took {elapsed:.1f}s"
         )

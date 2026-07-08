@@ -36,9 +36,7 @@ if TYPE_CHECKING:
 logger = get_logger("simulation_apply")
 
 
-def resolve_simulation_file(
-    config: dict, project_dir: Path
-) -> tuple[Path | None, str, str, str]:
+def resolve_simulation_file(config: dict, project_dir: Path) -> tuple[Path | None, str, str, str]:
     """Resolve the simulation-model file for the active control-system type.
 
     Looks up ``control_system.connector.<type>.simulation_file`` for the active

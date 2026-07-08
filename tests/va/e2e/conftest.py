@@ -65,9 +65,7 @@ CONTAINER_NAME = "osprey-va-e2e"
 CA_PORT = 5064
 CONTAINER_BOOT_TIMEOUT_S = 30.0
 
-PRESET_SIM_DIR = (
-    REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/simulation"
-)
+PRESET_SIM_DIR = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/simulation"
 LIMITS_DB_PATH = REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/channel_limits.json"
 OSPREY_CLI = REPO_ROOT / ".venv" / "bin" / "osprey"
 
