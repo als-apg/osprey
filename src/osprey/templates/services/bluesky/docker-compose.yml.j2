@@ -18,6 +18,16 @@ services:
       dockerfile: Dockerfile
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
+{% if 'virtual_accelerator' in deployed_services %}
+    # Only when the Virtual Accelerator (Task 4.1) is co-deployed: order the
+    # bridge's startup after the VA's CA-readiness healthcheck, so the
+    # substrate scanner's ophyd-async connect (Task 2.3) doesn't race the
+    # IOC's iocInit. A bridge-only deploy (no VA in deployed_services) must
+    # NOT get this — compose errors on depends_on naming an undefined service.
+    depends_on:
+      virtual-accelerator:
+        condition: service_healthy
+{% endif %}
     container_name: osprey-bluesky-bridge
     command:
       [
@@ -43,6 +53,23 @@ services:
       # container_lifecycle.py's per-service token-mint map).
       BLUESKY_PROMOTE_TOKEN: ${BLUESKY_PROMOTE_TOKEN}
       TZ: {{ system.timezone }}
+{% if 'virtual_accelerator' in deployed_services %}
+      # Reach the co-deployed Virtual Accelerator (Task 4.1) over Channel
+      # Access. Name-server TCP transport is the one host<->container CA
+      # config proven to work — UDP broadcast discovery doesn't cross the
+      # VM boundary. Port matches services.virtual_accelerator.port so an
+      # operator override stays consistent between the two services.
+      EPICS_CA_NAME_SERVERS: "virtual-accelerator:{{ (services.virtual_accelerator | default({})).port | default(5064) }}"
+      EPICS_CA_AUTO_ADDR_LIST: "NO"
+      # Substrate scanner wiring (Task 2.3, locked contract in app.py).
+      # Passthrough only — the operator/deploy env chooses the actual PVs
+      # (Task 5.1's e2e sets these), never hardcoded here. The :- empty
+      # default makes an unset BLUESKY_EPICS_SUBSTRATE harmless: the bridge
+      # falls back to its default (non-substrate) scanner.
+      BLUESKY_EPICS_SUBSTRATE: "${BLUESKY_EPICS_SUBSTRATE:-}"
+      BLUESKY_EPICS_MOTORS: "${BLUESKY_EPICS_MOTORS:-}"
+      BLUESKY_EPICS_DETECTORS: "${BLUESKY_EPICS_DETECTORS:-}"
+{% endif %}
 {% if services.bluesky.demo_scanner | default(false) %}
       # Deploy-smoke-demo / tutorial only: tells app.py's guarded startup hook
       # (task 2.14a) to wire a real bluesky RunEngine against MOCK ophyd-async

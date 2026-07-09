@@ -33,6 +33,7 @@ from typing import Any
 from ophyd_async.core import (
     AsyncStatus,
     StandardReadable,
+    wait_for_value,
 )
 from ophyd_async.core import (
     StandardReadableFormat as Format,
@@ -40,6 +41,16 @@ from ophyd_async.core import (
 from ophyd_async.epics.core import epics_signal_r, epics_signal_rw
 
 from ._connect import connect_all
+
+_READBACK_DEADBAND = 1e-9
+"""Max ``abs(readback - demand)`` for ``EpicsMotor.set()`` to consider a move
+settled. The sp-echo readback on this pythonSoftIOC VA is an exact software
+copy of the setpoint (``records.py`` ``on_update=rb.set``), so this is a
+float-noise bound, not a physical tolerance."""
+
+_READBACK_SETTLE_TIMEOUT_S = 5.0
+"""Bound on how long ``EpicsMotor.set()`` waits for ``readback`` to settle
+after the setpoint put completes, before raising ``TimeoutError``."""
 
 
 @dataclass(frozen=True)
@@ -69,6 +80,20 @@ class EpicsMotor(StandardReadable):
     Not backed by an EPICS motor record — ``readback`` and ``setpoint`` are
     each a single scalar PV, named explicitly by the caller (see
     ``EpicsMotorSpec``), matching the soft-IOC PVs the scenario benchmark seeds.
+
+    ``set()`` does not treat put-completion as set-then-read coherence: on
+    this pythonSoftIOC VA, the setpoint's ``on_update`` dispatches the
+    readback update on the dispatcher loop *after* the put completes, so a
+    ``set()`` immediately followed by ``read()`` can observe a stale
+    readback. To close that race, ``set()`` waits, after the put completes,
+    until ``readback`` is within ``_READBACK_DEADBAND`` of the demanded
+    value or ``_READBACK_SETTLE_TIMEOUT_S`` elapses — uniformly, for every
+    plan, with no plan-level knob to disable it.
+
+    When ``readback_pv`` is omitted (see ``EpicsMotorSpec``), ``readback``
+    aliases the same PV as ``setpoint``: there is no independent readback to
+    wait on, so the deadband wait matches on the first CA get of the PV just
+    written and the settle wait degrades to put-completion only.
     """
 
     def __init__(self, setpoint_pv: str, readback_pv: str | None = None, name: str = "") -> None:
@@ -79,12 +104,36 @@ class EpicsMotor(StandardReadable):
 
     @AsyncStatus.wrap
     async def set(self, value: float) -> None:
-        """Write ``value`` to the setpoint PV over Channel Access."""
+        """Write ``value`` to the setpoint PV, then wait for ``readback`` to settle.
+
+        Raises:
+            TimeoutError: ``readback`` did not come within
+                ``_READBACK_DEADBAND`` of ``value`` within
+                ``_READBACK_SETTLE_TIMEOUT_S`` seconds. Propagates uncaught,
+                through the ``AsyncStatus`` this method is wrapped in — never
+                swallowed.
+        """
         await self.setpoint.set(value)
+        await wait_for_value(
+            self.readback,
+            lambda rb: abs(rb - value) <= _READBACK_DEADBAND,
+            timeout=_READBACK_SETTLE_TIMEOUT_S,
+        )
 
 
 class EpicsDetector(StandardReadable):
-    """A single read-only Channel Access PV, shaped as a bluesky detector."""
+    """A single read-only Channel Access PV, shaped as a bluesky detector.
+
+    Deliberately trigger-less: no ``trigger()`` method. ``plans.py``'s
+    ``bp.scan``/``bp.count``/``bp.grid_scan`` reach bluesky's
+    ``trigger_and_read``, which only triggers objects satisfying the
+    ``Triggerable`` protocol; a trigger-less ``EpicsDetector`` is not
+    ``Triggerable``, so it falls through to a plain ``read()`` — the same CA
+    get ``channel_read`` performs, with no acquire/settle step of its own.
+    Settling lives entirely in ``EpicsMotor.set()`` (the readback-deadband
+    wait above), never here: this class does not wait, retry, or trigger on
+    read.
+    """
 
     def __init__(self, read_pv: str, name: str = "") -> None:
         with self.add_children_as_readables(Format.HINTED_SIGNAL):

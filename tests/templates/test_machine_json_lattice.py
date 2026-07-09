@@ -1,8 +1,9 @@
 """Consistency tests for the lattice-channel augmentation to machine.json
 (task 5.3).
 
-Task 3.1's namespace-union manifest (docker/virtual-accelerator/manifest/
-channel_manifest.json) classifies every namespace address into partition
+Task 3.1's namespace-union manifest
+(src/osprey/services/virtual_accelerator/manifest/channel_manifest.json)
+classifies every namespace address into partition
 (a) ``pyat-coupled`` (SR magnet CURRENT SP/RB + SR BPM POSITION X/Y --
 backed by the AT lattice model), (b) ``sp-echo`` (writable but
 physics-free: BR/BTS transport-line magnets, plus a handful of SR RF/VAC
@@ -25,7 +26,7 @@ import pytest
 from osprey.simulation.machine import parse_machine
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-MANIFEST_PATH = REPO_ROOT / "docker/virtual-accelerator/manifest/channel_manifest.json"
+MANIFEST_PATH = REPO_ROOT / "src/osprey/services/virtual_accelerator/manifest/channel_manifest.json"
 MACHINE_PATH = (
     REPO_ROOT / "src/osprey/templates/apps/control_assistant/data/simulation/machine.json"
 )

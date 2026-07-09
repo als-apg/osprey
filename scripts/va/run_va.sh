@@ -11,8 +11,9 @@
 # use that project's channel_limits.json-scoped scenarios instead.
 #
 # Builds the image if it doesn't already exist (set OSPREY_VA_REBUILD=1 to
-# force a rebuild, e.g. after editing docker/virtual-accelerator/**). Runs in
-# the foreground -- Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
+# force a rebuild, e.g. after editing src/osprey/services/virtual_accelerator/**
+# or docker/virtual-accelerator/Containerfile). Runs in the foreground --
+# Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
 #
 # After it reports ready, point a project at it with:
 #   control_system:
@@ -70,9 +71,9 @@ if [[ "${OSPREY_VA_REBUILD:-0}" == "1" ]] || ! "${RUNTIME}" image inspect "${IMA
 
     echo "--- Staging minimal build context at ${STAGING_DIR} ---"
     cp "${WORKTREE_ROOT}/pyproject.toml" "${WORKTREE_ROOT}/README.md" "${STAGING_DIR}/"
-    mkdir -p "${STAGING_DIR}/src" "${STAGING_DIR}/docker"
+    mkdir -p "${STAGING_DIR}/src" "${STAGING_DIR}/docker/virtual-accelerator"
     cp -R "${WORKTREE_ROOT}/src/." "${STAGING_DIR}/src/"
-    cp -R "${VA_DIR}" "${STAGING_DIR}/docker/virtual-accelerator"
+    cp "${VA_DIR}/Containerfile" "${STAGING_DIR}/docker/virtual-accelerator/Containerfile"
     find "${STAGING_DIR}" -name "__pycache__" -type d -prune -exec rm -rf {} +
 
     echo "--- Building ${IMAGE} (linux/amd64) ---"

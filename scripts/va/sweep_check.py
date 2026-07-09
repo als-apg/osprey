@@ -2,11 +2,11 @@
 """Full-namespace Channel Access reachability sweep against a running VA container.
 
 Batched, single-shared-timeout bulk read of every address in the namespace-union
-manifest (``docker/virtual-accelerator/manifest``) -- the same manifest baked
-into the ``osprey-va-full`` image. Never reads channels one at a time: every
-address gets its own ``epics.PV`` (auto-monitoring) up front so connections
-happen concurrently, then one shared deadline is used to wait for the whole
-set to connect before reading values back.
+manifest (``osprey.services.virtual_accelerator.manifest``) -- the same
+manifest baked into the ``osprey-va-full`` image. Never reads channels one at
+a time: every address gets its own ``epics.PV`` (auto-monitoring) up front so
+connections happen concurrently, then one shared deadline is used to wait for
+the whole set to connect before reading values back.
 
 Usable two ways:
 
@@ -31,17 +31,11 @@ from __future__ import annotations
 import sys
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
-
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_VA_PARENT = _REPO_ROOT / "docker" / "virtual-accelerator"
-if str(_VA_PARENT) not in sys.path:
-    sys.path.insert(0, str(_VA_PARENT))
 
 
 def all_manifest_addresses() -> list[str]:
     """Return every address in the namespace-union manifest (softioc-free import)."""
-    from manifest import build_manifest
+    from osprey.services.virtual_accelerator.manifest import build_manifest
 
     return [c["address"] for c in build_manifest()["channels"]]
 

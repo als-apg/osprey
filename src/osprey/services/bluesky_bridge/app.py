@@ -8,8 +8,9 @@ ophyd/tiled in Phase 1 — ``_scanner_factory`` defaults to the no-op
 ``FakeScanner`` so this app is runnable and manually smoke-testable
 (``GET /health``, even a real ``promote``) before the bluesky-backed
 ``Scanner`` exists. Real wiring swaps the factory via ``set_scanner_factory``:
-either a facility deploy (real EPICS devices, Phase 3) or, for the built-in
-deploy smoke demo, this module's own opt-in ``_lifespan`` hook — see below.
+either a facility's own deploy code, or this module's own opt-in
+``_lifespan`` hook — real EPICS devices (``BLUESKY_EPICS_SUBSTRATE``) or the
+built-in deploy smoke demo (``BLUESKY_DEMO_SCANNER``) — see below.
 """
 
 from __future__ import annotations
@@ -54,6 +55,18 @@ _BRIDGE_ONLY_MODULES = {"bluesky", "ophyd", "ophyd_async", "tiled"}
 _DEMO_SCANNER_ENV = "BLUESKY_DEMO_SCANNER"
 _TRUTHY_VALUES = {"1", "true", "yes", "on"}
 
+# Opt-in flag (task 2.3): when truthy (see `_is_epics_substrate_enabled`) AND
+# bluesky/ophyd-async are importable, `_lifespan` wires a real bluesky-backed
+# `BlueskyScanner` against real EPICS devices — Channel Access clients of
+# whatever IOC the deploy points at (a virtual accelerator, or real
+# hardware), never mock devices. The PV list comes entirely from
+# `BLUESKY_EPICS_MOTORS`/`BLUESKY_EPICS_DETECTORS` (see
+# `devices/_specs_from_env.py`), never the VA manifest — this process cannot
+# import that. If both this flag and `_DEMO_SCANNER_ENV` are set, this one
+# wins (see `_lifespan`): an operator who explicitly asked for real EPICS
+# must never silently get the mock demo instead.
+_EPICS_SUBSTRATE_ENV = "BLUESKY_EPICS_SUBSTRATE"
+
 # The `Scanner` implementation `do_promote` builds for every promotion.
 _scanner_factory: Callable[[], Scanner] = FakeScanner
 
@@ -79,20 +92,96 @@ def _is_demo_scanner_enabled() -> bool:
     return os.environ.get(_DEMO_SCANNER_ENV, "").strip().lower() in _TRUTHY_VALUES
 
 
+def _is_epics_substrate_enabled() -> bool:
+    """True if `BLUESKY_EPICS_SUBSTRATE` is set to any of `_TRUTHY_VALUES`.
+
+    Same liberal-on-"on"-spellings parsing as `_is_demo_scanner_enabled` —
+    see that function's docstring for why.
+    """
+    return os.environ.get(_EPICS_SUBSTRATE_ENV, "").strip().lower() in _TRUTHY_VALUES
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Opt-in guarded startup: wire the mock-devices demo `BlueskyScanner`.
+    """Opt-in guarded startup: wire a real bluesky-backed `BlueskyScanner`.
 
-    Only when `_is_demo_scanner_enabled()` AND bluesky/ophyd-async are
-    importable — mirrors ``list_plans``'s guarded/lazy-import pattern so the
-    Phase-1 "app.py import-clean of bluesky" invariant holds whether the
-    extra is absent or the flag is unset (both leave ``_scanner_factory`` at
-    its ``FakeScanner`` default, unchanged). This powers the deploy smoke
-    demo only (mock ophyd-async devices, no real hardware, write-safety
-    guards untouched) — a facility wiring real EPICS devices (Phase 3) sets
-    its own scanner factory and does not go through this flag at all.
+    Two mutually-exclusive opt-in branches, both gated on bluesky/ophyd-async
+    being importable (mirrors ``list_plans``'s guarded/lazy-import pattern so
+    the Phase-1 "app.py import-clean of bluesky" invariant holds whether the
+    extra is absent or neither flag is set — either way ``_scanner_factory``
+    stays at its ``FakeScanner`` default):
+
+    - `_is_epics_substrate_enabled()`: real EPICS devices (Channel Access
+      clients of whatever IOC the deploy points at — a virtual accelerator or
+      real hardware), built from an explicit PV list
+      (`devices/_specs_from_env.py`). This is what a facility deploy (or the
+      Phase 3 scenario benchmark) actually runs against.
+    - `_is_demo_scanner_enabled()`: mock ophyd-async devices, no CA at all —
+      the ``osprey deploy`` smoke demo only ("does a scan run at all").
+
+    If both flags are set, the EPICS substrate wins: an operator who asked
+    for real EPICS must never silently get routed to the mock demo instead.
     """
-    if _is_demo_scanner_enabled():
+    epics_substrate_enabled = _is_epics_substrate_enabled()
+    demo_scanner_enabled = _is_demo_scanner_enabled()
+    if epics_substrate_enabled and demo_scanner_enabled:
+        logger.warning(
+            "both %s and %s are set; %s takes precedence (wiring the real EPICS "
+            "substrate scanner, not the mock demo)",
+            _EPICS_SUBSTRATE_ENV,
+            _DEMO_SCANNER_ENV,
+            _EPICS_SUBSTRATE_ENV,
+        )
+
+    if epics_substrate_enabled:
+        try:
+            from .devices import epics
+            from .devices._specs_from_env import specs_from_env
+            from .plans import BUILTIN_PLANS
+            from .scanner_bluesky import BlueskyScanner
+        except ImportError as exc:
+            root_name = (getattr(exc, "name", None) or "").split(".")[0]
+            if root_name not in _BRIDGE_ONLY_MODULES:
+                raise
+            logger.warning(
+                "%s is enabled but the bluesky-bridge extra is not installed "
+                "(%s not found); falling back to FakeScanner",
+                _EPICS_SUBSTRATE_ENV,
+                exc.name,
+            )
+        else:
+            motors, detectors = specs_from_env(os.environ)
+
+            def _epics_scanner_factory() -> BlueskyScanner:
+                # `epics.build_devices` is `async def` (it connects real CA
+                # signals) — `BlueskyScanner._resolve_devices` bridges that
+                # for us; passing the bare lambda here, not its result.
+                return BlueskyScanner(
+                    devices=lambda: epics.build_devices(motors, detectors),
+                    plans=BUILTIN_PLANS,
+                )
+
+            set_scanner_factory(_epics_scanner_factory)
+            if not motors and not detectors:
+                # Substrate enabled but neither env var yielded a device: the
+                # scanner will connect nothing and every scan will have no data.
+                # Almost always a misconfiguration (unset/empty
+                # BLUESKY_EPICS_MOTORS / _DETECTORS), so surface it loudly.
+                logger.warning(
+                    "%s is enabled but no devices were configured "
+                    "(BLUESKY_EPICS_MOTORS / BLUESKY_EPICS_DETECTORS are empty or unset); "
+                    "the substrate scanner will connect nothing",
+                    _EPICS_SUBSTRATE_ENV,
+                )
+            else:
+                logger.info(
+                    "%s is enabled: wired the EPICS substrate BlueskyScanner "
+                    "(%d motor(s), %d detector(s))",
+                    _EPICS_SUBSTRATE_ENV,
+                    len(motors),
+                    len(detectors),
+                )
+    elif demo_scanner_enabled:
         try:
             from .devices.mock import build_devices
             from .scanner_bluesky import BlueskyScanner

@@ -6,7 +6,7 @@ A note on scope, established by reading the actual container wiring (not
 assumed): the literal task language describes writing a VAC/RF channel via
 ``channel_write`` and then observing that write "reset" by a scenario switch.
 That specific mechanism doesn't exist for VAC telemetry as built --
-``docker/virtual-accelerator/manifest/classify.py`` puts read-only VAC/RF
+``osprey.services.virtual_accelerator.manifest.classify`` puts read-only VAC/RF
 telemetry (gauges, temperatures, ion-pump current) in the ``static-noisy``
 partition, which ``ioc/records.py`` builds as plain CA *In*-type records --
 there is no Out record to ``channel_write`` in the first place, so nothing

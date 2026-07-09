@@ -10,7 +10,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROBE_DIR="${SCRIPT_DIR}/../../docker/virtual-accelerator/probe"
+PROBE_DIR="${SCRIPT_DIR}/../../src/osprey/services/virtual_accelerator/probe"
 IMAGE="osprey-va-probe:latest"
 CONTAINER="osprey-va-probe-gate"
 CA_PORT="5064"

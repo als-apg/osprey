@@ -1,11 +1,5 @@
 """Tests for the IOC record-construction factory.
 
-docker/virtual-accelerator/{manifest,ioc} are not importable dotted packages
-(their parent directory name contains a hyphen), so they are imported here
-by putting docker/virtual-accelerator directly on sys.path -- "manifest" and
-"ioc" are then valid top-level module names (same convention as
-test_manifest.py).
-
 Two process-boundary gotchas shape this file (both empirically confirmed
 while writing it, not theoretical):
 
@@ -91,17 +85,14 @@ if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "--ca-client"
 
 import subprocess  # noqa: E402
 import time  # noqa: E402
-from pathlib import Path  # noqa: E402
 
 import pytest  # noqa: E402
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-_VA_PARENT = REPO_ROOT / "docker" / "virtual-accelerator"
-if str(_VA_PARENT) not in sys.path:
-    sys.path.insert(0, str(_VA_PARENT))
-
-from ioc.records import ManifestContractError, build_records  # noqa: E402
-from manifest import (  # noqa: E402
+from osprey.services.virtual_accelerator.ioc.records import (  # noqa: E402
+    ManifestContractError,
+    build_records,
+)
+from osprey.services.virtual_accelerator.manifest import (  # noqa: E402
     PARTITION_PYAT_COUPLED,
     PARTITION_SP_ECHO,
     PARTITION_STATIC_NOISY,

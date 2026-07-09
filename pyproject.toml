@@ -151,7 +151,6 @@ dev = [
     "psycopg[binary,pool]>=3.1.0,<4.0.0",  # ARIEL search integration tests
     "psycopg-pool>=3.1.0,<4.0.0",  # ARIEL search integration tests
     "pillow>=10.0.0",  # Perceptual diffing for the design-system visual regression suite
-    "softioc",  # In-process EPICS IOC for the virtual-accelerator record-factory unit tests
 ]
 
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
@@ -197,8 +196,21 @@ screen-capture-linux = [
 # dependencies, so they're not repeated here.
 bluesky-bridge = [
     "bluesky>=1.12",
-    "ophyd-async>=0.16,<1.0",
+    # [ca]: the aioca Channel Access backend. Required for the real EPICS-on-VA
+    # substrate scanner (EpicsMotor/EpicsDetector over epics_signal_*); without
+    # it ophyd-async's CA transport is unavailable and device construction
+    # raises "Protocol ca not available". The mock-device demo scanner doesn't
+    # need it, which is why it went unnoticed until the substrate keystone.
+    "ophyd-async[ca]>=0.16,<1.0",
     "tiled[client]>=0.1",
+]
+
+# Virtual Accelerator (osprey.services.virtual_accelerator): the in-process
+# EPICS soft-IOC the record factory (ioc/records.py) and its live-CA tests
+# build against. accelerator-toolbox (the PyAT lattice model) is already a
+# core dependency, so only the IOC toolkit itself is added here.
+virtual-accelerator = [
+    "softioc",
 ]
 
 # All optional dependencies for complete installation

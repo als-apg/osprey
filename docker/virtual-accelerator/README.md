@@ -6,10 +6,12 @@ same in-repo `SimulationEngine` the `mock` connector uses for everything
 outside the lattice. Selected via `control_system.type: virtual_accelerator`
 (`mock` stays the default; `epics` remains production-pointed and untouched).
 
-This directory also holds the Phase-1 reachability probe (`probe/`) -- a
-minimal toy-ring image used only to prove the CA host↔container path works at
-all. This README covers the **full** image (`Containerfile`,
-`entrypoint.py`), which serves the entire 1,228-channel namespace.
+The VA service itself (`manifest/`, `lattice/`, `ioc/`, `entrypoint.py`, and
+the Phase-1 reachability probe `probe/`) lives at
+`src/osprey/services/virtual_accelerator/` and ships as part of the `osprey`
+package; only the `Containerfile` (this **full** image, serving the entire
+1,228-channel namespace) stays here. `probe/` is a minimal toy-ring image
+used only to prove the CA host↔container path works at all.
 
 ## Quick start
 
@@ -18,8 +20,9 @@ scripts/va/run_va.sh
 ```
 
 Builds the image on first run (cached after that; `OSPREY_VA_REBUILD=1` to
-force a rebuild after editing anything under `docker/virtual-accelerator/`),
-then serves CA on `localhost:5064` using the packaged control_assistant
+force a rebuild after editing anything under
+`src/osprey/services/virtual_accelerator/` or this `Containerfile`), then
+serves CA on `localhost:5064` using the packaged control_assistant
 preset's own `data/simulation/` as a zero-argument default. Point it at a
 real project instead:
 
@@ -42,7 +45,8 @@ Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
 - **Port `5064/tcp`**, Channel Access name-server mode
   (`EPICS_CA_NAME_SERVERS=<host>:5064`, `EPICS_CA_AUTO_ADDR_LIST=NO` on the
   connecting client) — the one host↔container CA configuration proven to
-  work across container runtimes (see `probe/README.md`'s reachability
+  work across container runtimes (see
+  `src/osprey/services/virtual_accelerator/probe/README.md`'s reachability
   matrix; UDP broadcast discovery is not published because it is not relied
   upon). Port 5064 matches the shipped **"Local Simulation"** gateway preset
   (`src/osprey/templates/data/facility_gateways.py`) exactly, so a project
@@ -54,14 +58,17 @@ Ctrl-C (or `docker stop`) shuts the IOC down cleanly.
 
 ## What it serves
 
-The full namespace-union manifest (`manifest/channel_manifest.json`, ~1,228
-addresses) — the served set is generated from the tutorial's channel-finder
-databases, never hand-listed. Three physics-fidelity partitions:
+The full namespace-union manifest
+(`src/osprey/services/virtual_accelerator/manifest/channel_manifest.json`,
+~1,228 addresses) — the served set is generated from the tutorial's
+channel-finder databases, never hand-listed. Three physics-fidelity
+partitions:
 
 - **pyat-coupled** (SR magnet currents + BPM positions): a real PyAT lattice
-  (`lattice/`) recomputes the closed orbit synchronously in the setpoint
-  write handler (`ioc/physics_bridge.py`) — readback-after-write is
-  deterministic, never dependent on a polling tick.
+  (`osprey.services.virtual_accelerator.lattice`) recomputes the closed
+  orbit synchronously in the setpoint write handler
+  (`ioc/physics_bridge.py`) — readback-after-write is deterministic, never
+  dependent on a polling tick.
 - **sp-echo** (BR/BTS magnets, SR RF/VAC setpoints): writing the setpoint
   echoes onto its readback immediately, with no physics — wired entirely
   inside `ioc/records.py`.
@@ -94,8 +101,9 @@ databases, never hand-listed. Three physics-fidelity partitions:
   `lattice/response.py` / `ioc/physics_bridge.py` were actually built and
   tested against), rather than carrying a stale pre-existing pin forward.
   **The probe's `3.10` / `0.6.1` / `4.5.0` pins remain correct and
-  intentional for `probe/Containerfile`** — that image never installs
-  `osprey`, so it never hits the `>=3.11` conflict. The two images using
+  intentional for
+  `src/osprey/services/virtual_accelerator/probe/Containerfile`** — that
+  image never installs `osprey`, so it never hits the `>=3.11` conflict. The two images using
   different Python/PyAT/softioc versions is deliberate, not drift; please
   don't "fix" the probe to match this one, or vice versa.
 - **`osprey` installed from the repo source**, not PyPI — the image always
@@ -110,20 +118,19 @@ databases, never hand-listed. Three physics-fidelity partitions:
 ## Building manually
 
 The build context **must** be a staging directory containing exactly
-`pyproject.toml`, `README.md`, `src/`, and `docker/virtual-accelerator/` —
-never the repo root, which also contains `.venv/`, `.git/`, and worktrees
-that would make every build re-tar gigabytes of unrelated content for no
-benefit. `scripts/va/run_va.sh` and `scripts/va/build_and_boot_check.sh` both
-stage this automatically; if building by hand, reproduce the same staging
-step first.
+`pyproject.toml`, `README.md`, `src/`, and
+`docker/virtual-accelerator/Containerfile` — never the repo root, which also
+contains `.venv/`, `.git/`, and worktrees that would make every build re-tar
+gigabytes of unrelated content for no benefit. `scripts/va/run_va.sh` and
+`scripts/va/build_and_boot_check.sh` both stage this automatically; if
+building by hand, reproduce the same staging step first.
 
-`docker/virtual-accelerator/manifest/paths.py` locates the channel-finder
-database JSON files via `Path(__file__).resolve().parents[3]` — this means
-`manifest/`, `lattice/`, and `ioc/` **must** be copied into the image at the
-same relative depth as in the source tree (i.e. as
-`<root>/docker/virtual-accelerator/{manifest,lattice,ioc}` alongside a
-`<root>/src/osprey/...` copy), exactly as the `Containerfile` does. Flattening
-this layout will break manifest generation at container startup.
+`manifest/paths.py` locates the channel-finder database JSON files via the
+installed `osprey.templates` package location
+(`Path(osprey.templates.__file__).parent`), not a fixed-depth `__file__`
+climb — so the VA modules under `src/osprey/services/virtual_accelerator/`
+need no special copy step; they ship automatically with the `src/` copy the
+`Containerfile`'s `pip install .` already installs.
 
 ## Validating
 

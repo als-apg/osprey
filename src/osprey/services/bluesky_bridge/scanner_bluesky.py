@@ -55,32 +55,15 @@ logger = logging.getLogger("osprey.services.bluesky_bridge.scanner_bluesky")
 # `async def`) — `reinitialize()` bridges either via `_resolve_devices`.
 DeviceSource = Mapping[str, Any] | Callable[[], "Mapping[str, Any] | Awaitable[Mapping[str, Any]]"]
 
-
-def _resolve_devices(source: DeviceSource) -> Mapping[str, Any]:
-    """Resolve a `DeviceSource` to a plain device mapping, bridging async factories.
-
-    `plan_loader.py`'s facility contract calls `get_devices()` synchronously,
-    but the actual device factories (`devices/mock.py`'s `build_devices`, and
-    `devices/epics.py`'s ophyd-async equivalent) are `async def` — connecting
-    a device is an async operation. Rather than assume the factory is sync,
-    call it and await the result via `asyncio.run` if it turns out to be a
-    coroutine (or any other awaitable). This is a fresh, throwaway event loop
-    — fine for mock devices; a *real* ophyd-async device factory intended to
-    share the RunEngine's own event loop (needed for backends whose async
-    callbacks are loop-bound, e.g. real Channel Access connections) should
-    connect on `RE.loop` instead — a known follow-up for the EPICS-backed
-    device factory (task 2.6) and deploy wiring (task 2.9), not solved here.
-    """
-    result: Mapping[str, Any] | Awaitable[Mapping[str, Any]] = (
-        source() if callable(source) else source
-    )
-    if inspect.isawaitable(result):
-        return asyncio.run(_await(result))
-    return result
+# How long `_resolve_devices` waits for an async device factory to connect on
+# `RE.loop` before giving up. Generous enough to cover real Channel Access
+# connect timeouts (IOC startup, network hiccups), not so long that a launch
+# request hangs indefinitely on a dead IOC.
+CONNECT_TIMEOUT = 30.0
 
 
 async def _await(awaitable: Awaitable[Mapping[str, Any]]) -> Mapping[str, Any]:
-    """Wrap an arbitrary awaitable as a coroutine `asyncio.run` accepts."""
+    """Wrap an arbitrary awaitable as a coroutine `run_coroutine_threadsafe` accepts."""
     return await awaitable
 
 
@@ -169,6 +152,36 @@ class BlueskyScanner:
             self.last_run_uid = doc.get("uid")
         self._recorder(name, doc)
 
+    def _resolve_devices(self, source: DeviceSource) -> Mapping[str, Any]:
+        """Resolve a `DeviceSource` to a plain device mapping, bridging async factories.
+
+        `plan_loader.py`'s facility contract calls `get_devices()` synchronously,
+        but the actual device factories (`devices/mock.py`'s `build_devices`, and
+        `devices/epics.py`'s ophyd-async equivalent) are `async def` — connecting
+        a device is an async operation. aioca binds a device's CA monitors to
+        whichever event loop is *running* when `Device.connect()` awaits them,
+        and bluesky drives all signal I/O for a scan on `self.RE.loop` (running
+        in the RunEngine's own daemon thread, started at `RunEngine.__init__`
+        time — already alive here, well before `start_scan_thread()`). So an
+        async factory must be awaited *on that loop*, not a throwaway one, or
+        its monitors end up bound to a loop the scan itself never touches.
+        `asyncio.run_coroutine_threadsafe` schedules the await onto `self.RE.loop`
+        from whichever thread calls `reinitialize()` (the promote HTTP request
+        thread) and blocks that thread for the result — the sync-`Mapping`
+        branch below needs none of this, since there's nothing to connect.
+        """
+        result: Mapping[str, Any] | Awaitable[Mapping[str, Any]] = (
+            source() if callable(source) else source
+        )
+        if inspect.isawaitable(result):
+            future = asyncio.run_coroutine_threadsafe(_await(result), self.RE.loop)
+            try:
+                return future.result(timeout=CONNECT_TIMEOUT)
+            except TimeoutError:
+                future.cancel()
+                raise
+        return result
+
     def reinitialize(self, exec_config: Any) -> bool:
         """Resolve `exec_config`'s plan_name/plan_args into a ready-to-run plan generator.
 
@@ -192,7 +205,7 @@ class BlueskyScanner:
 
         try:
             params = spec.schema.model_validate(plan_args)
-            devices = _resolve_devices(self._devices_source)
+            devices = self._resolve_devices(self._devices_source)
             self._plan_gen = spec.plan(dict(devices), params)
         except Exception as exc:
             self.current_state = "error"

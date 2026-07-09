@@ -9,7 +9,7 @@ EPICS record type.
 
 Run as a script to (re)generate ``channel_manifest.json``::
 
-    uv run python -m manifest.build
+    uv run python -m osprey.services.virtual_accelerator.manifest.build
 """
 
 from __future__ import annotations
@@ -135,7 +135,7 @@ def build_manifest() -> dict:
 
     return {
         "_metadata": {
-            "generator": "docker/virtual-accelerator/manifest",
+            "generator": "osprey.services.virtual_accelerator.manifest",
             "source_tier": paths.DEFAULT_TIER,
             "total_channels": len(entries),
             "by_ring": by_ring,

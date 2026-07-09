@@ -1,18 +1,21 @@
 """Filesystem locations for the paradigm channel databases and scenario data.
 
-All paths are resolved relative to this file so the generator works
-regardless of the caller's current working directory.
+The templates root is discovered from the installed ``osprey.templates``
+package (same convention as ``osprey.cli.templates.manager.TemplateManager``)
+rather than climbed via a fixed number of ``__file__`` parents, so this works
+identically from an editable checkout, a built wheel, or the wheel-drop
+context an image build stages -- see docker/virtual-accelerator/Containerfile.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
+import osprey.templates
 
-_CONTROL_ASSISTANT_DATA = (
-    REPO_ROOT / "src" / "osprey" / "templates" / "apps" / "control_assistant" / "data"
-)
+_TEMPLATES_ROOT = Path(osprey.templates.__file__).parent
+
+_CONTROL_ASSISTANT_DATA = _TEMPLATES_ROOT / "apps" / "control_assistant" / "data"
 
 # Build-resolved default tier for the control-assistant preset. The preset's
 # `channel_finder_mode` defaults to "hierarchical"
