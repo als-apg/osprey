@@ -1,14 +1,5 @@
 {%- set ns = namespace() -%}
 {
-{%- if claude_code_model_spec %}
-{%- set _haiku = claude_code_model_spec.env_block.get("ANTHROPIC_DEFAULT_HAIKU_MODEL", "claude-haiku-4-5-20251001") %}
-  "env": {
-{%- for key, value in claude_code_model_spec.env_block.items() if key != "ANTHROPIC_BASE_URL" %}
-    {{ key | tojson }}: {{ value | tojson }},
-{%- endfor %}
-    "ANTHROPIC_SMALL_FAST_MODEL": {{ _haiku | tojson }}
-  },
-{%- endif %}
   "showThinkingSummaries": true,
   "outputStyle": ".claude/output-styles/control-operator.md",
   "statusLine": {
