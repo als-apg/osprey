@@ -67,7 +67,8 @@ def web(port: int | None, host: str | None, reload: bool) -> None:
             )
         else:
             from osprey.interfaces.artifacts import run_server
+            from osprey.utils.workspace import resolve_workspace_root
 
-            run_server(host=host, port=port)
+            run_server(host=host, port=port, workspace_root=resolve_workspace_root())
     except KeyboardInterrupt:
         click.echo("\nShutting down...")

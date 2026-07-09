@@ -378,10 +378,14 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
     for name, spec in server_overrides.items():
         if name in servers:
             # Override existing framework server
-            if isinstance(spec, dict) and spec.get("enabled") is False:
+            if not isinstance(spec, dict):
+                continue
+            if spec.get("enabled") is False:
                 servers[name].default_enabled = False
-            elif isinstance(spec, dict) and spec.get("enabled") is True:
+            elif spec.get("enabled") is True:
                 servers[name].default_enabled = True
+            if spec.get("url"):
+                servers[name].url = spec["url"]
         else:
             # Custom server
             if isinstance(spec, dict) and spec.get("enabled") is not False:
