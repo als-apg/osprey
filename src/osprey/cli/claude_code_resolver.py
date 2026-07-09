@@ -73,15 +73,48 @@ AGENT_DEFAULT_TIERS: dict[str, str] = {
 
 # Env vars that settings.json controls — scrubbed from shell before launch
 # so runtime-injected provider vars are authoritative.
+#
+# The rule: scrub every ANTHROPIC_* / CLAUDE_CODE_* var that selects a *backend*
+# or a *model*. A stale one of these reroutes the agent away from the configured
+# provider without any error — the worst failure mode for a framework that talks
+# to control systems. Shared cloud-SDK vars (AWS_REGION, GCLOUD_PROJECT,
+# CLOUD_ML_REGION) are deliberately left alone: they belong to other tooling in
+# the operator's shell, and only reach Claude Code when a CLAUDE_CODE_USE_* flag
+# is set — which is scrubbed here. ANTHROPIC_CUSTOM_HEADERS is likewise left
+# alone: headers cannot redirect the endpoint, so a stale value fails loudly,
+# and it is the only way to supply corporate-proxy headers.
 MANAGED_ENV_VARS = frozenset(
     {
+        # Auth + endpoint
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",
         "ANTHROPIC_BASE_URL",
+        # Model selectors (ANTHROPIC_SMALL_FAST_MODEL is deprecated upstream
+        # but still honored; CLAUDE_CODE_SUBAGENT_MODEL overrides AGENT_DEFAULT_TIERS)
         "ANTHROPIC_MODEL",
         "ANTHROPIC_DEFAULT_HAIKU_MODEL",
         "ANTHROPIC_DEFAULT_SONNET_MODEL",
         "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        "ANTHROPIC_DEFAULT_FABLE_MODEL",
+        "ANTHROPIC_SMALL_FAST_MODEL",
+        "CLAUDE_CODE_SUBAGENT_MODEL",
+        # Backend selectors — no OSPREY provider sets these; Bedrock and friends
+        # are reached through a proxy base_url, never Claude Code's native backend.
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
+        "CLAUDE_CODE_USE_FOUNDRY",
+        "CLAUDE_CODE_USE_MANTLE",
+        # Backend endpoint / auth overrides — inert once the flags above are
+        # scrubbed, cleared anyway so the agent environment carries no stale
+        # backend configuration at all.
+        "ANTHROPIC_BEDROCK_BASE_URL",
+        "ANTHROPIC_VERTEX_BASE_URL",
+        "ANTHROPIC_FOUNDRY_BASE_URL",
+        "ANTHROPIC_FOUNDRY_RESOURCE",
+        "ANTHROPIC_VERTEX_PROJECT_ID",
+        "CLAUDE_CODE_SKIP_BEDROCK_AUTH",
+        "CLAUDE_CODE_SKIP_VERTEX_AUTH",
+        "CLAUDE_CODE_SKIP_FOUNDRY_AUTH",
     }
 )
 
