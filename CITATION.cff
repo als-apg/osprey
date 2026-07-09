@@ -1,0 +1,45 @@
+cff-version: 1.2.0
+message: "If you use Osprey in your research, please cite the article below."
+title: "Osprey"
+abstract: >-
+  An agentic interface and safety harness for safety-critical control systems,
+  built for particle accelerators, fusion experiments, beamlines, and large
+  scientific facilities.
+type: software
+license: BSD-3-Clause
+repository-code: "https://github.com/als-apg/osprey"
+url: "https://als-apg.github.io/osprey/"
+keywords:
+  - agents
+  - control-systems
+  - accelerator-physics
+  - epics
+  - human-in-the-loop
+authors:
+  - family-names: Hellert
+    given-names: Thorsten
+    affiliation: Lawrence Berkeley National Laboratory
+  - family-names: Montenegro
+    given-names: João
+  - family-names: Sulc
+    given-names: Antonin
+
+preferred-citation:
+  type: article
+  title: "Osprey: Production-ready agentic AI for safety-critical control systems"
+  authors:
+    - family-names: Hellert
+      given-names: Thorsten
+      affiliation: Lawrence Berkeley National Laboratory
+    - family-names: Montenegro
+      given-names: João
+    - family-names: Sulc
+      given-names: Antonin
+  journal: "APL Machine Learning"
+  year: 2026
+  month: 2
+  volume: 4
+  issue: 1
+  start: "016103"
+  doi: "10.1063/5.0306302"
+  url: "https://doi.org/10.1063/5.0306302"

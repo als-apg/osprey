@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "osprey-framework"
 dynamic = ["version"]
-description = "An open-source, domain-agnostic, capability-based architecture for building intelligent agents"
+description = "An agentic interface and safety harness for safety-critical control systems"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "BSD-3-Clause"}
@@ -18,7 +18,7 @@ maintainers = [
 keywords = [
     "ai", "agents", "framework", "scientific-computing",
     "epics", "accelerator-physics", "als", "berkeley", "agent-framework",
-    "capability-based", "human-in-the-loop", "container-orchestration"
+    "control-systems", "mcp", "human-in-the-loop", "container-orchestration"
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
