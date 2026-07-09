@@ -535,6 +535,19 @@ def chat_claude(project, resume, print_mode, effort, no_pin):
     sys.stdout.flush()
     sys.stderr.flush()
 
+    # ── Sanitize proxy environment variables ─────────────────────────────────
+    # Bun (Claude Code's runtime) reads .env files from every ancestor directory
+    # at startup. If any of those files contains a placeholder proxy value
+    # (e.g. HTTP_PROXY=http-proxy), Bun fails to parse it and crashes before
+    # Claude Code starts. We overwrite invalid proxy values with an empty string
+    # so they shadow any stubs Bun might pick up from parent .env files.
+    # Valid proxy URLs must start with http:// or https://.
+    for _proxy_var in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+        _proxy_val = os.environ.get(_proxy_var, "")
+        if _proxy_val and not (_proxy_val.startswith("http://") or _proxy_val.startswith("https://")):
+            os.environ[_proxy_var] = ""
+            console.print(f"[dim]Cleared invalid proxy env: {_proxy_var}={_proxy_val!r}[/dim]")
+
     # Launch claude CLI.  Companion servers and the translation proxy run in
     # daemon threads, so the parent process must stay alive — always use
     # subprocess.run (never os.execvp, which replaces the process).
