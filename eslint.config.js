@@ -55,7 +55,6 @@ export default [
       'src/osprey/interfaces/artifacts/static/js/print.js',
       'src/osprey/interfaces/design_system/static/js/theme-boot.js',
       'src/osprey/interfaces/design_system/static/js/theme-manager.js',
-      'src/osprey/interfaces/okf_panel/static/js/app.js',
       'src/osprey/interfaces/web_terminal/static/js/app.js',
       'src/osprey/interfaces/web_terminal/static/js/panel-manager.js',
       'src/osprey/interfaces/web_terminal/static/js/session-views.js',
