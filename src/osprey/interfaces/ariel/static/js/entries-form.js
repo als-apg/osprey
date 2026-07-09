@@ -7,6 +7,7 @@
 
 import { entriesApi, draftsApi, ApiError } from './api.js';
 import { escapeHtml } from './components.js';
+import { showEntry } from './entries-detail.js';
 import { formatFileSize } from './entries-helpers.js';
 import { messageOf } from './utils.js';
 
@@ -99,7 +100,7 @@ export async function handleCreateEntry(e) {
     if (draftBanner) draftBanner.remove();
 
     // Navigate to entry
-    /** @type {any} */ (window).app.showEntry(result.entry_id);
+    showEntry(result.entry_id);
 
   } catch (error) {
     console.error('Failed to create entry:', error);
@@ -154,9 +155,25 @@ function addTag(value) {
   tag.dataset.value = value;
   tag.innerHTML = `
     ${escapeHtml(value)}
-    <button type="button" onclick="this.parentElement.remove()" style="background: none; border: none; cursor: pointer; color: inherit; margin-left: 4px;">&times;</button>
+    <button type="button" data-tag-remove style="background: none; border: none; cursor: pointer; color: inherit; margin-left: 4px;">&times;</button>
   `;
   container.appendChild(tag);
+}
+
+/**
+ * Wire up delegated click handling for tag removal.
+ *
+ * #entry-tags gets new `.tag` chips appended/cleared throughout the form's
+ * lifetime (addTag, loadDraft), so the remove button's listener is
+ * delegated on the stable tags container (attached once, at init) rather
+ * than bound per-chip.
+ */
+export function initEntryTags() {
+  const container = document.getElementById('entry-tags');
+  container?.addEventListener('click', (e) => {
+    const btn = /** @type {HTMLElement} */ (e.target).closest('[data-tag-remove]');
+    btn?.closest('.tag')?.remove();
+  });
 }
 
 /**

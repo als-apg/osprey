@@ -20,6 +20,25 @@ import { isImageAttachment, parseEntryText } from './entries-helpers.js';
 let currentEntry = null;
 
 /**
+ * Wire up delegated click handling for the entry detail modal.
+ *
+ * #entry-modal-body's innerHTML is replaced wholesale on every showEntry()
+ * call, so the listener is delegated on the stable modal-body container
+ * (attached once, at init) instead of bound to the attachment thumbnails
+ * that get discarded on the next render.
+ */
+export function initEntryDetail() {
+  const modalBody = document.getElementById('entry-modal-body');
+  modalBody?.addEventListener('click', (e) => {
+    const thumb = /** @type {HTMLElement} */ (e.target).closest('[data-lightbox-url]');
+    if (!thumb) return;
+    const url = /** @type {HTMLElement} */ (thumb).dataset.lightboxUrl;
+    const name = /** @type {HTMLElement} */ (thumb).dataset.lightboxName;
+    if (url) showImageLightbox(url, name || '');
+  });
+}
+
+/**
  * Show entry detail view.
  * @param {string} entryId - Entry ID
  */
@@ -87,11 +106,10 @@ function renderEntryDetail(container, entry) {
                   if (image) {
                     return `
                     <div class="card" style="width: 150px; cursor: pointer;"
-                         onclick="window.app.showImageLightbox('${escapedUrl}', '${escapedName}')">
+                         data-lightbox-url="${escapedUrl}" data-lightbox-name="${escapedName}">
                       <div class="card-body" style="padding: 12px; text-align: center;">
                         <img src="${escapedUrl}" alt="${escapedName}"
-                             style="width: 126px; height: 100px; object-fit: cover; border-radius: 4px; margin-bottom: 8px;"
-                             onerror="this.outerHTML='<div style=&quot;font-size: 32px; margin-bottom: 8px;&quot;>\u{1F4CE}</div>'">
+                             style="width: 126px; height: 100px; object-fit: cover; border-radius: 4px; margin-bottom: 8px;">
                         <div class="truncate text-sm">${escapedName}</div>
                         <div class="text-xs text-muted">${escapeHtml(att.type || 'image')}</div>
                       </div>
@@ -191,6 +209,17 @@ function renderEntryDetail(container, entry) {
       </div>
     </div>
   `;
+
+  // Broken-image fallback for attachment thumbnails, bound here rather than
+  // as an inline onerror: the `error` event doesn't bubble, so it can't be
+  // handled by the modal-body delegation above, but these <img> elements are
+  // freshly created by the innerHTML assignment on every render, so binding
+  // directly (once each) can never double-bind.
+  container.querySelectorAll('[data-lightbox-url] img').forEach(img => {
+    img.addEventListener('error', () => {
+      img.outerHTML = '<div style="font-size: 32px; margin-bottom: 8px;">\u{1F4CE}</div>';
+    }, { once: true });
+  });
 }
 
 /**
@@ -225,16 +254,28 @@ export function showImageLightbox(url, filename) {
 
   overlay.innerHTML = `
     <img src="${escapeHtml(url)}" alt="${escapeHtml(filename)}"
-         style="max-width: 90vw; max-height: 80vh; object-fit: contain; border-radius: 8px; cursor: default;"
-         onclick="event.stopPropagation()"
-         onerror="this.outerHTML='<div style=&quot;color:white;font-size:1.2rem;&quot;>Failed to load image</div>'">
+         style="max-width: 90vw; max-height: 80vh; object-fit: contain; border-radius: 8px; cursor: default;">
     <div style="margin-top: 16px; display: flex; align-items: center; gap: 16px;">
       <span style="color: silver; font-size: 0.9rem;">${escapeHtml(filename)}</span>
       <a href="${escapeHtml(url)}" target="_blank" rel="noopener"
-         style="color: var(--color-amber); font-size: 0.85rem; text-decoration: none;"
-         onclick="event.stopPropagation()">Open in new tab &#x2197;</a>
+         style="color: var(--color-amber); font-size: 0.85rem; text-decoration: none;">Open in new tab &#x2197;</a>
     </div>
   `;
+
+  // Clicking the image or the "open in new tab" link must not bubble to the
+  // overlay's own click handler (which dismisses the lightbox), and a broken
+  // image needs its fallback markup — all bound directly here (no
+  // delegation) rather than as inline attributes, since these elements are
+  // created fresh on every call, so this can never double-bind. (The `error`
+  // event doesn't bubble, so delegation wouldn't reach it anyway.)
+  const lightboxImg = overlay.querySelector('img');
+  if (lightboxImg) {
+    lightboxImg.addEventListener('click', (e) => e.stopPropagation());
+    lightboxImg.addEventListener('error', () => {
+      lightboxImg.outerHTML = '<div style="color:white;font-size:1.2rem;">Failed to load image</div>';
+    }, { once: true });
+  }
+  overlay.querySelector('a')?.addEventListener('click', (e) => e.stopPropagation());
 
   overlay.addEventListener('click', () => overlay.remove());
   document.addEventListener('keydown', function onKey(e) {
@@ -256,6 +297,7 @@ export function getCurrentEntry() {
 }
 
 export default {
+  initEntryDetail,
   showEntry,
   closeEntryModal,
   showImageLightbox,

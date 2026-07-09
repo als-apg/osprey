@@ -167,7 +167,7 @@ export function renderEntryCard(entry, isCited = false) {
   }
 
   return `
-    <article class="entry-card${citedClass}" data-entry-id="${escapeHtml(entry.entry_id)}" onclick="window.app.showEntry('${escapeHtml(entry.entry_id)}')">
+    <article class="entry-card${citedClass}" data-entry-id="${escapeHtml(entry.entry_id)}">
       <div class="entry-card-header">
         <div class="entry-card-meta">
           <span class="entry-id">${escapeHtml(entry.entry_id)}</span>
@@ -209,7 +209,7 @@ export function renderAnswerBox(answer, sources = [], mode = 'keyword', toolsUse
   const label = `${modeName} Answer${toolsSuffix}`;
 
   const sourceLinks = sources.map(id =>
-    `<a href="#" onclick="window.app.showEntry('${escapeHtml(id)}'); return false;">${escapeHtml(id)}</a>`
+    `<a href="#" data-entry-id="${escapeHtml(id)}">${escapeHtml(id)}</a>`
   ).join(', ');
 
   return `

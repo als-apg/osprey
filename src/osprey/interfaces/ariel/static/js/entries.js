@@ -12,13 +12,39 @@ import {
   renderEmptyState,
   renderErrorState,
 } from './components.js';
-import { showEntry, closeEntryModal, showImageLightbox, getCurrentEntry } from './entries-detail.js';
-import { handleCreateEntry, handleTagInput, handleFilePreview, loadDraft } from './entries-form.js';
+import { showEntry, closeEntryModal, showImageLightbox, getCurrentEntry, initEntryDetail } from './entries-detail.js';
+import { handleCreateEntry, handleTagInput, handleFilePreview, loadDraft, initEntryTags } from './entries-form.js';
 
 // Re-export the detail-view and form public surface — app.js and window.app
 // import these from entries.js, so this module stays their single point of entry.
 export { showEntry, closeEntryModal, showImageLightbox, getCurrentEntry };
 export { loadDraft };
+
+/**
+ * Wire up delegated click handling for entry cards and pagination.
+ *
+ * #entries-list's innerHTML is replaced wholesale on every loadEntries()
+ * call, so the listener is delegated on the stable list container
+ * (attached once, at init) instead of bound to child elements that get
+ * discarded on the next render.
+ */
+export function initEntriesListDelegation() {
+  const entriesList = document.getElementById('entries-list');
+  entriesList?.addEventListener('click', (e) => {
+    const target = /** @type {HTMLElement} */ (e.target);
+    const pageBtn = target.closest('[data-page]');
+    if (pageBtn) {
+      const page = parseInt(/** @type {HTMLElement} */ (pageBtn).dataset.page ?? '', 10);
+      if (!Number.isNaN(page)) loadEntries({ page });
+      return;
+    }
+    const card = target.closest('[data-entry-id]');
+    if (card) {
+      const entryId = /** @type {HTMLElement} */ (card).dataset.entryId;
+      if (entryId) showEntry(entryId);
+    }
+  });
+}
 
 /**
  * Initialize entries module.
@@ -35,6 +61,11 @@ export function initEntries() {
   // File input preview
   const fileInput = document.getElementById('entry-files');
   fileInput?.addEventListener('change', handleFilePreview);
+
+  // Delegated handlers for the entries list, the detail modal, and the tags input.
+  initEntriesListDelegation();
+  initEntryDetail();
+  initEntryTags();
 
   // Adapt the publishing section to the configured logbook adapter.
   adaptPublishingSection();
@@ -140,13 +171,13 @@ function renderPagination(currentPage, totalPages) {
   let html = '<div class="pagination" style="display: flex; justify-content: center; gap: 8px; margin-top: 24px;">';
 
   if (currentPage > 1) {
-    html += `<button class="btn btn-secondary btn-sm" onclick="window.app.loadEntriesPage(${currentPage - 1})">Previous</button>`;
+    html += `<button class="btn btn-secondary btn-sm" data-page="${currentPage - 1}">Previous</button>`;
   }
 
   html += `<span class="text-muted" style="padding: 8px;">Page ${currentPage} of ${totalPages}</span>`;
 
   if (currentPage < totalPages) {
-    html += `<button class="btn btn-secondary btn-sm" onclick="window.app.loadEntriesPage(${currentPage + 1})">Next</button>`;
+    html += `<button class="btn btn-secondary btn-sm" data-page="${currentPage + 1}">Next</button>`;
   }
 
   html += '</div>';
