@@ -3,7 +3,7 @@ import globals from 'globals';
 
 export default [
   // (1) Leading SOLE-KEY global ignore — must be the ONLY key in this object so it applies globally.
-  { ignores: ['**/vendor/**', '**/*.min.js', 'docs/**'] },
+  { ignores: ['**/vendor/**', '**/*.min.js', 'docs/**', '**/.venv/**'] },
 
   // (2) Base recommended rules.
   js.configs.recommended,
