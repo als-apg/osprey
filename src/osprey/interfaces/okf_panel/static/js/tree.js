@@ -19,6 +19,9 @@ let treeEl;
 let structureLink = null;
 /** @type {(id: string) => void} */
 let onSelect;
+/** @type {string | null} */
+let activeConceptId = null;
+
 /**
  * Store the injected DOM handles and selection callback. Called once at
  * boot, before any other export in this module is used.
@@ -69,6 +72,7 @@ export function renderTree(groups) {
     }
     treeEl.appendChild(section);
   }
+  if (activeConceptId != null) applyConceptHighlight(activeConceptId);
 }
 
 // Shared body for the concept-link `.active` walk + scroll-into-view.
@@ -98,12 +102,14 @@ function applyConceptHighlight(id) {
  * @param {string} id
  */
 export function highlightActive(id) {
+  activeConceptId = id;
   if (structureLink) structureLink.classList.remove("active");
   applyConceptHighlight(id);
 }
 
 // Mark the structure-overview entry active and clear any concept highlight.
 export function highlightStructure() {
+  activeConceptId = null;
   const links = treeEl.querySelectorAll(".concept-link");
   links.forEach(function (link) {
     link.classList.remove("active");
