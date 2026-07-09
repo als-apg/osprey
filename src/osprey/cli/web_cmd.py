@@ -155,6 +155,7 @@ def web(
     wt_config = get_config_value("web_terminal", {})
     cc_config = get_config_value("claude_code", {})
     host = host or wt_config.get("host", "127.0.0.1")
+    port_specified = port is not None
     port = port or wt_config.get("port", 8087)
 
     from osprey.utils.claude_launcher import build_claude_launch_argv
@@ -197,10 +198,17 @@ def web(
         try:
             s.bind((host, port))
         except OSError as exc:
-            click.echo(f"ERROR: Port {port} is already in use.", err=True)
-            click.echo(f"  Find the process:  lsof -i :{port}", err=True)
-            click.echo(f"  Or use another:    osprey web --port {port + 1}", err=True)
-            raise SystemExit(1) from exc
+            if port_specified:
+                click.echo(f"ERROR: Port {port} is already in use.", err=True)
+                click.echo(f"  Find the process:  lsof -i :{port}", err=True)
+                click.echo(f"  Or use another:    osprey web --port {port + 1}", err=True)
+                raise SystemExit(1) from exc
+            # No explicit port — let the OS pick a free one
+            default_port = port
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as fs:
+                fs.bind((host, 0))
+                port = fs.getsockname()[1]
+            click.echo(f"Port {default_port} in use — using :{port} instead.")
 
     click.echo(f"Starting OSPREY Web Terminal on http://{host}:{port}")
     click.echo(f"Shell: {' '.join(shell_command)}")
