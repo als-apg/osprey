@@ -544,7 +544,9 @@ def chat_claude(project, resume, print_mode, effort, no_pin):
     # Valid proxy URLs must start with http:// or https://.
     for _proxy_var in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
         _proxy_val = os.environ.get(_proxy_var, "")
-        if _proxy_val and not (_proxy_val.startswith("http://") or _proxy_val.startswith("https://")):
+        if _proxy_val and not (
+            _proxy_val.startswith("http://") or _proxy_val.startswith("https://")
+        ):
             os.environ[_proxy_var] = ""
             console.print(f"[dim]Cleared invalid proxy env: {_proxy_var}={_proxy_val!r}[/dim]")
 
