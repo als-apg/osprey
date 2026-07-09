@@ -39,6 +39,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- `env.example` no longer ships uncommented placeholder proxy values. Copying it to `.env` exported an unparseable `HTTP_PROXY`, which broke Claude Code launches and OSPREY's own HTTP clients.
 - The `InContextBackend` benchmark test (the sole real-LLM test outside `tests/e2e/`) moved into `tests/e2e/`, so the fast lane (`pytest tests/ --ignore=tests/e2e`) stays hermetic even when a provider key is exported — previously it made a live LLM call and failed with an unrelated gateway auth error on a blocked/expired key. A placement guard prevents recurrence for the whole credentialed `requires_*` marker family.
 - Web companion servers (Artifacts, ARIEL, Tuning, Channel Finder, Lattice, KNOWLEDGE) no longer skip their launch when a stale or foreign process briefly answers `/health` on their port during a restart, which previously left the panel unbacked and permanently 502ing. The launcher now decides ownership by whether a live TCP listener holds the port, waits out a shutting-down predecessor, and logs distinctly when it defers to a legitimate external server versus when the port is held by an unresponsive one (#327).
 - The session activity page ("Activity" / session log viewer) no longer applies its `?theme=` query parameter directly to the page; an invalid or unexpected value now falls back to the resolved default instead of being written straight into the page's theme attribute.
