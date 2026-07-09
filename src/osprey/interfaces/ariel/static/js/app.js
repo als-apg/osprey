@@ -1,5 +1,4 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
+// @ts-check
 /**
  * ARIEL Web Application
  *
@@ -59,14 +58,14 @@ async function init() {
   navigateTo(hash);
 
   // Expose app API to window for onclick handlers
-  window.app = {
+  /** @type {any} */ (window).app = {
     navigateTo,
     performSearch,
     clearSearch,
     showEntry,
     closeEntryModal,
     showImageLightbox,
-    loadEntriesPage: (page) => loadEntries({ page }),
+    loadEntriesPage: (/** @type {number} */ page) => loadEntries({ page }),
     loadStatus,
   };
 
@@ -81,8 +80,8 @@ function setupNavigation() {
   document.querySelectorAll('.nav-link[data-view]').forEach(link => {
     link.addEventListener('click', (e) => {
       e.preventDefault();
-      const view = link.dataset.view;
-      navigateTo(view);
+      const view = /** @type {HTMLElement} */ (link).dataset.view;
+      if (view) navigateTo(view);
     });
   });
 
@@ -149,7 +148,7 @@ function navigateTo(hash) {
 
   // Update nav links (match on view name only, not query params)
   document.querySelectorAll('.nav-link').forEach(link => {
-    link.classList.toggle('active', link.dataset.view === viewName);
+    link.classList.toggle('active', /** @type {HTMLElement} */ (link).dataset.view === viewName);
   });
 
   // Hide all views
