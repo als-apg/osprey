@@ -52,7 +52,6 @@ export default [
   //     Rules stay at `error` everywhere else; these are file-scoped `off` only. ---
   {
     files: [
-      'src/osprey/interfaces/ariel/static/js/advanced-options.js',
       'src/osprey/interfaces/artifacts/static/js/print.js',
       'src/osprey/interfaces/design_system/static/js/theme-boot.js',
       'src/osprey/interfaces/design_system/static/js/theme-manager.js',
@@ -81,7 +80,6 @@ export default [
   },
   {
     files: [
-      'src/osprey/interfaces/ariel/static/js/entries.js',
       'src/osprey/interfaces/artifacts/static/js/logbook.js',
     ],
     rules: { 'max-lines': 'off' },
