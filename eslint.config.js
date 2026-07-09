@@ -26,7 +26,7 @@ export default [
     rules: {
       'no-var': 'error',
       'prefer-const': 'error',
-      eqeqeq: 'error',
+      eqeqeq: ['error', 'always', { null: 'ignore' }],
     },
   },
 
@@ -65,18 +65,6 @@ export default [
       'tests/interfaces/web_terminal/scaffold-view.test.mjs',
     ],
     rules: { 'no-unused-vars': 'off' },
-  },
-  {
-    files: [
-      'src/osprey/interfaces/lattice_dashboard/static/js/render.js',
-      'src/osprey/interfaces/lattice_dashboard/static/js/settings.js',
-      'src/osprey/interfaces/okf_panel/static/js/app.js',
-      'src/osprey/interfaces/web_terminal/static/js/mcp-renderer.js',
-      'src/osprey/interfaces/web_terminal/static/js/panel-manager.js',
-      'src/osprey/interfaces/web_terminal/static/js/scaffold/utils.js',
-      'src/osprey/interfaces/web_terminal/static/js/settings.js',
-    ],
-    rules: { eqeqeq: 'off' },
   },
   {
     files: [
