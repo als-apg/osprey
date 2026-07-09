@@ -16,6 +16,7 @@ import {
   escapeHtml,
 } from './components.js';
 import { getCurrentMode, getAdvancedParams, closeAdvancedPanel } from './advanced-options.js';
+import { showEntry } from './entries-detail.js';
 
 /**
  * @typedef {Object} SearchResults
@@ -33,6 +34,33 @@ let currentQuery = '';
 let isSearching = false;
 /** @type {SearchResults|null} */
 let lastResults = null;
+
+/**
+ * Wire up delegated click handling for entry cards and cited-source links.
+ *
+ * #search-results' innerHTML is replaced wholesale on every search, so the
+ * listener is delegated on the stable results container (attached once, at
+ * init) instead of bound to child elements that get discarded on the next
+ * render.
+ */
+export function initSearchResultsDelegation() {
+  const resultsContainer = document.getElementById('search-results');
+  resultsContainer?.addEventListener('click', (e) => {
+    const target = /** @type {HTMLElement} */ (e.target);
+    const sourceLink = target.closest('a[data-entry-id]');
+    if (sourceLink) {
+      e.preventDefault();
+      const entryId = /** @type {HTMLElement} */ (sourceLink).dataset.entryId;
+      if (entryId) showEntry(entryId);
+      return;
+    }
+    const card = target.closest('[data-entry-id]');
+    if (card) {
+      const entryId = /** @type {HTMLElement} */ (card).dataset.entryId;
+      if (entryId) showEntry(entryId);
+    }
+  });
+}
 
 /**
  * Initialize search module.
@@ -69,6 +97,8 @@ export function initSearch() {
       searchInput.blur();
     }
   });
+
+  initSearchResultsDelegation();
 }
 
 /**
