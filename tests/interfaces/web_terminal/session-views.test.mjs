@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening): type-clean this test; tracked in eslint.config.js local/no-ts-nocheck allowlist, which may only shrink.
 /**
  * Unit tests for session.html's ES modules:
  *
@@ -22,8 +20,14 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { qs, byId } from '../_support/dom.mjs';
+
 const VIEWS_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/session-views.js';
 const ENTRY_PATH = '../../../src/osprey/interfaces/web_terminal/static/js/session.js';
+
+/**
+ * @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/session-views.js').RenderCtx} RenderCtx
+ */
 
 // ---------------------------------------------------------------------------
 // session-views.js -- renderer output from fixture JSON
@@ -44,7 +48,11 @@ describe('session-views renderers', () => {
     `;
   });
 
-  function ctx({ apiFetch, cache = {} } = {}) {
+  /**
+   * @param {{apiFetch: RenderCtx['apiFetch'], cache?: RenderCtx['cache']}} args
+   * @returns {RenderCtx}
+   */
+  function ctx({ apiFetch, cache = {} }) {
     return { apiFetch, showToast: vi.fn(), cache };
   }
 
@@ -68,7 +76,7 @@ describe('session-views renderers', () => {
       const apiFetch = vi.fn().mockResolvedValue(FIXTURE);
       await Views.renderAgents(ctx({ apiFetch }));
 
-      const el = document.getElementById('view-agents');
+      const el = byId('view-agents');
       const cards = el.querySelectorAll('.agent-card');
       expect(cards.length).toBe(2);
       expect(el.textContent).toContain('ROOT SESSION');
@@ -78,6 +86,7 @@ describe('session-views renderers', () => {
     });
 
     test('caches the fetched data on the passed-in cache object', async () => {
+      /** @type {Record<string, unknown>} */
       const cache = {};
       await Views.renderAgents(ctx({ apiFetch: vi.fn().mockResolvedValue(FIXTURE), cache }));
       expect(cache.agents).toEqual(FIXTURE);
@@ -88,7 +97,7 @@ describe('session-views renderers', () => {
       await Views.renderAgents(
         ctx({ apiFetch: vi.fn().mockResolvedValue({ agents: [], total_events: 0 }), cache })
       );
-      expect(document.getElementById('view-agents').textContent).toContain('NO AGENTS');
+      expect(byId('view-agents').textContent).toContain('NO AGENTS');
       expect(cache.agents).toBeNull();
     });
 
@@ -97,14 +106,14 @@ describe('session-views renderers', () => {
       const apiFetch = vi.fn().mockRejectedValue(new Error('network down'));
       await Views.renderAgents({ apiFetch, showToast, cache: {} });
       expect(showToast).toHaveBeenCalledWith('Failed to load agents');
-      expect(document.getElementById('view-agents').textContent).toContain('ERROR');
+      expect(byId('view-agents').textContent).toContain('ERROR');
     });
 
     test('on fetch failure with a previously cached render, leaves the stale DOM untouched', async () => {
-      document.getElementById('view-agents').innerHTML = '<div class="agent-card">stale</div>';
+      byId('view-agents').innerHTML = '<div class="agent-card">stale</div>';
       const apiFetch = vi.fn().mockRejectedValue(new Error('network down'));
       await Views.renderAgents({ apiFetch, showToast: vi.fn(), cache: { agents: FIXTURE } });
-      expect(document.getElementById('view-agents').innerHTML).toContain('stale');
+      expect(byId('view-agents').innerHTML).toContain('stale');
     });
 
     test('expanding a sub-agent card lazily loads its timeline exactly once', async () => {
@@ -116,18 +125,20 @@ describe('session-views renderers', () => {
       );
       await Views.renderAgents(ctx({ apiFetch }));
 
-      const el = document.getElementById('view-agents');
-      const subCard = [...el.querySelectorAll('.agent-card')].find((c) => c.dataset.agent === 'sub-1');
-      subCard.querySelector('.agent-card-header').dispatchEvent(new Event('click'));
+      const el = byId('view-agents');
+      const subCard = [...el.querySelectorAll('.agent-card')]
+        .find((c) => /** @type {HTMLElement} */ (c).dataset.agent === 'sub-1');
+      if (subCard === undefined) throw new Error('sub-agent card not found');
+      qs(subCard, '.agent-card-header').dispatchEvent(new Event('click'));
       await Promise.resolve();
       await Promise.resolve();
 
       expect(timelineFetch).toHaveBeenCalledWith('/api/session-agent-timeline?agent_id=sub-1');
-      expect(subCard.querySelector('.agent-timeline').textContent).toContain('Read');
+      expect(qs(subCard, '.agent-timeline').textContent).toContain('Read');
 
       // Collapsing and re-expanding must not re-fetch (dataset.loaded guard).
-      subCard.querySelector('.agent-card-header').dispatchEvent(new Event('click'));
-      subCard.querySelector('.agent-card-header').dispatchEvent(new Event('click'));
+      qs(subCard, '.agent-card-header').dispatchEvent(new Event('click'));
+      qs(subCard, '.agent-card-header').dispatchEvent(new Event('click'));
       await Promise.resolve();
       expect(timelineFetch).toHaveBeenCalledTimes(1);
     });
@@ -143,7 +154,7 @@ describe('session-views renderers', () => {
 
     test('renders one log row per event with server/agent columns', async () => {
       await Views.renderToolLog(ctx({ apiFetch: vi.fn().mockResolvedValue(FIXTURE) }));
-      const el = document.getElementById('view-toollog');
+      const el = byId('view-toollog');
       expect(el.querySelectorAll('.log-row').length).toBe(2);
       expect(el.querySelectorAll('.log-row.is-error').length).toBe(1);
       expect(el.querySelector('#filter-agent')).not.toBeNull();
@@ -151,7 +162,7 @@ describe('session-views renderers', () => {
 
     test('shows an empty state (with a still-usable filter bar) when there are no events', async () => {
       await Views.renderToolLog(ctx({ apiFetch: vi.fn().mockResolvedValue({ events: [] }) }));
-      const el = document.getElementById('view-toollog');
+      const el = byId('view-toollog');
       expect(el.textContent).toContain('NO TOOL CALLS');
       expect(el.querySelector('#filter-agent')).not.toBeNull();
     });
@@ -160,14 +171,15 @@ describe('session-views renderers', () => {
       const apiFetch = vi.fn().mockResolvedValue(FIXTURE);
       await Views.renderToolLog(ctx({ apiFetch }));
 
-      const el = document.getElementById('view-toollog');
-      const errCb = el.querySelector('#filter-errors');
+      const el = byId('view-toollog');
+      const errCb = qs(el, '#filter-errors', HTMLInputElement);
       errCb.checked = true;
       errCb.dispatchEvent(new Event('change'));
       await Promise.resolve();
 
-      const lastCall = apiFetch.mock.calls.at(-1)[0];
-      expect(lastCall).toContain('errors_only=true');
+      const lastCallArgs = apiFetch.mock.calls.at(-1);
+      if (lastCallArgs === undefined) throw new Error('apiFetch was not called');
+      expect(lastCallArgs[0]).toContain('errors_only=true');
     });
   });
 
@@ -182,7 +194,7 @@ describe('session-views renderers', () => {
 
     test('renders grouped artifact entries with totals', async () => {
       await Views.renderArtifacts(ctx({ apiFetch: vi.fn().mockResolvedValue(FIXTURE) }));
-      const el = document.getElementById('view-artifacts');
+      const el = byId('view-artifacts');
       expect(el.querySelectorAll('.artifact-group').length).toBe(2);
       expect(el.textContent).toContain('Orbit response');
       expect(el.textContent).toContain('2.0 KB');
@@ -191,7 +203,7 @@ describe('session-views renderers', () => {
 
     test('shows an empty state when there are no entries', async () => {
       await Views.renderArtifacts(ctx({ apiFetch: vi.fn().mockResolvedValue({ entries: [] }) }));
-      expect(document.getElementById('view-artifacts').textContent).toContain('NO ARTIFACTS');
+      expect(byId('view-artifacts').textContent).toContain('NO ARTIFACTS');
     });
   });
 
@@ -205,7 +217,7 @@ describe('session-views renderers', () => {
 
     test('renders one chat bubble per turn, escaping HTML in content', async () => {
       await Views.renderConversation(ctx({ apiFetch: vi.fn().mockResolvedValue(FIXTURE) }));
-      const el = document.getElementById('view-conversation');
+      const el = byId('view-conversation');
       expect(el.querySelectorAll('.chat-msg').length).toBe(2);
       expect(el.querySelector('.chat-msg.user')).not.toBeNull();
       // turn.text is escaped, not parsed as markup.
@@ -214,7 +226,7 @@ describe('session-views renderers', () => {
 
     test('shows an empty state when the transcript is empty', async () => {
       await Views.renderConversation(ctx({ apiFetch: vi.fn().mockResolvedValue({ turns: [] }) }));
-      expect(document.getElementById('view-conversation').textContent).toContain('NO CONVERSATION');
+      expect(byId('view-conversation').textContent).toContain('NO CONVERSATION');
     });
   });
 });
@@ -232,18 +244,21 @@ describe('session.js refresh-loop view dispatch', () => {
     '/api/session-chat': { turns: [{ role: 'user', content: 'hi' }] },
   };
 
+  /** @type {import('vitest').Mock} */
+  let fetchMock;
+
   function stubFetch() {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn((path) => {
-        const key = Object.keys(FIXTURES).find((k) => path.startsWith(k));
-        return Promise.resolve({
-          status: 200,
-          ok: true,
-          json: () => Promise.resolve(FIXTURES[key] ?? null),
-        });
-      })
-    );
+    fetchMock = vi.fn((path) => {
+      const key = /** @type {(keyof typeof FIXTURES)|undefined} */ (
+        Object.keys(FIXTURES).find((k) => path.startsWith(k))
+      );
+      return Promise.resolve({
+        status: 200,
+        ok: true,
+        json: () => Promise.resolve((key === undefined ? null : FIXTURES[key]) ?? null),
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
   }
 
   beforeEach(() => {
@@ -285,7 +300,7 @@ describe('session.js refresh-loop view dispatch', () => {
   test('initial load dispatches to the Agents view (default activeView)', async () => {
     await import(ENTRY_PATH);
     await flush();
-    expect(document.getElementById('view-agents').textContent).toContain('Events');
+    expect(byId('view-agents').textContent).toContain('Events');
     expect(fetch).toHaveBeenCalledWith('/api/session-agents', expect.anything());
   });
 
@@ -293,23 +308,23 @@ describe('session.js refresh-loop view dispatch', () => {
     await import(ENTRY_PATH);
     await flush();
 
-    document.querySelector('.pill[data-view="toollog"]').dispatchEvent(
+    qs(document, '.pill[data-view="toollog"]').dispatchEvent(
       new MouseEvent('click', { bubbles: true })
     );
     await flush();
 
-    expect(document.getElementById('view-toollog').querySelectorAll('.log-row').length).toBe(1);
-    expect(document.querySelector('.pill[data-view="toollog"]').classList.contains('active')).toBe(true);
-    expect(document.querySelector('.pill[data-view="agents"]').classList.contains('active')).toBe(false);
-    expect(document.getElementById('view-toollog').classList.contains('active')).toBe(true);
-    expect(document.getElementById('view-agents').classList.contains('active')).toBe(false);
+    expect(byId('view-toollog').querySelectorAll('.log-row').length).toBe(1);
+    expect(qs(document, '.pill[data-view="toollog"]').classList.contains('active')).toBe(true);
+    expect(qs(document, '.pill[data-view="agents"]').classList.contains('active')).toBe(false);
+    expect(byId('view-toollog').classList.contains('active')).toBe(true);
+    expect(byId('view-agents').classList.contains('active')).toBe(false);
   });
 
   test('an accepted same-origin osprey-session-change resets the cache and re-dispatches the active view', async () => {
     await import(ENTRY_PATH);
     await flush();
 
-    fetch.mockClear();
+    fetchMock.mockClear();
     window.dispatchEvent(
       new MessageEvent('message', {
         origin: window.location.origin,
@@ -318,7 +333,9 @@ describe('session.js refresh-loop view dispatch', () => {
     );
     await flush();
 
-    const [path] = fetch.mock.calls.at(-1);
+    const lastCallArgs = fetchMock.mock.calls.at(-1);
+    if (lastCallArgs === undefined) throw new Error('fetch was not called');
+    const [path] = lastCallArgs;
     expect(path).toContain('/api/session-agents');
     expect(path).toContain('session_id=test-session-42');
   });
@@ -327,7 +344,7 @@ describe('session.js refresh-loop view dispatch', () => {
     await import(ENTRY_PATH);
     await flush();
 
-    fetch.mockClear();
+    fetchMock.mockClear();
     window.dispatchEvent(
       new MessageEvent('message', {
         origin: 'https://evil.example',

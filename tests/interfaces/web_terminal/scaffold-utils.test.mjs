@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening): type-clean this test; tracked in eslint.config.js local/no-ts-nocheck allowlist, which may only shrink.
 /**
  * Unit tests for the Scaffold Gallery pure utilities (scaffold/utils.js).
  *
@@ -16,6 +14,8 @@
  */
 
 import { test, expect, describe } from 'vitest';
+
+import { qs } from '../_support/dom.mjs';
 
 import {
   AGENT_MODEL_OPTIONS,
@@ -184,7 +184,7 @@ describe('rendering helpers', () => {
   test('renderHighlightedCode produces a <pre><code> block with the given text and language class', () => {
     const pre = renderHighlightedCode('print(1)', 'python');
     expect(pre.tagName).toBe('PRE');
-    const code = pre.querySelector('code');
+    const code = qs(pre, 'code');
     expect(code.className).toBe('language-python');
     expect(code.textContent).toBe('print(1)');
   });
@@ -193,14 +193,14 @@ describe('rendering helpers', () => {
     const section = renderFlowDiagram('A -> B');
     expect(section.className).toBe('prompts-flow-diagram');
     expect(section.textContent).toContain('FLOW');
-    expect(section.querySelector('pre code').textContent).toBe('A -> B');
+    expect(qs(section, 'pre code').textContent).toBe('A -> B');
   });
 
   test('renderSourceToggle wraps highlighted source in a collapsible toggle, starting collapsed', () => {
     const container = renderSourceToggle('x = 1', 'python');
-    const content = container.querySelector('.prompts-source-content');
+    const content = qs(container, '.prompts-source-content');
     expect(content.classList.contains('expanded')).toBe(false);
-    expect(content.querySelector('code').textContent).toBe('x = 1');
+    expect(qs(content, 'code').textContent).toBe('x = 1');
   });
 
   test('renderFrontMatterTable renders one row per field, with tools/model/safety_layer as pills', () => {
