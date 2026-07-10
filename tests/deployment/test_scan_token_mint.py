@@ -50,6 +50,10 @@ def _clean_token_env(monkeypatch):
     monkeypatch.delenv("BLUESKY_TILED_API_KEY", raising=False)
     monkeypatch.delenv("EVENT_DISPATCHER_TOKEN", raising=False)
     monkeypatch.delenv("DISPATCH_WORKER_TOKEN", raising=False)
+    # ARIEL_DSN is validate-only (see _VALIDATE_ONLY_VARS below), but process
+    # env still wins over .env in that check -- a stray exported ARIEL_DSN
+    # would otherwise break the clean/absent tests.
+    monkeypatch.delenv("ARIEL_DSN", raising=False)
 
 
 def _parse_dotenv(path):
@@ -284,3 +288,192 @@ def test_deploy_up_routes_each_var_through_its_own_generator(
     env = _parse_env(tmp_path)
     assert env["BLUESKY_TILED_API_KEY"] == "sentinelhexvalue"
     assert env["BLUESKY_PROMOTE_TOKEN"] == "sentinel-urlsafe_value"
+
+
+# ---------------------------------------------------------------------------
+# _VAR_VALIDATORS — deploy-boundary validation of the effective value (F1/F3)
+#
+# _ensure_service_tokens(config, expose_network=False, env_path=...) is the
+# DEFAULT loopback deploy path (deploy_up's default is --expose off). These
+# tests call it directly, mirroring test_ensure_service_tokens_writes_an_
+# alphanumeric_tiled_key_every_time above, to prove the boundary check fires
+# on that path and not only under --expose.
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_service_tokens_rejects_non_alphanumeric_tiled_key_from_dotenv(
+    tmp_path, _clean_token_env
+):
+    """An operator-supplied .env value that fails BLUESKY_TILED_API_KEY's
+    validator is rejected on the default (non-expose) deploy."""
+    config = {"deployed_services": ["bluesky"]}
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "BLUESKY_PROMOTE_TOKEN=some-real-looking-token\nBLUESKY_TILED_API_KEY=has-a-dash-in-it\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(RuntimeError, match="BLUESKY_TILED_API_KEY") as exc_info:
+        container_lifecycle._ensure_service_tokens(config, expose_network=False, env_path=env_path)
+
+    assert "has-a-dash-in-it" not in str(exc_info.value)
+
+
+def test_ensure_service_tokens_rejects_non_alphanumeric_tiled_key_from_process_env(
+    tmp_path, monkeypatch, _clean_token_env
+):
+    """Same, but the malformed value comes from a shell/process-env override."""
+    config = {"deployed_services": ["bluesky"]}
+    env_path = tmp_path / ".env"
+    monkeypatch.setenv("BLUESKY_TILED_API_KEY", "not-alphanumeric!")
+
+    with pytest.raises(RuntimeError, match="BLUESKY_TILED_API_KEY") as exc_info:
+        container_lifecycle._ensure_service_tokens(config, expose_network=False, env_path=env_path)
+
+    assert "not-alphanumeric!" not in str(exc_info.value)
+
+
+def test_ensure_service_tokens_passes_for_a_freshly_minted_tiled_key(tmp_path, _clean_token_env):
+    """The happy path: an unset key is minted by _generate_token and the mint
+    always satisfies the validator it is then checked against."""
+    config = {"deployed_services": ["bluesky"]}
+    env_path = tmp_path / ".env"
+
+    container_lifecycle._ensure_service_tokens(config, expose_network=False, env_path=env_path)
+
+    env = _parse_dotenv(env_path)
+    assert env["BLUESKY_TILED_API_KEY"].isalnum()
+
+
+def test_ariel_dsn_validator_rejects_unescaped_reserved_char_in_password():
+    """@ : / ? # left unescaped inside a DSN password corrupts URI parsing (F3)."""
+    assert not container_lifecycle._validate_var(
+        "ARIEL_DSN", "postgresql://ariel:p@ss@ariel-postgres:5432/ariel"
+    )
+
+
+def test_ariel_dsn_validator_accepts_a_clean_dsn():
+    assert container_lifecycle._validate_var(
+        "ARIEL_DSN", "postgresql://ariel:ariel@ariel-postgres:5432/ariel"
+    )
+
+
+# ---------------------------------------------------------------------------
+# _VALIDATE_ONLY_VARS (ARIEL_DSN) — checked at the boundary when present, but
+# never minted and never a _SERVICE_TOKEN_VARS member. ARIEL_DSN has no
+# osprey-native service consumer in this deploy system: it belongs to the
+# separate osprey-build-deploy facility-scaffolding pipeline (its own
+# generated docker-compose.yml/.env.template, brought up by the facility's
+# own scripts/deploy.sh via a raw `docker compose`/`podman compose` call,
+# never through `osprey deploy up`). These tests call the real
+# _ensure_service_tokens with NO _SERVICE_TOKEN_VARS monkeypatch — proving
+# the check fires unconditionally, independent of deployed_services/service
+# membership, as defense-in-depth for the case where an operator or other
+# tooling places ARIEL_DSN into *this* project's effective env anyway.
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_service_tokens_rejects_reserved_char_in_ariel_dsn(tmp_path):
+    """A malformed ARIEL_DSN in .env is rejected even with no deployed
+    service requiring it — the validate-only check does not depend on
+    _SERVICE_TOKEN_VARS membership."""
+    config = {"deployed_services": []}
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "ARIEL_DSN=postgresql://ariel:p@ss@ariel-postgres:5432/ariel\n", encoding="utf-8"
+    )
+
+    with pytest.raises(RuntimeError, match="ARIEL_DSN") as exc_info:
+        container_lifecycle._ensure_service_tokens(config, expose_network=False, env_path=env_path)
+
+    assert "p@ss" not in str(exc_info.value)
+
+
+def test_ensure_service_tokens_rejects_reserved_char_in_ariel_dsn_alongside_a_real_service(
+    captured_argv, _clean_token_env, tmp_path
+):
+    """Same check, but on a deploy that also mints an unrelated service token —
+    proves the two loops (required_vars and _VALIDATE_ONLY_VARS) coexist."""
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "ARIEL_DSN=postgresql://ariel:p@ss@ariel-postgres:5432/ariel\n", encoding="utf-8"
+    )
+    config = {"deployed_services": ["bluesky"]}
+
+    with pytest.raises(RuntimeError, match="ARIEL_DSN") as exc_info:
+        container_lifecycle._ensure_service_tokens(config, expose_network=False, env_path=env_path)
+
+    assert "p@ss" not in str(exc_info.value)
+
+
+def test_ensure_service_tokens_passes_a_clean_ariel_dsn(tmp_path):
+    config = {"deployed_services": []}
+    env_path = tmp_path / ".env"
+    dsn = "postgresql://ariel:ariel@ariel-postgres:5432/ariel"
+    env_path.write_text(f"ARIEL_DSN={dsn}\n", encoding="utf-8")
+
+    container_lifecycle._ensure_service_tokens(config, expose_network=False, env_path=env_path)
+
+    # No RuntimeError raised, and the clean DSN was left untouched.
+    assert _parse_dotenv(env_path)["ARIEL_DSN"] == dsn
+
+
+def test_ensure_service_tokens_never_mints_or_fabricates_ariel_dsn(tmp_path, _clean_token_env):
+    """Absent ARIEL_DSN is skipped, not fabricated — the "validate-only,
+    never mint" half of the mechanism. Deploying bluesky (which does mint
+    its own tokens) alongside proves ARIEL_DSN's absence doesn't get treated
+    like an unset _SERVICE_TOKEN_VARS entry."""
+    config = {"deployed_services": ["bluesky"]}
+    env_path = tmp_path / ".env"
+
+    container_lifecycle._ensure_service_tokens(config, expose_network=False, env_path=env_path)
+
+    env = _parse_dotenv(env_path)
+    assert "ARIEL_DSN" not in env
+    # The real service tokens still mint normally alongside the no-op.
+    assert env.get("BLUESKY_PROMOTE_TOKEN")
+    assert env.get("BLUESKY_TILED_API_KEY")
+
+
+def test_ensure_service_tokens_rejects_reserved_char_in_ariel_dsn_from_process_env(
+    tmp_path, monkeypatch
+):
+    """Same rejection, but the malformed value comes from a shell/process-env
+    override rather than .env — mirrors the BLUESKY_TILED_API_KEY process-env
+    coverage above."""
+    config = {"deployed_services": []}
+    env_path = tmp_path / ".env"
+    monkeypatch.setenv("ARIEL_DSN", "postgresql://ariel:p@ss@ariel-postgres:5432/ariel")
+
+    with pytest.raises(RuntimeError, match="ARIEL_DSN") as exc_info:
+        container_lifecycle._ensure_service_tokens(config, expose_network=False, env_path=env_path)
+
+    assert "p@ss" not in str(exc_info.value)
+
+
+def test_validate_only_vars_set_is_pinned():
+    """Blast-radius pin for _VALIDATE_ONLY_VARS, mirroring the _VAR_GENERATORS
+    and _VAR_VALIDATORS pins."""
+    assert container_lifecycle._VALIDATE_ONLY_VARS == {"ARIEL_DSN"}
+
+
+def test_validator_registry_keyset_is_pinned():
+    """Blast-radius pin for _VAR_VALIDATORS, mirroring the _VAR_GENERATORS pin
+    (test_only_the_tiled_key_overrides_the_default_generator above). Closes
+    "someone silently widens the registry."
+    """
+    assert set(container_lifecycle._VAR_VALIDATORS) == {"BLUESKY_TILED_API_KEY", "ARIEL_DSN"}
+
+    declared = {
+        var for token_vars in container_lifecycle._SERVICE_TOKEN_VARS.values() for var in token_vars
+    }
+    # Every registered validator must be EITHER a declared service-token var
+    # (BLUESKY_TILED_API_KEY, minted by a real deployed service) OR a member
+    # of _VALIDATE_ONLY_VARS (ARIEL_DSN, which has no osprey-native service
+    # consumer — see _VALIDATE_ONLY_VARS' docstring). No entry may be in
+    # neither, the same "no dead entries" invariant _VAR_GENERATORS pins.
+    live_validators = set(container_lifecycle._VAR_VALIDATORS)
+    assert live_validators <= declared | container_lifecycle._VALIDATE_ONLY_VARS
+    # And the two sets are actually disjoint from each other today — ARIEL_DSN
+    # reaches _ensure_service_tokens only through the validate-only path.
+    assert container_lifecycle._VALIDATE_ONLY_VARS.isdisjoint(declared)

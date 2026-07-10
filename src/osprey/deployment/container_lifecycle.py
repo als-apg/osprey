@@ -9,6 +9,7 @@ import secrets
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from osprey.deployment.compose_generator import (
     clean_deployment,
@@ -75,6 +76,13 @@ def _default_token() -> str:
 # Per-variable overrides of the default recipe. A var absent here gets
 # ``_default_token``.
 #
+# CSPRNG bar: any recipe registered here MUST draw from ``secrets`` (never
+# ``random``, a hashed timestamp, or any other non-cryptographic source) and
+# MUST yield at least 256 bits of entropy — the same bar ``_default_token``'s
+# ``token_urlsafe(32)`` meets. A registered recipe exists to change the
+# *alphabet* for a downstream consumer's parsing rules (see
+# BLUESKY_TILED_API_KEY below), never to weaken the randomness.
+#
 # BLUESKY_TILED_API_KEY: Tiled validates its ``--api-key`` during server startup
 # and raises ``ValueError("The API key must only contain alphanumeric
 # characters")`` for anything else, so a rejected key makes the container exit
@@ -94,6 +102,132 @@ _VAR_GENERATORS: dict[str, Callable[[], str]] = {
 def _generate_token(var: str) -> str:
     """Mint one secret for ``var`` using its registered recipe."""
     return _VAR_GENERATORS.get(var, _default_token)()
+
+
+def _validate_ariel_dsn(value: str) -> bool:
+    """True if ``value`` parses as a URI whose password is cleanly encoded.
+
+    Ports pySC's discipline of never trusting a hand-assembled connection
+    string (F3): a DSN's password segment sits between ``:`` and ``@`` in the
+    URI's authority component, so an *unescaped* reserved character (``@ : /
+    ? #``) inside the password either steals characters from the wrong field
+    (an unescaped ``/`` truncates the authority early, eating the host into
+    the path — caught below by the missing/wrong ``hostname``) or silently
+    changes what the URI means without raising a parse error. Requiring every
+    reserved character to appear only in its ``%XX`` form, and requiring that
+    form to percent-decode without error, is what "parses cleanly" means here.
+    """
+    parsed = urlsplit(value)
+    if not parsed.scheme or not parsed.hostname:
+        return False
+    try:
+        _ = parsed.port
+    except ValueError:
+        # An unescaped reserved character in the password (/ ? #) truncates
+        # the authority component early, leaving a non-numeric fragment where
+        # the port belongs — the tell that the real host was swallowed into
+        # the path/query/fragment instead of being parsed as part of netloc.
+        # (``.hostname`` alone does not catch this: the truncated netloc
+        # still yields a plausible-looking, but wrong, hostname.)
+        return False
+    password = parsed.password
+    if password is None:
+        return True
+    if any(reserved in password for reserved in "@:/?#"):
+        return False
+    try:
+        unquote(password, errors="strict")
+    except UnicodeDecodeError:
+        return False
+    return True
+
+
+# Per-variable validators applied to the *effective* value of a required var
+# at the deploy boundary (see ``_ensure_service_tokens``), regardless of
+# whether that value was freshly minted, carried over from an existing
+# ``.env``, supplied by the operator, or overridden in the process
+# environment. A var absent from this map has no registered constraint and
+# ``_validate_var`` returns True for it — this fails OPEN, the deliberate
+# inverse of the ``_LOCAL_EXEC_SAFE_VARS`` allowlist above.
+#
+# ``_LOCAL_EXEC_SAFE_VARS`` fails CLOSED on an unenumerated var because
+# minting there is a privilege grant — the bar for opting a var *out* of that
+# safety restriction must be high. Validating a var nobody has triaged yet is
+# the opposite kind of decision: opting a var *into* a format constraint is
+# additive hardening, not a prerequisite the deploy must clear, so withholding
+# it by default must not block an otherwise-working deploy. Adding an entry
+# here is opt-in per var, exactly like ``_VAR_GENERATORS``.
+_VAR_VALIDATORS: dict[str, Callable[[str], bool]] = {
+    # Tiled rejects a non-alphanumeric --api-key at startup (see
+    # _VAR_GENERATORS above); reject it here too so an *operator-supplied*
+    # key (never minted, so _VAR_GENERATORS never runs on it) fails at deploy
+    # time instead of crash-looping the Tiled container.
+    "BLUESKY_TILED_API_KEY": str.isalnum,
+    "ARIEL_DSN": _validate_ariel_dsn,
+}
+
+# Human-readable constraint text shown in the RuntimeError _ensure_service_tokens
+# raises on a _VAR_VALIDATORS failure — never the offending value itself. A
+# var validated with no entry here falls back to a generic description.
+_VAR_VALIDATOR_DESCRIPTIONS: dict[str, str] = {
+    "BLUESKY_TILED_API_KEY": (
+        "must be alphanumeric — Tiled rejects any other character in --api-key at startup"
+    ),
+    "ARIEL_DSN": (
+        "must parse as a URI whose password contains no unescaped reserved "
+        "character (@ : / ? #); percent-encode the password"
+    ),
+}
+
+
+def _effective_value(var: str, dotenv: dict[str, str]) -> str:
+    """The value ``_ensure_service_tokens`` treats as authoritative for ``var``.
+
+    Process env wins over ``.env`` (matches ``docker compose --env-file``);
+    absent from both yields ``""``.
+    """
+    return os.environ.get(var, dotenv.get(var, ""))
+
+
+def _validate_var(var: str, value: str) -> bool:
+    """Check ``value`` against ``var``'s registered constraint, if any.
+
+    Returns True (pass) for any var with no registered validator in
+    ``_VAR_VALIDATORS`` — see that dict's docstring for the fail-open
+    rationale.
+    """
+    validator = _VAR_VALIDATORS.get(var)
+    if validator is None:
+        return True
+    return validator(value)
+
+
+def _raise_invalid_var(var: str) -> None:
+    """Raise the standard "invalid var" RuntimeError, never the value."""
+    constraint = _VAR_VALIDATOR_DESCRIPTIONS.get(
+        var, "does not satisfy its registered format constraint"
+    )
+    raise RuntimeError(f"{var} is invalid: {constraint}. Refusing to deploy. (Value not shown.)")
+
+
+# Vars checked against their _VAR_VALIDATORS constraint when present, but
+# NEVER minted — distinct from _SERVICE_TOKEN_VARS (which mints an unset var
+# for a deployed service) and from a bare _VAR_VALIDATORS entry alone (which,
+# by itself, only fires for a var some deployed service's required_vars
+# already pulled in). A var earns a place here when it carries a registered
+# format constraint but no osprey-native service in this deploy system's
+# world (_SERVICE_TOKEN_VARS / find_service_config's compose templates) ever
+# requires it: ARIEL_DSN is provisioned by the separate osprey-build-deploy
+# skill's facility-scaffolding pipeline (its own generated
+# docker-compose.yml/.env.template, brought up by the facility's own
+# scripts/deploy.sh via a raw `docker compose`/`podman compose` call — never
+# through `osprey deploy up` or this module), so no _SERVICE_TOKEN_VARS entry
+# will ever declare it. This is defense-in-depth, not enforcement: if an
+# operator or other tooling nonetheless places ARIEL_DSN into *this*
+# project's effective env, it is validated like any other var — never
+# fabricated when absent, never auto-minted when malformed, just rejected
+# with a named-var/no-value error.
+_VALIDATE_ONLY_VARS: set[str] = {"ARIEL_DSN"}
 
 
 def _local_exec_arming_unsafe(config: dict) -> bool:
@@ -147,6 +281,13 @@ def _ensure_service_tokens(
     access, not the ability to move the machine) still mint under the same
     unsafe config. And because it is an allowlist, a token var added later
     without being triaged fails closed rather than arming silently.
+
+    Independently of all of the above, every var in ``_VALIDATE_ONLY_VARS``
+    (e.g. ``ARIEL_DSN``) is checked against its ``_VAR_VALIDATORS`` constraint
+    when present in the effective env — but never minted, and never required:
+    this runs even when no deployed service pulls in any ``_SERVICE_TOKEN_VARS``
+    entry at all, since a validate-only var's presence does not depend on
+    ``deployed_services`` membership.
     """
     deployed_services = config.get("deployed_services")
     services = {str(s) for s in (deployed_services or [])}
@@ -183,48 +324,70 @@ def _ensure_service_tokens(
                 seen.add(var)
                 required_vars.append(var)
 
-    if not required_vars:
-        return
-
+    # Unlike required_vars (below), _VALIDATE_ONLY_VARS carries no minting
+    # obligation, so nothing here short-circuits on an empty required_vars —
+    # env_path must resolve regardless of whether any service needs a token.
     if env_path is None:
         env_path = Path(".env")
 
-    existing = parse_dotenv_file(env_path) if env_path.is_file() else {}
+    if required_vars:
+        existing = parse_dotenv_file(env_path) if env_path.is_file() else {}
 
-    generated: dict[str, str] = {}
-    for name in required_vars:
-        # Process env wins over .env (matches docker compose --env-file).
-        present = name in os.environ or name in existing
-        if present:
-            continue  # keep the user's value (even an empty one — see docstring)
-        generated[name] = _generate_token(name)
-
-    if generated:
-        prefix = ""
-        if env_path.is_file():
-            text = env_path.read_text(encoding="utf-8")
-            if text and not text.endswith("\n"):
-                prefix = "\n"
-        block = "".join(f"{k}={v}\n" for k, v in generated.items())
-        with env_path.open("a", encoding="utf-8") as fh:
-            fh.write(f"{prefix}# Auto-generated service auth tokens (osprey deploy up)\n{block}")
-        os.chmod(env_path, 0o600)
-        # Log the path and which keys — NEVER the values.
-        logger.key_info(
-            "Generated auth token(s) %s in %s (gitignored) — keep them secret",
-            ", ".join(generated),
-            env_path.resolve(),
-        )
-
-    if expose_network:
-        post = parse_dotenv_file(env_path) if env_path.is_file() else {}
+        generated: dict[str, str] = {}
         for name in required_vars:
-            effective = os.environ.get(name, post.get(name, ""))
-            if not effective.strip():
-                raise RuntimeError(
-                    f"{name} is empty; refusing to --expose (bind 0.0.0.0) with an "
-                    f"empty token. Set {name} in .env to a strong secret."
+            # Process env wins over .env (matches docker compose --env-file).
+            present = name in os.environ or name in existing
+            if present:
+                continue  # keep the user's value (even an empty one — see docstring)
+            generated[name] = _generate_token(name)
+
+        if generated:
+            prefix = ""
+            if env_path.is_file():
+                text = env_path.read_text(encoding="utf-8")
+                if text and not text.endswith("\n"):
+                    prefix = "\n"
+            block = "".join(f"{k}={v}\n" for k, v in generated.items())
+            with env_path.open("a", encoding="utf-8") as fh:
+                fh.write(
+                    f"{prefix}# Auto-generated service auth tokens (osprey deploy up)\n{block}"
                 )
+            os.chmod(env_path, 0o600)
+            # Log the path and which keys — NEVER the values.
+            logger.key_info(
+                "Generated auth token(s) %s in %s (gitignored) — keep them secret",
+                ", ".join(generated),
+                env_path.resolve(),
+            )
+
+    # Validate the effective value of every required var — whichever of
+    # process env, an existing .env, or a value just minted above the caller
+    # actually sees — against its registered _VAR_VALIDATORS constraint (if
+    # any). Unconditional: runs on every deploy path (deploy_up, deploy_restart,
+    # rebuild_deployment), not only under --expose, so a malformed
+    # operator-supplied value is caught on the default loopback deploy too.
+    # Re-parse .env since the mint step above may have just appended to it.
+    post = parse_dotenv_file(env_path) if env_path.is_file() else {}
+    for name in required_vars:
+        effective = _effective_value(name, post)
+        if expose_network and not effective.strip():
+            raise RuntimeError(
+                f"{name} is empty; refusing to --expose (bind 0.0.0.0) with an "
+                f"empty token. Set {name} in .env to a strong secret."
+            )
+        if effective and not _validate_var(name, effective):
+            _raise_invalid_var(name)
+
+    # Validate-only vars (ARIEL_DSN): checked when present in the same
+    # effective-value sense as required_vars above, but never minted when
+    # absent and never required to unblock a deploy — see _VALIDATE_ONLY_VARS'
+    # docstring for why no _SERVICE_TOKEN_VARS entry can express this today.
+    for name in _VALIDATE_ONLY_VARS:
+        effective = _effective_value(name, post)
+        if not effective:
+            continue  # absent — never fabricated, never minted
+        if not _validate_var(name, effective):
+            _raise_invalid_var(name)
 
 
 def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False):
