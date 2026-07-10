@@ -80,6 +80,13 @@ class Run:
     def to_dict(self) -> dict:
         status = self.status
         out: dict[str, Any] = {"id": self.id, "status": status}
+        # Always present, never absent: `False` both before promotion (no
+        # scanner yet) and for a scanner that doesn't expose the attribute
+        # (`FakeScanner`) — a missing key would read as "unknown", not the
+        # same thing as "Tiled persistence is fine" (FR5). `bool(...)` makes
+        # the field's JSON type structural rather than a property of whatever
+        # duck-typed scanner happens to be attached.
+        out["tiled_degraded"] = bool(getattr(self.scanner, "tiled_degraded", False))
         if self.promoted and self.scanner is not None:
             out["completion"] = self.scanner.estimate_current_completion()
         if self.launched_by:
@@ -196,6 +203,11 @@ def do_promote(run: Run, scanner_factory: Callable[[], Scanner]) -> Run:
         scanner = scanner_factory()
         if not scanner.reinitialize(run.request):
             raise RuntimeError("scanner.reinitialize() returned False")
+        # Threads the registry's durable run id into the RunEngine start doc
+        # (see `BlueskyScanner._run`), so a Tiled-persisted run can still be
+        # found after the in-memory registry — and `run_uid` with it — is
+        # gone. Not part of the `Scanner` Protocol: `FakeScanner` ignores it.
+        scanner.osprey_run_id = run.id  # type: ignore[attr-defined]
         scanner.start_scan_thread()
     except Exception as exc:  # surface to the run rather than raising 500 blind
         if scanner is not None:

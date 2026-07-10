@@ -128,7 +128,7 @@ def test_status_is_not_error_when_current_state_looks_like_error_but_error_messa
 def test_to_dict_intent_is_minimal() -> None:
     run = Run(id="abc123", request={})
     out = run.to_dict()
-    assert out == {"id": "abc123", "status": "intent"}
+    assert out == {"id": "abc123", "status": "intent", "tiled_degraded": False}
 
 
 def test_to_dict_includes_completion_and_run_uid_once_promoted() -> None:
@@ -175,6 +175,102 @@ def test_to_dict_uses_the_scanner_error_message_directly() -> None:
     run = Run(id="abc123", request={}, promoted=True, scanner=scanner)
     out = run.to_dict()
     assert out["error"] == "device timeout"
+
+
+# =========================================================================
+# to_dict: tiled_degraded (task 2.4)
+# =========================================================================
+
+
+def test_to_dict_tiled_degraded_is_false_for_a_promoted_healthy_writer() -> None:
+    """A scanner that exposes `tiled_degraded = False` (a healthy wired Tiled
+    writer) must surface `False` on the run, with the key present.
+    """
+    scanner = FakeScanner()
+    scanner.start_scan_thread()
+    scanner.tiled_degraded = False  # duck-typed, like BlueskyScanner's property
+    run = Run(id="abc123", request={}, promoted=True, scanner=scanner)
+
+    out = run.to_dict()
+
+    assert "tiled_degraded" in out
+    assert out["tiled_degraded"] is False
+
+
+def test_to_dict_tiled_degraded_is_true_for_a_promoted_degraded_writer() -> None:
+    scanner = FakeScanner()
+    scanner.start_scan_thread()
+    scanner.tiled_degraded = True
+    run = Run(id="abc123", request={}, promoted=True, scanner=scanner)
+
+    out = run.to_dict()
+
+    assert out["tiled_degraded"] is True
+
+
+def test_to_dict_tiled_degraded_is_false_and_present_for_an_unpromoted_run() -> None:
+    """No scanner at all (never promoted) must read `False`, key present —
+    never absent, and never `True` merely because nothing has run yet.
+    """
+    run = Run(id="abc123", request={})
+
+    out = run.to_dict()
+
+    assert "tiled_degraded" in out
+    assert out["tiled_degraded"] is False
+
+
+def test_to_dict_tiled_degraded_is_false_and_present_for_a_scanner_without_the_attribute() -> None:
+    """`FakeScanner` (and any `Scanner` that never wires Tiled at all) has no
+    `tiled_degraded` attribute — must default to `False`, key still present,
+    never raise `AttributeError`.
+    """
+    scanner = FakeScanner()
+    scanner.start_scan_thread()
+    assert not hasattr(scanner, "tiled_degraded")  # sanity: FakeScanner truly lacks it
+    run = Run(id="abc123", request={}, promoted=True, scanner=scanner)
+
+    out = run.to_dict()
+
+    assert "tiled_degraded" in out
+    assert out["tiled_degraded"] is False
+
+
+def test_to_dict_key_set_is_unchanged_apart_from_tiled_degraded() -> None:
+    """Existing keys and their meanings must not shift — this is an additive
+    HTTP-contract change consumed by the MCP scan tools. Pin the full key set
+    for a minimal intent, a fully-populated healthy promoted run, and a
+    failed-promote run, so an accidental rename or drop (e.g. `error` ->
+    `err`) is caught here rather than downstream — the two-key-set-only
+    version of this test left `error` unpinned by any exhaustive assertion.
+    """
+    intent_run = Run(id="abc123", request={})
+    assert set(intent_run.to_dict().keys()) == {"id", "status", "tiled_degraded"}
+
+    scanner = FakeScanner()
+    scanner.start_scan_thread()
+    scanner.simulate_progress(0.5)
+    scanner.tiled_degraded = False
+    full_run = Run(id="abc123", request={}, promoted=True, scanner=scanner, launched_by="agent")
+    assert set(full_run.to_dict().keys()) == {
+        "id",
+        "status",
+        "tiled_degraded",
+        "completion",
+        "launched_by",
+        "run_uid",
+    }
+
+    # A failed-promote run: `do_promote` (`runs.py`) only publishes
+    # `run.scanner` on success, so a promotion that raised (unknown plan,
+    # a Tiled construction failure that somehow escaped the fault-isolated
+    # wrapper, thread creation itself failing, etc.) leaves `scanner is None`
+    # with `error` set — exactly what an operator sees after a failed
+    # promote. `tiled_degraded` must still read `False`, present, here: a
+    # failed promote is not evidence Tiled specifically was the cause.
+    failed_promote_run = Run(id="abc123", request={}, error="promotion failed: boom")
+    assert set(failed_promote_run.to_dict().keys()) == {"id", "status", "tiled_degraded", "error"}
+    assert failed_promote_run.to_dict()["tiled_degraded"] is False
 
 
 # =========================================================================
