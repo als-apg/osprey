@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /* OSPREY Web Terminal — Scaffold Gallery
  *
  * Drives the "Scaffold Gallery" UI inside the settings drawer tab panels.
@@ -40,21 +38,42 @@ import { createScaffoldGalleryEdit } from './scaffold/edit.js';
 // ---- ArtifactGallery Class ---- //
 
 /**
+ * The settings drawer host element, augmented at runtime with an
+ * unsaved-changes guard registrar (see initScaffoldGallery / memory-gallery).
+ * @typedef {HTMLElement & {
+ *   registerUnsavedGuard: (guard: () => boolean) => void,
+ * }} SettingsDrawerElement
+ */
+
+/**
+ * Per-instance behavior/appearance options for an ArtifactGallery.
+ * @typedef {object} ArtifactGalleryOptions
+ * @property {boolean} [showSearch]
+ * @property {boolean} [showSummary]
+ * @property {boolean} [showFilterChips]
+ * @property {(() => void)|null} [onDetailOpen]
+ * @property {(() => void)|null} [onDetailClose]
+ * @property {Record<string, string>} [categoryOverrides]
+ * @property {Record<string, string>} [categoryRemaps]
+ * @property {string[]} [pinnedCategories]
+ */
+
+/**
+ * Constructor config for an ArtifactGallery.
+ * @typedef {object} ArtifactGalleryConfig
+ * @property {HTMLElement} container - DOM element to render into
+ * @property {(artifact: any) => boolean} categoryFilter - filter function
+ * @property {ArtifactGalleryOptions} [options]
+ */
+
+/**
  * A self-contained gallery widget that renders a filtered set of artifacts
  * inside a given container element.
- *
- * @param {Object} config
- * @param {HTMLElement} config.container - DOM element to render into
- * @param {(artifact) => boolean} config.categoryFilter - filter function
- * @param {Object} [config.options]
- * @param {boolean} [config.options.showSearch=true]
- * @param {boolean} [config.options.showSummary=true]
- * @param {boolean} [config.options.showFilterChips=true]
- * @param {() => void} [config.options.onDetailOpen]
- * @param {() => void} [config.options.onDetailClose]
  */
 class ArtifactGallery {
-  constructor({ container, categoryFilter, options = {} }) {
+  /** @param {ArtifactGalleryConfig} config */
+  constructor(config) {
+    const { container, categoryFilter, options = {} } = config;
     this.container = container;
     this.categoryFilter = categoryFilter;
     this.showSearch = options.showSearch !== false;
@@ -67,12 +86,16 @@ class ArtifactGallery {
     this.pinnedCategories = options.pinnedCategories || [];
 
     // Instance state
+    /** @type {any[]} */
     this.artifacts = [];
+    /** @type {any[]} */
     this.untrackedFiles = [];
+    /** @type {any} */
     this.selectedArtifact = null;
     this.currentView = 'gallery';
     this.detailMode = 'preview';
     this.searchQuery = '';
+    /** @type {string|null} */
     this.filterCategory = null;
     this.filterProjectOwned = false;
     this.editDirty = false;
@@ -97,21 +120,21 @@ class ArtifactGallery {
     // See scaffold/data.js — mirrors the net.js factory/callback pattern.
     this._data = createScaffoldDataActions(this, {
       onLoadStart: () => {
-        this.loadingEl.style.display = 'flex';
-        this.errorEl.style.display = 'none';
+        /** @type {HTMLElement} */ (this.loadingEl).style.display = 'flex';
+        /** @type {HTMLElement} */ (this.errorEl).style.display = 'none';
       },
       onLoaded: ({ artifacts, untrackedFiles, summary }) => {
         this.artifacts = artifacts;
         this.untrackedFiles = untrackedFiles;
         this.summary = summary;
-        this.loadingEl.style.display = 'none';
+        /** @type {HTMLElement} */ (this.loadingEl).style.display = 'none';
         this.renderGallery();
         this.loaded = true;
       },
       onLoadError: (message) => {
-        this.loadingEl.style.display = 'none';
-        this.errorEl.style.display = 'flex';
-        this.errorEl.textContent = message;
+        /** @type {HTMLElement} */ (this.loadingEl).style.display = 'none';
+        /** @type {HTMLElement} */ (this.errorEl).style.display = 'flex';
+        /** @type {HTMLElement} */ (this.errorEl).textContent = message;
       },
     });
 
@@ -228,10 +251,12 @@ class ArtifactGallery {
     return this._view.renderGallery();
   }
 
+  /** @param {string} canonicalName */
   async registerUntracked(canonicalName) {
     return this._data.registerUntracked(canonicalName);
   }
 
+  /** @param {string} canonicalName */
   async deleteUntracked(canonicalName) {
     return this._data.deleteUntracked(canonicalName);
   }
@@ -248,10 +273,12 @@ class ArtifactGallery {
   // view.js, detail-content.js). renderEdit and the edit/save/ownership
   // workflow live in scaffold/edit-form.js and scaffold/edit.js (below).
 
+  /** @param {any} artifact */
   openDetail(artifact) {
     return this._detail.openDetail(artifact);
   }
 
+  /** @param {string} category */
   showCreateDialog(category) {
     return this._detail.showCreateDialog(category);
   }
@@ -331,7 +358,9 @@ class ArtifactGallery {
  * Creates three ArtifactGallery instances for the Behavior, Safety, and Config tabs.
  */
 export function initScaffoldGallery() {
-  const drawer = document.getElementById('settings-drawer');
+  const drawer = /** @type {SettingsDrawerElement|null} */ (
+    document.getElementById('settings-drawer')
+  );
   if (!drawer) return;
 
   configureMarked();

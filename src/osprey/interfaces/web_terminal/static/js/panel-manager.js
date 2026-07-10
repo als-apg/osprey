@@ -1,5 +1,4 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
+// @ts-check
 /* OSPREY Web Terminal — Tabbed Panel Manager
  *
  * Manages horizontal header tabs for the right panel. Each tab corresponds
@@ -12,8 +11,55 @@ import { fetchJSON } from './api.js';
 import { getTheme } from '/design-system/js/theme-manager.js';
 import { getCurrentSessionId } from './terminal.js';
 
+// ---- Types ----
+
+/**
+ * @typedef {object} Panel
+ * @property {string} id
+ * @property {string} label
+ * @property {string | null} configEndpoint
+ * @property {string | null} [healthEndpoint] - null/undefined means skip health polling
+ * @property {string | null} statusBarId
+ * @property {string} [path] - iframe subpath for custom panels (e.g. "/panel/")
+ */
+
+/**
+ * @typedef {object} PanelState
+ * @property {string | null} url
+ * @property {boolean} healthy
+ * @property {HTMLIFrameElement | null} iframe
+ * @property {ReturnType<typeof setTimeout> | null} pollTimer
+ * @property {boolean} polling
+ * @property {boolean} configLoaded
+ * @property {string | null} [pendingUrl]
+ */
+
+/**
+ * SSE payloads broadcast on /api/files/events, discriminated on `type`.
+ * @typedef {object} PanelFocusEvent
+ * @property {'panel_focus'} type
+ * @property {string} panel
+ * @property {string} [url]
+ *
+ * @typedef {object} PanelVisibilityEvent
+ * @property {'panel_visibility'} type
+ * @property {string} panel
+ * @property {boolean} visible
+ *
+ * @typedef {object} PanelRegisterEvent
+ * @property {'panel_register'} type
+ * @property {string} id
+ * @property {string} [label]
+ * @property {string} [url]
+ * @property {string} [healthEndpoint]
+ * @property {string} [path]
+ *
+ * @typedef {PanelFocusEvent | PanelVisibilityEvent | PanelRegisterEvent} PanelSSEEvent
+ */
+
 // ---- Panel Registry ----
 
+/** @type {Panel[]} */
 const PANELS = [
   {
     id: 'artifacts',
@@ -57,11 +103,15 @@ const PANELS = [
 // ---- State ----
 
 let containerEl = null;
-let tabsEl = null;
-let contentEl = null;
+// Assigned once in initPanelManager and guarded there; other functions run
+// only after that, so the refs are treated as non-null past init.
+let tabsEl = /** @type {HTMLElement} */ (/** @type {unknown} */ (null));
+let contentEl = /** @type {HTMLElement} */ (/** @type {unknown} */ (null));
+/** @type {string | null} */
 let activeTabId = null;
 
 // Per-panel state: { url, healthy, iframe, pollTimer, configLoaded }
+/** @type {Record<string, PanelState>} */
 const panelState = {};
 
 // Visible panel ids — seeded from /api/panels at init; controls tab-hidden visibility.
@@ -80,13 +130,14 @@ let DEFAULT_PANEL = DEFAULT_PANEL_FALLBACK;
 
 /**
  * Initialize the tabbed panel manager inside the given container element.
+ * @param {string} panelId
  */
 export async function initPanelManager(panelId) {
   containerEl = document.getElementById(panelId);
   if (!containerEl) return;
 
-  tabsEl = document.getElementById('header-tabs');
-  contentEl = containerEl.querySelector('#panel-content') || containerEl.querySelector('.panel-content');
+  tabsEl = /** @type {HTMLElement} */ (document.getElementById('header-tabs'));
+  contentEl = /** @type {HTMLElement} */ (containerEl.querySelector('#panel-content') || containerEl.querySelector('.panel-content'));
   if (!tabsEl || !contentEl) return;
 
   // Fetch panel config and filter PANELS before rendering
@@ -195,7 +246,7 @@ export async function initPanelManager(panelId) {
   const es = new EventSource('/api/files/events');
   es.onmessage = (e) => {
     try {
-      const data = JSON.parse(e.data);
+      const data = /** @type {PanelSSEEvent} */ (JSON.parse(e.data));
 
       if (data.type === 'panel_focus' && data.panel) {
         // Agent asked the panel to switch — honor unconditionally
@@ -254,6 +305,7 @@ export async function initPanelManager(panelId) {
  *
  * Applies .tab-hidden when the panel id is absent from visiblePanels.
  * Task 3.2 toggles that class (and the visiblePanels set) on show/hide SSE events.
+ * @param {Panel} panel
  */
 function buildTabButton(panel) {
   const tab = document.createElement('button');
@@ -287,6 +339,7 @@ function renderTabs() {
  *
  * Guard: if panelState[id] already exists (re-register), refresh the url
  * in-place rather than duplicating the tab or state.
+ * @param {PanelRegisterEvent} spec
  */
 function addPanel(spec) {
   if (panelState[spec.id]) {
@@ -334,8 +387,12 @@ function addPanel(spec) {
 
 // ---- Panel Initialization ----
 
+/** @param {Panel} panel */
 async function initPanel(panel) {
   const state = panelState[panel.id];
+  // Custom/runtime panels carry no config endpoint; their url arrives via
+  // /api/panels. Skip the fetch and leave the panel disabled until then.
+  if (!panel.configEndpoint) { state.configLoaded = true; return; }
 
   try {
     const config = await fetchJSON(panel.configEndpoint);
@@ -369,6 +426,7 @@ async function initPanel(panel) {
 
 // ---- Health Polling ----
 
+/** @param {Panel} panel */
 function startHealthPolling(panel) {
   const state = panelState[panel.id];
   pollHealth(panel);
@@ -391,6 +449,7 @@ function startHealthPolling(panel) {
   scheduleNext();
 }
 
+/** @param {Panel} panel */
 async function pollHealth(panel) {
   const state = panelState[panel.id];
   if (!state.url || state.polling) return;
@@ -434,6 +493,7 @@ async function pollHealth(panel) {
 
 // ---- Tab State ----
 
+/** @param {string} panelId */
 function enableTab(panelId) {
   const tab = tabsEl.querySelector(`[data-panel-id="${panelId}"]`);
   if (tab) {
@@ -441,6 +501,7 @@ function enableTab(panelId) {
   }
 }
 
+/** @param {Panel} panel */
 function updateTabState(panel) {
   const tab = tabsEl.querySelector(`[data-panel-id="${panel.id}"]`);
   if (!tab) return;
@@ -451,6 +512,7 @@ function updateTabState(panel) {
   }
 }
 
+/** @param {Panel} panel */
 function updateStatusBar(panel) {
   if (!panel.statusBarId) return;
 
@@ -481,6 +543,7 @@ function updateStatusBar(panel) {
  *
  * 'osprey-theme-change' is the one message type theme-manager's follower
  * role (and every embedded interface) actually listens for.
+ * @param {HTMLIFrameElement | null} iframe
  */
 function sendThemeToIframe(iframe) {
   if (!iframe?.contentWindow) return;
@@ -499,6 +562,7 @@ function sendThemeToIframe(iframe) {
  *
  * 'osprey-session-change' is the message type embedded interfaces listen
  * for to scope their view to the hub's active session.
+ * @param {HTMLIFrameElement | null} iframe
  */
 function sendSessionToIframe(iframe) {
   if (!iframe?.contentWindow) return;
@@ -511,6 +575,10 @@ function sendSessionToIframe(iframe) {
 
 // ---- Tab Switching ----
 
+/**
+ * @param {string} panelId
+ * @param {{ userInitiated?: boolean }} [options]
+ */
 function activateTab(panelId, { userInitiated = false } = {}) {
   const state = panelState[panelId];
   if (!state || !state.healthy) return;
@@ -519,7 +587,7 @@ function activateTab(panelId, { userInitiated = false } = {}) {
 
   // Update tab active states
   for (const tab of tabsEl.querySelectorAll('.header-tab')) {
-    tab.classList.toggle('active', tab.dataset.panelId === panelId);
+    tab.classList.toggle('active', /** @type {HTMLElement} */ (tab).dataset.panelId === panelId);
   }
 
   // Hide all iframes
@@ -554,6 +622,10 @@ function activateTab(panelId, { userInitiated = false } = {}) {
 
 // ---- Panel Navigation ----
 
+/**
+ * @param {string} panelId
+ * @param {string} url
+ */
 function navigatePanel(panelId, url) {
   const state = panelState[panelId];
   if (!state) return;
@@ -567,13 +639,14 @@ function navigatePanel(panelId, url) {
 
   const embedUrl = new URL(url, window.location.origin);
   embedUrl.searchParams.set('embedded', 'true');
-  embedUrl.searchParams.set('theme', getTheme());
+  embedUrl.searchParams.set('theme', /** @type {string} */ (getTheme()));
   state.iframe.src = embedUrl.toString();
   state.pendingUrl = null;
 }
 
 // ---- Iframe Management ----
 
+/** @param {string} panelId */
 function createIframe(panelId) {
   const state = panelState[panelId];
   if (!state.url) return;
@@ -591,7 +664,7 @@ function createIframe(panelId) {
   state.pendingUrl = null;
   const embedUrl = new URL(targetUrl, window.location.origin);
   embedUrl.searchParams.set('embedded', 'true');
-  embedUrl.searchParams.set('theme', getTheme());
+  embedUrl.searchParams.set('theme', /** @type {string} */ (getTheme()));
   iframe.src = embedUrl.toString();
   iframe.sandbox = 'allow-scripts allow-same-origin allow-popups allow-forms allow-modals';
 
@@ -621,6 +694,7 @@ function createIframe(panelId) {
 
 // ---- Empty State ----
 
+/** @param {string} message */
 function renderEmptyState(message) {
   if (!contentEl) return;
   contentEl.innerHTML = `

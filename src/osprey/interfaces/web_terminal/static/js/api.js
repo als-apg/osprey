@@ -1,18 +1,36 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /* OSPREY Web Terminal — Connection Helpers */
 
-/** @type {'connected'|'connecting'|'disconnected'} */
+/** @typedef {'connected'|'connecting'|'disconnected'} ConnState */
+/** @typedef {{ ws: ConnState, sse: ConnState }} ConnectionState */
+/** @typedef {(state: ConnectionState) => void} StateListener */
+
+/**
+ * @typedef {object} WebSocketHandlers
+ * @property {(ws: WebSocket) => void} [onOpen]
+ * @property {(e: MessageEvent) => void} [onMessage]
+ * @property {(e: CloseEvent) => void} [onClose]
+ * @property {(e: Event) => void} [onError]
+ */
+
+/**
+ * @typedef {object} EventSourceHandlers
+ * @property {(data: any) => void} [onMessage]
+ * @property {() => void} [onError]
+ */
+
+/** @type {ConnState} */
 let wsState = 'disconnected';
-/** @type {'connected'|'connecting'|'disconnected'} */
+/** @type {ConnState} */
 let sseState = 'disconnected';
 
+/** @type {StateListener[]} */
 const stateListeners = [];
 
 function notifyStateChange() {
   for (const fn of stateListeners) fn({ ws: wsState, sse: sseState });
 }
 
+/** @param {StateListener} fn */
 export function onConnectionStateChange(fn) {
   stateListeners.push(fn);
 }
@@ -25,6 +43,8 @@ export function getConnectionState() {
  * Build a same-origin WebSocket URL with the scheme that matches the current
  * page: wss:// when served over HTTPS, ws:// otherwise. Pass a root-absolute
  * path such as '/ws/terminal'. Avoids mixed-content failures under TLS.
+ * @param {string} path
+ * @returns {string}
  */
 export function wsUrl(path) {
   const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -33,8 +53,11 @@ export function wsUrl(path) {
 
 /**
  * Create a WebSocket with exponential backoff reconnection.
+ * @param {string} url
+ * @param {WebSocketHandlers} [handlers]
  */
 export function createWebSocket(url, { onOpen, onMessage, onClose, onError } = {}) {
+  /** @type {WebSocket|null} */
   let ws = null;
   let attempt = 0;
   let stopped = false;
@@ -52,7 +75,7 @@ export function createWebSocket(url, { onOpen, onMessage, onClose, onError } = {
       attempt = 0;
       wsState = 'connected';
       notifyStateChange();
-      if (onOpen) onOpen(ws);
+      if (onOpen) onOpen(/** @type {WebSocket} */ (ws));
     };
 
     ws.onmessage = (e) => {
@@ -78,6 +101,7 @@ export function createWebSocket(url, { onOpen, onMessage, onClose, onError } = {
     setTimeout(connect, delay);
   }
 
+  /** @param {string|ArrayBufferLike|Blob|ArrayBufferView} data */
   function send(data) {
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(data);
@@ -89,6 +113,7 @@ export function createWebSocket(url, { onOpen, onMessage, onClose, onError } = {
     if (ws) ws.close();
   }
 
+  /** @param {string} newUrl */
   function setUrl(newUrl) {
     wsUrl = newUrl;
   }
@@ -99,8 +124,11 @@ export function createWebSocket(url, { onOpen, onMessage, onClose, onError } = {
 
 /**
  * Create an EventSource with reconnection.
+ * @param {string} url
+ * @param {EventSourceHandlers} [handlers]
  */
 export function createEventSource(url, { onMessage, onError } = {}) {
+  /** @type {EventSource|null} */
   let es = null;
   let stopped = false;
 
@@ -148,6 +176,8 @@ export function createEventSource(url, { onMessage, onError } = {}) {
 
 /**
  * Fetch JSON from a URL.
+ * @param {string} url
+ * @returns {Promise<any>}
  */
 export async function fetchJSON(url) {
   const res = await fetch(url, { cache: 'no-store' });

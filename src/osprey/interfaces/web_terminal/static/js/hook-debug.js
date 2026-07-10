@@ -1,8 +1,21 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /* OSPREY Web Terminal — Hook Debug Toggle & Log Viewer */
 
 import { fetchJSON } from './api.js';
+
+/**
+ * One row of the hook activity log, as returned by
+ * `/api/hooks/debug-log`. All fields are optional because older log
+ * records used alternate key names (e.g. `timestamp`, `hook_event`).
+ * @typedef {object} HookEvent
+ * @property {string} [ts]
+ * @property {string} [timestamp]
+ * @property {string} [hook]
+ * @property {string} [hook_event]
+ * @property {string} [tool]
+ * @property {string} [status]
+ * @property {string} [detail]
+ * @property {string} [message]
+ */
 
 /**
  * Initialize the hook debug toggle bar and collapsible log viewer
@@ -18,7 +31,9 @@ export function initHookDebug() {
   bar.className = 'hook-debug-bar';
   _buildToggleBar(bar);
 
-  const toggle = document.getElementById('hook-debug-toggle');
+  const toggle = /** @type {HTMLInputElement} */ (
+    document.getElementById('hook-debug-toggle')
+  );
 
   toggle.addEventListener('change', async () => {
     const enabled = toggle.checked;
@@ -42,14 +57,21 @@ export function initHookDebug() {
   logSection.className = 'hook-debug-log';
   _buildLogViewer(logSection);
 
-  const logToggleHeader = document.getElementById('hook-debug-log-toggle');
-  const logBody = document.getElementById('hook-debug-log-body');
-  const refreshBtn = document.getElementById('hook-debug-refresh');
+  const logToggleHeader = /** @type {HTMLElement} */ (
+    document.getElementById('hook-debug-log-toggle')
+  );
+  const logBody = /** @type {HTMLElement} */ (
+    document.getElementById('hook-debug-log-body')
+  );
+  const refreshBtn = /** @type {HTMLButtonElement} */ (
+    document.getElementById('hook-debug-refresh')
+  );
   let logExpanded = false;
 
   logToggleHeader.addEventListener('click', (e) => {
     // Don't toggle when clicking the refresh button
-    if (e.target === refreshBtn || refreshBtn.contains(e.target)) return;
+    const target = /** @type {Node} */ (e.target);
+    if (target === refreshBtn || refreshBtn.contains(target)) return;
     logExpanded = !logExpanded;
     logSection.classList.toggle('expanded', logExpanded);
     if (logExpanded) _loadLogEntries(logBody);
@@ -75,6 +97,7 @@ export function initHookDebug() {
 
 // ---- DOM Builders (safe — no raw HTML injection) ---- //
 
+/** @param {HTMLElement} container */
 function _buildToggleBar(container) {
   const label = document.createElement('span');
   label.className = 'hook-debug-label';
@@ -94,6 +117,7 @@ function _buildToggleBar(container) {
   container.appendChild(toggleLabel);
 }
 
+/** @param {HTMLElement} container */
 function _buildLogViewer(container) {
   // Header
   const header = document.createElement('div');
@@ -131,6 +155,7 @@ function _buildLogViewer(container) {
   container.appendChild(body);
 }
 
+/** @param {HTMLElement} logBody */
 async function _loadLogEntries(logBody) {
   // Clear existing content safely
   while (logBody.firstChild) logBody.removeChild(logBody.firstChild);
@@ -161,7 +186,7 @@ async function _loadLogEntries(logBody) {
 
     // Tbody
     const tbody = document.createElement('tbody');
-    for (const entry of data.entries) {
+    for (const entry of /** @type {HookEvent[]} */ (data.entries)) {
       const tr = document.createElement('tr');
 
       const tdTs = document.createElement('td');
@@ -202,6 +227,10 @@ async function _loadLogEntries(logBody) {
   }
 }
 
+/**
+ * @param {string} ts
+ * @returns {string}
+ */
 function _formatTimestamp(ts) {
   if (!ts) return '-';
   try {
@@ -214,6 +243,11 @@ function _formatTimestamp(ts) {
   }
 }
 
+/**
+ * @param {HTMLElement} container
+ * @param {string} message
+ * @param {boolean} [isError]
+ */
 function _showToast(container, message, isError = false) {
   // Remove any existing toast
   const existing = container.querySelector('.hook-debug-toast');

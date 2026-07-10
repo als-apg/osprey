@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /* OSPREY Web Terminal — Memory Gallery ("Lab Notebook")
  *
  * Drives the "Memory" tab in the settings drawer.
@@ -28,6 +26,7 @@ const TRUNCATION_WARNING = 180;
 
 // ---- Shared Fetch Cache ---- //
 
+/** @type {Promise<any>|null} */
 let _fetchPromise = null;
 
 async function fetchMemoryFilesShared() {
@@ -41,12 +40,25 @@ function resetFetchCache() {
 
 // ---- MemoryGallery Class ---- //
 
+/**
+ * The settings drawer host element, augmented at runtime with an
+ * unsaved-changes guard registrar (see initMemoryGallery / scaffold-gallery).
+ * @typedef {HTMLElement & {
+ *   registerUnsavedGuard: (guard: () => boolean) => void,
+ * }} SettingsDrawerElement
+ */
+
 class MemoryGallery {
+  /**
+   * @param {{ container: HTMLElement }} config
+   */
   constructor({ container }) {
     this.container = container;
 
     // State
+    /** @type {any[]} */
     this.files = [];
+    /** @type {any} */
     this.selectedFile = null;
     this.currentView = 'gallery';
     this.editDirty = false;
@@ -58,6 +70,7 @@ class MemoryGallery {
     this.errorEl = null;
     this.galleryView = null;
     this.detailView = null;
+    /** @type {HTMLInputElement|null} */
     this.searchInput = null;
     this.summaryEl = null;
     this.fileListEl = null;
@@ -134,19 +147,20 @@ class MemoryGallery {
   // ---- Data Loading ---- //
 
   async load() {
-    this.loadingEl.style.display = 'flex';
-    this.errorEl.style.display = 'none';
+    /** @type {HTMLElement} */ (this.loadingEl).style.display = 'flex';
+    /** @type {HTMLElement} */ (this.errorEl).style.display = 'none';
 
     try {
       const data = await fetchMemoryFilesShared();
       this.files = data.files || [];
-      this.loadingEl.style.display = 'none';
+      /** @type {HTMLElement} */ (this.loadingEl).style.display = 'none';
       this.renderGallery();
       this.loaded = true;
     } catch (e) {
-      this.loadingEl.style.display = 'none';
-      this.errorEl.style.display = 'flex';
-      this.errorEl.textContent = `Failed to load memory files: ${e.message}`;
+      /** @type {HTMLElement} */ (this.loadingEl).style.display = 'none';
+      /** @type {HTMLElement} */ (this.errorEl).style.display = 'flex';
+      /** @type {HTMLElement} */ (this.errorEl).textContent =
+        `Failed to load memory files: ${/** @type {Error} */ (e).message}`;
     }
   }
 
@@ -165,8 +179,8 @@ class MemoryGallery {
   bindSearch() {
     if (!this.searchInput) return;
 
-    const clone = this.searchInput.cloneNode(true);
-    this.searchInput.parentNode.replaceChild(clone, this.searchInput);
+    const clone = /** @type {HTMLInputElement} */ (this.searchInput.cloneNode(true));
+    this.searchInput.parentNode?.replaceChild(clone, this.searchInput);
     this.searchInput = clone;
     clone.value = this.searchQuery;
 
@@ -216,6 +230,7 @@ class MemoryGallery {
     }
   }
 
+  /** @param {any} file */
   renderFileCard(file) {
     const card = _el('div', 'memory-file-card');
     if (file.is_primary) card.classList.add('memory-file-primary');
@@ -260,6 +275,7 @@ class MemoryGallery {
     return card;
   }
 
+  /** @param {number} lineCount */
   renderLineGauge(lineCount) {
     const gauge = _el('div', 'memory-line-gauge');
     const fill = _el('div', 'memory-line-gauge-fill');
@@ -285,6 +301,7 @@ class MemoryGallery {
 
   // ---- Detail View ---- //
 
+  /** @param {any} file */
   async openDetail(file) {
     this.selectedFile = file;
     this.currentView = 'detail';
@@ -398,7 +415,7 @@ class MemoryGallery {
       this.detailContentEl.appendChild(textarea);
     } catch (e) {
       this.detailContentEl.innerHTML =
-        `<div class="memory-content-error">Error: ${escapeHtml(e.message)}</div>`;
+        `<div class="memory-content-error">Error: ${escapeHtml(/** @type {Error} */ (e).message)}</div>`;
     }
   }
 
@@ -406,7 +423,9 @@ class MemoryGallery {
 
   async saveFile() {
     if (!this.selectedFile) return;
-    const textarea = this.detailContentEl.querySelector('.memory-edit-textarea');
+    const textarea = /** @type {HTMLTextAreaElement|null} */ (
+      this.detailContentEl?.querySelector('.memory-edit-textarea')
+    );
     if (!textarea) return;
 
     try {
@@ -432,9 +451,9 @@ class MemoryGallery {
       this.renderDetailActions();
       this.renderDetailHeader();
     } catch (e) {
-      this.errorEl.style.display = 'flex';
-      this.errorEl.textContent = `Save failed: ${e.message}`;
-      setTimeout(() => { this.errorEl.style.display = 'none'; }, 4000);
+      /** @type {HTMLElement} */ (this.errorEl).style.display = 'flex';
+      /** @type {HTMLElement} */ (this.errorEl).textContent = `Save failed: ${/** @type {Error} */ (e).message}`;
+      setTimeout(() => { /** @type {HTMLElement} */ (this.errorEl).style.display = 'none'; }, 4000);
     }
   }
 
@@ -463,9 +482,9 @@ class MemoryGallery {
       this.editDirty = false;
       this.renderGallery();
     } catch (e) {
-      this.errorEl.style.display = 'flex';
-      this.errorEl.textContent = `Delete failed: ${e.message}`;
-      setTimeout(() => { this.errorEl.style.display = 'none'; }, 4000);
+      /** @type {HTMLElement} */ (this.errorEl).style.display = 'flex';
+      /** @type {HTMLElement} */ (this.errorEl).textContent = `Delete failed: ${/** @type {Error} */ (e).message}`;
+      setTimeout(() => { /** @type {HTMLElement} */ (this.errorEl).style.display = 'none'; }, 4000);
     }
   }
 
@@ -496,9 +515,9 @@ class MemoryGallery {
       this.renderSummary();
       this.openDetail(newFile);
     } catch (e) {
-      this.errorEl.style.display = 'flex';
-      this.errorEl.textContent = `Create failed: ${e.message}`;
-      setTimeout(() => { this.errorEl.style.display = 'none'; }, 4000);
+      /** @type {HTMLElement} */ (this.errorEl).style.display = 'flex';
+      /** @type {HTMLElement} */ (this.errorEl).textContent = `Create failed: ${/** @type {Error} */ (e).message}`;
+      setTimeout(() => { /** @type {HTMLElement} */ (this.errorEl).style.display = 'none'; }, 4000);
     }
   }
 
@@ -534,7 +553,9 @@ class MemoryGallery {
 // ---- Public Export ---- //
 
 export function initMemoryGallery() {
-  const drawer = document.getElementById('settings-drawer');
+  const drawer = /** @type {SettingsDrawerElement|null} */ (
+    document.getElementById('settings-drawer')
+  );
   if (!drawer) return;
 
   const memoryPanel = document.getElementById('tab-memory');
@@ -562,6 +583,7 @@ export function initMemoryGallery() {
 
 // ---- Utility Functions ---- //
 
+/** @param {number} bytes */
 function formatSize(bytes) {
   if (bytes < 1024) return bytes + ' B';
   if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
