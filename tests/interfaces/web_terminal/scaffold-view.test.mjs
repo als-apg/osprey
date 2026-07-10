@@ -20,7 +20,7 @@
  * not design-system, so the `/design-system/js/*` alias does not apply.
  */
 
-import { test, expect, describe, beforeEach } from 'vitest';
+import { test, expect, describe } from 'vitest';
 
 import {
   getFilteredArtifacts,

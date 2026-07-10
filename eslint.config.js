@@ -52,16 +52,7 @@ export default [
   //     Rules stay at `error` everywhere else; these are file-scoped `off` only. ---
   {
     files: [
-      'src/osprey/interfaces/artifacts/static/js/print.js',
       'src/osprey/interfaces/design_system/static/js/theme-boot.js',
-      'src/osprey/interfaces/design_system/static/js/theme-manager.js',
-      'src/osprey/interfaces/web_terminal/static/js/app.js',
-      'src/osprey/interfaces/web_terminal/static/js/panel-manager.js',
-      'src/osprey/interfaces/web_terminal/static/js/session-views.js',
-      'src/osprey/interfaces/web_terminal/static/js/session.js',
-      'tests/interfaces/artifacts/security_render.test.mjs',
-      'tests/interfaces/web_terminal/scaffold-edit.test.mjs',
-      'tests/interfaces/web_terminal/scaffold-view.test.mjs',
     ],
     rules: { 'no-unused-vars': 'off' },
   },

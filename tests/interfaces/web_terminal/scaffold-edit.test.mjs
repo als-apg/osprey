@@ -454,7 +454,7 @@ describe('takeOwnership / releaseToFramework / handleEditFramework', () => {
   });
 
   test('handleEditFramework claims the file, refetches artifacts, and switches to edit mode', async () => {
-    vi.stubGlobal('fetch', vi.fn((url, init) => {
+    vi.stubGlobal('fetch', vi.fn((url) => {
       if (url.includes('/claim')) return Promise.resolve({ ok: true, json: () => Promise.resolve({}) });
       return Promise.resolve({
         ok: true,

@@ -53,7 +53,7 @@ import {
   renderTimeseriesTable,
   renderTimeseriesView,
 } from '../../../src/osprey/interfaces/artifacts/static/js/timeseries.js';
-import { injectLogbookButtons } from '../../../src/osprey/interfaces/artifacts/static/js/logbook.js';
+import '../../../src/osprey/interfaces/artifacts/static/js/logbook.js';
 
 // ---- Shared hostile payload set ---- //
 

@@ -103,7 +103,7 @@ function _modeOf(id) {
 function _prefersDarkOS() {
   try {
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
-  } catch (error) {
+  } catch {
     return true;
   }
 }
@@ -129,7 +129,7 @@ function _resolve(preference) {
 function _readQueryTheme() {
   try {
     return new URLSearchParams(window.location.search).get('theme');
-  } catch (error) {
+  } catch {
     return null;
   }
 }
@@ -137,7 +137,7 @@ function _readQueryTheme() {
 function _readStoredPreference() {
   try {
     return window.localStorage.getItem(STORAGE_KEY);
-  } catch (error) {
+  } catch {
     return null;
   }
 }
@@ -146,7 +146,7 @@ function _readStoredPreference() {
 function _persistPreference(preference) {
   try {
     window.localStorage.setItem(STORAGE_KEY, preference);
-  } catch (error) {
+  } catch {
     // Storage unavailable (private browsing, quota) -- non-fatal; the
     // preference just won't survive a reload this session.
   }
@@ -220,7 +220,7 @@ function _stripQueryTheme() {
     const query = params.toString();
     const url = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
     window.history.replaceState(window.history.state, '', url);
-  } catch (error) {
+  } catch {
     // Non-browser environment or a blocked history API -- non-fatal.
   }
 }
@@ -231,7 +231,7 @@ function _broadcast(id) {
   for (const iframe of iframes) {
     try {
       iframe.contentWindow?.postMessage({ type: MESSAGE_TYPE, theme: id }, window.location.origin);
-    } catch (error) {
+    } catch {
       // Cross-origin -- expected for some iframes; nothing to do.
     }
   }
@@ -290,7 +290,7 @@ function _attachMediaQueryListener() {
   let media;
   try {
     media = window.matchMedia('(prefers-color-scheme: dark)');
-  } catch (error) {
+  } catch {
     return;
   }
 

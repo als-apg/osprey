@@ -60,7 +60,6 @@ let containerEl = null;
 let tabsEl = null;
 let contentEl = null;
 let activeTabId = null;
-let userSelectedTab = false;
 
 // Per-panel state: { url, healthy, iframe, pollTimer, configLoaded }
 const panelState = {};
@@ -516,7 +515,6 @@ function activateTab(panelId, { userInitiated = false } = {}) {
   const state = panelState[panelId];
   if (!state || !state.healthy) return;
 
-  if (userInitiated) userSelectedTab = true;
   activeTabId = panelId;
 
   // Update tab active states
