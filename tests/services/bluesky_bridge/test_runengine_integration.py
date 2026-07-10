@@ -32,7 +32,7 @@ from osprey.services.bluesky_bridge import live_rows  # noqa: E402
 from osprey.services.bluesky_bridge.app import app, set_scanner_factory  # noqa: E402
 from osprey.services.bluesky_bridge.devices.mock import build_devices  # noqa: E402
 from osprey.services.bluesky_bridge.plans import BUILTIN_PLANS  # noqa: E402
-from osprey.services.bluesky_bridge.runs import registry  # noqa: E402
+from osprey.services.bluesky_bridge.runs import do_promote, registry  # noqa: E402
 from osprey.services.bluesky_bridge.scanner import FakeScanner  # noqa: E402
 from osprey.services.bluesky_bridge.scanner_bluesky import BlueskyScanner  # noqa: E402
 
@@ -252,3 +252,32 @@ def test_promoted_run_read_scan_data_returns_the_buffered_rows(
     assert data_body["row_count"] == 3
     assert len(data_body["rows"]) == 3
     assert "partial" not in data_body
+
+
+def test_do_promote_stamps_osprey_run_id_onto_the_start_doc(mock_devices: dict) -> None:
+    """`do_promote` (runs.py) sets `scanner.osprey_run_id = run.id`, and `_run`
+    (scanner_bluesky.py) must thread it onto the RunEngine start doc as
+    metadata — not nested under an `md` key — so a Tiled-persisted run can be
+    found again by `run.id` after the in-memory registry (and `run_uid` with
+    it) is gone.
+    """
+    docs: list[tuple[str, dict]] = []
+
+    def scanner_factory() -> BlueskyScanner:
+        scanner = BlueskyScanner(devices=mock_devices, plans=BUILTIN_PLANS)
+        scanner.RE.subscribe(lambda name, doc: docs.append((name, dict(doc))))
+        return scanner
+
+    run = registry.add(
+        request={"plan_name": "count", "plan_args": {"detectors": ["det1"], "num": 2}}
+    )
+
+    do_promote(run, scanner_factory)
+    _wait_until_idle(run.scanner)
+
+    assert run.scanner.osprey_run_id == run.id  # type: ignore[union-attr]
+
+    start_docs = [doc for name, doc in docs if name == "start"]
+    assert len(start_docs) == 1
+    assert start_docs[0]["osprey_run_id"] == run.id
+    assert "md" not in start_docs[0]

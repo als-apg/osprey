@@ -67,6 +67,16 @@ _TRUTHY_VALUES = {"1", "true", "yes", "on"}
 # must never silently get the mock demo instead.
 _EPICS_SUBSTRATE_ENV = "BLUESKY_EPICS_SUBSTRATE"
 
+# Task 2.5: when set, both scanner-factory branches below subscribe a
+# `TiledWriter` (via `_FaultIsolatedTiledWriter`, see `scanner_bluesky.py`) so
+# scan data survives a bridge restart. Orthogonal to `_DEMO_SCANNER_ENV`/
+# `_EPICS_SUBSTRATE_ENV` — it augments whichever scanner those two flags pick,
+# rather than picking one itself. `BLUESKY_TILED_API_KEY` grants catalog
+# access only, never promote authority — see `container_lifecycle.py`'s
+# `_SERVICE_TOKEN_VARS`.
+_TILED_URI_ENV = "BLUESKY_TILED_URI"
+_TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
+
 # The `Scanner` implementation `do_promote` builds for every promotion.
 _scanner_factory: Callable[[], Scanner] = FakeScanner
 
@@ -99,6 +109,34 @@ def _is_epics_substrate_enabled() -> bool:
     see that function's docstring for why.
     """
     return os.environ.get(_EPICS_SUBSTRATE_ENV, "").strip().lower() in _TRUTHY_VALUES
+
+
+def _build_tiled_writer_factory() -> Callable[[], Any] | None:
+    """Build the `tiled_writer_factory` `BlueskyScanner` accepts, or `None` if Tiled is unconfigured.
+
+    Reads `BLUESKY_TILED_URI` fresh on every call (never cached), so each
+    promotion's `BlueskyScanner` picks up the current env — matching
+    `do_promote`'s "fresh scanner per promotion" contract (`scanner_bluesky.py`'s
+    `_FaultIsolatedTiledWriter` docstring: "no cross-run state to reset").
+    `None` when the URI is unset: `BlueskyScanner.__init__` treats that as "no
+    Tiled subscription", identical to Phase 1's no-Tiled-server behavior.
+
+    The returned closure imports `TiledWriter` from
+    `bluesky.callbacks.tiled_writer` — NOT from `tiled` (TR2) — lazily,
+    inside itself, so this module stays import-clean of both `bluesky` and
+    `tiled` (`_BRIDGE_ONLY_MODULES`) even when a caller holds onto the
+    returned factory without ever invoking it.
+    """
+    uri = os.environ.get(_TILED_URI_ENV)
+    if not uri:
+        return None
+
+    def factory() -> Any:
+        from bluesky.callbacks.tiled_writer import TiledWriter
+
+        return TiledWriter.from_uri(uri, api_key=os.environ[_TILED_API_KEY_ENV])
+
+    return factory
 
 
 @asynccontextmanager
@@ -159,6 +197,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 return BlueskyScanner(
                     devices=lambda: epics.build_devices(motors, detectors),
                     plans=BUILTIN_PLANS,
+                    tiled_writer_factory=_build_tiled_writer_factory(),
                 )
 
             set_scanner_factory(_epics_scanner_factory)
@@ -201,7 +240,10 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 # `build_devices` is `async def` (it connects ophyd-async
                 # devices) — `BlueskyScanner._resolve_devices` bridges that
                 # for us; passing the bare callable here, not its result.
-                return BlueskyScanner(devices=lambda: build_devices())
+                return BlueskyScanner(
+                    devices=lambda: build_devices(),
+                    tiled_writer_factory=_build_tiled_writer_factory(),
+                )
 
             set_scanner_factory(_demo_scanner_factory)
             logger.info(
@@ -319,34 +361,27 @@ def list_plans() -> list:
     return [spec.to_dict() for spec in merged.values()]
 
 
-@app.get("/runs/{run_id}/data")
-def read_run_data(
-    run_id: str, max_rows: int = 100, offset: int | None = None, tail: bool = False
-) -> dict:
-    """Read a bounded window of a run's recorded data (see `live_rows.py`).
+def _window(
+    columns: list[str],
+    rows: list[Any],
+    total_seen: int,
+    max_rows: int,
+    offset: int | None,
+    tail: bool,
+) -> dict[str, Any]:
+    """Compute a bounded, paginated window over a row buffer.
 
-    Row-bounded by design — this never returns an unbounded table. Serves
-    from the in-process live-row buffer, so reads work with no Tiled server:
-    ``partial: true`` while the run is still filling in (before its stop doc
-    lands), permanently readable once it's marked completed (see
-    `live_rows.py`'s retention bound). ``row_count`` is the *true* total rows
-    the run has produced so far, even if that's more than what's physically
-    stored — ``truncated`` reflects whether this response's window omits any
-    of them.
+    Shared by every data source `read_run_data` serves from (today: the live
+    buffer; later: Tiled) — one implementation is what makes pagination
+    parity across sources structural rather than something tests have to
+    police across copies.
 
-    Raises 409 if the run has no `run_uid` yet (never promoted, or promoted
-    but the scan hasn't emitted a start doc) — there is nothing to read.
+    ``row_count`` is `total_seen` — the *true* total rows the run has
+    produced, even if that's more than what's physically passed in via
+    ``rows`` — not ``len(rows)``. ``truncated`` reflects whether this
+    response's window omits any of the passed-in rows, or whether more rows
+    exist than were passed in at all.
     """
-    run = registry.get(run_id)
-    run_uid = run.run_uid
-    if run_uid is None:
-        raise HTTPException(status_code=409, detail=f"run {run_id!r} has not started; no data yet")
-
-    buf = live_rows.get(run_uid)
-    if buf is None:
-        return {"columns": [], "rows": []}
-
-    rows = buf["rows"]
     stored_count = len(rows)
     max_rows = max(0, max_rows)
     skip = max(0, offset) if offset is not None else 0
@@ -359,15 +394,145 @@ def read_run_data(
         end = start + max_rows
     window = rows[start:end]
 
-    truncated = start > 0 or end < stored_count or buf["total_seen"] > stored_count
+    truncated = start > 0 or end < stored_count or total_seen > stored_count
 
-    result: dict[str, Any] = {
-        "run_uid": run_uid,
-        "columns": list(buf["columns"]),
+    return {
+        "columns": list(columns),
         "rows": window,
-        "row_count": buf["total_seen"],
+        "row_count": total_seen,
         "truncated": truncated,
     }
-    if buf["partial"]:
-        result["partial"] = True
+
+
+def _from_tiled(
+    run_id: str, max_rows: int, offset: int | None, tail: bool
+) -> dict[str, Any] | None:
+    """Serve `read_run_data` from the durable Tiled catalog once a run's live buffer is gone.
+
+    Two situations fall through the live path in `read_run_data` and land here: a registry
+    miss after a bridge restart (the whole in-memory registry — including `run.run_uid` —
+    is gone, so the search below keys on `osprey_run_id`, the durable stamp `do_promote`
+    writes into the start doc, never the lost `run_uid`), and a registry hit whose buffer
+    was evicted past `live_rows._MAX_RUNS`.
+
+    Returns `None` when Tiled is unconfigured (`BLUESKY_TILED_URI` unset — logged, not an
+    error) or when no run in the catalog matches `run_id`; the caller turns either into a
+    404, exactly like an unknown live `run_uid` today.
+
+    `tiled` is imported here, never at module level, so `app.py` stays import-clean of it
+    (`_BRIDGE_ONLY_MODULES`) even when Tiled *is* configured for this deploy.
+    """
+    uri = os.environ.get(_TILED_URI_ENV)
+    if not uri:
+        logger.info(
+            "_from_tiled: %s is unset; Tiled is not configured for this deploy", _TILED_URI_ENV
+        )
+        return None
+
+    from tiled.client import from_uri
+    from tiled.queries import Key
+
+    client = from_uri(uri, api_key=os.environ[_TILED_API_KEY_ENV])
+    # The start doc `TiledWriter.start` records lives under `metadata["start"]`
+    # on the run container — a bare `Key("osprey_run_id")` matches nothing.
+    matches = list(client.search(Key("start.osprey_run_id") == run_id).values())
+    if not matches:
+        return None
+    run_node = matches[0]
+
+    run_uid = dict(run_node.metadata).get("start", {}).get("uid")
+
+    if "primary" not in run_node:
+        # Start doc landed but no Event ever arrived (e.g. a scan that
+        # errored before its first point) — the run is real, so this is the
+        # "nothing to read yet" shape, not a 404. Deliberately a membership
+        # check on `"primary"` alone, never a `try`/`except KeyError` around
+        # the whole traversal below: `CompositeClient.__getitem__` raises
+        # `KeyError` for `"internal"` too (it exposes the table's *columns*,
+        # not the table), so a broad guard here would silently convert a
+        # wrong traversal into this empty-but-successful answer.
+        columns: list[str] = []
+        rows: list[Any] = []
+        total_seen = 0
+    else:
+        # `run_node["primary"]` is a `CompositeClient`, whose keys are the
+        # flattened column names; the appendable table itself hangs off its
+        # `.base` container.
+        internal_table = run_node["primary"].base["internal"]
+        table = internal_table.read()
+        # Tiled's stored rows carry `seq_num`, `time`, and per-signal `ts_*`
+        # timestamp columns the live buffer never had (see `LiveRowRecorder`)
+        # — project those away so both sources return the identical column set.
+        columns = [
+            c for c in table.columns if c != "seq_num" and c != "time" and not c.startswith("ts_")
+        ]
+        rows = table[columns].values.tolist()
+        total_seen = len(table)
+
+    result: dict[str, Any] = {"run_uid": run_uid}
+    result.update(_window(columns, rows, total_seen, max_rows, offset, tail))
     return result
+
+
+@app.get("/runs/{run_id}/data")
+def read_run_data(
+    run_id: str, max_rows: int = 100, offset: int | None = None, tail: bool = False
+) -> dict:
+    """Read a bounded window of a run's recorded data — dual-source (task 3.3).
+
+    Row-bounded by design — this never returns an unbounded table. Prefers the
+    in-process live-row buffer (see `live_rows.py`) whenever it has one:
+    ``partial: true`` while the run is still filling in (before its stop doc
+    lands), permanently readable once it's marked completed (see
+    `live_rows.py`'s retention bound). ``row_count`` is the *true* total rows
+    the run has produced so far, even if that's more than what's physically
+    stored — ``truncated`` reflects whether this response's window omits any
+    of them.
+
+    Falls back to `_from_tiled` (task 3.2) whenever there is no live buffer to
+    serve — this is the SAME branch for two different situations: a registry
+    miss (the whole in-memory registry, including `run.run_uid`, is gone after
+    a bridge restart — so the fallback searches Tiled by `run_id` directly,
+    never a `run_uid` that no longer exists to look up), and a registry hit
+    whose buffer was evicted past `live_rows._MAX_RUNS`. The fallback trigger
+    is always ``buf is None`` — a present-but-empty buffer (``partial: true``,
+    zero rows) is a real in-flight run and stays on the live path; checking
+    "falsy rows" instead would incorrectly divert a running scan to Tiled
+    before it has ever written anything there.
+
+    Raises 409 if the registry has the run but it has no `run_uid` yet (never
+    promoted, or promoted but the scan hasn't emitted a start doc) — there is
+    nothing to read from either source, so Tiled is never consulted for this
+    case. Raises 404 when neither source has the run — the MCP `read_scan_data`
+    tool maps 404 to `unknown_run`, and a 200-empty response would make a
+    nonexistent run look like a valid empty scan.
+    """
+    try:
+        run = registry.get(run_id)
+    except HTTPException:
+        run = None
+
+    buf = None
+    run_uid: str | None = None
+    if run is not None:
+        run_uid = run.run_uid
+        if run_uid is None:
+            raise HTTPException(
+                status_code=409, detail=f"run {run_id!r} has not started; no data yet"
+            )
+        buf = live_rows.get(run_uid)
+
+    if buf is not None:
+        result: dict[str, Any] = {"run_uid": run_uid}
+        result.update(
+            _window(buf["columns"], buf["rows"], buf["total_seen"], max_rows, offset, tail)
+        )
+        if buf["partial"]:
+            result["partial"] = True
+        return result
+
+    tiled_result = _from_tiled(run_id, max_rows, offset, tail)
+    if tiled_result is not None:
+        return tiled_result
+
+    raise HTTPException(status_code=404, detail=f"unknown run {run_id!r}")

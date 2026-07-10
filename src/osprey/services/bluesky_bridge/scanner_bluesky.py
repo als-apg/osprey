@@ -97,6 +97,38 @@ def _plan_name_and_args(exec_config: Any) -> tuple[str | None, dict[str, Any]]:
     )
 
 
+class _FaultIsolatedTiledWriter:
+    """Wraps a `(name, doc)` callback so a Tiled outage degrades persistence, never a scan.
+
+    `TiledWriter` is a synchronous RunEngine callback, and bluesky's
+    `RunEngine` does not swallow callback exceptions by default — an
+    exception escaping `__call__` aborts the running plan. This wrapper
+    catches any exception from the inner writer, latches `degraded = True`,
+    logs once with `exc_info`, and never re-raises. Once latched, subsequent
+    documents short-circuit without touching the inner writer again.
+
+    Latch semantics are per-instance: `BlueskyScanner` builds a fresh writer
+    (and fresh wrapper) per promotion, so there is no cross-run state to reset.
+    """
+
+    def __init__(self, inner: Callable[[str, dict[str, Any]], Any]) -> None:
+        self._inner = inner
+        self.degraded = False
+
+    def __call__(self, name: str, doc: dict[str, Any]) -> None:
+        if self.degraded:
+            return
+        try:
+            self._inner(name, doc)
+        except Exception:
+            self.degraded = True
+            logger.error(
+                "BlueskyScanner: TiledWriter failed on %r document; persistence degraded",
+                name,
+                exc_info=True,
+            )
+
+
 class BlueskyScanner:
     """One promoted run's real bluesky RunEngine handle.
 
@@ -128,18 +160,53 @@ class BlueskyScanner:
         self._recorder = LiveRowRecorder()
         self.RE.subscribe(self._on_document)
 
+        # `None` means Tiled is disabled entirely (no factory supplied) —
+        # distinct from a wired-but-degraded writer (see `tiled_degraded`).
+        self._tiled_writer: _FaultIsolatedTiledWriter | None = None
         if tiled_writer_factory is not None:
+            # Pre-latch a no-op placeholder so `tiled_degraded` has something
+            # to read even if `tiled_writer_factory()` itself raises below;
+            # reassigned to wrap the real inner writer the moment it exists.
+            self._tiled_writer = _FaultIsolatedTiledWriter(lambda name, doc: None)
             try:
-                self.RE.subscribe(tiled_writer_factory())
+                # BOTH construction and subscription are inside this guard: a
+                # Tiled server down at promote time can fail either call, and
+                # either failure must degrade persistence, never abort the
+                # promotion (FR4) — a raising `subscribe()` outside the guard
+                # would propagate out of `__init__` -> `scanner_factory()` ->
+                # `do_promote`, turning a Tiled outage into a failed promote.
+                inner_writer = tiled_writer_factory()
+                self._tiled_writer = _FaultIsolatedTiledWriter(inner_writer)
+                self.RE.subscribe(self._tiled_writer)
             except Exception:
                 logger.warning(
-                    "BlueskyScanner: TiledWriter subscription failed; continuing without it",
+                    "BlueskyScanner: TiledWriter construction/subscription failed;"
+                    " persistence degraded",
                     exc_info=True,
                 )
+                # Whichever wrapper is currently referenced (the placeholder,
+                # if the factory itself raised, or the real one, if only
+                # `subscribe` raised) is latched degraded either way — it is
+                # already a no-op past this point even if `subscribe` had
+                # partially registered it before raising.
+                self._tiled_writer.degraded = True
 
         self._thread: threading.Thread | None = None
         self._stop_requested = False
         self._completion = 0.0
+
+    @property
+    def tiled_degraded(self) -> bool:
+        """Whether Tiled persistence has failed (construction or per-document).
+
+        `False` both when Tiled is disabled entirely (no `tiled_writer_factory`
+        supplied) and while a wired writer is healthy — never `True` merely
+        because Tiled is absent. Reflects the fault-isolated wrapper's latch
+        once a writer is wired.
+        """
+        if self._tiled_writer is None:
+            return False
+        return self._tiled_writer.degraded
 
     def _on_document(self, name: str, doc: dict[str, Any]) -> None:
         """Capture `last_run_uid` from the start doc, then forward to the live-row buffer.
@@ -243,9 +310,20 @@ class BlueskyScanner:
         Either way, `_stop_requested` (set before `RE.abort()` is called) is
         what distinguishes an intentional stop from a genuine plan failure —
         not the exception's presence.
+
+        `osprey_run_id` (set by `do_promote`, `runs.py`, after `reinitialize`
+        and before `start_scan_thread`) is not part of the `Scanner` Protocol,
+        so it is read defensively via `getattr` — absent for any caller that
+        doesn't set it (contract tests constructing a `BlueskyScanner`
+        directly). When present it is passed as a `RunEngine.__call__`
+        metadata kwarg — `RE(plan, osprey_run_id=...)` — which bluesky records
+        onto the start doc. A literal `md={...}` would nest it under an `md`
+        key instead, which is not what the durable Tiled lookup expects.
         """
+        osprey_run_id = getattr(self, "osprey_run_id", None)
+        metadata_kw = {"osprey_run_id": osprey_run_id} if osprey_run_id is not None else {}
         try:
-            self.RE(self._plan_gen)
+            self.RE(self._plan_gen, **metadata_kw)
         except Exception as exc:
             if self._stop_requested:
                 self.current_state = "stopped"

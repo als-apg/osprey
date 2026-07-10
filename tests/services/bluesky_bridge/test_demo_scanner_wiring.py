@@ -23,6 +23,9 @@ Exercised here:
   promote -> scan -> read_scan_data round trip returns real buffered rows.
   Guarded with `pytest.importorskip` so these are skipped (not failed) when
   bluesky isn't installed, keeping `ci_check` green.
+- Task 2.5: `BLUESKY_TILED_URI` wires a `TiledWriter` subscription onto the
+  demo scanner, without disturbing the mock-devices round trip above (the
+  real e2e coverage for this path).
 """
 
 from __future__ import annotations
@@ -40,12 +43,15 @@ from osprey.services.bluesky_bridge.scanner import FakeScanner
 
 _ENV_VAR = "BLUESKY_DEMO_SCANNER"
 _TOKEN_VAR = "BLUESKY_PROMOTE_TOKEN"
+_TILED_URI_ENV = "BLUESKY_TILED_URI"
+_TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 
 
 @pytest.fixture(autouse=True)
 def _isolated_state(monkeypatch: pytest.MonkeyPatch):
     """Every test gets a clean flag, registry, live-row buffer, and scanner factory."""
-    monkeypatch.delenv(_ENV_VAR, raising=False)
+    for var in (_ENV_VAR, _TILED_URI_ENV, _TILED_API_KEY_ENV):
+        monkeypatch.delenv(var, raising=False)
     registry._runs.clear()
     live_rows._clear()
     set_scanner_factory(FakeScanner)
@@ -179,3 +185,64 @@ def test_flag_set_with_bluesky_present_wires_and_completes_a_real_scan(
         assert data_body["row_count"] == 3
         assert len(data_body["rows"]) == 3
         assert "partial" not in data_body
+
+
+# =========================================================================
+# Task 2.5: BLUESKY_TILED_URI wires a TiledWriter subscription
+# =========================================================================
+
+
+def test_tiled_uri_set_subscribes_a_tiled_writer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Mirrors `test_epics_substrate_scanner_wiring.py`'s equivalent assertion
+    for the demo scanner factory — spying on `TiledWriter.from_uri` keeps this
+    a fast unit test while still exercising the real wiring path end to end,
+    independent of the mock-devices round trip above (the real e2e coverage
+    for this path).
+    """
+    pytest.importorskip("bluesky")
+    pytest.importorskip("ophyd_async")
+
+    from bluesky.callbacks.tiled_writer import TiledWriter
+
+    calls: list[tuple[str, dict]] = []
+
+    def fake_from_uri(uri, **kwargs):
+        calls.append((uri, kwargs))
+        return lambda name, doc: None
+
+    monkeypatch.setattr(TiledWriter, "from_uri", fake_from_uri)
+    monkeypatch.setenv(_ENV_VAR, "true")
+    monkeypatch.setenv(_TILED_URI_ENV, "http://tiled:8000")
+    monkeypatch.setenv(_TILED_API_KEY_ENV, "test-api-key")
+
+    with TestClient(app):
+        pass
+
+    from osprey.services.bluesky_bridge.scanner_bluesky import BlueskyScanner
+
+    scanner = app_module._scanner_factory()
+    assert isinstance(scanner, BlueskyScanner)
+    assert calls == [("http://tiled:8000", {"api_key": "test-api-key"})]
+    assert scanner.tiled_degraded is False
+
+
+def test_tiled_uri_unset_builds_scanner_with_no_tiled_subscription(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default (no Tiled configured) behaves exactly like Phase 1: `_build_tiled_writer_factory`
+    returns `None`, so `BlueskyScanner.__init__` never imports or calls `TiledWriter` at all.
+    """
+    pytest.importorskip("bluesky")
+    pytest.importorskip("ophyd_async")
+
+    monkeypatch.setenv(_ENV_VAR, "true")
+
+    with TestClient(app):
+        pass
+
+    assert app_module._build_tiled_writer_factory() is None
+
+    from osprey.services.bluesky_bridge.scanner_bluesky import BlueskyScanner
+
+    scanner = app_module._scanner_factory()
+    assert isinstance(scanner, BlueskyScanner)
