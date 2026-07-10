@@ -30,12 +30,25 @@ from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
 from osprey.services.bluesky_bridge.runs import Run, do_promote, registry
 from osprey.services.bluesky_bridge.scanner import FakeScanner
 
+_TILED_URI_ENV = "BLUESKY_TILED_URI"
+_TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
+
 
 @pytest.fixture(autouse=True)
-def _isolated_state():
+def _isolated_state(monkeypatch: pytest.MonkeyPatch):
+    """Every test also gets Tiled unconfigured: several tests below (any run
+    with no live buffer) fall through `read_run_data` to the real
+    `_from_tiled`, not a mock. Left to ambient env, an exported
+    `BLUESKY_TILED_URI` would make those tests attempt a real Tiled
+    connection instead of exercising the "not configured" branch they claim
+    to — hanging, or raising `KeyError` on the unset `BLUESKY_TILED_API_KEY`
+    and surfacing as a 500 instead of the asserted 404.
+    """
     registry._runs.clear()
     live_rows._clear()
     set_scanner_factory(FakeScanner)
+    monkeypatch.delenv(_TILED_URI_ENV, raising=False)
+    monkeypatch.delenv(_TILED_API_KEY_ENV, raising=False)
     yield
     registry._runs.clear()
     live_rows._clear()
@@ -85,11 +98,17 @@ def test_read_data_unknown_run_returns_404(client: TestClient) -> None:
 # =========================================================================
 
 
-def test_read_data_with_no_buffer_returns_minimal_empty_shape(client: TestClient) -> None:
+def test_read_data_with_no_buffer_and_no_tiled_returns_404(client: TestClient) -> None:
+    """Task 3.3: a promoted run with no live buffer falls back to `_from_tiled`,
+    which returns `None` here (BLUESKY_TILED_URI unset in this test env) — so
+    this is a 404, not the old Phase-1 200-empty shape. A 200-empty would make
+    a run whose data genuinely can't be found look like a valid empty scan;
+    see `test_dual_source_read.py` for the full dual-source branching matrix
+    (evicted-buffer fallback, schema parity, registry-miss handling).
+    """
     run = _promoted_run_with_uid("uid-empty")
     resp = client.get(f"/runs/{run.id}/data")
-    assert resp.status_code == 200
-    assert resp.json() == {"columns": [], "rows": []}
+    assert resp.status_code == 404
 
 
 def test_read_data_started_but_zero_events_reports_full_shape(client: TestClient) -> None:
