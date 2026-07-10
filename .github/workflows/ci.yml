@@ -51,7 +51,13 @@ jobs:
       # virtual-accelerator: tests/va/{test_record_factory,test_apply_fault}.py
       # import softioc, which lives in the virtual-accelerator extra (not dev).
       # Without it these unit tests error at collection on a fresh runner.
-      run: uv sync --extra dev --extra virtual-accelerator
+      #
+      # bluesky-bridge: tests/services/bluesky_bridge/* import bluesky,
+      # ophyd_async and tiled. Most guard with `pytest.importorskip`, so without
+      # this extra they do not error — they SKIP, and the bridge's scanner,
+      # RunEngine integration and Tiled fault-isolation guards silently never
+      # run. test_ci_workflow_wiring.py pins this extra for that reason.
+      run: uv sync --extra dev --extra virtual-accelerator --extra bluesky-bridge
 
     - name: Run unit tests
       run: |

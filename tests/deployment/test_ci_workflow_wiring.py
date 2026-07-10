@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import copy
 import json
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,7 @@ CI_YML = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "ci.yml
 
 TILED_JOB = "tiled-roundtrip-e2e"
 VA_JOB = "va-substrate-equivalence-e2e"
+UNIT_TEST_JOB = "test"
 E2E_TESTS_JOB = "e2e-tests"
 GATE_JOB = "all-checks-passed"
 SECRET_TOKEN = "secrets.ALS_APG_API_KEY"
@@ -263,6 +265,49 @@ def test_all_checks_passed_needs_both_new_jobs__mutation_drops_only_va() -> None
     assert TILED_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the other survives untouched
     with pytest.raises(AssertionError):
         assert _needs_contains_both_new_jobs(mutated)
+
+
+# ---------------------------------------------------------------------------
+# The unit-test job must install the extras its tests import
+# ---------------------------------------------------------------------------
+
+
+def _unit_test_install_cmd(wf: dict[str, Any]) -> str:
+    return _find_named_step(wf, UNIT_TEST_JOB, "Install dependencies")["run"]
+
+
+def test_unit_test_job_installs_bridge_extras(workflow: dict[str, Any]) -> None:
+    """The bridge's unit tests guard their imports with `pytest.importorskip`,
+    so a missing extra does not error — it SKIPS. Without `bluesky-bridge` the
+    scanner, RunEngine-integration and Tiled fault-isolation guards vanish from
+    CI silently, inside a green check. This pins the extra so that cannot recur.
+
+    `virtual-accelerator` is pinned for the opposite reason: tests/va/* import
+    softioc unguarded and error at collection without it.
+    """
+    cmd = _unit_test_install_cmd(workflow)
+    for extra in ("dev", "virtual-accelerator", "bluesky-bridge"):
+        assert f"--extra {extra}" in cmd, f"unit-test job must `uv sync --extra {extra}`; got: {cmd}"
+
+
+def test_unit_test_job_installs_bridge_extras__mutation_drops_bluesky_extra() -> None:
+    """Dropping the bluesky-bridge extra must fail — otherwise the guard is
+    decorative and the bridge tests resume skipping unnoticed."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, UNIT_TEST_JOB, "Install dependencies")
+    step["run"] = step["run"].replace(" --extra bluesky-bridge", "")
+    with pytest.raises(AssertionError):
+        test_unit_test_job_installs_bridge_extras(mutated)
+
+
+def test_bluesky_bridge_extra_is_declared_in_pyproject() -> None:
+    """The extra the CI job installs must actually exist. A typo'd `--extra`
+    makes `uv sync` fail loudly, but pinning the name here fails faster and
+    names the contract in one place."""
+    pyproject = tomllib.loads((CI_YML.parents[2] / "pyproject.toml").read_text())
+    extras = pyproject["project"]["optional-dependencies"]
+    assert "bluesky-bridge" in extras
+    assert any(dep.startswith("bluesky") for dep in extras["bluesky-bridge"])
 
 
 # ---------------------------------------------------------------------------

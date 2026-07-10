@@ -19,7 +19,17 @@ from typing import Any
 
 import pytest
 
-from osprey.services.bluesky_bridge.scanner_bluesky import BlueskyScanner, _FaultIsolatedTiledWriter
+# `scanner_bluesky` imports `bluesky.RunEngine` at module scope, so this module
+# cannot even be collected without the `bluesky-bridge` extra. Guard rather than
+# error, matching the sibling bridge tests. CI's unit job installs the extra
+# (pinned by tests/deployment/test_ci_workflow_wiring.py), so these guards run
+# there rather than skipping.
+pytest.importorskip("bluesky")
+
+from osprey.services.bluesky_bridge.scanner_bluesky import (  # noqa: E402
+    BlueskyScanner,
+    _FaultIsolatedTiledWriter,
+)
 
 
 class _RecordingWriter:
