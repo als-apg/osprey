@@ -87,9 +87,11 @@ async def scan_status(run_id: str) -> str:
         run_id: Run id returned by create_scan_intent or list_runs.
 
     Returns:
-        JSON run record: ``{"id", "status", ["completion"], ["launched_by"],
-        ["run_uid"], ["error"]}``. ``status`` is one of "intent", "running",
-        "completed", "stopped", "error".
+        JSON run record: ``{"id", "status", "tiled_degraded", ["completion"],
+        ["launched_by"], ["run_uid"], ["error"]}``. ``status`` is one of "intent",
+        "running", "completed", "stopped", "error". ``tiled_degraded`` is True when
+        durable persistence to Tiled failed for this run; False when healthy or when
+        Tiled is not deployed.
     """
     status, body = await anyio.to_thread.run_sync(_http_get_json, f"/runs/{run_id}")
     if status == 404:
