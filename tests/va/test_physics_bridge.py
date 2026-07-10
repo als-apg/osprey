@@ -185,6 +185,165 @@ class TestErrorHandling:
             bridge.on_setpoint("not-a-manifest-address", 1.0)
 
 
+class TestMagnetCalibration:
+    """FR3/FR4: a seeded corrector/quad calibration error (errors.magnet_cal)
+    perturbs the field the setpoint produces, without touching unseeded
+    devices."""
+
+    def test_corrector_gain_error_scales_response(self):
+        baseline = PhysicsBridge()
+        baseline.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 10.0)
+        baseline_x = baseline.bpm_positions()["SR:DIAG:BPM:01:POSITION:X"]
+
+        miscal = PhysicsBridge(corrector_gains={"HCM01": {"factor": 2.0}})
+        miscal.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 10.0)
+        miscal_x = miscal.bpm_positions()["SR:DIAG:BPM:01:POSITION:X"]
+
+        assert miscal_x == pytest.approx(2.0 * baseline_x, rel=1e-9)
+
+    def test_corrector_polarity_flip_inverts_response(self):
+        flipped = PhysicsBridge(corrector_gains={"HCM01": {"factor": -1.0}})
+        flipped.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 10.0)
+        actual = flipped.bpm_positions()["SR:DIAG:BPM:01:POSITION:X"]
+
+        expected = -orbit_response("HCM01", 10.0)["BPM01"][0]
+        assert actual == pytest.approx(expected, abs=1e-12)
+
+    def test_corrector_gain_offset_biases_the_commanded_current(self):
+        offset_bridge = PhysicsBridge(corrector_gains={"HCM01": {"offset": 5.0}})
+        offset_bridge.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 0.0)
+        actual = offset_bridge.bpm_positions()["SR:DIAG:BPM:01:POSITION:X"]
+
+        expected = orbit_response("HCM01", 5.0)["BPM01"][0]
+        assert actual == pytest.approx(expected, abs=1e-12)
+
+    def test_uncalibrated_device_is_unaffected_by_another_devices_cal(self):
+        bridge = PhysicsBridge(corrector_gains={"HCM01": {"factor": 3.0}})
+        bridge.on_setpoint("SR:MAG:VCM:05:CURRENT:SP", 10.0)
+
+        actual = bridge.bpm_positions()["SR:DIAG:BPM:05:POSITION:Y"]
+        expected = orbit_response("VCM05", 10.0)["BPM05"][1]
+        assert actual == pytest.approx(expected, abs=1e-12)
+
+    def test_default_corrector_cal_state_is_identity(self, bridge):
+        bridge.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 10.0)
+        actual = bridge.bpm_positions()["SR:DIAG:BPM:01:POSITION:X"]
+        expected = orbit_response("HCM01", 10.0)["BPM01"][0]
+        assert actual == pytest.approx(expected, abs=1e-12)
+
+
+class TestElementMisalignment:
+    """FR3/FR4/FR12: a seeded element misalignment (errors.apply_misalignment)
+    distorts the closed orbit, and an unstable seed fails boot diagnosably."""
+
+    def test_seeded_quad_misalignment_induces_nonzero_orbit_shift(self):
+        misaligned = PhysicsBridge(element_misalignments={"QF01": {"dx": 300e-6}})
+        actual = misaligned.bpm_positions()["SR:DIAG:BPM:01:POSITION:X"]
+        assert actual != pytest.approx(0.0, abs=1e-9)
+
+    def test_aligned_lattice_has_identically_zero_induced_shift(self):
+        # An explicit all-zero misalignment must be a no-op, same as omitting
+        # the element entirely.
+        bridge = PhysicsBridge(element_misalignments={"QF01": {"dx": 0.0, "dy": 0.0, "roll": 0.0}})
+        for address, value in bridge.bpm_positions().items():
+            assert value == pytest.approx(0.0, abs=1e-9), address
+
+    def test_unknown_misaligned_element_raises(self):
+        with pytest.raises(UnknownDeviceError):
+            PhysicsBridge(element_misalignments={"QF99": {"dx": 1e-4}})
+
+    def test_destabilizing_misalignment_raises_systemexit_naming_elements(self):
+        # Pure dx/dy preserves the one-turn trace (FR3 note); a large-enough
+        # roll across the QF/QD families pushes the trace past the |2|
+        # stability boundary, so this is a real, not contrived, boot fault.
+        roll_fault = {f"QF{i:02d}": {"roll": 0.6} for i in range(1, 17)}
+        roll_fault.update({f"QD{i:02d}": {"roll": 0.6} for i in range(1, 17)})
+
+        with pytest.raises(SystemExit, match="QF01"):
+            PhysicsBridge(element_misalignments=roll_fault)
+
+
+class TestBpmErrorSignatures:
+    """FR3/FR4/FR12: a seeded BPM error (errors.bpm_read) perturbs only the
+    IOC-facing reading (_push_bpm_readbacks), never bpm_positions() (the
+    physics truth used by the model oracle / ORM cross-check)."""
+
+    def test_bpm_offset_shifts_the_reading_but_not_the_physics_truth(self):
+        rec = FakeRecord()
+        bridge = PhysicsBridge(bpm_errors={"BPM01": {"offset_x": 50e-6}})
+        bridge.bind({"SR:DIAG:BPM:01:POSITION:X": rec})
+        bridge.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 5.0)
+
+        true_position = bridge.bpm_positions()["SR:DIAG:BPM:01:POSITION:X"]
+        assert rec.value == pytest.approx(true_position - 50e-6, abs=1e-12)
+
+    def test_bpm_offset_leaves_the_response_slope_unchanged(self):
+        # A constant additive offset shifts every reading by the same amount,
+        # so the *change* in reading between two setpoints (the ORM slope)
+        # must be identical with and without the offset.
+        clean_rec, offset_rec = FakeRecord(), FakeRecord()
+        clean = PhysicsBridge()
+        offset = PhysicsBridge(bpm_errors={"BPM01": {"offset_x": 50e-6}})
+        clean.bind({"SR:DIAG:BPM:01:POSITION:X": clean_rec})
+        offset.bind({"SR:DIAG:BPM:01:POSITION:X": offset_rec})
+
+        clean.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 3.0)
+        clean_at_3 = clean_rec.value
+        offset.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 3.0)
+        offset_at_3 = offset_rec.value
+
+        clean.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 8.0)
+        clean_at_8 = clean_rec.value
+        offset.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 8.0)
+        offset_at_8 = offset_rec.value
+
+        assert (offset_at_8 - offset_at_3) == pytest.approx(clean_at_8 - clean_at_3, abs=1e-12)
+
+    def test_bpm_polarity_flip_anti_correlates_with_the_unflipped_reading(self):
+        rec = FakeRecord()
+        bridge = PhysicsBridge(bpm_errors={"BPM01": {"polarity_x": -1.0}})
+        bridge.bind({"SR:DIAG:BPM:01:POSITION:X": rec})
+        bridge.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 10.0)
+
+        expected = -orbit_response("HCM01", 10.0)["BPM01"][0]
+        assert rec.value == pytest.approx(expected, abs=1e-12)
+
+    def test_bpm_gain_error_scales_the_reading(self):
+        rec = FakeRecord()
+        bridge = PhysicsBridge(bpm_errors={"BPM01": {"gain_x": 2.0}})
+        bridge.bind({"SR:DIAG:BPM:01:POSITION:X": rec})
+        bridge.on_setpoint("SR:MAG:HCM:01:CURRENT:SP", 10.0)
+
+        expected = 2.0 * orbit_response("HCM01", 10.0)["BPM01"][0]
+        assert rec.value == pytest.approx(expected, abs=1e-12)
+
+    def test_bpm_error_at_one_device_does_not_affect_another(self):
+        rec = FakeRecord()
+        bridge = PhysicsBridge(bpm_errors={"BPM01": {"gain_x": 5.0}})
+        bridge.bind({"SR:DIAG:BPM:05:POSITION:Y": rec})
+        bridge.on_setpoint("SR:MAG:VCM:05:CURRENT:SP", 10.0)
+
+        expected = orbit_response("VCM05", 10.0)["BPM05"][1]
+        assert rec.value == pytest.approx(expected, abs=1e-12)
+
+    def test_default_bpm_error_state_is_identity(self, bridge):
+        rec = FakeRecord()
+        bridge.bind({"SR:DIAG:BPM:01:POSITION:X": rec})
+        assert rec.value == pytest.approx(0.0, abs=1e-9)
+
+
+class TestSeededNoise:
+    def test_same_seed_gives_reproducible_bpm_noise(self):
+        rec_a, rec_b = FakeRecord(), FakeRecord()
+        a = PhysicsBridge(bpm_errors={"BPM01": {"noise_x": 1e-6}}, rng_seed=42)
+        b = PhysicsBridge(bpm_errors={"BPM01": {"noise_x": 1e-6}}, rng_seed=42)
+
+        a.bind({"SR:DIAG:BPM:01:POSITION:X": rec_a})
+        b.bind({"SR:DIAG:BPM:01:POSITION:X": rec_b})
+
+        assert rec_a.value == rec_b.value
+
+
 class TestBindWiring:
     def test_bind_pushes_initial_bpm_state_into_records(self, bridge):
         x_rec, y_rec = FakeRecord(), FakeRecord()

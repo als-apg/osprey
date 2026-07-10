@@ -38,8 +38,14 @@ from __future__ import annotations
 from typing import Any
 
 import at
+import numpy as np
 
 from osprey.services.virtual_accelerator.lattice import build_ring
+from osprey.services.virtual_accelerator.lattice.errors import (
+    apply_misalignment,
+    bpm_read,
+    magnet_cal,
+)
 from osprey.services.virtual_accelerator.lattice.response import AMPS_PER_RADIAN_KICK
 from osprey.services.virtual_accelerator.lattice.ring import QD_K, QF_K
 
@@ -57,6 +63,24 @@ _DIPOLE_FAMILY = "DIPOLE"
 _CURRENT_FIELD = "CURRENT"
 _BPM_SYSTEM_FAMILY = ("DIAG", "BPM")
 _BPM_FIELD = "POSITION"
+
+# `bpm_read`'s full keyword-argument set at identity (no-op) values -- a BPM
+# with no seeded error reads the true orbit position exactly. Fault dicts
+# passed into PhysicsBridge only need to name the fields they perturb; the
+# rest fall back to this identity.
+_IDENTITY_BPM_ERROR: dict[str, float] = {
+    "offset_x": 0.0,
+    "offset_y": 0.0,
+    "gain_x": 1.0,
+    "gain_y": 1.0,
+    "polarity_x": 1.0,
+    "polarity_y": 1.0,
+    "roll": 0.0,
+    "cal_x": 0.0,
+    "cal_y": 0.0,
+    "noise_x": 0.0,
+    "noise_y": 0.0,
+}
 
 
 class UnknownDeviceError(ValueError):
@@ -101,7 +125,38 @@ class PhysicsBridge:
     either order reaches the same final state (SC3).
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        element_misalignments: dict[str, dict[str, float]] | None = None,
+        bpm_errors: dict[str, dict[str, float]] | None = None,
+        corrector_gains: dict[str, dict[str, float]] | None = None,
+        rng_seed: int | None = None,
+    ) -> None:
+        """Build the ring and, optionally, seed FR3/FR4 physics faults on it.
+
+        Args:
+            element_misalignments: fam_name (e.g. "QF07", "DIPOLE03") -> kwargs
+                for `errors.apply_misalignment` (`dx`/`dy`/`roll`, all optional).
+                Applied once, in `__init__`, after the ring is built and before
+                the nominal orbit is solved -- an element absent from this dict
+                keeps AT's default (unmisaligned) T1/T2/R1/R2.
+            bpm_errors: BPM fam_name (e.g. "BPM01") -> a partial override of
+                `errors.bpm_read`'s keyword args; missing fields fall back to
+                identity (see `_IDENTITY_BPM_ERROR`). A BPM absent from this
+                dict reads with identity error (i.e. exactly its true position).
+            corrector_gains: magnet fam_name (e.g. "HCM01", "QF07") -> a
+                partial override of `errors.magnet_cal`'s `factor`/`offset`;
+                missing fields default to `factor=1.0, offset=0.0` (identity).
+            rng_seed: seed for the `numpy.random.Generator` BPM readout noise
+                is drawn from. `None` seeds from OS entropy (non-reproducible),
+                matching `numpy.random.default_rng`'s own default.
+
+        Raises:
+            SystemExit: a seeded misalignment leaves the ring without a stable
+                closed orbit (FR12) -- turns an opaque boot crash into a
+                diagnosable one naming the seeded elements and magnitudes.
+        """
         self._ring: at.Lattice = build_ring()
         self._index_by_famname: dict[str, int] = {el.FamName: i for i, el in enumerate(self._ring)}
         # Dipole trims are expressed relative to the ring's nominal (per-device)
@@ -113,8 +168,24 @@ class PhysicsBridge:
             if el.FamName.startswith(_DIPOLE_FAMILY)
         }
         self._bpm_positions: dict[str, float] = {}
+        self._bpm_device_ids: list[str] = []
         self._bpm_readback_records: dict[str, Any] = {}
-        self._solve_orbit()  # establish the nominal closed orbit at construction
+        self._rng = np.random.default_rng(rng_seed)
+        self._bpm_error_state: dict[str, dict[str, float]] = dict(bpm_errors or {})
+        self._magnet_cal_state: dict[str, dict[str, float]] = dict(corrector_gains or {})
+
+        for fam_name, misalign in (element_misalignments or {}).items():
+            idx = self._element_index(fam_name)  # validates before mutating anything
+            apply_misalignment(self._ring[idx], **misalign)
+
+        try:
+            self._solve_orbit()  # establish the nominal closed orbit at construction
+        except OrbitSolveError as exc:
+            raise SystemExit(
+                f"FATAL: seeded misalignments {element_misalignments!r} left the SR "
+                f"lattice without a stable closed orbit at boot ({exc}); reduce the "
+                "misalignment magnitude or remove the fault"
+            ) from exc
 
     def bind(self, pyat_coupled_records: dict[str, Any]) -> None:
         """Wire the BPM POSITION readback records this bridge should push into.
@@ -212,6 +283,13 @@ class PhysicsBridge:
     def _apply_current(self, idx: int, family: str, fam_name: str, value: float) -> None:
         element = self._ring[idx]
 
+        # A seeded calibration error (gain/polarity/offset) acts on the
+        # commanded current before it's converted to physical strength -- a
+        # miscalibrated magnet's *field* differs from its setpoint, not the
+        # other way around. Identity (factor=1, offset=0) if unseeded.
+        cal = self._magnet_cal_state.get(fam_name, {})
+        value = magnet_cal(value, factor=cal.get("factor", 1.0), offset=cal.get("offset", 0.0))
+
         if family in _CORRECTOR_FAMILIES:
             plane = 0 if family == "HCM" else 1
             kick_angle = list(element.KickAngle)
@@ -246,19 +324,37 @@ class PhysicsBridge:
 
         monitor_indices = self._ring.get_refpts(at.Monitor)
         positions: dict[str, float] = {}
+        device_ids: list[str] = []
         for row, el_idx in enumerate(monitor_indices):
             fam_name = self._ring[el_idx].FamName  # e.g. "BPM05"
             device = fam_name[len("BPM") :]
+            device_ids.append(device)
             positions[_bpm_address(device, "X")] = float(orbit_at_monitors[row, 0])
             positions[_bpm_address(device, "Y")] = float(orbit_at_monitors[row, 2])
 
         self._bpm_positions = positions
+        self._bpm_device_ids = device_ids
 
     def _push_bpm_readbacks(self) -> None:
-        for address, rec in self._bpm_readback_records.items():
-            value = self._bpm_positions.get(address)
-            if value is not None:
-                rec.set(value)
+        """Push each BPM's seeded-error *reading* into its bound RB record.
+
+        `_bpm_positions` (the physics truth `bpm_positions()` exposes) is
+        never touched here -- only the values pushed into IOC records run
+        through `bpm_read`, per FR3's "errors apply on the reading, not the
+        truth" contract.
+        """
+        for device in self._bpm_device_ids:
+            true_x = self._bpm_positions[_bpm_address(device, "X")]
+            true_y = self._bpm_positions[_bpm_address(device, "Y")]
+            state = {**_IDENTITY_BPM_ERROR, **self._bpm_error_state.get(f"BPM{device}", {})}
+            reading_x, reading_y = bpm_read(true_x, true_y, rng=self._rng, **state)
+
+            x_rec = self._bpm_readback_records.get(_bpm_address(device, "X"))
+            if x_rec is not None:
+                x_rec.set(reading_x)
+            y_rec = self._bpm_readback_records.get(_bpm_address(device, "Y"))
+            if y_rec is not None:
+                y_rec.set(reading_y)
 
 
 __all__ = [

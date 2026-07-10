@@ -43,6 +43,12 @@ services:
       # latches, RB never follows). Passthrough from the project .env; unset →
       # no fault. Quoted so a value is never YAML-coerced.
       VA_STUCK_SETPOINTS: "${VA_STUCK_SETPOINTS:-}"
+      # FR4 physics-fault apply faults (entrypoint.py parses and bounds each):
+      # a seeded quad misalignment, per-BPM readout error, and per-corrector
+      # calibration gain. Passthrough from the project .env; unset -> no fault.
+      VA_QUAD_MISALIGN: "${VA_QUAD_MISALIGN:-}"
+      VA_BPM_ERRORS: "${VA_BPM_ERRORS:-}"
+      VA_CORR_GAIN: "${VA_CORR_GAIN:-}"
       TZ: {{ system.timezone }}
     # Bind-mount source is relative to the compose project directory
     # (build/services/), not this file's own subdir — hence the ../../ prefix
