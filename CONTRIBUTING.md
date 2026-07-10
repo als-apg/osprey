@@ -129,32 +129,21 @@ npm run test:js
 All three run in CI (the `frontend-js` job); any failure blocks the merge.
 
 **Type-checking is on by default.** `tsconfig.json` sets `checkJs: true`, so every
-JS file under the interface and test globs is type-checked — there is no per-file
-opt-in. (The `// @ts-check` headers still present on the already-clean files are now
-redundant no-ops; they are harmless and left in place.)
+JS file under the interface and test globs is type-checked — no per-file opt-in,
+which makes a `// @ts-check` header a redundant no-op. The one directive that still
+changes behavior is `// @ts-nocheck`, which opts a file out of `tsc` entirely. That
+directive is **machine-banned**: the custom `local/no-ts-nocheck` rule fails
+`npm run lint` on any `// @ts-nocheck` line comment — anywhere in the file, with or
+without a space after `//` — across interface and test JS. Type-clean the file instead.
 
-**Three shrink-only ratchets** grandfather code that has not yet been retrofitted.
-Each is the single source of truth for its debt and may **only shrink** — a later
-hardening phase's exit criterion is deleting its interface's entries while keeping
-CI green. **New or edited code gets no exemption:** a new `var`, an unused variable,
-a genuine loose equality (`==` against anything but `null`), an over-cap module, or a
-fresh type error fails CI immediately.
+**One shrink-only ratchet** grandfathers code not yet retrofitted. It may **only
+shrink** — retrofit a file and delete its row; never add one. **New or edited code
+gets no exemption:** the house rules (`no-var`, `prefer-const`, `eqeqeq`, the 450-line
+`max-lines` cap, `no-unused-vars`) run at `error` across all interface and test JS, so
+a fresh violation fails CI immediately.
 
-1. **`@ts-nocheck` type allowlist** — a file that is not yet type-clean carries a
-   leading `// @ts-nocheck`. List the allowlist with:
-   ```bash
-   grep -rl '@ts-nocheck' src tests
-   ```
-2. **`max-lines` exemption** — the few over-cap (>450 code-line) modules awaiting a
-   split, listed in the `max-lines` override block of `eslint.config.js`. Regenerate
-   that list from eslint's own count with:
-   ```bash
-   npx eslint 'src/osprey/interfaces/**/*.js' \
-     --rule '{"max-lines":["error",{"max":450,"skipComments":true,"skipBlankLines":true}]}' \
-     -f json | python3 -c 'import sys,json,os; print("\n".join(sorted({os.path.relpath(f["filePath"]) for f in json.load(sys.stdin) for m in f["messages"] if m.get("ruleId")=="max-lines"})))'
-   ```
-3. **Legacy rule-exemption block** — files with grandfathered `no-unused-vars`
-   violations, set to `off` for those files only in `eslint.config.js`.
+- **`local/no-ts-nocheck` allowlist** — the test files not yet type-clean are named in
+  a shrink-only `off` block in `eslint.config.js`. That block is the authoritative list.
 
 A localized one-off residual uses an inline `// eslint-disable-next-line <rule> --
 <reason>` at the site instead of a file-wide exemption.
