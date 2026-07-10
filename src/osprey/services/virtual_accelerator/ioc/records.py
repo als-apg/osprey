@@ -8,10 +8,16 @@ SimulationEngine. Instead it exposes callback-shaped interfaces so the two
 downstream tasks can plug in without this module knowing what they do:
 
   * partition (a) pyat-coupled setpoints call an injected
-    ``on_pyat_setpoint`` hook on write; the injected hook (the physics
-    bridge, ioc-physics-bridge) is responsible for computing the new orbit
-    and pushing results back out via ``.set()`` on the records in the
-    returned ``pyat_coupled`` dict.
+    ``on_pyat_setpoint`` hook on write, then echo the written value onto
+    their own paired ``:RB`` -- a plain value copy, same as partition (b),
+    so a magnet's own current readback tracks its own setpoint honestly
+    even though nothing else in this module knows what the hook did with
+    it. The injected hook (the physics bridge, ioc-physics-bridge) is
+    responsible for computing the new orbit and pushing *other* records --
+    the BPM POSITION readbacks -- back out via ``.set()`` on the records in
+    the returned ``pyat_coupled`` dict; it never needs to touch the writing
+    setpoint's own ``:RB``. The echo only happens once the hook returns, so
+    a write the hook rejects (``OrbitSolveError``) never gets echoed.
   * partition (b) sp-echo setpoints are wired to their paired readback
     entirely inside this module -- "no physics" means the echo is a plain
     value copy (write SP, RB follows immediately), so there is nothing for
@@ -41,6 +47,15 @@ from osprey.services.virtual_accelerator.manifest import (
 
 SETPOINT_SUBFIELD = "SP"
 READBACK_SUBFIELD = "RB"
+
+# SR corrector current band, Amps -- matches the SR:MAG:{HCM,VCM}:*:CURRENT:SP
+# channel_limits.json band. Set as DRVL/DRVH on the built aOut record so
+# pythonSoftIOC clamps an out-of-range caput to this band at the record
+# itself, before on_update (hence the physics hook and the RB echo) ever
+# sees it -- a real second bound below the ORM plan's own pydantic schema,
+# enforced against any writer, not only the plan.
+CORRECTOR_FAMILIES = frozenset({"HCM", "VCM"})
+CORRECTOR_DRIVE_LIMIT_A = 12.0
 
 _IN_BUILDERS = {
     RECORD_TYPE_ANALOG: builder.aIn,
@@ -109,17 +124,20 @@ def build_records(
             ``device``, ``field``, ``subfield``, ``partition``,
             ``record_type``, and ``noise``.
         on_pyat_setpoint: callback invoked as ``on_pyat_setpoint(address,
-            value)`` whenever a partition (a) setpoint is written. The
-            physics bridge supplies this and uses the ``pyat_coupled`` dict
-            on the returned :class:`IOCRecords` to push recomputed
-            readbacks/BPM positions back out. If omitted (as in these unit
-            tests), setpoint writes are accepted but produce no readback
-            movement -- there is no physics without an injected hook.
+            value)`` whenever a partition (a) setpoint is written, before
+            that setpoint's own ``:RB`` is echoed (see the module
+            docstring). The physics bridge supplies this and uses the
+            ``pyat_coupled`` dict on the returned :class:`IOCRecords` to
+            push recomputed BPM positions back out. If omitted (as in these
+            unit tests), setpoint writes are accepted but produce no
+            readback movement at all -- there is no hook to call and
+            nothing to echo without one.
         stuck_setpoints: build-time, per-channel apply fault. A ``:SP``
             address in this set still latches the caput value onto its own
             ``aOut`` record, but its normal write-time behavior (the sp-echo
-            copy into ``:RB``, or the pyat-coupled hook call) is replaced
-            with a no-op -- so that device's readback simply never moves.
+            copy into ``:RB``, or the pyat-coupled hook call plus ``:RB``
+            echo) is replaced with a no-op -- so that device's readback
+            simply never moves.
             This is a substrate-honesty fixture: any Channel Access client
             reading the frozen readback sees the identical stale value, not
             a per-client divergence. Empty by default (no fault).
@@ -184,10 +202,26 @@ def build_records(
                 )
             on_update = rb.set
         elif partition == PARTITION_PYAT_COUPLED:
-            if on_pyat_setpoint is not None:
+            rb = readback_index.get(_channel_key(channel))
+            if on_pyat_setpoint is None:
+                on_update = lambda value: None  # noqa: E731
+            elif rb is None:
+                # No paired RB in this channel set (e.g. a synthetic
+                # single-channel test) -- still call the hook, just nothing
+                # to echo into.
                 on_update = lambda value, addr=address, hook=on_pyat_setpoint: hook(addr, value)  # noqa: E731
             else:
-                on_update = lambda value: None  # noqa: E731
+
+                def on_update(value, addr=address, hook=on_pyat_setpoint, rb=rb):
+                    # Hook first: it re-solves the orbit and rolls the
+                    # lattice element back on OrbitSolveError, so :RB must
+                    # only ever echo an accepted setpoint, never a rejected
+                    # transient one. This is the scan-hang fix -- without
+                    # this echo a corrector's own CURRENT:RB stays 0.0
+                    # forever, since the physics bridge only pushes BPM
+                    # POSITION readbacks, never a magnet's own :RB.
+                    hook(addr, value)
+                    rb.set(value)
         else:
             raise ManifestContractError(
                 f"unexpected partition {partition!r} for setpoint channel {address!r}"
@@ -200,8 +234,18 @@ def build_records(
             # readback freezes at its last value, honestly, for every reader.
             on_update = lambda value: None  # noqa: E731
 
+        drive_limit_kwargs: dict[str, float] = {}
+        if partition == PARTITION_PYAT_COUPLED and channel["family"] in CORRECTOR_FAMILIES:
+            drive_limit_kwargs = {
+                "DRVL": -CORRECTOR_DRIVE_LIMIT_A,
+                "DRVH": CORRECTOR_DRIVE_LIMIT_A,
+            }
+
         rec = _OUT_BUILDERS[record_type](
-            address, initial_value=_DEFAULT_VALUE[record_type], on_update=on_update
+            address,
+            initial_value=_DEFAULT_VALUE[record_type],
+            on_update=on_update,
+            **drive_limit_kwargs,
         )
         records.all[address] = rec
         if partition == PARTITION_PYAT_COUPLED:

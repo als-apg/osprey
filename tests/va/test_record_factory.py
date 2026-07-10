@@ -106,6 +106,20 @@ _SP_ECHO_RB = "ZZTEST:MAG:ECHO:01:CURRENT:RB"
 _BRIDGE_SP = "ZZTEST:MAG:BRIDGE:01:CURRENT:SP"
 _BRIDGE_RB = "ZZTEST:MAG:BRIDGE:01:CURRENT:RB"
 _BRIDGE_HOOK_ECHO = "ZZTEST:MAG:BRIDGE:01:HOOK_ECHO"
+# A pyat-coupled corrector (family=HCM, the ``_channel()`` default) whose
+# :SP is build-time faulted stuck -- must still latch its own :SP but never
+# propagate to :RB, exactly as a stuck sp-echo setpoint would.
+_STUCK_SP = "ZZTEST:MAG:STUCK:03:CURRENT:SP"
+_STUCK_RB = "ZZTEST:MAG:STUCK:03:CURRENT:RB"
+# A second, unfaulted pyat-coupled corrector -- dedicated to the DRVH/DRVL
+# clamp tests so they don't interleave with the echo/hook assertions above.
+_LIMIT_SP = "ZZTEST:MAG:LIMIT:04:CURRENT:SP"
+_LIMIT_RB = "ZZTEST:MAG:LIMIT:04:CURRENT:RB"
+# A pyat-coupled *quadrupole* (family=QF, not a corrector) -- proves the
+# drive-limit clamp is corrector-only, per FR10/2.9 ("do not clamp
+# non-corrector records").
+_QUAD_SP = "ZZTEST:MAG:QUAD:05:CURRENT:SP"
+_QUAD_RB = "ZZTEST:MAG:QUAD:05:CURRENT:RB"
 
 
 def _channel(
@@ -162,8 +176,22 @@ def _run_live_ioc_subprocess() -> None:
         _channel(_SP_ECHO_SP, partition=PARTITION_SP_ECHO, subfield="SP", device="01"),
         _channel(_BRIDGE_RB, partition=PARTITION_PYAT_COUPLED, subfield="RB", device="02"),
         _channel(_BRIDGE_SP, partition=PARTITION_PYAT_COUPLED, subfield="SP", device="02"),
+        _channel(_STUCK_RB, partition=PARTITION_PYAT_COUPLED, subfield="RB", device="03"),
+        _channel(_STUCK_SP, partition=PARTITION_PYAT_COUPLED, subfield="SP", device="03"),
+        _channel(_LIMIT_RB, partition=PARTITION_PYAT_COUPLED, subfield="RB", device="04"),
+        _channel(_LIMIT_SP, partition=PARTITION_PYAT_COUPLED, subfield="SP", device="04"),
+        _channel(
+            _QUAD_RB, partition=PARTITION_PYAT_COUPLED, subfield="RB", device="05", family="QF"
+        ),
+        _channel(
+            _QUAD_SP, partition=PARTITION_PYAT_COUPLED, subfield="SP", device="05", family="QF"
+        ),
     ]
-    build_records(channels, on_pyat_setpoint=on_pyat_setpoint)
+    build_records(
+        channels,
+        on_pyat_setpoint=on_pyat_setpoint,
+        stuck_setpoints=frozenset({_STUCK_SP}),
+    )
 
     dispatcher = asyncio_dispatcher.AsyncioDispatcher()
     builder.LoadDatabase()
@@ -255,6 +283,35 @@ class TestRecordCountsMatchManifest:
         assert sp_echo_addresses.isdisjoint(full_manifest_records.static_noisy)
 
 
+class TestCorrectorDriveLimitMatchesChannelLimits:
+    """The DRVL/DRVH clamp records.py hardcodes as ``CORRECTOR_DRIVE_LIMIT_A``
+    must track channel_limits.json's SR HCM/VCM band -- otherwise a future
+    channel_limits retune silently diverges from the softioc-enforced clamp
+    instead of failing CI."""
+
+    def test_drive_limit_matches_sr_corrector_channel_limits_band(self):
+        import json
+        from pathlib import Path
+
+        from osprey.services.virtual_accelerator.ioc.records import CORRECTOR_DRIVE_LIMIT_A
+
+        limits_path = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "osprey"
+            / "templates"
+            / "apps"
+            / "control_assistant"
+            / "data"
+            / "channel_limits.json"
+        )
+        limits_db = json.loads(limits_path.read_text())
+        for address in ("SR:MAG:HCM:01:CURRENT:SP", "SR:MAG:VCM:01:CURRENT:SP"):
+            band = limits_db[address]
+            assert band["min_value"] == -CORRECTOR_DRIVE_LIMIT_A
+            assert band["max_value"] == CORRECTOR_DRIVE_LIMIT_A
+
+
 class TestBiRecordsRejectNoise:
     """A boolean channel is a status flag, not a measurement -- classify.py
     never emits noise=True for record_type 'bi', and this factory refuses to
@@ -305,9 +362,11 @@ class TestContractViolations:
 
 
 class TestPyatCoupledCallbackSlot:
-    """Partition (a) setpoints must call the injected hook and must NOT
-    auto-echo to their own readback -- that decision belongs to the physics
-    bridge, not this factory."""
+    """Partition (a) setpoints must call the injected hook. Whether a write
+    actually echoes onto :RB -- and whether stuck_setpoints/drive-limit
+    faults override that -- can only be observed via a live EPICS record
+    processing a write (see TestLiveChannelAccessRoundTrip); build-time
+    wiring here only covers hook registration and the missing-hook no-op."""
 
     def test_setpoint_without_hook_is_a_noop(self):
         sp = _channel(
@@ -395,7 +454,45 @@ class TestLiveChannelAccessRoundTrip:
         time.sleep(0.3)
         assert _caget(_BRIDGE_HOOK_ECHO) == pytest.approx(2.0)
 
-    def test_pyat_coupled_write_does_not_auto_echo_readback(self, live_ioc):
-        # No physics bridge is attached to the real RB in this test -- the
-        # factory itself must not move it; that decision belongs downstream.
-        assert _caget(_BRIDGE_RB) == pytest.approx(0.0)
+    def test_pyat_coupled_write_echoes_readback(self, live_ioc):
+        # This is the scan-hang fix (FR10): a corrector's own CURRENT:RB
+        # must track its CURRENT:SP, or the bridge's EpicsMotor.set()
+        # settle-wait hangs forever. The physics bridge itself never
+        # touches a magnet's own :RB (it only pushes BPM POSITION
+        # readbacks), so this echo has to be the factory's doing.
+        assert _caput(_BRIDGE_SP, 2.0)
+        time.sleep(0.3)
+        assert _caget(_BRIDGE_RB) == pytest.approx(2.0)
+
+    def test_stuck_pyat_coupled_setpoint_freezes_readback(self, live_ioc):
+        # The SP still latches the caput value itself...
+        assert _caput(_STUCK_SP, 7.5)
+        time.sleep(0.3)
+        assert _caget(_STUCK_SP) == pytest.approx(7.5)
+        # ...but the no-op on_update path wins over the echo: the readback
+        # never moves, honestly, for every CA reader -- not just this one.
+        assert _caget(_STUCK_RB) == pytest.approx(0.0)
+
+    def test_corrector_caput_beyond_drive_limit_is_clamped(self, live_ioc):
+        # pythonSoftIOC clamps VAL to [DRVL, DRVH] before on_update ever
+        # runs, so both the SP itself and its echoed RB read the clamped
+        # value, not the requested one -- a real bound below the ORM plan's
+        # own pydantic schema, enforced against any writer.
+        assert _caput(_LIMIT_SP, 50.0)
+        time.sleep(0.3)
+        assert _caget(_LIMIT_SP) == pytest.approx(12.0)
+        assert _caget(_LIMIT_RB) == pytest.approx(12.0)
+
+        assert _caput(_LIMIT_SP, -50.0)
+        time.sleep(0.3)
+        assert _caget(_LIMIT_SP) == pytest.approx(-12.0)
+        assert _caget(_LIMIT_RB) == pytest.approx(-12.0)
+
+    def test_non_corrector_pyat_coupled_setpoint_is_not_drive_limited(self, live_ioc):
+        # A quad (family=QF) is pyat-coupled too, but 2.9 scopes the
+        # drive-limit clamp to correctors only -- a 500 A quad write must
+        # pass through unclamped.
+        assert _caput(_QUAD_SP, 500.0)
+        time.sleep(0.3)
+        assert _caget(_QUAD_SP) == pytest.approx(500.0)
+        assert _caget(_QUAD_RB) == pytest.approx(500.0)
