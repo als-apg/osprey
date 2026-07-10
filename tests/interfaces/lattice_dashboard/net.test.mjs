@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening): type-clean this test; tracked in eslint.config.js local/no-ts-nocheck allowlist, which may only shrink.
 /**
  * Unit tests for the Lattice Dashboard network layer (net.js).
  *
@@ -57,6 +55,17 @@ describe('apiFetch', () => {
 });
 
 describe('handleSSEEvent dispatch table', () => {
+  /**
+   * @returns {{
+   *   onStateUpdated: import('vitest').Mock,
+   *   onFigureStatus: import('vitest').Mock,
+   *   onFigureReady: import('vitest').Mock,
+   *   onFigureError: import('vitest').Mock,
+   *   onSettingsUpdated: import('vitest').Mock,
+   *   onBaselineSet: import('vitest').Mock,
+   *   onBaselineCleared?: import('vitest').Mock,
+   * }}
+   */
   function makeHandlers() {
     return {
       onStateUpdated: vi.fn(),

@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening): type-clean this test; tracked in eslint.config.js local/no-ts-nocheck allowlist, which may only shrink.
 /**
  * Unit tests for the Lattice Dashboard UI-chrome layer (ui.js: sidebar
  * collapse, layout-mode toggle, sidebar tabs, and the unified
@@ -16,9 +14,14 @@
 
 import { test, expect, vi, describe, afterEach, beforeEach } from 'vitest';
 
+import { qs, byId } from '../_support/dom.mjs';
+
 import { createUI } from '../../../src/osprey/interfaces/lattice_dashboard/static/js/ui.js';
 
 const FIGURE_NAMES = ['optics', 'da'];
+
+/** A DOM element carrying Plotly's runtime-attached `.data`/`.layout`, as set by Plotly.react(). */
+/** @typedef {HTMLElement & {data?: unknown}} PlotlyPlotElement */
 
 /** Minimal DOM fixture matching lattice_dashboard/static/index.html's structure. */
 function mountFixture() {
@@ -68,26 +71,26 @@ afterEach(() => {
 describe('sidebar collapse', () => {
   test('initSidebar defaults to collapsed with no stored preference', () => {
     const ui = createUI(FIGURE_NAMES);
-    document.getElementById('sidebar').classList.remove('sidebar-collapsed');
+    byId('sidebar').classList.remove('sidebar-collapsed');
     ui.initSidebar();
-    expect(document.getElementById('sidebar').classList.contains('sidebar-collapsed')).toBe(true);
+    expect(byId('sidebar').classList.contains('sidebar-collapsed')).toBe(true);
   });
 
   test('initSidebar honors a stored "expanded" preference', () => {
     window.localStorage.setItem('lattice-sidebar-collapsed', 'false');
     const ui = createUI(FIGURE_NAMES);
     ui.initSidebar();
-    expect(document.getElementById('sidebar').classList.contains('sidebar-collapsed')).toBe(false);
+    expect(byId('sidebar').classList.contains('sidebar-collapsed')).toBe(false);
   });
 
   test('toggleSidebar flips the class and persists the new state', () => {
     const ui = createUI(FIGURE_NAMES);
     ui.toggleSidebar();
-    expect(document.getElementById('sidebar').classList.contains('sidebar-collapsed')).toBe(false);
+    expect(byId('sidebar').classList.contains('sidebar-collapsed')).toBe(false);
     expect(window.localStorage.getItem('lattice-sidebar-collapsed')).toBe('false');
 
     ui.toggleSidebar();
-    expect(document.getElementById('sidebar').classList.contains('sidebar-collapsed')).toBe(true);
+    expect(byId('sidebar').classList.contains('sidebar-collapsed')).toBe(true);
     expect(window.localStorage.getItem('lattice-sidebar-collapsed')).toBe('true');
   });
 });
@@ -97,11 +100,11 @@ describe('layout-mode toggle', () => {
     const ui = createUI(FIGURE_NAMES);
     ui.initLayout();
 
-    const figArea = document.getElementById('figure-area');
+    const figArea = byId('figure-area');
     expect(figArea.classList.contains('layout-stacked')).toBe(true);
-    expect(document.querySelector('.layout-label').textContent).toBe('Grid');
-    expect(document.querySelector('.icon-grid').style.display).toBe('');
-    expect(document.querySelector('.icon-stack').style.display).toBe('none');
+    expect(qs(document, '.layout-label').textContent).toBe('Grid');
+    expect(qs(document, '.icon-grid').style.display).toBe('');
+    expect(qs(document, '.icon-stack').style.display).toBe('none');
     expect(window.localStorage.getItem('lattice-layout-mode')).toBe('stacked');
   });
 
@@ -110,14 +113,14 @@ describe('layout-mode toggle', () => {
     const ui = createUI(FIGURE_NAMES);
     ui.initLayout();
 
-    const figArea = document.getElementById('figure-area');
+    const figArea = byId('figure-area');
     expect(figArea.classList.contains('layout-stacked')).toBe(false);
-    expect(document.querySelector('.layout-label').textContent).toBe('Stack');
+    expect(qs(document, '.layout-label').textContent).toBe('Stack');
   });
 
   test('toggleLayout flips stacked <-> grid and persists each mode', () => {
     const ui = createUI(FIGURE_NAMES);
-    const figArea = document.getElementById('figure-area');
+    const figArea = byId('figure-area');
 
     ui.initLayout(); // stacked (default)
     ui.toggleLayout();
@@ -132,13 +135,13 @@ describe('layout-mode toggle', () => {
   test('applying a layout mode reflows every figure with data via Plotly.relayout', () => {
     const ui = createUI(FIGURE_NAMES);
     // Give one figure Plotly-rendered data; the other stays a placeholder.
-    /** @type {any} */ (document.getElementById('plot-optics')).data = [{ x: [1] }];
+    /** @type {PlotlyPlotElement} */ (byId('plot-optics')).data = [{ x: [1] }];
 
     ui.initLayout();
 
     expect(Plotly.relayout).toHaveBeenCalledTimes(1);
     expect(Plotly.relayout).toHaveBeenCalledWith(
-      document.getElementById('plot-optics'),
+      byId('plot-optics'),
       { autosize: true }
     );
   });
@@ -149,16 +152,16 @@ describe('sidebar tabs', () => {
     const ui = createUI(FIGURE_NAMES);
     ui.initSidebarTabs();
 
-    document.querySelector('.sidebar-tab[data-tab="settings"]').click();
+    qs(document, '.sidebar-tab[data-tab="settings"]', HTMLElement).click();
 
     expect(
-      document.querySelector('.sidebar-tab[data-tab="settings"]').classList.contains('sidebar-tab--active')
+      qs(document, '.sidebar-tab[data-tab="settings"]').classList.contains('sidebar-tab--active')
     ).toBe(true);
     expect(
-      document.querySelector('.sidebar-tab[data-tab="magnets"]').classList.contains('sidebar-tab--active')
+      qs(document, '.sidebar-tab[data-tab="magnets"]').classList.contains('sidebar-tab--active')
     ).toBe(false);
-    expect(document.getElementById('tab-settings').classList.contains('sidebar-tab-content--active')).toBe(true);
-    expect(document.getElementById('tab-magnets').classList.contains('sidebar-tab-content--active')).toBe(false);
+    expect(byId('tab-settings').classList.contains('sidebar-tab-content--active')).toBe(true);
+    expect(byId('tab-magnets').classList.contains('sidebar-tab-content--active')).toBe(false);
     expect(window.localStorage.getItem('lattice-sidebar-tab')).toBe('settings');
   });
 
@@ -167,27 +170,44 @@ describe('sidebar tabs', () => {
     const ui = createUI(FIGURE_NAMES);
     ui.initSidebarTabs();
 
-    expect(document.getElementById('tab-settings').classList.contains('sidebar-tab-content--active')).toBe(true);
+    expect(byId('tab-settings').classList.contains('sidebar-tab-content--active')).toBe(true);
   });
 
   test('clicking a tab while the sidebar is collapsed expands it', () => {
     const ui = createUI(FIGURE_NAMES);
-    document.getElementById('sidebar').classList.add('sidebar-collapsed');
+    byId('sidebar').classList.add('sidebar-collapsed');
     ui.initSidebarTabs();
 
-    document.querySelector('.sidebar-tab[data-tab="settings"]').click();
+    qs(document, '.sidebar-tab[data-tab="settings"]', HTMLElement).click();
 
-    expect(document.getElementById('sidebar').classList.contains('sidebar-collapsed')).toBe(false);
+    expect(byId('sidebar').classList.contains('sidebar-collapsed')).toBe(false);
     expect(window.localStorage.getItem('lattice-sidebar-collapsed')).toBe('false');
   });
 });
 
 describe('drag-and-drop panel rearrangement (unified section)', () => {
-  /** Simulate a full drag of `from` onto `to` via the real event sequence the handlers wire. */
-  function dragAndDrop(fromCell, toCell) {
-    const fromHeader = fromCell.querySelector('.figure-header');
+  /**
+   * @typedef {{
+   *   _data: Map<string, string>,
+   *   effectAllowed: string,
+   *   dropEffect: string,
+   *   setData: (type: string, val: string) => void,
+   *   getData: (type: string) => string,
+   * }} FakeDataTransfer
+   */
 
-    /** @type {any} */
+  /**
+   * Simulate a full drag of `from` onto `to` via the real event sequence the
+   * handlers wire. happy-dom has no native DragEvent, so a plain Event is
+   * used with a hand-rolled `dataTransfer` attached — matching how ui.js's
+   * handlers read it back via a DragEvent cast.
+   * @param {HTMLElement} fromCell
+   * @param {HTMLElement} toCell
+   */
+  function dragAndDrop(fromCell, toCell) {
+    const fromHeader = qs(fromCell, '.figure-header');
+
+    /** @type {FakeDataTransfer} */
     const dataTransfer = {
       _data: new Map(),
       effectAllowed: '',
@@ -197,11 +217,11 @@ describe('drag-and-drop panel rearrangement (unified section)', () => {
     };
 
     const dragStart = new Event('dragstart', { bubbles: true });
-    dragStart.dataTransfer = dataTransfer;
+    /** @type {Event & {dataTransfer: FakeDataTransfer}} */ (dragStart).dataTransfer = dataTransfer;
     fromHeader.dispatchEvent(dragStart);
 
     const drop = new Event('drop', { bubbles: true });
-    drop.dataTransfer = dataTransfer;
+    /** @type {Event & {dataTransfer: FakeDataTransfer}} */ (drop).dataTransfer = dataTransfer;
     toCell.dispatchEvent(drop);
   }
 
@@ -209,8 +229,8 @@ describe('drag-and-drop panel rearrangement (unified section)', () => {
     const ui = createUI(FIGURE_NAMES);
     ui.setupDragAndDrop();
 
-    const optics = document.getElementById('cell-optics');
-    const da = document.getElementById('cell-da');
+    const optics = byId('cell-optics');
+    const da = byId('cell-da');
     const opticsContainer = optics.parentNode;
     const daContainer = da.parentNode;
 
@@ -221,7 +241,9 @@ describe('drag-and-drop panel rearrangement (unified section)', () => {
     expect(optics.parentNode).toBe(daContainer);
     expect(da.parentNode).toBe(opticsContainer);
 
-    const saved = JSON.parse(window.localStorage.getItem('lattice-panel-order'));
+    const savedRaw = window.localStorage.getItem('lattice-panel-order');
+    if (savedRaw === null) throw new Error('lattice-panel-order was not saved');
+    const saved = JSON.parse(savedRaw);
     expect(new Set(saved)).toEqual(new Set(['optics', 'da']));
   });
 
@@ -232,12 +254,12 @@ describe('drag-and-drop panel rearrangement (unified section)', () => {
 
     ui.restorePanelOrder();
 
-    const opticsContainer = document.getElementById('cell-optics').parentNode;
+    const opticsContainer = byId('cell-optics').parentNode;
     const firstChildOfOpticsContainer = /** @type {Element} */ (opticsContainer).querySelector('.figure-cell');
     // 'da' was reordered into whichever slot position 0 maps to; assert via
     // the round-trip contract instead of a hardcoded DOM shape: reading the
     // order back out via savePanelOrder's own selector must match 'saved'.
-    const cellsInOrder = Array.from(document.querySelectorAll('.figure-cell')).map(c => c.dataset.figure);
+    const cellsInOrder = Array.from(document.querySelectorAll('.figure-cell')).map(c => (/** @type {HTMLElement} */ (c)).dataset.figure);
     expect(cellsInOrder).toEqual(['da', 'optics']);
     expect(firstChildOfOpticsContainer).not.toBeNull();
   });
@@ -249,29 +271,31 @@ describe('drag-and-drop panel rearrangement (unified section)', () => {
     expect(() => ui.restorePanelOrder()).not.toThrow();
     expect(window.localStorage.getItem('lattice-panel-order')).toBeNull();
     // DOM order is untouched (still the fixture's natural order).
-    const cellsInOrder = Array.from(document.querySelectorAll('.figure-cell')).map(c => c.dataset.figure);
+    const cellsInOrder = Array.from(document.querySelectorAll('.figure-cell')).map(c => (/** @type {HTMLElement} */ (c)).dataset.figure);
     expect(cellsInOrder).toEqual(['optics', 'da']);
   });
 
   test('restorePanelOrder is a no-op when nothing is saved', () => {
     const ui = createUI(FIGURE_NAMES);
     expect(() => ui.restorePanelOrder()).not.toThrow();
-    const cellsInOrder = Array.from(document.querySelectorAll('.figure-cell')).map(c => c.dataset.figure);
+    const cellsInOrder = Array.from(document.querySelectorAll('.figure-cell')).map(c => (/** @type {HTMLElement} */ (c)).dataset.figure);
     expect(cellsInOrder).toEqual(['optics', 'da']);
   });
 
   test('panel-order save/restore round-trip: drag-and-drop save feeds back into restore on a fresh controller', () => {
     const ui1 = createUI(FIGURE_NAMES);
     ui1.setupDragAndDrop();
-    dragAndDrop(document.getElementById('cell-optics'), document.getElementById('cell-da'));
-    const savedOrder = JSON.parse(window.localStorage.getItem('lattice-panel-order'));
+    dragAndDrop(byId('cell-optics'), byId('cell-da'));
+    const savedOrderRaw = window.localStorage.getItem('lattice-panel-order');
+    if (savedOrderRaw === null) throw new Error('lattice-panel-order was not saved');
+    const savedOrder = JSON.parse(savedOrderRaw);
 
     // Fresh DOM + fresh controller, as a real page reload would produce.
     mountFixture();
     const ui2 = createUI(FIGURE_NAMES);
     ui2.restorePanelOrder();
 
-    const cellsInOrder = Array.from(document.querySelectorAll('.figure-cell')).map(c => c.dataset.figure);
+    const cellsInOrder = Array.from(document.querySelectorAll('.figure-cell')).map(c => (/** @type {HTMLElement} */ (c)).dataset.figure);
     expect(cellsInOrder).toEqual(savedOrder);
   });
 });
