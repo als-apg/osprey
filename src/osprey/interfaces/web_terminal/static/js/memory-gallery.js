@@ -261,18 +261,22 @@ class MemoryGallery {
     }
 
     // Badge
-    const badge = _el('span', 'memory-file-badge');
-    if (file.is_primary) {
-      badge.classList.add('memory-badge-primary');
-      badge.textContent = 'PRIMARY';
-    } else {
-      badge.classList.add('memory-badge-topic');
-      badge.textContent = 'TOPIC';
-    }
-    card.appendChild(badge);
+    card.appendChild(this.renderBadge(file.is_primary));
 
     card.addEventListener('click', () => this.openDetail(file));
     return card;
+  }
+
+  /**
+   * Build the PRIMARY/TOPIC badge shared by the file card and detail header.
+   * @param {boolean} isPrimary
+   * @returns {HTMLElement}
+   */
+  renderBadge(isPrimary) {
+    const badge = _el('span', 'memory-file-badge');
+    badge.classList.add(isPrimary ? 'memory-badge-primary' : 'memory-badge-topic');
+    badge.textContent = isPrimary ? 'PRIMARY' : 'TOPIC';
+    return badge;
   }
 
   /** @param {number} lineCount */
@@ -333,15 +337,7 @@ class MemoryGallery {
     spacer.style.flex = '1';
     this.detailHeaderEl.appendChild(spacer);
 
-    const badge = _el('span', 'memory-file-badge');
-    if (this.selectedFile.is_primary) {
-      badge.classList.add('memory-badge-primary');
-      badge.textContent = 'PRIMARY';
-    } else {
-      badge.classList.add('memory-badge-topic');
-      badge.textContent = 'TOPIC';
-    }
-    this.detailHeaderEl.appendChild(badge);
+    this.detailHeaderEl.appendChild(this.renderBadge(this.selectedFile.is_primary));
   }
 
   renderDetailActions() {
@@ -421,6 +417,18 @@ class MemoryGallery {
 
   // ---- Actions ---- //
 
+  /**
+   * Show a transient error in the banner, then auto-hide it. Shared by the
+   * save/delete/create handlers (load() shows a persistent error instead).
+   * @param {string} message
+   */
+  flashError(message) {
+    const el = /** @type {HTMLElement} */ (this.errorEl);
+    el.style.display = 'flex';
+    el.textContent = message;
+    setTimeout(() => { el.style.display = 'none'; }, 4000);
+  }
+
   async saveFile() {
     if (!this.selectedFile) return;
     const textarea = /** @type {HTMLTextAreaElement|null} */ (
@@ -451,9 +459,7 @@ class MemoryGallery {
       this.renderDetailActions();
       this.renderDetailHeader();
     } catch (e) {
-      /** @type {HTMLElement} */ (this.errorEl).style.display = 'flex';
-      /** @type {HTMLElement} */ (this.errorEl).textContent = `Save failed: ${/** @type {Error} */ (e).message}`;
-      setTimeout(() => { /** @type {HTMLElement} */ (this.errorEl).style.display = 'none'; }, 4000);
+      this.flashError(`Save failed: ${/** @type {Error} */ (e).message}`);
     }
   }
 
@@ -482,9 +488,7 @@ class MemoryGallery {
       this.editDirty = false;
       this.renderGallery();
     } catch (e) {
-      /** @type {HTMLElement} */ (this.errorEl).style.display = 'flex';
-      /** @type {HTMLElement} */ (this.errorEl).textContent = `Delete failed: ${/** @type {Error} */ (e).message}`;
-      setTimeout(() => { /** @type {HTMLElement} */ (this.errorEl).style.display = 'none'; }, 4000);
+      this.flashError(`Delete failed: ${/** @type {Error} */ (e).message}`);
     }
   }
 
@@ -515,9 +519,7 @@ class MemoryGallery {
       this.renderSummary();
       this.openDetail(newFile);
     } catch (e) {
-      /** @type {HTMLElement} */ (this.errorEl).style.display = 'flex';
-      /** @type {HTMLElement} */ (this.errorEl).textContent = `Create failed: ${/** @type {Error} */ (e).message}`;
-      setTimeout(() => { /** @type {HTMLElement} */ (this.errorEl).style.display = 'none'; }, 4000);
+      this.flashError(`Create failed: ${/** @type {Error} */ (e).message}`);
     }
   }
 

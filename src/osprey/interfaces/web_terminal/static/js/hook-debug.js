@@ -189,30 +189,15 @@ async function _loadLogEntries(logBody) {
     for (const entry of /** @type {HookEvent[]} */ (data.entries)) {
       const tr = document.createElement('tr');
 
-      const tdTs = document.createElement('td');
-      tdTs.className = 'log-ts';
-      tdTs.textContent = _formatTimestamp(entry.ts || entry.timestamp || '');
-      tr.appendChild(tdTs);
+      _appendCell(tr, _formatTimestamp(entry.ts || entry.timestamp || ''), 'log-ts');
+      _appendCell(tr, entry.hook || entry.hook_event || '-');
+      _appendCell(tr, entry.tool || '-');
 
-      const tdHook = document.createElement('td');
-      tdHook.textContent = entry.hook || entry.hook_event || '-';
-      tr.appendChild(tdHook);
-
-      const tdTool = document.createElement('td');
-      tdTool.textContent = entry.tool || '-';
-      tr.appendChild(tdTool);
-
-      const tdStatus = document.createElement('td');
       const status = entry.status || '-';
-      tdStatus.textContent = status;
-      if (status === 'allowed') tdStatus.className = 'status-ok';
-      else if (status === 'blocked') tdStatus.className = 'status-blocked';
-      tr.appendChild(tdStatus);
+      const statusClass = status === 'allowed' ? 'status-ok' : status === 'blocked' ? 'status-blocked' : '';
+      _appendCell(tr, status, statusClass);
 
-      const tdDetail = document.createElement('td');
-      tdDetail.className = 'log-detail';
-      tdDetail.textContent = entry.detail || entry.message || '';
-      tr.appendChild(tdDetail);
+      _appendCell(tr, entry.detail || entry.message || '', 'log-detail');
 
       tbody.appendChild(tr);
     }
@@ -225,6 +210,19 @@ async function _loadLogEntries(logBody) {
     errorMsg.textContent = 'Failed to load log';
     logBody.appendChild(errorMsg);
   }
+}
+
+/**
+ * Append a `<td>` with the given text (and optional class) to a row.
+ * @param {HTMLTableRowElement} tr
+ * @param {string} text
+ * @param {string} [className]
+ */
+function _appendCell(tr, text, className) {
+  const td = document.createElement('td');
+  if (className) td.className = className;
+  td.textContent = text;
+  tr.appendChild(td);
 }
 
 /**
