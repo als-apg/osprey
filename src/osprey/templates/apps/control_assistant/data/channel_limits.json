@@ -635,256 +635,256 @@
     }
   },
   "SR:MAG:QD:01:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:02:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:03:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:04:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:05:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:06:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:07:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:08:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:09:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:10:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:11:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:12:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:13:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:14:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:15:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:16:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:01:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:02:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:03:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:04:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:05:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:06:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:07:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:08:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:09:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:10:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:11:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:12:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:13:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:14:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:15:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:16:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 80.0,
+    "max_value": 120.0,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0

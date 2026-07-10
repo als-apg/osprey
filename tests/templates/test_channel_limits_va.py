@@ -236,3 +236,32 @@ class TestValidatorEnforcesTheContract:
     def test_in_bounds_setpoint_write_is_allowed(self):
         # Must not raise: HCM:01 ships writable with a +-12A band.
         self._validator().validate(DEMO_WRITE_CHANNEL, DEMO_WRITE_VALUE)
+
+
+class TestQuadLimitsArePhysicallyStable:
+    """FR9: channel_limits.json's SR quad bands must bracket currents PyAT
+    actually accepts. The shipped bands (250-320A QD, 300-400A QF) sat well
+    outside the ~100A stable operating point and raised OrbitSolveError from
+    every quad on first use -- this pins the fix so it can't regress."""
+
+    def test_channel_limits_quad_range_is_physically_stable(self, limits_db, manifest_sp_addresses):
+        from osprey.services.virtual_accelerator.ioc.physics_bridge import (
+            OrbitSolveError,
+            PhysicsBridge,
+        )
+
+        quad_addresses = [
+            a
+            for a in manifest_sp_addresses
+            if a.startswith("SR:MAG:QF:") or a.startswith("SR:MAG:QD:")
+        ]
+        assert len(quad_addresses) == 32  # 16 QF + 16 QD
+
+        for address in quad_addresses:
+            entry = limits_db[address]
+            for value in (entry["min_value"], entry["max_value"]):
+                bridge = PhysicsBridge()
+                try:
+                    bridge.on_setpoint(address, value)
+                except OrbitSolveError as exc:
+                    pytest.fail(f"{address}={value} is not physically stable: {exc}")
