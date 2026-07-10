@@ -1,11 +1,12 @@
 """FastAPI dispatch API for the OSPREY dispatch worker service.
 
 Exposes:
-  POST /dispatch              — enqueue an agent prompt, returns 202 + run_id
-  GET  /dispatch/{id}         — poll a run for completion
-  GET  /dispatch/{id}/stream  — SSE stream of run events
-  GET  /health                — liveness check with run statistics
-  GET  /dashboard/runs        — JSON feed consumed by the dispatcher dashboard (token-gated)
+  POST /dispatch                      — enqueue an agent prompt, returns 202 + run_id
+  GET  /dispatch/{id}                 — poll a run for completion
+  GET  /dispatch/{id}/stream          — SSE stream of run events
+  GET  /dispatch/{id}/artifacts/{aid} — raw bytes of one artifact the run produced
+  GET  /health                        — liveness check with run statistics
+  GET  /dashboard/runs                — JSON feed consumed by the dispatcher dashboard (token-gated)
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
@@ -290,6 +291,36 @@ async def _stale_run_cleanup() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _artifact_store():
+    """ArtifactStore rooted at the SHARED agent-data root.
+
+    Shared, not session-scoped: the dispatched agent's tools write there (the
+    worker process sets no OSPREY_SESSION_ID), and it is the same root the
+    artifact gallery reads. Built per call — the index is re-read from disk, so
+    artifacts written by the agent's MCP subprocesses are visible here.
+    """
+    from osprey.stores.artifact_store import ArtifactStore
+    from osprey.utils.workspace import resolve_shared_data_root
+
+    return ArtifactStore(workspace_root=resolve_shared_data_root())
+
+
+def _artifact_ids_for_run(run_id: str) -> list[str]:
+    """Ids of the artifacts this run produced, oldest first.
+
+    Strict equality on ``run_id`` — deliberately NOT
+    ``list_entries(session_filter=...)``, which also matches entries with an
+    EMPTY session id and would therefore attach every untagged legacy artifact
+    in the store to every run.
+    """
+    try:
+        entries = _artifact_store().list_entries()
+    except Exception:
+        logger.warning("Could not read artifact store for run %s", run_id, exc_info=True)
+        return []
+    return [e.id for e in entries if e.run_id == run_id]
+
+
 def _verify_token(credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme)) -> None:
     expected = os.environ.get("DISPATCH_WORKER_TOKEN", "")
     if not expected:
@@ -345,11 +376,15 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
                 max_turns=request.max_turns,
                 event_queue=queue,
                 denied_tools=DENIED_TOOLS,
+                run_id=run_id,
             ),
             timeout=DISPATCH_TIMEOUT_SEC,
         )
         result["completed_at"] = time.time()
         result["prompt"] = request.prompt
+        # Artifacts the agent saved during this run, for consumers that
+        # republish them (see GET /dispatch/{run_id}/artifacts/{artifact_id}).
+        result["artifacts"] = _artifact_ids_for_run(run_id)
         _runs[run_id] = result
         _persist_run(run_id, result)
         logger.info("Dispatch %s completed: status=%s", run_id, result.get("status"))
@@ -479,6 +514,35 @@ async def get_dispatch_result(run_id: str) -> dict[str, Any]:
     if result is None:
         raise HTTPException(status_code=404, detail=f"run_id {run_id!r} not found")
     return result
+
+
+@app.get("/dispatch/{run_id}/artifacts/{artifact_id}", dependencies=[Depends(_verify_token)])
+async def get_dispatch_artifact(run_id: str, artifact_id: str) -> FileResponse:
+    """Serve the raw bytes of one artifact produced by ``run_id``.
+
+    The artifact must be attributed to this run: an artifact belonging to a
+    different run (or to no run) is a 404 here, so a caller holding one run_id
+    cannot enumerate or read another run's output. ``artifact_id`` is never
+    joined into a path directly — it is resolved through the store's index, so
+    a traversal-shaped id simply fails to match an entry.
+    """
+    if run_id not in _runs:
+        raise HTTPException(status_code=404, detail=f"run_id {run_id!r} not found")
+
+    store = _artifact_store()
+    entry = store.get_entry(artifact_id)
+    if entry is None or entry.run_id != run_id:
+        raise HTTPException(status_code=404, detail=f"artifact {artifact_id!r} not found for run")
+
+    path = store.get_file_path(artifact_id)
+    if path is None or not path.is_file():
+        raise HTTPException(status_code=404, detail=f"artifact {artifact_id!r} has no file")
+
+    return FileResponse(
+        path,
+        media_type=entry.mime_type or "application/octet-stream",
+        filename=entry.filename,
+    )
 
 
 @app.get("/dispatch/{run_id}/stream", dependencies=[Depends(_verify_token)])

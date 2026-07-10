@@ -71,6 +71,14 @@ class ArtifactEntry:
     data_file: str = ""
     source_agent: str = ""
     session_id: str = ""
+    run_id: str = ""
+    """Dispatch run that produced this artifact (``OSPREY_DISPATCH_RUN_ID``),
+    empty for artifacts made outside a dispatch run.
+
+    Deliberately separate from ``session_id``: ``OSPREY_SESSION_ID`` also
+    relocates the whole store into ``_agent_data/sessions/<id>/`` (see
+    ``resolve_agent_data_root``), so it cannot be reused to tag a dispatch run
+    without moving its artifacts off the shared root the gallery reads."""
 
     def to_dict(self) -> dict[str, Any]:
         return _sanitize_for_json(asdict(self))
@@ -214,6 +222,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         d.setdefault("data_file", "")
         d.setdefault("source_agent", "")
         d.setdefault("session_id", "")
+        d.setdefault("run_id", "")
         return ArtifactEntry(**d)
 
     def _entry_to_dict(self, entry: ArtifactEntry) -> dict:
@@ -267,6 +276,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 metadata=metadata or {},
                 category=category,
                 session_id=os.environ.get("OSPREY_SESSION_ID", ""),
+                run_id=os.environ.get("OSPREY_DISPATCH_RUN_ID", ""),
             )
             self._entries.append(entry)
             self._save_index()
@@ -401,6 +411,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 data_file=agent_path,
                 source_agent=source_agent,
                 session_id=os.environ.get("OSPREY_SESSION_ID", ""),
+                run_id=os.environ.get("OSPREY_DISPATCH_RUN_ID", ""),
             )
             self._entries.append(entry)
             self._save_index()
