@@ -287,7 +287,9 @@ def test_unit_test_job_installs_bridge_extras(workflow: dict[str, Any]) -> None:
     """
     cmd = _unit_test_install_cmd(workflow)
     for extra in ("dev", "virtual-accelerator", "bluesky-bridge"):
-        assert f"--extra {extra}" in cmd, f"unit-test job must `uv sync --extra {extra}`; got: {cmd}"
+        assert f"--extra {extra}" in cmd, (
+            f"unit-test job must `uv sync --extra {extra}`; got: {cmd}"
+        )
 
 
 def test_unit_test_job_installs_bridge_extras__mutation_drops_bluesky_extra() -> None:
