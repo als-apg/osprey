@@ -73,8 +73,6 @@ export default [
       'tests/interfaces/artifacts/state.test.mjs',
       'tests/interfaces/artifacts/timeseries.test.mjs',
       'tests/interfaces/artifacts/types.test.mjs',
-      'tests/interfaces/design_system/js/theme-settheme.test.mjs',
-      'tests/interfaces/design_system/js/theme-switcher.test.mjs',
       'tests/interfaces/lattice_dashboard/net.test.mjs',
       'tests/interfaces/lattice_dashboard/render.test.mjs',
       'tests/interfaces/lattice_dashboard/settings.test.mjs',
