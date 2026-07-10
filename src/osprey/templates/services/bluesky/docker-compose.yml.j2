@@ -79,6 +79,15 @@ services:
       # with an in-memory mock scanner.
       BLUESKY_DEMO_SCANNER: "true"
 {% endif %}
+{% if services.bluesky.tiled_enabled | default(false) %}
+      # Tiled persistence (Task 2.7): the bridge's TiledWriter connects to the
+      # co-deployed Tiled server over osprey-network at its container port
+      # (never the host-published tiled_port). No :- default on the API key —
+      # an unset key must fail closed rather than let the writer connect
+      # unauthenticated.
+      BLUESKY_TILED_URI: "http://tiled:8000"
+      BLUESKY_TILED_API_KEY: ${BLUESKY_TILED_API_KEY}
+{% endif %}
     networks:
       - osprey-network
     healthcheck:
@@ -97,17 +106,62 @@ services:
   # `services.bluesky.tiled_enabled: true` in config.yml; loopback/osprey-network
   # only, same as the bridge itself. Not required for Phase 2's FakeScanner path.
   tiled:
-    image: ${OSPREY_TILED_IMAGE:-ghcr.io/bluesky/tiled:latest}
+    image: ${OSPREY_TILED_IMAGE:-ghcr.io/bluesky/tiled:0.2.12}
     container_name: osprey-bluesky-tiled
     restart: unless-stopped
+    # `serve catalog` aborts without a catalog DB argument and defaults to
+    # 127.0.0.1 (unreachable from the bridge container) without --host. The
+    # duckdb:// writable target is required alongside the filesystem one:
+    # bluesky's TiledWriter appends event tables via create_appendable_table
+    # + append_partition, which need SQL-family storage.
+    #
+    # Mounted at /storage: the image ships that path pre-owned by uid=999
+    # (app), the user the container runs as, so a fresh named volume
+    # inherits that ownership from the image on first mount. Any mount
+    # point absent from the image gets created root-owned by Docker
+    # instead, and the uid=999 process can't open a catalog DB under a
+    # root-owned directory (fails closed with "unable to open database
+    # file") — so this path must stay pinned to one the image ships.
+    #
+    # The duckdb:// target below uses FOUR slashes, NOT a typo: this is
+    # the standard SQLAlchemy DBAPI URI convention (driver://[host]/path),
+    # where an empty host segment leaves the path either RELATIVE (three
+    # slashes: driver:///relative/path, resolved against the container's
+    # CWD) or ABSOLUTE (four slashes: driver:////absolute/path). Three
+    # slashes here resolves to a relative "storage/data.duckdb" against
+    # /app and fails server-side with "The directory storage does not
+    # exist." — a failure that surfaces to the client only as an opaque
+    # 409 on the run's metadata POST, not as a storage-URI error. Tiled's
+    # own catalog DB argument above (the sqlite backend under the covers)
+    # follows the identical four-slash-for-absolute convention. Do not
+    # "fix" this back to three slashes.
+    #
+    # --api-key is quoted with a `:?` guard, not the bare `${BLUESKY_TILED_API_KEY}`
+    # used elsewhere in this file: compose splits this string `command:` form
+    # shlex-style, so an unset-or-empty value contributes NO argument at all —
+    # not an empty one. `--api-key` then silently swallows the next token
+    # (`-w`) as its operand and a writable target vanishes, with the resulting
+    # error pointing at `-w`, never at the empty key. `:?` aborts `deploy up`
+    # with an explicit message instead. The quotes are belt-and-braces: if the
+    # `:?` is ever relaxed, an empty value becomes an explicit empty argument
+    # rather than a vanished one.
+    command: tiled serve catalog /storage/catalog.db --init --host 0.0.0.0 --port 8000 --api-key "${BLUESKY_TILED_API_KEY:?must be a non-empty alphanumeric key}" -w /storage/files -w duckdb:////storage/data.duckdb
     ports:
       - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky.tiled_port | default(8091) }}:8000"
     environment:
       TZ: {{ system.timezone }}
     volumes:
-      - bluesky_tiled_catalog:/data
+      - bluesky_tiled_catalog:/storage
     networks:
       - osprey-network
+    healthcheck:
+      # /healthz is unauthenticated and always 200 — curl isn't in the image,
+      # so probe in-image with python, matching the bridge's own healthcheck.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 {% endif %}
 
 networks:
