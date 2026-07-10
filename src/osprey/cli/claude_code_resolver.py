@@ -16,6 +16,7 @@ design.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 from dataclasses import dataclass, field
@@ -234,6 +235,22 @@ def inject_provider_env(
                         environ[key] = value
             except ImportError:
                 pass
+
+    # Warn if a proxy env var looks like a placeholder (e.g. HTTP_PROXY=http-proxy).
+    # The value arrives here because the .env copy above loads every key verbatim.
+    # We warn rather than silently rewrite: Claude Code's own error message
+    # ("Fix or unset HTTP_PROXY") is precise and actionable; blanking the variable
+    # would hide the problem from other tools (httpx, requests, DuckDB) that also
+    # read it, and would silently discard valid non-http schemes like socks5://.
+    _proxy_log = logging.getLogger("osprey.inject_provider_env")
+    for _pvar in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+        _pval = environ.get(_pvar, "")
+        if _pval and not (_pval.startswith("http://") or _pval.startswith("https://")):
+            _proxy_log.warning(
+                "Proxy env var %s=%r looks like a placeholder copied from .env — "
+                "Claude Code will refuse to start. Fix or unset %s in your .env file.",
+                _pvar, _pval, _pvar,
+            )
 
     # Read auth secret BEFORE scrubbing — auth_secret_env may be in MANAGED_ENV_VARS
     # (e.g. ANTHROPIC_API_KEY for the anthropic provider)
