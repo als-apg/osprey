@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from unittest.mock import patch
+import hashlib
+import ssl
+import urllib.error
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-from osprey.interfaces.vendor import asset_cdn_url, is_offline, vendor_url
+from osprey.interfaces.vendor import _fetch_one, asset_cdn_url, is_offline, vendor_url
 
 
 class TestIsOffline:
@@ -53,6 +56,90 @@ class TestIsOffline:
             side_effect=RuntimeError("boom"),
         ):
             assert is_offline() is False
+
+
+PAYLOAD = b"console.log('vendored');"
+PAYLOAD_SHA = hashlib.sha256(PAYLOAD).hexdigest()
+
+
+def _ok_response():
+    """A context-manager stand-in for urlopen's response."""
+    resp = MagicMock()
+    resp.read.return_value = PAYLOAD
+    resp.__enter__ = lambda s: s
+    resp.__exit__ = lambda s, *a: False
+    return resp
+
+
+class TestFetchOneRetry:
+    """_fetch_one runs at image-build time against a public CDN. A single
+    transient network error must not fail the build, but a deterministic
+    error must fail immediately rather than burn the retry budget.
+    """
+
+    def test_retries_transient_error_then_succeeds(self, tmp_path):
+        dest = tmp_path / "highlight.min.js"
+        transient = urllib.error.URLError(OSError(101, "Network is unreachable"))
+        with patch("osprey.interfaces.vendor.urllib.request.urlopen") as uo:
+            uo.side_effect = [transient, _ok_response()]
+            with patch("osprey.interfaces.vendor.time.sleep") as slept:
+                _fetch_one("https://cdn.example/x.js", dest, PAYLOAD_SHA)
+        assert dest.read_bytes() == PAYLOAD
+        assert uo.call_count == 2
+        assert slept.call_count == 1
+
+    def test_gives_up_after_all_attempts(self, tmp_path):
+        dest = tmp_path / "x.js"
+        transient = urllib.error.URLError(OSError(101, "Network is unreachable"))
+        with patch("osprey.interfaces.vendor.urllib.request.urlopen") as uo:
+            uo.side_effect = transient
+            with patch("osprey.interfaces.vendor.time.sleep"):
+                with pytest.raises(RuntimeError, match="after 3 attempts"):
+                    _fetch_one("https://cdn.example/x.js", dest, PAYLOAD_SHA)
+        assert uo.call_count == 3
+        assert not dest.exists()
+
+    def test_http_5xx_is_retried(self, tmp_path):
+        dest = tmp_path / "x.js"
+        err = urllib.error.HTTPError("u", 503, "Service Unavailable", {}, None)
+        with patch("osprey.interfaces.vendor.urllib.request.urlopen") as uo:
+            uo.side_effect = [err, _ok_response()]
+            with patch("osprey.interfaces.vendor.time.sleep"):
+                _fetch_one("https://cdn.example/x.js", dest, PAYLOAD_SHA)
+        assert uo.call_count == 2
+
+    def test_http_404_is_not_retried(self, tmp_path):
+        dest = tmp_path / "x.js"
+        err = urllib.error.HTTPError("u", 404, "Not Found", {}, None)
+        with patch("osprey.interfaces.vendor.urllib.request.urlopen") as uo:
+            uo.side_effect = err
+            with patch("osprey.interfaces.vendor.time.sleep") as slept:
+                with pytest.raises(RuntimeError, match="Failed to fetch"):
+                    _fetch_one("https://cdn.example/x.js", dest, PAYLOAD_SHA)
+        assert uo.call_count == 1
+        assert slept.call_count == 0
+
+    def test_cert_error_is_not_retried_and_keeps_guidance(self, tmp_path):
+        dest = tmp_path / "x.js"
+        cert = ssl.SSLCertVerificationError("bad cert")
+        with patch("osprey.interfaces.vendor.urllib.request.urlopen") as uo:
+            uo.side_effect = urllib.error.URLError(cert)
+            with patch("osprey.interfaces.vendor.time.sleep") as slept:
+                with pytest.raises(RuntimeError, match="TLS cert verification failed"):
+                    _fetch_one("https://cdn.example/x.js", dest, PAYLOAD_SHA)
+        assert uo.call_count == 1
+        assert slept.call_count == 0
+
+    def test_sha_mismatch_is_not_retried_and_removes_file(self, tmp_path):
+        dest = tmp_path / "x.js"
+        with patch("osprey.interfaces.vendor.urllib.request.urlopen") as uo:
+            uo.side_effect = [_ok_response()]
+            with patch("osprey.interfaces.vendor.time.sleep") as slept:
+                with pytest.raises(RuntimeError, match="SHA256 mismatch"):
+                    _fetch_one("https://cdn.example/x.js", dest, "deadbeef" * 8)
+        assert uo.call_count == 1
+        assert slept.call_count == 0
+        assert not dest.exists()
 
 
 class TestAssetCdnUrl:
