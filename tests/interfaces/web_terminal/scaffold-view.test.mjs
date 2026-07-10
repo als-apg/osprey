@@ -1,5 +1,5 @@
 // @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
+// TODO(frontend-hardening): type-clean this test; tracked in eslint.config.js local/no-ts-nocheck allowlist, which may only shrink.
 /**
  * Unit tests for the Scaffold Gallery view layer (scaffold/view.js).
  *
@@ -20,7 +20,7 @@
  * not design-system, so the `/design-system/js/*` alias does not apply.
  */
 
-import { test, expect, describe, beforeEach } from 'vitest';
+import { test, expect, describe } from 'vitest';
 
 import {
   getFilteredArtifacts,

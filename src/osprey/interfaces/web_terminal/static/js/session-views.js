@@ -54,7 +54,7 @@ export async function renderAgents({ apiFetch, showToast, cache }) {
   let data;
   try {
     data = await apiFetch('/api/session-agents');
-  } catch (err) {
+  } catch {
     showToast('Failed to load agents');
     if (!cache.agents) el.innerHTML = emptyState('ERROR', 'Could not load agent data');
     return;
@@ -232,7 +232,7 @@ export async function renderToolLog({ apiFetch, showToast, cache }) {
     if (logFilters.errorsOnly) qp.set('errors_only', 'true');
     qp.set('last_n', '500');
     data = await apiFetch('/api/session-log?' + qp.toString());
-  } catch (err) {
+  } catch {
     showToast('Failed to load tool log');
     if (!cache.toollog) el.innerHTML = emptyState('ERROR', 'Could not load tool log');
     return;
@@ -338,7 +338,7 @@ export async function renderArtifacts({ apiFetch, showToast, cache }) {
   let data;
   try {
     data = await apiFetch('/api/session-summary');
-  } catch (err) {
+  } catch {
     showToast('Failed to load artifacts');
     if (!cache.artifacts) el.innerHTML = emptyState('ERROR', 'Could not load artifact data');
     return;
@@ -405,7 +405,7 @@ export async function renderConversation({ apiFetch, showToast, cache }) {
   let data;
   try {
     data = await apiFetch('/api/session-chat');
-  } catch (err) {
+  } catch {
     showToast('Failed to load conversation');
     if (!cache.conversation) el.innerHTML = emptyState('ERROR', 'Could not load conversation');
     return;

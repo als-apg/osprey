@@ -1,5 +1,5 @@
 // @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
+// TODO(frontend-hardening): type-clean this test; tracked in eslint.config.js local/no-ts-nocheck allowlist, which may only shrink.
 /**
  * Consolidated hostile-metadata security regression suite (Phase 4, Task
  * 1.5) — the machine-checkable gate proving Phase 1's security fixes
@@ -53,7 +53,7 @@ import {
   renderTimeseriesTable,
   renderTimeseriesView,
 } from '../../../src/osprey/interfaces/artifacts/static/js/timeseries.js';
-import { injectLogbookButtons } from '../../../src/osprey/interfaces/artifacts/static/js/logbook.js';
+import '../../../src/osprey/interfaces/artifacts/static/js/logbook.js';
 
 // ---- Shared hostile payload set ---- //
 

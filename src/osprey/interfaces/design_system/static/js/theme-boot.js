@@ -1,5 +1,4 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
+// @ts-check
 // AUTO-GENERATED — DO NOT EDIT.
 // Source: src/osprey/interfaces/design_system/tokens/
 // Regenerate with: python -m osprey.interfaces.design_system.generator.build
@@ -18,15 +17,16 @@
     "light": "light"
   };
 
+  /** @param {string|null} value @returns {value is string} */
   function isKnownId(value) {
-    return value === "auto" || VALID_IDS.indexOf(value) !== -1;
+    return value !== null && (value === "auto" || VALID_IDS.indexOf(value) !== -1);
   }
 
   function resolveAuto() {
     let prefersDark = true;
     try {
       prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    } catch (error) {
+    } catch {
       prefersDark = true;
     }
     return prefersDark ? DEFAULTS.dark : DEFAULTS.light;
@@ -35,7 +35,7 @@
   function readQueryTheme() {
     try {
       return new URLSearchParams(window.location.search).get("theme");
-    } catch (error) {
+    } catch {
       return null;
     }
   }
@@ -43,7 +43,7 @@
   function readStoredTheme() {
     try {
       return window.localStorage.getItem(STORAGE_KEY);
-    } catch (error) {
+    } catch {
       return null;
     }
   }

@@ -1,5 +1,5 @@
 // @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
+// TODO(frontend-hardening): type-clean this test; tracked in eslint.config.js local/no-ts-nocheck allowlist, which may only shrink.
 /**
  * Unit tests for the Artifact Gallery logbook entry composer (logbook.js):
  * the client-side DOM gap left by the backend `test_logbook.py` suite

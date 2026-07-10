@@ -170,7 +170,7 @@ function printIframe(a) {
         "body { background: white !important; } " +
         "}";
       win.document.head.appendChild(s);
-    } catch (_) { /* cross-origin guard — print as-is */ }
+    } catch { /* cross-origin guard — print as-is */ }
     win.focus();
     win.print();
   }
@@ -238,7 +238,7 @@ function printTimeseries(a) {
     .catch(function (/** @type {unknown} */ err) {
       console.error("[print.js] Plotly.toImage failed:", err);
       // eslint-disable-next-line no-empty -- intentional empty catch: closing an already-gone print window is best-effort
-      try { w.close(); } catch (_) {}
+      try { w.close(); } catch {}
       alert("Could not capture chart for printing.");
     });
 }

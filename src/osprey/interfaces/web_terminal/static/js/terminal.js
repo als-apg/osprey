@@ -1,18 +1,21 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /* OSPREY Web Terminal — Terminal Module */
 
 import { createWebSocket, wsUrl } from './api.js';
 import { subscribe, xtermPalette } from '/design-system/js/theme-manager.js';
 
+/** @type {any} */
 let term = null;
+/** @type {any} */
 let fitAddon = null;
+/** @type {ReturnType<typeof createWebSocket>|null} */
 let wsConnection = null;
 let hasConnectedBefore = false;
+/** @type {string|null} */
 let currentSessionId = null;
 
 /**
  * Initialize xterm.js terminal in the given container.
+ * @param {string} containerId
  */
 export function initTerminal(containerId) {
   const container = document.getElementById(containerId);
@@ -48,12 +51,12 @@ export function initTerminal(containerId) {
   document.fonts.ready.then(() => fitAddon.fit());
 
   // Forward keystrokes to WebSocket
-  term.onData((data) => {
+  term.onData((/** @type {string} */ data) => {
     if (wsConnection) wsConnection.send(data);
   });
 
   // Forward resize events to the PTY via WebSocket
-  term.onResize(({ cols, rows }) => {
+  term.onResize((/** @type {{ cols: number, rows: number }} */ { cols, rows }) => {
     if (wsConnection) {
       wsConnection.send(JSON.stringify({ type: 'resize', cols, rows }));
     }
@@ -81,7 +84,7 @@ export function initTerminal(containerId) {
     lastObsH = height;
     requestAnimationFrame(() => doFit());
   });
-  resizeObserver.observe(container.parentElement);
+  resizeObserver.observe(/** @type {Element} */ (container.parentElement));
 
   // Start the PTY WebSocket connection
   startTerminal();
@@ -123,7 +126,7 @@ export function startTerminal(sessionId = null, mode = 'new') {
       // Send initial size FIRST — the server waits for this before
       // spawning the PTY, so the shell starts with correct dimensions.
       fitAddon.fit();
-      wsConnection.send(JSON.stringify({
+      /** @type {NonNullable<typeof wsConnection>} */ (wsConnection).send(JSON.stringify({
         type: 'resize',
         cols: term.cols,
         rows: term.rows,
@@ -252,7 +255,7 @@ export function focusTerminal() {
  * Paste text into the terminal (sends to PTY via WebSocket).
  * Used by the postMessage bridge to receive text from embedded iframes.
  */
-export function pasteToTerminal(text) {
+export function pasteToTerminal(/** @type {string} */ text) {
   if (wsConnection && text) {
     wsConnection.send(text);
   }
@@ -265,7 +268,7 @@ export function pasteToTerminal(text) {
 export function notifySessionChange(sessionId) {
   document.querySelectorAll('.panel-iframe').forEach(iframe => {
     try {
-      iframe.contentWindow.postMessage(
+      /** @type {Window} */ (/** @type {HTMLIFrameElement} */ (iframe).contentWindow).postMessage(
         { type: 'osprey-session-change', session_id: sessionId },
         window.location.origin
       );
