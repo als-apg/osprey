@@ -110,6 +110,51 @@ class TestArtifactEntryRunId:
         assert entries[0].run_id == ""
 
 
+class TestArtifactStoreRooting:
+    """The store must be rooted where the agent's tools actually write.
+
+    Regression: rooting via ``resolve_shared_data_root()`` located the project
+    through ``OSPREY_CONFIG`` and fell back to CWD. The worker is configured
+    with ``CONFIG_FILE`` and runs from the image WORKDIR, so it resolved to
+    ``<cwd>/_agent_data`` while the agent wrote to
+    ``$OSPREY_PROJECT_DIR/_agent_data`` — every lookup returned nothing.
+    """
+
+    def test_root_follows_project_dir_not_cwd(self, tmp_path, monkeypatch):
+        from osprey.mcp_server.dispatch_worker import dispatch_api
+
+        project = tmp_path / "project"
+        (project / "_agent_data" / "artifacts").mkdir(parents=True)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+
+        monkeypatch.setenv("OSPREY_PROJECT_DIR", str(project))
+        monkeypatch.delenv("OSPREY_CONFIG", raising=False)
+        monkeypatch.chdir(elsewhere)
+
+        store = dispatch_api._artifact_store()
+        assert store._store_dir == project / "_agent_data" / "artifacts"
+
+    def test_finds_artifacts_the_agent_wrote(self, tmp_path, monkeypatch):
+        """End-to-end of the rooting: write via the agent's root, read via the worker."""
+        from osprey.mcp_server.dispatch_worker import dispatch_api
+
+        project = tmp_path / "project"
+        (project / "_agent_data").mkdir(parents=True)
+        monkeypatch.setenv("OSPREY_PROJECT_DIR", str(project))
+        monkeypatch.chdir(tmp_path)
+
+        monkeypatch.setenv("OSPREY_DISPATCH_RUN_ID", "run-x")
+        ArtifactStore(workspace_root=project / "_agent_data").save_file(
+            file_content=PNG_BYTES,
+            filename="p.png",
+            title="p",
+            artifact_type="image",
+            mime_type="image/png",
+        )
+        assert dispatch_api._artifact_ids_for_run("run-x")
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DISPATCH_WORKER_TOKEN", TOKEN)

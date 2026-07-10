@@ -54,13 +54,19 @@ _tasks: dict[str, asyncio.Task] = {}
 # Maximum entries in _runs before old entries are evicted (prevents unbounded growth)
 _MAX_RUNS = 1000
 
+
+# Agent-data root for THIS worker. Anchored to OSPREY_PROJECT_DIR rather than
+# resolve_shared_data_root(): that helper locates the project via OSPREY_CONFIG
+# and falls back to CWD, but the worker is configured with CONFIG_FILE and its
+# CWD is the image WORKDIR (/app) — so it would resolve to /app/_agent_data
+# while the agent's tools write to <project>/_agent_data.
+def _agent_data_dir() -> str:
+    return os.path.join(os.environ.get("OSPREY_PROJECT_DIR", "/app/project"), "_agent_data")
+
+
 # Persistent log directory — lives on the _agent_data volume mount so it
 # survives container restarts.
-_LOG_DIR = os.path.join(
-    os.environ.get("OSPREY_PROJECT_DIR", "/app/project"),
-    "_agent_data",
-    "dispatch",
-)
+_LOG_DIR = os.path.join(_agent_data_dir(), "dispatch")
 
 
 def _persist_run(run_id: str, run: dict[str, Any]) -> None:
@@ -292,17 +298,18 @@ async def _stale_run_cleanup() -> None:
 
 
 def _artifact_store():
-    """ArtifactStore rooted at the SHARED agent-data root.
+    """ArtifactStore rooted at this worker's agent-data dir.
 
-    Shared, not session-scoped: the dispatched agent's tools write there (the
-    worker process sets no OSPREY_SESSION_ID), and it is the same root the
-    artifact gallery reads. Built per call — the index is re-read from disk, so
+    Not session-scoped: the dispatched agent's tools write there (the worker
+    process sets no OSPREY_SESSION_ID), and it is the same root the artifact
+    gallery reads. Built per call — the index is re-read from disk, so
     artifacts written by the agent's MCP subprocesses are visible here.
     """
-    from osprey.stores.artifact_store import ArtifactStore
-    from osprey.utils.workspace import resolve_shared_data_root
+    from pathlib import Path
 
-    return ArtifactStore(workspace_root=resolve_shared_data_root())
+    from osprey.stores.artifact_store import ArtifactStore
+
+    return ArtifactStore(workspace_root=Path(_agent_data_dir()))
 
 
 def _artifact_ids_for_run(run_id: str) -> list[str]:
