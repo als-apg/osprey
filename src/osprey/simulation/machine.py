@@ -77,11 +77,50 @@ class ScenarioLogEntry:
 
 
 @dataclass(frozen=True)
+class BpmErrorSpec:
+    """One BPM's seeded error model: offset/gain/polarity/roll/noise.
+
+    Defaults are the identity error (no distortion), mirroring the
+    :class:`~osprey.services.virtual_accelerator.ioc.physics_bridge.PhysicsBridge`
+    per-BPM error state. ``offset``/``roll``/``noise`` are in the bridge's
+    native units (m / rad / m stdev); ``polarity`` is a sign flip, ``gain`` a
+    readback scale factor.
+    """
+
+    offset: float = 0.0
+    gain: float = 1.0
+    polarity: int = 1
+    roll: float = 0.0
+    noise: float = 0.0
+
+
+@dataclass(frozen=True)
+class PhysicsFault:
+    """Deploy-time VA physics-fault values a scenario seeds at container boot.
+
+    Keyed by lattice device id (family + zero-padded device number, e.g.
+    ``"QF07"``, ``"BPM12"``, ``"HCM01"`` — the same ids
+    ``lattice/inventory.py::pyat_coupled_device_ids`` produces), NOT by EPICS
+    channel name, and NOT a mock-channel override: it never touches the
+    ``overrides``/``channels`` validation path. A render step resolves this
+    into VA env (``VA_QUAD_MISALIGN``/``VA_BPM_ERRORS``/``VA_CORR_GAIN``)
+    before ``deploy up``; the VA applies it once at boot (hot-swapping a
+    physics fault requires a restart, unlike ``overrides``/``archiver``).
+    """
+
+    quad_misalign: dict[str, float] = field(default_factory=dict)
+    bpm_errors: dict[str, BpmErrorSpec] = field(default_factory=dict)
+    corrector_gain: dict[str, float] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
 class Scenario:
     """Parsed scenario definition: overrides, archiver event scripts, logbook.
 
     ``logbook`` is empty for inline (machine-dict) scenarios; only filesystem
     scenario bundles carry logbook entries (see :func:`load_scenario_bundles`).
+    ``physics`` is ``None`` unless the bundle defines a ``physics`` block
+    (see :class:`PhysicsFault`); absent block means no physics fault.
     """
 
     name: str
@@ -89,6 +128,7 @@ class Scenario:
     overrides: dict[str, float | str]
     archiver: dict[str, list[dict[str, Any]]]
     logbook: tuple[ScenarioLogEntry, ...] = field(default_factory=tuple)
+    physics: PhysicsFault | None = None
 
 
 @dataclass(frozen=True)
@@ -281,18 +321,103 @@ def _parse_scenario_spec(
             _validate_event(name, pv, event, channels[pv])
         archiver[pv] = list(events)
 
+    physics = _parse_physics_fault(name, spec.get("physics"))
+
     return Scenario(
         name=name,
         description=str(spec.get("description", "")),
         overrides=overrides,
         archiver=archiver,
         logbook=logbook,
+        physics=physics,
     )
 
 
 def _default_nominal() -> Scenario:
     """The auto-injected baseline scenario used when none is defined."""
     return Scenario(DEFAULT_SCENARIO, "All systems nominal.", {}, {}, ())
+
+
+def _parse_physics_fault(scenario_name: str, raw: Any) -> PhysicsFault | None:
+    """Parse and validate an optional 'physics' fault block.
+
+    ``physics`` is a sibling of ``overrides``/``archiver``, not a variant of
+    either — its device ids are lattice element ids, never checked against
+    ``channels``, so it cannot trip the mock-channel-override validation.
+    Absent block (``raw is None``) means no physics fault.
+    """
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise ValueError(f"Scenario {scenario_name!r}: 'physics' must be a mapping")
+
+    prefix = f"Scenario {scenario_name!r} physics"
+    return PhysicsFault(
+        quad_misalign=_parse_quad_misalign(prefix, raw.get("quad_misalign", {})),
+        bpm_errors=_parse_bpm_errors(prefix, raw.get("bpm_errors", {})),
+        corrector_gain=_parse_corrector_gain(prefix, raw.get("corrector_gain", {})),
+    )
+
+
+def _parse_device_number(prefix: str, block: str, device: Any, value: Any) -> tuple[str, float]:
+    """Validate one ``device id -> number`` entry shared by quad_misalign/corrector_gain."""
+    if not isinstance(device, str) or not device:
+        raise ValueError(f"{prefix}: {block!r} keys must be non-empty device id strings")
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{prefix}: {block}[{device!r}] must be a number, got {value!r}")
+    return device, float(value)
+
+
+def _parse_quad_misalign(prefix: str, raw: Any) -> dict[str, float]:
+    """Parse 'quad_misalign': device id -> transverse offset dx, in meters."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"{prefix}: 'quad_misalign' must be a mapping of device id to dx (meters)")
+    return dict(_parse_device_number(prefix, "quad_misalign", d, v) for d, v in raw.items())
+
+
+def _parse_corrector_gain(prefix: str, raw: Any) -> dict[str, float]:
+    """Parse 'corrector_gain': device id -> calibration factor (1.0 = nominal)."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"{prefix}: 'corrector_gain' must be a mapping of device id to factor")
+    return dict(_parse_device_number(prefix, "corrector_gain", d, v) for d, v in raw.items())
+
+
+def _parse_bpm_errors(prefix: str, raw: Any) -> dict[str, BpmErrorSpec]:
+    """Parse 'bpm_errors': device id -> :class:`BpmErrorSpec` (all keys optional)."""
+    if not isinstance(raw, dict):
+        raise ValueError(f"{prefix}: 'bpm_errors' must be a mapping of device id to an error spec")
+    result: dict[str, BpmErrorSpec] = {}
+    for device, spec in raw.items():
+        if not isinstance(device, str) or not device:
+            raise ValueError(f"{prefix}: 'bpm_errors' keys must be non-empty device id strings")
+        if not isinstance(spec, dict):
+            raise ValueError(f"{prefix}: bpm_errors[{device!r}] must be a mapping")
+        entry_prefix = f"{prefix} bpm_errors[{device!r}]"
+        polarity = spec.get("polarity", 1)
+        if isinstance(polarity, bool) or polarity not in (1, -1):
+            raise ValueError(f"{entry_prefix}: 'polarity' must be 1 or -1, got {polarity!r}")
+        result[device] = BpmErrorSpec(
+            offset=_bpm_error_number(entry_prefix, spec, "offset", 0.0),
+            gain=_bpm_error_number(entry_prefix, spec, "gain", 1.0),
+            polarity=int(polarity),
+            roll=_bpm_error_number(entry_prefix, spec, "roll", 0.0),
+            noise=_bpm_error_number(entry_prefix, spec, "noise", 0.0, minimum=0.0),
+        )
+    return result
+
+
+def _bpm_error_number(
+    prefix: str, spec: dict[str, Any], key: str, default: float, minimum: float | None = None
+) -> float:
+    """Validate an optional numeric ``bpm_errors`` field, falling back to ``default``."""
+    if key not in spec:
+        return default
+    value = spec[key]
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{prefix}: {key!r} must be a number, got {value!r}")
+    if minimum is not None and value < minimum:
+        raise ValueError(f"{prefix}: {key!r} must be >= {minimum:g}, got {value!r}")
+    return float(value)
 
 
 def load_scenario_bundles(
