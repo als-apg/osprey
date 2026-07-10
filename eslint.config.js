@@ -57,17 +57,4 @@ export default [
     plugins: { local: { rules: { 'no-ts-nocheck': noTsNocheck } } },
     rules: { 'local/no-ts-nocheck': 'error' },
   },
-
-  // (7) Shrink-only allowlist for local/no-ts-nocheck: the test files still
-  //     carrying a leading `// @ts-nocheck` because they are not yet type-clean.
-  //     This block IS the list — it may ONLY shrink: retrofit a file and delete
-  //     its row, never add one. All rows have been retrofitted; the allowlist
-  //     is now empty. `files: []` is not valid flat-config (ESLint requires a
-  //     non-empty array when the key is present), so `ignores: ['**/*']` is
-  //     used instead to make this block match zero files while keeping the
-  //     block itself in place for a later task to remove.
-  {
-    ignores: ['**/*'],
-    rules: { 'local/no-ts-nocheck': 'off' },
-  },
 ];
