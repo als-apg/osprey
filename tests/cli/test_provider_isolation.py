@@ -83,6 +83,20 @@ class TestManagedEnvVars:
         """
         assert "ANTHROPIC_CUSTOM_HEADERS" not in MANAGED_ENV_VARS
 
+    def test_small_fast_model_scrubbed_and_haiku_injected(self):
+        """A stale ANTHROPIC_SMALL_FAST_MODEL export is removed and
+        ANTHROPIC_DEFAULT_HAIKU_MODEL is set to the provider's haiku model ID."""
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+        env = {
+            "ANTHROPIC_SMALL_FAST_MODEL": "anthropic.claude-haiku-4-5-20251001-v1:0",
+            "CBORG_API_KEY": "test-key",
+            "PATH": os.environ.get("PATH", ""),
+        }
+        inject_provider_env(env, spec)
+
+        assert "ANTHROPIC_SMALL_FAST_MODEL" not in env
+        assert env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") == spec.tier_to_model["haiku"]
+
 
 # ── Backend / model selector scrubbing (#356) ────────────────────
 
