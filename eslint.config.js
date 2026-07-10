@@ -52,12 +52,6 @@ export default [
   //     Rules stay at `error` everywhere else; these are file-scoped `off` only. ---
   {
     files: [
-      'src/osprey/interfaces/design_system/static/js/theme-boot.js',
-    ],
-    rules: { 'no-unused-vars': 'off' },
-  },
-  {
-    files: [
       'src/osprey/interfaces/artifacts/static/js/logbook.js',
     ],
     rules: { 'max-lines': 'off' },
