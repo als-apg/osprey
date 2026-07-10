@@ -50,10 +50,4 @@ export default [
   // --- Legacy exemptions (shrink-only ratchet; see CONTRIBUTING.md). Each list is
   //     exactly today's violators and may only shrink as P2–P5 retrofit each interface.
   //     Rules stay at `error` everywhere else; these are file-scoped `off` only. ---
-  {
-    files: [
-      'src/osprey/interfaces/artifacts/static/js/logbook.js',
-    ],
-    rules: { 'max-lines': 'off' },
-  },
 ];
