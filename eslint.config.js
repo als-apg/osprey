@@ -3,7 +3,7 @@ import globals from 'globals';
 
 export default [
   // (1) Leading SOLE-KEY global ignore — must be the ONLY key in this object so it applies globally.
-  { ignores: ['**/vendor/**', '**/*.min.js', 'docs/**'] },
+  { ignores: ['**/vendor/**', '**/*.min.js', 'docs/**', '**/.venv/**'] },
 
   // (2) Base recommended rules.
   js.configs.recommended,
@@ -26,7 +26,7 @@ export default [
     rules: {
       'no-var': 'error',
       'prefer-const': 'error',
-      eqeqeq: 'error',
+      eqeqeq: ['error', 'always', { null: 'ignore' }],
     },
   },
 
@@ -55,7 +55,6 @@ export default [
       'src/osprey/interfaces/artifacts/static/js/print.js',
       'src/osprey/interfaces/design_system/static/js/theme-boot.js',
       'src/osprey/interfaces/design_system/static/js/theme-manager.js',
-      'src/osprey/interfaces/okf_panel/static/js/app.js',
       'src/osprey/interfaces/web_terminal/static/js/app.js',
       'src/osprey/interfaces/web_terminal/static/js/panel-manager.js',
       'src/osprey/interfaces/web_terminal/static/js/session-views.js',
@@ -65,18 +64,6 @@ export default [
       'tests/interfaces/web_terminal/scaffold-view.test.mjs',
     ],
     rules: { 'no-unused-vars': 'off' },
-  },
-  {
-    files: [
-      'src/osprey/interfaces/lattice_dashboard/static/js/render.js',
-      'src/osprey/interfaces/lattice_dashboard/static/js/settings.js',
-      'src/osprey/interfaces/okf_panel/static/js/app.js',
-      'src/osprey/interfaces/web_terminal/static/js/mcp-renderer.js',
-      'src/osprey/interfaces/web_terminal/static/js/panel-manager.js',
-      'src/osprey/interfaces/web_terminal/static/js/scaffold/utils.js',
-      'src/osprey/interfaces/web_terminal/static/js/settings.js',
-    ],
-    rules: { eqeqeq: 'off' },
   },
   {
     files: [

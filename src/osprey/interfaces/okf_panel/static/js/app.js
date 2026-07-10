@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /*
  * OKF Knowledge Panel — read-only SPA shell.
  *
@@ -34,6 +32,8 @@ import { initTheme } from "/design-system/js/theme-manager.js";
 import { applyEmbedded } from "/design-system/js/frame-params.js";
 import { debounce } from "/design-system/js/dom.js";
 import "/design-system/js/components/osprey-theme-switcher.js";
+import { el, isFallback, readPanelParams, STRUCTURE_MARKER } from "./helpers.js";
+import { initTree, renderTree, highlightActive, highlightStructure, selectConcept } from "./tree.js";
 
 // Panel embedded in the Web Terminal hub: apply the hub's broadcast theme and
 // follow live `osprey-theme-change` messages. theme-boot.js already applied
@@ -43,18 +43,51 @@ initTheme({ role: "follower" });
 
 applyEmbedded();
 
+/**
+ * @typedef {Object} ConceptFrontmatter
+ * @property {string} [title]
+ * @property {string} [description]
+ * @property {unknown[]} [tags]
+ */
+
+/**
+ * Shape of the `/api/concept` response. `okf_panel/app.py` returns a raw
+ * dict with no pydantic response model, so any of these keys may simply be
+ * absent rather than explicitly null.
+ * @typedef {Object} ConceptDoc
+ * @property {string} [id]
+ * @property {ConceptFrontmatter} [frontmatter]
+ * @property {string} [body]
+ */
+
+/**
+ * A single `/api/search` result item.
+ * @typedef {Object} SearchResultItem
+ * @property {string} id
+ * @property {string} [title]
+ * @property {string} [snippet]
+ */
+
+/**
+ * @param {string} id
+ * @returns {HTMLElement}
+ */
+function requireEl(id) {
+  const node = document.getElementById(id);
+  if (!node) throw new Error("okf_panel: missing required element #" + id);
+  return node;
+}
+
 (function () {
   // -- DOM handles -----------------------------------------------------------
-  const treeEl = document.getElementById("tree");
-  const readerEl = document.getElementById("reader-content");
-  const searchForm = document.getElementById("search-form");
-  const searchInput = document.getElementById("search-input");
-  const searchResultsEl = document.getElementById("search-results");
+  const treeEl = requireEl("tree");
+  const readerEl = requireEl("reader-content");
+  const searchForm = requireEl("search-form");
+  const searchInput = /** @type {HTMLInputElement} */ (requireEl("search-input"));
+  const searchResultsEl = requireEl("search-results");
   const structureLink = document.getElementById("structure-link");
 
-  // History marker for the structure overview (B.3): a hash distinct from any
-  // concept id so popstate can tell the overview apart from a concept view.
-  const STRUCTURE_MARKER = "__structure";
+  initTree({ treeEl, structureLink, onSelect: loadConcept });
 
   // -------------------------------------------------------------------------
   // Render hook for task 3.2.
@@ -64,6 +97,9 @@ applyEmbedded();
   // cross-link navigation. Do NOT inline post-render work elsewhere — keep it
   // funnelled through here so 3.2 has a single integration point.
   // -------------------------------------------------------------------------
+  /**
+   * @param {HTMLElement} container
+   */
   function afterRender(container) {
     // Task 3.2: wire cross-link navigation for every anchor in the freshly
     // rendered container. Three classes of href:
@@ -79,7 +115,9 @@ applyEmbedded();
     // data-okf-wired and skip already-marked ones, so this stays correct even if
     // afterRender is ever called twice on the same container.
     if (!container) return;
-    const anchors = container.querySelectorAll("a[href]");
+    const anchors = /** @type {NodeListOf<HTMLElement>} */ (
+      container.querySelectorAll("a[href]")
+    );
     anchors.forEach(function (a) {
       if (a.dataset.okfWired === "1") return;
       const href = a.getAttribute("href") || "";
@@ -116,33 +154,6 @@ applyEmbedded();
     }
   });
 
-  // -- helpers ---------------------------------------------------------------
-
-  function el(tag, attrs, children) {
-    const node = document.createElement(tag);
-    if (attrs) {
-      for (const k in attrs) {
-        if (k === "class") node.className = attrs[k];
-        else if (k === "text") node.textContent = attrs[k];
-        else node.setAttribute(k, attrs[k]);
-      }
-    }
-    if (children) {
-      for (const child of children) {
-        if (child) node.appendChild(child);
-      }
-    }
-    return node;
-  }
-
-  // A fallback (filesystem-derived) concept is one whose title is just the
-  // last path segment of its id — those have no real human title/description.
-  function isFallback(id, title) {
-    if (!id || !title) return false;
-    const last = String(id).split("/").pop();
-    return title === last;
-  }
-
   // -- sidebar / tree --------------------------------------------------------
 
   async function loadTree() {
@@ -151,7 +162,7 @@ applyEmbedded();
       const resp = await fetch("/api/concepts");
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       data = await resp.json();
-    } catch (err) {
+    } catch {
       treeEl.innerHTML = "";
       treeEl.appendChild(
         el("p", { class: "muted", text: "Failed to load concepts." })
@@ -161,84 +172,17 @@ applyEmbedded();
     renderTree(data.groups || []);
   }
 
-  function renderTree(groups) {
-    treeEl.innerHTML = "";
-    for (const group of groups) {
-      const section = el("section", { class: "group" });
-      section.appendChild(
-        el("h2", { class: "group-label", text: group.label || group.id || "" })
-      );
-
-      const concepts = group.concepts || [];
-      if (concepts.length === 0) {
-        section.appendChild(
-          el("p", { class: "muted empty-group", text: "(no concepts)" })
-        );
-      } else {
-        const list = el("ul", { class: "concept-list" });
-        for (const concept of concepts) {
-          const link = el("a", {
-            class: "concept-link",
-            href: "#",
-            text: concept.title || concept.id,
-            title: concept.description || "",
-          });
-          link.dataset.conceptId = concept.id;
-          link.addEventListener("click", function (ev) {
-            ev.preventDefault();
-            selectConcept(concept.id);
-          });
-          const li = el("li", null, [link]);
-          li.dataset.conceptId = concept.id;
-          list.appendChild(li);
-        }
-        section.appendChild(list);
-      }
-      treeEl.appendChild(section);
-    }
-  }
-
-  function highlightActive(id) {
-    if (structureLink) structureLink.classList.remove("active");
-    const links = treeEl.querySelectorAll(".concept-link");
-    let activeLink = null;
-    links.forEach(function (link) {
-      if (link.dataset.conceptId === id) {
-        link.classList.add("active");
-        activeLink = link;
-      } else {
-        link.classList.remove("active");
-      }
-    });
-    // Scroll the active entry into view so the user can always see where they
-    // are in the tree — important when jumping via an in-body cross-link to a
-    // concept far down the (scrolled) sidebar.
-    if (activeLink) activeLink.scrollIntoView({ block: "nearest", inline: "nearest" });
-  }
-
-  // Mark the structure-overview entry active and clear any concept highlight.
-  function highlightStructure() {
-    const links = treeEl.querySelectorAll(".concept-link");
-    links.forEach(function (link) {
-      link.classList.remove("active");
-    });
-    if (structureLink) structureLink.classList.add("active");
-  }
-
-  function selectConcept(id) {
-    // The sidebar highlight is applied authoritatively in renderConcept (which
-    // every navigation path funnels through), so just trigger the load here.
-    loadConcept(id);
-  }
-
   // -- reading pane ----------------------------------------------------------
 
+  /**
+   * @param {string} id
+   */
   async function loadConcept(id) {
     renderMessage("Loading…");
     let resp;
     try {
       resp = await fetch("/api/concept?id=" + encodeURIComponent(id));
-    } catch (err) {
+    } catch {
       renderMessage("Failed to load concept.");
       return;
     }
@@ -255,7 +199,7 @@ applyEmbedded();
     let doc;
     try {
       doc = await resp.json();
-    } catch (err) {
+    } catch {
       renderMessage("Failed to parse concept.");
       return;
     }
@@ -264,6 +208,9 @@ applyEmbedded();
 
   // Single render path for the reading pane — always ends by calling
   // afterRender(readerEl) so task 3.2 has one integration point.
+  /**
+   * @param {ConceptDoc} doc
+   */
   function renderConcept(doc) {
     const fm = doc.frontmatter || {};
     const id = doc.id || "";
@@ -312,7 +259,7 @@ applyEmbedded();
     const bodyEl = el("div", { class: "osprey-md-rendered" });
     try {
       bodyEl.innerHTML = marked.parse(body);
-    } catch (err) {
+    } catch {
       bodyEl.textContent = body;
     }
     readerEl.appendChild(bodyEl);
@@ -320,6 +267,9 @@ applyEmbedded();
     afterRender(readerEl);
   }
 
+  /**
+   * @param {string} msg
+   */
   function renderMessage(msg) {
     readerEl.innerHTML = "";
     readerEl.appendChild(el("p", { class: "muted", text: msg }));
@@ -331,6 +281,9 @@ applyEmbedded();
   // Fetches /api/structure (a markdown document) and renders it into the
   // reading pane as an .osprey-md-rendered container. Its concept links are in
   // the /<id>.md form, so afterRender() wires them as in-panel navigation.
+  /**
+   * @param {{push?: boolean}} [opts]
+   */
   async function loadStructure(opts) {
     const push = !opts || opts.push !== false;
     highlightStructure();
@@ -341,7 +294,7 @@ applyEmbedded();
       const resp = await fetch("/api/structure");
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       data = await resp.json();
-    } catch (err) {
+    } catch {
       renderMessage("Failed to load knowledge base overview.");
       return;
     }
@@ -351,7 +304,7 @@ applyEmbedded();
     const md = data.markdown != null ? String(data.markdown) : "";
     try {
       container.innerHTML = marked.parse(md);
-    } catch (err) {
+    } catch {
       container.textContent = md;
     }
     readerEl.appendChild(container);
@@ -369,6 +322,9 @@ applyEmbedded();
     searchResultsEl.innerHTML = "";
   }
 
+  /**
+   * @param {string} query
+   */
   async function runSearch(query) {
     const q = (query || "").trim();
     if (!q) {
@@ -381,7 +337,7 @@ applyEmbedded();
       const resp = await fetch("/api/search?q=" + encodeURIComponent(q));
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       data = await resp.json();
-    } catch (err) {
+    } catch {
       searchResultsEl.hidden = false;
       searchResultsEl.innerHTML = "";
       searchResultsEl.appendChild(
@@ -392,6 +348,9 @@ applyEmbedded();
     renderSearchResults(data.results || []);
   }
 
+  /**
+   * @param {SearchResultItem[]} results
+   */
   function renderSearchResults(results) {
     searchResultsEl.hidden = false;
     searchResultsEl.innerHTML = "";
@@ -460,7 +419,7 @@ applyEmbedded();
       const resp = await fetch("/api/bundle_health");
       if (!resp.ok) throw new Error("HTTP " + resp.status);
       data = await resp.json();
-    } catch (err) {
+    } catch {
       footer.hidden = true;
       return;
     }
@@ -488,32 +447,6 @@ applyEmbedded();
         })
       );
     }
-  }
-
-  // -- panel parameters / deep-link (osprey addition) ------------------------
-  //
-  // Generalizable panel-parameter shape. Today the only param is the deep-link
-  // target carried in the panel's OWN URL hash (e.g. "#control-system/channel-
-  // finding"). Keeping this as a small structured reader — rather than one-off
-  // hash parsing scattered through boot — is deliberate: when the framework-wide
-  // iframe URL-parameter convention lands (uniform theme / deep-link target /
-  // etc. for every embedded panel), this one function is where it plugs in, with
-  // no change to the navigation code below. Cross-boundary "the web terminal
-  // opens the KNOWLEDGE tab on a concept" stays OUT of scope until then.
-  function readPanelParams() {
-    const hash = (location.hash || "").replace(/^#/, "");
-    const params = { concept: null, structure: false, raw: hash };
-    if (!hash) return params;
-    if (hash === STRUCTURE_MARKER) {
-      params.structure = true;
-      return params;
-    }
-    try {
-      params.concept = decodeURIComponent(hash);
-    } catch (err) {
-      params.concept = hash;
-    }
-    return params;
   }
 
   // -- boot ------------------------------------------------------------------
