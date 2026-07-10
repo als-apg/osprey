@@ -249,7 +249,9 @@ def inject_provider_env(
             _proxy_log.warning(
                 "Proxy env var %s=%r looks like a placeholder copied from .env — "
                 "Claude Code will refuse to start. Fix or unset %s in your .env file.",
-                _pvar, _pval, _pvar,
+                _pvar,
+                _pval,
+                _pvar,
             )
 
     # Read auth secret BEFORE scrubbing — auth_secret_env may be in MANAGED_ENV_VARS
