@@ -1,24 +1,25 @@
-# Osprey Framework
+# Osprey
 
-[![CI](https://github.com/als-apg/osprey/workflows/CI/badge.svg)](https://github.com/als-apg/osprey/actions/workflows/ci.yml)
-[![Documentation](https://readthedocs.org/projects/osprey-framework/badge/?version=latest)](https://als-apg.github.io/osprey/)
-[![codecov](https://codecov.io/gh/als-apg/osprey/branch/main/graph/badge.svg)](https://codecov.io/gh/als-apg/osprey)
-[![PyPI version](https://badge.fury.io/py/osprey-framework.svg)](https://badge.fury.io/py/osprey-framework)
+[![CI](https://github.com/als-apg/osprey/actions/workflows/ci.yml/badge.svg)](https://github.com/als-apg/osprey/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/osprey-framework)](https://pypi.org/project/osprey-framework/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![License](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
+[![License: BSD 3-Clause](https://img.shields.io/badge/License-BSD_3--Clause-blue.svg)](LICENSE.txt)
+[![DOI](https://img.shields.io/badge/DOI-10.1063%2F5.0306302-blue)](https://doi.org/10.1063/5.0306302)
 
-**🎉 Latest Release: v2026.6.2** - Open & self-hosted model support: run the agent on any OpenAI-protocol model as a configuration change, with a new model-capability benchmark; plus facility-timezone unification, ARIEL publishing fixes, and hardening
+**An agentic interface and safety harness for safety-critical control systems.**
 
-> **🚧 Early Access Release**
-> This is an early access version of the Osprey Framework. While the core functionality is stable and ready for experimentation, documentation and APIs may still evolve. We welcome feedback and contributions!
+Osprey addresses control-specific challenges: semantic addressing across large channel
+namespaces, protocol-agnostic integration with control stacks, intelligent logbook search
+across facility electronic logbooks, and mandatory human oversight for every hardware write.
 
-A production-ready framework for deploying agentic AI in large-scale, safety-critical control system environments—particle accelerators, fusion experiments, beamlines, and complex scientific facilities.
+Built for particle accelerators, fusion experiments, beamlines, and large scientific facilities.
 
-**📄 Research**
-This work was presented as a contributed oral presentation at [ICALEPCS'25](https://indico.jacow.org/event/86/overview) and will be featured at the [Machine Learning and the Physical Sciences Workshop](https://ml4physicalsciences.github.io/2025/) at NeurIPS 2025.
+<p align="center">
+  <img src="docs/source/_static/resources/architecture.png" width="100%"
+       alt="Osprey system architecture, from operator to facility, with the safety gate and approval workflow in-line." />
+</p>
 
-
-## 🚀 Quick Start
+## Quick start
 
 ```bash
 # Install the framework as a standalone CLI tool (using uv, recommended)
@@ -31,89 +32,64 @@ cd quickstart
 # If API keys aren't already in your environment, copy and edit .env:
 # cp .env.example .env
 
-# Start a Claude Code agent session
+# Start an agent session
 claude
 ```
 
-For a production project tailored to your detector, beamline, or accelerator
-subsystem, install the guided osprey-build-interview skill and run it from Claude Code:
+For a project tailored to your detector, beamline, or accelerator subsystem, install the
+guided build-interview skill and run it from your agent session:
 
 ```bash
-# Install the /osprey-build-interview skill into ~/.claude/skills/
-uv run osprey skills install osprey-build-interview
+osprey skills install osprey-build-interview
 ```
 
-Then start Claude Code in an empty directory and type `/osprey-build-interview`. The
-skill walks you through a guided conversation, produces a build profile, and
+Then start the agent in an empty directory and type `/osprey-build-interview`. The skill
+walks you through a guided conversation, produces a build profile, and
 `osprey build profile.yml` generates a ready-to-use project.
 
+## Key features
 
-## 📚 Documentation
+- **Agent-driven orchestration** — Skills, MCP tools, and explicit dependency declarations
+  let the Osprey agent decompose operator requests into auditable steps with mandatory
+  approval gates.
+- **Control-system safety** — Pattern detection, channel boundary checking, and mandatory
+  human approval for every hardware write.
+- **Protocol-agnostic integration** — EPICS and Mock connectors ship in-tree; LabVIEW, Tango,
+  and other stacks connect through the
+  [connector interface](https://als-apg.github.io/osprey/how-to/add-connector.html).
+- **Replaceable backends** — The agent harness, the underlying model, and the compute backend
+  are each swappable by configuration, without changing what the operator sees.
+- **Scalable capability management** — Dynamic classification prevents prompt explosion as
+  toolsets grow.
 
-**[📖 Read the Full Documentation →](https://als-apg.github.io/osprey)**
+## Documentation
 
-### 🧪 Testing
+**[Read the full documentation →](https://als-apg.github.io/osprey)**
 
-```bash
-# Run unit tests (fast, no API keys required)
-pytest tests/ --ignore=tests/e2e -v
+Osprey follows CalVer (`vYYYY.M.P`). Public APIs may change between releases — pin a version
+and check the [changelog](CHANGELOG.md) before upgrading.
 
-# Run e2e tests (slow, requires API keys)
-# ⚠️ IMPORTANT: Use 'pytest tests/e2e/' NOT 'pytest -m e2e'
-pytest tests/e2e/ -v
-```
+## Contributing
 
-See [tests/e2e/README.md](tests/e2e/README.md) and the [Contributing Guide](https://als-apg.github.io/osprey/contributing/) for details.
+Contributions are welcome. See the [Contributing Guide](CONTRIBUTING.md) for development
+setup, coding standards, and the pull-request workflow. To report a security issue, please
+follow the [security policy](SECURITY.md) rather than opening a public issue.
 
+## Citation
 
-## Key Features
+If you use Osprey in your research, please cite the
+[paper](https://doi.org/10.1063/5.0306302). GitHub's **Cite this repository** button, in the
+sidebar, exports BibTeX and APA directly.
 
-- **Agent-Driven Orchestration** - Skills, MCP tools, and explicit dependency declarations let the Osprey agent decompose operator requests into auditable steps with mandatory approval gates
-- **Control-System Safety** - Pattern detection, PV boundary checking, and mandatory approval for hardware writes
-- **Protocol-Agnostic Integration** - Seamless connection to EPICS, LabVIEW, Tango, and mock environments
-- **Scalable Capability Management** - Dynamic classification prevents prompt explosion as toolsets grow
-- **Production-Proven** - Deployed at major facilities including LBNL's Advanced Light Source accelerator
+## License
 
----
+BSD 3-Clause — see [LICENSE.txt](LICENSE.txt). Additional notices, including the
+U.S. Department of Energy's retained rights and Berkeley Lab's Enhancements grant, are in
+[NOTICE](NOTICE).
 
-## 📖 Citation
+Copyright (c) 2025, The Regents of the University of California, through Lawrence Berkeley
+National Laboratory (subject to receipt of any required approvals from the U.S. Dept. of
+Energy). All rights reserved.
 
-If you use the Osprey Framework in your research or projects, please cite our [paper](https://doi.org/10.1063/5.0306302):
-
-```bibtex
-@article{10.1063/5.0306302,
-      author = {Hellert, Thorsten and Montenegro, João and Sulc, Antonin},
-      title = {Osprey: Production-ready agentic AI for safety-critical control systems},
-      journal = {APL Machine Learning},
-      volume = {4},
-      number = {1},
-      pages = {016103},
-      year = {2026},
-      month = {02},
-      doi = {10.1063/5.0306302},
-      url = {https://doi.org/10.1063/5.0306302},
-}
-```
-
----
-
-*For detailed installation instructions, tutorials, and API reference, please visit our [complete documentation](https://als-apg.github.io/osprey).*
-
----
-
-**Copyright Notice**
-
-Osprey Framework Copyright (c) 2025, The Regents of the University of California, through Lawrence Berkeley National Laboratory (subject to receipt of any required approvals from the U.S. Dept. of Energy). All rights reserved.
-
-If you have questions about your rights to use or distribute this software,
-please contact Berkeley Lab's Intellectual Property Office at
-IPO@lbl.gov.
-
-NOTICE.  This Software was developed under funding from the U.S. Department
-of Energy and the U.S. Government consequently retains certain rights.  As
-such, the U.S. Government has been granted for itself and others acting on
-its behalf a paid-up, nonexclusive, irrevocable, worldwide license in the
-Software to reproduce, distribute copies to the public, prepare derivative
-works, and perform publicly and display publicly, and to permit others to do so.
-
----
+Questions about your rights to use or distribute this software: contact Berkeley Lab's
+Intellectual Property Office at IPO@lbl.gov.

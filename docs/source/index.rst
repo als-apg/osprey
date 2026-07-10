@@ -1,7 +1,7 @@
 Osprey Framework Documentation
 ================================
 
-**An agentic interface for safety-critical control systems.**
+**An agentic interface and safety harness for safety-critical control systems.**
 
 .. admonition:: New architecture (April 2026)
 
@@ -60,12 +60,6 @@ Documentation Structure
 
       Development setup, coding standards, testing guidelines, and the
       contribution workflow.
-
-
-Proven in Production
---------------------
-
-Osprey is deployed at Lawrence Berkeley National Laboratory's Advanced Light Source, managing tens of thousands of control channels across accelerator operations.
 
 
 .. dropdown:: Citation
