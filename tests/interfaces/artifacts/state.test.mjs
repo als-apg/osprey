@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening): type-clean this test; tracked in eslint.config.js local/no-ts-nocheck allowlist, which may only shrink.
 /**
  * Unit tests for the Artifact Gallery state/fetch/filter layer (state.js).
  *
@@ -21,6 +19,7 @@
 
 import { test, expect, vi, describe, afterEach } from 'vitest';
 
+import { byId } from '../_support/dom.mjs';
 import {
   getArtifacts,
   setArtifacts,
@@ -116,15 +115,16 @@ describe('error banner', () => {
     showErrorBanner('something broke');
     const banner = document.getElementById('error-banner');
     expect(banner).not.toBeNull();
+    if (banner === null) throw new Error('unreachable: asserted not-null above');
     expect(banner.textContent).toBe('something broke');
     expect(banner.style.display).toBe('block');
   });
 
   test('a second showErrorBanner call reuses the existing element', () => {
     showErrorBanner('first message');
-    const first = document.getElementById('error-banner');
+    const first = byId('error-banner');
     showErrorBanner('second message');
-    const second = document.getElementById('error-banner');
+    const second = byId('error-banner');
     expect(second).toBe(first);
     expect(second.textContent).toBe('second message');
   });
@@ -132,9 +132,9 @@ describe('error banner', () => {
   test('hideErrorBanner hides an existing banner without throwing when none exists', () => {
     showErrorBanner('to be hidden');
     hideErrorBanner();
-    expect(document.getElementById('error-banner').style.display).toBe('none');
+    expect(byId('error-banner').style.display).toBe('none');
 
-    document.getElementById('error-banner').remove();
+    byId('error-banner').remove();
     expect(() => hideErrorBanner()).not.toThrow();
   });
 });
@@ -156,7 +156,7 @@ describe('fetchArtifacts', () => {
     expect(getArtifacts()).toEqual([{ id: 'a1' }]);
     expect(onHealthChange).toHaveBeenCalledWith(true);
     expect(onArtifactsUpdated).toHaveBeenCalledTimes(1);
-    expect(document.getElementById('error-banner').style.display).toBe('none');
+    expect(byId('error-banner').style.display).toBe('none');
   });
 
   test('scopes the request to the current session unless showAllSessions is set', async () => {
@@ -188,7 +188,7 @@ describe('fetchArtifacts', () => {
 
     expect(onHealthChange).toHaveBeenCalledWith(false);
     expect(getArtifacts()).toEqual([{ id: 'kept' }]);
-    expect(document.getElementById('error-banner').textContent).toContain('API error (500)');
+    expect(byId('error-banner').textContent).toContain('API error (500)');
   });
 
   test('on a network failure: shows the error banner with the error message and fires onHealthChange(false)', async () => {
@@ -200,7 +200,7 @@ describe('fetchArtifacts', () => {
     await fetchArtifacts({ onHealthChange });
 
     expect(onHealthChange).toHaveBeenCalledWith(false);
-    expect(document.getElementById('error-banner').textContent).toBe('Failed to fetch artifacts: network down');
+    expect(byId('error-banner').textContent).toBe('Failed to fetch artifacts: network down');
   });
 
   test('is safe to call with no callbacks at all', async () => {

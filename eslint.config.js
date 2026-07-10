@@ -61,19 +61,13 @@ export default [
   // (7) Shrink-only allowlist for local/no-ts-nocheck: the test files still
   //     carrying a leading `// @ts-nocheck` because they are not yet type-clean.
   //     This block IS the list — it may ONLY shrink: retrofit a file and delete
-  //     its row, never add one.
+  //     its row, never add one. All rows have been retrofitted; the allowlist
+  //     is now empty. `files: []` is not valid flat-config (ESLint requires a
+  //     non-empty array when the key is present), so `ignores: ['**/*']` is
+  //     used instead to make this block match zero files while keeping the
+  //     block itself in place for a later task to remove.
   {
-    files: [
-      'tests/interfaces/artifacts/logbook.test.mjs',
-      'tests/interfaces/artifacts/preview-content.test.mjs',
-      'tests/interfaces/artifacts/preview.test.mjs',
-      'tests/interfaces/artifacts/print.test.mjs',
-      'tests/interfaces/artifacts/render.test.mjs',
-      'tests/interfaces/artifacts/security_render.test.mjs',
-      'tests/interfaces/artifacts/state.test.mjs',
-      'tests/interfaces/artifacts/timeseries.test.mjs',
-      'tests/interfaces/artifacts/types.test.mjs',
-    ],
+    ignores: ['**/*'],
     rules: { 'local/no-ts-nocheck': 'off' },
   },
 ];
