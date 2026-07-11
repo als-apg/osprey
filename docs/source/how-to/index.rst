@@ -80,6 +80,13 @@ Framework & Infrastructure
       Step-by-step guide to adding a new theme (or a whole new family) that
       passes the generator's validation gates.
 
+   .. grid-item-card:: Author an OSPREY Panel
+      :link: author-a-panel
+      :link-type: doc
+
+      Author and validate a self-contained, themed panel — the head contract,
+      the manifest, the token-only rule, and the panel validator.
+
    .. grid-item-card:: Embedding OSPREY Panels
       :link: embedding-osprey-panels
       :link-type: doc
@@ -180,6 +187,7 @@ Services & Connectors
    theming-interfaces
    osprey-themes
    author-a-theme
+   author-a-panel
    embedding-osprey-panels
    use-cli-chat
    non_interactive_query
