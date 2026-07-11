@@ -62,6 +62,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Security
 
+- Provider isolation now holds against a personal `~/.claude/settings.json`. Claude Code loads settings-file `env` blocks on top of the process environment, so a model or base-URL value in an operator's global (or gitignored local) settings would silently override the project's configured provider. The `osprey claude chat` and Web Terminal launch paths now start Claude Code with `--setting-sources project`, matching the SDK launch paths, so only the project's own `.claude/settings.json` applies. Additionally, `osprey claude chat` refuses to launch when enterprise **managed-policy** settings set a provider variable OSPREY manages — the one scope that outranks the project — naming the variable and file rather than starting against an unconfigured backend.
 - Artifacts gallery: agent-supplied artifact metadata (`category`, `artifact_type`, type-registry labels) is now HTML-escaped at every render sink, the shared `escapeHtml` escapes quotes for attribute contexts, and artifact ids are percent-encoded in URL paths — closing a stored-XSS in the gallery sidebar.
 
 ## [2026.6.3] - 2026-06-29

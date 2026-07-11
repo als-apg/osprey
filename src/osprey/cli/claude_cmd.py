@@ -450,9 +450,30 @@ def chat_claude(project, resume, print_mode, effort, no_pin):
 
     # ── Provider isolation: inject env block + auth, scrub managed vars ──
     from osprey.cli.claude_code_resolver import (
+        detect_managed_policy_conflicts,
         inject_provider_env,
         load_provider_spec,
     )
+
+    # Managed (enterprise) policy settings outrank the process environment AND
+    # the --setting-sources project restriction below, so a policy `env` block
+    # setting a provider variable would silently redirect the agent to a backend
+    # the project did not configure. For a framework driving control systems,
+    # refuse to launch rather than start against the wrong provider.
+    policy_conflicts = detect_managed_policy_conflicts()
+    if policy_conflicts:
+        console.print(
+            "[error]✗ Refusing to launch: managed-policy settings override "
+            "OSPREY-managed provider variables.[/error]"
+        )
+        for var, (value, source) in sorted(policy_conflicts.items()):
+            console.print(f"    {var} = {value}  [dim]({source})[/dim]")
+        console.print(
+            "[dim]Managed policy outranks the project's provider configuration. "
+            "Remove these keys from the policy file or reconcile them with "
+            "config.yml before launching.[/dim]"
+        )
+        raise SystemExit(1)
 
     config_path = project_dir / "config.yml"
     cc_config: dict = {}
@@ -493,8 +514,9 @@ def chat_claude(project, resume, print_mode, effort, no_pin):
     # Build claude CLI args (claude uses cwd as project root — no --project-dir flag).
     # When claude_code.cli_version is set, build_claude_launch_argv() returns an
     # ``npx -y @anthropic-ai/claude-code@<v>`` prefix instead of bare ``claude``
-    # so each project can pin the CLI version (issue #218). ``--no-pin`` opts out.
-    args = ["claude"] if no_pin else build_claude_launch_argv(cc_config)
+    # so each project can pin the CLI version (issue #218). ``--no-pin`` opts out
+    # of the pin but not the ``--setting-sources project`` provider isolation.
+    args = build_claude_launch_argv(cc_config, no_pin=no_pin)
     if resume:
         args.extend(["--resume", resume])
     if print_mode:
