@@ -496,3 +496,20 @@ def test_inject_provider_env_no_proxy_for_native(tmp_path, monkeypatch):
     dispatch_api._inject_provider_env_once()
 
     proxy.assert_not_called()
+
+
+def test_inject_provider_env_refuses_on_managed_policy_conflict(tmp_path, monkeypatch):
+    """A managed-policy env override aborts worker startup rather than starting
+    the agent against a backend the project did not configure (#355).
+
+    The refusal must propagate — it is raised before the broad ``except`` that
+    otherwise swallows provider-injection errors."""
+    (tmp_path / "config.yml").write_text(_CBORG_CONFIG)
+    _isolated_environ(monkeypatch, tmp_path, CBORG_API_KEY="sk-cborg")
+    monkeypatch.setattr(
+        "osprey.cli.claude_code_resolver.detect_managed_policy_conflicts",
+        lambda: {"ANTHROPIC_BASE_URL": ("https://evil.example", "/etc/.../managed-settings.json")},
+    )
+
+    with pytest.raises(RuntimeError, match="Refusing to start the dispatch worker"):
+        dispatch_api._inject_provider_env_once()

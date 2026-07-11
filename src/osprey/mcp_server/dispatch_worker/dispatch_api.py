@@ -125,6 +125,23 @@ def _inject_provider_env_once() -> None:
         logger.warning("No config.yml at %s — skipping provider env injection", config_path)
         return
 
+    # Managed (enterprise) policy settings outrank the process environment and
+    # setting_sources=["project"] alike, so a policy `env` block setting a
+    # provider variable would silently redirect the worker's agent to a backend
+    # the project did not configure. Refuse to start — checked before the try
+    # below so the broad except cannot swallow the refusal.
+    from osprey.cli.claude_code_resolver import (
+        detect_managed_policy_conflicts,
+        format_managed_policy_conflicts,
+    )
+
+    policy_conflicts = detect_managed_policy_conflicts()
+    if policy_conflicts:
+        raise RuntimeError(
+            "Refusing to start the dispatch worker.\n"
+            + format_managed_policy_conflicts(policy_conflicts)
+        )
+
     try:
         from pathlib import Path
 

@@ -15,7 +15,9 @@ design.
 
 from __future__ import annotations
 
+import json
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -117,6 +119,90 @@ MANAGED_ENV_VARS = frozenset(
         "CLAUDE_CODE_SKIP_FOUNDRY_AUTH",
     }
 )
+
+
+def _managed_policy_settings_paths() -> list[Path]:
+    """Return the Claude Code managed-policy settings files for this OS.
+
+    Managed (enterprise) policy settings are the one scope that outranks
+    everything OSPREY can reach — the process environment, the project settings
+    file, and the ``--setting-sources`` restriction alike. The main file plus
+    any fragments in the ``managed-settings.d`` drop-in directory are returned in
+    load order (docs: https://code.claude.com/docs/en/settings).
+    """
+    if sys.platform == "darwin":
+        root = Path("/Library/Application Support/ClaudeCode")
+    elif sys.platform == "win32":
+        root = Path(r"C:\Program Files\ClaudeCode")
+    else:
+        root = Path("/etc/claude-code")
+    paths = [root / "managed-settings.json"]
+    dropin = root / "managed-settings.d"
+    if dropin.is_dir():
+        # Claude Code ignores dropin fragments whose name starts with a dot;
+        # skip them too so OSPREY never refuses on a file Claude never applies.
+        paths.extend(sorted(p for p in dropin.glob("*.json") if not p.name.startswith(".")))
+    return paths
+
+
+def detect_managed_policy_conflicts(
+    paths: list[Path] | None = None,
+) -> dict[str, tuple[str, str]]:
+    """Return managed-policy ``env`` entries that shadow OSPREY-managed vars.
+
+    A managed-policy ``env`` block outranks OSPREY's runtime-injected provider
+    configuration and the ``--setting-sources project`` restriction, so any key
+    it sets that OSPREY also manages silently redirects the agent — the wrong
+    failure mode for a framework driving control systems. Callers refuse to
+    launch on a non-empty result rather than start against a provider the
+    project did not configure.
+
+    Args:
+        paths: Override the managed-policy files to scan (for testing).
+            Defaults to the OS-standard locations.
+
+    Returns:
+        ``{var: (policy_value, source_file)}`` for each :data:`MANAGED_ENV_VARS`
+        key found in a managed-policy ``env`` block. Missing or unreadable files
+        are skipped; a later fragment overriding an earlier one keeps the last
+        source, matching Claude Code's own merge order.
+    """
+    if paths is None:
+        paths = _managed_policy_settings_paths()
+    conflicts: dict[str, tuple[str, str]] = {}
+    for path in paths:
+        try:
+            data = json.loads(Path(path).read_text())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        env = data.get("env")
+        if not isinstance(env, dict):
+            continue
+        for var, value in env.items():
+            if var in MANAGED_ENV_VARS:
+                conflicts[var] = (str(value), str(path))
+    return conflicts
+
+
+def format_managed_policy_conflicts(conflicts: dict[str, tuple[str, str]]) -> str:
+    """Render a launch-refusal message for managed-policy conflicts.
+
+    Shared by every launch path (CLI, Web Terminal, dispatch worker) so the
+    refusal reads identically regardless of where it fires.
+    """
+    lines = [
+        "Managed-policy settings override OSPREY-managed provider variables:",
+    ]
+    for var, (value, source) in sorted(conflicts.items()):
+        lines.append(f"    {var} = {value}  ({source})")
+    lines.append(
+        "Managed policy outranks the project's provider configuration. Remove "
+        "these keys from the policy file or reconcile them with config.yml "
+        "before launching."
+    )
+    return "\n".join(lines)
 
 
 def inject_provider_env(

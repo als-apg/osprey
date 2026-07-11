@@ -410,7 +410,23 @@ def _create_lifespan(
             logger.warning("Claude Code artifact regen on launch failed", exc_info=True)
 
         # ── Provider env injection ──
-        from osprey.cli.claude_code_resolver import inject_provider_env, load_provider_spec
+        from osprey.cli.claude_code_resolver import (
+            detect_managed_policy_conflicts,
+            format_managed_policy_conflicts,
+            inject_provider_env,
+            load_provider_spec,
+        )
+
+        # Managed (enterprise) policy settings outrank the process environment
+        # and --setting-sources project alike, so a policy `env` block setting a
+        # provider variable would silently redirect the operator-facing terminal
+        # to a backend the project did not configure. Refuse to start.
+        _policy_conflicts = detect_managed_policy_conflicts()
+        if _policy_conflicts:
+            raise RuntimeError(
+                "Refusing to start the Web Terminal.\n"
+                + format_managed_policy_conflicts(_policy_conflicts)
+            )
 
         if app.state.config_path:
             _project_dir = Path(app.state.config_path).parent

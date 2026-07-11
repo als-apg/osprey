@@ -14,6 +14,7 @@ from osprey.cli.web_cmd import (
     LOG_FILE,
     PID_FILE,
     _read_pid,
+    _resolve_web_shell_command,
     _wait_for_server,
     _write_pid,
     web,
@@ -23,6 +24,49 @@ from osprey.cli.web_cmd import (
 @pytest.fixture
 def runner():
     return CliRunner()
+
+
+# -- shell-command resolution ---------------------------------------------
+
+
+class TestResolveWebShellCommand:
+    """_resolve_web_shell_command wires build_claude_launch_argv into the PTY."""
+
+    @patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/abs/claude")
+    def test_default_resolves_path_and_keeps_setting_sources(self, mock_resolve):
+        """No pin, no override: bare ``claude`` is resolved to an absolute path
+        AND the launcher's --setting-sources project flag is preserved.
+
+        Regression guard: an earlier ``len(argv) == 1`` heuristic dropped into
+        the pinned branch once the launcher started appending flags, leaving
+        ``claude`` unresolved on a stripped PATH and silently discarding the
+        provider-isolation flag.
+        """
+        cmd = _resolve_web_shell_command({}, None, {})
+
+        assert cmd == ["/abs/claude", "--setting-sources", "project"]
+        mock_resolve.assert_called_once_with("claude")
+
+    @patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/abs/claude")
+    def test_pinned_left_to_path_lookup(self, mock_resolve):
+        """A cli_version pin yields the npx prefix, unresolved, flag preserved."""
+        cmd = _resolve_web_shell_command({"cli_version": "2.1.146"}, None, {})
+
+        assert cmd == [
+            "npx",
+            "-y",
+            "@anthropic-ai/claude-code@2.1.146",
+            "--setting-sources",
+            "project",
+        ]
+        mock_resolve.assert_not_called()
+
+    @patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/abs/custom")
+    def test_shell_override_defeats_pin(self, mock_resolve):
+        cmd = _resolve_web_shell_command({"cli_version": "2.1.146"}, "my-shell", {})
+
+        assert cmd == ["/abs/custom"]
+        mock_resolve.assert_called_once_with("my-shell")
 
 
 # -- help / backward compat ------------------------------------------------

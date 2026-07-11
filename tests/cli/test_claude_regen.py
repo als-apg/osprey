@@ -11,6 +11,7 @@ import os
 import pytest
 import yaml
 
+from osprey.cli.claude_code_resolver import MANAGED_ENV_VARS
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 
@@ -257,6 +258,21 @@ class TestSafetyPreservation:
         settings = json.loads((regen_project / ".claude" / "settings.json").read_text())
         assert "PreToolUse" in settings["hooks"]
         assert "PostToolUse" in settings["hooks"]
+
+    def test_settings_json_has_no_managed_env_block(self, regen_project):
+        """The generated project settings.json must not set any OSPREY-managed
+        provider variable in an ``env`` block.
+
+        Provider vars are injected into the process environment at launch and
+        must stay there: the project settings scope outranks the process
+        environment, so a value baked into settings.json would pin a stale
+        loopback proxy port or a wrong model ID (issue #355). Provider isolation
+        relies on settings.json staying env-block-free.
+        """
+        settings = json.loads((regen_project / ".claude" / "settings.json").read_text())
+        env_block = settings.get("env", {})
+        leaked = MANAGED_ENV_VARS & set(env_block)
+        assert not leaked, f"settings.json leaks managed provider vars: {sorted(leaked)}"
 
     def test_always_denies_dangerous_tools(self, regen_project):
         """After regen, settings.json denies Bash, Edit, WebFetch, WebSearch.
