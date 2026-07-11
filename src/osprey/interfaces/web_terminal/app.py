@@ -25,7 +25,9 @@ from osprey.interfaces.web_terminal.routes import router
 from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Sequence
+
+    from osprey.interfaces.design_system.generator.emit_js import ThemeManifestEntry
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -168,6 +170,94 @@ def _launch_okf_server(app: FastAPI) -> None:
     except Exception:
         logger.warning("Could not auto-launch OKF knowledge panel", exc_info=True)
         app.state.okf_server_url = None
+
+
+def _load_theme_registry() -> tuple[list[ThemeManifestEntry], dict[str, dict[str, str]]]:
+    """Load the baked theme manifest + per-family defaults for SSR resolution.
+
+    Reads the same ``tokens/`` source tree the design-system generator
+    builds from (``generator/build.py::DEFAULT_TOKENS_DIR``) rather than
+    parsing the generated ``tokens.js`` — one source, no risk of drifting
+    from a stale generated artifact. This intentionally skips
+    ``validate.assert_valid``: the checked-in tree is validated by
+    ``build --check`` in CI, and full WCAG/completeness validation isn't
+    needed just to read theme identity for SSR.
+
+    Returns:
+        ``(entries, defaults)`` as produced by
+        :func:`~osprey.interfaces.design_system.generator.emit_js.build_theme_manifest`
+        and :func:`~osprey.interfaces.design_system.generator.emit_js.build_theme_defaults`.
+    """
+    from osprey.interfaces.design_system.generator.build import DEFAULT_TOKENS_DIR
+    from osprey.interfaces.design_system.generator.emit_js import (
+        build_theme_defaults,
+        build_theme_manifest,
+    )
+    from osprey.interfaces.design_system.generator.model import load_token_tree
+
+    tree = load_token_tree(DEFAULT_TOKENS_DIR)
+    entries = build_theme_manifest(tree)
+    defaults = build_theme_defaults(entries)
+    return entries, defaults
+
+
+def resolve_web_theme_id(
+    configured: str,
+    entries: Sequence[ThemeManifestEntry],
+    defaults: dict[str, dict[str, str]],
+) -> str:
+    """Resolve the ``web.theme`` config value into a concrete baked theme id.
+
+    ``configured`` may be:
+
+    - A concrete theme id (e.g. ``"high-contrast-light"``) — used as-is.
+      This is how an operator pins a specific mode instead of the
+      family's dark default.
+    - A theme *family* name (e.g. ``"osprey"``, ``"high-contrast"``) —
+      resolved to that family's **dark** id, the canonical SSR default.
+    - Anything else (unknown/misspelled) — logged as a warning and
+      resolved to the ``osprey`` family's dark id.
+
+    Mirrors the warn+fallback shape of
+    :func:`osprey.cli.styles.load_theme_from_config`: never raises.
+
+    Args:
+        configured: The raw ``web.theme`` config value.
+        entries: The theme manifest (see
+            :func:`~osprey.interfaces.design_system.generator.emit_js.build_theme_manifest`).
+        defaults: The per-family ``{family: {mode: id}}`` map (see
+            :func:`~osprey.interfaces.design_system.generator.emit_js.build_theme_defaults`).
+
+    Returns:
+        A concrete theme id present in ``entries`` — the pre-paint
+        ``theme-boot.js`` rung (Task 1.8) only honors a server-rendered
+        ``data-theme`` that is a real baked id, never a family name or
+        ``"auto"``.
+    """
+    valid_ids = {entry.id for entry in entries}
+    if configured in valid_ids:
+        return configured
+    if configured in defaults:
+        return defaults[configured]["dark"]
+
+    logger.warning(
+        "Unknown web.theme %r (not a theme id or family); falling back to "
+        "osprey's dark theme. Valid ids: %s; valid families: %s",
+        configured,
+        sorted(valid_ids),
+        sorted(defaults),
+    )
+    osprey_dark = defaults.get("osprey", {}).get("dark")
+    if osprey_dark is not None:
+        return osprey_dark
+    # Degenerate case (no built-in ``osprey`` family): still return a real
+    # baked dark id — ``build_theme_defaults`` guarantees each family has a
+    # dark member — rather than an unverified literal, so Task 1.8's boot
+    # rung honors it instead of silently dropping to auto (FOUC).
+    for family_modes in defaults.values():
+        if "dark" in family_modes:
+            return family_modes["dark"]
+    return next(iter(sorted(valid_ids)), "dark")
 
 
 def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
@@ -389,6 +479,27 @@ def _create_lifespan(
                 break
         app.state.config_path = resolved_config_path
 
+        # ── Web theme (SSR no-FOUC attribute, Task 1.10) ──
+        # Resolved once at startup and server-rendered onto <html data-theme>
+        # so the generated theme-boot.js first-paints with no flash (Task
+        # 1.8). Fails open on any load error — a missing/broken theme
+        # registry must never block server startup.
+        try:
+            from osprey.utils.config import get_config_value
+
+            configured_web_theme = get_config_value("web.theme", "osprey")
+            theme_entries, theme_defaults = _load_theme_registry()
+            app.state.web_theme_id = resolve_web_theme_id(
+                configured_web_theme, theme_entries, theme_defaults
+            )
+        except Exception:  # noqa: BLE001 — never let config/theme-registry load block startup
+            logger.warning(
+                "Could not resolve web.theme (config or theme-registry load failed); "
+                "server-rendering fallback theme 'dark'",
+                exc_info=True,
+            )
+            app.state.web_theme_id = "dark"
+
         # ── Regenerate stale Claude Code artifacts on launch ──
         # config.yml is a build-time input: safety-critical fields (e.g. the
         # writes_enabled kill-switch baked into settings.json's permissions.deny)
@@ -547,7 +658,10 @@ def create_app(
     @app.get("/")
     async def root(request: Request):
         app_name = getattr(request.app.state, "app_name", "")
-        return templates.TemplateResponse(request, "index.html", {"app_name": app_name})
+        web_theme_id = getattr(request.app.state, "web_theme_id", "dark")
+        return templates.TemplateResponse(
+            request, "index.html", {"app_name": app_name, "web_theme_id": web_theme_id}
+        )
 
     configure_interface_app(app, static_dir=STATIC_DIR)
 
