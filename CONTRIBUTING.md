@@ -136,14 +136,11 @@ directive is **machine-banned**: the custom `local/no-ts-nocheck` rule fails
 `npm run lint` on any `// @ts-nocheck` line comment — anywhere in the file, with or
 without a space after `//` — across interface and test JS. Type-clean the file instead.
 
-**One shrink-only ratchet** grandfathers code not yet retrofitted. It may **only
-shrink** — retrofit a file and delete its row; never add one. **New or edited code
-gets no exemption:** the house rules (`no-var`, `prefer-const`, `eqeqeq`, the 450-line
-`max-lines` cap, `no-unused-vars`) run at `error` across all interface and test JS, so
-a fresh violation fails CI immediately.
-
-- **`local/no-ts-nocheck` allowlist** — the test files not yet type-clean are named in
-  a shrink-only `off` block in `eslint.config.js`. That block is the authoritative list.
+**No file-scoped exemptions remain.** Every interface and test JS file is fully
+type-checked and lint-clean; `eslint.config.js` carries no per-file `off` blocks.
+The house rules (`no-var`, `prefer-const`, `eqeqeq`, the 450-line `max-lines` cap,
+`no-unused-vars`, and `local/no-ts-nocheck`) run at `error` across all interface and
+test JS, so any fresh violation fails CI immediately.
 
 A localized one-off residual uses an inline `// eslint-disable-next-line <rule> --
 <reason>` at the site instead of a file-wide exemption.
