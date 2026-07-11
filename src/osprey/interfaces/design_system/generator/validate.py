@@ -21,10 +21,21 @@ system's actual contract is enforced:
   namespace (``wt-crt``, ``art-violet``, ...) must not collide with a
   semantic token group name (``bg``, ``text``, ...).
 - **Theme metadata** — every theme document's root ``$extensions`` must
-  declare ``mode`` as ``"dark"`` or ``"light"`` (plus ``id``/``label``).
-- **WCAG contrast gates** — see :data:`WCAG_GATES`; the relative-luminance
-  and contrast-ratio functions here are also reused by the contract test
-  suite (``tests/interfaces/design_system/test_contract.py``).
+  declare ``mode`` as ``"dark"`` or ``"light"`` (plus non-empty string
+  ``id``/``label``/``family``). ``family`` groups a ``{light, dark}`` pair
+  (e.g. the built-in ``osprey`` family, or a future ``high-contrast``
+  family) and selects which :func:`gates_for_family` tuple applies.
+- **WCAG contrast gates** — see :data:`WCAG_GATES` (AA, the default/
+  ``osprey``-family gates) and :data:`WCAG_GATES_AAA` (the ``high-contrast``
+  family's gates), selected per theme by :func:`gates_for_family`; the
+  relative-luminance and contrast-ratio functions here are also reused by
+  the contract test suite (``tests/interfaces/design_system/test_contract.py``).
+- **Interface mode-group inheritance** — an interface extension document
+  (``interfaces/*.json``) may opt a theme stem out of authoring its own
+  mode group via a root ``$extensions.inherits`` map (see
+  :func:`check_interface_mode_completeness`), so a purely decorative theme
+  variant (e.g. a ``high-contrast-dark`` twin of ``dark``) doesn't force
+  every interface to duplicate an identical group.
 
 :func:`validate_token_tree` runs every check and returns *all* failures
 (never stops at the first), each carrying its source file and token
@@ -48,6 +59,8 @@ from osprey.interfaces.design_system.generator.model import (
 __all__ = [
     "VALID_THEME_MODES",
     "WCAG_GATES",
+    "WCAG_GATES_AAA",
+    "gates_for_family",
     "ValidationRule",
     "ValidationError",
     "TokenValidationError",
@@ -286,16 +299,50 @@ class WcagGate:
 
 
 #: Required contrast pairs, evaluated against ``bg.primary`` in every
-#: theme, per the proposal's WCAG gates: text.primary/secondary >= 4.5:1
-#: (body text), text.muted >= 3:1 (large/secondary text), accent.base
-#: >= 3:1 (non-text UI). Never weakened to fit a value — a failing value
-#: gets nudged in the token source instead.
+#: theme of the default/``osprey`` family (see :func:`gates_for_family`),
+#: per the proposal's WCAG AA gates: text.primary/secondary >= 4.5:1 (body
+#: text), text.muted >= 3:1 (large/secondary text), accent.base >= 3:1
+#: (non-text UI). Never weakened to fit a value — a failing value gets
+#: nudged in the token source instead.
 WCAG_GATES: tuple[WcagGate, ...] = (
     WcagGate(foreground="text.primary", background="bg.primary", minimum=4.5),
     WcagGate(foreground="text.secondary", background="bg.primary", minimum=4.5),
     WcagGate(foreground="text.muted", background="bg.primary", minimum=3.0),
     WcagGate(foreground="accent.base", background="bg.primary", minimum=3.0),
 )
+
+#: Required contrast pairs for the ``high-contrast`` theme family (WCAG
+#: AAA), evaluated the same way as :data:`WCAG_GATES`: text.primary/
+#: secondary >= 7:1 (AAA normal/body text — both are treated as body-weight
+#: here, not the "large text" AAA exception, which permits 4.5:1),
+#: text.muted/accent.base >= 4.5:1 (AAA large-scale text / non-text UI).
+WCAG_GATES_AAA: tuple[WcagGate, ...] = (
+    WcagGate(foreground="text.primary", background="bg.primary", minimum=7.0),
+    WcagGate(foreground="text.secondary", background="bg.primary", minimum=7.0),
+    WcagGate(foreground="text.muted", background="bg.primary", minimum=4.5),
+    WcagGate(foreground="accent.base", background="bg.primary", minimum=4.5),
+)
+
+#: Theme ``$extensions.family`` to its required WCAG gate tuple.
+_WCAG_GATES_BY_FAMILY: dict[str, tuple[WcagGate, ...]] = {
+    "osprey": WCAG_GATES,
+    "high-contrast": WCAG_GATES_AAA,
+}
+
+
+def gates_for_family(family: str | None) -> tuple[WcagGate, ...]:
+    """Select the WCAG gate tuple required for a theme's ``$extensions.family``.
+
+    Args:
+        family: The theme's ``$extensions.family`` value, or ``None``.
+
+    Returns:
+        :data:`WCAG_GATES_AAA` for the ``"high-contrast"`` family;
+        :data:`WCAG_GATES` (AA) for ``"osprey"`` and for every other value,
+        including ``None`` and unrecognized families. Fail-closed: an
+        unspecified or unknown family never silently loosens below AA.
+    """
+    return _WCAG_GATES_BY_FAMILY.get(family, WCAG_GATES) if family else WCAG_GATES
 
 
 # --- Tree traversal helpers -----------------------------------------------------
@@ -483,9 +530,12 @@ def check_theme_completeness(tree: TokenTree) -> list[ValidationError]:
 def check_theme_metadata(tree: TokenTree) -> list[ValidationError]:
     """Require every theme document's ``$extensions`` to be well-formed.
 
-    ``mode`` must be present and equal to ``"dark"`` or ``"light"``; ``id``
-    and ``label`` must be present as non-empty strings (required per the
-    design spec's theme registry metadata, consumed by the JS emitters).
+    ``mode`` must be present and equal to ``"dark"`` or ``"light"``; ``id``,
+    ``label``, and ``family`` must be present as non-empty strings.
+    ``id``/``label`` are required per the design spec's theme registry
+    metadata, consumed by the JS emitters; ``family`` groups a
+    ``{light, dark}`` pair (e.g. the built-in ``osprey`` family) and
+    selects the theme's WCAG gate tuple (see :func:`gates_for_family`).
 
     Args:
         tree: The loaded token tree.
@@ -517,7 +567,7 @@ def check_theme_metadata(tree: TokenTree) -> list[ValidationError]:
                 )
             )
 
-        for field in ("id", "label"):
+        for field in ("id", "label", "family"):
             value = metadata.get(field)
             if not isinstance(value, str) or not value:
                 errors.append(
@@ -531,6 +581,85 @@ def check_theme_metadata(tree: TokenTree) -> list[ValidationError]:
     return errors
 
 
+def _interface_inherits(
+    tree: TokenTree,
+    stem: str,
+    observed_modes: set[str],
+    source_file: Path,
+    errors: list[ValidationError],
+) -> dict[str, str]:
+    """Read and fail-closed-validate an interface doc's ``$extensions.inherits`` opt-out map.
+
+    ``$extensions.inherits`` maps an opted-out theme stem (typically a
+    purely decorative variant, e.g. a ``high-contrast-dark`` twin of
+    ``dark``) to the base theme stem whose extension group it borrows
+    instead of requiring its own group to be authored, e.g.
+    ``{"$extensions": {"inherits": {"high-contrast-dark": "dark"}}}``. Only
+    entries whose base is itself a mode group this same document actually
+    defines are honored — a mapping is not itself a substitute for the
+    tokens existing somewhere, so a base that isn't observed (e.g. a typo)
+    is a validation error rather than a silent no-op, per this module's
+    fail-closed convention.
+
+    Args:
+        tree: The loaded token tree.
+        stem: The interface document's file stem.
+        observed_modes: The mode groups this document actually defines
+            (the keys of the per-mode token-path partition).
+        source_file: The document's source file, for error attribution.
+        errors: Appended to in place with any ``$extensions.inherits``
+            validation failures.
+
+    Returns:
+        A mapping from opted-out mode to the base mode it borrows, for
+        every entry that passed validation.
+    """
+    raw = tree.interface_metadata.get(stem, {}).get("inherits", {})
+    if not raw:
+        return {}
+    if not isinstance(raw, dict):
+        errors.append(
+            ValidationError(
+                rule=ValidationRule.MISSING_MODE_GROUP,
+                message=f"interface {stem!r} $extensions.inherits must be an object",
+                source_file=source_file,
+                path="",
+            )
+        )
+        return {}
+
+    valid: dict[str, str] = {}
+    for mode, base in raw.items():
+        if not isinstance(mode, str) or not isinstance(base, str):
+            errors.append(
+                ValidationError(
+                    rule=ValidationRule.MISSING_MODE_GROUP,
+                    message=(
+                        f"interface {stem!r} $extensions.inherits entry {mode!r}: {base!r} "
+                        "must map a string mode to a string base mode"
+                    ),
+                    source_file=source_file,
+                    path=str(mode),
+                )
+            )
+            continue
+        if base not in observed_modes:
+            errors.append(
+                ValidationError(
+                    rule=ValidationRule.MISSING_MODE_GROUP,
+                    message=(
+                        f"interface {stem!r} $extensions.inherits maps {mode!r} to "
+                        f"{base!r}, which this document does not itself define a group for"
+                    ),
+                    source_file=source_file,
+                    path=mode,
+                )
+            )
+            continue
+        valid[mode] = base
+    return valid
+
+
 def check_interface_mode_completeness(tree: TokenTree) -> list[ValidationError]:
     """Require each interface extension document to cover every theme's mode.
 
@@ -540,6 +669,15 @@ def check_interface_mode_completeness(tree: TokenTree) -> list[ValidationError]:
     exactly one such group per theme stem in ``tree.themes``, and every
     group must define the identical set of (mode-prefix-stripped)
     dot-paths.
+
+    A document may opt a stem out of authoring its own group by declaring
+    it in its root ``$extensions.inherits`` map (see
+    :func:`_interface_inherits`) — the opted-out stem then inherits
+    (borrows) the base stem's group instead, e.g. so a purely decorative
+    ``high-contrast-dark`` twin of ``dark`` doesn't force every interface
+    to duplicate an identical group. A stem that is neither authored nor
+    validly opted out is still a hard error — opting out one stem never
+    excuses any other missing stem.
 
     Args:
         tree: The loaded token tree.
@@ -558,8 +696,11 @@ def check_interface_mode_completeness(tree: TokenTree) -> list[ValidationError]:
             observed.setdefault(mode, set()).add(rest)
 
         source_file = _document_source_file(stem, tokens)
+        inherits = _interface_inherits(tree, stem, set(observed), source_file, errors)
 
         for mode in sorted(expected_modes - observed.keys()):
+            if mode in inherits:
+                continue
             errors.append(
                 ValidationError(
                     rule=ValidationRule.MISSING_MODE_GROUP,
@@ -636,7 +777,13 @@ def _gate_color(token: ResolvedToken | None) -> RGBColor | None:
 
 
 def check_wcag_gates(tree: TokenTree) -> list[ValidationError]:
-    """Require every :data:`WCAG_GATES` pair to meet its contrast minimum, per theme.
+    """Require every applicable WCAG gate to meet its contrast minimum, per theme.
+
+    The gate tuple applied to each theme is selected by its
+    ``$extensions.family`` via :func:`gates_for_family` — AAA
+    (:data:`WCAG_GATES_AAA`) for the ``high-contrast`` family, AA
+    (:data:`WCAG_GATES`) for ``osprey`` and for every other/unspecified
+    family (fail-closed: nothing silently loosens below AA).
 
     Gates whose tokens are missing (already reported by
     :func:`check_theme_completeness`) or whose values don't parse as
@@ -651,7 +798,9 @@ def check_wcag_gates(tree: TokenTree) -> list[ValidationError]:
     """
     errors: list[ValidationError] = []
     for stem, tokens in tree.themes.items():
-        for gate in WCAG_GATES:
+        family = tree.theme_metadata.get(stem, {}).get("family")
+        gates = gates_for_family(family if isinstance(family, str) else None)
+        for gate in gates:
             fg_token = tokens.get(gate.foreground)
             bg_token = tokens.get(gate.background)
             fg_color = _gate_color(fg_token)
