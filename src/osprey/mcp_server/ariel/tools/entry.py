@@ -43,7 +43,7 @@ async def _resolve_artifacts(artifact_ids: list[str]) -> list[str]:
     """
     import tempfile
 
-    from osprey.mcp_server.ariel.converters import get_converter
+    from osprey.interfaces.artifacts.resolve import resolve_artifact_path
     from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()
@@ -51,17 +51,7 @@ async def _resolve_artifacts(artifact_ids: list[str]) -> list[str]:
     output_dir = Path(tempfile.mkdtemp(prefix="ariel_convert_"))
 
     for aid in artifact_ids:
-        entry = store.get_entry(aid)
-        if entry is None:
-            raise ValueError(f"Artifact '{aid}' not found.")
-
-        file_path = store.get_file_path(aid)
-        if file_path is None or not file_path.exists():
-            raise ValueError(f"Artifact file not found on disk for '{aid}'.")
-
-        converter = get_converter(entry.mime_type)
-        result_path = await converter(file_path, output_dir)
-        resolved.append(str(result_path))
+        resolved.append(await resolve_artifact_path(store, aid, output_dir))
 
     return resolved
 
