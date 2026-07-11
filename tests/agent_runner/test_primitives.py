@@ -122,8 +122,13 @@ def test_unresolvable_provider_raises(tmp_path: Path) -> None:
 
 
 def test_sdk_env_bypasses_nested_guard_without_project() -> None:
-    """sdk_env() with no project returns only the CLAUDECODE bypass."""
-    assert sdk_env() == {"CLAUDECODE": ""}
+    """sdk_env() with no project returns the CLAUDECODE bypass and the
+    background-tasks disable flag (so subagent delegation runs synchronously
+    and its results are drained in-turn rather than backgrounded)."""
+    assert sdk_env() == {
+        "CLAUDECODE": "",
+        "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+    }
 
 
 def test_sdk_env_merges_provider_block(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
