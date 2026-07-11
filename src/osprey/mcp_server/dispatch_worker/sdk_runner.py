@@ -101,6 +101,7 @@ async def run_dispatch(
     max_turns: int = 25,
     event_queue: asyncio.Queue | None = None,
     denied_tools: Iterable[str] = (),
+    run_id: str | None = None,
 ) -> dict[str, Any]:
     """Run a prompt headlessly via the Claude Agent SDK.
 
@@ -111,6 +112,9 @@ async def run_dispatch(
         denied_tools: Hard denylist enforced at the permission layer regardless
             of ``allowed_tools`` (defense-in-depth; the worker threads its
             ``DENIED_TOOLS`` here). Entries ending in ``*`` match by prefix.
+        run_id: Dispatch run id. Exported to the agent (and the MCP tool
+            subprocesses it spawns) as ``OSPREY_DISPATCH_RUN_ID`` so every
+            artifact saved during the run is attributed to it.
 
     Returns:
         dict with keys:
@@ -170,6 +174,14 @@ async def run_dispatch(
     # hook aggregation is not deny-dominates, so an allow would override the
     # trigger-allowlist hook below).
     sdk_env["OSPREY_DISPATCH_RUN"] = "1"
+
+    # Attribute every artifact this run saves to the run, so the worker can
+    # later report and serve exactly this run's plots. NOT OSPREY_SESSION_ID:
+    # that variable also relocates the artifact store into
+    # _agent_data/sessions/<id>/ (resolve_agent_data_root), which would move
+    # dispatch plots off the shared root the gallery reads.
+    if run_id:
+        sdk_env["OSPREY_DISPATCH_RUN_ID"] = run_id
 
     # Declared subagent tool surfaces from the provisioned .claude/agents/ —
     # each subagent is held to exactly its declared tools (web-terminal parity)
