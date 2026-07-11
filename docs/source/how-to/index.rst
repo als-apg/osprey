@@ -63,8 +63,22 @@ Framework & Infrastructure
       :link: theming-interfaces
       :link-type: doc
 
-      Add a new theme or wire a new interface into the shared design-token
-      system — token architecture, the generator CLI, and consuming tokens.
+      Wire a new interface into the shared design-token system — token
+      architecture, the generator CLI, and consuming tokens.
+
+   .. grid-item-card:: OSPREY Themes
+      :link: osprey-themes
+      :link-type: doc
+
+      The theme contract — the semantic key set, ``$extensions`` metadata,
+      the theme-family model, WCAG gates, and the ``web.theme`` config key.
+
+   .. grid-item-card:: Author Your Own OSPREY Theme
+      :link: author-a-theme
+      :link-type: doc
+
+      Step-by-step guide to adding a new theme (or a whole new family) that
+      passes the generator's validation gates.
 
    .. grid-item-card:: Embedding OSPREY Panels
       :link: embedding-osprey-panels
@@ -164,6 +178,8 @@ Services & Connectors
    add-mcp-server
    use-web-terminal
    theming-interfaces
+   osprey-themes
+   author-a-theme
    embedding-osprey-panels
    use-cli-chat
    non_interactive_query
