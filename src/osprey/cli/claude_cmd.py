@@ -451,6 +451,7 @@ def chat_claude(project, resume, print_mode, effort, no_pin):
     # ── Provider isolation: inject env block + auth, scrub managed vars ──
     from osprey.cli.claude_code_resolver import (
         detect_managed_policy_conflicts,
+        format_managed_policy_conflicts,
         inject_provider_env,
         load_provider_spec,
     )
@@ -463,15 +464,7 @@ def chat_claude(project, resume, print_mode, effort, no_pin):
     policy_conflicts = detect_managed_policy_conflicts()
     if policy_conflicts:
         console.print(
-            "[error]✗ Refusing to launch: managed-policy settings override "
-            "OSPREY-managed provider variables.[/error]"
-        )
-        for var, (value, source) in sorted(policy_conflicts.items()):
-            console.print(f"    {var} = {value}  [dim]({source})[/dim]")
-        console.print(
-            "[dim]Managed policy outranks the project's provider configuration. "
-            "Remove these keys from the policy file or reconcile them with "
-            "config.yml before launching.[/dim]"
+            f"[error]✗ Refusing to launch.\n{format_managed_policy_conflicts(policy_conflicts)}[/error]"
         )
         raise SystemExit(1)
 

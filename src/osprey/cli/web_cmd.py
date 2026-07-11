@@ -104,6 +104,37 @@ def _wait_for_server(host: str, port: int, proc: subprocess.Popen, timeout: floa
     return False
 
 
+def _resolve_web_shell_command(
+    cc_config: dict, shell_override: str | None, wt_config: dict
+) -> list[str]:
+    """Resolve the argv the Web Terminal spawns in each PTY.
+
+    Precedence (highest first):
+      1. ``--shell`` CLI flag (user-explicit; defeats the pin)
+      2. ``web_terminal.shell`` config field (also defeats the pin)
+      3. ``claude_code.cli_version`` pin via ``build_claude_launch_argv()``
+      4. bare ``claude`` (current default)
+
+    For the default (bare ``claude``) case, ``claude`` is resolved to an
+    absolute path so a stripped PATH (systemd unit / container entrypoint) still
+    finds it, while the launcher's appended flags — notably
+    ``--setting-sources project`` — are preserved. A pinned ``npx …`` prefix is
+    left to PATH lookup unchanged. Always returns ``list[str]`` so downstream
+    consumers can unpack safely.
+    """
+    from osprey.utils.claude_launcher import build_claude_launch_argv
+    from osprey.utils.shell_resolver import resolve_shell_command
+
+    if shell_override:
+        return [resolve_shell_command(shell_override)]
+    if wt_config.get("shell"):
+        return [resolve_shell_command(wt_config["shell"])]
+    argv = build_claude_launch_argv(cc_config)
+    if argv[0] == "claude":
+        return [resolve_shell_command(argv[0]), *argv[1:]]
+    return argv  # pinned ["npx", "-y", ...] — leave to PATH lookup
+
+
 # -- CLI -------------------------------------------------------------------
 
 
@@ -157,27 +188,9 @@ def web(
     host = host or wt_config.get("host", "127.0.0.1")
     port = port or wt_config.get("port", 8087)
 
-    from osprey.utils.claude_launcher import build_claude_launch_argv
-    from osprey.utils.shell_resolver import resolve_shell_command
-
-    # Shell-command precedence (highest first):
-    #   1. --shell CLI flag (user-explicit; defeats the pin)
-    #   2. web_terminal.shell config field (also defeats the pin)
-    #   3. claude_code.cli_version pin via build_claude_launch_argv()
-    #   4. bare ["claude"] (current default)
-    # Always normalized to list[str] so downstream consumers can unpack safely.
     user_shell_override = shell  # keep raw click value for the detached re-spawn
     try:
-        if user_shell_override:
-            shell_command: list[str] = [resolve_shell_command(user_shell_override)]
-        elif wt_config.get("shell"):
-            shell_command = [resolve_shell_command(wt_config["shell"])]
-        else:
-            argv = build_claude_launch_argv(cc_config)
-            if len(argv) == 1:  # no-pin: preserve absolute-path parity with today
-                shell_command = [resolve_shell_command(argv[0])]
-            else:
-                shell_command = argv  # pinned ["npx", "-y", ...] — leave to PATH lookup
+        shell_command = _resolve_web_shell_command(cc_config, user_shell_override, wt_config)
     except FileNotFoundError as e:
         click.echo(f"ERROR: {e}", err=True)
         raise SystemExit(1) from e

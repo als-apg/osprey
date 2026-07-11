@@ -139,7 +139,9 @@ def _managed_policy_settings_paths() -> list[Path]:
     paths = [root / "managed-settings.json"]
     dropin = root / "managed-settings.d"
     if dropin.is_dir():
-        paths.extend(sorted(dropin.glob("*.json")))
+        # Claude Code ignores dropin fragments whose name starts with a dot;
+        # skip them too so OSPREY never refuses on a file Claude never applies.
+        paths.extend(sorted(p for p in dropin.glob("*.json") if not p.name.startswith(".")))
     return paths
 
 
@@ -182,6 +184,25 @@ def detect_managed_policy_conflicts(
             if var in MANAGED_ENV_VARS:
                 conflicts[var] = (str(value), str(path))
     return conflicts
+
+
+def format_managed_policy_conflicts(conflicts: dict[str, tuple[str, str]]) -> str:
+    """Render a launch-refusal message for managed-policy conflicts.
+
+    Shared by every launch path (CLI, Web Terminal, dispatch worker) so the
+    refusal reads identically regardless of where it fires.
+    """
+    lines = [
+        "Managed-policy settings override OSPREY-managed provider variables:",
+    ]
+    for var, (value, source) in sorted(conflicts.items()):
+        lines.append(f"    {var} = {value}  ({source})")
+    lines.append(
+        "Managed policy outranks the project's provider configuration. Remove "
+        "these keys from the policy file or reconcile them with config.yml "
+        "before launching."
+    )
+    return "\n".join(lines)
 
 
 def inject_provider_env(
