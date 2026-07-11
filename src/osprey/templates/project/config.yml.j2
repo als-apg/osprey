@@ -191,6 +191,19 @@ claude_code:
   #   logbook-deep-research: sonnet
 
 # ============================================================
+# WEB TERMINAL CONFIGURATION
+# ============================================================
+# Browser-based Web Terminal UI. Independent of the CLI's `cli.theme` below
+# (console-only) — the two never share a value.
+
+web:
+  # Default web UI theme: a theme FAMILY (e.g. "osprey", "high-contrast") or
+  # a concrete theme id (e.g. "high-contrast-light") to pin a specific mode.
+  # A user's in-browser choice (switcher selection, ?theme=, localStorage)
+  # always overrides this default. An unknown value falls back to "osprey".
+  theme: osprey
+
+# ============================================================
 # CLI CONFIGURATION
 # ============================================================
 # Customize the command-line interface appearance
