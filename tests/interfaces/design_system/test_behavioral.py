@@ -304,7 +304,7 @@ def test_toggle_flips_theme_and_persists_across_reload(tmp_path, chromium_browse
         _dismiss_welcome_modal(page)
         assert page.evaluate("document.documentElement.getAttribute('data-theme')") == "dark"
 
-        page.click("#theme-toggle")
+        page.click("osprey-theme-switcher .theme-switcher-mode")
         expect(page.locator("html")).to_have_attribute("data-theme", "light", timeout=5_000)
 
         page.reload(wait_until="domcontentloaded")
@@ -349,7 +349,7 @@ def test_auto_follows_os_preference_until_explicit_choice(tmp_path, chromium_bro
         # Make an explicit choice; theme-manager no longer treats the
         # preference as 'auto', so a subsequent OS flip must be ignored.
         _dismiss_welcome_modal(page)
-        page.click("#theme-toggle")
+        page.click("osprey-theme-switcher .theme-switcher-mode")
         explicit_theme = page.evaluate("document.documentElement.getAttribute('data-theme')")
         assert explicit_theme in ("dark", "light")
 
@@ -407,7 +407,7 @@ def test_broadcast_reaches_embedded_iframe(tmp_path, chromium_browser):
                 == "dark"
             )
 
-            page.click("#theme-toggle")
+            page.click("osprey-theme-switcher .theme-switcher-mode")
             follower_frame.wait_for_function(
                 "document.documentElement.getAttribute('data-theme') === 'light'", timeout=5_000
             )
@@ -467,7 +467,7 @@ def test_hidden_iframe_activation_repair(tmp_path, chromium_browser):
             )
 
             # Change theme while the panel is hidden.
-            page.click("#theme-toggle")
+            page.click("osprey-theme-switcher .theme-switcher-mode")
             expect(page.locator("html")).to_have_attribute("data-theme", "light", timeout=5_000)
 
             # Reactivate — activateTab() must resend the theme unconditionally.
@@ -527,7 +527,7 @@ def test_xterm_palette_switches_on_toggle(tmp_path, chromium_browser):
         dark_bg = _viewport_bg()
         assert dark_bg, "xterm viewport has no background color"
 
-        page.click("#theme-toggle")
+        page.click("osprey-theme-switcher .theme-switcher-mode")
         expect(page.locator("html")).to_have_attribute("data-theme", "light", timeout=5_000)
         # xterm re-renders asynchronously on the theme-change subscribe fire.
         page.wait_for_function(
@@ -616,7 +616,7 @@ def test_tuning_plot_retheme_on_toggle(tmp_path, chromium_browser):
             )
 
             # Toggle the hub to light; the plot must re-render live via subscribe().
-            page.click("#theme-toggle")
+            page.click("osprey-theme-switcher .theme-switcher-mode")
             tuning_frame.wait_for_function(
                 "document.documentElement.getAttribute('data-theme') === 'light'", timeout=5_000
             )
