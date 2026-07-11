@@ -479,9 +479,7 @@ class TestProxyEnvWarning:
         environ = {"ANTHROPIC_API_KEY": "secret-123"}
 
         # Patch dotenv_values so we don't need a real .env file on disk
-        with patch(
-            "dotenv.dotenv_values", return_value={var: "http-proxy"}
-        ):
+        with patch("dotenv.dotenv_values", return_value={var: "http-proxy"}):
             with caplog.at_level(logging.WARNING, logger="osprey.inject_provider_env"):
                 inject_provider_env(environ, spec, project_dir=tmp_path)
 
