@@ -7,6 +7,7 @@ and chat command env scrubbing.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from unittest.mock import patch
 
@@ -447,3 +448,75 @@ class TestChatProviderIsolation:
         assert "Refusing to launch" in result.output
         assert "ANTHROPIC_BASE_URL" in result.output
         mock_run.assert_not_called()
+
+
+# ── Proxy env var warning ────────────────────────────────────────
+
+
+class TestProxyEnvWarning:
+    """inject_provider_env warns when a .env-sourced proxy var looks like a placeholder.
+
+    Background: ``inject_provider_env`` loads every key from the project's ``.env``
+    into the process environment before launching Claude Code.  If a user copies
+    ``env.example`` to ``.env`` without editing it, placeholder values like
+    ``HTTP_PROXY=http-proxy`` land in the environment verbatim.  Claude Code then
+    refuses to start with "Invalid proxy URL in HTTP_PROXY".
+
+    The warning fires at the inject site — before any launch path is taken —
+    so the cli, web terminal, and dispatch worker all surface the same message.
+    The value is intentionally left in the environment: Claude Code's own error
+    is precise and actionable, and blanking the variable would hide the problem
+    from other tools (httpx, requests, DuckDB) that also read proxy env vars.
+    """
+
+    @pytest.mark.parametrize("var", ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"])
+    def test_warns_on_placeholder_proxy_value(self, tmp_path, var, caplog):
+        # Simulate a .env file that has a placeholder proxy value (e.g. from cp env.example .env)
+        env_file = tmp_path / ".env"
+        env_file.write_text(f"{var}=http-proxy\n")
+
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123"}
+
+        # Patch dotenv_values so we don't need a real .env file on disk
+        with patch(
+            "dotenv.dotenv_values", return_value={var: "http-proxy"}
+        ):
+            with caplog.at_level(logging.WARNING, logger="osprey.inject_provider_env"):
+                inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        # A warning naming the offending variable should have been emitted
+        assert any(var in r.message for r in caplog.records), (
+            f"Expected a warning mentioning {var!r} but got: {[r.message for r in caplog.records]}"
+        )
+
+    def test_valid_proxy_value_no_warning(self, tmp_path, caplog):
+        # A properly formatted proxy URL should not trigger any warning
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123"}
+
+        with patch(
+            "dotenv.dotenv_values",
+            return_value={"HTTP_PROXY": "http://proxy.example.com:8080"},
+        ):
+            with caplog.at_level(logging.WARNING, logger="osprey.inject_provider_env"):
+                inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert caplog.records == [], f"Unexpected warnings: {[r.message for r in caplog.records]}"
+
+    def test_value_passes_through_unchanged(self, tmp_path, caplog):
+        # The bad value must survive into the environment unchanged —
+        # blanking it would hide the problem from httpx/requests/DuckDB
+        # and turn a good Claude Code diagnostic into a mystery failure.
+        (tmp_path / ".env").write_text("HTTP_PROXY=http-proxy\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123"}
+
+        with patch(
+            "dotenv.dotenv_values",
+            return_value={"HTTP_PROXY": "http-proxy"},
+        ):
+            with caplog.at_level(logging.WARNING, logger="osprey.inject_provider_env"):
+                inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert environ.get("HTTP_PROXY") == "http-proxy"
