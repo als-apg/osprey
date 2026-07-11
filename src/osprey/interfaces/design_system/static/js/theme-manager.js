@@ -17,6 +17,16 @@
  *                URL), otherwise trusts whatever theme-boot.js already set
  *                pre-paint, and applies whatever the hub broadcasts.
  *
+ * Family model: a THEMES entry is `{id, label, mode, family}` -- a family
+ * is a `{light, dark}` pair (e.g. the built-in 'osprey' family, or the
+ * WCAG-AAA 'high-contrast' family). DEFAULTS is keyed by family, then mode:
+ * `DEFAULTS[family][mode] -> concrete id`. The hub's preference is a
+ * (family, mode|auto) pair, not a single id -- picking a family and
+ * toggling mode never lose each other: toggling flips mode within the
+ * active family, and 'auto' resolves the OS preference within the active
+ * family. See setTheme()/setFamily()/toggleTheme() below for the exact
+ * contract.
+ *
  * Colors are never imported as JS data (tokens.js intentionally carries
  * none — see its own header comment). xtermPalette()/chartTheme()/
  * chartSeries() are *computed-style bridges*: every call does a fresh
@@ -44,7 +54,11 @@
  * silently returning colors it can't vouch for.
  */
 
-import { DEFAULTS, THEMES } from './tokens.js';
+import { DEFAULT_FAMILY as _EMITTED_DEFAULT_FAMILY, DEFAULTS, THEMES } from './tokens.js';
+
+/** @typedef {{id: string, label: string, mode: string, family: string}} ThemeEntry */
+/** @typedef {'auto'|'dark'|'light'} ModePreference */
+/** @typedef {{family: string, mode: ModePreference}} Preference */
 
 const STORAGE_KEY = 'osprey-theme';
 const MESSAGE_TYPE = 'osprey-theme-change';
@@ -61,16 +75,43 @@ const SENTINEL_VAR = '--bg-primary';
 // empty slot could just as easily be a transient hidden-iframe read).
 const MAX_CHART_SERIES = 12;
 
-const _themesById = new Map(THEMES.map((theme) => [theme.id, theme]));
-const _validIds = THEMES.map((theme) => theme.id);
+// tokens.js is plain (unchecked) generated JS: cast its exports to the
+// shapes documented above rather than relying on tsc's own inference of
+// the literal object it emits. This also means theme-manager.js type-checks
+// against the *documented* family contract even if tokens.js momentarily
+// lags a build regeneration.
+const _themes = /** @type {ThemeEntry[]} */ (THEMES);
+/** @type {Record<string, Record<string, string>>} */
+const _defaults = /** @type {Record<string, Record<string, string>>} */ (DEFAULTS);
+
+const _themesById = new Map(_themes.map((theme) => [theme.id, theme]));
+const _validIds = _themes.map((theme) => theme.id);
+
+// The single authoritative fallback family (first family declared in the
+// manifest, insertion/filename order -- never re-sorted), emitted by
+// emit_js.py's render_tokens_js and shared verbatim with theme-boot.js's
+// own baked copy (see that generator's docstring) -- this module never
+// re-derives it from DEFAULTS, so the two generated-consuming runtimes
+// can't drift on a future regeneration. Falls back to 'osprey' only in
+// the pathological case of an empty manifest (no families declared at
+// all), which build validation never allows in practice.
+const DEFAULT_FAMILY = _isKnownFamily(_EMITTED_DEFAULT_FAMILY) ? _EMITTED_DEFAULT_FAMILY : 'osprey';
 
 // ---- Module state ----
 
 let _role = 'follower';
-// The user's actual preference: 'auto' or a concrete theme id. Only ever
-// meaningful (and only ever persisted) for the hub; a follower has no
-// preference of its own; it just applies whatever it's told.
-let _preference = 'auto';
+// The user's actual preference: a (family, mode) pair, where mode may be
+// 'auto'. Only ever meaningful (and only ever persisted) for the hub; a
+// follower has no preference of its own -- it just applies whatever it's
+// told.
+let _preferenceFamily = DEFAULT_FAMILY;
+/** @type {ModePreference} */
+let _preferenceMode = 'auto';
+// The family of the currently applied, concrete theme id. Kept in sync on
+// every _applyTheme() call (both roles) so toggleTheme()/setFamily() and
+// the follower's own _resolve() always have a family to stay within, even
+// though only the hub tracks an explicit preference.
+let _activeFamily = DEFAULT_FAMILY;
 // The currently applied, always-concrete theme id. Never 'auto' -- that
 // is resolved before anything touches data-theme.
 /** @type {string|null} */
@@ -79,9 +120,8 @@ let _currentId = null;
 const _subscribers = new Set();
 let _messageListenerAttached = false;
 let _mediaQueryListenerAttached = false;
-let _toggleButtonWired = false;
 
-// ---- id / mode resolution ----
+// ---- id / family / mode helpers ----
 
 /**
  * @param {unknown} value
@@ -89,6 +129,22 @@ let _toggleButtonWired = false;
  */
 function _isKnownId(value) {
   return typeof value === 'string' && _validIds.includes(value);
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is string}
+ */
+function _isKnownFamily(value) {
+  return typeof value === 'string' && Object.prototype.hasOwnProperty.call(_defaults, value);
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is ModePreference}
+ */
+function _isKnownMode(value) {
+  return value === 'auto' || value === 'dark' || value === 'light';
 }
 
 /**
@@ -100,6 +156,15 @@ function _modeOf(id) {
   return theme ? theme.mode : 'dark';
 }
 
+/**
+ * @param {string} id
+ * @returns {string}
+ */
+function _familyOf(id) {
+  const theme = _themesById.get(id);
+  return theme ? theme.family : DEFAULT_FAMILY;
+}
+
 function _prefersDarkOS() {
   try {
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -108,20 +173,53 @@ function _prefersDarkOS() {
   }
 }
 
-function _resolveAuto() {
-  const mode = _prefersDarkOS() ? 'dark' : 'light';
-  return DEFAULTS[mode] || DEFAULTS.dark || DEFAULTS.light || _validIds[0];
+/**
+ * Resolve a family's default id for an explicit dark/light mode.
+ * @param {string} family
+ * @param {'dark'|'light'} mode
+ * @returns {string}
+ */
+function _resolveInFamily(family, mode) {
+  const familyDefaults = _defaults[family] || _defaults[DEFAULT_FAMILY];
+  if (!familyDefaults) return _validIds[0];
+  return familyDefaults[mode] || familyDefaults.dark || familyDefaults.light || _validIds[0];
 }
 
 /**
- * Resolve a preference ('auto' or a candidate id) to a concrete, valid theme id.
+ * 'auto' resolves the OS light/dark preference WITHIN the given family --
+ * never the global first-family default.
+ * @param {string} family
+ * @returns {string}
+ */
+function _resolveAuto(family) {
+  const mode = _prefersDarkOS() ? 'dark' : 'light';
+  return _resolveInFamily(family, mode);
+}
+
+/**
+ * Resolve a full (family, mode|auto) preference to a concrete, valid id.
+ * @param {string} family
+ * @param {ModePreference} mode
+ * @returns {string}
+ */
+function _resolvePreference(family, mode) {
+  const validFamily = _isKnownFamily(family) ? family : DEFAULT_FAMILY;
+  if (mode === 'dark' || mode === 'light') return _resolveInFamily(validFamily, mode);
+  return _resolveAuto(validFamily);
+}
+
+/**
+ * Resolve a preference ('auto' or a candidate id) to a concrete, valid
+ * theme id, WITHIN the currently active family (never jumps family). Used
+ * by the follower's message handler -- "preference" there is really
+ * whatever raw token the hub broadcast.
  * @param {unknown} preference
  * @returns {string}
  */
 function _resolve(preference) {
-  if (preference === 'auto') return _resolveAuto();
+  if (preference === 'auto') return _resolveAuto(_activeFamily);
   if (_isKnownId(preference)) return preference;
-  return _resolveAuto();
+  return _resolveAuto(_activeFamily);
 }
 
 // ---- Reading the initial preference (?theme=, localStorage, data-theme) ----
@@ -134,18 +232,68 @@ function _readQueryTheme() {
   }
 }
 
+/**
+ * Parse a bare preference token -- 'auto' or a concrete theme id, the
+ * legacy pre-family-model shape used by both `?theme=` query params and
+ * (before this task) the single-value localStorage format -- into a
+ * `{family, mode}` pair. Never throws; an unrecognized token yields null
+ * so the caller can fail safe to auto within DEFAULT_FAMILY.
+ * @param {unknown} token
+ * @returns {Preference|null}
+ */
+function _parsePreferenceToken(token) {
+  if (token === 'auto') return { family: DEFAULT_FAMILY, mode: 'auto' };
+  if (_isKnownId(token)) {
+    return { family: _familyOf(token), mode: /** @type {'dark'|'light'} */ (_modeOf(token)) };
+  }
+  return null;
+}
+
+/**
+ * Read the persisted (family, mode) preference from localStorage.
+ * Understands the current structured JSON format (`{"family":...,
+ * "mode":...}`) and migrates the pre-family-model bare-string format
+ * ('auto' or a concrete id like 'dark') forward via _parsePreferenceToken.
+ * Never throws -- storage errors, malformed JSON, and unrecognized values
+ * all resolve to null (caller falls back to auto within DEFAULT_FAMILY).
+ * @returns {Preference|null}
+ */
 function _readStoredPreference() {
+  /** @type {string|null} */
+  let raw;
   try {
-    return window.localStorage.getItem(STORAGE_KEY);
+    raw = window.localStorage.getItem(STORAGE_KEY);
   } catch {
     return null;
   }
+  if (raw === null) return null;
+
+  try {
+    const parsed = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      _isKnownFamily(parsed.family) &&
+      _isKnownMode(parsed.mode)
+    ) {
+      return { family: parsed.family, mode: parsed.mode };
+    }
+  } catch {
+    // Not JSON -- fall through to the legacy bare-token format below.
+  }
+
+  return _parsePreferenceToken(raw);
 }
 
-/** @param {string} preference */
-function _persistPreference(preference) {
+/**
+ * Persist the (family, mode) preference as `{"family":..., "mode":...}`
+ * JSON under STORAGE_KEY.
+ * @param {string} family
+ * @param {ModePreference} mode
+ */
+function _persistPreference(family, mode) {
   try {
-    window.localStorage.setItem(STORAGE_KEY, preference);
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ family, mode }));
   } catch {
     // Storage unavailable (private browsing, quota) -- non-fatal; the
     // preference just won't survive a reload this session.
@@ -161,24 +309,6 @@ function _swapHljsHref(mode) {
   const attr = mode === 'light' ? 'data-href-light' : 'data-href-dark';
   const href = link.getAttribute(attr);
   if (href) link.href = href;
-}
-
-/** @param {string} id */
-function _updateToggleUI(id) {
-  const button = document.getElementById('theme-toggle');
-  const sunIcon = document.getElementById('theme-icon-sun');
-  const moonIcon = document.getElementById('theme-icon-moon');
-  const mode = _modeOf(id);
-
-  if (sunIcon && moonIcon) {
-    sunIcon.style.display = mode === 'dark' ? 'block' : 'none';
-    moonIcon.style.display = mode === 'light' ? 'block' : 'none';
-  }
-  if (button) {
-    const targetMode = mode === 'dark' ? 'light' : 'dark';
-    button.setAttribute('aria-label', `Switch to ${targetMode} theme`);
-    button.setAttribute('aria-pressed', mode === 'light' ? 'true' : 'false');
-  }
 }
 
 /** @param {() => void} fn */
@@ -204,13 +334,13 @@ function _notifySubscribers(id) {
 
 /**
  * Strip a `theme` param from the URL's query string, if present, without
- * adding a history entry. Called from setTheme() -- the explicit-choice
- * path -- for both roles: once the user has made an explicit choice, a
- * leftover `?theme=` must not out-rank it (or the OS/localStorage
- * resolution a follower falls back to) on the next reload. initTheme()'s
- * one-time read of `?theme=` still happens first, so an incoming panel
- * URL still applies its param on first load -- this only clears it after
- * that initial resolution so it doesn't linger.
+ * adding a history entry. Called from setTheme()/setFamily() -- the
+ * explicit-choice path -- for both roles: once the user has made an
+ * explicit choice, a leftover `?theme=` must not out-rank it (or the
+ * OS/localStorage resolution a follower falls back to) on the next
+ * reload. initTheme()'s one-time read of `?theme=` still happens first, so
+ * an incoming panel URL still applies its param on first load -- this only
+ * clears it after that initial resolution so it doesn't linger.
  */
 function _stripQueryTheme() {
   try {
@@ -238,20 +368,20 @@ function _broadcast(id) {
 }
 
 /**
- * Apply a concrete theme id: set data-theme, swap the hljs stylesheet,
- * update the toggle button, and notify every subscriber. NEVER deduped on
- * an unchanged id -- see the module docstring's hidden-iframe protocol.
+ * Apply a concrete theme id: set data-theme, swap the hljs stylesheet, and
+ * notify every subscriber. NEVER deduped on an unchanged id -- see the
+ * module docstring's hidden-iframe protocol.
  *
  * @param {string} id
  * @param {{broadcast?: boolean, transition?: boolean}} [options]
  */
 function _applyTheme(id, { broadcast = false, transition = false } = {}) {
   _currentId = id;
+  _activeFamily = _familyOf(id);
 
   const apply = () => {
     document.documentElement.setAttribute('data-theme', id);
     _swapHljsHref(_modeOf(id));
-    _updateToggleUI(id);
   };
   if (transition) {
     _withTransition(apply);
@@ -263,6 +393,31 @@ function _applyTheme(id, { broadcast = false, transition = false } = {}) {
   if (broadcast) _broadcast(id);
 }
 
+/**
+ * Resolve and apply a (family, mode|auto) preference -- the shared core
+ * behind setTheme() and setFamily(). Only the hub role persists it (and
+ * only the hub broadcasts the resolved concrete id to embedded panels).
+ * Unknown family/mode values fail safe to DEFAULT_FAMILY/'auto' rather
+ * than throwing.
+ *
+ * @param {string} family
+ * @param {ModePreference} mode
+ */
+function _applyPreference(family, mode) {
+  const validFamily = _isKnownFamily(family) ? family : DEFAULT_FAMILY;
+  const validMode = _isKnownMode(mode) ? mode : 'auto';
+  if (_role === 'hub') {
+    _preferenceFamily = validFamily;
+    _preferenceMode = validMode;
+    _persistPreference(validFamily, validMode);
+  }
+  _applyTheme(_resolvePreference(validFamily, validMode), {
+    broadcast: _role === 'hub',
+    transition: true,
+  });
+  _stripQueryTheme();
+}
+
 // ---- Follower: obey hub broadcasts ----
 
 /** @param {MessageEvent} event */
@@ -271,7 +426,8 @@ function _handleMessage(event) {
   const data = event.data;
   if (!data || data.type !== MESSAGE_TYPE) return;
   // Never applies an arbitrary string to data-theme: _resolve() falls
-  // back to 'auto' for anything not in the baked-in id list.
+  // back to 'auto' (within the active family) for anything not in the
+  // baked-in id list.
   _applyTheme(_resolve(data.theme));
 }
 
@@ -295,8 +451,8 @@ function _attachMediaQueryListener() {
   }
 
   const handleChange = () => {
-    if (_preference !== 'auto') return; // an explicit choice does not auto-follow the OS
-    _applyTheme(_resolveAuto(), { broadcast: true });
+    if (_preferenceMode !== 'auto') return; // an explicit choice does not auto-follow the OS
+    _applyTheme(_resolveAuto(_preferenceFamily), { broadcast: true });
   };
 
   if (typeof media.addEventListener === 'function') {
@@ -305,16 +461,6 @@ function _attachMediaQueryListener() {
     // Safari < 14 / older WebKit.
     media.addListener(handleChange);
   }
-}
-
-// ---- Toggle button wiring ----
-
-function _wireToggleButton() {
-  if (_toggleButtonWired) return;
-  const button = document.getElementById('theme-toggle');
-  if (!button) return;
-  _toggleButtonWired = true;
-  button.addEventListener('click', toggleTheme);
 }
 
 // ---- Public API ----
@@ -334,11 +480,15 @@ export function initTheme({ role = 'follower' } = {}) {
   const attrTheme = document.documentElement.getAttribute('data-theme');
 
   if (_role === 'hub') {
-    const stored = _readStoredPreference();
-    const queryPreference = queryTheme === 'auto' || _isKnownId(queryTheme) ? queryTheme : null;
-    const storedPreference = stored === 'auto' || _isKnownId(stored) ? stored : null;
-    _preference = queryPreference || storedPreference || 'auto';
-    _applyTheme(_resolve(_preference));
+    const queryPreference = _parsePreferenceToken(queryTheme);
+    const storedPreference = _readStoredPreference();
+    const preference = queryPreference || storedPreference || {
+      family: DEFAULT_FAMILY,
+      mode: /** @type {ModePreference} */ ('auto'),
+    };
+    _preferenceFamily = preference.family;
+    _preferenceMode = preference.mode;
+    _applyTheme(_resolvePreference(_preferenceFamily, _preferenceMode));
     _attachMediaQueryListener();
   } else {
     // Followers have no persisted preference of their own: apply
@@ -349,12 +499,10 @@ export function initTheme({ role = 'follower' } = {}) {
       ? queryTheme
       : _isKnownId(attrTheme)
         ? attrTheme
-        : _resolveAuto();
+        : _resolveAuto(DEFAULT_FAMILY);
     _applyTheme(initial);
     _attachMessageListener();
   }
-
-  _wireToggleButton();
 }
 
 /**
@@ -366,29 +514,73 @@ export function getTheme() {
 }
 
 /**
- * Set the theme. `id` may be a concrete theme id or 'auto'; anything else
- * resolves to 'auto'. Only the hub role persists (to
- * localStorage['osprey-theme']) and broadcasts to embedded panels. Both
- * roles strip a `theme` query param from the URL (D15): this is the
- * explicit-choice path (reached only via the toggle button), so a
- * leftover `?theme=` must not out-rank it on the next reload.
+ * The family of the currently applied, concrete theme id.
+ * @returns {string|null}
+ */
+export function getFamily() {
+  return _currentId ? _familyOf(_currentId) : null;
+}
+
+/**
+ * Set the theme. `id` may be a concrete theme id (its family is derived
+ * from THEMES) or 'auto' (resolves the OS preference WITHIN the currently
+ * active family -- it never jumps family). Anything else fails safe to
+ * 'auto'. Only the hub persists (to localStorage['osprey-theme'], as a
+ * `{"family":..., "mode":...}` JSON pair -- see the module docstring) and
+ * broadcasts the resolved concrete id to embedded panels. Both roles strip
+ * a `theme` query param from the URL (D15): this is the explicit-choice
+ * path, so a leftover `?theme=` must not out-rank it on the next reload.
+ *
+ * To switch family while PRESERVING the current mode preference (what a
+ * family-picker switcher needs), use setFamily() instead -- setTheme()
+ * with a concrete id always sets mode to that id's own mode.
  *
  * @param {string} id
  */
 export function setTheme(id) {
-  const preference = id === 'auto' || _isKnownId(id) ? id : 'auto';
-  if (_role === 'hub') {
-    _preference = preference;
-    _persistPreference(preference);
+  if (id === 'auto') {
+    _applyPreference(_activeFamily, 'auto');
+    return;
   }
-  _applyTheme(_resolve(preference), { broadcast: _role === 'hub', transition: true });
-  _stripQueryTheme();
+  if (_isKnownId(id)) {
+    const theme = /** @type {ThemeEntry} */ (_themesById.get(id));
+    _applyPreference(theme.family, /** @type {'dark'|'light'} */ (theme.mode));
+    return;
+  }
+  _applyPreference(_activeFamily, 'auto');
 }
 
-/** Cycle between the resolved dark and light defaults (never sets 'auto'). */
+/**
+ * Switch to `family`, PRESERVING the current mode preference: if the mode
+ * preference is 'auto' it stays 'auto' (still OS-resolved, now within the
+ * new family); if it's an explicit dark/light it stays that mode. Falls
+ * back to DEFAULT_FAMILY on an unrecognized family id (fail-safe, never
+ * throws). Same persistence/broadcast/query-strip behavior as setTheme().
+ *
+ * Contract for the family-picker switcher (Task 1.9):
+ *   `setFamily(family: string): void`
+ * Call it with one of the family ids that key `DEFAULTS` / appear as
+ * `THEMES[].family` (e.g. `'osprey'`, `'high-contrast'`). Use
+ * `toggleTheme()` for the mode control and `getFamily()`/`getTheme()` to
+ * read back current state (e.g. to mark the active family selected).
+ *
+ * @param {string} family
+ */
+export function setFamily(family) {
+  const mode =
+    _role === 'hub'
+      ? _preferenceMode
+      : /** @type {ModePreference} */ (_modeOf(/** @type {string} */ (_currentId)));
+  _applyPreference(family, mode);
+}
+
+/**
+ * Cycle between dark and light WITHIN the currently active family (never
+ * jumps family, never sets 'auto').
+ */
 export function toggleTheme() {
   const nextMode = _modeOf(/** @type {string} */ (_currentId)) === 'dark' ? 'light' : 'dark';
-  setTheme(DEFAULTS[nextMode] || /** @type {string} */ (_currentId));
+  setTheme(_resolveInFamily(_activeFamily, nextMode));
 }
 
 /**

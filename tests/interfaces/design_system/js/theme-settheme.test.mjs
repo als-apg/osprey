@@ -95,7 +95,12 @@ describe('setTheme()', () => {
 
       ThemeManager.setTheme('light');
 
-      expect(window.localStorage.getItem('osprey-theme')).toBe('light');
+      // Task 1.7 (family model): the persisted preference is a
+      // {family, mode} JSON pair, not a bare id -- setTheme('light')
+      // derives family 'osprey'/mode 'light' from THEMES itself.
+      expect(window.localStorage.getItem('osprey-theme')).toBe(
+        JSON.stringify({ family: 'osprey', mode: 'light' })
+      );
     });
 
     test('broadcasts the resolved theme to embedded iframes', () => {
