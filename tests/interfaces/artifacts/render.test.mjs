@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening): type-clean this test; tracked in eslint.config.js local/no-ts-nocheck allowlist, which may only shrink.
 /**
  * Unit tests for the Artifact Gallery sidebar rendering layer (render.js:
  * filter bar, gallery-card template, sidebar dispatcher + tree/activity
@@ -35,6 +33,7 @@ import {
   createSidebarRenderer,
 } from '../../../src/osprey/interfaces/artifacts/static/js/render.js';
 import { initTypeRegistry } from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
+import { qs, byId } from '../_support/dom.mjs';
 
 /** Minimal DOM fixture matching artifacts/static/index.html's structure. */
 function mountFixture() {
@@ -90,13 +89,13 @@ describe('tree-mode grouping by type', () => {
     // 'visualization' (2 artifacts: Beam Profile, Lattice Table) sorts before
     // the two 1-artifact groups ('channel_values', 'document'), which then
     // sort alphabetically.
-    expect(Array.from(sections).map((s) => s.dataset.type)).toEqual([
+    expect(Array.from(sections).map((s) => /** @type {HTMLElement} */ (s).dataset.type)).toEqual([
       'visualization', 'channel_values', 'document',
     ]);
 
-    const visSection = document.querySelector('.tree-section[data-type="visualization"]');
+    const visSection = qs(document, '.tree-section[data-type="visualization"]');
     expect(visSection.querySelectorAll('.tree-item').length).toBe(2);
-    expect(visSection.querySelector('.tree-section-count').textContent).toBe('2');
+    expect(qs(visSection, '.tree-section-count').textContent).toBe('2');
   });
 
   test('each tree item renders its title, pin indicator, and size', () => {
@@ -106,8 +105,9 @@ describe('tree-mode grouping by type', () => {
 
     const pinnedItem = document.querySelector('.tree-item[data-id="2"]');
     expect(pinnedItem).not.toBeNull();
+    if (pinnedItem === null) throw new Error('unreachable: asserted non-null above');
     expect(pinnedItem.classList.contains('pinned')).toBe(true);
-    expect(pinnedItem.querySelector('.tree-item-name').textContent).toBe('Channel Values');
+    expect(qs(pinnedItem, '.tree-item-name').textContent).toBe('Channel Values');
     expect(pinnedItem.querySelector('.pin-indicator')).not.toBeNull();
   });
 
@@ -139,7 +139,7 @@ describe('activity-mode chronological ordering', () => {
     // Jul 3) and '4' (pinned, Jun 30) before '3' (Jul 2) and '1' (Jul 1) —
     // pinned-first takes priority over date recency, matching state.js's
     // contract (already pinned to the identical order in state.test.mjs).
-    expect(Array.from(items).map((el) => el.dataset.id)).toEqual(['2', '4', '3', '1']);
+    expect(Array.from(items).map((el) => /** @type {HTMLElement} */ (el).dataset.id)).toEqual(['2', '4', '3', '1']);
   });
 
   test('within a shared date group, items keep the incoming (pinned-first/newest-first) order', () => {
@@ -155,17 +155,18 @@ describe('activity-mode chronological ordering', () => {
     const groups = document.querySelectorAll('.timeline-group');
     expect(groups.length).toBe(1); // same calendar day -> one date group
     const items = groups[0].querySelectorAll('.timeline-item');
-    expect(Array.from(items).map((el) => el.dataset.id)).toEqual(['b', 'a']); // newest-first
+    expect(Array.from(items).map((el) => /** @type {HTMLElement} */ (el).dataset.id)).toEqual(['b', 'a']); // newest-first
   });
 });
 
 describe('filter-chip active-state logic', () => {
+  /** @typedef {ReturnType<typeof createSidebarRenderer>} SidebarRenderer */
   /**
    * 2x initFilterBar (a stray extra bootstrap invocation) + 5x
    * rebuildTypeChips (simulating refetch/SSE cycles): 7 opportunities to
    * re-wire the delegated #filter-bar listener, all but the first of which
    * must be no-ops.
-   * @param {ReturnType<typeof createSidebarRenderer>} sidebarRenderer
+   * @param {SidebarRenderer} sidebarRenderer
    */
   function churnFilterBarWiring(sidebarRenderer) {
     sidebarRenderer.initFilterBar();
@@ -180,11 +181,11 @@ describe('filter-chip active-state logic', () => {
     const sidebarRenderer = createSidebarRenderer(makeCallbacks());
     sidebarRenderer.initFilterBar();
 
-    const allChip = document.querySelector('.filter-chip[data-filter="all"]');
-    const pinnedChip = document.querySelector('.filter-chip[data-filter="pinned"]');
+    const allChip = qs(document, '.filter-chip[data-filter="all"]');
+    const pinnedChip = qs(document, '.filter-chip[data-filter="pinned"]');
     expect(allChip.classList.contains('active')).toBe(true);
     expect(pinnedChip.hidden).toBe(false);
-    expect(pinnedChip.querySelector('.chip-count').textContent).toBe('2');
+    expect(qs(pinnedChip, '.chip-count').textContent).toBe('2');
 
     pinnedChip.click();
 
@@ -199,10 +200,10 @@ describe('filter-chip active-state logic', () => {
 
     sidebarRenderer.rebuildTypeChips();
 
-    const pinnedChip = document.querySelector('.filter-chip[data-filter="pinned"]');
+    const pinnedChip = qs(document, '.filter-chip[data-filter="pinned"]');
     expect(pinnedChip.hidden).toBe(true);
     // Active filter is reset since "pinned" no longer has any matches.
-    expect(document.querySelector('.filter-chip[data-filter="all"]').classList.contains('active')).toBe(true);
+    expect(qs(document, '.filter-chip[data-filter="all"]').classList.contains('active')).toBe(true);
   });
 
   test('clicking a chip re-renders the sidebar filtered to that selection', () => {
@@ -211,28 +212,28 @@ describe('filter-chip active-state logic', () => {
     sidebarRenderer.initFilterBar();
     sidebarRenderer.renderSidebar();
 
-    document.querySelector('.filter-chip[data-filter="pinned"]').click();
+    qs(document, '.filter-chip[data-filter="pinned"]').click();
 
     // Only pinned artifacts (ids 2, 4) should now be rendered.
-    const ids = Array.from(document.querySelectorAll('#sidebar-body [data-id]')).map((el) => el.dataset.id).sort();
+    const ids = Array.from(document.querySelectorAll('#sidebar-body [data-id]')).map((el) => /** @type {HTMLElement} */ (el).dataset.id).sort();
     expect(ids).toEqual(['2', '4']);
   });
 
   test('a delegated #filter-bar click listener is registered exactly once across repeated rebuild/refetch cycles (no handler pileup)', () => {
     setArtifacts(makeFixtureArtifacts());
     const sidebarRenderer = createSidebarRenderer(makeCallbacks());
-    const filterBar = document.getElementById('filter-bar');
+    const filterBar = byId('filter-bar');
     const addEventListenerSpy = vi.spyOn(filterBar, 'addEventListener');
 
     churnFilterBarWiring(sidebarRenderer);
 
     // Exactly one 'click' registration across all seven re-wire opportunities.
-    const clickRegistrations = addEventListenerSpy.mock.calls.filter((call) => call[0] === 'click');
+    const clickRegistrations = addEventListenerSpy.mock.calls.filter((call) => /** @type {unknown[]} */ (call)[0] === 'click');
     expect(clickRegistrations.length).toBe(1);
     addEventListenerSpy.mockRestore();
 
-    const allChip = document.querySelector('.filter-chip[data-filter="all"]');
-    const pinnedChip = document.querySelector('.filter-chip[data-filter="pinned"]');
+    const allChip = qs(document, '.filter-chip[data-filter="all"]');
+    const pinnedChip = qs(document, '.filter-chip[data-filter="pinned"]');
 
     // Click the static "pinned" chip once: exactly one filter/active-state
     // change must fire, not once per (would-be) registered listener.
@@ -240,7 +241,7 @@ describe('filter-chip active-state logic', () => {
 
     expect(pinnedChip.classList.contains('active')).toBe(true);
     expect(allChip.classList.contains('active')).toBe(false);
-    const ids = Array.from(document.querySelectorAll('#sidebar-body [data-id]')).map((el) => el.dataset.id).sort();
+    const ids = Array.from(document.querySelectorAll('#sidebar-body [data-id]')).map((el) => /** @type {HTMLElement} */ (el).dataset.id).sort();
     expect(ids).toEqual(['2', '4']);
 
     allChip.click();
@@ -254,8 +255,8 @@ describe('filter-chip active-state logic', () => {
 
     churnFilterBarWiring(sidebarRenderer);
 
-    const pinnedChip = document.querySelector('.filter-chip[data-filter="pinned"]');
-    const allChip = document.querySelector('.filter-chip[data-filter="all"]');
+    const pinnedChip = qs(document, '.filter-chip[data-filter="pinned"]');
+    const allChip = qs(document, '.filter-chip[data-filter="all"]');
 
     // The delegated handler's only externally-visible side effect on state
     // is calling setActiveFilter(). Spy on it directly: if the listener had
@@ -297,12 +298,13 @@ describe('filter-chip active-state logic', () => {
 
     const visualizationChip = document.querySelector('.filter-chip[data-filter="visualization"]');
     expect(visualizationChip).not.toBeNull();
+    if (!(visualizationChip instanceof HTMLElement)) throw new Error('unreachable: asserted non-null above');
 
     visualizationChip.click();
     sidebarRenderer.renderSidebar();
 
     expect(visualizationChip.classList.contains('active')).toBe(true);
-    const ids = Array.from(document.querySelectorAll('#sidebar-body [data-id]')).map((el) => el.dataset.id).sort();
+    const ids = Array.from(document.querySelectorAll('#sidebar-body [data-id]')).map((el) => /** @type {HTMLElement} */ (el).dataset.id).sort();
     // visualization category: ids 1 (Beam Profile) and 3 (Lattice Table).
     expect(ids).toEqual(['1', '3']);
 
@@ -320,7 +322,7 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
     const sidebarRenderer = createSidebarRenderer(callbacks);
     sidebarRenderer.renderSidebar();
 
-    const item = document.querySelector('.tree-item[data-id="1"]');
+    const item = qs(document, '.tree-item[data-id="1"]');
     item.click();
 
     expect(callbacks.onSelect).toHaveBeenCalledTimes(1);
@@ -341,7 +343,7 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
     const sidebarRenderer = createSidebarRenderer(callbacks);
     sidebarRenderer.renderSidebar();
 
-    document.querySelector('.tree-item[data-id="3"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    qs(document, '.tree-item[data-id="3"]').dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
 
     expect(callbacks.onEnterFullscreen).toHaveBeenCalledTimes(1);
     expect(callbacks.onEnterFullscreen.mock.calls[0][0].id).toBe('3');
@@ -352,11 +354,11 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
     const sidebarRenderer = createSidebarRenderer(makeCallbacks());
     sidebarRenderer.renderSidebar();
 
-    const item = document.querySelector('.tree-item[data-id="1"]');
+    const item = qs(document, '.tree-item[data-id="1"]');
     expect(item.draggable).toBe(true);
 
     const dataTransfer = { setData: vi.fn(), effectAllowed: '' };
-    const dragEvent = new Event('dragstart', { bubbles: true });
+    const dragEvent = /** @type {Event & { dataTransfer: typeof dataTransfer }} */ (new Event('dragstart', { bubbles: true }));
     dragEvent.dataTransfer = dataTransfer;
     item.dispatchEvent(dragEvent);
 
@@ -373,8 +375,8 @@ describe('shared item handlers (click/dblclick/drag-to-terminal)', () => {
     const sidebarRenderer = createSidebarRenderer(callbacks);
     sidebarRenderer.renderSidebar();
 
-    const section = document.querySelector('.tree-section[data-type="visualization"]');
-    const header = section.querySelector('.tree-section-header');
+    const section = qs(document, '.tree-section[data-type="visualization"]');
+    const header = qs(section, '.tree-section-header');
     header.click();
 
     expect(section.classList.contains('collapsed')).toBe(true);
@@ -412,16 +414,17 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
     // No live <img> element was injected anywhere in the sidebar.
     expect(document.querySelector('#sidebar-body img')).toBeNull();
     // No unescaped '"><' breakout sequence made it into the serialized markup.
-    expect(document.getElementById('sidebar-body').innerHTML).not.toMatch(/"><img/);
+    expect(byId('sidebar-body').innerHTML).not.toMatch(/"><img/);
 
     const section = document.querySelector('.tree-section');
     expect(section).not.toBeNull();
+    if (!(section instanceof HTMLElement)) throw new Error('unreachable: asserted non-null above');
     // dataset/getAttribute auto-decode entities, so reading the attribute back
     // round-trips to the raw hostile string (entity-decoded) — that's expected
     // and safe; what matters is the SERIALIZED markup never contained a live
     // '"><' breakout, asserted above.
     expect(section.dataset.type).toBe(HOSTILE);
-    expect(section.querySelector('.tree-section-header').dataset.type).toBe(HOSTILE);
+    expect(qs(section, '.tree-section-header').dataset.type).toBe(HOSTILE);
   });
 
   test('a hostile category is escaped in the activity-mode timeline-item data-type attribute', () => {
@@ -431,10 +434,11 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
     sidebarRenderer.renderSidebar();
 
     expect(document.querySelector('#sidebar-body img')).toBeNull();
-    expect(document.getElementById('sidebar-body').innerHTML).not.toMatch(/"><img/);
+    expect(byId('sidebar-body').innerHTML).not.toMatch(/"><img/);
 
     const item = document.querySelector('.timeline-item');
     expect(item).not.toBeNull();
+    if (!(item instanceof HTMLElement)) throw new Error('unreachable: asserted non-null above');
     expect(item.dataset.type).toBe(HOSTILE);
   });
 
@@ -447,6 +451,7 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
     expect(document.querySelector('#sidebar-body img')).toBeNull();
     const card = document.querySelector('.gallery-card');
     expect(card).not.toBeNull();
+    if (!(card instanceof HTMLElement)) throw new Error('unreachable: asserted non-null above');
     expect(card.dataset.type).toBe(HOSTILE);
   });
 
@@ -464,6 +469,7 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
 
     const chip = document.querySelector('.filter-chip[data-filter="evilchip"]');
     expect(chip).not.toBeNull();
+    if (chip === null) throw new Error('unreachable: asserted non-null above');
     expect(chip.querySelector('img')).toBeNull();
     // typeIcon's own SVG markup (audited: `type` never reaches its output) is
     // untouched by this escaping and must still render.
@@ -479,8 +485,9 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
 
     const visSection = document.querySelector('.tree-section[data-type="visualization"]');
     expect(visSection).not.toBeNull();
+    if (!(visSection instanceof HTMLElement)) throw new Error('unreachable: asserted non-null above');
     expect(visSection.dataset.type).toBe('visualization');
-    expect(visSection.querySelector('.tree-section-header').dataset.type).toBe('visualization');
+    expect(qs(visSection, '.tree-section-header').dataset.type).toBe('visualization');
     // The serialized markup is also byte-identical for benign values —
     // escaping must introduce no stray entities.
     expect(visSection.outerHTML).toContain('data-type="visualization"');
@@ -494,8 +501,8 @@ describe('split-pane resize (initSplitPaneResize)', () => {
   });
 
   test('dragging the handle resizes the sidebar within the [180, 60vw] clamp', () => {
-    const handle = document.getElementById('resize-handle');
-    const sidebarEl = document.getElementById('browse-sidebar');
+    const handle = byId('resize-handle');
+    const sidebarEl = byId('browse-sidebar');
     Object.defineProperty(sidebarEl, 'offsetWidth', { value: 240, configurable: true });
     Object.defineProperty(window, 'innerWidth', { value: 1000, configurable: true });
 

@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening): type-clean this test; tracked in eslint.config.js local/no-ts-nocheck allowlist, which may only shrink.
 /**
  * Unit tests for the Scaffold Gallery view layer (scaffold/view.js).
  *
@@ -22,14 +20,39 @@
 
 import { test, expect, describe } from 'vitest';
 
+import { qs } from '../_support/dom.mjs';
+
 import {
   getFilteredArtifacts,
   createScaffoldGalleryView,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/view.js';
 
-/** @param {object} [overrides] */
+/**
+ * @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/view.js').ScaffoldGalleryHost} ScaffoldGalleryHost
+ */
+
+/**
+ * Test fixture variant of {@link ScaffoldGalleryHost}: makeGallery always
+ * assigns real elements (never leaves a DOM ref null the way a not-yet-
+ * mounted gallery instance might), so the DOM-ref fields are narrowed to
+ * non-null here for the tests that dereference them directly.
+ * @typedef {ScaffoldGalleryHost & {
+ *   galleryView: HTMLElement,
+ *   detailView: HTMLElement,
+ *   untrackedBannerEl: HTMLElement,
+ *   filterChipsEl: HTMLElement,
+ *   summaryEl: HTMLElement,
+ *   searchInput: HTMLInputElement,
+ *   categoriesEl: HTMLElement,
+ * }} TestGallery
+ */
+
+/**
+ * @param {Partial<ScaffoldGalleryHost>} [overrides]
+ * @returns {TestGallery}
+ */
 function makeGallery(overrides = {}) {
-  return {
+  return /** @type {TestGallery} */ ({
     artifacts: [],
     untrackedFiles: [],
     currentView: 'gallery',
@@ -55,7 +78,7 @@ function makeGallery(overrides = {}) {
     openDetail: () => {},
     showCreateDialog: () => {},
     ...overrides,
-  };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -145,7 +168,7 @@ describe('renderArtifactCard / renderSkillGroup escaping', () => {
 
     view.renderArtifactCard(section, { name: HOSTILE_NAME, status: 'framework' }, 'agents');
 
-    const nameEl = section.querySelector('.prompts-card-name');
+    const nameEl = qs(section, '.prompts-card-name');
     expect(nameEl.textContent).toBe(HOSTILE_NAME);
     // No actual <img> element was parsed into the DOM.
     expect(nameEl.querySelector('img')).toBeNull();
@@ -163,7 +186,7 @@ describe('renderArtifactCard / renderSkillGroup escaping', () => {
       'agents'
     );
 
-    const descEl = section.querySelector('.prompts-card-desc');
+    const descEl = qs(section, '.prompts-card-desc');
     expect(descEl.textContent).toBe('<script>alert(1)</script>');
     expect(descEl.querySelector('script')).toBeNull();
   });
@@ -178,7 +201,7 @@ describe('renderArtifactCard / renderSkillGroup escaping', () => {
       { name: 'skills/x/two', status: 'framework', output_path: 'skills/x/two.md' },
     ]);
 
-    const nameEl = section.querySelector('.prompts-card-name');
+    const nameEl = qs(section, '.prompts-card-name');
     expect(nameEl.textContent).toBe(HOSTILE_NAME);
     expect(nameEl.querySelector('img')).toBeNull();
   });
@@ -191,7 +214,7 @@ describe('renderArtifactCard / renderSkillGroup escaping', () => {
     view.renderSkillGroup(section, 'solo-skill', [{ name: HOSTILE_NAME, status: 'framework' }]);
 
     expect(section.querySelectorAll('.prompts-card').length).toBe(1);
-    expect(section.querySelector('.prompts-card-name').textContent).toBe(HOSTILE_NAME);
+    expect(qs(section, '.prompts-card-name').textContent).toBe(HOSTILE_NAME);
   });
 });
 
@@ -243,6 +266,7 @@ describe('createScaffoldGalleryView', () => {
     const chip = [...gallery.filterChipsEl.querySelectorAll('.prompts-chip')]
       .find((c) => c.textContent === 'agents');
     expect(chip).toBeTruthy();
+    if (chip === undefined) throw new Error('agents chip not found');
 
     chip.dispatchEvent(new Event('click'));
 
@@ -290,18 +314,18 @@ describe('createScaffoldGalleryView', () => {
     let deleted = null;
     const gallery = makeGallery({
       untrackedFiles: [{ canonical_name: 'stray.md', output_path: '.claude/stray.md' }],
-      registerUntracked: (name) => { registered = name; },
-      deleteUntracked: (name) => { deleted = name; },
+      registerUntracked: (name) => { registered = name; return Promise.resolve(); },
+      deleteUntracked: (name) => { deleted = name; return Promise.resolve(); },
     });
     const view = createScaffoldGalleryView(gallery);
 
     view.renderUntrackedBanner();
     expect(gallery.untrackedBannerEl.style.display).not.toBe('none');
 
-    gallery.untrackedBannerEl.querySelector('.prompts-untracked-register').dispatchEvent(new Event('click'));
+    qs(gallery.untrackedBannerEl, '.prompts-untracked-register').dispatchEvent(new Event('click'));
     expect(registered).toBe('stray.md');
 
-    gallery.untrackedBannerEl.querySelector('.prompts-untracked-delete').dispatchEvent(new Event('click'));
+    qs(gallery.untrackedBannerEl, '.prompts-untracked-delete').dispatchEvent(new Event('click'));
     expect(deleted).toBe('stray.md');
   });
 
@@ -324,7 +348,7 @@ describe('createScaffoldGalleryView', () => {
     const view = createScaffoldGalleryView(gallery);
 
     view.renderCategories();
-    const card = gallery.categoriesEl.querySelector('.prompts-card[data-name="agent-one"]');
+    const card = qs(gallery.categoriesEl, '.prompts-card[data-name="agent-one"]');
     card.dispatchEvent(new Event('click'));
 
     expect(opened).toEqual(ARTIFACTS.find((a) => a.name === 'agent-one'));

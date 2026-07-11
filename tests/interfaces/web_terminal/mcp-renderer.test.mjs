@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening): type-clean this test; tracked in eslint.config.js local/no-ts-nocheck allowlist, which may only shrink.
 /**
  * Unit tests for mcp-renderer.js -- the .mcp.json renderer behind
  * config-renderers.js's re-export (same seam as settings-editor.js).
@@ -17,10 +15,26 @@
 
 import { test, expect, describe, vi, afterEach } from 'vitest';
 
+import { qs } from '../_support/dom.mjs';
+
 import {
   renderMcpJson,
   _parseToolDescription,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/mcp-renderer.js';
+
+/**
+ * `renderMcpJson` returns `HTMLDivElement | null` (null only on invalid JSON
+ * or an empty `mcpServers`); these tests feed it valid multi-server JSON, so
+ * assert the non-null case once here rather than re-guarding at every call
+ * site.
+ * @param {string} jsonString
+ * @returns {HTMLDivElement}
+ */
+function renderContainer(jsonString) {
+  const container = renderMcpJson(jsonString);
+  if (container === null) throw new Error('expected renderMcpJson to return a container');
+  return container;
+}
 
 const MCP_JSON = JSON.stringify({
   mcpServers: {
@@ -35,8 +49,11 @@ const MCP_JSON = JSON.stringify({
 describe('_parseToolDescription', () => {
   test('empty/nullish description returns empty summary/args/returns', () => {
     expect(_parseToolDescription('')).toEqual({ summary: '', args: [], returns: '' });
-    expect(_parseToolDescription(undefined)).toEqual({ summary: '', args: [], returns: '' });
-    expect(_parseToolDescription(null)).toEqual({ summary: '', args: [], returns: '' });
+    // Runtime-defensive paths: the declared signature is `string`, but callers in
+    // practice may hand back a nullish `description` field, so verify the nullish
+    // fallback directly by deliberately passing values outside the declared type.
+    expect(_parseToolDescription(/** @type {string} */ (/** @type {unknown} */ (undefined)))).toEqual({ summary: '', args: [], returns: '' });
+    expect(_parseToolDescription(/** @type {string} */ (/** @type {unknown} */ (null)))).toEqual({ summary: '', args: [], returns: '' });
   });
 
   test('a single-line summary with no Args/Returns section', () => {
@@ -120,11 +137,11 @@ describe('renderMcpJson', () => {
   test('renders a basic card synchronously, before any fetch resolves', () => {
     vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {}))); // never resolves
 
-    const container = renderMcpJson(MCP_JSON);
+    const container = renderContainer(MCP_JSON);
 
-    const card = container.querySelector('.config-mcp-card');
+    const card = qs(container, '.config-mcp-card');
     expect(card).not.toBeNull();
-    expect(card.querySelector('.config-mcp-card-name').textContent).toBe('scan');
+    expect(qs(card, '.config-mcp-card-name').textContent).toBe('scan');
     // Loading placeholder present before enrichment lands.
     expect(card.querySelector('.config-mcp-tools-loading')).not.toBeNull();
   });
@@ -146,34 +163,34 @@ describe('renderMcpJson', () => {
       })
     ));
 
-    const container = renderMcpJson(MCP_JSON);
-    const card = container.querySelector('.config-mcp-card');
+    const container = renderContainer(MCP_JSON);
+    const card = qs(container, '.config-mcp-card');
 
     // Let the fetch/.then chain settle.
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(card.querySelector('.config-mcp-card-desc').textContent).toBe('Bluesky scan control server.');
-    const badge = card.querySelector('.config-mcp-tool-count');
+    expect(qs(card, '.config-mcp-card-desc').textContent).toBe('Bluesky scan control server.');
+    const badge = qs(card, '.config-mcp-tool-count');
     expect(badge.textContent).toBe('1');
     expect(badge.style.display).not.toBe('none');
     expect(card.querySelector('.config-mcp-tools-loading')).toBeNull();
-    const toolItem = card.querySelector('.config-mcp-tool-item');
+    const toolItem = qs(card, '.config-mcp-tool-item');
     expect(toolItem).not.toBeNull();
-    expect(toolItem.querySelector('.config-mcp-tool-name').textContent).toBe('start_scan');
+    expect(qs(toolItem, '.config-mcp-tool-name').textContent).toBe('start_scan');
   });
 
   test('falls back to "tools not available" when the fetch rejects', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('network down'))));
 
-    const container = renderMcpJson(MCP_JSON);
-    const card = container.querySelector('.config-mcp-card');
+    const container = renderContainer(MCP_JSON);
+    const card = qs(container, '.config-mcp-card');
 
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(card.querySelector('.config-mcp-tools-loading')).toBeNull();
-    const fallback = card.querySelector('.config-mcp-tools-fallback');
+    const fallback = qs(card, '.config-mcp-tools-fallback');
     expect(fallback).not.toBeNull();
     expect(fallback.textContent).toBe('tools not available');
   });

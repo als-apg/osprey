@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening): type-clean this test; tracked in eslint.config.js local/no-ts-nocheck allowlist, which may only shrink.
 /**
  * Unit tests for the Artifact Gallery logbook entry composer (logbook.js):
  * the client-side DOM gap left by the backend `test_logbook.py` suite
@@ -31,6 +29,7 @@ import {
   getSteeringValues,
   getContextValues,
 } from '../../../src/osprey/interfaces/artifacts/static/js/logbook.js';
+import { qs, byId } from '../_support/dom.mjs';
 
 afterEach(() => {
   document.body.innerHTML = '';
@@ -83,13 +82,13 @@ describe('updateHeaderTitle', () => {
   ])('phase "%s" sets the header title to "%s"', (phase, expected) => {
     mountTitleFixture();
     updateHeaderTitle(phase);
-    expect(document.getElementById('logbook-header-title').textContent).toBe(expected);
+    expect(byId('logbook-header-title').textContent).toBe(expected);
   });
 
   test('an unknown phase falls back to the default composer title', () => {
     mountTitleFixture();
     updateHeaderTitle('not-a-real-phase');
-    expect(document.getElementById('logbook-header-title').textContent).toBe('Compose Logbook Entry');
+    expect(byId('logbook-header-title').textContent).toBe('Compose Logbook Entry');
   });
 
   test('is a no-op (does not throw) when the header title element is absent', () => {
@@ -143,7 +142,7 @@ describe('getSteeringValues', () => {
 
   test('detail_level falls back to "standard" when no detail button carries .active', () => {
     mountSteeringFixture();
-    document.querySelector('.logbook-detail-btn.active').classList.remove('active');
+    qs(document, '.logbook-detail-btn.active').classList.remove('active');
     expect(getSteeringValues().detail_level).toBe('standard');
   });
 
@@ -185,7 +184,7 @@ describe('getContextValues', () => {
       <div id="logbook-artifact-picker-list"></div>
     `;
 
-    const list = document.getElementById('logbook-artifact-picker-list');
+    const list = byId('logbook-artifact-picker-list');
     pickerIds.forEach((id) => {
       const label = document.createElement('label');
       label.innerHTML = '<input type="checkbox">';

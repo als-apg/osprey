@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening): type-clean this test; tracked in eslint.config.js local/no-ts-nocheck allowlist, which may only shrink.
 /**
  * Unit tests for the Scaffold Gallery detail-view modules
  * (scaffold/detail.js -- the shell: open/create/header/modes/dispatch --
@@ -30,12 +28,36 @@
 
 import { test, expect, vi, describe, beforeEach, afterEach } from 'vitest';
 
+import { qs } from '../_support/dom.mjs';
+
 import { createScaffoldGalleryDetail } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail.js';
 import { createScaffoldGalleryDetailContent } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail-content.js';
 
-/** @param {object} [overrides] */
+/**
+ * @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail.js').ScaffoldGalleryDetailHost} ScaffoldGalleryDetailHost
+ * @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/detail-content.js').DetailContentElement} DetailContentElement
+ */
+
+/**
+ * Test fixture variant of {@link ScaffoldGalleryDetailHost}: makeGallery
+ * always assigns real elements (never leaves a DOM ref null the way a
+ * not-yet-mounted gallery instance might), so the DOM-ref fields are
+ * narrowed to non-null here for the tests that dereference them directly.
+ * @typedef {ScaffoldGalleryDetailHost & {
+ *   galleryView: HTMLElement,
+ *   detailView: HTMLElement,
+ *   detailHeaderEl: HTMLElement,
+ *   detailModesEl: HTMLElement,
+ *   detailContentEl: HTMLElement,
+ * }} TestGallery
+ */
+
+/**
+ * @param {Partial<ScaffoldGalleryDetailHost>} [overrides]
+ * @returns {TestGallery}
+ */
 function makeGallery(overrides = {}) {
-  return {
+  return /** @type {TestGallery} */ ({
     selectedArtifact: null,
     currentView: 'gallery',
     detailMode: 'preview',
@@ -48,6 +70,7 @@ function makeGallery(overrides = {}) {
     detailContentEl: document.createElement('div'),
     onDetailOpen: null,
     load: () => Promise.resolve(),
+    renderDetailModes: () => {},
     closeDetail: vi.fn(),
     releaseToFramework: vi.fn(),
     takeOwnership: vi.fn(),
@@ -56,7 +79,7 @@ function makeGallery(overrides = {}) {
     saveOverride: vi.fn(),
     renderEdit: vi.fn(() => Promise.resolve()),
     ...overrides,
-  };
+  });
 }
 
 beforeEach(() => {
@@ -74,6 +97,10 @@ afterEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('renderDetailModes -- tab availability by ownership', () => {
+  /**
+   * @param {TestGallery} gallery
+   * @param {ReturnType<typeof createScaffoldGalleryDetail>} detail
+   */
   function modeLabels(gallery, detail) {
     detail.renderDetailModes();
     return [...gallery.detailModesEl.querySelectorAll('.prompts-mode-btn')].map((b) => b.textContent);
@@ -106,8 +133,8 @@ describe('renderDetailModes -- tab availability by ownership', () => {
     const detail = createScaffoldGalleryDetail(gallery);
     detail.renderDetailModes();
 
-    const discardBtn = gallery.detailModesEl.querySelector('.prompts-discard-btn');
-    const saveBtn = gallery.detailModesEl.querySelector('.prompts-save-btn');
+    const discardBtn = qs(gallery.detailModesEl, '.prompts-discard-btn', HTMLButtonElement);
+    const saveBtn = qs(gallery.detailModesEl, '.prompts-save-btn', HTMLButtonElement);
     expect(discardBtn).toBeTruthy();
     expect(saveBtn).toBeTruthy();
     expect(discardBtn.disabled).toBe(false);
@@ -127,6 +154,7 @@ describe('mode-switch state machine', () => {
 
     const editBtn = [...gallery.detailModesEl.querySelectorAll('.prompts-mode-btn')]
       .find((b) => b.textContent === 'Edit');
+    if (editBtn === undefined) throw new Error('Edit mode button not found');
     editBtn.dispatchEvent(new Event('click'));
 
     expect(gallery.handleEditFramework).toHaveBeenCalledOnce();
@@ -143,6 +171,7 @@ describe('mode-switch state machine', () => {
 
     const previewBtn = [...gallery.detailModesEl.querySelectorAll('.prompts-mode-btn')]
       .find((b) => b.textContent === 'Preview');
+    if (previewBtn === undefined) throw new Error('Preview mode button not found');
     previewBtn.dispatchEvent(new Event('click'));
 
     expect(confirm).not.toHaveBeenCalled();
@@ -166,6 +195,7 @@ describe('mode-switch state machine', () => {
 
     const diffBtn = [...gallery.detailModesEl.querySelectorAll('.prompts-mode-btn')]
       .find((b) => b.textContent === 'Diff');
+    if (diffBtn === undefined) throw new Error('Diff mode button not found');
     diffBtn.dispatchEvent(new Event('click'));
 
     expect(confirm).toHaveBeenCalledOnce();
@@ -186,6 +216,7 @@ describe('mode-switch state machine', () => {
 
     const diffBtn = [...gallery.detailModesEl.querySelectorAll('.prompts-mode-btn')]
       .find((b) => b.textContent === 'Diff');
+    if (diffBtn === undefined) throw new Error('Diff mode button not found');
     diffBtn.dispatchEvent(new Event('click'));
 
     expect(confirm).toHaveBeenCalledOnce();
@@ -218,7 +249,7 @@ describe('openDetail', () => {
     expect(gallery.galleryView.style.display).toBe('none');
     expect(gallery.detailView.style.display).toBe('');
     expect(onDetailOpen).toHaveBeenCalledOnce();
-    expect(gallery.detailHeaderEl.querySelector('.prompts-detail-name').textContent).toBe('my-artifact');
+    expect(qs(gallery.detailHeaderEl, '.prompts-detail-name').textContent).toBe('my-artifact');
   });
 });
 
@@ -252,7 +283,7 @@ describe('renderDetailContent -- mode dispatch', () => {
 
     await detail.renderDetailContent();
 
-    expect(gallery.detailContentEl.querySelector('.prompts-preview-content').textContent).toBe('plain body');
+    expect(qs(gallery.detailContentEl, '.prompts-preview-content').textContent).toBe('plain body');
   });
 
   test('a fetch failure renders an escaped error message instead of throwing', async () => {
@@ -266,7 +297,7 @@ describe('renderDetailContent -- mode dispatch', () => {
 
     await detail.renderDetailContent();
 
-    const errorEl = gallery.detailContentEl.querySelector('.prompts-content-error');
+    const errorEl = qs(gallery.detailContentEl, '.prompts-content-error');
     expect(errorEl).toBeTruthy();
     expect(errorEl.querySelector('script')).toBeNull();
     expect(errorEl.textContent).toContain('<script>boom</script>');
@@ -296,8 +327,8 @@ describe('renderDiff', () => {
 
     await content.renderDiff();
 
-    expect(gallery.detailContentEl.querySelector('.prompts-diff-add').textContent).toBe('+1');
-    expect(gallery.detailContentEl.querySelector('.prompts-diff-del').textContent).toBe('−1');
+    expect(qs(gallery.detailContentEl, '.prompts-diff-add').textContent).toBe('+1');
+    expect(qs(gallery.detailContentEl, '.prompts-diff-del').textContent).toBe('−1');
 
     const lines = [...gallery.detailContentEl.querySelectorAll('.prompts-diff-line')];
     expect(lines.map((l) => l.className)).toEqual([
@@ -311,9 +342,9 @@ describe('renderDiff', () => {
     // The common "line" token is kept on both sides; "old"/"new" differ --
     // proof that renderDiff delegates word-level highlighting to diff-utils
     // rather than doing a plain line-level render.
-    expect(delLine.querySelector('.diff-word-del').textContent).toBe('old');
+    expect(qs(delLine, '.diff-word-del').textContent).toBe('old');
     expect(delLine.querySelector('.diff-word-keep')).toBeTruthy();
-    expect(addLine.querySelector('.diff-word-add').textContent).toBe('new');
+    expect(qs(addLine, '.diff-word-add').textContent).toBe('new');
     expect(addLine.querySelector('.diff-word-keep')).toBeTruthy();
   });
 
@@ -365,10 +396,13 @@ describe('renderPreview', () => {
 
     await content.renderPreview();
 
-    expect(gallery.detailContentEl._settingsEditor).toBeTruthy();
-    expect(typeof gallery.detailContentEl._settingsEditor.getData).toBe('function');
+    const detailContentEl = /** @type {DetailContentElement} */ (gallery.detailContentEl);
+    expect(detailContentEl._settingsEditor).toBeTruthy();
+    const settingsEditor = detailContentEl._settingsEditor;
+    if (settingsEditor === null || settingsEditor === undefined) throw new Error('settings editor not mounted');
+    expect(typeof settingsEditor.getData).toBe('function');
 
-    const modelInput = gallery.detailContentEl.querySelector('.config-edit-input');
+    const modelInput = qs(gallery.detailContentEl, '.config-edit-input', HTMLInputElement);
     modelInput.value = 'anthropic/claude-opus';
     modelInput.dispatchEvent(new Event('input'));
 

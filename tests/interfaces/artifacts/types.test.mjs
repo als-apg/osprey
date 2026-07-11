@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening): type-clean this test; tracked in eslint.config.js local/no-ts-nocheck allowlist, which may only shrink.
 /**
  * Unit tests for the Artifact Gallery type-registry/formatting/color-pass
  * layer (types.js).
@@ -40,6 +38,7 @@ import {
   sendToTerminal,
   requestColorPass,
 } from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
+import { qs } from '../_support/dom.mjs';
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -166,8 +165,8 @@ describe('escapeHtml', () => {
 describe('formatSize', () => {
   test('0 or falsy bytes renders as "0 B"', () => {
     expect(formatSize(0)).toBe('0 B');
-    expect(formatSize(null)).toBe('0 B');
-    expect(formatSize(undefined)).toBe('0 B');
+    expect(formatSize(/** @type {number} */ (/** @type {unknown} */ (null)))).toBe('0 B');
+    expect(formatSize(/** @type {number} */ (/** @type {unknown} */ (undefined)))).toBe('0 B');
   });
 
   test('sub-1024 bytes stay in B, whole numbers', () => {
@@ -192,6 +191,7 @@ describe('isoToDate (shared timestamp guard)', () => {
   test('parses a valid ISO string to a Date', () => {
     const d = isoToDate('2026-07-03T15:45:00Z');
     expect(d).toBeInstanceOf(Date);
+    if (d === null) throw new Error('unreachable: valid ISO parsed to null');
     expect(d.getUTCFullYear()).toBe(2026);
   });
 
@@ -217,14 +217,14 @@ describe('isoToDate (shared timestamp guard)', () => {
 
 describe('formatTime / formatFullTime / formatDate', () => {
   test('formatTime and formatFullTime return "" for falsy input', () => {
-    expect(formatTime(null)).toBe('');
+    expect(formatTime(/** @type {string} */ (/** @type {unknown} */ (null)))).toBe('');
     expect(formatTime(undefined)).toBe('');
-    expect(formatFullTime(null)).toBe('');
+    expect(formatFullTime(/** @type {string} */ (/** @type {unknown} */ (null)))).toBe('');
     expect(formatFullTime(undefined)).toBe('');
   });
 
   test('formatDate returns "Unknown" for falsy input', () => {
-    expect(formatDate(null)).toBe('Unknown');
+    expect(formatDate(/** @type {string} */ (/** @type {unknown} */ (null)))).toBe('Unknown');
     expect(formatDate(undefined)).toBe('Unknown');
   });
 
@@ -257,9 +257,10 @@ describe('formatTime / formatFullTime / formatDate', () => {
     // Bare `new Date("0")`/`new Date(0)` would fabricate a year-2000/epoch
     // date; the guard must reject these rather than render a made-up time.
     for (const junk of ['0', '1751000000000', 'not-a-date', 42, {}, []]) {
-      expect(formatTime(junk)).toBe('');
-      expect(formatFullTime(junk)).toBe('');
-      expect(formatDate(junk)).toBe('Unknown');
+      const bad = /** @type {string} */ (/** @type {unknown} */ (junk));
+      expect(formatTime(bad)).toBe('');
+      expect(formatFullTime(bad)).toBe('');
+      expect(formatDate(bad)).toBe('Unknown');
     }
   });
 
@@ -407,7 +408,7 @@ describe('requestColorPass', () => {
     document.body.innerHTML = '<span class="badge-plot_html"></span>';
     requestColorPass();
     await new Promise((resolve) => requestAnimationFrame(resolve));
-    const el = document.querySelector('.badge-plot_html');
+    const el = qs(document, '.badge-plot_html');
     expect(el.style.color).not.toBe('');
   });
 });

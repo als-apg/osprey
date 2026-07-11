@@ -57,37 +57,4 @@ export default [
     plugins: { local: { rules: { 'no-ts-nocheck': noTsNocheck } } },
     rules: { 'local/no-ts-nocheck': 'error' },
   },
-
-  // (7) Shrink-only allowlist for local/no-ts-nocheck: the test files still
-  //     carrying a leading `// @ts-nocheck` because they are not yet type-clean.
-  //     This block IS the list — it may ONLY shrink: retrofit a file and delete
-  //     its row, never add one.
-  {
-    files: [
-      'tests/interfaces/artifacts/logbook.test.mjs',
-      'tests/interfaces/artifacts/preview-content.test.mjs',
-      'tests/interfaces/artifacts/preview.test.mjs',
-      'tests/interfaces/artifacts/print.test.mjs',
-      'tests/interfaces/artifacts/render.test.mjs',
-      'tests/interfaces/artifacts/security_render.test.mjs',
-      'tests/interfaces/artifacts/state.test.mjs',
-      'tests/interfaces/artifacts/timeseries.test.mjs',
-      'tests/interfaces/artifacts/types.test.mjs',
-      'tests/interfaces/design_system/js/theme-settheme.test.mjs',
-      'tests/interfaces/design_system/js/theme-switcher.test.mjs',
-      'tests/interfaces/lattice_dashboard/net.test.mjs',
-      'tests/interfaces/lattice_dashboard/render.test.mjs',
-      'tests/interfaces/lattice_dashboard/settings.test.mjs',
-      'tests/interfaces/lattice_dashboard/ui.test.mjs',
-      'tests/interfaces/web_terminal/mcp-renderer.test.mjs',
-      'tests/interfaces/web_terminal/scaffold-data.test.mjs',
-      'tests/interfaces/web_terminal/scaffold-detail.test.mjs',
-      'tests/interfaces/web_terminal/scaffold-edit.test.mjs',
-      'tests/interfaces/web_terminal/scaffold-utils.test.mjs',
-      'tests/interfaces/web_terminal/scaffold-view.test.mjs',
-      'tests/interfaces/web_terminal/session-views.test.mjs',
-      'tests/interfaces/web_terminal/settings-editor.test.mjs',
-    ],
-    rules: { 'local/no-ts-nocheck': 'off' },
-  },
 ];

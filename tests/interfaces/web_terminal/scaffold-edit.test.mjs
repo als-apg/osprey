@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening): type-clean this test; tracked in eslint.config.js local/no-ts-nocheck allowlist, which may only shrink.
 /**
  * Unit tests for the Scaffold Gallery edit-view modules
  * (scaffold/edit-form.js -- the edit-mode content renderers, and
@@ -29,24 +27,54 @@
 
 import { test, expect, vi, describe, beforeEach, afterEach } from 'vitest';
 
+import { qs } from '../_support/dom.mjs';
+
 import { createScaffoldGalleryEditForm } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/edit-form.js';
 import { createScaffoldGalleryEdit } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/edit.js';
 import { resetFetchCache } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/data.js';
 
-/** @param {object} [overrides] */
+/**
+ * @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/edit-form.js').ScaffoldGalleryEditFormHost} ScaffoldGalleryEditFormHost
+ * @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/edit-form.js').EditContentElement} EditFormContentElement
+ * @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/edit.js').ScaffoldGalleryEditHost} ScaffoldGalleryEditHost
+ * @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/edit.js').EditContentElement} EditContentElement
+ */
+
+/**
+ * Test fixture variant of {@link ScaffoldGalleryEditFormHost}: makeEditFormGallery
+ * always assigns a real element, never leaves detailContentEl null.
+ * @typedef {ScaffoldGalleryEditFormHost & { detailContentEl: EditFormContentElement }} TestEditFormGallery
+ */
+
+/** @param {Partial<ScaffoldGalleryEditFormHost>} [overrides]
+ * @returns {TestEditFormGallery}
+ */
 function makeEditFormGallery(overrides = {}) {
-  return {
+  return /** @type {TestEditFormGallery} */ ({
     selectedArtifact: null,
     editDirty: false,
     detailContentEl: document.createElement('div'),
     renderDetailModes: vi.fn(),
     ...overrides,
-  };
+  });
 }
 
-/** @param {object} [overrides] */
+/**
+ * Test fixture variant of {@link ScaffoldGalleryEditHost}: makeEditGallery
+ * always assigns real elements, never leaves the DOM refs null.
+ * @typedef {ScaffoldGalleryEditHost & {
+ *   detailContentEl: EditContentElement,
+ *   errorEl: HTMLElement,
+ *   galleryView: HTMLElement,
+ *   detailView: HTMLElement,
+ * }} TestEditGallery
+ */
+
+/** @param {Partial<ScaffoldGalleryEditHost>} [overrides]
+ * @returns {TestEditGallery}
+ */
 function makeEditGallery(overrides = {}) {
-  return {
+  return /** @type {TestEditGallery} */ ({
     selectedArtifact: null,
     artifacts: [],
     categoryFilter: () => true,
@@ -67,7 +95,7 @@ function makeEditGallery(overrides = {}) {
     renderDetailContent: vi.fn(),
     renderGallery: vi.fn(),
     ...overrides,
-  };
+  });
 }
 
 beforeEach(() => {
@@ -95,7 +123,7 @@ describe('renderEdit', () => {
 
     await form.renderEdit();
 
-    const textarea = gallery.detailContentEl.querySelector('.prompts-edit-textarea');
+    const textarea = qs(gallery.detailContentEl, '.prompts-edit-textarea', HTMLTextAreaElement);
     expect(textarea).toBeTruthy();
     expect(textarea.value).toBe('plain body');
     expect(gallery.editDirty).toBe(false);
@@ -123,7 +151,7 @@ describe('renderEdit', () => {
 
     expect(gallery.detailContentEl.textContent).toContain('AGENT CONFIGURATION');
     expect(gallery.detailContentEl.textContent).toContain('AGENT INSTRUCTIONS');
-    const bodyTextarea = gallery.detailContentEl.querySelector('.prompts-edit-textarea');
+    const bodyTextarea = qs(gallery.detailContentEl, '.prompts-edit-textarea', HTMLTextAreaElement);
     expect(bodyTextarea.value).toBe('Do the thing.');
 
     bodyTextarea.dispatchEvent(new Event('input'));
@@ -142,7 +170,7 @@ describe('renderEdit', () => {
     await form.renderEdit();
 
     expect(gallery.detailContentEl.textContent).not.toContain('AGENT CONFIGURATION');
-    const textarea = gallery.detailContentEl.querySelector('.prompts-edit-textarea');
+    const textarea = qs(gallery.detailContentEl, '.prompts-edit-textarea', HTMLTextAreaElement);
     expect(textarea.value).toBe('---\ndescription: no model here\n---\nBody text.');
   });
 
@@ -152,14 +180,20 @@ describe('renderEdit', () => {
     })));
 
     const gallery = makeEditFormGallery({ selectedArtifact: { name: 'settings-json', status: 'user-owned' } });
-    gallery.detailContentEl._settingsEditor = 'stale';
+    // Deliberately violates the declared `_settingsEditor` shape to verify
+    // renderEdit() clears out any stale value before mounting a fresh editor.
+    gallery.detailContentEl._settingsEditor = /** @type {{getData(): string, isDirty(): boolean}} */ (
+      /** @type {unknown} */ ('stale')
+    );
     const form = createScaffoldGalleryEditForm(gallery);
 
     await form.renderEdit();
 
-    expect(gallery.detailContentEl._settingsEditor).toBeTruthy();
-    expect(gallery.detailContentEl._settingsEditor).not.toBe('stale');
-    expect(typeof gallery.detailContentEl._settingsEditor.getData).toBe('function');
+    const settingsEditor = gallery.detailContentEl._settingsEditor;
+    expect(settingsEditor).toBeTruthy();
+    expect(settingsEditor).not.toBe('stale');
+    if (settingsEditor === null || settingsEditor === undefined) throw new Error('settings editor not mounted');
+    expect(typeof settingsEditor.getData).toBe('function');
   });
 });
 
@@ -182,8 +216,9 @@ describe('renderFrontMatterForm -- field generation per type', () => {
     await form.renderEdit();
 
     const fields = gallery.detailContentEl.querySelectorAll('.prompts-fm-field');
-    const nameField = [...fields].find((f) => f.textContent.startsWith('name'));
-    const nameInput = nameField.querySelector('input');
+    const nameField = [...fields].find((f) => (f.textContent ?? '').startsWith('name'));
+    if (nameField === undefined) throw new Error('name field not found');
+    const nameInput = qs(nameField, 'input', HTMLInputElement);
     expect(nameInput.type).toBe('text');
     expect(nameInput.value).toBe('my-agent');
   });
@@ -199,8 +234,9 @@ describe('renderFrontMatterForm -- field generation per type', () => {
     await form.renderEdit();
 
     const fields = gallery.detailContentEl.querySelectorAll('.prompts-fm-field');
-    const modelField = [...fields].find((f) => f.textContent.startsWith('model'));
-    const select = modelField.querySelector('select');
+    const modelField = [...fields].find((f) => (f.textContent ?? '').startsWith('model'));
+    if (modelField === undefined) throw new Error('model field not found');
+    const select = qs(modelField, 'select', HTMLSelectElement);
     expect(select).toBeTruthy();
     expect(select.value).toBe('sonnet');
     expect(select.options.length).toBeGreaterThan(1);
@@ -220,8 +256,9 @@ describe('renderFrontMatterForm -- field generation per type', () => {
     await form.renderEdit();
 
     const fields = gallery.detailContentEl.querySelectorAll('.prompts-fm-field');
-    const maxTurnsField = [...fields].find((f) => f.textContent.startsWith('maxTurns'));
-    const input = maxTurnsField.querySelector('input');
+    const maxTurnsField = [...fields].find((f) => (f.textContent ?? '').startsWith('maxTurns'));
+    if (maxTurnsField === undefined) throw new Error('maxTurns field not found');
+    const input = qs(maxTurnsField, 'input', HTMLInputElement);
     expect(input.type).toBe('number');
     expect(input.min).toBe('1');
     expect(input.max).toBe('100');
@@ -238,9 +275,10 @@ describe('renderFrontMatterForm -- field generation per type', () => {
     const form = createScaffoldGalleryEditForm(gallery);
     await form.renderEdit();
 
-    const select = [...gallery.detailContentEl.querySelectorAll('.prompts-fm-field')]
-      .find((f) => f.textContent.startsWith('model'))
-      .querySelector('select');
+    const modelField2 = [...gallery.detailContentEl.querySelectorAll('.prompts-fm-field')]
+      .find((f) => (f.textContent ?? '').startsWith('model'));
+    if (modelField2 === undefined) throw new Error('model field not found');
+    const select = qs(modelField2, 'select');
 
     select.dispatchEvent(new Event('change'));
     expect(gallery.editDirty).toBe(true);
@@ -281,6 +319,7 @@ describe('discardEdits', () => {
 
 describe('saveOverride', () => {
   test('reads from the plain textarea, PUTs it, and clears the dirty flag on success', async () => {
+    /** @type {{url: string, init: RequestInit}[]} */
     const putCalls = [];
     vi.stubGlobal('fetch', vi.fn((url, init) => {
       putCalls.push({ url, init });
@@ -300,7 +339,7 @@ describe('saveOverride', () => {
     await edit.saveOverride();
 
     expect(putCalls.some((c) => c.url.includes('/override') && c.init.method === 'PUT'
-      && JSON.parse(c.init.body).content === 'new content')).toBe(true);
+      && JSON.parse(/** @type {string} */ (c.init.body)).content === 'new content')).toBe(true);
     expect(gallery.editDirty).toBe(false);
     expect(gallery.openDetail).toHaveBeenCalledOnce();
   });
@@ -355,7 +394,7 @@ describe('saveOverride', () => {
 
     // The ownership-warning dialog is a hand-rolled DOM overlay (not
     // `confirm()`) -- click Cancel.
-    const cancelBtn = document.querySelector('.config-ownership-cancel');
+    const cancelBtn = qs(document, '.config-ownership-cancel');
     expect(cancelBtn).toBeTruthy();
     cancelBtn.dispatchEvent(new Event('click'));
     await savePromise;
@@ -365,6 +404,7 @@ describe('saveOverride', () => {
   });
 
   test('confirming the ownership warning claims the file, then saves the override', async () => {
+    /** @type {{url: string, method: string|undefined}[]} */
     const calls = [];
     vi.stubGlobal('fetch', vi.fn((url, init) => {
       calls.push({ url, method: init?.method });
@@ -377,7 +417,7 @@ describe('saveOverride', () => {
     const edit = createScaffoldGalleryEdit(gallery);
     const savePromise = edit.saveOverride();
 
-    document.querySelector('.config-ownership-confirm').dispatchEvent(new Event('click'));
+    qs(document, '.config-ownership-confirm').dispatchEvent(new Event('click'));
     await savePromise;
 
     expect(calls.some((c) => c.url.includes('/claim') && c.method === 'POST')).toBe(true);
@@ -422,6 +462,7 @@ describe('takeOwnership / releaseToFramework / handleEditFramework', () => {
   });
 
   test('takeOwnership: confirming claims the file then reloads + reopens the artifact', async () => {
+    /** @type {{url: string, method: string|undefined}[]} */
     const calls = [];
     vi.stubGlobal('fetch', vi.fn((url, init) => {
       calls.push({ url, method: init?.method });
@@ -440,6 +481,7 @@ describe('takeOwnership / releaseToFramework / handleEditFramework', () => {
   });
 
   test('releaseToFramework delegates to unoverrideArtifact (DELETE the override)', async () => {
+    /** @type {{url: string, method: string|undefined}[]} */
     const calls = [];
     vi.stubGlobal('fetch', vi.fn((url, init) => {
       calls.push({ url, method: init?.method });

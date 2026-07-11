@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening): type-clean this test; tracked in eslint.config.js local/no-ts-nocheck allowlist, which may only shrink.
 /**
  * Unit tests for theme-manager.js's setTheme() -- the explicit user-toggle
  * path -- covering:
@@ -39,7 +37,9 @@ describe('setTheme()', () => {
   function spyOnBroadcast() {
     const iframe = document.createElement('iframe');
     document.body.appendChild(iframe);
-    return vi.spyOn(iframe.contentWindow, 'postMessage').mockImplementation(() => {});
+    const win = iframe.contentWindow;
+    if (win === null) throw new Error('iframe has no contentWindow');
+    return vi.spyOn(win, 'postMessage').mockImplementation(() => {});
   }
 
   describe('follower role', () => {

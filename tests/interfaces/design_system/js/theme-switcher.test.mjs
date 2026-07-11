@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening): type-clean this test; tracked in eslint.config.js local/no-ts-nocheck allowlist, which may only shrink.
 /**
  * Unit tests for <osprey-theme-switcher>
  * (design_system/static/js/components/osprey-theme-switcher.js).
@@ -22,6 +20,8 @@
  */
 
 import { test, expect, describe, afterEach, vi } from 'vitest';
+
+import { qs } from '../../_support/dom.mjs';
 
 import '/design-system/js/components/osprey-theme-switcher.js';
 
@@ -53,9 +53,9 @@ describe('<osprey-theme-switcher>', () => {
       const el = document.createElement('osprey-theme-switcher');
       document.body.appendChild(el);
 
-      const button = el.querySelector('#theme-toggle');
-      const sunIcon = el.querySelector('#theme-icon-sun');
-      const moonIcon = el.querySelector('#theme-icon-moon');
+      const button = qs(el, '#theme-toggle');
+      const sunIcon = qs(el, '#theme-icon-sun');
+      const moonIcon = qs(el, '#theme-icon-moon');
 
       expect(button).toBeTruthy();
       expect(button.tagName).toBe('BUTTON');
