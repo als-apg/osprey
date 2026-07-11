@@ -198,7 +198,22 @@ _SET_PROPERTY_RE = re.compile(r"\.setProperty\(\s*['\"]--([a-zA-Z0-9-]+)['\"]")
 #: fix; each is owned by the migration task noted below and MUST be
 #: removed from this set in the same commit that fixes it — a stale entry
 #: fails the "no longer dangling" half of the assertion below.
-_KNOWN_DANGLING_VARS: frozenset[tuple[str, str]] = frozenset()
+_KNOWN_DANGLING_VARS: frozenset[tuple[str, str]] = frozenset(
+    {
+        # Not a real CSS/JS reference at all: osprey-theme-switcher.js's module
+        # docstring illustrates the general `var(--name)` syntax with a literal
+        # ellipsis placeholder, "var(--…)" -- the scanner's balanced-paren
+        # extraction faithfully (and here, spuriously) parses that prose as a
+        # call for a property literally named "…". There is no such property,
+        # declared or otherwise, because there is no such call; this is a false
+        # positive on documentation text, not a dangling style reference (the
+        # docstring was authored by rewrite-switcher-family-picker, Task 1.9).
+        (
+            "src/osprey/interfaces/design_system/static/js/components/osprey-theme-switcher.js",
+            "…",
+        ),
+    }
+)
 
 
 def _declared_names(text: str) -> set[str]:

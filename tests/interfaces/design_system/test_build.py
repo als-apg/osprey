@@ -56,14 +56,14 @@ def _write_minimal_valid_tokens(tokens_dir: Path) -> None:
     )
 
     dark = {
-        "$extensions": {"id": "dark", "label": "Dark", "mode": "dark"},
+        "$extensions": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
         "bg": {"primary": {"$value": "{color.slate.900}", "$type": "color"}},
         "text": {"primary": {"$value": "#ffffff", "$type": "color"}},
         "accent": {"base": {"$value": "{color.teal.500}", "$type": "color"}},
         "terminal": {"cursor": {"$value": "{color.teal.500}", "$type": "color"}},
     }
     light = {
-        "$extensions": {"id": "light", "label": "Light", "mode": "light"},
+        "$extensions": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
         "bg": {"primary": {"$value": "{color.slate.50}", "$type": "color"}},
         "text": {"primary": {"$value": "#000000", "$type": "color"}},
         "accent": {"base": {"$value": "#065f5c", "$type": "color"}},
@@ -88,12 +88,12 @@ def _write_invalid_tokens(tokens_dir: Path) -> None:
         encoding="utf-8",
     )
     dark = {
-        "$extensions": {"id": "dark", "label": "Dark", "mode": "dark"},
+        "$extensions": {"id": "dark", "label": "Dark", "mode": "dark", "family": "osprey"},
         "bg": {"primary": {"$value": "{color.slate.900}", "$type": "color"}},
         "accent": {"base": {"$value": "{color.nonexistent}", "$type": "color"}},
     }
     light = {
-        "$extensions": {"id": "light", "label": "Light", "mode": "light"},
+        "$extensions": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
         "bg": {"primary": {"$value": "#ffffff", "$type": "color"}},
         # Missing "accent.base" entirely -> theme-completeness error too.
     }

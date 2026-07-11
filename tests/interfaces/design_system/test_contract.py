@@ -138,13 +138,19 @@ def test_theme_defaults_ids_exist_with_correct_modes(tree: TokenTree) -> None:
     defaults = build_theme_defaults(entries)
     entries_by_id = {entry.id: entry for entry in entries}
 
-    # Every mode actually present among the themes must have a default.
-    assert set(defaults) == {entry.mode for entry in entries}
-    for mode, theme_id in defaults.items():
-        assert theme_id in entries_by_id, (
-            f"DEFAULTS[{mode!r}] = {theme_id!r} is not a known theme id"
-        )
-        assert entries_by_id[theme_id].mode == mode
+    # DEFAULTS is nested per family: {family: {mode: id}}. Every family
+    # actually present among the themes must have a default for every
+    # mode that family declares.
+    assert set(defaults) == {entry.family for entry in entries}
+    for family, modes in defaults.items():
+        family_entries = [entry for entry in entries if entry.family == family]
+        assert set(modes) == {entry.mode for entry in family_entries}
+        for mode, theme_id in modes.items():
+            assert theme_id in entries_by_id, (
+                f"DEFAULTS[{family!r}][{mode!r}] = {theme_id!r} is not a known theme id"
+            )
+            assert entries_by_id[theme_id].mode == mode
+            assert entries_by_id[theme_id].family == family
 
 
 # --- Review #2 addition 1: no orphan color ramp primitives -----------------------

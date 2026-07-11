@@ -1,21 +1,21 @@
 {
-  "$description": "Dark theme — canonical values taken verbatim from web-terminal's variables.css (the hub, per proposal). Aliases are one-hop into core.json primitives; rgba/composite values that combine a base color with a specific alpha or a multi-part shadow are kept as literals (no ramp step encodes 'primitive + alpha', so a one-hop alias can't express them). WCAG contract gates (text.primary/secondary >= 4.5:1, text.muted >= 3:1, accent >= 3:1, all vs bg.primary) were computed against these values and ALL PASS with margin — dark text-primary 17.49:1, text-secondary 6.74:1, text-muted 4.03:1, accent 5.47:1. Zero nudges applied to this theme.",
-  "$extensions": { "mode": "dark", "id": "dark", "label": "Dark", "family": "osprey" },
+  "$description": "High Contrast Dark — WCAG-AAA member of the 'high-contrast' family (the dark twin of high-contrast-light.json). Same semantic key set as dark.json/light.json (contract-enforced). Every value aliases an EXISTING core.json primitive; no new primitives were needed to hit AAA. bg.primary/bg.terminal use the darkest existing slate step (slate.1100, #020408, already used elsewhere as wt-welcome.bg); text/accent use the lightest/brightest existing steps that clear the AAA gates with margin. AAA gates computed against these values (via validate.py's own contrast_ratio()) and ALL PASS: text.primary 19.82:1 (>=7), text.secondary 13.88:1 (>=7), text.muted 7.22:1 (>=4.5), accent.base 11.00:1 (>=4.5). accent.light/tint.accent/border.accent are re-derived from the brighter accent.light (teal.50, #67e8f9) chosen for this theme, not copy-pasted from dark.json's teal.100-based tints.",
+  "$extensions": { "mode": "dark", "id": "high-contrast-dark", "label": "High Contrast Dark", "family": "high-contrast" },
   "bg": {
-    "terminal": { "$value": "{color.slate.1050}", "$type": "color" },
-    "primary": { "$value": "{color.slate.1000}", "$type": "color" },
-    "secondary": { "$value": "{color.slate.850}", "$type": "color" },
-    "panel": { "$value": "{color.slate.900}", "$type": "color" },
-    "elevated": { "$value": "{color.slate.800}", "$type": "color" }
+    "terminal": { "$value": "{color.slate.1100}", "$type": "color" },
+    "primary": { "$value": "{color.slate.1100}", "$type": "color", "$description": "Darkest existing slate step (#020408); anchors the AAA gates below." },
+    "secondary": { "$value": "{color.slate.1050}", "$type": "color" },
+    "panel": { "$value": "{color.slate.1000}", "$type": "color" },
+    "elevated": { "$value": "{color.slate.900}", "$type": "color" }
   },
   "text": {
-    "primary": { "$value": "{color.slate.250}", "$type": "color" },
-    "secondary": { "$value": "{color.slate.600}", "$type": "color" },
-    "muted": { "$value": "{color.slate.650}", "$type": "color" }
+    "primary": { "$value": "{color.slate.50}", "$type": "color", "$description": "Lightest existing slate step (#fafbfd); 19.82:1 vs bg.primary." },
+    "secondary": { "$value": "{color.slate.500}", "$type": "color", "$description": "13.88:1 vs bg.primary." },
+    "muted": { "$value": "{color.slate.600}", "$type": "color", "$description": "7.22:1 vs bg.primary — the dimmest existing slate step that still clears the AAA 4.5:1 floor (slate.650, dark.json's own text.muted value, only reaches 4.31:1 here and was rejected)." }
   },
   "accent": {
-    "base": { "$value": "{color.teal.300}", "$type": "color" },
-    "light": { "$value": "{color.teal.100}", "$type": "color" }
+    "base": { "$value": "{color.teal.100}", "$type": "color", "$description": "11.00:1 vs bg.primary (AAA floor is 4.5:1)." },
+    "light": { "$value": "{color.teal.50}", "$type": "color", "$description": "Brightest existing teal step; used as the base for tint.accent/border.accent below." }
   },
   "amber": {
     "base": { "$value": "{color.amber.300}", "$type": "color" },
@@ -29,19 +29,19 @@
     "error-hover": { "$value": "{color.red.500}", "$type": "color" }
   },
   "border": {
-    "default": { "$value": "rgba(148, 163, 184, 0.12)", "$type": "color", "$description": "Alpha composite of the tint.neutral base (#94a3b8) — not a solid ramp step, kept literal." },
-    "accent": { "$value": "rgba(79, 209, 197, 0.15)", "$type": "color", "$description": "Alpha composite of accent.light (#4fd1c5)." }
+    "default": { "$value": "rgba(148, 163, 184, 0.12)", "$type": "color", "$description": "Same tint.neutral-family composite as dark.json's border.default (unaffected by the accent/text changes above)." },
+    "accent": { "$value": "rgba(103, 232, 249, 0.15)", "$type": "color", "$description": "Alpha composite of THIS theme's accent.light (teal.50, #67e8f9) — not dark.json's teal.100-based value." }
   },
   "tint": {
     "accent": {
-      "04": { "$value": "rgba(79, 209, 197, 0.04)", "$type": "color" },
-      "06": { "$value": "rgba(79, 209, 197, 0.06)", "$type": "color" },
-      "08": { "$value": "rgba(79, 209, 197, 0.08)", "$type": "color" },
-      "10": { "$value": "rgba(79, 209, 197, 0.10)", "$type": "color" },
-      "12": { "$value": "rgba(79, 209, 197, 0.12)", "$type": "color" },
-      "20": { "$value": "rgba(79, 209, 197, 0.20)", "$type": "color" },
-      "25": { "$value": "rgba(79, 209, 197, 0.25)", "$type": "color" },
-      "30": { "$value": "rgba(79, 209, 197, 0.30)", "$type": "color" }
+      "04": { "$value": "rgba(103, 232, 249, 0.04)", "$type": "color" },
+      "06": { "$value": "rgba(103, 232, 249, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(103, 232, 249, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(103, 232, 249, 0.10)", "$type": "color" },
+      "12": { "$value": "rgba(103, 232, 249, 0.12)", "$type": "color" },
+      "20": { "$value": "rgba(103, 232, 249, 0.20)", "$type": "color" },
+      "25": { "$value": "rgba(103, 232, 249, 0.25)", "$type": "color" },
+      "30": { "$value": "rgba(103, 232, 249, 0.30)", "$type": "color" }
     },
     "amber": {
       "04": { "$value": "rgba(212, 165, 116, 0.04)", "$type": "color" },
@@ -66,7 +66,6 @@
       "50": { "$value": "rgba(34, 197, 94, 0.50)", "$type": "color" }
     },
     "neutral": {
-      "$description": "Base rgb(148,163,184) = color.slate.550 — a lighter slate than text.secondary's rgb(139,154,181); both exist independently in source.",
       "03": { "$value": "rgba(148, 163, 184, 0.03)", "$type": "color" },
       "06": { "$value": "rgba(148, 163, 184, 0.06)", "$type": "color" },
       "08": { "$value": "rgba(148, 163, 184, 0.08)", "$type": "color" },
@@ -102,15 +101,15 @@
     "word-add-text": { "$value": "{color.green.400}", "$type": "color" }
   },
   "terminal": {
-    "cursor": { "$value": "{color.teal.100}", "$type": "color" },
-    "text": { "$value": "{color.slate.500}", "$type": "color" },
-    "selection": { "$value": "rgba(79, 209, 197, 0.25)", "$type": "color" },
+    "cursor": { "$value": "{color.teal.50}", "$type": "color" },
+    "text": { "$value": "{color.slate.250}", "$type": "color", "$description": "Bumped to a near-white step (vs dark.json's slate.500) so the terminal's own body text also reads at high contrast, matching the theme's AAA intent." },
+    "selection": { "$value": "rgba(103, 232, 249, 0.25)", "$type": "color" },
     "ansi": {
-      "background": { "$value": "{color.slate.1050}", "$type": "color" },
-      "foreground": { "$value": "{color.slate.500}", "$type": "color" },
-      "cursor": { "$value": "{color.teal.100}", "$type": "color" },
-      "cursor-accent": { "$value": "{color.slate.1050}", "$type": "color" },
-      "selection": { "$value": "rgba(79, 209, 197, 0.25)", "$type": "color" },
+      "background": { "$value": "{color.slate.1100}", "$type": "color" },
+      "foreground": { "$value": "{color.slate.250}", "$type": "color" },
+      "cursor": { "$value": "{color.teal.50}", "$type": "color" },
+      "cursor-accent": { "$value": "{color.slate.1100}", "$type": "color" },
+      "selection": { "$value": "rgba(103, 232, 249, 0.25)", "$type": "color" },
       "black": { "$value": "{color.slate.800}", "$type": "color" },
       "red": { "$value": "{color.red.300}", "$type": "color" },
       "green": { "$value": "{color.green.400}", "$type": "color" },
@@ -130,13 +129,11 @@
     }
   },
   "chart": {
-    "$description": "Harmonized canonical values — tuning/plots.js, artifacts/gallery.js and lattice_dashboard/dashboard.js each hand-rolled distinct paper/plot/grid/axis colors (tuning: #0a0f1a flat; artifacts: #131c2e/#0b1120 two-tone; lattice: transparent/rgba(22,26,36,.95)). Canonical choice: paper-bg = plot-bg = bg.primary (tuning's flat single-background convention, closest to hub/app-shell values); axis-text/grid = text.secondary family at low alpha (tuning AND artifacts dark both already used #8b9ab5 for axis-text — the one point of agreement). Artifacts and lattice will visually shift when migrated (Task 3.1/3.6) — authorized minor-shade harmonization, not a redesign.",
-    "paper-bg": { "$value": "{color.slate.1000}", "$type": "color" },
-    "plot-bg": { "$value": "{color.slate.1000}", "$type": "color" },
-    "grid": { "$value": "rgba(139, 154, 181, 0.1)", "$type": "color", "$description": "text.secondary base (#8b9ab5) at 10% alpha — tuning's exact dark-mode grid value." },
+    "paper-bg": { "$value": "{color.slate.1100}", "$type": "color" },
+    "plot-bg": { "$value": "{color.slate.1100}", "$type": "color" },
+    "grid": { "$value": "rgba(139, 154, 181, 0.1)", "$type": "color" },
     "axis-text": { "$value": "{color.slate.600}", "$type": "color" },
     "series": {
-      "$description": "Canonical 6-slot categorical palette = tuning's COLORS.bo_palette verbatim (all 6 steps already existed as ramp aliases). Artifacts' own 8-color array (which adds #d4a574 and an unratified pink #e879f9 not in any of the 7 approved ramp families) is NOT carried forward; artifacts' migration (Task 3.1, out of this task's scope) maps down to these 6 slots.",
       "1": { "$value": "{color.teal.100}", "$type": "color" },
       "2": { "$value": "{color.amber.400}", "$type": "color" },
       "3": { "$value": "{color.green.400}", "$type": "color" },
@@ -146,6 +143,6 @@
     }
   },
   "code": {
-    "theme": { "$value": "highlight.js atom-one-dark theme", "$type": "string", "$description": "Must exactly match an asset 'name' in src/osprey/interfaces/vendor_manifest.json (contract-tested)." }
+    "theme": { "$value": "highlight.js atom-one-dark theme", "$type": "string", "$description": "No dedicated high-contrast highlight.js theme is vendored; reuses the dark family's asset name (contract-tested against src/osprey/interfaces/vendor_manifest.json)." }
   }
 }
