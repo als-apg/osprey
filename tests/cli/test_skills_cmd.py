@@ -110,6 +110,24 @@ def test_install_design_philosophy_skill(fake_home: Path) -> None:
     assert (target / "SKILL.md").is_file()
 
 
+def test_resource_path_for_creating_panel_skill_resolves() -> None:
+    """The creating-an-osprey-panel skill is discoverable under templates/skills/."""
+    from importlib.resources import files
+
+    skill_md = files("osprey").joinpath("templates/skills/creating-an-osprey-panel/SKILL.md")
+    assert skill_md.is_file()
+
+
+def test_install_creating_panel_skill(fake_home: Path) -> None:
+    """The creating-an-osprey-panel dev skill installs into the default target."""
+    runner = CliRunner()
+    result = runner.invoke(skills, ["install", "creating-an-osprey-panel"])
+
+    assert result.exit_code == 0, result.output
+    target = fake_home / ".claude" / "skills" / "creating-an-osprey-panel"
+    assert (target / "SKILL.md").is_file()
+
+
 def test_install_deploy_skill_to_custom_target(tmp_path: Path) -> None:
     """``--target`` installs the deploy skill into a project-local .claude/skills/.
 
