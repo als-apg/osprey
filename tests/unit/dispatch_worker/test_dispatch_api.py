@@ -46,7 +46,9 @@ def client(monkeypatch):
     monkeypatch.setattr(dispatch_api, "_queues", {})
     monkeypatch.setattr(dispatch_api, "_tasks", {})
 
-    async def _fake_run_dispatch(*, prompt, allowed_tools, max_turns, event_queue, denied_tools=(), run_id=None):
+    async def _fake_run_dispatch(
+        *, prompt, allowed_tools, max_turns, event_queue, denied_tools=(), run_id=None
+    ):
         if event_queue is not None:
             await event_queue.put({"type": "done"})
         return dict(_CANNED_RESULT)
