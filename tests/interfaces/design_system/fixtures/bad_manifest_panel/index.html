@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<!--
+  Fixture for the bad-manifest case. This entry HTML is itself compliant
+  and hex-free on purpose: the ONLY reason the validator fails this panel is
+  the manifest (a non-kebab 'id' and a missing 'label'), so the test can
+  assert MANIFEST_INVALID fires in isolation. A schema-invalid manifest
+  short-circuits the HTML checks anyway (the entry is treated as unknown).
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<script src="/design-system/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/design-system/css/tokens.css">
+<title>Bad Manifest Panel</title>
+<style>
+  body { background: var(--bg-primary); color: var(--text-primary); }
+</style>
+</head>
+<body>
+<p>The manifest next to this file is schema-invalid.</p>
+</body>
+</html>
