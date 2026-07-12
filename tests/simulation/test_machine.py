@@ -186,7 +186,9 @@ class TestParsePhysicsFault:
         )
         errors = parse_machine(machine, _PATH).scenarios["fault"].physics.bpm_errors
         assert errors["BPM12"] == BpmErrorSpec(polarity=-1)
-        assert errors["BPM03"] == BpmErrorSpec(offset=1e-4, gain=1.05, polarity=1, roll=0.01, noise=2e-5)
+        assert errors["BPM03"] == BpmErrorSpec(
+            offset=1e-4, gain=1.05, polarity=1, roll=0.01, noise=2e-5
+        )
 
     def test_corrector_gain_parses(self):
         machine = _machine(scenarios={"fault": {"physics": {"corrector_gain": {"HCM01": 1.15}}}})
@@ -230,12 +232,16 @@ class TestParsePhysicsFault:
             parse_machine(machine, _PATH)
 
     def test_bpm_errors_rejects_bad_polarity(self):
-        machine = _machine(scenarios={"fault": {"physics": {"bpm_errors": {"BPM01": {"polarity": 2}}}}})
+        machine = _machine(
+            scenarios={"fault": {"physics": {"bpm_errors": {"BPM01": {"polarity": 2}}}}}
+        )
         with pytest.raises(ValueError, match="'polarity' must be 1 or -1"):
             parse_machine(machine, _PATH)
 
     def test_bpm_errors_rejects_negative_noise(self):
-        machine = _machine(scenarios={"fault": {"physics": {"bpm_errors": {"BPM01": {"noise": -1.0}}}}})
+        machine = _machine(
+            scenarios={"fault": {"physics": {"bpm_errors": {"BPM01": {"noise": -1.0}}}}}
+        )
         with pytest.raises(ValueError, match="'noise' must be >= 0"):
             parse_machine(machine, _PATH)
 
@@ -245,7 +251,9 @@ class TestParsePhysicsFault:
             parse_machine(machine, _PATH)
 
 
-_TEMPLATE_SIM = Path(__file__).parents[2] / "src/osprey/templates/apps/control_assistant/data/simulation"
+_TEMPLATE_SIM = (
+    Path(__file__).parents[2] / "src/osprey/templates/apps/control_assistant/data/simulation"
+)
 
 
 class TestSeededDiscoveryScenarioBundles:

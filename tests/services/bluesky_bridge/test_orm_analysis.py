@@ -110,7 +110,7 @@ def _real_shape_rows(
     rows = []
     for j, corrector in enumerate(correctors):
         for current in sweeps[j]:
-            row = {c: 0.0 for c in correctors}
+            row = dict.fromkeys(correctors, 0.0)
             row[corrector] = float(current)
             for i, detector in enumerate(detectors):
                 row[detector] = float(matrix[i, j] * current)
@@ -141,9 +141,7 @@ def test_guard_fires_on_a_real_shaped_asymmetric_sweep() -> None:
     """
     currents = np.linspace(-1.0, 1.0, 5)
     off_center = currents + 5.0  # [4.0, ..., 6.0] -- not symmetric about 0
-    rows = _real_shape_rows(
-        KNOWN_MATRIX, CORRECTORS, DETECTORS, [off_center, currents, currents]
-    )
+    rows = _real_shape_rows(KNOWN_MATRIX, CORRECTORS, DETECTORS, [off_center, currents, currents])
 
     with pytest.raises(DegenerateFitError, match="symmetric about 0"):
         build_response_matrix(rows, CORRECTORS, DETECTORS)

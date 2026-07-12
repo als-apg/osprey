@@ -148,4 +148,6 @@ def test_orm_schema_validation_path_matches_reinitialize() -> None:
     raising."""
     spec = BUILTIN_PLANS["orm"]
     with pytest.raises(ValidationError):
-        spec.schema.model_validate({"correctors": [], "detectors": ["bpm1"], "span_a": 2.0, "num": 5})
+        spec.schema.model_validate(
+            {"correctors": [], "detectors": ["bpm1"], "span_a": 2.0, "num": 5}
+        )

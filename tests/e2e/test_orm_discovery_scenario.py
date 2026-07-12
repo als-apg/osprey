@@ -234,9 +234,7 @@ def _minted_promote_token(project_dir: Path) -> str:
 
 
 @contextlib.contextmanager
-def _deployed_discovery_stack(
-    tmp_path: Path, project_name: str, scenario: str
-) -> Iterator[Path]:
+def _deployed_discovery_stack(tmp_path: Path, project_name: str, scenario: str) -> Iterator[Path]:
     """Build, wire, seed, and deploy one scenario's ORM stack; tear it down
     exact-named on exit (even on a mid-setup skip/failure).
 
@@ -362,9 +360,7 @@ def _assert_orm_scan_ran(result, *, plan_hint: str = "orm") -> None:
 )
 @pytest.mark.flaky(reruns=2)  # multi-step agentic; absorb rare LLM stochastic misses
 @pytest.mark.asyncio
-async def test_orm_agentic_discovery_quad(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_orm_agentic_discovery_quad(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Operator reports a persistent orbit bump; the agent must run the ORM
     plan and localize it to the misaligned quadrupole QF07.
 
@@ -376,9 +372,7 @@ async def test_orm_agentic_discovery_quad(
     without ever naming QF07 — matching the archiver overlay, which shows
     only a BPM-level symptom (sector-2 BPMs), never the quadrupole itself.
     """
-    with _deployed_discovery_stack(
-        tmp_path, "orm-discovery-quad", "errant-quad"
-    ) as project_dir:
+    with _deployed_discovery_stack(tmp_path, "orm-discovery-quad", "errant-quad") as project_dir:
         token = _minted_promote_token(project_dir)
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", f"http://localhost:{_orm_stack.BRIDGE_PORT}")
         monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", token)

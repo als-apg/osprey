@@ -83,9 +83,7 @@ def _detector_key(bpm: str, axis: str) -> str:
     return f"{bpm}:{axis}"
 
 
-def _bind_bpm_records(
-    bridge: PhysicsBridge, bpms: list[str]
-) -> dict[tuple[str, str], _FakeRecord]:
+def _bind_bpm_records(bridge: PhysicsBridge, bpms: list[str]) -> dict[tuple[str, str], _FakeRecord]:
     records: dict[str, _FakeRecord] = {}
     by_axis: dict[tuple[str, str], _FakeRecord] = {}
     for bpm in bpms:

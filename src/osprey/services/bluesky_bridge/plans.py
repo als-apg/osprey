@@ -109,9 +109,7 @@ class ORMParams(BaseModel):
         le=10.0,
         description="Half-width, in amps, of the symmetric current sweep around zero.",
     )
-    num: int = Field(
-        ..., ge=3, description="Number of evenly-spaced current points per corrector."
-    )
+    num: int = Field(..., ge=3, description="Number of evenly-spaced current points per corrector.")
 
     @model_validator(mode="after")
     def _correctors_and_detectors_disjoint(self) -> ORMParams:

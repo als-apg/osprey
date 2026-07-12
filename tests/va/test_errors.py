@@ -243,9 +243,7 @@ class TestApplyMisalignment:
         reverted, _ = at.find_orbit4(ring, refpts=at.Monitor)
         assert reverted == pytest.approx(baseline, abs=1e-9)
 
-    def test_roll_on_a_bend_couples_horizontal_offset_into_vertical_orbit(
-        self, ring, dipole_index
-    ):
+    def test_roll_on_a_bend_couples_horizontal_offset_into_vertical_orbit(self, ring, dipole_index):
         # sign/roll-convention assertion for the bend-aware exit transform:
         # a rolled dipole with a horizontal offset must couple some of that
         # offset into the vertical plane (x-y coupling via roll), which a
