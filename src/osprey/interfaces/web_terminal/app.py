@@ -585,6 +585,21 @@ def _create_lifespan(
                 "any http/https host on the internal network can be registered as a panel proxy."
             )
 
+        # Discover local static panel bundles under <project>/panels/ and wire
+        # them into the hub. Gated on web.allow_runtime_panels (the human opt-in);
+        # fail-closed on any malformed/non-compliant bundle. See panel_discovery.
+        # Wrapped so panel discovery can never block server startup (matching the
+        # other config loaders in this lifespan).
+        app.state.discovered_panel_dirs = {}
+        try:
+            from osprey.interfaces.web_terminal.panel_discovery import (
+                apply_discovered_panels,
+            )
+
+            apply_discovered_panels(app)
+        except Exception:
+            logger.warning("Local panel discovery failed; continuing.", exc_info=True)
+
         # Universal servers — always launched
         _launch_artifact_server(app)
 
