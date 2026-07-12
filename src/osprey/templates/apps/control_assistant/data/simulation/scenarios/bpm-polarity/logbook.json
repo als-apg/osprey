@@ -1,0 +1,22 @@
+[
+  {
+    "entry_id": "DEMO-031",
+    "when": {
+      "days_ago": 1,
+      "time": "11:20:00"
+    },
+    "author": "S. Okafor",
+    "title": "Orbit correction feedback won't converge",
+    "text": "Global orbit correction has been running for over an hour without settling -- the correction algorithm keeps iterating and the reported RMS residual oscillates instead of decreasing. Individual BPM readbacks all look nominal on their own; nothing stands out on the archiver trends and no single channel is flagged out of range. Correctors are not saturating. This looks like a self-consistency problem in the orbit data rather than a real beam disturbance. Suspect one BPM may be feeding back a reading with the wrong sign, which would explain why the solver can't find a stable solution, but nothing in the individual channel telemetry points to which one. Will need a dedicated response-matrix measurement to isolate it.",
+    "tags": [
+      "orbit",
+      "correction",
+      "beam-based",
+      "investigation",
+      "response-matrix"
+    ],
+    "categories": [
+      "Operations"
+    ]
+  }
+]

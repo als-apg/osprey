@@ -1,0 +1,10 @@
+{
+  "description": "BPM 17's horizontal readback has an inverted polarity (wiring/cabling fault). The closed orbit itself is unaffected -- only that BPM's reported sign is flipped -- so there is no telemetry symptom on individual channels; the fault only shows up as an orbit-correction feedback that cannot converge. Physics fault applies at VA boot (real ORM measurement resolves the affected BPM).",
+  "physics": {
+    "bpm_errors": {
+      "BPM17": {
+        "polarity": -1
+      }
+    }
+  }
+}

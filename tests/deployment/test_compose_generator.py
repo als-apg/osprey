@@ -427,3 +427,77 @@ def test_bluesky_bridge_never_depends_on_tiled(tiled_enabled: bool) -> None:
     """
     rendered = _render_bluesky_tiled(tiled_enabled=tiled_enabled)
     assert "depends_on:\n      tiled:" not in rendered
+
+
+# ---------------------------------------------------------------------------
+# Task 4.3 / FR11: turn-key scan-stack deploy config
+#
+# A shipped, tested deploy configuration bringing up VA + bridge + Tiled with
+# control_system.type=virtual_accelerator, execution.execution_method=
+# container (so BLUESKY_PROMOTE_TOKEN mints safely and the agent can arm --
+# see container_lifecycle.py's _local_exec_arming_unsafe), and the scan MCP
+# server enabled. tests/e2e/_orm_stack.py is the single source of this
+# config, reused by the real-container round-trip e2e (task 5.2) and the
+# agentic-discovery e2e (5.3/5.4) -- this gate only exercises the Docker-free
+# render path via its in-process `osprey build` helper.
+# ---------------------------------------------------------------------------
+
+
+def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
+    tmp_path: Path,
+) -> None:
+    """FR11's turn-key deploy config, end to end without Docker:
+    ``osprey build`` (in-process, via ``tests/e2e/_orm_stack``) followed by a
+    Docker-free compose render, must produce:
+
+      - the Virtual Accelerator + bluesky-bridge + co-deployed Tiled compose
+        services (``control_system.type=virtual_accelerator`` +
+        ``bluesky.tiled_enabled=true``),
+      - ``execution.execution_method: container`` (the arming-safe exec
+        method — a ``local`` exec method gates promote-token auto-minting
+        off, per ``container_lifecycle.py``'s ``_local_exec_arming_unsafe``),
+      - the ``scan`` MCP server enabled in the rendered ``.mcp.json`` (it is
+        ``default_enabled=False`` in the framework registry — a project must
+        opt in, and this deploy config does).
+    """
+    import json
+    import os
+
+    from click.testing import CliRunner
+
+    from tests.e2e import _orm_stack
+
+    runner = CliRunner()
+    project_dir = _orm_stack.build_via_cli_runner(runner, tmp_path)
+
+    # -- execution_method: container (arming-safe) --------------------------
+    yaml = YAML()
+    with open(project_dir / "config.yml") as fh:
+        config = yaml.load(fh)
+    assert config["execution"]["execution_method"] == "container", (
+        "FR11 requires execution.execution_method=container so the promote "
+        "token mints safely and the agent can arm"
+    )
+    assert config["control_system"]["type"] == "virtual_accelerator"
+
+    # -- scan MCP server enabled in the rendered .mcp.json -------------------
+    mcp_config = json.loads((project_dir / ".mcp.json").read_text(encoding="utf-8"))
+    assert "scan" in mcp_config["mcpServers"], (
+        "the scan MCP server must be enabled (claude_code.servers.scan.enabled: "
+        f"true) so list_scan_plans/launch_scan are reachable: {mcp_config['mcpServers'].keys()}"
+    )
+
+    # -- VA + bridge + Tiled compose services --------------------------------
+    monkey_cwd = Path.cwd()
+    try:
+        os.chdir(project_dir)
+        _, compose_files = prepare_compose_files(str(project_dir / "config.yml"))
+        # Read while still inside project_dir — prepare_compose_files returns
+        # paths relative to it (SERVICES_DIR resolves relative to cwd).
+        rendered = "\n".join(Path(f).read_text(encoding="utf-8") for f in compose_files)
+    finally:
+        os.chdir(monkey_cwd)
+
+    assert "\n  virtual-accelerator:\n" in rendered, "VA service must be deployed"
+    assert "\n  bluesky-bridge:\n" in rendered, "bridge service must be deployed"
+    assert "\n  tiled:\n" in rendered, "Tiled must be co-deployed (bluesky.tiled_enabled=true)"

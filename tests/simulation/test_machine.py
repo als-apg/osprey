@@ -6,12 +6,14 @@ contract of the extracted ``parse_machine`` entry point and the ``ParsedMachine`
 container it returns.
 """
 
+import json
 from pathlib import Path
 
 import pytest
 
 from osprey.simulation.machine import (
     DEFAULT_SCENARIO,
+    BpmErrorSpec,
     ParsedMachine,
     Scenario,
     SimChannel,
@@ -155,6 +157,147 @@ class TestValidatePositionKeys:
     def test_ramp_requires_until(self):
         with pytest.raises(ValueError, match=r"missing keys \['until'\]"):
             _validate_position_keys(_PREFIX, {"at": 0.1}, "ramp")
+
+
+class TestParsePhysicsFault:
+    def test_absent_block_is_none(self):
+        model = parse_machine(_machine(), _PATH)
+        assert model.scenarios["fault"].physics is None
+
+    def test_quad_misalign_parses(self):
+        machine = _machine(scenarios={"fault": {"physics": {"quad_misalign": {"QF07": 3.0e-4}}}})
+        physics = parse_machine(machine, _PATH).scenarios["fault"].physics
+        assert physics.quad_misalign == {"QF07": 3.0e-4}
+        assert physics.bpm_errors == {}
+        assert physics.corrector_gain == {}
+
+    def test_bpm_errors_defaults_and_overrides(self):
+        machine = _machine(
+            scenarios={
+                "fault": {
+                    "physics": {
+                        "bpm_errors": {
+                            "BPM12": {"polarity": -1},
+                            "BPM03": {"offset": 1e-4, "gain": 1.05, "roll": 0.01, "noise": 2e-5},
+                        }
+                    }
+                }
+            }
+        )
+        errors = parse_machine(machine, _PATH).scenarios["fault"].physics.bpm_errors
+        assert errors["BPM12"] == BpmErrorSpec(polarity=-1)
+        assert errors["BPM03"] == BpmErrorSpec(
+            offset=1e-4, gain=1.05, polarity=1, roll=0.01, noise=2e-5
+        )
+
+    def test_corrector_gain_parses(self):
+        machine = _machine(scenarios={"fault": {"physics": {"corrector_gain": {"HCM01": 1.15}}}})
+        physics = parse_machine(machine, _PATH).scenarios["fault"].physics
+        assert physics.corrector_gain == {"HCM01": 1.15}
+
+    def test_physics_device_ids_are_not_checked_against_channels(self):
+        # Device ids are lattice ids ("QF07"), not EPICS channel names -- unlike
+        # `overrides`, they must never be validated against `channels`.
+        machine = _machine(scenarios={"fault": {"physics": {"quad_misalign": {"QF07": 1e-4}}}})
+        parse_machine(machine, _PATH)  # no raise
+
+    def test_non_mapping_physics_rejected(self):
+        machine = _machine(scenarios={"fault": {"physics": []}})
+        with pytest.raises(ValueError, match="'physics' must be a mapping"):
+            parse_machine(machine, _PATH)
+
+    def test_non_mapping_quad_misalign_rejected(self):
+        machine = _machine(scenarios={"fault": {"physics": {"quad_misalign": [1, 2]}}})
+        with pytest.raises(ValueError, match="'quad_misalign' must be a mapping"):
+            parse_machine(machine, _PATH)
+
+    def test_quad_misalign_rejects_non_number(self):
+        machine = _machine(scenarios={"fault": {"physics": {"quad_misalign": {"QF07": "big"}}}})
+        with pytest.raises(ValueError, match=r"quad_misalign\['QF07'\] must be a number"):
+            parse_machine(machine, _PATH)
+
+    def test_quad_misalign_rejects_bool(self):
+        machine = _machine(scenarios={"fault": {"physics": {"quad_misalign": {"QF07": True}}}})
+        with pytest.raises(ValueError, match="must be a number"):
+            parse_machine(machine, _PATH)
+
+    def test_corrector_gain_rejects_non_number(self):
+        machine = _machine(scenarios={"fault": {"physics": {"corrector_gain": {"HCM01": "x"}}}})
+        with pytest.raises(ValueError, match=r"corrector_gain\['HCM01'\] must be a number"):
+            parse_machine(machine, _PATH)
+
+    def test_bpm_errors_rejects_non_mapping_entry(self):
+        machine = _machine(scenarios={"fault": {"physics": {"bpm_errors": {"BPM01": 5}}}})
+        with pytest.raises(ValueError, match=r"bpm_errors\['BPM01'\] must be a mapping"):
+            parse_machine(machine, _PATH)
+
+    def test_bpm_errors_rejects_bad_polarity(self):
+        machine = _machine(
+            scenarios={"fault": {"physics": {"bpm_errors": {"BPM01": {"polarity": 2}}}}}
+        )
+        with pytest.raises(ValueError, match="'polarity' must be 1 or -1"):
+            parse_machine(machine, _PATH)
+
+    def test_bpm_errors_rejects_negative_noise(self):
+        machine = _machine(
+            scenarios={"fault": {"physics": {"bpm_errors": {"BPM01": {"noise": -1.0}}}}}
+        )
+        with pytest.raises(ValueError, match="'noise' must be >= 0"):
+            parse_machine(machine, _PATH)
+
+    def test_empty_device_id_rejected(self):
+        machine = _machine(scenarios={"fault": {"physics": {"quad_misalign": {"": 1e-4}}}})
+        with pytest.raises(ValueError, match="non-empty device id strings"):
+            parse_machine(machine, _PATH)
+
+
+_TEMPLATE_SIM = (
+    Path(__file__).parents[2] / "src/osprey/templates/apps/control_assistant/data/simulation"
+)
+
+
+class TestSeededDiscoveryScenarioBundles:
+    """The shipped errant-quad / bpm-polarity bundles parse under the physics schema.
+
+    Loads the real ``control_assistant`` machine.json + scenarios/ tree (not the
+    inline fixture) so a malformed bundle is caught here, not only downstream in
+    the render step or the agentic-discovery e2e.
+    """
+
+    @staticmethod
+    def _load() -> ParsedMachine:
+        machine_path = _TEMPLATE_SIM / "machine.json"
+        machine = json.loads(machine_path.read_text())
+        return parse_machine(machine, machine_path)
+
+    def test_errant_quad_bundle_parses(self):
+        scenario = self._load().scenarios["errant-quad"]
+        assert scenario.physics is not None
+        assert set(scenario.physics.quad_misalign) == {"QF07"}
+        dx = scenario.physics.quad_misalign["QF07"]
+        assert 1.0e-4 <= dx <= 5.0e-4, f"QF07 dx {dx} outside the 100-500 um band"
+        assert scenario.physics.bpm_errors == {}
+        assert scenario.physics.corrector_gain == {}
+        # Telemetry overlay: a persistent (not transient) BPM step, for mock/monitoring views.
+        assert set(scenario.archiver) == {
+            "SR:DIAG:BPM:06:POSITION:X",
+            "SR:DIAG:BPM:07:POSITION:X",
+            "SR:DIAG:BPM:08:POSITION:X",
+        }
+        assert [e.entry_id for e in scenario.logbook] == ["DEMO-029", "DEMO-030"]
+
+    def test_bpm_polarity_bundle_parses(self):
+        scenario = self._load().scenarios["bpm-polarity"]
+        assert scenario.physics is not None
+        assert scenario.physics.quad_misalign == {}
+        assert scenario.physics.corrector_gain == {}
+        assert set(scenario.physics.bpm_errors) == {"BPM17"}
+        assert scenario.physics.bpm_errors["BPM17"].polarity == -1
+        # No rest symptom: no mock-channel overrides or archiver telemetry --
+        # only the real ORM measurement reveals it.
+        assert scenario.overrides == {}
+        assert scenario.archiver == {}
+        assert [e.entry_id for e in scenario.logbook] == ["DEMO-031"]
 
 
 class TestValidateAtTime:
