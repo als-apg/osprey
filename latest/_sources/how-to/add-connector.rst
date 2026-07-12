@@ -225,6 +225,19 @@ Write operations are disabled by default and must be explicitly enabled at two l
 
 If ``writes_enabled`` is omitted, it defaults to ``false`` and all writes are blocked.
 
+``writes_enabled`` is a **launch-time deployment posture, not a live kill-switch.**
+It is read from config and process-cached, so flipping it in ``config.yml`` does not
+take effect in a running process. The enforced kill-switch lives at the harness layer
+(a renderer ``permissions.deny`` on the write tool, then regenerate and relaunch the
+agent); in-flight control of an active scan is the RunEngine's own ``abort`` / ``pause``.
+
+The connector applies **per-write mechanical safety** — the ``writes_enabled`` gate,
+limits validation, and the fail-closed validation path — on every Channel Access put.
+This is a separate, complementary layer from the **per-intent human authorization**
+enforced at the tool boundary (the PreToolUse approval hook, and the promote token for
+scans), which gates the *intent* to write once per intent rather than once per put.
+The approval layer cannot substitute for the connector's mechanical refusal.
+
 .. _limits-checking-config:
 
 Limits Checking

@@ -678,6 +678,17 @@ channel, or in <code class="docutils literal notranslate"><span class="pre">defa
 </pre></div>
 </div>
 <p>If <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> is omitted, it defaults to <code class="docutils literal notranslate"><span class="pre">false</span></code> and all writes are blocked.</p>
+<p><code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> is a <strong>launch-time deployment posture, not a live kill-switch.</strong>
+It is read from config and process-cached, so flipping it in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> does not
+take effect in a running process. The enforced kill-switch lives at the harness layer
+(a renderer <code class="docutils literal notranslate"><span class="pre">permissions.deny</span></code> on the write tool, then regenerate and relaunch the
+agent); in-flight control of an active scan is the RunEngine’s own <code class="docutils literal notranslate"><span class="pre">abort</span></code> / <code class="docutils literal notranslate"><span class="pre">pause</span></code>.</p>
+<p>The connector applies <strong>per-write mechanical safety</strong> — the <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> gate,
+limits validation, and the fail-closed validation path — on every Channel Access put.
+This is a separate, complementary layer from the <strong>per-intent human authorization</strong>
+enforced at the tool boundary (the PreToolUse approval hook, and the promote token for
+scans), which gates the <em>intent</em> to write once per intent rather than once per put.
+The approval layer cannot substitute for the connector’s mechanical refusal.</p>
 </section>
 <section id="limits-checking">
 <span id="limits-checking-config"></span><h2>Limits Checking<a class="headerlink" href="#limits-checking" title="Link to this heading">#</a></h2>
