@@ -381,6 +381,22 @@ def sdk_env(project_dir: Path | None = None, *, provider: str | None = None) -> 
     CLI talks to the configured provider (cborg, als-apg, anthropic-direct)
     instead of falling through to ``api.anthropic.com``.
 
+    Also sets ``CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1`` so subagent
+    delegation runs **synchronously** in the foreground. Since Claude Code CLI
+    2.1.x, when the agent launches parallel subagents the CLI auto-backgrounds
+    them: the ``Agent`` tool returns ``"Async agent launched successfully"``,
+    the turn ends, and the subagent results arrive later as a
+    ``<task-notification>`` on a *new* turn. Our SDK drain
+    (:func:`_drain_response`) stops at the first ``ResultMessage``, so it never
+    sees that continuation — the agent would end at "I've launched the
+    investigations" with none of the delegated results, silently under-running
+    every benchmark and e2e that relies on delegation. Disabling background
+    tasks makes the ``Agent`` tool block to completion and inject the subagent
+    output back into the same turn (``status: "completed"``), matching what an
+    interactive session ultimately converges to. The trade-off is that parallel
+    delegations run sequentially rather than concurrently — a wall-clock cost we
+    accept for deterministic, complete single-drain runs.
+
     Args:
         project_dir: Optional path to an initialized OSPREY project.  When
             omitted only the ``CLAUDECODE`` bypass is returned.
@@ -392,7 +408,10 @@ def sdk_env(project_dir: Path | None = None, *, provider: str | None = None) -> 
     Returns:
         Env dict to merge into the SDK options ``env`` field.
     """
-    env: dict[str, str] = {"CLAUDECODE": ""}
+    env: dict[str, str] = {
+        "CLAUDECODE": "",
+        "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS": "1",
+    }
     if project_dir is not None:
         env.update(provider_env_for_project(project_dir, provider=provider))
     return env
