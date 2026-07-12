@@ -33,9 +33,7 @@ def _make_connector(validate_side_effect=None, caput_side_effect=None, caput_ret
     """
     connector = EPICSConnector()
     connector._epics = MagicMock()
-    connector._epics.caput = MagicMock(
-        side_effect=caput_side_effect, return_value=caput_return
-    )
+    connector._epics.caput = MagicMock(side_effect=caput_side_effect, return_value=caput_return)
     connector._limits_validator = MagicMock()
     connector._limits_validator.validate = MagicMock(side_effect=validate_side_effect)
     connector._timeout = 5.0
@@ -53,9 +51,7 @@ class TestFailClosedValidation:
             "osprey.utils.config.get_config_value",
             side_effect=_writes_enabled_config,
         ):
-            result = await connector.write_channel(
-                "TEST:PV", 42.0, verification_level="none"
-            )
+            result = await connector.write_channel("TEST:PV", 42.0, verification_level="none")
 
         assert isinstance(result, ChannelWriteResult)
         assert result.success is False

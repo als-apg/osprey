@@ -173,9 +173,7 @@ class ControlSystemConnector(ABC):
             @functools.wraps(original_multi)
             async def _guarded_multi(self, operations, *args, **kwargs):
                 if not self._writes_enabled:
-                    return [
-                        _writes_disabled_result(addr, val) for addr, val in operations
-                    ]
+                    return [_writes_disabled_result(addr, val) for addr, val in operations]
                 return await original_multi(self, operations, *args, **kwargs)
 
             cls.write_multiple_channels = _guarded_multi
@@ -348,9 +346,7 @@ class ControlSystemConnector(ABC):
             # A limits refusal is a REFUSAL — normalize it into the unified denial type
             # so consumers key on one refusal signal. (ConnectionError/TimeoutError are
             # NOT caught here, so they propagate unchanged.)
-            raise ChannelWriteBlockedError(
-                channel_address, "LIMITS", message=str(exc)
-            ) from exc
+            raise ChannelWriteBlockedError(channel_address, "LIMITS", message=str(exc)) from exc
 
         if result.blocked:
             raise ChannelWriteBlockedError(

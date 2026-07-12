@@ -45,9 +45,7 @@ class TestChannelWriteFailedError:
         assert str(err) == "Write to 'RING:MAG:PS:SP' failed (CAPUT_FAILED)"
 
     def test_custom_message(self):
-        err = ChannelWriteFailedError(
-            "RING:MAG:PS:SP", "READBACK_UNVERIFIED", "readback mismatch"
-        )
+        err = ChannelWriteFailedError("RING:MAG:PS:SP", "READBACK_UNVERIFIED", "readback mismatch")
         assert err.channel_address == "RING:MAG:PS:SP"
         assert err.reason == "READBACK_UNVERIFIED"
         assert str(err) == "readback mismatch"
