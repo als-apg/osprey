@@ -86,6 +86,196 @@ def _preflight_vendor_check() -> None:
     raise SystemExit(1)
 
 
+# FRAMEWORK_WEB_SERVERS keys don't line up 1:1 with the panel ids
+# _load_panel_config() reports: channel_finder/lattice_dashboard use
+# underscores while profiles.web_panels.BUILTIN_PANELS uses the hyphenated/
+# short ids the frontend and web.panels config actually key on
+# ("channel-finder", "lattice"). "artifact" is intentionally absent — it's a
+# UNIVERSAL_PANELS entry the lifespan launches unconditionally (see
+# _create_lifespan in web_terminal/app.py), so it is never gated on
+# web.panels membership.
+_PANEL_ID_FOR_REGISTRY_KEY: dict[str, str] = {
+    "ariel": "ariel",
+    "tuning": "tuning",
+    "channel_finder": "channel-finder",
+    "lattice_dashboard": "lattice",
+    "okf": "okf",
+}
+
+
+def _probe_companion_ports() -> list[str]:
+    """Probe 1: TCP-connect-probe every companion panel port the lifespan will bind.
+
+    Resolves the panel set the same way ``_create_lifespan`` does: enabled via
+    ``web.panels`` (or ``artifact``, which is always launched) AND actually
+    launchable per ``auto_launch``/``require_section``. A panel that is
+    enabled but not launched (e.g. ``channel_finder`` with an unmet
+    ``require_section``) is excluded — its port is never probed.
+
+    A listener already bound to a companion port before we start ours is
+    foreign: at best it steals the panel's tab, at worst it silently
+    reverse-proxies another project's data into this UI. Zero network I/O
+    beyond the local TCP connect probe itself — no server starts, no
+    registry init, no LLM calls.
+    """
+    from osprey.infrastructure.server_launcher import (
+        _launchers,
+        _make_auto_launch_checker,
+        _make_config_reader,
+    )
+    from osprey.interfaces.web_terminal.app import _load_panel_config
+    from osprey.registry.web import FRAMEWORK_WEB_SERVERS
+
+    enabled_panels, _custom_panels, _default_panel = _load_panel_config()
+
+    failures: list[str] = []
+    for key, defn in FRAMEWORK_WEB_SERVERS.items():
+        if key != "artifact" and _PANEL_ID_FOR_REGISTRY_KEY.get(key) not in enabled_panels:
+            continue  # panel disabled in web.panels — the lifespan never calls its launcher
+        if not _make_auto_launch_checker(defn)():
+            continue  # auto_launch off, or require_section unmet
+        host, port = _make_config_reader(defn)()
+        if _launchers[key]._port_has_listener(host, port):
+            failures.append(
+                f"Companion panel '{key}' ({defn.name}) port {port} is already in use "
+                "by another process.\n"
+                f"  Find the process:  lsof -i :{port}"
+            )
+    return failures
+
+
+def _resolve_project_config_path(project_dir: Path) -> Path:
+    """Resolve config.yml the same way ``resolve_config_path()`` does, for *project_dir*.
+
+    Mirrors ``osprey.utils.workspace.resolve_config_path()`` (``OSPREY_CONFIG``
+    env var first, else ``<dir>/config.yml``) but keyed off the pre-flight's
+    already-resolved ``project_dir`` instead of ``Path.cwd()`` — the two agree
+    whenever ``--project`` isn't passed, since ``project_dir`` defaults to cwd.
+    """
+    return Path(
+        os.path.expandvars(os.environ.get("OSPREY_CONFIG", str(project_dir / "config.yml")))
+    )
+
+
+def _probe_auth_secret(project_dir: Path | None) -> tuple[list[str], list[str]]:
+    """Probe 2: the resolved provider's auth secret must be resolvable before launch.
+
+    A proxy provider (als-apg, cborg, a custom ``api.providers`` entry, ...)
+    that can't authenticate upstream is a hard failure — the terminal would
+    launch straight into an auth error. Direct Anthropic (subscription/OAuth)
+    has no such requirement, so a missing ``ANTHROPIC_API_KEY`` there is only
+    a warning, not an abort.
+
+    Checks both ``os.environ`` and the project's ``.env`` (via
+    ``dotenv_values``, which reads without mutating ``os.environ``): the real
+    launch's ``load_dotenv_from_project()`` only runs after pre-flight on the
+    foreground path (see ``web()``), so a secret that lives only in ``.env``
+    must still count as present here — otherwise a healthy proxy launch would
+    false-fail.
+
+    Zero network: ``load_provider_spec`` is a pure config read. A missing or
+    malformed config.yml, or an unknown provider name, is left for Probe 3 (or
+    the launch itself) to report — this probe just skips quietly rather than
+    duplicating that diagnosis.
+    """
+    if project_dir is None:
+        return [], []
+
+    from osprey.cli.claude_code_resolver import load_provider_spec
+
+    try:
+        spec = load_provider_spec(project_dir)
+    except (OSError, ValueError):
+        return [], []
+    if spec is None or not spec.auth_secret_env:
+        return [], []
+
+    secret_present = bool(os.environ.get(spec.auth_secret_env))
+    if not secret_present:
+        env_file = project_dir / ".env"
+        if env_file.is_file():
+            from dotenv import dotenv_values
+
+            secret_present = bool(dotenv_values(env_file).get(spec.auth_secret_env))
+    if secret_present:
+        return [], []
+
+    preamble = f"auth secret ${spec.auth_secret_env} not found in environment or .env "
+    if spec.needs_proxy:
+        return [f"{preamble}(provider {spec.provider} requires it)"], []
+    return (
+        [],
+        [f"{preamble}(provider {spec.provider}); falling back to subscription/OAuth login"],
+    )
+
+
+def _probe_config_validity(project_dir: Path | None) -> list[str]:
+    """Probe 3: config.yml and .claude/settings.json must at least parse.
+
+    ``load_osprey_config()`` swallows every exception and returns ``{}`` on
+    malformed YAML (see ``osprey.utils.workspace.load_osprey_config``), which
+    would otherwise let the launch silently proceed on defaults instead of the
+    project's actual configuration. This probe does its own dedicated parse of
+    each file so a syntax error surfaces as a pre-flight failure instead of an
+    inexplicable defaults-instead-of-config bug after launch. Deliberately
+    does not call ``validate_agent_tools_against_permissions()`` — agent-tool
+    / permission drift is a build-time concern, not a launch gate.
+
+    Both files are optional — a project without one is not a failure, just
+    nothing to validate.
+    """
+    if project_dir is None:
+        return []
+
+    failures: list[str] = []
+
+    settings_path = project_dir / ".claude" / "settings.json"
+    if settings_path.exists():
+        import json
+
+        try:
+            json.loads(settings_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            failures.append(f"{settings_path}: invalid JSON ({e})")
+
+    config_path = _resolve_project_config_path(project_dir)
+    if config_path.exists():
+        import yaml
+
+        try:
+            yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        except yaml.YAMLError as e:
+            failures.append(f"{config_path}: invalid YAML ({e})")
+
+    return failures
+
+
+def _preflight(
+    config: dict, project_dir: Path | None, host: str, port: int
+) -> tuple[list[str], list[str]]:
+    """Run fast, synchronous, zero-network pre-flight probes before the server binds.
+
+    Each probe appends its findings to one shared failures/warnings pair so
+    later probes bolt on without reworking this orchestrator. Returns
+    ``([], [])`` on a clean pass. Failures abort the launch; warnings are
+    printed but don't (e.g. a direct-Anthropic provider with no
+    ``ANTHROPIC_API_KEY`` in env — subscription/OAuth login is still
+    launchable).
+
+    ``config``/``host``/``port`` are threaded through for probes that need
+    them; none currently do. Probe 1 (companion port collisions) reads its own
+    panel/port config directly; Probes 2-3 use ``project_dir``.
+    """
+    failures: list[str] = []
+    warnings: list[str] = []
+    failures.extend(_probe_companion_ports())
+    auth_failures, auth_warnings = _probe_auth_secret(project_dir)
+    failures.extend(auth_failures)
+    warnings.extend(auth_warnings)
+    failures.extend(_probe_config_validity(project_dir))
+    return failures, warnings
+
+
 def _wait_for_server(host: str, port: int, proc: subprocess.Popen, timeout: float = 10.0) -> bool:
     """Poll server port until connection succeeds or timeout.
 
@@ -152,6 +342,11 @@ def _resolve_web_shell_command(
     help="OSPREY project directory (default: current directory)",
 )
 @click.option("--detach", is_flag=True, help="Run in background, write PID file")
+@click.option(
+    "--skip-preflight",
+    is_flag=True,
+    help="Skip pre-flight checks (companion port collisions, etc.) and launch directly.",
+)
 @click.pass_context
 def web(
     ctx: click.Context,
@@ -161,6 +356,7 @@ def web(
     shell: str | None,
     project: str | None,
     detach: bool,
+    skip_preflight: bool,
 ) -> None:
     """Launch the OSPREY Web Terminal interface.
 
@@ -194,6 +390,20 @@ def web(
     except FileNotFoundError as e:
         click.echo(f"ERROR: {e}", err=True)
         raise SystemExit(1) from e
+
+    if not skip_preflight:
+        from osprey.utils.workspace import load_osprey_config
+
+        project_dir = Path(project).resolve() if project else Path.cwd()
+        failures, warnings = _preflight(load_osprey_config(), project_dir, host, port)
+        for warning in warnings:
+            click.echo(f"WARNING: {warning}", err=True)
+        if failures:
+            click.echo("ERROR: pre-flight checks failed:", err=True)
+            for finding in failures:
+                click.echo(f"  - {finding}", err=True)
+            click.echo("\nRun with --skip-preflight to bypass (not recommended).", err=True)
+            raise SystemExit(1)
 
     if detach:
         _start_detached(host, port, user_shell_override, project)
@@ -277,8 +487,21 @@ def _start_detached(host: str, port: int, shell: str | None, project: str | None
         click.echo("  Stop with: osprey web stop")
         return
 
-    # Build the child command (no --detach to avoid recursion)
-    cmd = [sys.executable, "-m", "osprey.cli.main", "web", "--host", host, "--port", str(port)]
+    # Build the child command (no --detach to avoid recursion). --skip-preflight
+    # is always appended: the parent already ran the pre-flight in the foreground
+    # process above, and a child-side failure would only reach the log file, not
+    # the terminal.
+    cmd = [
+        sys.executable,
+        "-m",
+        "osprey.cli.main",
+        "web",
+        "--host",
+        host,
+        "--port",
+        str(port),
+        "--skip-preflight",
+    ]
     if shell:
         cmd += ["--shell", shell]
     if project:
