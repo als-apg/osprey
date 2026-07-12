@@ -70,6 +70,12 @@ class ChannelWriteResult:
 
     This is the control-system-agnostic result type returned by all connectors.
     Provides detailed information about write success and verification status.
+
+    The ``blocked`` / ``refusal_reason`` fields mark a *refusal*: the monitor
+    declined this write on policy grounds (writes disabled, limits, or
+    validation) and the underlying ``caput`` was never attempted. This is
+    distinct from a ``caput`` I/O failure — where the write was attempted but
+    failed — which leaves ``blocked=False``.
     """
 
     channel_address: str  # Channel that was written
@@ -77,6 +83,24 @@ class ChannelWriteResult:
     success: bool  # Whether the write command succeeded
     verification: WriteVerification | None = None  # Verification details (if performed)
     error_message: str | None = None  # Error message if write failed
+    blocked: bool = False  # True iff the monitor refused this write (policy/limits/validation)
+    # "WRITES_DISABLED" | "LIMITS" | "VALIDATION_ERROR" when blocked, else None
+    refusal_reason: str | None = None
+
+
+def _writes_disabled_result(channel_address: str, value: Any) -> ChannelWriteResult:
+    """Build the refusal result returned when writes are disabled at launch time."""
+    return ChannelWriteResult(
+        channel_address=channel_address,
+        value_written=value,
+        success=False,
+        error_message=(
+            f"Write to '{channel_address}' blocked: writes are disabled. "
+            "Set control_system.writes_enabled: true in config.yml"
+        ),
+        blocked=True,
+        refusal_reason="WRITES_DISABLED",
+    )
 
 
 class ControlSystemConnector(ABC):
@@ -102,6 +126,14 @@ class ControlSystemConnector(ABC):
         """Check whether writes are enabled via global config.
 
         Returns False (fail-safe) when config is unavailable.
+
+        ``control_system.writes_enabled`` is a **launch-time deployment posture,
+        not a live kill-switch.** It is read from config and process-cached, so
+        flipping it in ``config.yml`` does NOT take effect in a running process.
+        The enforced kill-switch lives at the harness layer: a renderer
+        ``permissions.deny`` on the write tool, followed by regenerating and
+        relaunching the agent. In-flight control of an active scan is the
+        RunEngine's own ``abort`` / ``pause`` — never a config flag.
         """
         try:
             from osprey.utils.config import get_config_value
@@ -130,15 +162,7 @@ class ControlSystemConnector(ABC):
             @functools.wraps(original_write)
             async def _guarded_write(self, channel_address, value, *args, **kwargs):
                 if not self._writes_enabled:
-                    return ChannelWriteResult(
-                        channel_address=channel_address,
-                        value_written=value,
-                        success=False,
-                        error_message=(
-                            f"Write to '{channel_address}' blocked: writes are disabled. "
-                            "Set control_system.writes_enabled: true in config.yml"
-                        ),
-                    )
+                    return _writes_disabled_result(channel_address, value)
                 return await original_write(self, channel_address, value, *args, **kwargs)
 
             cls.write_channel = _guarded_write
@@ -150,16 +174,7 @@ class ControlSystemConnector(ABC):
             async def _guarded_multi(self, operations, *args, **kwargs):
                 if not self._writes_enabled:
                     return [
-                        ChannelWriteResult(
-                            channel_address=addr,
-                            value_written=val,
-                            success=False,
-                            error_message=(
-                                f"Write to '{addr}' blocked: writes are disabled. "
-                                "Set control_system.writes_enabled: true in config.yml"
-                            ),
-                        )
-                        for addr, val in operations
+                        _writes_disabled_result(addr, val) for addr, val in operations
                     ]
                 return await original_multi(self, operations, *args, **kwargs)
 
@@ -289,8 +304,74 @@ class ControlSystemConnector(ABC):
 
             Different control systems may interpret these levels differently based on
             their native capabilities.
+
+        Two-layer safety model:
+            **Per-write mechanical safety** lives INSIDE the connector and is applied
+            per Channel Access put: the ``writes_enabled`` gate, limits validation
+            (min/max/step/writable), and the fail-closed validation path. This is
+            complete mediation at the CA write primitive — every put passes through it.
+
+            **Per-intent human authorization** is a SEPARATE layer at the tool
+            boundary: the PreToolUse approval hook (and, for scans, the promote token)
+            gate the *intent* to write, once per intent — not once per CA put.
+
+            The two are orthogonal and complementary: the connector cannot be talked
+            out of a mechanical refusal, and the approval layer cannot substitute for
+            that refusal.
         """
         pass
+
+    async def write_channel_checked(
+        self, channel_address: str, value: Any, **kwargs: Any
+    ) -> ChannelWriteResult:
+        """Await write_channel and enforce the reference monitor's denial contract.
+
+        Refused (policy/limits/validation) -> raises ChannelWriteBlockedError.
+        Attempted but failed or unverified   -> raises ChannelWriteFailedError.
+        Native ConnectionError/TimeoutError from the CA layer -> propagate unchanged.
+        A verified successful write            -> returns the ChannelWriteResult.
+
+        A scan device setter wraps this so any raise aborts the RunEngine, while a
+        verified write returns and the scan proceeds. Extra keyword arguments
+        (verification_level, tolerance, timeout) pass straight through to
+        write_channel.
+        """
+        from osprey.errors import (
+            ChannelLimitsViolationError,
+            ChannelWriteBlockedError,
+            ChannelWriteFailedError,
+        )
+
+        try:
+            result = await self.write_channel(channel_address, value, **kwargs)
+        except ChannelLimitsViolationError as exc:
+            # A limits refusal is a REFUSAL — normalize it into the unified denial type
+            # so consumers key on one refusal signal. (ConnectionError/TimeoutError are
+            # NOT caught here, so they propagate unchanged.)
+            raise ChannelWriteBlockedError(
+                channel_address, "LIMITS", message=str(exc)
+            ) from exc
+
+        if result.blocked:
+            raise ChannelWriteBlockedError(
+                channel_address,
+                result.refusal_reason or "WRITES_DISABLED",
+                message=result.error_message,
+            )
+        if not result.success:
+            raise ChannelWriteFailedError(
+                channel_address, "CAPUT_FAILED", message=result.error_message
+            )
+        v = result.verification
+        if v is not None and v.level != "none" and not v.verified:
+            # A verification WAS requested (callback/readback) but did not verify:
+            # readback mismatch, or the readback itself failed.
+            raise ChannelWriteFailedError(
+                channel_address,
+                "READBACK_UNVERIFIED",
+                message=result.error_message or v.notes,
+            )
+        return result
 
     @abstractmethod
     async def read_multiple_channels(

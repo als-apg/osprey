@@ -297,23 +297,10 @@ class EPICSConnector(ControlSystemConnector):
         """
         timeout = timeout or self._timeout
 
-        # Step 1: Validate limits (if enabled)
-        if self._limits_validator:
-            try:
-                self._limits_validator.validate(channel_address, value)
-                logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
-            except Exception as e:
-                # Import here to avoid circular dependency
-                from osprey.errors import ChannelLimitsViolationError
+        # Import here to avoid circular dependency
+        from osprey.errors import ChannelLimitsViolationError
 
-                # Re-raise limits violations
-                if isinstance(e, ChannelLimitsViolationError):
-                    raise
-
-                # Log unexpected errors but don't block (fail-open for non-limit errors)
-                logger.warning(f"Limits validation error (non-blocking): {e}")
-
-        # Step 2: Auto-determine verification config if not provided
+        # Step 1: Auto-determine verification config if not provided (cheap, on-loop)
         if verification_level is None:
             verification_level, auto_tolerance = self._get_verification_config(
                 channel_address, float(value)
@@ -321,13 +308,52 @@ class EPICSConnector(ControlSystemConnector):
             if tolerance is None:
                 tolerance = auto_tolerance
 
-        # Step 3: Execute write with verification
-        if verification_level == "none":
-            # Fast path - no verification, no wait for callback
-            success = await asyncio.to_thread(
-                self._epics.caput, channel_address, value, wait=False, timeout=timeout
+        # Step 2: Validate the verification level up front — reject invalid levels
+        # BEFORE issuing any caput (preserves the no-caput-on-invalid-level behavior).
+        if verification_level not in ("none", "callback", "readback"):
+            raise ValueError(
+                f"Invalid verification_level: {verification_level}. Must be 'none', 'callback', or 'readback'"
             )
 
+        # callback/readback wait for the IOC callback; none does not.
+        wait = verification_level != "none"
+
+        # Step 3: Validate limits (FAIL CLOSED) and issue the caput in ONE thread
+        # offload, so a caller on the event loop is never stalled by the blocking
+        # caget that max_step validation performs.
+        def _validate_and_put():
+            if self._limits_validator:
+                try:
+                    self._limits_validator.validate(channel_address, value)
+                    logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
+                except ChannelLimitsViolationError:
+                    raise  # limits refusal propagates unchanged (carries LIMITS semantics)
+                except Exception as e:
+                    # FAIL CLOSED: any other validation error refuses the write — no caput issued
+                    logger.warning(
+                        f"Validation error — refusing write (fail-closed): {channel_address}: {e}"
+                    )
+                    return ("refused", e)  # sentinel: no caput issued
+            success = self._epics.caput(channel_address, value, wait=wait, timeout=timeout)
+            return ("ok", success)
+
+        outcome, payload = await asyncio.to_thread(_validate_and_put)
+
+        if outcome == "refused":
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                success=False,
+                error_message=f"Write to '{channel_address}' refused: validation error: {payload}",
+                blocked=True,
+                refusal_reason="VALIDATION_ERROR",
+            )
+
+        success = payload
+
+        # Step 4: Build the per-level result (observable output identical to before)
+        if verification_level == "none":
+            # Fast path - no verification, no wait for callback
             if not success:
                 return ChannelWriteResult(
                     channel_address=channel_address,
@@ -350,15 +376,7 @@ class EPICSConnector(ControlSystemConnector):
             )
 
         elif verification_level == "callback":
-            # EPICS callback - wait for IOC to confirm processing
-            success = await asyncio.to_thread(
-                self._epics.caput,
-                channel_address,
-                value,
-                wait=True,  # Wait for IOC callback
-                timeout=timeout,
-            )
-
+            # EPICS callback - the caput above waited for the IOC to confirm processing
             if not success:
                 return ChannelWriteResult(
                     channel_address=channel_address,
@@ -381,11 +399,7 @@ class EPICSConnector(ControlSystemConnector):
             )
 
         elif verification_level == "readback":
-            # Full verification - callback + readback
-            success = await asyncio.to_thread(
-                self._epics.caput, channel_address, value, wait=True, timeout=timeout
-            )
-
+            # Full verification - the caput above waited (callback); now read back
             if not success:
                 return ChannelWriteResult(
                     channel_address=channel_address,
@@ -438,11 +452,6 @@ class EPICSConnector(ControlSystemConnector):
                     ),
                     error_message=f"Readback verification failed: {str(e)}",
                 )
-
-        else:
-            raise ValueError(
-                f"Invalid verification_level: {verification_level}. Must be 'none', 'callback', or 'readback'"
-            )
 
     async def read_multiple_channels(
         self, channel_addresses: list[str], timeout: float | None = None

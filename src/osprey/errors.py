@@ -66,6 +66,44 @@ class ChannelLimitsViolationError(Exception):
         return "\n".join(msg)
 
 
+class ChannelWriteBlockedError(Exception):
+    """Raised when the reference monitor refused a channel write.
+
+    A refusal means the write was NEVER attempted (no caput issued): writes are
+    disabled, a limits check failed, or validation raised. Distinct from
+    ChannelWriteFailedError, which means the write was attempted and failed.
+
+    reason is one of: "WRITES_DISABLED", "LIMITS", "VALIDATION_ERROR".
+    """
+
+    _VALID_REASONS = ("WRITES_DISABLED", "LIMITS", "VALIDATION_ERROR")
+
+    def __init__(self, channel_address: str, reason: str, message: str | None = None):
+        self.channel_address = channel_address
+        self.reason = reason
+        text = message or f"Write to '{channel_address}' refused by reference monitor ({reason})"
+        super().__init__(text)
+
+
+class ChannelWriteFailedError(Exception):
+    """Raised when a channel write was attempted but did not verifiably succeed.
+
+    The caput was issued (or attempted) but the write failed or its readback did
+    not verify. Distinct from ChannelWriteBlockedError (a policy/limits/validation
+    refusal, never attempted). A scan consumer must abort on this.
+
+    reason is one of: "CAPUT_FAILED", "READBACK_UNVERIFIED".
+    """
+
+    _VALID_REASONS = ("CAPUT_FAILED", "READBACK_UNVERIFIED")
+
+    def __init__(self, channel_address: str, reason: str, message: str | None = None):
+        self.channel_address = channel_address
+        self.reason = reason
+        text = message or f"Write to '{channel_address}' failed ({reason})"
+        super().__init__(text)
+
+
 class RegistryError(Exception):
     """Exception for registry-related errors.
 
