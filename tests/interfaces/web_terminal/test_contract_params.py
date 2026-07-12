@@ -489,7 +489,7 @@ def test_switcher_present_and_toggles_theme_standalone(
         expect(page.locator("html[data-theme='dark']")).to_have_count(1)
 
         # Act -- click the switcher's toggle button.
-        page.locator("#theme-toggle").click()
+        page.locator("osprey-theme-switcher .theme-switcher-mode").first.click()
 
         # Assert -- toggleTheme() cycled dark -> light.
         expect(page.locator("html[data-theme='light']")).to_have_count(1)
@@ -521,7 +521,7 @@ def test_theme_toggle_strips_stale_query_param_and_survives_reload(
 
         # Act -- toggle via the switcher (the only path a follower ever
         # reaches setTheme() through).
-        page.locator("#theme-toggle").click()
+        page.locator("osprey-theme-switcher .theme-switcher-mode").first.click()
 
         # Assert -- the leftover ?theme=dark is gone from the URL immediately.
         assert "theme=" not in page.url
