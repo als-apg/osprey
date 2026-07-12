@@ -52,48 +52,12 @@ Framework & Infrastructure
       Build and register a new FastMCP server to expose domain-specific tools that
       the Osprey agent can discover and call.
 
-   .. grid-item-card:: Use the Web Terminal
-      :link: use-web-terminal
+   .. grid-item-card:: Web Terminal
+      :link: web-terminal/index
       :link-type: doc
 
-      Launch and operate the Web Terminal interface for interactive Osprey agent
-      sessions with your control system.
-
-   .. grid-item-card:: Theming the OSPREY Interfaces
-      :link: theming-interfaces
-      :link-type: doc
-
-      Wire a new interface into the shared design-token system — token
-      architecture, the generator CLI, and consuming tokens.
-
-   .. grid-item-card:: OSPREY Themes
-      :link: osprey-themes
-      :link-type: doc
-
-      The theme contract — the semantic key set, ``$extensions`` metadata,
-      the theme-family model, WCAG gates, and the ``web.theme`` config key.
-
-   .. grid-item-card:: Author Your Own OSPREY Theme
-      :link: author-a-theme
-      :link-type: doc
-
-      Step-by-step guide to adding a new theme (or a whole new family) that
-      passes the generator's validation gates.
-
-   .. grid-item-card:: Author an OSPREY Panel
-      :link: author-a-panel
-      :link-type: doc
-
-      Author and validate a self-contained, themed panel — the head contract,
-      the manifest, the token-only rule, and the panel validator.
-
-   .. grid-item-card:: Embedding OSPREY Panels
-      :link: embedding-osprey-panels
-      :link-type: doc
-
-      The shell↔panel contract behind the Web Terminal hub's iframe panels —
-      query/hash/postMessage transports, the same-origin model, and the
-      branding-only chrome contract for standalone vs. embedded pages.
+      The browser cockpit for the Osprey agent — launching it, theming every
+      OSPREY interface at once, and adding your own themed side panels.
 
    .. grid-item-card:: Use the CLI Chat Interface
       :link: use-cli-chat
@@ -183,12 +147,7 @@ Services & Connectors
    containerize-project
    build-profiles
    add-mcp-server
-   use-web-terminal
-   theming-interfaces
-   osprey-themes
-   author-a-theme
-   author-a-panel
-   embedding-osprey-panels
+   web-terminal/index
    use-cli-chat
    non_interactive_query
    use-python-executor
