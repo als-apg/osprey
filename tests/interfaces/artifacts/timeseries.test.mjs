@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Unit tests for the Artifact Gallery timeseries preview (timeseries.js:
  * the lazy Plotly loader, `renderTimeseriesView`
@@ -26,12 +24,25 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { qs } from '../_support/dom.mjs';
+
 import {
   renderTimeseriesView,
   renderTimeseriesChart,
   renderTimeseriesTable,
   _tsChartTheme,
 } from '../../../src/osprey/interfaces/artifacts/static/js/timeseries.js';
+
+/**
+ * A minimal fake of the parts of `Response` these tests' fetch stubs expose.
+ * @typedef {{ ok: boolean, status?: number, json?: () => Promise<unknown> }} FakeResponse
+ */
+
+/**
+ * An injected `<script>` node as the loader mocks see it: the loader assigns
+ * bare zero-arg `onload`/`onerror` callbacks, so narrow those handlers here.
+ * @typedef {HTMLScriptElement & { onload: (() => void) | null, onerror: (() => void) | null }} InjectedScript
+ */
 
 /** Fixture chart-format response (`/api/artifacts/{id}/data?format=chart`). */
 function makeChartData(overrides = {}) {
@@ -64,6 +75,7 @@ function makeTableData(overrides = {}) {
  * Route the shared fetch mock by URL: format=chart -> chartResp,
  * format=table -> tableResp. Both default to a resolved ok response over
  * the matching fixture.
+ * @param {{ chartResp?: Promise<FakeResponse>, tableResp?: Promise<FakeResponse> }} [opts]
  */
 function stubFetchRouting({ chartResp, tableResp } = {}) {
   vi.stubGlobal('fetch', vi.fn((url) => {
@@ -100,15 +112,19 @@ function stubTableFetch(overrides = {}) {
 function stubScriptLoad() {
   const originalAppendChild = document.head.appendChild.bind(document.head);
   vi.spyOn(document.head, 'appendChild').mockImplementation((node) => {
-    if (node && node.tagName === 'SCRIPT') {
-      queueMicrotask(() => node.onload && node.onload());
+    const script = /** @type {InjectedScript} */ (node);
+    if (node && script.tagName === 'SCRIPT') {
+      queueMicrotask(() => script.onload && script.onload());
       return node;
     }
     return originalAppendChild(node);
   });
 }
 
-/** Sets the chart-theme CSS custom properties (+ the sentinel) inline. */
+/**
+ * Sets the chart-theme CSS custom properties (+ the sentinel) inline.
+ * @param {{ bgPrimary?: string, paperBg: string, plotBg: string, axisText: string, grid: string, border: string }} vars
+ */
 function setChartVars({ bgPrimary = '#000', paperBg, plotBg, axisText, grid, border }) {
   const root = document.documentElement.style;
   root.setProperty('--bg-primary', bgPrimary);
@@ -193,7 +209,7 @@ describe('renderTimeseriesView', () => {
 
     expect(container.querySelector('.ts-info-bar')).not.toBeNull();
     expect(container.querySelectorAll('.ts-badge-channel').length).toBe(2);
-    expect(container.querySelector('.ts-badge-rows').textContent).toContain('2');
+    expect(qs(container, '.ts-badge-rows').textContent).toContain('2');
     expect(container.querySelector('[data-ts-chart]')).not.toBeNull();
     expect(container.querySelector('[data-ts-table]')).not.toBeNull();
     expect(container.querySelectorAll('.ts-ch-toggle').length).toBe(2);
@@ -209,7 +225,7 @@ describe('renderTimeseriesView', () => {
 
     await renderTimeseriesView(container, { id: 'ts1' });
 
-    expect(container.querySelector('.ts-badge-downsampled').textContent).toContain('500');
+    expect(qs(container, '.ts-badge-downsampled').textContent).toContain('500');
   });
 
   test('on a chart-fetch failure: shows the failure fallback', async () => {
@@ -225,7 +241,7 @@ describe('renderTimeseriesView', () => {
       stubFetchRouting();
       await renderTimeseriesView(container, { id: 'ts1' });
 
-      const toggles = container.querySelectorAll('.ts-ch-toggle');
+      const toggles = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.ts-ch-toggle'));
       const chartEl = container.querySelector('[data-ts-chart]');
 
       toggles[0].click();
@@ -238,7 +254,7 @@ describe('renderTimeseriesView', () => {
       stubFetchRouting();
       await renderTimeseriesView(container, { id: 'ts1' });
 
-      const toggles = container.querySelectorAll('.ts-ch-toggle');
+      const toggles = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.ts-ch-toggle'));
       toggles[0].click(); // hide channel 1, leaving channel 2 visible
       Plotly.restyle.mockClear();
 
@@ -252,7 +268,7 @@ describe('renderTimeseriesView', () => {
       stubFetchRouting();
       await renderTimeseriesView(container, { id: 'ts1' });
 
-      const toggles = container.querySelectorAll('.ts-ch-toggle');
+      const toggles = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.ts-ch-toggle'));
       toggles[0].click(); // hide
       toggles[0].click(); // show again
 
@@ -266,7 +282,7 @@ describe('renderTimeseriesView', () => {
       stubFetchRouting();
       await renderTimeseriesView(container, { id: 'ts1' });
 
-      container.querySelector('[data-action="zoom-reset"]').click();
+      qs(container, '[data-action="zoom-reset"]').click();
 
       expect(Plotly.relayout).toHaveBeenCalledWith(
         container.querySelector('[data-ts-chart]'),
@@ -278,14 +294,14 @@ describe('renderTimeseriesView', () => {
       stubFetchRouting();
       await renderTimeseriesView(container, { id: 'ts1' });
 
-      vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fake-csv');
+      const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fake-csv');
       vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
       vi.spyOn(window, 'open').mockImplementation(() => null);
 
-      container.querySelector('[data-action="export-csv"]').click();
+      qs(container, '[data-action="export-csv"]').click();
 
       expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
-      const blob = URL.createObjectURL.mock.calls[0][0];
+      const blob = /** @type {Blob} */ (createObjectURL.mock.calls[0][0]);
       expect(blob.type).toBe('text/csv');
       const text = await blob.text();
       expect(text.split('\n')[0]).toBe('timestamp,SR:MAG:QF1:I,SR:MAG:QF2:I');
@@ -297,13 +313,13 @@ describe('renderTimeseriesView', () => {
       stubFetchRouting();
       await renderTimeseriesView(container, { id: 'ts1' });
 
-      vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fake-json');
+      const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:fake-json');
       vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
       vi.spyOn(window, 'open').mockImplementation(() => null);
 
-      container.querySelector('[data-action="export-json"]').click();
+      qs(container, '[data-action="export-json"]').click();
 
-      const blob = URL.createObjectURL.mock.calls[0][0];
+      const blob = /** @type {Blob} */ (createObjectURL.mock.calls[0][0]);
       expect(blob.type).toBe('application/json');
       const parsed = JSON.parse(await blob.text());
       expect(parsed.columns).toEqual(['SR:MAG:QF1:I', 'SR:MAG:QF2:I']);
@@ -361,7 +377,7 @@ describe('renderTimeseriesTable', () => {
     expect(rows.length).toBe(2);
     // Index cell goes through _tsShortTime: exact rendering is locale-dependent,
     // so assert shape (no year, seconds retained) rather than an exact string.
-    const indexCellText = rows[0].querySelector('.ts-index-cell').textContent;
+    const indexCellText = qs(rows[0], '.ts-index-cell').textContent;
     expect(indexCellText).not.toMatch(/\b(19|20)\d{2}\b/);
     expect(indexCellText).toMatch(/\d{1,2}:\d{2}:\d{2}/);
     // Value cells go through _tsFormatValue: <=5 significant figures.
@@ -430,7 +446,7 @@ describe('renderTimeseriesTable', () => {
 
       await renderTimeseriesTable(el, 'ts1', ['a'], 0);
 
-      const indexCellText = el.querySelector('.ts-index-cell').textContent;
+      const indexCellText = qs(el, '.ts-index-cell').textContent;
       // Locale-dependent exact rendering -- assert shape, not an exact string.
       // (No month-glyph assertion: month:"short" has no ASCII letters under
       // CJK/numeric-month locales, so that check would flake by CI locale.)
@@ -462,7 +478,7 @@ describe('renderTimeseriesTable', () => {
 
       await renderTimeseriesTable(el, 'ts1', ['a'], 0);
 
-      expect(el.querySelector('.ts-index-cell').textContent).toBe('not-a-date');
+      expect(qs(el, '.ts-index-cell').textContent).toBe('not-a-date');
     });
   });
 
@@ -497,7 +513,7 @@ describe('renderTimeseriesTable', () => {
       expect(el.querySelectorAll('img').length).toBe(0);
       expect(el.innerHTML).toContain('&lt;img');
       expect(el.innerHTML).not.toContain('<img');
-      expect(el.querySelector('.ts-index-cell').textContent).toBe(XSS_PAYLOAD);
+      expect(qs(el, '.ts-index-cell').textContent).toBe(XSS_PAYLOAD);
     });
   });
 
@@ -507,9 +523,9 @@ describe('renderTimeseriesTable', () => {
 
       await renderTimeseriesTable(el, 'ts1', ['a', 'b'], 0);
 
-      expect(el.querySelector('[data-ts-prev]').disabled).toBe(true);
-      expect(el.querySelector('[data-ts-next]').disabled).toBe(true); // total_rows (2) <= offset(0) + limit(50)
-      expect(el.querySelector('.ts-page-info').textContent).toBe('Page 1 of 1');
+      expect(qs(el, '[data-ts-prev]', HTMLButtonElement).disabled).toBe(true);
+      expect(qs(el, '[data-ts-next]', HTMLButtonElement).disabled).toBe(true); // total_rows (2) <= offset(0) + limit(50)
+      expect(qs(el, '.ts-page-info').textContent).toBe('Page 1 of 1');
     });
 
     test('Next is enabled when more rows remain, and clicking it re-fetches at the next offset', async () => {
@@ -517,9 +533,9 @@ describe('renderTimeseriesTable', () => {
 
       await renderTimeseriesTable(el, 'ts1', ['a', 'b'], 0);
 
-      const nextBtn = el.querySelector('[data-ts-next]');
+      const nextBtn = qs(el, '[data-ts-next]', HTMLButtonElement);
       expect(nextBtn.disabled).toBe(false);
-      expect(el.querySelector('[data-ts-prev]').disabled).toBe(true);
+      expect(qs(el, '[data-ts-prev]', HTMLButtonElement).disabled).toBe(true);
 
       nextBtn.click();
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('offset=50')));
@@ -531,7 +547,7 @@ describe('renderTimeseriesTable', () => {
       await renderTimeseriesTable(el, 'ts1', ['a', 'b'], 20);
       fetchMock.mockClear();
 
-      el.querySelector('[data-ts-prev]').click();
+      qs(el, '[data-ts-prev]', HTMLButtonElement).click();
       await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('offset=0')));
     });
   });
@@ -566,8 +582,9 @@ describe('Plotly loader edge cases (isolated: fresh module instance per test)', 
   test('a script load failure (onerror) rejects ensurePlotlyLoaded, surfacing as the rendered failure fallback', async () => {
     vi.stubGlobal('Plotly', { newPlot: vi.fn() });
     vi.spyOn(document.head, 'appendChild').mockImplementation((node) => {
-      if (node && node.tagName === 'SCRIPT') {
-        queueMicrotask(() => node.onerror && node.onerror());
+      const script = /** @type {InjectedScript} */ (node);
+      if (node && script.tagName === 'SCRIPT') {
+        queueMicrotask(() => script.onerror && script.onerror());
         return node;
       }
       throw new Error('unexpected non-script appendChild in this isolated test');
@@ -587,14 +604,15 @@ describe('Plotly loader edge cases (isolated: fresh module instance per test)', 
     vi.stubGlobal('Plotly', { newPlot: vi.fn((el) => { el.data = []; }) });
     stubFetchRouting();
 
-    /** @type {any[]} */
+    /** @type {InjectedScript[]} */
     const scriptAppends = [];
     vi.spyOn(document.head, 'appendChild').mockImplementation((node) => {
-      if (node && node.tagName === 'SCRIPT') {
-        scriptAppends.push(node);
+      const script = /** @type {InjectedScript} */ (node);
+      if (node && script.tagName === 'SCRIPT') {
+        scriptAppends.push(script);
         if (scriptAppends.length === 1) {
           // First injection: simulate a load failure, as the earlier test does.
-          queueMicrotask(() => node.onerror && node.onerror());
+          queueMicrotask(() => script.onerror && script.onerror());
         }
         // The second (retry) injection is left pending here -- the test
         // fires its onload manually below, once it's confirmed injected.
@@ -619,7 +637,7 @@ describe('Plotly loader edge cases (isolated: fresh module instance per test)', 
     await vi.waitFor(() => expect(scriptAppends.length).toBe(2));
     expect(scriptAppends[1]).not.toBe(scriptAppends[0]);
 
-    scriptAppends[1].onload();
+    /** @type {() => void} */ (scriptAppends[1].onload)();
     await renderPromise;
 
     expect(container2.textContent).not.toContain('Failed to load timeseries data');
@@ -628,18 +646,20 @@ describe('Plotly loader edge cases (isolated: fresh module instance per test)', 
 
   test('concurrent renderTimeseriesChart calls coalesce onto one _plotlyLoading promise (exactly one <script> injected)', async () => {
     vi.stubGlobal('Plotly', { newPlot: vi.fn((el) => { el.data = []; }) });
+    /** @type {InjectedScript[]} */
     const scriptAppends = [];
     vi.spyOn(document.head, 'appendChild').mockImplementation((node) => {
-      if (node && node.tagName === 'SCRIPT') {
-        scriptAppends.push(node);
+      const script = /** @type {InjectedScript} */ (node);
+      if (node && script.tagName === 'SCRIPT') {
+        scriptAppends.push(script);
         return node; // deliberately NOT firing onload yet, to inspect the in-flight state below
       }
       throw new Error('unexpected non-script appendChild in this isolated test');
     });
 
     const fresh = await import('../../../src/osprey/interfaces/artifacts/static/js/timeseries.js');
-    const elA = document.createElement('div');
-    const elB = document.createElement('div');
+    const elA = /** @type {HTMLDivElement & { data?: unknown[] }} */ (document.createElement('div'));
+    const elB = /** @type {HTMLDivElement & { data?: unknown[] }} */ (document.createElement('div'));
     const chartData = makeChartData();
 
     // Two callers racing the same not-yet-loaded Plotly: both start before
@@ -649,7 +669,7 @@ describe('Plotly loader edge cases (isolated: fresh module instance per test)', 
 
     expect(scriptAppends.length).toBe(1); // only the first call injected a <script>; the second reused its pending promise
 
-    scriptAppends[0].onload();
+    /** @type {() => void} */ (scriptAppends[0].onload)();
     await Promise.all([pA, pB]);
 
     expect(Plotly.newPlot).toHaveBeenCalledTimes(2);

@@ -101,6 +101,43 @@ async def test_scan_status_unreachable(monkeypatch):
         await _fn("scan_status")(run_id="run-1")
 
 
+def test_scan_status_docstring_names_every_key_run_to_dict_can_emit():
+    """The docstring IS the contract: it's the only description of the JSON
+    run record an agent ever sees, and nothing in the bridge/MCP path is
+    typed to catch drift between it and `Run.to_dict` (`runs.py`) — this is
+    exactly how `tiled_degraded` (FR5) slipped through unseen originally.
+    Exercises `to_dict` across intent/healthy-promoted/errored-promoted runs
+    and asserts every key any of them can emit is literally named (quoted)
+    in `scan_status`'s docstring, so a future key added to `to_dict` without
+    a docstring update fails here rather than staying silently invisible.
+    """
+    from osprey.services.bluesky_bridge.runs import Run
+    from osprey.services.bluesky_bridge.scanner import FakeScanner
+
+    intent_run = Run(id="r", request={})
+
+    healthy_scanner = FakeScanner()
+    healthy_scanner.start_scan_thread()
+    healthy_scanner.simulate_progress(0.5)
+    healthy_scanner.tiled_degraded = False
+    healthy_run = Run(
+        id="r", request={}, promoted=True, scanner=healthy_scanner, launched_by="agent"
+    )
+
+    errored_scanner = FakeScanner()
+    errored_scanner.start_scan_thread()
+    errored_scanner.simulate_error("device timeout")
+    errored_run = Run(id="r", request={}, promoted=True, scanner=errored_scanner)
+
+    all_keys: set[str] = set()
+    for run in (intent_run, healthy_run, errored_run):
+        all_keys.update(run.to_dict().keys())
+
+    doc = read_tools.scan_status.__doc__ or ""
+    missing = {key for key in all_keys if f'"{key}"' not in doc}
+    assert not missing, f"scan_status docstring is missing keys Run.to_dict emits: {missing}"
+
+
 # ---------------------------------------------------------------------------
 # list_scan_plans — GET /plans
 # ---------------------------------------------------------------------------

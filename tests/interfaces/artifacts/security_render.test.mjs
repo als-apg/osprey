@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Consolidated hostile-metadata security regression suite (Phase 4, Task
  * 1.5) — the machine-checkable gate proving Phase 1's security fixes
@@ -33,6 +31,8 @@
 
 import { test, expect, describe, beforeEach, afterEach, vi } from 'vitest';
 
+import { qs, byId } from '../_support/dom.mjs';
+
 import {
   setArtifacts,
   setSelectedArtifact,
@@ -53,7 +53,7 @@ import {
   renderTimeseriesTable,
   renderTimeseriesView,
 } from '../../../src/osprey/interfaces/artifacts/static/js/timeseries.js';
-import { injectLogbookButtons } from '../../../src/osprey/interfaces/artifacts/static/js/logbook.js';
+import '../../../src/osprey/interfaces/artifacts/static/js/logbook.js';
 
 // ---- Shared hostile payload set ---- //
 
@@ -83,7 +83,10 @@ const HOSTILE_ID = 'a/../b?x="y"';
 /** Hostile artifact id for the logbook picker's attribute-context id sink (Task 1.4). */
 const HOSTILE_PICKER_ID = '"><input x="';
 
-/** No element anywhere under `root` has live injected markup or a bare event-handler attribute. */
+/**
+ * No element anywhere under `root` has live injected markup or a bare event-handler attribute.
+ * @param {ParentNode} root
+ */
 function expectNoLiveInjection(root) {
   expect(root.querySelector('img[onerror]')).toBeNull();
   expect(root.querySelector('[onmouseover]')).toBeNull();
@@ -182,7 +185,7 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
       const renderer = createSidebarRenderer(makeSidebarCallbacks());
       renderer.renderSidebar(); // default: tree mode
 
-      const sidebarBody = document.getElementById('sidebar-body');
+      const sidebarBody = byId('sidebar-body');
       // The real security property: no live element/attribute got injected.
       // (A raw-substring check on the serialized HTML is NOT a reliable
       // proxy for this — HTML text-node serialization is not required to
@@ -196,11 +199,11 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
       expect(sidebarBody.querySelectorAll('.tree-section').length).toBe(1);
       expect(sidebarBody.querySelectorAll('.tree-item').length).toBe(1);
 
-      const section = sidebarBody.querySelector('.tree-section');
+      const section = qs(sidebarBody, '.tree-section');
       // Round-trip proof that the WHOLE payload landed intact as ONE
       // attribute value (an early-closed `"` would truncate this).
       expect(section.dataset.type).toBe(payload);
-      expect(sidebarBody.querySelector('.tree-item-name').textContent).toBe(payload);
+      expect(qs(sidebarBody, '.tree-item-name').textContent).toBe(payload);
     }
   );
 
@@ -212,16 +215,16 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
       renderer.setBrowseMode('activity');
       renderer.renderSidebar();
 
-      const sidebarBody = document.getElementById('sidebar-body');
+      const sidebarBody = byId('sidebar-body');
       expectNoLiveInjection(sidebarBody);
       expect(sidebarBody.querySelectorAll('.timeline-item').length).toBe(1);
 
-      const item = sidebarBody.querySelector('.timeline-item');
+      const item = qs(sidebarBody, '.timeline-item');
       expect(item.dataset.type).toBe(payload);
       // The title markup interleaves a conditional pin-indicator span
       // around the escaped title, so the node carries surrounding
       // whitespace — trim before the round-trip comparison.
-      expect(item.querySelector('.timeline-item-title').textContent.trim()).toBe(payload);
+      expect(qs(item, '.timeline-item-title').textContent?.trim()).toBe(payload);
     }
   );
 
@@ -233,14 +236,14 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
       renderer.setSidebarLayout('gallery');
       renderer.renderSidebar();
 
-      const sidebarBody = document.getElementById('sidebar-body');
+      const sidebarBody = byId('sidebar-body');
       expectNoLiveInjection(sidebarBody);
       expect(sidebarBody.querySelectorAll('.gallery-card').length).toBe(1);
 
-      const card = sidebarBody.querySelector('.gallery-card');
+      const card = qs(sidebarBody, '.gallery-card');
       expect(card.dataset.type).toBe(payload);
       // Same interleaved pin-indicator layout as the timeline-item title.
-      expect(card.querySelector('.gallery-card-title').textContent.trim()).toBe(payload);
+      expect(qs(card, '.gallery-card-title').textContent?.trim()).toBe(payload);
     }
   );
 
@@ -258,6 +261,7 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
 
     const chip = document.querySelector('.filter-chip[data-filter="evilchip"]');
     expect(chip).not.toBeNull();
+    if (chip === null) throw new Error('unreachable: chip asserted non-null above');
     expectNoLiveInjection(document.body);
     expect(chip.querySelector('.chip-icon svg')).not.toBeNull();
   });
@@ -269,7 +273,7 @@ describe('RENDER path (render.js) — hostile metadata in sidebar renders', () =
 // =========================================================================
 
 describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', () => {
-  /** @returns {any} */
+  /** @param {Record<string, unknown>} [overrides] */
   function makeArtifact(overrides = {}) {
     return {
       id: 'a1',
@@ -302,15 +306,15 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
       setSelectedArtifact(makeArtifact({ title: payload, category: payload, artifact_type: payload }));
       createPreviewRenderer(makePreviewCallbacks()).renderPreview();
 
-      const previewContent = document.getElementById('preview-content');
+      const previewContent = byId('preview-content');
       expectNoLiveInjection(previewContent);
       expect(previewContent.querySelectorAll('.badge').length).toBe(1);
 
-      const badge = previewContent.querySelector('.badge');
+      const badge = qs(previewContent, '.badge');
       // Round-trip proof the whole payload landed intact as ONE class
       // attribute value (an early-closed `"` would truncate/split this).
       expect(badge.className).toBe(`badge badge-${payload}`);
-      expect(previewContent.querySelector('.preview-header-title').textContent).toBe(payload);
+      expect(qs(previewContent, '.preview-header-title').textContent).toBe(payload);
     }
   );
 
@@ -321,12 +325,13 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
     setSelectedArtifact(makeArtifact({ artifact_type: 'totally_unrecognized_type', category: 'json', description: HOSTILE.DQ_IMG }));
     createPreviewRenderer(makePreviewCallbacks()).renderPreview();
 
-    const previewContent = document.getElementById('preview-content');
+    const previewContent = byId('preview-content');
     expectNoLiveInjection(previewContent);
     expect(previewContent.innerHTML).not.toContain(HOSTILE.DQ_IMG);
 
     const desc = previewContent.querySelector('.preview-desc');
     expect(desc).not.toBeNull();
+    if (desc === null) throw new Error('unreachable: desc asserted non-null above');
     expect(desc.textContent).toBe(HOSTILE.DQ_IMG);
   });
 
@@ -334,7 +339,7 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
     setSelectedArtifact(makeArtifact({ artifact_type: 'totally_unrecognized_type', category: 'json', tool_source: HOSTILE.DQ_IMG }));
     createPreviewRenderer(makePreviewCallbacks()).renderPreview();
 
-    const previewContent = document.getElementById('preview-content');
+    const previewContent = byId('preview-content');
     expectNoLiveInjection(previewContent);
     expect(previewContent.innerHTML).not.toContain(HOSTILE.DQ_IMG);
 
@@ -346,15 +351,16 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
     setSelectedArtifact(makeArtifact({ artifact_type: 'totally_unrecognized_type', category: 'json', filename: HOSTILE.DQ_IMG }));
     createPreviewRenderer(makePreviewCallbacks()).renderPreview();
 
-    const previewContent = document.getElementById('preview-content');
+    const previewContent = byId('preview-content');
     expectNoLiveInjection(previewContent);
     expect(previewContent.innerHTML).not.toContain(HOSTILE.DQ_IMG);
 
     const downloadLink = previewContent.querySelector('.preview-download a');
     expect(downloadLink).not.toBeNull();
+    if (downloadLink === null) throw new Error('unreachable: downloadLink asserted non-null above');
     expect(downloadLink.textContent).toContain(HOSTILE.DQ_IMG);
 
-    const pathText = previewContent.querySelector('.preview-path-text');
+    const pathText = qs(previewContent, '.preview-path-text');
     expect(pathText.textContent).toBe(`_agent_data/artifacts/${HOSTILE.DQ_IMG}`);
   });
 
@@ -362,14 +368,14 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
     setSelectedArtifact(makeArtifact({ id: HOSTILE_ID, artifact_type: 'totally_unrecognized_type', category: 'json', filename: 'x.bin' }));
     createPreviewRenderer(makePreviewCallbacks()).renderPreview();
 
-    const previewContent = document.getElementById('preview-content');
+    const previewContent = byId('preview-content');
     const expectedUrl = `/files/${encodeURIComponent(HOSTILE_ID)}/${encodeURIComponent('x.bin')}`;
 
-    const openInNewTab = previewContent.querySelector('.preview-header-actions a[target="_blank"]');
+    const openInNewTab = qs(previewContent, '.preview-header-actions a[target="_blank"]');
     expect(openInNewTab.getAttribute('href')).toBe(expectedUrl);
     expect(openInNewTab.getAttribute('href')).not.toMatch(/["?]/);
 
-    const downloadLink = previewContent.querySelector('.preview-download a');
+    const downloadLink = qs(previewContent, '.preview-download a');
     expect(downloadLink.getAttribute('href')).toBe(expectedUrl);
   });
 
@@ -377,8 +383,8 @@ describe('PREVIEW path (preview.js) — hostile metadata in the preview pane', (
     setSelectedArtifact(makeArtifact({ title: JS_SCHEME }));
     createPreviewRenderer(makePreviewCallbacks()).renderPreview();
 
-    const previewContent = document.getElementById('preview-content');
-    expect(previewContent.querySelector('.preview-header-title').textContent).toBe(JS_SCHEME);
+    const previewContent = byId('preview-content');
+    expect(qs(previewContent, '.preview-header-title').textContent).toBe(JS_SCHEME);
     expect(previewContent.querySelector('a[href^="javascript:"]')).toBeNull();
   });
 });
@@ -423,7 +429,7 @@ describe('TYPES path (types.js) — typeBadge / thumbnailHtml / id-encoding', ()
     const container = document.createElement('div');
     container.innerHTML = html;
     expectNoLiveInjection(container);
-    expect(container.querySelector('.thumb-summary').textContent).toContain(HOSTILE.DQ_IMG);
+    expect(qs(container, '.thumb-summary').textContent).toContain(HOSTILE.DQ_IMG);
   });
 
   test('openUrl percent-encodes a hostile id at the markdown/notebook rendered-endpoint sinks', () => {
@@ -481,8 +487,9 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
   function stubScriptLoad() {
     const originalAppendChild = document.head.appendChild.bind(document.head);
     vi.spyOn(document.head, 'appendChild').mockImplementation((node) => {
-      if (node && node.tagName === 'SCRIPT') {
-        queueMicrotask(() => node.onload && node.onload());
+      const script = /** @type {{ tagName?: string; onload?: (() => void) | null }} */ (node);
+      if (script && script.tagName === 'SCRIPT') {
+        queueMicrotask(() => script.onload && script.onload());
         return node;
       }
       return originalAppendChild(node);
@@ -512,7 +519,7 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
 
       expectNoLiveInjection(el);
       expect(el.innerHTML).not.toContain(HOSTILE.DQ_IMG);
-      const th = el.querySelector('thead th:not(:first-child)');
+      const th = qs(el, 'thead th:not(:first-child)');
       expect(th.textContent).toBe(HOSTILE.DQ_IMG);
     });
   });
@@ -531,8 +538,9 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
       expectNoLiveInjection(container);
       expect(container.innerHTML).not.toContain(HOSTILE.DQ_IMG);
 
-      const toggle = container.querySelector('.ts-ch-toggle');
+      const toggle = /** @type {HTMLElement | null} */ (container.querySelector('.ts-ch-toggle'));
       expect(toggle).not.toBeNull();
+      if (toggle === null) throw new Error('unreachable: toggle asserted non-null above');
       // dataset/getAttribute auto-decode entities: reading back round-trips
       // to the raw hostile column name — what matters is the SERIALIZED
       // markup above never contained the raw breakout.
@@ -558,6 +566,7 @@ describe('TIMESERIES paths (timeseries.js) — hostile column name', () => {
       expectNoLiveInjection(container);
       const badge = container.querySelector('.ts-badge-channel');
       expect(badge).not.toBeNull();
+      if (badge === null) throw new Error('unreachable: badge asserted non-null above');
       expect(badge.innerHTML).not.toMatch(/<img/);
     });
   });
@@ -584,7 +593,7 @@ describe('LOGBOOK picker path (logbook.js) — hostile artifact id at the checkb
   afterEach(() => {
     // Close the modal (if the test opened one) so logbook.js's module-level
     // `modal`/`allArtifacts` singleton state doesn't leak into a later test.
-    const closeBtn = document.querySelector('.logbook-modal-close');
+    const closeBtn = /** @type {HTMLElement | null} */ (document.querySelector('.logbook-modal-close'));
     if (closeBtn) closeBtn.click();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -605,12 +614,14 @@ describe('LOGBOOK picker path (logbook.js) — hostile artifact id at the checkb
 
     // renderPreview() calls the real injectLogbookButtons() internally,
     // which appends the compose-modal trigger to the preview header.
-    const logbookBtn = document.querySelector('.logbook-action-btn');
+    const logbookBtn = /** @type {HTMLElement | null} */ (document.querySelector('.logbook-action-btn'));
     expect(logbookBtn).not.toBeNull();
+    if (logbookBtn === null) throw new Error('unreachable: logbookBtn asserted non-null above');
     logbookBtn.click(); // opens the compose modal, phase = steering
 
-    const chooseRadio = document.querySelector('input[name="logbook-artifact-scope"][value="choose"]');
+    const chooseRadio = /** @type {HTMLInputElement | null} */ (document.querySelector('input[name="logbook-artifact-scope"][value="choose"]'));
     expect(chooseRadio).not.toBeNull();
+    if (chooseRadio === null) throw new Error('unreachable: chooseRadio asserted non-null above');
 
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       json: () => Promise.resolve({
@@ -628,8 +639,9 @@ describe('LOGBOOK picker path (logbook.js) — hostile artifact id at the checkb
 
     const list = document.getElementById('logbook-artifact-picker-list');
     expect(list).not.toBeNull();
+    if (list === null) throw new Error('unreachable: list asserted non-null above');
 
-    const checkboxes = list.querySelectorAll('input[type=checkbox]');
+    const checkboxes = /** @type {NodeListOf<HTMLInputElement>} */ (list.querySelectorAll('input[type=checkbox]'));
     expect(checkboxes.length).toBe(1); // no extra <input> injected by the hostile id
     expect(checkboxes[0].value).toBe(HOSTILE_PICKER_ID); // raw round-trip via the .value property
 

@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Unit tests for the Lattice Dashboard computation-settings layer
  * (settings.js: the declarative SETTINGS_FIELDS schema plus the settings
@@ -11,6 +9,8 @@
  */
 
 import { test, expect, vi, describe, afterEach, beforeEach } from 'vitest';
+
+import { qs, byId } from '../_support/dom.mjs';
 
 import {
   SETTINGS_FIELDS,
@@ -48,7 +48,7 @@ describe('renderSettingsForm', () => {
     renderSettingsForm({});
     for (const [group, meta] of Object.entries(SETTINGS_FIELDS)) {
       for (const field of meta.fields) {
-        const input = document.getElementById(`setting-${group}-${field.key}`);
+        const input = byId(`setting-${group}-${field.key}`, HTMLInputElement);
         expect(input, `${group}.${field.key} should exist`).not.toBeNull();
         expect(input.type).toBe('number');
         expect(input.min).toBe(String(field.min));
@@ -63,25 +63,25 @@ describe('renderSettingsForm', () => {
 
   test('a known settings value populates the input, int fields rounded', () => {
     renderSettingsForm({ da: { nturns: 512.7, n_bisect: 10 } });
-    expect(document.getElementById('setting-da-nturns').value).toBe('513');
+    expect(byId('setting-da-nturns', HTMLInputElement).value).toBe('513');
   });
 
   test('an unset int_or_null field shows the "auto" placeholder, not a value', () => {
     renderSettingsForm({ lma: {} });
-    const input = document.getElementById('setting-lma-n_sectors');
+    const input = byId('setting-lma-n_sectors', HTMLInputElement);
     expect(input.value).toBe('');
     expect(input.placeholder).toBe('auto');
   });
 
   test('an explicit int_or_null value overrides the placeholder', () => {
     renderSettingsForm({ lma: { n_sectors: 42 } });
-    const input = document.getElementById('setting-lma-n_sectors');
+    const input = byId('setting-lma-n_sectors', HTMLInputElement);
     expect(input.value).toBe('42');
   });
 
   test('a float field keeps its fractional value unrounded', () => {
     renderSettingsForm({ chromaticity: { dp_min_pct: -12.5 } });
-    expect(document.getElementById('setting-chromaticity-dp_min_pct').value).toBe('-12.5');
+    expect(byId('setting-chromaticity-dp_min_pct', HTMLInputElement).value).toBe('-12.5');
   });
 
   test('re-rendering replaces the previous form rather than appending to it', () => {
@@ -93,8 +93,8 @@ describe('renderSettingsForm', () => {
 
   test('renders RESET and APPLY action buttons', () => {
     renderSettingsForm({});
-    expect(document.querySelector('.settings-btn:not(.settings-btn--apply)').textContent).toBe('RESET');
-    expect(document.querySelector('.settings-btn--apply').textContent).toBe('APPLY');
+    expect(qs(document, '.settings-btn:not(.settings-btn--apply)').textContent).toBe('RESET');
+    expect(qs(document, '.settings-btn--apply').textContent).toBe('APPLY');
   });
 
   test('is a no-op when #settings-container is absent from the page', () => {
@@ -109,6 +109,7 @@ describe('collectSettingsFromForm', () => {
   test('round-trips every declared field, honoring each type', () => {
     // Seed with a value for every field (including int_or_null) so the
     // round trip covers all three type branches.
+    /** @type {Record<string, Record<string, number|null>>} */
     const seeded = {};
     for (const [group, meta] of Object.entries(SETTINGS_FIELDS)) {
       seeded[group] = {};
@@ -123,6 +124,7 @@ describe('collectSettingsFromForm', () => {
     for (const [group, meta] of Object.entries(SETTINGS_FIELDS)) {
       for (const field of meta.fields) {
         const expected = seeded[group][field.key];
+        if (expected === null) throw new Error(`seeded value for ${group}.${field.key} must be a number`);
         const actual = collected[group][field.key];
         if (field.type === 'float') {
           expect(actual, `${group}.${field.key}`).toBeCloseTo(expected, 5);
@@ -135,7 +137,7 @@ describe('collectSettingsFromForm', () => {
 
   test('an int_or_null field left blank round-trips to null', () => {
     renderSettingsForm({});
-    const input = document.getElementById('setting-lma-n_sectors');
+    const input = byId('setting-lma-n_sectors', HTMLInputElement);
     input.value = '';
     const collected = collectSettingsFromForm();
     expect(collected.lma.n_sectors).toBeNull();
@@ -143,7 +145,7 @@ describe('collectSettingsFromForm', () => {
 
   test('an int_or_null field with a value round-trips to an integer', () => {
     renderSettingsForm({});
-    const input = document.getElementById('setting-lma-n_sectors');
+    const input = byId('setting-lma-n_sectors', HTMLInputElement);
     input.value = '7';
     const collected = collectSettingsFromForm();
     expect(collected.lma.n_sectors).toBe(7);
@@ -151,7 +153,7 @@ describe('collectSettingsFromForm', () => {
 
   test('an int field truncates a fractional string via parseInt', () => {
     renderSettingsForm({});
-    const input = document.getElementById('setting-da-nturns');
+    const input = byId('setting-da-nturns', HTMLInputElement);
     input.value = '100.9';
     const collected = collectSettingsFromForm();
     expect(collected.da.nturns).toBe(100);
@@ -159,7 +161,7 @@ describe('collectSettingsFromForm', () => {
 
   test('a float field preserves fractional precision', () => {
     renderSettingsForm({});
-    const input = document.getElementById('setting-chromaticity-dp_min_pct');
+    const input = byId('setting-chromaticity-dp_min_pct', HTMLInputElement);
     input.value = '-3.25';
     const collected = collectSettingsFromForm();
     expect(collected.chromaticity.dp_min_pct).toBeCloseTo(-3.25, 5);
@@ -180,7 +182,7 @@ describe('loadSettings', () => {
     expect(fetch).toHaveBeenCalledWith('/api/settings', expect.objectContaining({
       headers: { 'Content-Type': 'application/json' },
     }));
-    expect(document.getElementById('setting-da-nturns').value).toBe('256');
+    expect(byId('setting-da-nturns', HTMLInputElement).value).toBe('256');
   });
 
   test('a fetch failure is caught and logged, leaving the form unrendered', async () => {

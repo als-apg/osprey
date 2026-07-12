@@ -214,10 +214,10 @@ def _boot_globals(content: str) -> dict[str, object]:
 def test_render_theme_boot_js_starts_with_generated_header() -> None:
     content = render_theme_boot_js(_tree({"dark": {"id": "dark", "label": "Dark", "mode": "dark"}}))
 
-    # theme-boot.js leads with an @ts-nocheck grandfather header (design_system is
-    # retrofitted under the front-end type/lint gates in a later phase), followed
-    # by the shared generated-file preamble.
-    assert content.startswith("// @ts-nocheck\n")
+    # theme-boot.js leads with an @ts-check header — its emitted isKnownId type
+    # predicate makes it strict-clean under checkJs — followed by the shared
+    # generated-file preamble.
+    assert content.startswith("// @ts-check\n")
     assert "\n".join(GENERATED_HEADER_LINES) in content
 
 

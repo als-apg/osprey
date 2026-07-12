@@ -23,6 +23,10 @@ absent or the flag is unset. Exercised here:
   installed.
 - Both `BLUESKY_EPICS_SUBSTRATE` and `BLUESKY_DEMO_SCANNER` set: the EPICS
   substrate wins, with a warning logged.
+- Task 2.5: `BLUESKY_TILED_URI` wires a `TiledWriter` subscription onto the
+  EPICS-substrate scanner. This path has no e2e coverage (unlike the demo
+  scanner's real-scan round trip in `test_demo_scanner_wiring.py`), so its
+  wiring is asserted explicitly here rather than left to an integration test.
 """
 
 from __future__ import annotations
@@ -41,12 +45,21 @@ _SUBSTRATE_ENV = "BLUESKY_EPICS_SUBSTRATE"
 _DEMO_ENV = "BLUESKY_DEMO_SCANNER"
 _MOTORS_ENV = "BLUESKY_EPICS_MOTORS"
 _DETECTORS_ENV = "BLUESKY_EPICS_DETECTORS"
+_TILED_URI_ENV = "BLUESKY_TILED_URI"
+_TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 
 
 @pytest.fixture(autouse=True)
 def _isolated_state(monkeypatch: pytest.MonkeyPatch):
     """Every test gets a clean flag set, registry, and scanner factory."""
-    for var in (_SUBSTRATE_ENV, _DEMO_ENV, _MOTORS_ENV, _DETECTORS_ENV):
+    for var in (
+        _SUBSTRATE_ENV,
+        _DEMO_ENV,
+        _MOTORS_ENV,
+        _DETECTORS_ENV,
+        _TILED_URI_ENV,
+        _TILED_API_KEY_ENV,
+    ):
         monkeypatch.delenv(var, raising=False)
     registry._runs.clear()
     set_scanner_factory(FakeScanner)
@@ -226,3 +239,65 @@ def test_both_flags_set_epics_substrate_wins(
     # Substrate scanners are built with the explicit built-in plan set, not
     # the demo path's default (None -> merged built-ins + facility plans).
     assert scanner._plans is not None
+
+
+# =========================================================================
+# Task 2.5: BLUESKY_TILED_URI wires a TiledWriter subscription
+# =========================================================================
+
+
+def test_tiled_uri_set_subscribes_a_tiled_writer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`_build_tiled_writer_factory` reaches all the way through to a real
+    `TiledWriter.from_uri(uri, api_key=...)` call once `BlueskyScanner` is
+    built — spying on `from_uri` (rather than actually connecting) keeps this
+    a unit test while still exercising the real wiring path end to end.
+    """
+    pytest.importorskip("bluesky")
+    pytest.importorskip("ophyd_async")
+
+    from bluesky.callbacks.tiled_writer import TiledWriter
+
+    calls: list[tuple[str, dict]] = []
+
+    def fake_from_uri(uri, **kwargs):
+        calls.append((uri, kwargs))
+        return lambda name, doc: None
+
+    monkeypatch.setattr(TiledWriter, "from_uri", fake_from_uri)
+    monkeypatch.setenv(_SUBSTRATE_ENV, "true")
+    monkeypatch.setenv(_MOTORS_ENV, "mot1=TEST:MOTOR:01:SP")
+    monkeypatch.setenv(_TILED_URI_ENV, "http://tiled:8000")
+    monkeypatch.setenv(_TILED_API_KEY_ENV, "test-api-key")
+
+    with TestClient(app):
+        pass
+
+    from osprey.services.bluesky_bridge.scanner_bluesky import BlueskyScanner
+
+    scanner = app_module._scanner_factory()
+    assert isinstance(scanner, BlueskyScanner)
+    assert calls == [("http://tiled:8000", {"api_key": "test-api-key"})]
+    assert scanner.tiled_degraded is False
+
+
+def test_tiled_uri_unset_builds_scanner_with_no_tiled_subscription(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Default (no Tiled configured) behaves exactly like Phase 1: `_build_tiled_writer_factory`
+    returns `None`, so `BlueskyScanner.__init__` never imports or calls `TiledWriter` at all.
+    """
+    pytest.importorskip("bluesky")
+    pytest.importorskip("ophyd_async")
+
+    monkeypatch.setenv(_SUBSTRATE_ENV, "true")
+    monkeypatch.setenv(_MOTORS_ENV, "mot1=TEST:MOTOR:01:SP")
+
+    with TestClient(app):
+        pass
+
+    assert app_module._build_tiled_writer_factory() is None
+
+    from osprey.services.bluesky_bridge.scanner_bluesky import BlueskyScanner
+
+    scanner = app_module._scanner_factory()
+    assert isinstance(scanner, BlueskyScanner)

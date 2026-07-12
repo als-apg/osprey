@@ -309,3 +309,121 @@ def test_bluesky_va_ca_port_defaults_when_va_config_block_absent() -> None:
         services={"bluesky": {"port": 8090}},  # no virtual_accelerator key
     )
     assert 'EPICS_CA_NAME_SERVERS: "virtual-accelerator:5064"' in rendered
+
+
+def _render_bluesky_tiled(*, tiled_enabled: bool, va_deployed: bool = False) -> str:
+    return _render_bluesky_template(
+        va_deployed=va_deployed,
+        services={"bluesky": {"port": 8090, "tiled_enabled": tiled_enabled}},
+    )
+
+
+def test_bluesky_tiled_service_renders_when_enabled() -> None:
+    """Task 1.1: ``tiled_enabled: true`` must render a writable-catalog Tiled
+    server wired for the bridge's TiledWriter subscription (Task 2.7).
+
+    ``serve catalog`` aborts without a catalog DB argument and defaults to
+    127.0.0.1 (unreachable from the bridge container) without ``--host``.
+    ``TiledWriter`` appends event tables via ``create_appendable_table`` +
+    ``append_partition``, which need SQL-family storage — hence the
+    ``duckdb://`` writable target alongside the filesystem one.
+
+    The duckdb:// target uses FOUR slashes (Task 1.5 fix), not three: this
+    is the standard SQLAlchemy DBAPI URI convention where an empty host
+    segment leaves the path relative (three slashes, resolved against the
+    container's CWD) or absolute (four slashes). Three slashes resolved to
+    the relative path "storage/data.duckdb" against /app and failed
+    server-side ("The directory storage does not exist."), which
+    ``_FaultIsolatedTiledWriter`` caught and silently latched
+    ``tiled_degraded=True`` — the scan still completed, so nothing crashed
+    and persistence just silently didn't happen. The client-visible symptom
+    (a 409 on the run's metadata POST) points at TiledWriter's write logic,
+    not at the storage URI — the real cause is visible only server-side.
+
+    The catalog volume mounts at /storage, NOT /data (Task 1.3 fix):
+    ``ghcr.io/bluesky/tiled:0.2.12`` ships /storage pre-owned by uid=999(app),
+    the user the container runs as, so a fresh named volume inherits that
+    ownership from the image. /data does not exist in the image, so Docker
+    creates it root:root and the uid=999 tiled process can't open a catalog
+    DB there — the container exits 1 immediately and /healthz never answers.
+    This is a render-time assertion only: it pins the path the fix depends
+    on, but rendering a template can't execute the image or verify volume
+    ownership — that's the round-trip e2e's job.
+    """
+    rendered = _render_bluesky_tiled(tiled_enabled=True)
+
+    assert "\n  tiled:\n" in rendered
+    assert "ghcr.io/bluesky/tiled:0.2.12" in rendered
+
+    assert "tiled serve catalog /storage/catalog.db" in rendered
+    assert "--init" in rendered
+    assert "--host 0.0.0.0" in rendered
+    assert "--port 8000" in rendered
+    assert "-w /storage/files" in rendered
+    assert "bluesky_tiled_catalog:/storage" in rendered
+
+    # Task 1.6: --api-key must be the QUOTED form with a `:?` fail-closed
+    # default, never the bare unquoted `${BLUESKY_TILED_API_KEY}`. Compose
+    # splits this string `command:` form shlex-style, so an unset/empty
+    # value in the bare form contributes NO argument at all (not an empty
+    # one) — `--api-key` then silently swallows the next token (`-w`) as
+    # its operand and a writable target vanishes, with the resulting error
+    # pointing at `-w`, never at the empty key. A substring check for just
+    # "--api-key" passes for both forms, so it can't discriminate; these
+    # two must.
+    assert '--api-key "${BLUESKY_TILED_API_KEY:?must be a non-empty alphanumeric key}"' in rendered
+    assert "--api-key ${BLUESKY_TILED_API_KEY}" not in rendered
+
+    # Neither the mount point nor the command paths may regress to /data:
+    # that was the Task 1.3 bug (a root-owned mount point uid=999 can't
+    # write to), and together these two absent-assertions are what would
+    # catch a regression back to it.
+    #
+    # ":/data" pins the volume MOUNT (the actual root cause — e.g. a
+    # regressed "bluesky_tiled_catalog:/data" line, which has no trailing
+    # slash so a bare "/data/" check would miss it entirely).
+    # "/data/" pins the COMMAND paths (catalog.db, files, duckdb target).
+    # Bare "/data" isn't usable for either: it false-positives on
+    # "duckdb:////storage/data.duckdb", whose filename legitimately
+    # contains "data" as a substring of "storage".
+    assert ":/data" not in rendered
+    assert "/data/" not in rendered
+
+    # The duckdb writable target must use exactly FOUR slashes (Task 1.5
+    # fix) for an absolute path, never three (which SQLAlchemy resolves as
+    # a CWD-relative path and Tiled rejects server-side). A bare
+    # "duckdb://" in rendered assertion is useless here: it passes for
+    # both the correct four-slash form and the buggy three-slash form.
+    assert "-w duckdb:////storage/data.duckdb" in rendered
+    assert "duckdb:///storage/data.duckdb" not in rendered
+
+    # /healthz must be probed in-image via python (curl is not in the image).
+    assert "localhost:8000/healthz" in rendered
+    assert "python -c" in rendered
+
+    # bridge env, fail-closed (no `:-` default on the API key)
+    assert 'BLUESKY_TILED_URI: "http://tiled:8000"' in rendered
+    assert "BLUESKY_TILED_API_KEY: ${BLUESKY_TILED_API_KEY}" in rendered
+
+
+def test_bluesky_tiled_absent_when_disabled() -> None:
+    """``tiled_enabled: false`` (the default) must render neither the tiled
+    service nor any ``BLUESKY_TILED_*`` bridge env — Tiled is fully optional.
+    """
+    rendered = _render_bluesky_tiled(tiled_enabled=False)
+
+    assert "\n  tiled:\n" not in rendered
+    assert "BLUESKY_TILED_URI" not in rendered
+    assert "BLUESKY_TILED_API_KEY" not in rendered
+    assert "bluesky_tiled_catalog" not in rendered
+
+
+@pytest.mark.parametrize("tiled_enabled", [True, False])
+def test_bluesky_bridge_never_depends_on_tiled(tiled_enabled: bool) -> None:
+    """A Tiled outage must never block the bridge from starting (FR4): the
+    bridge must never get ``depends_on: tiled`` / ``condition:
+    service_healthy`` gating on the tiled service, whether or not Tiled
+    itself is deployed.
+    """
+    rendered = _render_bluesky_tiled(tiled_enabled=tiled_enabled)
+    assert "depends_on:\n      tiled:" not in rendered

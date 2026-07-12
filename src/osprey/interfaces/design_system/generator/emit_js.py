@@ -242,15 +242,16 @@ def render_theme_boot_js(tree: TokenTree) -> str:
   const VALID_IDS = {valid_ids_json};
   const DEFAULTS = {defaults_json};
 
+  /** @param {{string|null}} value @returns {{value is string}} */
   function isKnownId(value) {{
-    return value === "auto" || VALID_IDS.indexOf(value) !== -1;
+    return value !== null && (value === "auto" || VALID_IDS.indexOf(value) !== -1);
   }}
 
   function resolveAuto() {{
     let prefersDark = true;
     try {{
       prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-    }} catch (error) {{
+    }} catch {{
       prefersDark = true;
     }}
     return prefersDark ? DEFAULTS.dark : DEFAULTS.light;
@@ -259,7 +260,7 @@ def render_theme_boot_js(tree: TokenTree) -> str:
   function readQueryTheme() {{
     try {{
       return new URLSearchParams(window.location.search).get("theme");
-    }} catch (error) {{
+    }} catch {{
       return null;
     }}
   }}
@@ -267,7 +268,7 @@ def render_theme_boot_js(tree: TokenTree) -> str:
   function readStoredTheme() {{
     try {{
       return window.localStorage.getItem(STORAGE_KEY);
-    }} catch (error) {{
+    }} catch {{
       return null;
     }}
   }}
@@ -290,13 +291,11 @@ def render_theme_boot_js(tree: TokenTree) -> str:
   }}
 }})();\
 """
-    # theme-boot.js is generated JS that isn't type-annotated yet; grandfather it
-    # under @ts-nocheck (design_system is retrofitted in a later hardening phase)
-    # while still emitting no-var/prefer-const-clean code, so the enforced JS gates
-    # pass on the generated artifact without a post-generation hand-edit.
+    # theme-boot.js is generated JS. It is type-checked under checkJs like the rest
+    # of the fleet; the emitted isKnownId type predicate makes it strict-clean, so it
+    # carries @ts-check rather than an opt-out.
     header_lines = (
-        "// @ts-nocheck",
-        "// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)",
+        "// @ts-check",
         *GENERATED_HEADER_LINES,
     )
     return _render(header_lines, body)

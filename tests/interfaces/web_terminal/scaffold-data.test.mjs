@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Unit tests for the Scaffold Gallery data layer (scaffold/data.js).
  *
@@ -31,7 +29,32 @@ import {
   createScaffoldDataActions,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/data.js';
 
-/** @param {object} [overrides] */
+/**
+ * @typedef {import('../../../src/osprey/interfaces/web_terminal/static/js/scaffold/data.js').ArtifactFilterState} ArtifactFilterState
+ */
+
+/**
+ * A loaded/untracked artifact as shaped by these tests' fixtures. The
+ * production {@link ArtifactFilterState.categoryFilter}/data-layer types are
+ * intentionally loose (`object[]`) since the module is domain-agnostic; the
+ * tests fix a concrete shape to exercise property access.
+ * @typedef {object} TestArtifact
+ * @property {string} name
+ * @property {string} category
+ * @property {string} [status]
+ * @property {string} [displayCategory]
+ */
+
+/**
+ * @typedef {object} TestUntrackedFile
+ * @property {string} canonical_name
+ * @property {string} category
+ * @property {string} [output_path]
+ */
+
+/** @param {Partial<ArtifactFilterState>} [overrides]
+ * @returns {ArtifactFilterState}
+ */
 function makeState(overrides = {}) {
   return {
     categoryFilter: () => true,
@@ -116,10 +139,11 @@ describe('loadArtifacts', () => {
 
     const state = makeState({ categoryFilter: (a) => a.category === 'agents' });
     const result = await loadArtifacts(state);
+    const artifacts = /** @type {TestArtifact[]} */ (result.artifacts);
 
     expect(result.artifacts).toHaveLength(2);
-    expect(result.artifacts.map((a) => a.name)).toEqual(['agent-a', 'agent-b']);
-    expect(result.artifacts[0].displayCategory).toBe('agents');
+    expect(artifacts.map((a) => a.name)).toEqual(['agent-a', 'agent-b']);
+    expect(artifacts[0].displayCategory).toBe('agents');
     expect(result.summary).toEqual({ total: 2, framework: 1, userOwned: 1 });
   });
 
@@ -141,8 +165,9 @@ describe('loadArtifacts', () => {
       categoryRemaps: { config: 'settings' },
     });
     const result = await loadArtifacts(state);
+    const artifacts = /** @type {TestArtifact[]} */ (result.artifacts);
 
-    expect(result.artifacts[0].displayCategory).toBe('system instructions');
+    expect(artifacts[0].displayCategory).toBe('system instructions');
   });
 
   test('untracked files are matched via categoryFilter on either the raw or remapped category', async () => {
@@ -166,9 +191,10 @@ describe('loadArtifacts', () => {
 
     const state = makeState({ categoryFilter: (a) => a.category === 'hooks' });
     const result = await loadArtifacts(state);
+    const untrackedFiles = /** @type {TestUntrackedFile[]} */ (result.untrackedFiles);
 
     expect(result.untrackedFiles).toHaveLength(1);
-    expect(result.untrackedFiles[0].canonical_name).toBe('stray-hook');
+    expect(untrackedFiles[0].canonical_name).toBe('stray-hook');
   });
 
   test('skipCache invalidates the shared cache before fetching', async () => {
@@ -291,7 +317,10 @@ describe('createScaffoldDataActions (callback-bound actions)', () => {
     return { onLoadStart: vi.fn(), onLoaded: vi.fn(), onLoadError: vi.fn() };
   }
 
-  /** Routes fetch by exact URL; falls through to a 404-ish rejection for anything unmapped. */
+  /**
+   * Routes fetch by exact URL; falls through to a 404-ish rejection for anything unmapped.
+   * @param {Record<string, {ok: boolean, status?: number, json?: () => Promise<unknown>}>} routes
+   */
   function stubFetchRoutes(routes) {
     vi.stubGlobal('fetch', vi.fn((url) => {
       const route = routes[url];

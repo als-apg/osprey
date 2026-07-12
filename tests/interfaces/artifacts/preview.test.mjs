@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Unit tests for the Artifact Gallery preview pane shell (preview.js, task
  * 5.4 extraction: renderPreview's per-type viewport dispatch, pin toggling,
@@ -47,6 +45,7 @@ vi.mock('../../../src/osprey/interfaces/artifacts/static/js/print.js', () => ({
 import { createPreviewRenderer } from '../../../src/osprey/interfaces/artifacts/static/js/preview.js';
 import { injectLogbookButtons } from '../../../src/osprey/interfaces/artifacts/static/js/logbook.js';
 import { injectPrintButton } from '../../../src/osprey/interfaces/artifacts/static/js/print.js';
+import { qs, byId } from '../_support/dom.mjs';
 
 /** Minimal DOM fixture matching artifacts/static/index.html's structure. */
 function mountFixture() {
@@ -96,8 +95,8 @@ beforeEach(() => {
     value: { writeText: vi.fn(() => Promise.resolve()) },
     configurable: true,
   });
-  injectLogbookButtons.mockClear();
-  injectPrintButton.mockClear();
+  vi.mocked(injectLogbookButtons).mockClear();
+  vi.mocked(injectPrintButton).mockClear();
 });
 
 afterEach(() => {
@@ -110,8 +109,8 @@ describe('renderPreview: empty state', () => {
     const renderer = createPreviewRenderer(makeCallbacks());
     renderer.renderPreview();
 
-    expect(document.getElementById('preview-empty').classList.contains('hidden')).toBe(false);
-    expect(document.getElementById('preview-content').classList.contains('hidden')).toBe(true);
+    expect(byId('preview-empty').classList.contains('hidden')).toBe(false);
+    expect(byId('preview-content').classList.contains('hidden')).toBe(true);
   });
 });
 
@@ -131,8 +130,8 @@ describe('renderPreview: per-type viewport dispatch', () => {
     const renderer = createPreviewRenderer(makeCallbacks());
     renderer.renderPreview();
 
-    expect(document.getElementById('preview-empty').classList.contains('hidden')).toBe(true);
-    expect(document.getElementById('preview-content').classList.contains('hidden')).toBe(false);
+    expect(byId('preview-empty').classList.contains('hidden')).toBe(true);
+    expect(byId('preview-content').classList.contains('hidden')).toBe(false);
     expect(document.querySelector(`.preview-viewport ${selector}`)).not.toBeNull();
   });
 
@@ -141,7 +140,7 @@ describe('renderPreview: per-type viewport dispatch', () => {
     const renderer = createPreviewRenderer(makeCallbacks());
     renderer.renderPreview();
 
-    const iframe = document.querySelector('.preview-viewport iframe.preview-iframe-light');
+    const iframe = qs(document, '.preview-viewport iframe.preview-iframe-light');
     expect(iframe.getAttribute('src')).toBe('/api/notebooks/nb1/rendered');
   });
 
@@ -150,8 +149,9 @@ describe('renderPreview: per-type viewport dispatch', () => {
     const renderer = createPreviewRenderer(makeCallbacks());
     renderer.renderPreview();
 
-    const iframe = document.querySelector('.preview-viewport iframe.preview-iframe-light');
+    const iframe = qs(document, '.preview-viewport iframe.preview-iframe-light');
     const src = iframe.getAttribute('src');
+    if (src === null) throw new Error('unreachable: iframe has no src');
     const idSegment = src.split('/')[3];
     expect(idSegment).not.toMatch(/[/?"]/);
     expect(src).toBe('/api/notebooks/a%2F..%2Fb%3Fx%3D%22y%22/rendered');
@@ -172,6 +172,7 @@ describe('renderPreview: per-type viewport dispatch', () => {
 
     const link = document.querySelector('.preview-download a');
     expect(link).not.toBeNull();
+    if (link === null) throw new Error('unreachable: download link missing');
     expect(link.textContent).toContain('blob.bin');
   });
 
@@ -209,8 +210,8 @@ describe('renderPreview: header/meta content', () => {
     setSelectedArtifact(makeArtifact({ tool_source: 'channel_finder', size_bytes: 1024 }));
     createPreviewRenderer(makeCallbacks()).renderPreview();
 
-    expect(document.querySelector('.preview-header-title').textContent).toBe('Beam Profile');
-    expect(document.querySelector('.preview-meta-value').textContent).toBe('1.0 KB');
+    expect(qs(document, '.preview-header-title').textContent).toBe('Beam Profile');
+    expect(qs(document, '.preview-meta-value').textContent).toBe('1.0 KB');
     expect(document.body.innerHTML).toContain('channel_finder');
   });
 
@@ -225,7 +226,7 @@ describe('renderPreview: header/meta content', () => {
     setSelectedArtifact(makeArtifact({ pinned: true }));
     createPreviewRenderer(makeCallbacks()).renderPreview();
 
-    const pinBtn = document.getElementById('preview-toggle-pin');
+    const pinBtn = byId('preview-toggle-pin');
     expect(pinBtn.classList.contains('btn-action-pinned')).toBe(true);
     expect(pinBtn.title).toBe('Unpin');
   });
@@ -252,7 +253,7 @@ describe('renderPreview: delete flow', () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({}) });
     vi.stubGlobal('fetch', fetchMock);
 
-    document.getElementById('preview-delete').click();
+    byId('preview-delete').click();
     await new Promise((r) => setTimeout(r, 0));
     await new Promise((r) => setTimeout(r, 0));
 
@@ -262,7 +263,7 @@ describe('renderPreview: delete flow', () => {
     expect(getFocusedArtifact()).toBeNull();
     expect(callbacks.onArtifactDeleted).toHaveBeenCalledTimes(1);
     // renderPreview() ran again after clearing selection -> back to empty state.
-    expect(document.getElementById('preview-empty').classList.contains('hidden')).toBe(false);
+    expect(byId('preview-empty').classList.contains('hidden')).toBe(false);
   });
 
   test('does nothing when the confirm dialog is declined', () => {
@@ -274,7 +275,7 @@ describe('renderPreview: delete flow', () => {
 
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
-    document.getElementById('preview-delete').click();
+    byId('preview-delete').click();
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(callbacks.onArtifactDeleted).not.toHaveBeenCalled();
@@ -287,7 +288,7 @@ describe('renderPreview: copy path', () => {
     setSelectedArtifact(makeArtifact());
     createPreviewRenderer(makeCallbacks()).renderPreview();
 
-    const btn = document.getElementById('preview-copy-path');
+    const btn = byId('preview-copy-path');
     btn.click();
     await vi.waitFor(() => expect(window.navigator.clipboard.writeText).toHaveBeenCalledWith('_agent_data/artifacts/beam_profile.png'));
 
@@ -306,13 +307,13 @@ describe('pin toggling', () => {
     createPreviewRenderer(callbacks).renderPreview();
 
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true }));
-    document.getElementById('preview-toggle-pin').click();
+    byId('preview-toggle-pin').click();
     await new Promise((r) => setTimeout(r, 0));
 
     expect(artifact.pinned).toBe(true);
     expect(callbacks.onPinToggled).toHaveBeenCalledTimes(1);
     // renderPreview() ran again -> pin button now reflects the flipped state.
-    expect(document.getElementById('preview-toggle-pin').classList.contains('btn-action-pinned')).toBe(true);
+    expect(byId('preview-toggle-pin').classList.contains('btn-action-pinned')).toBe(true);
   });
 
   test('on a non-OK response: leaves pinned unchanged and does not fire the callback', async () => {
@@ -322,7 +323,7 @@ describe('pin toggling', () => {
     createPreviewRenderer(callbacks).renderPreview();
 
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false }));
-    document.getElementById('preview-toggle-pin').click();
+    byId('preview-toggle-pin').click();
     await new Promise((r) => setTimeout(r, 0));
 
     expect(artifact.pinned).toBe(false);
@@ -334,7 +335,7 @@ describe('pin toggling', () => {
     createPreviewRenderer(makeCallbacks()).renderPreview();
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network down')));
 
-    expect(() => document.getElementById('preview-toggle-pin').click()).not.toThrow();
+    expect(() => byId('preview-toggle-pin').click()).not.toThrow();
     await new Promise((r) => setTimeout(r, 0));
   });
 });
@@ -349,7 +350,7 @@ describe('fullscreen mode', () => {
     expect(renderer.isFullscreen()).toBe(true);
     expect(getSelectedArtifact()).toBe(artifact);
     expect(document.body.classList.contains('fullscreen-mode')).toBe(true);
-    expect(document.getElementById('preview-content').classList.contains('hidden')).toBe(false);
+    expect(byId('preview-content').classList.contains('hidden')).toBe(false);
   });
 
   test('enterFullscreen with no artifact and none already selected is a no-op', () => {
@@ -394,7 +395,7 @@ describe('fullscreen mode', () => {
     renderer.noteNewArtifactArrival();
     renderer.updateNewArtifactBadge();
 
-    const badge = document.getElementById('fullscreen-new-badge');
+    const badge = byId('fullscreen-new-badge');
     expect(badge.textContent).toBe('2 new');
     expect(badge.dataset.count).toBe('2');
   });
@@ -408,7 +409,7 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
 
     expect(document.querySelector('.preview-header img')).toBeNull();
     expect(document.querySelector('.preview-header [onerror]')).toBeNull();
-    expect(document.getElementById('preview-content').innerHTML).not.toMatch(/"><img/);
+    expect(byId('preview-content').innerHTML).not.toMatch(/"><img/);
 
     const badge = document.querySelector('.badge');
     expect(badge).not.toBeNull();
@@ -418,7 +419,7 @@ describe('XSS hardening (Task 1.3 — escape-metadata-sinks)', () => {
     setSelectedArtifact(makeArtifact({ category: 'visualization' }));
     createPreviewRenderer(makeCallbacks()).renderPreview();
 
-    const badge = document.querySelector('.badge');
+    const badge = qs(document, '.badge');
     expect(badge.className).toBe('badge badge-visualization');
   });
 });

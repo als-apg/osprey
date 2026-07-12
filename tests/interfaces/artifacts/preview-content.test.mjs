@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Unit tests for the Artifact Gallery preview-content module
  * (preview-content.js, preview.js's sibling — kept separate purely to stay
@@ -25,6 +23,7 @@ import {
   renderJsonHtml,
   renderJsonView,
 } from '../../../src/osprey/interfaces/artifacts/static/js/preview-content.js';
+import { qs } from '../_support/dom.mjs';
 
 /** @returns {any} */
 function makeArtifact(overrides = {}) {
@@ -93,7 +92,7 @@ describe('renderJsonHtml (recursive JSON viewer)', () => {
   });
 
   test('truncates recursion past depth 6', () => {
-    /** @type {any} */
+    /** @type {unknown} */
     let nested = 'leaf';
     for (let i = 0; i < 8; i++) nested = [nested];
     expect(renderJsonHtml(nested, 0)).toContain('json-truncated');
@@ -132,7 +131,7 @@ describe('renderMathInMarkdown', () => {
   test('renders display ($$...$$) and inline ($...$) math via katex, then runs marked on the rest', () => {
     const renderToString = vi.fn((expr, opts) => `<math data-display="${opts.displayMode}">${expr}</math>`);
     vi.stubGlobal('katex', { renderToString });
-    vi.stubGlobal('marked', { parse: (t) => `<p>${t}</p>` });
+    vi.stubGlobal('marked', { parse: (/** @type {string} */ t) => `<p>${t}</p>` });
 
     const html = renderMathInMarkdown('Inline $x^2$ and display $$y = mx + b$$ done.');
 
@@ -145,7 +144,7 @@ describe('renderMathInMarkdown', () => {
 
   test('falls back to an escaped error span when katex.renderToString throws', () => {
     vi.stubGlobal('katex', { renderToString: vi.fn(() => { throw new Error('bad expr'); }) });
-    vi.stubGlobal('marked', { parse: (t) => t });
+    vi.stubGlobal('marked', { parse: (/** @type {string} */ t) => t });
 
     const html = renderMathInMarkdown('$broken$');
     expect(html).toContain('katex-error-inline');
@@ -165,6 +164,7 @@ describe('renderMarkdownView', () => {
 
     const rendered = container.querySelector('.osprey-md-rendered');
     expect(rendered).not.toBeNull();
+    if (rendered === null) throw new Error('unreachable: rendered container missing');
     expect(rendered.innerHTML).toBe('<p># Hi</p>');
   });
 
@@ -174,7 +174,7 @@ describe('renderMarkdownView', () => {
 
     await renderMarkdownView(container, makeArtifact());
 
-    expect(container.querySelector('.osprey-md-rendered').textContent).toBe('raw text');
+    expect(qs(container, '.osprey-md-rendered').textContent).toBe('raw text');
   });
 
   test('on fetch failure: shows a friendly fallback', async () => {

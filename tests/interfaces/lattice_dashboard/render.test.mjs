@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Unit tests for the Lattice Dashboard rendering layer (render.js).
  *
@@ -16,6 +14,8 @@
  */
 
 import { test, expect, vi, describe, afterEach, beforeEach } from 'vitest';
+
+import { qs, byId } from '../_support/dom.mjs';
 
 import {
   updateSummaryStats,
@@ -66,17 +66,17 @@ describe('updateSummaryStats', () => {
       tunes: [14.25, 8.18],
       chromaticity: [1.4, 1.2],
     });
-    expect(document.querySelector('#stat-energy .stat-value').textContent).toBe('1.90');
-    expect(document.querySelector('#stat-circumference .stat-value').textContent).toBe('196.8');
-    expect(document.querySelector('#stat-nux .stat-value').textContent).toBe('14.2500');
-    expect(document.querySelector('#stat-nuy .stat-value').textContent).toBe('8.1800');
-    expect(document.querySelector('#stat-chrom-x .stat-value').textContent).toBe('1.40');
-    expect(document.querySelector('#stat-chrom-y .stat-value').textContent).toBe('1.20');
+    expect(qs(document, '#stat-energy .stat-value').textContent).toBe('1.90');
+    expect(qs(document, '#stat-circumference .stat-value').textContent).toBe('196.8');
+    expect(qs(document, '#stat-nux .stat-value').textContent).toBe('14.2500');
+    expect(qs(document, '#stat-nuy .stat-value').textContent).toBe('8.1800');
+    expect(qs(document, '#stat-chrom-x .stat-value').textContent).toBe('1.40');
+    expect(qs(document, '#stat-chrom-y .stat-value').textContent).toBe('1.20');
   });
 
   test('a missing/NaN value falls back to the em-dash placeholder', () => {
     updateSummaryStats({ energy_gev: null });
-    expect(document.querySelector('#stat-energy .stat-value').textContent).toBe('—');
+    expect(qs(document, '#stat-energy .stat-value').textContent).toBe('—');
   });
 });
 
@@ -85,7 +85,7 @@ describe('figure-status primitives (LED / spinner / error)', () => {
 
   test('updateLED sets the data-status attribute', () => {
     updateLED('optics', 'computing');
-    expect(document.getElementById('led-optics').dataset.status).toBe('computing');
+    expect(byId('led-optics').dataset.status).toBe('computing');
   });
 
   test('showSpinner adds a spinner once and is idempotent on repeat calls', () => {
@@ -105,8 +105,8 @@ describe('figure-status primitives (LED / spinner / error)', () => {
     showSpinner('optics');
     showFigureError('optics', 'x'.repeat(300));
     expect(document.querySelector('#plot-optics .figure-spinner')).toBeNull();
-    const detail = document.querySelector('#plot-optics .figure-error-msg');
-    expect(detail.textContent.length).toBe(200);
+    const detail = qs(document, '#plot-optics .figure-error-msg');
+    expect(detail.textContent?.length).toBe(200);
   });
 
   test('showFigureError does not duplicate the error element on repeat calls', () => {
@@ -120,10 +120,10 @@ describe('figure-status primitives (LED / spinner / error)', () => {
       optics: { status: 'computing' },
       da: { status: 'error', error: 'solver diverged' },
     });
-    expect(document.getElementById('led-optics').dataset.status).toBe('computing');
+    expect(byId('led-optics').dataset.status).toBe('computing');
     expect(document.querySelector('#plot-optics .figure-spinner')).not.toBeNull();
 
-    expect(document.getElementById('led-da').dataset.status).toBe('error');
+    expect(byId('led-da').dataset.status).toBe('error');
     expect(document.querySelector('#plot-da .figure-spinner')).toBeNull();
     expect(document.querySelector('#plot-da .figure-error')).not.toBeNull();
   });
@@ -214,6 +214,13 @@ describe('renderPlotly', () => {
 });
 
 describe('createRenderer / updateSliders debounce', () => {
+  /**
+   * @type {{
+   *   onSliderChange: import('vitest').Mock,
+   *   onFigureReady: import('vitest').Mock,
+   *   getOverrides: import('vitest').Mock,
+   * }}
+   */
   let callbacks;
 
   beforeEach(() => {
@@ -236,7 +243,7 @@ describe('createRenderer / updateSliders debounce', () => {
     const renderer = createRenderer(FIGURE_NAMES, callbacks);
     renderer.updateSliders(families());
 
-    const slider = document.getElementById('slider-QF1');
+    const slider = byId('slider-QF1', HTMLInputElement);
     expect(slider).not.toBeNull();
 
     slider.value = '1.0';
@@ -257,7 +264,7 @@ describe('createRenderer / updateSliders debounce', () => {
     const renderer = createRenderer(FIGURE_NAMES, callbacks);
     renderer.updateSliders(families());
 
-    const valueEl = document.getElementById('slider-val-QF1');
+    const valueEl = byId('slider-val-QF1');
     expect(valueEl.textContent).toBe('4.2000');
   });
 

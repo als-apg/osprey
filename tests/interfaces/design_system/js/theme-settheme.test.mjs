@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Unit tests for theme-manager.js's setTheme() -- the explicit user-toggle
  * path -- covering:
@@ -39,7 +37,9 @@ describe('setTheme()', () => {
   function spyOnBroadcast() {
     const iframe = document.createElement('iframe');
     document.body.appendChild(iframe);
-    return vi.spyOn(iframe.contentWindow, 'postMessage').mockImplementation(() => {});
+    const win = iframe.contentWindow;
+    if (win === null) throw new Error('iframe has no contentWindow');
+    return vi.spyOn(win, 'postMessage').mockImplementation(() => {});
   }
 
   describe('follower role', () => {

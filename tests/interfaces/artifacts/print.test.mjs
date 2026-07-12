@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Unit tests for the Artifact Gallery print module (print.js): the pure
  * `esc`/`fmtTime`/`headerHtml` formatting helpers and `printArtifact`'s
@@ -56,6 +54,7 @@ function makeArtifact(overrides = {}) {
  * `open`/`close` behave exactly as print.js expects; `focus`/`print`/`close`
  * are spies, and `addEventListener` just records the `"load"` callback for
  * the test to fire manually.
+ * @param {{ readyState?: string }} [opts]
  * @returns {any}
  */
 function makeFakeWindow({ readyState } = {}) {

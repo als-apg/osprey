@@ -1,8 +1,6 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /* OSPREY Web Terminal — Application Entry Point */
 
-import { initTerminal, fitTerminal, focusTerminal, getTerminalDimensions, stopTerminal, startTerminal, restartTerminal, pasteToTerminal } from './terminal.js';
+import { initTerminal, fitTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal } from './terminal.js';
 import { onConnectionStateChange, fetchJSON } from './api.js';
 import { initPanelManager } from './panel-manager.js';
 import '/design-system/js/components/osprey-drawer.js';
@@ -37,7 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
 /* ---- New Session Button ---- */
 
 function initNewSessionButton() {
-  const btn = document.getElementById('new-session-btn');
+  const btn = /** @type {HTMLButtonElement} */ (document.getElementById('new-session-btn'));
   if (!btn) return;
 
   btn.addEventListener('click', async () => {
@@ -67,7 +65,7 @@ function initNewSessionButton() {
  * stays in sync.
  */
 function initDrawerTriggerHighlight() {
-  const setActive = (active) => (event) => {
+  const setActive = (/** @type {boolean} */ active) => (/** @type {Event} */ event) => {
     const drawer = event.target;
     if (!(drawer instanceof HTMLElement) || !drawer.id) return;
     document
@@ -111,11 +109,11 @@ function initStatusBar() {
 
 function initResizeHandle() {
   const handle = document.getElementById('resize-handle');
-  const terminalPanel = document.querySelector('.terminal-panel');
-  const rightPanel = document.querySelector('.files-panel');
-  const container = document.querySelector('.main-container');
-  const headerLeft = document.querySelector('.header-left');
-  const headerRight = document.querySelector('.header-right');
+  const terminalPanel = /** @type {HTMLElement} */ (document.querySelector('.terminal-panel'));
+  const rightPanel = /** @type {HTMLElement} */ (document.querySelector('.files-panel'));
+  const container = /** @type {HTMLElement} */ (document.querySelector('.main-container'));
+  const headerLeft = /** @type {HTMLElement} */ (document.querySelector('.header-left'));
+  const headerRight = /** @type {HTMLElement} */ (document.querySelector('.header-right'));
 
   if (!handle || !terminalPanel || !rightPanel || !container) return;
 
@@ -126,6 +124,7 @@ function initResizeHandle() {
 
   // Track the terminal's share of total width so the split scales with
   // the browser window.  null = CSS default (no user drag yet).
+  /** @type {number | null} */
   let terminalRatio = null;
 
   function applyRatio() {
@@ -213,11 +212,11 @@ function initIframePasteBridge() {
   if (termContainer) {
     termContainer.addEventListener('dragover', (e) => {
       e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
+      /** @type {DataTransfer} */ (e.dataTransfer).dropEffect = 'copy';
     });
     termContainer.addEventListener('drop', (e) => {
       e.preventDefault();
-      const text = e.dataTransfer.getData('text/plain');
+      const text = /** @type {DataTransfer} */ (e.dataTransfer).getData('text/plain');
       if (text) {
         pasteToTerminal(text);
         focusTerminal();

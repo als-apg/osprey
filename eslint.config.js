@@ -1,5 +1,6 @@
 import js from '@eslint/js';
 import globals from 'globals';
+import noTsNocheck from './tools/eslint/no-ts-nocheck.js';
 
 export default [
   // (1) Leading SOLE-KEY global ignore — must be the ONLY key in this object so it applies globally.
@@ -47,28 +48,13 @@ export default [
     },
   },
 
-  // --- Legacy exemptions (shrink-only ratchet; see CONTRIBUTING.md). Each list is
-  //     exactly today's violators and may only shrink as P2–P5 retrofit each interface.
-  //     Rules stay at `error` everywhere else; these are file-scoped `off` only. ---
+  // (6) Ban `// @ts-nocheck` across interface + test JS. Under checkJs a
+  //     `// @ts-check` header is a redundant no-op, but a leading `// @ts-nocheck`
+  //     opts a file out of tsc entirely; this rule keeps a new one from landing
+  //     silently. See tools/eslint/no-ts-nocheck.js and CONTRIBUTING.md.
   {
-    files: [
-      'src/osprey/interfaces/artifacts/static/js/print.js',
-      'src/osprey/interfaces/design_system/static/js/theme-boot.js',
-      'src/osprey/interfaces/design_system/static/js/theme-manager.js',
-      'src/osprey/interfaces/web_terminal/static/js/app.js',
-      'src/osprey/interfaces/web_terminal/static/js/panel-manager.js',
-      'src/osprey/interfaces/web_terminal/static/js/session-views.js',
-      'src/osprey/interfaces/web_terminal/static/js/session.js',
-      'tests/interfaces/artifacts/security_render.test.mjs',
-      'tests/interfaces/web_terminal/scaffold-edit.test.mjs',
-      'tests/interfaces/web_terminal/scaffold-view.test.mjs',
-    ],
-    rules: { 'no-unused-vars': 'off' },
-  },
-  {
-    files: [
-      'src/osprey/interfaces/artifacts/static/js/logbook.js',
-    ],
-    rules: { 'max-lines': 'off' },
+    files: ['src/osprey/interfaces/**/static/js/**/*.js', 'tests/**/*.{js,mjs}'],
+    plugins: { local: { rules: { 'no-ts-nocheck': noTsNocheck } } },
+    rules: { 'local/no-ts-nocheck': 'error' },
   },
 ];

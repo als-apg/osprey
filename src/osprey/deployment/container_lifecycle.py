@@ -7,6 +7,7 @@ Docker or Podman compose.
 import os
 import secrets
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 from osprey.deployment.compose_generator import (
@@ -29,24 +30,70 @@ logger = get_logger("deployment.lifecycle")
 # deployed-service name to the token env var(s) it requires. event_dispatcher
 # and dispatch_worker both list the same pair because they share one .env:
 # the dispatcher forwards routed requests to workers using DISPATCH_WORKER_TOKEN,
-# so either service alone still needs both vars minted. bluesky is a single
-# fail-closed bridge instance needing only its own promote token — see
-# ``security.require_armed`` in ``osprey.services.bluesky_bridge``.
+# so either service alone still needs both vars minted. bluesky needs its own
+# promote token (see ``security.require_armed`` in
+# ``osprey.services.bluesky_bridge``) plus the API key the bridge presents to
+# the co-deployed Tiled catalog. The Tiled key hangs off "bluesky" rather than a
+# "tiled" key of its own because "tiled" is never a member of
+# ``deployed_services``, so the membership guard in ``_ensure_service_tokens``
+# would skip it and the key would never mint.
 _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     "event_dispatcher": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
     "dispatch_worker": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
-    "bluesky": ("BLUESKY_PROMOTE_TOKEN",),
+    "bluesky": ("BLUESKY_PROMOTE_TOKEN", "BLUESKY_TILED_API_KEY"),
 }
 
-# Services whose fail-closed token must NOT be auto-armed when the agent's code
-# execution is unsandboxed on the host (see _local_exec_arming_unsafe below).
-# Their bearer token gates a write-capable HTTP route (bluesky-bridge's
-# POST /runs/{id}/promote); under local exec, agent-authored code can read that
-# token straight out of .env/config.yml and call the route directly, bypassing
-# the in-tool writes_enabled re-check that's supposed to gate it. The
-# event-dispatch services aren't in this set: their tokens gate an inbound
-# webhook/worker-routing boundary, not a write path the agent itself walks.
-_LOCAL_EXEC_GATED_SERVICES = {"bluesky"}
+# Token vars that are safe to auto-mint even when the agent's code execution is
+# unsandboxed on the host (see _local_exec_arming_unsafe below). Every *other*
+# declared token var is withheld under that config — a var nobody has triaged
+# fails CLOSED by omission.
+#
+# This is an allowlist, not a blocklist, because a security gate must fail
+# closed on the paths its author did not enumerate. Under a blocklist, a service
+# later added to _SERVICE_TOKEN_VARS with an arming token would mint it under
+# writes_enabled + local exec, warn about nothing, and break no test.
+#
+# The gate is per *variable*, not per service: one service can declare both an
+# arming token and non-arming credentials. The bar for adding a var here is that
+# it grants no write-capable route the agent itself can walk. Under local exec,
+# agent-authored code can read any minted token straight out of .env/config.yml
+# and call the route it gates directly, bypassing the in-tool writes_enabled
+# re-check. BLUESKY_PROMOTE_TOKEN is therefore absent: it gates the bridge's
+# POST /runs/{id}/promote.
+_LOCAL_EXEC_SAFE_VARS = {
+    "BLUESKY_TILED_API_KEY",  # outbound credential to the Tiled catalog; gates no bridge route
+    "EVENT_DISPATCHER_TOKEN",  # inbound webhook boundary, not a write path the agent walks
+    "DISPATCH_WORKER_TOKEN",  # worker-routing boundary, same
+}
+
+
+def _default_token() -> str:
+    """The default secret recipe, also the one ``.env.template`` documents."""
+    return secrets.token_urlsafe(32)
+
+
+# Per-variable overrides of the default recipe. A var absent here gets
+# ``_default_token``.
+#
+# BLUESKY_TILED_API_KEY: Tiled validates its ``--api-key`` during server startup
+# and raises ``ValueError("The API key must only contain alphanumeric
+# characters")`` for anything else, so a rejected key makes the container exit
+# before it ever listens. ``token_urlsafe``'s alphabet includes ``-`` and ``_``,
+# which land in roughly 7 of 10 values, so that recipe crash-loops Tiled on most
+# deploys — non-deterministically. ``token_hex(32)`` draws from ``[0-9a-f]``:
+# alphanumeric by construction, and the same 256 bits of entropy.
+#
+# Generate from an alphanumeric alphabet rather than stripping ``-``/``_`` out of
+# a urlsafe value, which would shorten the secret by a variable amount and drop
+# entropy silently.
+_VAR_GENERATORS: dict[str, Callable[[], str]] = {
+    "BLUESKY_TILED_API_KEY": lambda: secrets.token_hex(32),
+}
+
+
+def _generate_token(var: str) -> str:
+    """Mint one secret for ``var`` using its registered recipe."""
+    return _VAR_GENERATORS.get(var, _default_token)()
 
 
 def _local_exec_arming_unsafe(config: dict) -> bool:
@@ -74,8 +121,9 @@ def _ensure_service_tokens(
 
     For any token var (per ``_SERVICE_TOKEN_VARS``, keyed by the deployed
     services present) unset in BOTH the process env and the project ``.env``,
-    generate a strong random value (``secrets.token_urlsafe(32)``, the same
-    recipe the ``.env.template`` documents) and append it to ``.env``
+    generate a strong random value (``_generate_token``: ``token_urlsafe(32)``
+    unless the var registers a different alphabet in ``_VAR_GENERATORS``) and
+    append it to ``.env``
     (``chmod 0o600``, matching the build-time convention). Existing values are
     never overwritten, so re-running ``deploy up`` is idempotent. No-op unless
     a token-requiring service is actually deployed.
@@ -86,12 +134,19 @@ def _ensure_service_tokens(
     an exposed deploy (``--expose`` / bind 0.0.0.0) we refuse rather than bind a
     fail-open-at-bind server to all interfaces.
 
-    A service in ``_LOCAL_EXEC_GATED_SERVICES`` is skipped entirely (no token
-    minted, existing values in .env/env left untouched but not read either) when
-    ``_local_exec_arming_unsafe(config)`` — see that function's docstring. The
-    bridge's own ``require_armed()`` then keeps returning 503, i.e. it never
-    arms, rather than being armed with a token any local agent-code execution
-    can trivially read back out of ``.env``.
+    When ``_local_exec_arming_unsafe(config)`` — see that function's docstring —
+    the mint is restricted to the ``_LOCAL_EXEC_SAFE_VARS`` allowlist: any other
+    declared var is skipped (never minted; an existing value in .env/env is left
+    untouched but not read either). For the withheld ``BLUESKY_PROMOTE_TOKEN``
+    the bridge's own ``require_armed()`` then keeps returning 503, i.e. this
+    deploy never arms it, rather than arming it with a token any local
+    agent-code execution can trivially read back out of ``.env``.
+
+    The restriction is per var, not per service: the allowlisted vars a service
+    declares (e.g. bluesky's ``BLUESKY_TILED_API_KEY``, which grants catalog
+    access, not the ability to move the machine) still mint under the same
+    unsafe config. And because it is an allowlist, a token var added later
+    without being triaged fails closed rather than arming silently.
     """
     deployed_services = config.get("deployed_services")
     services = {str(s) for s in (deployed_services or [])}
@@ -101,25 +156,29 @@ def _ensure_service_tokens(
     # deterministic regardless of set iteration order or config.yml ordering.
     required_vars: list[str] = []
     seen: set[str] = set()
+    warned: set[str] = set()
     for svc_name, token_vars in _SERVICE_TOKEN_VARS.items():
         if svc_name not in services:
             continue
-        if svc_name in _LOCAL_EXEC_GATED_SERVICES and unsafe_local_exec:
-            logger.warning(
-                "Refusing to arm %r: control_system.writes_enabled is true but "
-                "execution.execution_method is 'local' (agent code runs unsandboxed "
-                "on the host, cwd=project_root). Local execution can read %s "
-                "straight out of .env/config.yml and call the write-capable route "
-                "it gates directly, bypassing the in-tool writes_enabled re-check. "
-                "NOT minting %s — the service stays unarmed. Set "
-                "execution.execution_method: container to use this feature with "
-                "writes_enabled: true.",
-                svc_name,
-                ", ".join(token_vars),
-                ", ".join(token_vars),
-            )
-            continue
         for var in token_vars:
+            if unsafe_local_exec and var not in _LOCAL_EXEC_SAFE_VARS:
+                if var not in warned:
+                    warned.add(var)
+                    logger.warning(
+                        "Refusing to arm %r: control_system.writes_enabled is true but "
+                        "execution.execution_method is 'local' (agent code runs unsandboxed "
+                        "on the host, cwd=project_root). Local execution can read %s "
+                        "straight out of .env/config.yml and call the write-capable route "
+                        "it gates directly, bypassing the in-tool writes_enabled re-check. "
+                        "NOT minting %s — this deploy will not arm it (an existing value "
+                        "in .env or the environment is left in place and still arms the "
+                        "service). Set execution.execution_method: container to use this "
+                        "feature with writes_enabled: true.",
+                        svc_name,
+                        var,
+                        var,
+                    )
+                continue
             if var not in seen:
                 seen.add(var)
                 required_vars.append(var)
@@ -138,7 +197,7 @@ def _ensure_service_tokens(
         present = name in os.environ or name in existing
         if present:
             continue  # keep the user's value (even an empty one — see docstring)
-        generated[name] = secrets.token_urlsafe(32)
+        generated[name] = _generate_token(name)
 
     if generated:
         prefix = ""

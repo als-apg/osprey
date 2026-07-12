@@ -125,7 +125,7 @@ async function refreshActive() {
   dot.classList.add('pulse');
   try {
     await VIEWS[activeView]({ apiFetch, showToast, cache });
-  } catch (err) {
+  } catch {
     showToast('Refresh failed');
   }
 }

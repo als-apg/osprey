@@ -1,5 +1,3 @@
-// @ts-nocheck
-// TODO(frontend-hardening Pn): remove & fix types when this interface is retrofitted (P2–P5)
 /**
  * Unit tests for the Lattice Dashboard network layer (net.js).
  *
@@ -57,6 +55,17 @@ describe('apiFetch', () => {
 });
 
 describe('handleSSEEvent dispatch table', () => {
+  /**
+   * @returns {{
+   *   onStateUpdated: import('vitest').Mock,
+   *   onFigureStatus: import('vitest').Mock,
+   *   onFigureReady: import('vitest').Mock,
+   *   onFigureError: import('vitest').Mock,
+   *   onSettingsUpdated: import('vitest').Mock,
+   *   onBaselineSet: import('vitest').Mock,
+   *   onBaselineCleared?: import('vitest').Mock,
+   * }}
+   */
   function makeHandlers() {
     return {
       onStateUpdated: vi.fn(),

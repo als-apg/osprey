@@ -1,11 +1,18 @@
 """FastAPI dispatch API for the OSPREY dispatch worker service.
 
 Exposes:
-  POST /dispatch              — enqueue an agent prompt, returns 202 + run_id
-  GET  /dispatch/{id}         — poll a run for completion
-  GET  /dispatch/{id}/stream  — SSE stream of run events
-  GET  /health                — liveness check with run statistics
-  GET  /dashboard/runs        — JSON feed consumed by the dispatcher dashboard (token-gated)
+  POST /dispatch                      — enqueue an agent prompt, returns 202 + run_id
+  GET  /dispatch/{id}                 — poll a run for completion (body carries artifact descriptors)
+  GET  /dispatch/{id}/stream          — SSE stream of run events
+  GET  /dispatch/{id}/artifacts       — descriptors of the artifacts the run produced
+  GET  /dispatch/{id}/artifacts/{aid} — resolved (renderable) bytes of one artifact the run produced
+  GET  /health                        — liveness check with run statistics
+  GET  /dashboard/runs                — JSON feed consumed by the dispatcher dashboard (token-gated)
+
+Which artifacts belong to a run is decided by the artifact store's write-time
+``run_id`` tag (created-by), so all three artifact surfaces — the status-body
+list, the list route, and the byte route — share one strict isolation gate and
+cannot disagree. See ``osprey.interfaces.artifacts.resolve``.
 """
 
 from __future__ import annotations
@@ -21,10 +28,15 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
+from osprey.interfaces.artifacts.resolve import (
+    describe_run_artifacts,
+    load_run_record,
+    resolve_single_run_artifact,
+)
 from osprey.mcp_server.dispatch_worker import sdk_runner
 from osprey.utils.tool_rules import matches_denylist
 
@@ -53,13 +65,19 @@ _tasks: dict[str, asyncio.Task] = {}
 # Maximum entries in _runs before old entries are evicted (prevents unbounded growth)
 _MAX_RUNS = 1000
 
+
+# Agent-data root for THIS worker. Anchored to OSPREY_PROJECT_DIR rather than
+# resolve_shared_data_root(): that helper locates the project via OSPREY_CONFIG
+# and falls back to CWD, but the worker is configured with CONFIG_FILE and its
+# CWD is the image WORKDIR (/app) — so it would resolve to /app/_agent_data
+# while the agent's tools write to <project>/_agent_data.
+def _agent_data_dir() -> str:
+    return os.path.join(os.environ.get("OSPREY_PROJECT_DIR", "/app/project"), "_agent_data")
+
+
 # Persistent log directory — lives on the _agent_data volume mount so it
 # survives container restarts.
-_LOG_DIR = os.path.join(
-    os.environ.get("OSPREY_PROJECT_DIR", "/app/project"),
-    "_agent_data",
-    "dispatch",
-)
+_LOG_DIR = os.path.join(_agent_data_dir(), "dispatch")
 
 
 def _persist_run(run_id: str, run: dict[str, Any]) -> None:
@@ -106,6 +124,23 @@ def _inject_provider_env_once() -> None:
     if not os.path.isfile(config_path):
         logger.warning("No config.yml at %s — skipping provider env injection", config_path)
         return
+
+    # Managed (enterprise) policy settings outrank the process environment and
+    # setting_sources=["project"] alike, so a policy `env` block setting a
+    # provider variable would silently redirect the worker's agent to a backend
+    # the project did not configure. Refuse to start — checked before the try
+    # below so the broad except cannot swallow the refusal.
+    from osprey.cli.claude_code_resolver import (
+        detect_managed_policy_conflicts,
+        format_managed_policy_conflicts,
+    )
+
+    policy_conflicts = detect_managed_policy_conflicts()
+    if policy_conflicts:
+        raise RuntimeError(
+            "Refusing to start the dispatch worker.\n"
+            + format_managed_policy_conflicts(policy_conflicts)
+        )
 
     try:
         from pathlib import Path
@@ -345,11 +380,17 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
                 max_turns=request.max_turns,
                 event_queue=queue,
                 denied_tools=DENIED_TOOLS,
+                run_id=run_id,
             ),
             timeout=DISPATCH_TIMEOUT_SEC,
         )
         result["completed_at"] = time.time()
         result["prompt"] = request.prompt
+        # Descriptors of the artifacts this run produced (created-by tag), for
+        # consumers that republish them (see the /artifacts routes). Render-free:
+        # computed once at completion from the store tag and persisted with the
+        # run so it survives restart and never disagrees with the live routes.
+        result["artifacts"] = describe_run_artifacts(run_id)
         _runs[run_id] = result
         _persist_run(run_id, result)
         logger.info("Dispatch %s completed: status=%s", run_id, result.get("status"))
@@ -364,6 +405,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
             "cost_usd": None,
             "num_turns": None,
             "completed_at": time.time(),
+            "artifacts": [],
         }
         _runs[run_id] = err_result
         _persist_run(run_id, err_result)
@@ -380,6 +422,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
             "cost_usd": None,
             "num_turns": None,
             "completed_at": time.time(),
+            "artifacts": [],
         }
         _runs[run_id] = err_result
         _persist_run(run_id, err_result)
@@ -401,6 +444,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
             "cost_usd": None,
             "num_turns": None,
             "completed_at": time.time(),
+            "artifacts": [],
         }
         _runs[run_id] = err_result
         _persist_run(run_id, err_result)
@@ -474,11 +518,58 @@ async def cancel_dispatch(run_id: str) -> dict[str, Any]:
 
 @app.get("/dispatch/{run_id}", dependencies=[Depends(_verify_token)])
 async def get_dispatch_result(run_id: str) -> dict[str, Any]:
-    """Poll a run by its run_id. Returns the stored result dict."""
+    """Poll a run by its run_id. Returns the stored result dict.
+
+    Falls through to the persisted on-disk record when the run has aged out of
+    the in-memory ``_runs`` cap, so the status body (and its ``artifacts``
+    descriptors) stays available for exactly as long as the artifact routes,
+    which resolve from the same on-disk store.
+    """
     result = _runs.get(run_id)
+    if result is None:
+        result = load_run_record(run_id)
     if result is None:
         raise HTTPException(status_code=404, detail=f"run_id {run_id!r} not found")
     return result
+
+
+@app.get("/dispatch/{run_id}/artifacts", dependencies=[Depends(_verify_token)])
+async def list_dispatch_artifacts(run_id: str) -> list[dict[str, Any]]:
+    """List descriptors of the artifacts a run produced (created-by tag).
+
+    Metadata only — never renders a converter, so it is cheap regardless of
+    artifact count. Returns ``[]`` for a run with no artifacts AND for an
+    unknown run: the strict store-tag filter is itself the existence check (a
+    bogus run_id matches nothing), and returning ``[]`` rather than 404 avoids
+    a cross-run existence oracle. Use the status body to distinguish known vs
+    unknown runs. Item shape is identical to the status body's ``artifacts``.
+    """
+    return describe_run_artifacts(run_id)
+
+
+@app.get("/dispatch/{run_id}/artifacts/{artifact_id}", dependencies=[Depends(_verify_token)])
+async def get_dispatch_artifact(run_id: str, artifact_id: str) -> FileResponse:
+    """Serve the resolved (renderable) bytes of one artifact produced by ``run_id``.
+
+    The artifact must have been *created by* this run (the store's write-time
+    ``run_id`` tag): an artifact belonging to a different run, to no run, an
+    unknown or traversal-shaped ``artifact_id``, and a missing on-disk file all
+    collapse to the same 404 — so a caller holding one run_id can neither read
+    nor probe for another run's output. ``artifact_id`` is resolved through the
+    store index, never joined into a path. HTML/notebook/etc. artifacts are
+    converted to PNG here (only the requested one); images/PDFs pass through.
+    """
+    ref = await resolve_single_run_artifact(run_id, artifact_id)
+    if ref is None:
+        # Constant, input-free 404 for every deny reason (unknown run / cross-run /
+        # unknown id / missing file), so the response is never an existence oracle.
+        raise HTTPException(status_code=404, detail="artifact not found for run")
+
+    return FileResponse(
+        ref.abs_path,
+        media_type=ref.mime_type or "application/octet-stream",
+        filename=ref.filename,
+    )
 
 
 @app.get("/dispatch/{run_id}/stream", dependencies=[Depends(_verify_token)])

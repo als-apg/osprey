@@ -115,6 +115,14 @@ if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
             echo "✅ JS typecheck passed"
         fi
         echo ""
+        echo "→ Running lint (npm run lint)..."
+        if ! npm run lint; then
+            FAILED_CHECKS+=("js-lint")
+            echo "❌ JS lint failed"
+        else
+            echo "✅ JS lint passed"
+        fi
+        echo ""
         echo "→ Running JS tests (npm run test:js)..."
         if ! npm run test:js; then
             FAILED_CHECKS+=("js-tests")
