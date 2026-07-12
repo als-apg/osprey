@@ -6,8 +6,10 @@ gallery, ARIEL, Channel Finder, Tuning, the Lattice dashboard, the event
 dispatch dashboard, and the session activity/safety pages — draws its
 colors, fonts, and a handful of layout constants from one generated design
 system instead of hand-maintained, per-interface CSS. This guide covers the
-three-tier token architecture, how to add a new theme ("skin"), and how to
-wire a new interface into the system.
+three-tier token architecture and how to wire a new interface into it. For
+the theme contract itself (the semantic key set, WCAG gates, and the
+theme-family model) see :doc:`osprey-themes`; for step-by-step instructions
+to add a new theme, see :doc:`author-a-theme`.
 
 .. mermaid::
 
@@ -66,11 +68,13 @@ renders three generated artifacts under
     further themes you add) blocks.
 
 ``js/tokens.js``
-    The ``THEMES`` manifest (``[{id, label, mode}, ...]``) and ``DEFAULTS``
-    (``{dark: <id>, light: <id>}``) that ``theme-manager.js`` uses to
-    validate theme ids and resolve ``auto`` mode. Carries no color data —
+    The ``THEMES`` manifest (``[{id, label, mode, family}, ...]``) and the
+    per-family ``DEFAULTS`` map (``{family: {dark: <id>, light: <id>}}``)
+    that ``theme-manager.js`` uses to validate theme ids and resolve
+    ``auto`` mode *within the active family*. Carries no color data —
     colors are read from computed CSS at runtime (see
-    :ref:`theming-consuming-tokens`), not duplicated into JS.
+    :ref:`theming-consuming-tokens`), not duplicated into JS. See
+    :doc:`osprey-themes` for the family model.
 
 ``js/theme-boot.js``
     A dependency-free, non-module script that applies ``data-theme``
@@ -90,132 +94,18 @@ regenerate and commit them whenever you touch ``tokens/``.
    must reference tokens via ``var(--name)`` rather than hardcoding colors.
 
 
-Adding a Skin
---------------
+Adding a Theme
+---------------
 
-"Adding a skin" means adding a new theme id beyond the two that ship today
-(``dark``, ``light``) — for example a high-contrast variant. The generator
-and runtime are both already N-theme-capable; there is nothing beyond the
-token source tree to change.
-
-Step 1: Copy a Theme Document
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: bash
-
-   cp src/osprey/interfaces/design_system/tokens/themes/light.json \
-      src/osprey/interfaces/design_system/tokens/themes/high-contrast.json
-
-Every interface extension file under ``tokens/interfaces/`` that defines
-per-mode groups (``dark``/``light``) needs a value for your new theme's
-*mode* too — see :ref:`theming-interface-mode` below.
-
-Step 2: Edit the New Theme
-^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Update ``$extensions`` (the id the runtime and CSS selector will use) and
-every semantic value:
-
-.. code-block:: json
-
-   {
-     "$extensions": { "mode": "dark", "id": "high-contrast", "label": "High Contrast" },
-     "bg": {
-       "terminal": { "$value": "{color.slate.1100}", "$type": "color" },
-       "primary": { "$value": "#000000", "$type": "color" }
-     },
-     "text": {
-       "primary": { "$value": "#ffffff", "$type": "color" }
-     }
-   }
-
-``mode`` is ``"dark"`` or ``"light"`` — it decides which of the two
-``DEFAULTS`` slots (and which ``prefers-color-scheme`` bucket) this theme
-can serve as the resolved value for ``auto``. It does **not** need to be
-unique: nothing stops two themes from sharing a mode, but exactly the
-themes tagged with a given mode are candidates for that mode's default and
-for ``auto`` resolution.
-
-Prefer aliasing into ``core.json`` primitives (``{color.slate.1100}``) over
-a fresh literal wherever an existing ramp step is close enough — every
-literal color you introduce is one more thing
-``check_theme_completeness``/``check_wcag_gates`` have to validate and one
-more color nobody else's theme can reuse. If you do need a genuinely new
-primitive, add the ramp step to ``core.json`` first with a
-``$description`` explaining where it comes from, following the existing
-entries' style.
-
-Step 3: Build
-^^^^^^^^^^^^^^
-
-.. code-block:: bash
-
-   python -m osprey.interfaces.design_system.generator.build
-
-This loads the whole ``tokens/`` tree, validates it, and rewrites
-``tokens.css``/``tokens.js``/``theme-boot.js``. A validation failure prints
-every error with its file and dot-path — fix all of them before
-re-running; there is no partial-success mode.
-
-The most common first-run failures when adding a theme:
-
-* **Theme completeness** — every semantic token defined in ``dark.json``
-  must also be defined in your new theme (and vice versa). A key present in
-  one theme and missing in another is rejected outright.
-* **Interface-mode completeness** — see :ref:`theming-interface-mode`.
-* **WCAG contrast gates** — ``text.primary``/``text.secondary`` vs.
-  ``bg.primary`` must clear 4.5:1, ``text.muted`` 3:1, ``accent`` vs.
-  ``bg.primary`` 3:1. These are computed, not eyeballed; a theme that reads
-  fine to you can still fail the gate.
-
-Step 4: Run the Contract Tests
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. code-block:: bash
-
-   uv run pytest tests/interfaces/design_system/ -v
-
-``test_contract.py`` re-runs the full generator validation sweep against
-the real, committed ``tokens/`` tree (not a fixture) — it is the
-authoritative gate for shipped token data, distinct from
-``test_model.py``/``test_validate.py``/``test_emit_*.py``, which exercise
-the generator code itself against synthetic trees. It also checks
-``tokens.js``'s ``THEMES``/``DEFAULTS`` against the theme sources, orphaned
-color primitives, and literal colors that duplicate a ramp step where a
-one-hop alias would do.
-
-``test_freshness.py`` is the drift gate: it regenerates the artifacts into
-a temp directory and diffs them byte-for-byte against what is committed
-under ``static/``. If you built (Step 3) and forgot to ``git add`` the
-regenerated files, this is what catches it in CI.
-
-Step 5: Regenerate Baselines
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-A new theme id needs its own visual regression baselines (screenshots) —
-``test_visual.py`` captures each interface's main view per theme at a fixed
-viewport and diffs future runs against committed PNGs under
-``tests/interfaces/design_system/baselines/``. Regenerate with the pytest
-option the suite documents (``--regen-baselines``), review the new PNGs,
-and commit them alongside your theme addition. Pixel-diff baselines are
-Linux-rendered (CI) — macOS runs skip the byte-compare (AA/subpixel
-rendering differs) and only verify the screenshots capture without
-erroring.
-
-
-.. _theming-interface-mode:
-
-A Note on Interface-Mode Completeness
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Extension token files are keyed by **mode** (``dark``/``light``), not by
-theme id, because an extension token is usually a visual effect ("CRT
-scanline opacity") that only needs two states, not N. When you add a theme
-whose ``mode`` already has an extension group (e.g. your new theme is
-``"mode": "light"`` and ``tokens/interfaces/web_terminal.json`` already has
-a ``light`` group), nothing changes — the new theme reuses that mode's
-extension values automatically. You only need to touch extension files if
-you introduce a genuinely new mode, which is not the common case.
+Themes are grouped into **families** — a family is a ``{light, dark}``
+pair, e.g. the built-in ``osprey`` family or the WCAG-AAA ``high-contrast``
+family — and every theme must satisfy a metadata and completeness contract
+beyond the token pipeline described above. See :doc:`osprey-themes` for
+that contract (the semantic key set, ``$extensions`` metadata, the family
+model, and the WCAG gates) and :doc:`author-a-theme` for the concrete,
+step-by-step guide to authoring one, including the interface-extension
+groups every ``tokens/interfaces/*.json`` file must carry (or opt out of)
+for a new theme id.
 
 
 .. _theming-consuming-tokens:

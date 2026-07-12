@@ -81,6 +81,15 @@ An alternative WebSocket endpoint (``/ws/operator``) drives the Osprey agent thr
 Agent SDK instead of a PTY. The client sends structured JSON prompts and
 receives typed events (text, thinking, tool use, errors).
 
+Theme
+^^^^^
+
+The default first-paint theme is set by ``web.theme`` in ``config.yml`` (a
+theme family or a concrete theme id); the in-page switcher always overrides
+it and persists your choice across reloads. See :doc:`osprey-themes` for
+the full contract, including how ``web.theme`` differs from the CLI's own
+``cli.theme``.
+
 Live Workspace Viewer
 ^^^^^^^^^^^^^^^^^^^^^
 

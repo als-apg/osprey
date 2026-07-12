@@ -376,6 +376,9 @@
 <li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Use the Web Terminal</a></li>
 <li class="toctree-l1"><a class="reference internal" href="theming-interfaces.html">Theming the OSPREY Interfaces</a></li>
+<li class="toctree-l1"><a class="reference internal" href="osprey-themes.html">OSPREY Themes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="author-a-theme.html">Author Your Own OSPREY Theme</a></li>
+<li class="toctree-l1"><a class="reference internal" href="author-a-panel.html">Author an OSPREY Panel</a></li>
 <li class="toctree-l1"><a class="reference internal" href="embedding-osprey-panels.html">Embedding OSPREY Panels</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
 <li class="toctree-l1"><a class="reference internal" href="non_interactive_query.html">Non-Interactive Agent Queries</a></li>
@@ -537,6 +540,14 @@ sessions are kept alive in a pool for quick switching.</p></li>
 <p>An alternative WebSocket endpoint (<code class="docutils literal notranslate"><span class="pre">/ws/operator</span></code>) drives the Osprey agent through the
 Agent SDK instead of a PTY. The client sends structured JSON prompts and
 receives typed events (text, thinking, tool use, errors).</p>
+</section>
+<section id="theme">
+<h3>Theme<a class="headerlink" href="#theme" title="Link to this heading">#</a></h3>
+<p>The default first-paint theme is set by <code class="docutils literal notranslate"><span class="pre">web.theme</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> (a
+theme family or a concrete theme id); the in-page switcher always overrides
+it and persists your choice across reloads. See <a class="reference internal" href="osprey-themes.html"><span class="doc">OSPREY Themes</span></a> for
+the full contract, including how <code class="docutils literal notranslate"><span class="pre">web.theme</span></code> differs from the CLI’s own
+<code class="docutils literal notranslate"><span class="pre">cli.theme</span></code>.</p>
 </section>
 <section id="live-workspace-viewer">
 <h3>Live Workspace Viewer<a class="headerlink" href="#live-workspace-viewer" title="Link to this heading">#</a></h3>
@@ -759,6 +770,7 @@ on the command line. CLI flags take precedence over <code class="docutils litera
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#key-features">Key Features</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#terminal-pty">Terminal PTY</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#operator-mode">Operator Mode</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#theme">Theme</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#live-workspace-viewer">Live Workspace Viewer</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#settings-drawer">Settings Drawer</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#osprey-agent-setup-editor">Osprey Agent Setup Editor</a></li>

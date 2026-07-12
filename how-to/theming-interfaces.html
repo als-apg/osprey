@@ -495,7 +495,7 @@ window.addEventListener("load", load);</script>
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Embedding OSPREY Panels" href="embedding-osprey-panels.html" />
+    <link rel="next" title="OSPREY Themes" href="osprey-themes.html" />
     <link rel="prev" title="Use the Web Terminal" href="use-web-terminal.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
@@ -811,6 +811,9 @@ window.addEventListener("load", load);</script>
 <li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-web-terminal.html">Use the Web Terminal</a></li>
 <li class="toctree-l1 current active"><a class="current reference internal" href="#">Theming the OSPREY Interfaces</a></li>
+<li class="toctree-l1"><a class="reference internal" href="osprey-themes.html">OSPREY Themes</a></li>
+<li class="toctree-l1"><a class="reference internal" href="author-a-theme.html">Author Your Own OSPREY Theme</a></li>
+<li class="toctree-l1"><a class="reference internal" href="author-a-panel.html">Author an OSPREY Panel</a></li>
 <li class="toctree-l1"><a class="reference internal" href="embedding-osprey-panels.html">Embedding OSPREY Panels</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
 <li class="toctree-l1"><a class="reference internal" href="non_interactive_query.html">Non-Interactive Agent Queries</a></li>
@@ -911,8 +914,10 @@ gallery, ARIEL, Channel Finder, Tuning, the Lattice dashboard, the event
 dispatch dashboard, and the session activity/safety pages — draws its
 colors, fonts, and a handful of layout constants from one generated design
 system instead of hand-maintained, per-interface CSS. This guide covers the
-three-tier token architecture, how to add a new theme (“skin”), and how to
-wire a new interface into the system.</p>
+three-tier token architecture and how to wire a new interface into it. For
+the theme contract itself (the semantic key set, WCAG gates, and the
+theme-family model) see <a class="reference internal" href="osprey-themes.html"><span class="doc">OSPREY Themes</span></a>; for step-by-step instructions
+to add a new theme, see <a class="reference internal" href="author-a-theme.html"><span class="doc">Author Your Own OSPREY Theme</span></a>.</p>
 <pre  class="mermaid">
         flowchart LR
     core[&quot;tokens/core.json\n(primitives)&quot;] --&gt; themes[&quot;tokens/themes/*.json\n(semantic, per-theme)&quot;]
@@ -962,11 +967,13 @@ renders three generated artifacts under
 <code class="docutils literal notranslate"><span class="pre">:root,</span> <span class="pre">[data-theme=&quot;dark&quot;]</span></code> and <code class="docutils literal notranslate"><span class="pre">[data-theme=&quot;light&quot;]</span></code> (and any
 further themes you add) blocks.</p>
 </dd>
-<dt><code class="docutils literal notranslate"><span class="pre">js/tokens.js</span></code></dt><dd><p>The <code class="docutils literal notranslate"><span class="pre">THEMES</span></code> manifest (<code class="docutils literal notranslate"><span class="pre">[{id,</span> <span class="pre">label,</span> <span class="pre">mode},</span> <span class="pre">...]</span></code>) and <code class="docutils literal notranslate"><span class="pre">DEFAULTS</span></code>
-(<code class="docutils literal notranslate"><span class="pre">{dark:</span> <span class="pre">&lt;id&gt;,</span> <span class="pre">light:</span> <span class="pre">&lt;id&gt;}</span></code>) that <code class="docutils literal notranslate"><span class="pre">theme-manager.js</span></code> uses to
-validate theme ids and resolve <code class="docutils literal notranslate"><span class="pre">auto</span></code> mode. Carries no color data —
+<dt><code class="docutils literal notranslate"><span class="pre">js/tokens.js</span></code></dt><dd><p>The <code class="docutils literal notranslate"><span class="pre">THEMES</span></code> manifest (<code class="docutils literal notranslate"><span class="pre">[{id,</span> <span class="pre">label,</span> <span class="pre">mode,</span> <span class="pre">family},</span> <span class="pre">...]</span></code>) and the
+per-family <code class="docutils literal notranslate"><span class="pre">DEFAULTS</span></code> map (<code class="docutils literal notranslate"><span class="pre">{family:</span> <span class="pre">{dark:</span> <span class="pre">&lt;id&gt;,</span> <span class="pre">light:</span> <span class="pre">&lt;id&gt;}}</span></code>)
+that <code class="docutils literal notranslate"><span class="pre">theme-manager.js</span></code> uses to validate theme ids and resolve
+<code class="docutils literal notranslate"><span class="pre">auto</span></code> mode <em>within the active family</em>. Carries no color data —
 colors are read from computed CSS at runtime (see
-<a class="reference internal" href="#theming-consuming-tokens"><span class="std std-ref">Consuming Tokens in a New Interface</span></a>), not duplicated into JS.</p>
+<a class="reference internal" href="#theming-consuming-tokens"><span class="std std-ref">Consuming Tokens in a New Interface</span></a>), not duplicated into JS. See
+<a class="reference internal" href="osprey-themes.html"><span class="doc">OSPREY Themes</span></a> for the family model.</p>
 </dd>
 <dt><code class="docutils literal notranslate"><span class="pre">js/theme-boot.js</span></code></dt><dd><p>A dependency-free, non-module script that applies <code class="docutils literal notranslate"><span class="pre">data-theme</span></code>
 before first paint (from <code class="docutils literal notranslate"><span class="pre">localStorage</span></code>/<code class="docutils literal notranslate"><span class="pre">?theme=</span></code>/OS preference),
@@ -985,115 +992,17 @@ other CSS/JS/HTML asset under <code class="docutils literal notranslate"><span c
 must reference tokens via <code class="docutils literal notranslate"><span class="pre">var(--name)</span></code> rather than hardcoding colors.</p>
 </div>
 </section>
-<section id="adding-a-skin">
-<h2>Adding a Skin<a class="headerlink" href="#adding-a-skin" title="Link to this heading">#</a></h2>
-<p>“Adding a skin” means adding a new theme id beyond the two that ship today
-(<code class="docutils literal notranslate"><span class="pre">dark</span></code>, <code class="docutils literal notranslate"><span class="pre">light</span></code>) — for example a high-contrast variant. The generator
-and runtime are both already N-theme-capable; there is nothing beyond the
-token source tree to change.</p>
-<section id="step-1-copy-a-theme-document">
-<h3>Step 1: Copy a Theme Document<a class="headerlink" href="#step-1-copy-a-theme-document" title="Link to this heading">#</a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>src/osprey/interfaces/design_system/tokens/themes/light.json<span class="w"> </span><span class="se">\</span>
-<span class="w">   </span>src/osprey/interfaces/design_system/tokens/themes/high-contrast.json
-</pre></div>
-</div>
-<p>Every interface extension file under <code class="docutils literal notranslate"><span class="pre">tokens/interfaces/</span></code> that defines
-per-mode groups (<code class="docutils literal notranslate"><span class="pre">dark</span></code>/<code class="docutils literal notranslate"><span class="pre">light</span></code>) needs a value for your new theme’s
-<em>mode</em> too — see <a class="reference internal" href="#theming-interface-mode"><span class="std std-ref">A Note on Interface-Mode Completeness</span></a> below.</p>
-</section>
-<section id="step-2-edit-the-new-theme">
-<h3>Step 2: Edit the New Theme<a class="headerlink" href="#step-2-edit-the-new-theme" title="Link to this heading">#</a></h3>
-<p>Update <code class="docutils literal notranslate"><span class="pre">$extensions</span></code> (the id the runtime and CSS selector will use) and
-every semantic value:</p>
-<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;$extensions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;dark&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;high-contrast&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;High Contrast&quot;</span><span class="w"> </span><span class="p">},</span>
-<span class="w">  </span><span class="nt">&quot;bg&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;terminal&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;$value&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;{color.slate.1100}&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;$type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;color&quot;</span><span class="w"> </span><span class="p">},</span>
-<span class="w">    </span><span class="nt">&quot;primary&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;$value&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;#000000&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;$type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;color&quot;</span><span class="w"> </span><span class="p">}</span>
-<span class="w">  </span><span class="p">},</span>
-<span class="w">  </span><span class="nt">&quot;text&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;primary&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;$value&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;#ffffff&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;$type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;color&quot;</span><span class="w"> </span><span class="p">}</span>
-<span class="w">  </span><span class="p">}</span>
-<span class="p">}</span>
-</pre></div>
-</div>
-<p><code class="docutils literal notranslate"><span class="pre">mode</span></code> is <code class="docutils literal notranslate"><span class="pre">&quot;dark&quot;</span></code> or <code class="docutils literal notranslate"><span class="pre">&quot;light&quot;</span></code> — it decides which of the two
-<code class="docutils literal notranslate"><span class="pre">DEFAULTS</span></code> slots (and which <code class="docutils literal notranslate"><span class="pre">prefers-color-scheme</span></code> bucket) this theme
-can serve as the resolved value for <code class="docutils literal notranslate"><span class="pre">auto</span></code>. It does <strong>not</strong> need to be
-unique: nothing stops two themes from sharing a mode, but exactly the
-themes tagged with a given mode are candidates for that mode’s default and
-for <code class="docutils literal notranslate"><span class="pre">auto</span></code> resolution.</p>
-<p>Prefer aliasing into <code class="docutils literal notranslate"><span class="pre">core.json</span></code> primitives (<code class="docutils literal notranslate"><span class="pre">{color.slate.1100}</span></code>) over
-a fresh literal wherever an existing ramp step is close enough — every
-literal color you introduce is one more thing
-<code class="docutils literal notranslate"><span class="pre">check_theme_completeness</span></code>/<code class="docutils literal notranslate"><span class="pre">check_wcag_gates</span></code> have to validate and one
-more color nobody else’s theme can reuse. If you do need a genuinely new
-primitive, add the ramp step to <code class="docutils literal notranslate"><span class="pre">core.json</span></code> first with a
-<code class="docutils literal notranslate"><span class="pre">$description</span></code> explaining where it comes from, following the existing
-entries’ style.</p>
-</section>
-<section id="step-3-build">
-<h3>Step 3: Build<a class="headerlink" href="#step-3-build" title="Link to this heading">#</a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>osprey.interfaces.design_system.generator.build
-</pre></div>
-</div>
-<p>This loads the whole <code class="docutils literal notranslate"><span class="pre">tokens/</span></code> tree, validates it, and rewrites
-<code class="docutils literal notranslate"><span class="pre">tokens.css</span></code>/<code class="docutils literal notranslate"><span class="pre">tokens.js</span></code>/<code class="docutils literal notranslate"><span class="pre">theme-boot.js</span></code>. A validation failure prints
-every error with its file and dot-path — fix all of them before
-re-running; there is no partial-success mode.</p>
-<p>The most common first-run failures when adding a theme:</p>
-<ul class="simple">
-<li><p><strong>Theme completeness</strong> — every semantic token defined in <code class="docutils literal notranslate"><span class="pre">dark.json</span></code>
-must also be defined in your new theme (and vice versa). A key present in
-one theme and missing in another is rejected outright.</p></li>
-<li><p><strong>Interface-mode completeness</strong> — see <a class="reference internal" href="#theming-interface-mode"><span class="std std-ref">A Note on Interface-Mode Completeness</span></a>.</p></li>
-<li><p><strong>WCAG contrast gates</strong> — <code class="docutils literal notranslate"><span class="pre">text.primary</span></code>/<code class="docutils literal notranslate"><span class="pre">text.secondary</span></code> vs.
-<code class="docutils literal notranslate"><span class="pre">bg.primary</span></code> must clear 4.5:1, <code class="docutils literal notranslate"><span class="pre">text.muted</span></code> 3:1, <code class="docutils literal notranslate"><span class="pre">accent</span></code> vs.
-<code class="docutils literal notranslate"><span class="pre">bg.primary</span></code> 3:1. These are computed, not eyeballed; a theme that reads
-fine to you can still fail the gate.</p></li>
-</ul>
-</section>
-<section id="step-4-run-the-contract-tests">
-<h3>Step 4: Run the Contract Tests<a class="headerlink" href="#step-4-run-the-contract-tests" title="Link to this heading">#</a></h3>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/interfaces/design_system/<span class="w"> </span>-v
-</pre></div>
-</div>
-<p><code class="docutils literal notranslate"><span class="pre">test_contract.py</span></code> re-runs the full generator validation sweep against
-the real, committed <code class="docutils literal notranslate"><span class="pre">tokens/</span></code> tree (not a fixture) — it is the
-authoritative gate for shipped token data, distinct from
-<code class="docutils literal notranslate"><span class="pre">test_model.py</span></code>/<code class="docutils literal notranslate"><span class="pre">test_validate.py</span></code>/<code class="docutils literal notranslate"><span class="pre">test_emit_*.py</span></code>, which exercise
-the generator code itself against synthetic trees. It also checks
-<code class="docutils literal notranslate"><span class="pre">tokens.js</span></code>’s <code class="docutils literal notranslate"><span class="pre">THEMES</span></code>/<code class="docutils literal notranslate"><span class="pre">DEFAULTS</span></code> against the theme sources, orphaned
-color primitives, and literal colors that duplicate a ramp step where a
-one-hop alias would do.</p>
-<p><code class="docutils literal notranslate"><span class="pre">test_freshness.py</span></code> is the drift gate: it regenerates the artifacts into
-a temp directory and diffs them byte-for-byte against what is committed
-under <code class="docutils literal notranslate"><span class="pre">static/</span></code>. If you built (Step 3) and forgot to <code class="docutils literal notranslate"><span class="pre">git</span> <span class="pre">add</span></code> the
-regenerated files, this is what catches it in CI.</p>
-</section>
-<section id="step-5-regenerate-baselines">
-<h3>Step 5: Regenerate Baselines<a class="headerlink" href="#step-5-regenerate-baselines" title="Link to this heading">#</a></h3>
-<p>A new theme id needs its own visual regression baselines (screenshots) —
-<code class="docutils literal notranslate"><span class="pre">test_visual.py</span></code> captures each interface’s main view per theme at a fixed
-viewport and diffs future runs against committed PNGs under
-<code class="docutils literal notranslate"><span class="pre">tests/interfaces/design_system/baselines/</span></code>. Regenerate with the pytest
-option the suite documents (<code class="docutils literal notranslate"><span class="pre">--regen-baselines</span></code>), review the new PNGs,
-and commit them alongside your theme addition. Pixel-diff baselines are
-Linux-rendered (CI) — macOS runs skip the byte-compare (AA/subpixel
-rendering differs) and only verify the screenshots capture without
-erroring.</p>
-</section>
-<section id="a-note-on-interface-mode-completeness">
-<span id="theming-interface-mode"></span><h3>A Note on Interface-Mode Completeness<a class="headerlink" href="#a-note-on-interface-mode-completeness" title="Link to this heading">#</a></h3>
-<p>Extension token files are keyed by <strong>mode</strong> (<code class="docutils literal notranslate"><span class="pre">dark</span></code>/<code class="docutils literal notranslate"><span class="pre">light</span></code>), not by
-theme id, because an extension token is usually a visual effect (“CRT
-scanline opacity”) that only needs two states, not N. When you add a theme
-whose <code class="docutils literal notranslate"><span class="pre">mode</span></code> already has an extension group (e.g. your new theme is
-<code class="docutils literal notranslate"><span class="pre">&quot;mode&quot;:</span> <span class="pre">&quot;light&quot;</span></code> and <code class="docutils literal notranslate"><span class="pre">tokens/interfaces/web_terminal.json</span></code> already has
-a <code class="docutils literal notranslate"><span class="pre">light</span></code> group), nothing changes — the new theme reuses that mode’s
-extension values automatically. You only need to touch extension files if
-you introduce a genuinely new mode, which is not the common case.</p>
-</section>
+<section id="adding-a-theme">
+<h2>Adding a Theme<a class="headerlink" href="#adding-a-theme" title="Link to this heading">#</a></h2>
+<p>Themes are grouped into <strong>families</strong> — a family is a <code class="docutils literal notranslate"><span class="pre">{light,</span> <span class="pre">dark}</span></code>
+pair, e.g. the built-in <code class="docutils literal notranslate"><span class="pre">osprey</span></code> family or the WCAG-AAA <code class="docutils literal notranslate"><span class="pre">high-contrast</span></code>
+family — and every theme must satisfy a metadata and completeness contract
+beyond the token pipeline described above. See <a class="reference internal" href="osprey-themes.html"><span class="doc">OSPREY Themes</span></a> for
+that contract (the semantic key set, <code class="docutils literal notranslate"><span class="pre">$extensions</span></code> metadata, the family
+model, and the WCAG gates) and <a class="reference internal" href="author-a-theme.html"><span class="doc">Author Your Own OSPREY Theme</span></a> for the concrete,
+step-by-step guide to authoring one, including the interface-extension
+groups every <code class="docutils literal notranslate"><span class="pre">tokens/interfaces/*.json</span></code> file must carry (or opt out of)
+for a new theme id.</p>
 </section>
 <section id="consuming-tokens-in-a-new-interface">
 <span id="theming-consuming-tokens"></span><h2>Consuming Tokens in a New Interface<a class="headerlink" href="#consuming-tokens-in-a-new-interface" title="Link to this heading">#</a></h2>
@@ -1243,11 +1152,11 @@ build/validation failure, or (<code class="docutils literal notranslate"><span c
       </div>
     </a>
     <a class="right-next"
-       href="embedding-osprey-panels.html"
+       href="osprey-themes.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Embedding OSPREY Panels</p>
+        <p class="prev-next-title">OSPREY Themes</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -1271,15 +1180,7 @@ build/validation failure, or (<code class="docutils literal notranslate"><span c
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#the-three-token-tiers">The Three Token Tiers</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-a-skin">Adding a Skin</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-1-copy-a-theme-document">Step 1: Copy a Theme Document</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-edit-the-new-theme">Step 2: Edit the New Theme</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-build">Step 3: Build</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-run-the-contract-tests">Step 4: Run the Contract Tests</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#step-5-regenerate-baselines">Step 5: Regenerate Baselines</a></li>
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#a-note-on-interface-mode-completeness">A Note on Interface-Mode Completeness</a></li>
-</ul>
-</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-a-theme">Adding a Theme</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#consuming-tokens-in-a-new-interface">Consuming Tokens in a New Interface</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#app-shell-vs-document-pages">app-shell vs. document pages</a></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#jinja-rendered-vs-plain-static-pages">Jinja-rendered vs. plain-static pages</a></li>

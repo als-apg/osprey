@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>How to Use the Channel Finder &#8212; Osprey Framework 2026.6.2 documentation</title>
+    <title>Author Your Own OSPREY Theme &#8212; Osprey Framework 2026.6.2 documentation</title>
   
   
   
@@ -49,7 +49,7 @@
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../_static/copybutton.js?v=30646c52"></script>
     <script src="../_static/design-tabs.js?v=f930bc37"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/use-channel-finder';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/author-a-theme';</script>
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
@@ -60,8 +60,8 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Use the Virtual Accelerator" href="use-virtual-accelerator.html" />
-    <link rel="prev" title="Add a Connector" href="add-connector.html" />
+    <link rel="next" title="Author an OSPREY Panel" href="author-a-panel.html" />
+    <link rel="prev" title="OSPREY Themes" href="osprey-themes.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -377,7 +377,7 @@
 <li class="toctree-l1"><a class="reference internal" href="use-web-terminal.html">Use the Web Terminal</a></li>
 <li class="toctree-l1"><a class="reference internal" href="theming-interfaces.html">Theming the OSPREY Interfaces</a></li>
 <li class="toctree-l1"><a class="reference internal" href="osprey-themes.html">OSPREY Themes</a></li>
-<li class="toctree-l1"><a class="reference internal" href="author-a-theme.html">Author Your Own OSPREY Theme</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Author Your Own OSPREY Theme</a></li>
 <li class="toctree-l1"><a class="reference internal" href="author-a-panel.html">Author an OSPREY Panel</a></li>
 <li class="toctree-l1"><a class="reference internal" href="embedding-osprey-panels.html">Embedding OSPREY Panels</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
@@ -396,7 +396,7 @@
 
 
 
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">How to Use the Channel Finder</a></li>
+<li class="toctree-l1"><a class="reference internal" href="use-channel-finder.html">How to Use the Channel Finder</a></li>
 <li class="toctree-l1"><a class="reference internal" href="use-virtual-accelerator.html">Use the Virtual Accelerator</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="ariel/index.html">Logbook Search Service (ARIEL)</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
 <li class="toctree-l2"><a class="reference internal" href="ariel/osprey-integration.html">Osprey Integration</a></li>
@@ -455,7 +455,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">How-To Guides</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">How to Use the Channel Finder</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Author Your Own OSPREY Theme</span></li>
   </ul>
 </nav>
 </div>
@@ -472,161 +472,115 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="how-to-use-the-channel-finder">
-<span id="how-to-channel-finder"></span><h1>How to Use the Channel Finder<a class="headerlink" href="#how-to-use-the-channel-finder" title="Link to this heading">#</a></h1>
-<p>The Channel Finder translates natural language queries (e.g., “beam current,”
-“terminal voltage”) into control system addresses (e.g., <code class="docutils literal notranslate"><span class="pre">SR:DCCT:Current</span></code>,
-<code class="docutils literal notranslate"><span class="pre">TMVST</span></code>). It uses LLM-based pipelines, so a query can use everyday terms
-rather than exact channel names.</p>
+  <section id="author-your-own-osprey-theme">
+<h1>Author Your Own OSPREY Theme<a class="headerlink" href="#author-your-own-osprey-theme" title="Link to this heading">#</a></h1>
+<p>This guide walks through adding a new theme that passes the design-token
+generator’s validation gates — either a new mode for an existing family or
+an entirely new family. Read <a class="reference internal" href="osprey-themes.html"><span class="doc">OSPREY Themes</span></a> first for the contract
+this theme must satisfy (the semantic key set, <code class="docutils literal notranslate"><span class="pre">$extensions</span></code> metadata,
+and the WCAG gates).</p>
+<section id="step-1-decide-what-you-re-adding">
+<h2>Step 1: Decide What You’re Adding<a class="headerlink" href="#step-1-decide-what-you-re-adding" title="Link to this heading">#</a></h2>
+<ul class="simple">
+<li><p><strong>Filling out an existing family</strong> (it’s missing a mode) — the common
+case. Your new theme inherits that family’s WCAG gate (AA for <code class="docutils literal notranslate"><span class="pre">osprey</span></code>,
+AAA for <code class="docutils literal notranslate"><span class="pre">high-contrast</span></code>).</p></li>
+<li><p><strong>A brand-new family</strong> — you’ll author both its dark and light themes.
+A family not already listed in
+<code class="docutils literal notranslate"><span class="pre">generator/validate.py</span></code>’s <code class="docutils literal notranslate"><span class="pre">_WCAG_GATES_BY_FAMILY</span></code> defaults to the AA
+gate (fail-closed); add an entry there if your family should be held to
+AAA instead.</p></li>
+</ul>
+</section>
+<section id="step-2-author-the-token-document">
+<h2>Step 2: Author the Token Document<a class="headerlink" href="#step-2-author-the-token-document" title="Link to this heading">#</a></h2>
+<p>Copy a sibling theme as your starting point — a same-mode theme in your
+target family if one exists, otherwise any existing theme:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>cp<span class="w"> </span>src/osprey/interfaces/design_system/tokens/themes/light.json<span class="w"> </span><span class="se">\</span>
+<span class="w">   </span>src/osprey/interfaces/design_system/tokens/themes/high-contrast-light.json
+</pre></div>
+</div>
+<p>Update <code class="docutils literal notranslate"><span class="pre">$extensions</span></code> and every semantic value:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
+<span class="w">  </span><span class="nt">&quot;$extensions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+<span class="w">    </span><span class="nt">&quot;mode&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;light&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;id&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;high-contrast-light&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;label&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;High Contrast Light&quot;</span><span class="p">,</span>
+<span class="w">    </span><span class="nt">&quot;family&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;high-contrast&quot;</span>
+<span class="w">  </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;bg&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;primary&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;$value&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;#ffffff&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;$type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;color&quot;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">},</span>
+<span class="w">  </span><span class="nt">&quot;text&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;primary&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;$value&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;#000000&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;$type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;color&quot;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
+<span class="p">}</span>
+</pre></div>
+</div>
+<p>Keep the identical set of semantic keys the theme you copied defines —
+<code class="docutils literal notranslate"><span class="pre">check_theme_completeness</span></code> rejects a theme that’s missing (or adds) a
+key relative to its siblings. Prefer aliasing into <code class="docutils literal notranslate"><span class="pre">core.json</span></code> primitives
+(<code class="docutils literal notranslate"><span class="pre">{color.slate.1100}</span></code>) over a fresh literal wherever an existing ramp
+step is close enough; add a new primitive to <code class="docutils literal notranslate"><span class="pre">core.json</span></code> first (with a
+<code class="docutils literal notranslate"><span class="pre">$description</span></code>) only if you genuinely need one.</p>
+</section>
+<section id="step-3-meet-your-family-s-wcag-gate">
+<h2>Step 3: Meet Your Family’s WCAG Gate<a class="headerlink" href="#step-3-meet-your-family-s-wcag-gate" title="Link to this heading">#</a></h2>
+<p><code class="docutils literal notranslate"><span class="pre">osprey</span></code>-family themes are held to AA (4.5:1 body text, 3:1 muted/large
+text and non-text UI); <code class="docutils literal notranslate"><span class="pre">high-contrast</span></code>-family themes to AAA (7:1 body
+text, 4.5:1 muted/non-text UI) — see <a class="reference internal" href="osprey-themes.html"><span class="doc">OSPREY Themes</span></a> for the exact
+pairs. These are computed by the generator, not eyeballed: a build failure
+names the failing pair and its ratio. Nudge the failing token’s value; never
+weaken the gate to make a theme pass.</p>
+</section>
+<section id="step-4-satisfy-interface-extension-completeness">
+<h2>Step 4: Satisfy Interface-Extension Completeness<a class="headerlink" href="#step-4-satisfy-interface-extension-completeness" title="Link to this heading">#</a></h2>
+<p>Every <code class="docutils literal notranslate"><span class="pre">tokens/interfaces/&lt;name&gt;.json</span></code> file needs a top-level group keyed
+by your new theme’s <code class="docutils literal notranslate"><span class="pre">id</span></code> (not its mode) — the same extension tokens
+(chart bridges, decorative effects, …) that file already defines for
+other theme ids. For each interface file, either:</p>
+<ul>
+<li><p><strong>Author the group</strong>, if the token values genuinely differ for your
+theme (e.g. a chart color that must itself meet the WCAG gate) — see
+<code class="docutils literal notranslate"><span class="pre">tokens/interfaces/ariel.json</span></code> for an interface that authors explicit
+<code class="docutils literal notranslate"><span class="pre">high-contrast-dark</span></code>/<code class="docutils literal notranslate"><span class="pre">high-contrast-light</span></code> groups; or</p></li>
+<li><p><strong>Opt out</strong>, if your theme is a purely decorative variant that should
+reuse an existing group’s values, via a root <code class="docutils literal notranslate"><span class="pre">$extensions.inherits</span></code>
+entry:</p>
+<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;$extensions&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;inherits&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">&quot;high-contrast-light&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;light&quot;</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
+</pre></div>
+</div>
+<p>See <code class="docutils literal notranslate"><span class="pre">tokens/interfaces/web_terminal.json</span></code> (and <code class="docutils literal notranslate"><span class="pre">artifacts.json</span></code>,
+<code class="docutils literal notranslate"><span class="pre">channel_finder.json</span></code>, <code class="docutils literal notranslate"><span class="pre">lattice_dashboard.json</span></code>) for this pattern —
+each opts both new high-contrast ids out, inheriting the plain
+dark/light groups.</p>
+</li>
+</ul>
+<p>A theme id that is neither authored nor opted out in a given interface
+file is a hard build error; opting out one file never excuses another.</p>
+</section>
+<section id="step-5-regenerate-and-verify">
+<h2>Step 5: Regenerate and Verify<a class="headerlink" href="#step-5-regenerate-and-verify" title="Link to this heading">#</a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>osprey.interfaces.design_system.generator.build
+</pre></div>
+</div>
+<p>This validates the whole <code class="docutils literal notranslate"><span class="pre">tokens/</span></code> tree and rewrites
+<code class="docutils literal notranslate"><span class="pre">tokens.css</span></code>/<code class="docutils literal notranslate"><span class="pre">tokens.js</span></code>/<code class="docutils literal notranslate"><span class="pre">theme-boot.js</span></code>. Fix every reported error
+(file + dot-path) before re-running — there is no partial-success mode.
+Then confirm the freshness gate (what CI runs) is clean:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>osprey.interfaces.design_system.generator.build<span class="w"> </span>--check
+</pre></div>
+</div>
+<p>Finally, run the design-system test suite and regenerate visual baselines
+for your new theme id (<code class="docutils literal notranslate"><span class="pre">test_visual.py</span> <span class="pre">--regen-baselines</span></code>, reviewed and
+committed alongside your change):</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>uv<span class="w"> </span>run<span class="w"> </span>pytest<span class="w"> </span>tests/interfaces/design_system/<span class="w"> </span>-v
+</pre></div>
+</div>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
-<p>Hellert et al. (2025), <em>From Natural Language to Control Signals</em>,
-<a class="reference external" href="https://arxiv.org/abs/2512.18779">arXiv:2512.18779</a>.</p>
-</div>
-<section id="choosing-a-pipeline">
-<h2>Choosing a Pipeline<a class="headerlink" href="#choosing-a-pipeline" title="Link to this heading">#</a></h2>
-<p>Set the active pipeline in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">channel_finder</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">pipeline_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_context</span><span class="w">  </span><span class="c1"># or &quot;hierarchical&quot; or &quot;middle_layer&quot;</span>
-</pre></div>
-</div>
-<div class="pst-scrollable-table-container"><table class="table">
-<thead>
-<tr class="row-odd"><th class="head"><p>Pipeline</p></th>
-<th class="head"><p>Best for</p></th>
-</tr>
-</thead>
-<tbody>
-<tr class="row-even"><td><p><strong>In-Context</strong></p></td>
-<td><p>Small/medium systems (&lt; few hundred channels)</p></td>
-</tr>
-<tr class="row-odd"><td><p><strong>Hierarchical</strong></p></td>
-<td><p>Large systems with strict naming patterns</p></td>
-</tr>
-<tr class="row-even"><td><p><strong>Middle Layer</strong></p></td>
-<td><p>Large systems organized by function (MML)</p></td>
-</tr>
-</tbody>
-</table>
-</div>
-</section>
-<section id="in-context-pipeline">
-<h2>In-Context Pipeline<a class="headerlink" href="#in-context-pipeline" title="Link to this heading">#</a></h2>
-<p>Loads the entire channel database into the LLM context for direct semantic
-matching.</p>
-<p><strong>How it works:</strong> a single inner-LLM call — the complete channel database is
-embedded in the system prompt and the model returns the most relevant channels
-in one shot (no query-splitting or iterative-correction stage).</p>
-<p>The database uses a flat JSON structure loaded by <code class="docutils literal notranslate"><span class="pre">TemplateChannelDatabase</span></code>,
-with standalone entries and template entries for device families:</p>
-<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;channels&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">    </span><span class="p">{</span><span class="nt">&quot;template&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">false</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;channel&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;TerminalVoltageReadBack&quot;</span><span class="p">,</span>
-<span class="w">     </span><span class="nt">&quot;address&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;TerminalVoltageReadBack&quot;</span><span class="p">,</span>
-<span class="w">     </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Actual value of the terminal potential&quot;</span><span class="p">},</span>
-<span class="w">    </span><span class="p">{</span><span class="nt">&quot;template&quot;</span><span class="p">:</span><span class="w"> </span><span class="kc">true</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;base_name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;BPM&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;instances&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">10</span><span class="p">],</span>
-<span class="w">     </span><span class="nt">&quot;sub_channels&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;XPosition&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;YPosition&quot;</span><span class="p">],</span>
-<span class="w">     </span><span class="nt">&quot;address_pattern&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;BPM{instance:02d}{suffix}&quot;</span><span class="p">,</span>
-<span class="w">     </span><span class="nt">&quot;description&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;Beam Position Monitors&quot;</span><span class="p">}</span>
-<span class="w">  </span><span class="p">]</span>
-<span class="p">}</span>
-</pre></div>
-</div>
-<p>Build a database from CSV, then validate and preview:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>build-database<span class="w"> </span>--use-llm
-osprey<span class="w"> </span>channel-finder<span class="w"> </span>validate
-osprey<span class="w"> </span>channel-finder<span class="w"> </span>preview
-</pre></div>
-</div>
-</section>
-<section id="hierarchical-pipeline">
-<h2>Hierarchical Pipeline<a class="headerlink" href="#hierarchical-pipeline" title="Link to this heading">#</a></h2>
-<p>Navigates a nested hierarchy (system, family, device, field, subfield) using
-recursive LLM-guided selection at each level.</p>
-<p>The database defines levels and a naming pattern:</p>
-<div class="highlight-json notranslate"><div class="highlight"><pre><span></span><span class="p">{</span>
-<span class="w">  </span><span class="nt">&quot;hierarchy&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-<span class="w">    </span><span class="nt">&quot;levels&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-<span class="w">      </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;system&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;tree&quot;</span><span class="p">},</span>
-<span class="w">      </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;family&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;tree&quot;</span><span class="p">},</span>
-<span class="w">      </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;device&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;instances&quot;</span><span class="p">},</span>
-<span class="w">      </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;field&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;tree&quot;</span><span class="p">},</span>
-<span class="w">      </span><span class="p">{</span><span class="nt">&quot;name&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;subfield&quot;</span><span class="p">,</span><span class="w"> </span><span class="nt">&quot;type&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;tree&quot;</span><span class="p">}</span>
-<span class="w">    </span><span class="p">],</span>
-<span class="w">    </span><span class="nt">&quot;naming_pattern&quot;</span><span class="p">:</span><span class="w"> </span><span class="s2">&quot;{system}:{family}[{device}]:{field}:{subfield}&quot;</span>
-<span class="w">  </span><span class="p">},</span>
-<span class="w">  </span><span class="nt">&quot;tree&quot;</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="p">}</span>
-<span class="p">}</span>
-</pre></div>
-</div>
-<p>Advanced features: navigation-only levels, friendly names via
-<code class="docutils literal notranslate"><span class="pre">_channel_part</span></code>, optional levels with <code class="docutils literal notranslate"><span class="pre">_is_leaf</span></code>, and custom separators
-via <code class="docutils literal notranslate"><span class="pre">_separator</span></code>.</p>
-<p>Validate and preview:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>validate
-osprey<span class="w"> </span>channel-finder<span class="w"> </span>preview<span class="w"> </span>--depth<span class="w"> </span><span class="m">4</span><span class="w"> </span>--sections<span class="w"> </span>tree,stats
-</pre></div>
-</div>
-</section>
-<section id="middle-layer-pipeline">
-<h2>Middle Layer Pipeline<a class="headerlink" href="#middle-layer-pipeline" title="Link to this heading">#</a></h2>
-<p>A React agent explores the database using query tools
-(<code class="docutils literal notranslate"><span class="pre">list_systems</span></code>, <code class="docutils literal notranslate"><span class="pre">list_families</span></code>, <code class="docutils literal notranslate"><span class="pre">inspect_fields</span></code>,
-<code class="docutils literal notranslate"><span class="pre">list_channels</span></code>, <code class="docutils literal notranslate"><span class="pre">get_common_names</span></code>).</p>
-<p>The database follows MATLAB Middle Layer (MML) functional organization
-(System -&gt; Family -&gt; Field -&gt; ChannelNames). Convert from MML exports:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>-m<span class="w"> </span>osprey.services.channel_finder.utils.mml_converter<span class="w"> </span><span class="se">\</span>
-<span class="w">   </span>--input<span class="w"> </span>path/to/mml_exports.py:MML_ao_SR<span class="w"> </span><span class="se">\</span>
-<span class="w">   </span>--output<span class="w"> </span>data/channel_databases/middle_layer.json
-</pre></div>
-</div>
-</section>
-<section id="web-interface">
-<h2>Web Interface<a class="headerlink" href="#web-interface" title="Link to this heading">#</a></h2>
-<p>Launch the browser-based channel explorer:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>web
-osprey<span class="w"> </span>channel-finder<span class="w"> </span>web<span class="w"> </span>--port<span class="w"> </span><span class="m">9000</span>
-</pre></div>
-</div>
-</section>
-<section id="configuration-reference">
-<h2>Configuration Reference<a class="headerlink" href="#configuration-reference" title="Link to this heading">#</a></h2>
-<p>Key <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> settings:</p>
-<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">channel_finder</span><span class="p">:</span>
-<span class="w">  </span><span class="nt">pipeline_mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">in_context</span><span class="w">  </span><span class="c1"># &quot;in_context&quot;, &quot;hierarchical&quot;, or &quot;middle_layer&quot;</span>
-<span class="w">  </span><span class="nt">pipelines</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">in_context</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="nv">template</span><span class="p p-Indicator">,</span><span class="nt"> path</span><span class="p">:</span><span class="w"> </span><span class="nv">data/channel_databases/in_context.json</span><span class="p p-Indicator">}</span>
-<span class="w">    </span><span class="nt">hierarchical</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="nv">hierarchical</span><span class="p p-Indicator">,</span><span class="nt"> path</span><span class="p">:</span><span class="w"> </span><span class="nv">data/channel_databases/hierarchical.json</span><span class="p p-Indicator">}</span>
-<span class="w">    </span><span class="nt">middle_layer</span><span class="p">:</span>
-<span class="w">      </span><span class="nt">database</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt">type</span><span class="p">:</span><span class="w"> </span><span class="nv">middle_layer</span><span class="p p-Indicator">,</span><span class="nt"> path</span><span class="p">:</span><span class="w"> </span><span class="nv">data/channel_databases/middle_layer.json</span><span class="p p-Indicator">}</span>
-<span class="w">  </span><span class="nt">benchmark</span><span class="p">:</span>
-<span class="w">    </span><span class="nt">dataset_path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">data/benchmarks/queries.json</span>
-<span class="w">    </span><span class="c1"># Concurrency and output dir are set per run via CLI flags</span>
-<span class="w">    </span><span class="c1"># (osprey channel-finder benchmark --concurrency / --output-dir);</span>
-<span class="w">    </span><span class="c1"># they are not read from config.yml.</span>
-</pre></div>
-</div>
-</section>
-<section id="framework-integration">
-<span id="channel-finder-framework-integration"></span><h2>Framework Integration<a class="headerlink" href="#framework-integration" title="Link to this heading">#</a></h2>
-<p>Each pipeline is exposed to the agent through a dedicated MCP server
-(<code class="docutils literal notranslate"><span class="pre">channel_finder_in_context</span></code>, <code class="docutils literal notranslate"><span class="pre">channel_finder_hierarchical</span></code>,
-<code class="docutils literal notranslate"><span class="pre">channel_finder_middle_layer</span></code>). The active server is selected from
-<code class="docutils literal notranslate"><span class="pre">channel_finder.pipeline_mode</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> and wired into the
-agent’s artifacts when you run <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> (or <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code>
-after editing the config). There is no public Python
-<code class="docutils literal notranslate"><span class="pre">find_channels(...)</span></code> entry point — drive the resolver from natural
-language via the agent, or invoke the CLI directly:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>channel-finder<span class="w"> </span>generate<span class="w">     </span><span class="c1"># build database from template</span>
-osprey<span class="w"> </span>channel-finder<span class="w"> </span>benchmark<span class="w">    </span><span class="c1"># evaluate on a query dataset</span>
-</pre></div>
-</div>
-<div class="admonition tip">
-<p class="admonition-title">Tip</p>
-<p>Use <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">eject</span> <span class="pre">service</span> <span class="pre">channel_finder</span></code> to copy the channel finder
-service source into your project for custom modifications.</p>
+<dl class="simple">
+<dt><a class="reference internal" href="osprey-themes.html"><span class="doc">OSPREY Themes</span></a></dt><dd><p>The theme contract: metadata, family model, WCAG gates.</p>
+</dd>
+<dt><a class="reference internal" href="theming-interfaces.html"><span class="doc">Theming the OSPREY Interfaces</span></a></dt><dd><p>The token pipeline and wiring a new interface into it.</p>
+</dd>
+</dl>
 </div>
 </section>
 </section>
@@ -642,20 +596,20 @@ service source into your project for custom modifications.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="add-connector.html"
+       href="osprey-themes.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Add a Connector</p>
+        <p class="prev-next-title">OSPREY Themes</p>
       </div>
     </a>
     <a class="right-next"
-       href="use-virtual-accelerator.html"
+       href="author-a-panel.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Use the Virtual Accelerator</p>
+        <p class="prev-next-title">Author an OSPREY Panel</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -678,13 +632,11 @@ service source into your project for custom modifications.</p>
   </div>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#choosing-a-pipeline">Choosing a Pipeline</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#in-context-pipeline">In-Context Pipeline</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#hierarchical-pipeline">Hierarchical Pipeline</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#middle-layer-pipeline">Middle Layer Pipeline</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#web-interface">Web Interface</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#configuration-reference">Configuration Reference</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#framework-integration">Framework Integration</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-1-decide-what-you-re-adding">Step 1: Decide What You’re Adding</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-2-author-the-token-document">Step 2: Author the Token Document</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-3-meet-your-family-s-wcag-gate">Step 3: Meet Your Family’s WCAG Gate</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-4-satisfy-interface-extension-completeness">Step 4: Satisfy Interface-Extension Completeness</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#step-5-regenerate-and-verify">Step 5: Regenerate and Verify</a></li>
 </ul>
   </nav></div>
 
@@ -692,7 +644,7 @@ service source into your project for custom modifications.</p>
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/use-channel-finder.rst">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/author-a-theme.rst">
       <i class="fa-solid fa-pencil"></i>
       
       
