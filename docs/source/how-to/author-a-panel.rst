@@ -151,6 +151,41 @@ exactly 3/4/6/8 long (``href="#abc"``, ``href="#deadbeef"``) is flagged as a
 color — rename the fragment rather than loosening the token-only rule. The panel
 is complete when the one-liner raises nothing.
 
+Step 6: Serve the Panel Locally
+----------------------------------
+
+Once the bundle validates, drop its directory under ``<project>/panels/`` — one
+directory per panel, each with its own ``manifest.json`` — and enable local
+panel discovery in ``config.yml``:
+
+.. code-block:: yaml
+
+   web:
+     allow_runtime_panels: true   # off by default
+
+On the next Web Terminal start, every compliant bundle under ``panels/`` is
+discovered and shown as a tab, served **same-origin from disk** at
+``/panel-static/<id>/`` (no reverse proxy — the files are read directly). A
+bundle that fails the validator is **skipped and logged**: it is never served,
+and one bad bundle never affects the others. This is the fail-closed contract —
+only a fully compliant panel is ever served.
+
+``allow_runtime_panels`` defaults to ``false``, so discovery is **opt-in**. The
+same flag also enables the agent's runtime URL-panel registration; enabling it
+is the operator's explicit act of trusting the panels made available to the
+terminal — both the bundles under ``panels/`` and anything the agent registers.
+
+.. note::
+
+   The Web Terminal currently has **no application-level authentication**.
+   Enabling ``allow_runtime_panels`` serves whatever compliant bundles are on
+   disk under ``panels/`` (and honors the agent's URL registrations) to anyone
+   who can reach the terminal's port. That is appropriate for the intended
+   single-operator, loopback-bound deployment; a facility that exposes the
+   terminal more broadly should place its own authentication in front of it.
+   First-class Web-Terminal authentication is tracked as a follow-up and is
+   deliberately out of scope here.
+
 Cross-Origin Re-Theme Reality
 --------------------------------
 
