@@ -277,3 +277,128 @@ def test_non_mapping_yaml_raises_clean_error(tmp_path):
     path = write_yaml(tmp_path, "- just\n- a\n- list\n")
     with pytest.raises(ValueError, match="mapping"):
         load_triggers(path)
+
+
+# ---------------------------------------------------------------------------
+# Test 10: `action.surface` and `action.surface_prompt` parse when present
+# ---------------------------------------------------------------------------
+
+
+def test_surface_and_surface_prompt_are_parsed_when_present(tmp_path):
+    yaml_content = """\
+        dispatcher:
+          dispatch_target: http://localhost:8010/dispatch
+
+        triggers:
+          - name: with-surface
+            source: webhook
+            action:
+              prompt: "Handle event"
+              allowed_tools: []
+              surface: control-room
+              surface_prompt: "Extra guidance appended to the system prompt."
+    """
+    path = write_yaml(tmp_path, yaml_content)
+    _, triggers = load_triggers(path)
+
+    assert len(triggers) == 1
+    t = triggers[0]
+    assert t.surface == "control-room"
+    assert t.surface_prompt == "Extra guidance appended to the system prompt."
+
+
+# ---------------------------------------------------------------------------
+# Test 11: `action.surface` / `action.surface_prompt` are optional and default
+#          to None; an otherwise-identical trigger parses the same as before
+# ---------------------------------------------------------------------------
+
+
+def test_surface_fields_default_to_none_when_absent(tmp_path):
+    path = write_yaml(tmp_path, VALID_WEBHOOK_YAML)
+    _, triggers = load_triggers(path)
+
+    assert len(triggers) == 1
+    t = triggers[0]
+    assert t.surface is None
+    assert t.surface_prompt is None
+
+    # No behavior change for the rest of the fields: identical to the
+    # pre-existing assertions in test_valid_webhook_trigger_parses_all_fields.
+    assert t.name == "beam-loss-alert"
+    assert t.source == "webhook"
+    assert t.on_error["action"] == "retry"
+    assert t.on_error["max_retries"] == 3
+    assert t.on_error["backoff_sec"] == 5.0
+    assert t.action["prompt"] == "Investigate the beam loss event: {payload}"
+    assert t.action["allowed_tools"] == ["get_pv", "archiver_query"]
+    assert t.action.get("skill") == "beam-diagnostics"
+
+
+# ---------------------------------------------------------------------------
+# Test 12: non-string `action.surface` / `action.surface_prompt` raise
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad_key", ["surface", "surface_prompt"])
+@pytest.mark.parametrize("bad_value", [1, ["not", "a", "string"], {"nope": True}])
+def test_non_string_surface_field_raises_value_error(tmp_path, bad_key, bad_value):
+    yaml_content = f"""\
+        dispatcher:
+          dispatch_target: http://localhost:8010/dispatch
+
+        triggers:
+          - name: bad-surface
+            source: webhook
+            action:
+              prompt: "Handle event"
+              allowed_tools: []
+              {bad_key}: {bad_value!r}
+    """
+    path = write_yaml(tmp_path, yaml_content)
+    with pytest.raises(ValueError, match=bad_key):
+        load_triggers(path)
+
+
+# ---------------------------------------------------------------------------
+# Test 13: only one of `surface` / `surface_prompt` present is fine
+# ---------------------------------------------------------------------------
+
+
+def test_only_surface_present_is_fine(tmp_path):
+    yaml_content = """\
+        dispatcher:
+          dispatch_target: http://localhost:8010/dispatch
+
+        triggers:
+          - name: only-surface
+            source: webhook
+            action:
+              prompt: "Handle event"
+              allowed_tools: []
+              surface: control-room
+    """
+    path = write_yaml(tmp_path, yaml_content)
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].surface == "control-room"
+    assert triggers[0].surface_prompt is None
+
+
+def test_only_surface_prompt_present_is_fine(tmp_path):
+    yaml_content = """\
+        dispatcher:
+          dispatch_target: http://localhost:8010/dispatch
+
+        triggers:
+          - name: only-surface-prompt
+            source: webhook
+            action:
+              prompt: "Handle event"
+              allowed_tools: []
+              surface_prompt: "Extra guidance."
+    """
+    path = write_yaml(tmp_path, yaml_content)
+    _, triggers = load_triggers(path)
+
+    assert triggers[0].surface is None
+    assert triggers[0].surface_prompt == "Extra guidance."

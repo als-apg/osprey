@@ -22,6 +22,8 @@ async def dispatch_to_worker(
     allowed_tools: list[str],
     token: str,
     timeout: float = 30.0,
+    surface_prompt: str | None = None,
+    surface_tools: list[str] | None = None,
 ) -> dict[str, Any]:
     """POST a prompt to a dispatch worker's /dispatch endpoint.
 
@@ -31,6 +33,11 @@ async def dispatch_to_worker(
         allowed_tools: List of tool names the agent is allowed to use.
         token: Bearer token for authentication.
         timeout: Request timeout in seconds.
+        surface_prompt: Optional per-surface system-prompt fragment. Omitted from the
+            request payload entirely when ``None`` or empty, so a worker predating this
+            field sees an unchanged request.
+        surface_tools: Optional per-surface tool-scope narrowing. Omitted from the
+            request payload entirely when ``None`` or empty, same as ``surface_prompt``.
 
     Returns:
         Response JSON dict (typically contains ``run_id`` and ``status``).
@@ -41,7 +48,14 @@ async def dispatch_to_worker(
     """
     dispatch_url = url.rstrip("/") + "/dispatch"
     headers = {"Authorization": f"Bearer {token}"}
-    payload = {"prompt": prompt, "allowed_tools": allowed_tools}
+    payload: dict[str, Any] = {"prompt": prompt, "allowed_tools": allowed_tools}
+    # Additive fields: only included when actually set, so an absent-surface
+    # trigger (the overwhelming majority today) produces byte-identical
+    # requests to what a pre-surface caller would send.
+    if surface_prompt:
+        payload["surface_prompt"] = surface_prompt
+    if surface_tools:
+        payload["surface_tools"] = surface_tools
 
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:

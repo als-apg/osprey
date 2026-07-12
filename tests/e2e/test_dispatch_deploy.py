@@ -15,7 +15,7 @@ It builds a control-assistant project, deploys the stack with
   * denied-tool-demo -> rejected by the worker denylist (no completed run)
 
 The worker receives its provider key via the project ``.env`` mounted at
-``/app/project/.env`` (see the dispatch_worker compose template) — without that
+``/app/<project>/.env`` (see the dispatch_worker compose template) — without that
 wiring the agent run cannot authenticate, so this test also guards that mount.
 
 Gating: needs Docker and ``ALS_APG_API_KEY``. We do NOT gate on a host
@@ -135,11 +135,14 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         encoding="utf-8",
     )
 
-    # Force a fresh image build so the deployed worker runs CURRENT source.
-    # `osprey deploy up` does not pass --build to compose, so it reuses an
-    # existing osprey-dispatch:local image (and would silently test stale code).
-    # The freshly-built dev wheel invalidates the relevant build-cache layers.
-    subprocess.run(["docker", "rmi", "-f", "osprey-dispatch:local"], capture_output=True, text=True)
+    # Force a fresh image build so the deployed services run CURRENT source. The
+    # dispatcher runs osprey-dispatch:local; the worker now runs the unified
+    # project image proj:local (built by `deploy up --dev` from the project root).
+    # `osprey deploy up` does not pass --build to compose, so it would otherwise
+    # reuse existing images and silently test stale code. The freshly-built dev
+    # wheel invalidates the relevant build-cache layers on rebuild.
+    for image in ("osprey-dispatch:local", "proj:local"):
+        subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
 
     try:
         up = _run(
@@ -153,6 +156,11 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
         _wait_for_health(f"{DISPATCHER_URL}/health", HEALTH_TIMEOUT_SEC)
+        # The dispatcher being healthy does not mean the worker is: the worker runs
+        # the heavier project image and boots later. Gate on its proxied feed so
+        # tests never race a still-warming worker (and a worker that never comes up
+        # fails here with container logs, not as a bare 502 mid-test).
+        _wait_for_worker_feed(HEALTH_TIMEOUT_SEC)
         yield project_dir
     finally:
         down = _run([str(osprey_bin), "deploy", "down"], cwd=project_dir, timeout=300)
@@ -175,6 +183,69 @@ def _wait_for_health(url: str, timeout: float) -> None:
             last_err = str(exc)
         time.sleep(1.0)
     raise AssertionError(f"timed out after {timeout:.0f}s waiting for {url} (last: {last_err})")
+
+
+def _dump_stack_diagnostics(context: str) -> str:
+    """Return container state + recent worker/dispatcher logs for failure output.
+
+    A full-Docker e2e that fails mid-run is nearly undiagnosable from the pytest
+    traceback alone (the interesting state is inside the containers). Surfacing
+    ``docker ps`` plus the tail of both service logs turns an opaque ``502`` into
+    an actionable report (e.g. the worker crash-looping vs. merely slow to boot).
+    """
+    lines = [f"=== stack diagnostics ({context}) ==="]
+    ps = subprocess.run(
+        ["docker", "ps", "-a", "--filter", "name=osprey-", "--format", "{{.Names}}\t{{.Status}}"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    lines.append("containers:\n" + (ps.stdout.strip() or ps.stderr.strip() or "(none)"))
+    for name in ("osprey-dispatch-worker-1", "osprey-event-dispatcher"):
+        logs = subprocess.run(
+            ["docker", "logs", "--tail", "40", name],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        tail = ((logs.stdout or "") + (logs.stderr or "")).strip() or "(no logs)"
+        lines.append(f"--- {name} (last 40 log lines) ---\n{tail}")
+    return "\n".join(lines)
+
+
+def _wait_for_worker_feed(timeout: float) -> None:
+    """Wait until the dispatcher can proxy the worker run feed (HTTP 200).
+
+    The fixture's ``/health`` gate proves only the DISPATCHER is up, but every run
+    assertion reads ``/dashboard/runs``, which the dispatcher proxies to the
+    worker. The worker runs the full project image and can take appreciably longer
+    to become ready than the dispatcher — until it does, the proxy returns ``502``.
+    Gate on a ``200`` here so the test never races a still-warming worker, and a
+    genuine worker startup failure surfaces here (with container logs) instead of
+    as a bare ``502`` mid-test.
+    """
+    deadline = time.monotonic() + timeout
+    last = "(no response yet)"
+    req = urllib.request.Request(  # noqa: S310 - localhost only
+        f"{DISPATCHER_URL}/dashboard/runs",
+        method="GET",
+        headers={"Authorization": f"Bearer {TOKEN}"},
+    )
+    while time.monotonic() < deadline:
+        try:
+            with urllib.request.urlopen(req, timeout=5.0) as resp:  # noqa: S310
+                if resp.status == 200:
+                    return
+                last = f"HTTP {resp.status}"
+        except urllib.error.HTTPError as exc:
+            last = f"HTTP {exc.code}"
+        except (urllib.error.URLError, ConnectionError, OSError) as exc:
+            last = str(exc)
+        time.sleep(2.0)
+    raise AssertionError(
+        f"worker feed at {DISPATCHER_URL}/dashboard/runs not ready after "
+        f"{timeout:.0f}s (last: {last})\n{_dump_stack_diagnostics('worker feed wait timeout')}"
+    )
 
 
 def _fire(trigger: str, payload: dict) -> None:
@@ -201,7 +272,7 @@ def _worker_artifact_files() -> list[str]:
     only claimed success — see the assertion in ``test_full_stack_dispatch``.
     """
     proc = subprocess.run(
-        ["docker", "exec", "osprey-dispatch-worker-1", "ls", "/app/project/_agent_data/artifacts"],
+        ["docker", "exec", "osprey-dispatch-worker-1", "ls", "/app/proj/_agent_data/artifacts"],
         capture_output=True,
         text=True,
         timeout=30,
@@ -223,8 +294,18 @@ def _runs_by_trigger() -> dict[str, dict]:
         method="GET",
         headers={"Authorization": f"Bearer {TOKEN}"},
     )
-    with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
-        runs = json.loads(resp.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
+            runs = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        # A transient gateway error means the dispatcher momentarily could not
+        # reach the worker upstream (e.g. mid-restart). Treat it as "no feed yet"
+        # so the caller's poll loop retries instead of aborting the whole run.
+        if exc.code in (502, 503, 504):
+            return {}
+        raise
+    except (urllib.error.URLError, ConnectionError):
+        return {}
     by_trigger: dict[str, dict] = {}
     for run in runs:
         name = run.get("trigger_name")
@@ -253,12 +334,22 @@ def test_full_stack_dispatch(deployed_stack: Path) -> None:
             break
         time.sleep(3.0)
 
+    # If the feed never converged, attach container state so a CI failure reads as
+    # "worker crashed / never produced the run" rather than an opaque status miss.
+    converged = all(
+        by_trigger.get(t, {}).get("status") in ("completed", "error")
+        for t in _COMPLETING_TRIGGERS
+    )
+    diag = "" if converged else "\n" + _dump_stack_diagnostics("run feed did not converge")
+
     for trigger in _COMPLETING_TRIGGERS:
         run = by_trigger.get(trigger)
-        assert run is not None, f"{trigger}: no run appeared in the dispatcher feed: {by_trigger}"
+        assert run is not None, (
+            f"{trigger}: no run appeared in the dispatcher feed: {by_trigger}{diag}"
+        )
         assert run.get("status") == "completed", (
             f"{trigger}: expected completed, got status={run.get('status')!r} "
-            f"error={run.get('error')!r}"
+            f"error={run.get('error')!r}{diag}"
         )
 
     # save-report must persist via the workspace artifact tool, not merely report

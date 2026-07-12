@@ -68,6 +68,32 @@ def _deny(reason: str) -> dict[str, Any]:
     }
 
 
+def narrow_allowed_tools(trigger_tools: list[str], surface_tools: list[str] | None) -> list[str]:
+    """Narrow a trigger's allow set to a surface-declared keep-list.
+
+    This is a pure intersection (keep-list) operation: it can only REMOVE
+    tools from ``trigger_tools``, never add one. It does not touch
+    ``DENIED_TOOLS`` — the deny floor is enforced independently downstream
+    (denylist checks run before, and separately from, the narrowed allow
+    set), so narrowing can never re-enable a tool the denylist blocks.
+
+    Args:
+        trigger_tools: The trigger's configured ``allowed_tools``.
+        surface_tools: Optional keep-list naming the subset of
+            ``trigger_tools`` a specific surface may use. ``None`` or an
+            empty list is a no-op (returns ``trigger_tools`` unchanged).
+
+    Returns:
+        ``trigger_tools`` unchanged when ``surface_tools`` is falsy;
+        otherwise the subset of ``trigger_tools``, in its original order,
+        that also appears in ``surface_tools``.
+    """
+    if not surface_tools:
+        return trigger_tools
+    keep = frozenset(surface_tools)
+    return [t for t in trigger_tools if t in keep]
+
+
 def make_pretooluse_hook(
     trigger_tools: Iterable[str],
     agent_surfaces: AgentSurfaces,

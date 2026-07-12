@@ -12,8 +12,10 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from osprey.deployment.compose_generator import (
+    _copy_local_framework_for_override,
     clean_deployment,
     prepare_compose_files,
+    resolve_project_name,
 )
 from osprey.deployment.runtime_helper import (
     get_runtime_command,
@@ -390,6 +392,153 @@ def _ensure_service_tokens(
             _raise_invalid_var(name)
 
 
+def _resolve_claude_cli_version(config: dict) -> str:
+    """The ``CLAUDE_CLI_VERSION`` build arg for the project image.
+
+    Uses the project's ``claude_code.cli_version`` pin when set, else the
+    framework default scaffolding bakes into the rendered ``Dockerfile`` — the
+    single source of that fallback (``osprey.cli.templates.scaffolding``), so the
+    build-time CLI pin never drifts from the value the Dockerfile documents.
+    """
+    version = config.get("claude_code", {}).get("cli_version")
+    if version:
+        return str(version)
+    # Lazy import: keep the CLI-templates package off the deploy import path
+    # unless the fallback is actually needed.
+    from osprey.cli.templates.scaffolding import _DEFAULT_CLAUDE_CLI_VERSION
+
+    return _DEFAULT_CLAUDE_CLI_VERSION
+
+
+def _resolve_pip_spec() -> str:
+    """The ``OSPREY_PIP_SPEC`` build arg for the project image.
+
+    An operator ``OSPREY_PIP_SPEC`` export wins (e.g. a ``git+https`` URL that
+    pins an unreleased build). Otherwise pin the running framework version
+    (``osprey-framework==<version>``), matching the dispatch image's production
+    install, so a project image built without ``--dev`` ships a deterministic
+    release rather than tracking whatever ``osprey-framework`` resolves to at
+    build time. Under ``--dev`` a locally-built wheel is staged into the build
+    context and the Dockerfile installs that instead, ignoring this spec.
+    """
+    spec = os.environ.get("OSPREY_PIP_SPEC")
+    if spec:
+        return spec
+    try:
+        from osprey import __version__ as osprey_version
+    except Exception:
+        osprey_version = ""
+    return f"osprey-framework=={osprey_version}" if osprey_version else "osprey-framework"
+
+
+def _worker_image_target(config: dict, env: dict) -> str:
+    """The image the dispatch worker will actually run.
+
+    Resolution mirrors the worker compose service's
+    ``${OSPREY_WORKER_IMAGE:-<services.dispatch_worker.image | default>}``:
+    an ``OSPREY_WORKER_IMAGE`` env override wins, then a profile-pinned
+    ``services.dispatch_worker.image``, else the ``<project>:local`` project
+    image that :func:`_build_project_image` builds.
+    """
+    override = env.get("OSPREY_WORKER_IMAGE")
+    if override:
+        return str(override)
+    worker_cfg = config.get("services", {}).get("dispatch_worker", {})
+    explicit = worker_cfg.get("image") if isinstance(worker_cfg, dict) else None
+    if explicit:
+        return str(explicit)
+    return f"{resolve_project_name(config)}:local"
+
+
+def _project_image_build_cmd(config: dict, runtime: str, project_root: str) -> list[str]:
+    """Construct the ``<runtime> build`` argv that produces ``<project>:local``.
+
+    :param config: Raw deploy config (project name, ``claude_code.cli_version``).
+    :param runtime: Base container command (``docker`` or ``podman``).
+    :param project_root: Build context — the project root that holds the
+        rendered ``Dockerfile`` (and, under ``--dev``, the staged wheel).
+    :return: The full build command as an argv list.
+    """
+    project_name = resolve_project_name(config)
+    dockerfile = os.path.join(project_root, "Dockerfile")
+    return [
+        runtime,
+        "build",
+        "-t",
+        f"{project_name}:local",
+        "-f",
+        dockerfile,
+        "--build-arg",
+        f"CLAUDE_CLI_VERSION={_resolve_claude_cli_version(config)}",
+        "--build-arg",
+        f"OSPREY_PIP_SPEC={_resolve_pip_spec()}",
+        project_root,
+    ]
+
+
+def _build_project_image(config: dict, dev_mode: bool, env: dict) -> None:
+    """Build the ``<project>:local`` image the dispatch worker references.
+
+    The dispatch worker's compose service intentionally has no ``build:`` block
+    (a second builder for the same tag would race the event-dispatcher — see
+    ``dispatch_worker/docker-compose.yml.j2``), so nothing in ``compose up``
+    produces the image it runs. This builds it once, from the project root
+    (context) and the rendered project ``Dockerfile``, before ``compose up``.
+
+    No-op unless the worker is deployed and its effective image is the local
+    ``<project>:local`` tag: an ``OSPREY_WORKER_IMAGE`` override or a
+    profile-pinned ``services.dispatch_worker.image`` means a prebuilt image is
+    wanted, so there is nothing to build. The event-dispatcher's own
+    ``osprey-dispatch:local`` build (its compose ``build:`` block) is untouched.
+
+    Under ``dev_mode`` a wheel is built from the local osprey checkout and staged
+    into the build context (mirroring the dispatch image's ``--dev`` convention);
+    the Dockerfile's wheel-drop branch then installs it so unreleased code is
+    baked in. The staged wheel is removed afterward so it cannot poison a later
+    non-dev build (whose wheel-drop branch fires on any ``*.whl`` in the context).
+
+    :param config: Raw deploy config.
+    :param dev_mode: Whether ``--dev`` was passed (stage a local wheel).
+    :param env: Environment for the build subprocess (also read for
+        ``OSPREY_WORKER_IMAGE``).
+    """
+    services = {str(s) for s in (config.get("deployed_services") or [])}
+    if "dispatch_worker" not in services:
+        return
+
+    target = _worker_image_target(config, env)
+    project_image = f"{resolve_project_name(config)}:local"
+    if target != project_image:
+        logger.key_info(
+            "Dispatch worker uses image %r (OSPREY_WORKER_IMAGE / pinned "
+            "services.dispatch_worker.image) — skipping %s build.",
+            target,
+            project_image,
+        )
+        return
+
+    runtime = get_runtime_command(config)[0]
+    project_root = os.getcwd()
+
+    staged_wheels: list[Path] = []
+    if dev_mode:
+        before = set(Path(project_root).glob("*.whl"))
+        _copy_local_framework_for_override(project_root)
+        staged_wheels = list(set(Path(project_root).glob("*.whl")) - before)
+
+    try:
+        cmd = _project_image_build_cmd(config, runtime, project_root)
+        logger.key_info("Building dispatch worker project image %s:", project_image)
+        logger.info("Running command:\n    %s", " ".join(cmd))
+        subprocess.run(cmd, env=env, check=True)
+    finally:
+        for whl in staged_wheels:
+            try:
+                whl.unlink()
+            except OSError:
+                logger.warning("Could not remove staged dev wheel %s", whl)
+
+
 def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False):
     """Start services using container runtime (Docker or Podman).
 
@@ -429,6 +578,13 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     if dev_mode:
         env["DEV_MODE"] = "true"
         logger.key_info("Development mode: DEV_MODE environment variable set for containers")
+
+    # Build the <project>:local image the dispatch worker references. The worker
+    # has no compose build block (that would race the event-dispatcher on the
+    # shared tag), so this is the only thing that produces its image. No-op
+    # unless the worker is deployed on the local project image. Run before
+    # `compose up` (which, non-detached, os.execvpe-replaces this process).
+    _build_project_image(config, dev_mode, env)
 
     cmd = get_runtime_command(config)
     for compose_file in compose_files:
@@ -572,6 +728,9 @@ def rebuild_deployment(config_path, detached=False, dev_mode=False, expose_netwo
     if dev_mode:
         env["DEV_MODE"] = "true"
         logger.key_info("Development mode: DEV_MODE environment variable set for containers")
+
+    # Rebuild the dispatch worker's <project>:local image too (see deploy_up).
+    _build_project_image(config, dev_mode, env)
 
     # Then start up
     cmd = get_runtime_command(config)

@@ -22,6 +22,7 @@ from osprey.mcp_server.dispatch_worker.tool_policy import (
     PASSTHROUGH_TOOLS,
     make_backstop,
     make_pretooluse_hook,
+    narrow_allowed_tools,
 )
 
 TRIGGER_TOOLS = ["mcp__controls__channel_read", "mcp__ariel__keyword_search"]
@@ -368,3 +369,87 @@ class TestBackstop:
 
         # Assert
         assert _is_deny(result)
+
+
+# ---------------------------------------------------------------------------
+# narrow_allowed_tools
+# ---------------------------------------------------------------------------
+
+
+class TestNarrowAllowedTools:
+    def test_narrows_allowed_tools_to_surface_intersection(self):
+        # Arrange — surface_tools names a subset of the trigger's allow set
+        trigger = ["A", "B", "C"]
+        surface = ["A", "B"]
+
+        # Act
+        result = narrow_allowed_tools(trigger, surface)
+
+        # Assert — C dropped, order/membership preserved from trigger
+        assert result == ["A", "B"]
+
+    def test_surface_tools_never_adds_a_tool_absent_from_trigger(self):
+        # Arrange — surface_tools names a tool the trigger never granted
+        trigger = ["A", "B"]
+        surface = ["A", "Z"]
+
+        # Act
+        result = narrow_allowed_tools(trigger, surface)
+
+        # Assert — Z is never added; narrowing can only remove
+        assert result == ["A"]
+        assert "Z" not in result
+
+    def test_none_surface_tools_is_a_no_op(self):
+        # Arrange
+        trigger = ["A", "B", "C"]
+
+        # Act
+        result = narrow_allowed_tools(trigger, None)
+
+        # Assert — unchanged trigger set
+        assert result == trigger
+
+    def test_empty_surface_tools_is_a_no_op(self):
+        # Arrange
+        trigger = ["A", "B", "C"]
+
+        # Act
+        result = narrow_allowed_tools(trigger, [])
+
+        # Assert — falsy empty list also leaves trigger unchanged
+        assert result == trigger
+
+    async def test_denied_floor_survives_surface_narrowing_via_pretooluse_hook(self):
+        # Arrange — surface_tools NAMES a denied tool ("Bash"); narrowing alone
+        # would happily keep it (it's a plain intersection), but the deny floor
+        # is enforced independently downstream by make_pretooluse_hook, so the
+        # hook must still deny it.
+        trigger = ["Bash", "mcp__controls__channel_read"]
+        surface = ["Bash", "mcp__controls__channel_read"]
+        narrowed = narrow_allowed_tools(trigger, surface)
+        assert "Bash" in narrowed  # narrowing itself cannot know about the floor
+
+        hook = make_pretooluse_hook(narrowed, SURFACES, DENIED)
+
+        # Act
+        result = await hook(_main_input("Bash"), "t1", None)
+
+        # Assert — still denied: DENIED_TOOLS is checked first, independent of
+        # whatever narrow_allowed_tools computed.
+        assert _decision(result) == "deny"
+
+    async def test_surface_narrowing_removes_a_tool_the_hook_would_otherwise_allow(self):
+        # Arrange — without narrowing, the trigger tool is allowed on the main
+        # thread; with surface_tools narrowing it away, the hook denies it.
+        trigger = TRIGGER_TOOLS  # ["mcp__controls__channel_read", ...]
+        surface = ["mcp__ariel__keyword_search"]  # keeps only the second tool
+        narrowed = narrow_allowed_tools(trigger, surface)
+
+        hook = make_pretooluse_hook(narrowed, SURFACES, DENIED)
+
+        # Act
+        result = await hook(_main_input("mcp__controls__channel_read"), "t1", None)
+
+        # Assert — narrowed away, so now denied even though it's in TRIGGER_TOOLS
+        assert _decision(result) == "deny"

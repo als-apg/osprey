@@ -70,6 +70,19 @@ async def _dispatch_with_policy(
     prompt = action.get("prompt", "")
     allowed_tools = action.get("allowed_tools", [])
 
+    # Per-surface prompt fragment and tool scope, resolved as
+    # source default -> trigger override. No trigger source currently supplies
+    # a default (see SourceRegistry) — the two locals below are the seam a
+    # future source-level default would extend without moving this read site.
+    # ``trigger.surface_prompt`` is already the parsed ``action.surface_prompt``
+    # (TriggerConfig); ``surface_tools`` has no typed field yet, so it is read
+    # straight off the free-form ``action`` mapping like ``allowed_tools`` above.
+    source_default_surface_prompt: str | None = None
+    surface_prompt = trigger.surface_prompt or source_default_surface_prompt
+
+    source_default_surface_tools: list[str] | None = None
+    surface_tools = action.get("surface_tools") or source_default_surface_tools
+
     # Fold the event payload into the prompt so payload-driven triggers can act
     # on it. The payload is UNTRUSTED input (a webhook body); the per-trigger
     # tool allowlist and the worker's denylist — not the prompt — are the
@@ -83,6 +96,8 @@ async def _dispatch_with_policy(
             prompt=prompt,
             allowed_tools=allowed_tools,
             token=dispatch_token,
+            surface_prompt=surface_prompt,
+            surface_tools=surface_tools,
         )
         await registry.record_event(trigger.name, payload, "dispatched")
         return result

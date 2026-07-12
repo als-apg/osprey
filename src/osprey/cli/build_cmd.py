@@ -1301,8 +1301,11 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
     with open(config_path) as fh:
         config = yaml.load(fh)
 
-    # No ``image`` key: both services build the shared local image
-    # (services/event_dispatcher/Dockerfile) on first ``osprey deploy up``.
+    # No ``image`` key on either service, so each falls to its compose default:
+    # the event-dispatcher builds the shared osprey-dispatch:local image (its own
+    # compose ``build:`` block), and the dispatch worker runs <project>:local —
+    # the project image ``osprey deploy up`` builds from the project Dockerfile
+    # (the worker has no build block of its own, to avoid racing the dispatcher).
     # Override with OSPREY_DISPATCH_IMAGE/OSPREY_WORKER_IMAGE, or set
     # ``services.<name>.image`` here, to use a prebuilt/published image.
     config.setdefault("services", {})
@@ -1367,9 +1370,10 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
         dispatch.dispatcher_port,
     )
     logger.info(
-        "    Images:     `osprey deploy up` builds the shared dispatch image locally "
-        "(first run is slow). Use `--dev` to bake in your local osprey checkout; "
-        "set OSPREY_DISPATCH_IMAGE/OSPREY_WORKER_IMAGE to use a published image."
+        "    Images:     `osprey deploy up` builds the dispatch image and the "
+        "worker's project image locally (first run is slow). Use `--dev` to bake "
+        "in your local osprey checkout; set OSPREY_DISPATCH_IMAGE/OSPREY_WORKER_IMAGE "
+        "to use a published image."
     )
 
 

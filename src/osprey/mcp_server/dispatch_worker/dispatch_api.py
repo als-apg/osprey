@@ -178,60 +178,18 @@ def _inject_provider_env_once() -> None:
         logger.exception("Failed to inject provider env from config.yml")
 
 
-def _provision_claude_artifacts_once() -> None:
-    """Regenerate Claude Code artifacts (.mcp.json, .claude/, CLAUDE.md) in the project dir.
-
-    The deployed worker mounts only ``config.yml`` into the project dir, so the
-    project has no ``.mcp.json`` (MCP servers like ``osprey_workspace``) and no
-    ``.claude/`` (safety hooks, settings, skills). Without them the dispatched
-    agent runs with built-in tools only — its trigger ``allowed_tools`` that name
-    ``mcp__osprey_workspace__*`` silently resolve to nothing, and the facility's
-    PreToolUse safety hooks are absent.
-
-    Regenerate from the mounted ``config.yml`` at startup so the container's
-    project matches a normally-built one. The staged config has ``python_env_path``
-    stripped (see compose_generator), so MCP-server commands resolve to the
-    container's own interpreter rather than the build host's. Best-effort: a
-    failure here must not stop the worker from serving no-tool triggers.
-
-    Only provisions when ``.mcp.json`` is ABSENT. A normally-built project (the
-    subprocess path, or a non-container deploy where the worker runs in the real
-    project dir) already ships container-correct artifacts and may carry user
-    customizations (e.g. via ``osprey eject``); regenerating would overwrite them.
-    The container is the one case where the project dir has only ``config.yml``.
-    """
-    project_dir = os.environ.get("OSPREY_PROJECT_DIR", "/app/project")
-    config_path = os.path.join(project_dir, "config.yml")
-    if not os.path.isfile(config_path):
-        logger.warning("No config.yml at %s — skipping Claude artifact provisioning", config_path)
-        return
-    if os.path.isfile(os.path.join(project_dir, ".mcp.json")):
-        # Already provisioned (built project / non-container deploy) — don't
-        # clobber existing (possibly customized) artifacts.
-        return
-    try:
-        from pathlib import Path
-
-        from osprey.cli.templates.manager import TemplateManager
-
-        result = TemplateManager().regenerate_claude_code(Path(project_dir))
-        logger.info(
-            "Provisioned Claude Code artifacts in %s: %d file(s) generated",
-            project_dir,
-            len(result.get("changed", [])),
-        )
-    except Exception:
-        logger.exception(
-            "Failed to provision Claude Code artifacts — dispatched agents will "
-            "run with built-in tools only (no project MCP servers or safety hooks)"
-        )
-
-
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    """Startup/shutdown lifecycle — provider env, artifact provisioning, recovery."""
+    """Startup/shutdown lifecycle — provider env injection and run recovery.
+
+    ``.claude/`` and ``data/`` (MCP config, safety hooks, skills) are baked into
+    the project image at build time (``COPY .`` + ``osprey claude regen``), so
+    the worker starts with those artifacts already in place — no runtime
+    regeneration is needed here. Provider auth/model config and the translation
+    proxy (for non-native providers) still have to be established at process
+    startup, since they depend on the mounted ``config.yml`` and environment.
+    """
     _inject_provider_env_once()
-    _provision_claude_artifacts_once()
     _load_persisted_runs()
     task = asyncio.create_task(_stale_run_cleanup())
     yield
@@ -347,9 +305,20 @@ def _verify_token(credentials: HTTPAuthorizationCredentials = Depends(_bearer_sc
 
 
 class DispatchRequest(BaseModel):
+    """Request body for ``POST /dispatch``.
+
+    ``surface_prompt``/``surface_tools`` are additive: a request omitting them
+    (any caller predating this field) is unaffected — both default to ``None``,
+    a pure no-op for the dispatched run. Consuming them (system-prompt
+    injection, tool narrowing) is left to downstream tasks; this model only
+    carries the values across the dispatcher→worker boundary.
+    """
+
     prompt: str
     allowed_tools: list[str]
     max_turns: int = 25
+    surface_prompt: str | None = None
+    surface_tools: list[str] | None = None
 
 
 class DispatchResponse(BaseModel):
@@ -381,6 +350,8 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
                 event_queue=queue,
                 denied_tools=DENIED_TOOLS,
                 run_id=run_id,
+                surface_prompt=request.surface_prompt,
+                surface_tools=request.surface_tools,
             ),
             timeout=DISPATCH_TIMEOUT_SEC,
         )

@@ -17,6 +17,7 @@
 import json
 import re
 import shlex
+import subprocess
 
 import click
 import pytest
@@ -109,18 +110,60 @@ class TestDockerfileContent:
             if "pip install" in line and not line.strip().startswith("#")
         ]
 
+    @staticmethod
+    def _spec_and_wheel_lines(pip_lines: list[str]) -> tuple[str, str]:
+        """Split the wheel-drop install's two pip branches.
+
+        The OSPREY install is a ``--dev`` wheel-drop conditional: a local-wheel
+        branch (``/tmp/ctx/*.whl``) and the default ``$OSPREY_PIP_SPEC`` branch.
+        Both carry the same profile-dependency args.
+        """
+        assert len(pip_lines) == 2, f"expected wheel + spec pip branches, got {pip_lines}"
+        spec_line = next(line for line in pip_lines if "$OSPREY_PIP_SPEC" in line)
+        wheel_line = next(line for line in pip_lines if "*.whl" in line)
+        return spec_line, wheel_line
+
     def test_pip_line_has_no_deps_for_hello_world(self, hello_project):
-        """hello-world has no profile dependencies — bare OSPREY install."""
+        """hello-world has no profile dependencies — bare OSPREY install on both
+        branches of the wheel-drop conditional."""
         pip_lines = self._pip_install_lines((hello_project / "Dockerfile").read_text())
-        assert len(pip_lines) == 1
-        assert pip_lines[0].rstrip().endswith('"$OSPREY_PIP_SPEC"')
+        spec_line, wheel_line = self._spec_and_wheel_lines(pip_lines)
+        # Nothing but the shell continuation follows the OSPREY spec (no deps).
+        assert re.search(r'"\$OSPREY_PIP_SPEC"\s*;?\s*\\?\s*$', spec_line), spec_line
+        assert re.search(r"/tmp/ctx/\*\.whl\s*;?\s*\\?\s*$", wheel_line), wheel_line
 
     def test_profile_dependencies_on_pip_line(self, deps_project):
-        """Profile pip deps appear shlex-quoted after the OSPREY spec."""
+        """Profile pip deps appear shlex-quoted after the OSPREY spec on BOTH
+        branches of the wheel-drop conditional (dev wheel and PyPI spec)."""
         pip_lines = self._pip_install_lines((deps_project / "Dockerfile").read_text())
-        assert len(pip_lines) == 1
-        assert "numpy" in pip_lines[0]
-        assert "'pydantic>=2'" in pip_lines[0], "version-constrained dep must be shell-quoted"
+        spec_line, wheel_line = self._spec_and_wheel_lines(pip_lines)
+        for line in (spec_line, wheel_line):
+            assert "numpy" in line
+            assert "'pydantic>=2'" in line, "version-constrained dep must be shell-quoted"
+        # Deps must trail the OSPREY spec token, not precede it.
+        assert "numpy" in spec_line.split('"$OSPREY_PIP_SPEC"', 1)[1]
+
+    @staticmethod
+    def _run_command_bodies(text: str) -> list[str]:
+        """Every RUN instruction's shell body, with line-continuations joined."""
+        joined = re.sub(r"\\\n", " ", text)
+        return re.findall(r"^RUN (.+)$", joined, flags=re.MULTILINE)
+
+    def test_run_commands_are_valid_shell(self, hello_project, deps_project):
+        """Every rendered RUN body must parse under ``/bin/sh -n``.
+
+        A rendered-string assertion cannot catch a shell syntax error — e.g. an
+        env-assignment prefix (``VAR=x``) placed before an ``if`` compound, which
+        parses fine as text but only fails when a real ``docker build`` runs it.
+        Parsing each RUN body with ``sh -n`` guards the wheel-drop conditional
+        install (and every other RUN) without needing a container build.
+        """
+        for project in (hello_project, deps_project):
+            for body in self._run_command_bodies((project / "Dockerfile").read_text()):
+                result = subprocess.run(["sh", "-n", "-c", body], capture_output=True, text=True)
+                assert result.returncode == 0, (
+                    f"invalid shell syntax in a rendered RUN body:\n{body}\n{result.stderr}"
+                )
 
 
 class TestDockerignore:
