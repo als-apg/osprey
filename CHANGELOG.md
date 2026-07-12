@@ -29,6 +29,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- `claude-agent-sdk` upgraded to 0.2.110 (bundles CLI 2.1.191); `uv.lock` regenerated (#311).
 - README rewritten: corrected the connector claim (EPICS and Mock ship in-tree; other stacks use the connector interface), fixed the `osprey skills install` quickstart command, and removed stale release and conference notices. The PyPI package description now matches the documentation.
 - The Web Terminal and ARIEL settings drawers now share one accessible `<osprey-drawer>` component (focus trap and restore, `Escape`/backdrop close, screen-reader dialog semantics, inert background); each interface keeps its own look, and the Web Terminal drawer's tabs, resizing, and unsaved-changes guard behave as before.
 - The Web Terminal's first-run theme default changed from forced-dark to `auto`; use the in-app theme toggle if you want a fixed theme regardless of OS preference.
