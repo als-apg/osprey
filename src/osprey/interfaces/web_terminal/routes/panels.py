@@ -6,9 +6,11 @@ import asyncio
 import ipaddress
 import logging
 import socket
+from pathlib import Path
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS, BUILTIN_PANELS
@@ -88,6 +90,25 @@ async def okf_server_config(request: Request):
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
+def _browser_panel_url(cp: dict) -> str:
+    """The browser-facing URL for a custom panel.
+
+    Keyed off the explicit ``discovered`` marker, not URL shape: a discovered
+    static bundle is served same-origin from disk at its own ``/panel-static/{id}/``
+    URL, so that URL is used verbatim.  Every other custom panel is URL-backed
+    and routed through the reverse proxy at ``/panel/{id}`` so its raw upstream
+    origin never reaches the browser (this preserves the pre-discovery behavior
+    exactly, and avoids treating a protocol-relative ``//host`` URL as
+    same-origin).
+    """
+    if cp.get("discovered"):
+        url = cp.get("url")
+        if isinstance(url, str) and url:
+            return url
+        return f"/panel-static/{cp['id']}/"
+    return f"/panel/{cp['id']}"
+
+
 @router.get("/api/panels")
 async def get_panels(request: Request):
     """Return the full panel state in one payload.
@@ -119,7 +140,7 @@ async def get_panels(request: Request):
     """
     enabled = list(getattr(request.app.state, "enabled_panels", set()))
     custom_raw = getattr(request.app.state, "custom_panels", [])
-    custom = [{**cp, "url": f"/panel/{cp['id']}"} for cp in custom_raw]
+    custom = [{**cp, "url": _browser_panel_url(cp)} for cp in custom_raw]
     default = getattr(request.app.state, "default_panel", None)
     visible = getattr(request.app.state, "visible_panels", enabled)
     active = getattr(request.app.state, "active_panel", None)
@@ -417,6 +438,44 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
         }
     )
     return {"status": "ok", "id": body.id, "label": body.label, "url": f"/panel/{body.id}"}
+
+
+@router.get("/panel-static/{panel_id}/{path:path}")
+async def serve_discovered_panel(panel_id: str, path: str, request: Request):
+    """Serve a discovered local panel bundle's files, same-origin.
+
+    Backs the ``/panel-static/{id}/`` URL that :mod:`panel_discovery` assigns to
+    discovered static panels.  Distinct from the reverse-proxy path
+    (``/panel/{id}``, for URL-backed panels): this reads files straight from the
+    panel bundle directory recorded in ``app.state.discovered_panel_dirs``.
+
+    Fail-closed: an unknown id, a path that escapes the bundle directory
+    (``..`` traversal), or a missing file all return 404 — never a file outside
+    the bundle.  The bare ``/panel-static/{id}/`` request (empty ``path``) serves
+    the manifest's ``entry`` file.
+
+    Args:
+        panel_id: The discovered panel id.
+        path: Path within the bundle; empty serves the manifest entry.
+        request: Incoming request carrying ``app.state.discovered_panel_dirs``.
+
+    Returns:
+        A :class:`FileResponse` for the requested asset, or a 404 ``Response``.
+    """
+    panels = getattr(request.app.state, "discovered_panel_dirs", {})
+    panel = panels.get(panel_id)
+    if panel is None:
+        return Response(content=f"Panel '{panel_id}' is not available", status_code=404)
+
+    base = Path(panel.directory).resolve()
+    target = (base / (path or panel.entry)).resolve()
+
+    # Fail-closed traversal guard: the resolved target must stay inside the
+    # bundle and must be a regular file.
+    if not target.is_relative_to(base) or not target.is_file():
+        return Response(content="Not found", status_code=404)
+
+    return FileResponse(target)
 
 
 @router.post("/api/terminal/restart")
