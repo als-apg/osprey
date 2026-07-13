@@ -64,6 +64,15 @@ services:
       # dispatch_worker's identical CONFIG_FILE convention.
       CONFIG_FILE: /app/project/config.yml
       TZ: {{ system.timezone }}
+{% if services.bluesky.plan_dir %}
+      # Facility scan-plan directory (Task 1.4): the plan loader
+      # (plan_loader.py) reads BLUESKY_PLAN_DIRS as an os.pathsep-separated
+      # list of IN-CONTAINER paths and scans each as a "facility"-tier
+      # layer. This MUST be the mount target below, never the host path
+      # configured in services.bluesky.plan_dir — the container environment
+      # never sees the operator's host filesystem layout.
+      BLUESKY_PLAN_DIRS: /app/project/plans
+{% endif %}
 {% if 'virtual_accelerator' in deployed_services %}
       # Reach the co-deployed Virtual Accelerator (Task 4.1) over Channel
       # Access. Name-server TCP transport is the one host<->container CA
@@ -107,6 +116,17 @@ services:
       # config.yml to resolve control_system settings regardless of which
       # optional services are co-deployed (Task 3.2).
       - ./bluesky/config.yml:/app/project/config.yml:ro
+{% if services.bluesky.plan_dir %}
+      # Facility plan directory (Task 1.4): operator-supplied host path via
+      # services.bluesky.plan_dir in config.yml, mounted read-only — the
+      # bridge only discovers/execs plans from here, never writes into it.
+      # An absolute host path passes through unchanged; a relative one
+      # resolves against the compose project directory (build/services/),
+      # same rule as every other bind source in this file. The container
+      # target is fixed (matches BLUESKY_PLAN_DIRS above) so plan_loader.py
+      # never needs to know the host-side location.
+      - {{ services.bluesky.plan_dir }}:/app/project/plans:ro
+{% endif %}
 {% if (control_system | default({})).writes_enabled | default(false) %}
       # Channel limits DB (Task 3.2, CC-2): only meaningful once writes are
       # enabled — a read-only deploy never opens it. Mounted under the SAME

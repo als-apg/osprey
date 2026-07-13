@@ -124,6 +124,13 @@ class BlueskyConfig:
     this on would silently override real device/plan wiring with an
     in-memory mock scanner.
     """
+    plan_dir: str | None = None
+    """Optional host directory of facility scan-plan files (Task 1.4),
+    bind-mounted read-only into the bridge container and surfaced to the
+    plan loader as a ``BLUESKY_PLAN_DIRS`` (facility-tier) layer — see
+    ``plan_loader.py``. ``None`` (default) deploys the bridge with no
+    facility plan directory, matching every prior bluesky-only build.
+    """
 
 
 @dataclass
@@ -732,6 +739,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             tiled_enabled=bluesky_raw.get("tiled_enabled", False),
             tiled_port=bluesky_raw.get("tiled_port", 8091),
             demo_scanner=bluesky_raw.get("demo_scanner", False),
+            plan_dir=bluesky_raw.get("plan_dir"),
         )
 
     va_raw = raw.get("virtual_accelerator")

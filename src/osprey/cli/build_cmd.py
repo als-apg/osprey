@@ -1457,6 +1457,13 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
         "tiled_port": bluesky.tiled_port,
         "demo_scanner": bluesky.demo_scanner,
     }
+    if bluesky.plan_dir:
+        # Only written when configured — its absence is what keeps a
+        # bridge-only deploy (no facility plan directory) rendering exactly
+        # as before: the compose template's {% if %} guard reads this same
+        # key, so an unset plan_dir means no mount and no BLUESKY_PLAN_DIRS
+        # env var at all (Task 1.4).
+        config["services"]["bluesky"]["plan_dir"] = bluesky.plan_dir
     deployed = config.get("deployed_services", []) or []
     if "bluesky" not in [str(s) for s in deployed]:
         deployed.append("bluesky")
@@ -1478,6 +1485,12 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
     )
     if bluesky.tiled_enabled:
         logger.info("    Tiled:      enabled on port %d", bluesky.tiled_port)
+    if bluesky.plan_dir:
+        logger.info(
+            "    Plan dir:   %s mounted read-only into the bridge; its plans "
+            "load as the 'facility' trust tier (BLUESKY_PLAN_DIRS)",
+            bluesky.plan_dir,
+        )
     if bluesky.demo_scanner:
         logger.warning(
             "    Demo mode:  BLUESKY_DEMO_SCANNER is set — the bridge runs a real "
