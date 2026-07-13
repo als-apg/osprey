@@ -337,8 +337,7 @@ def test_full_stack_dispatch(deployed_stack: Path) -> None:
     # If the feed never converged, attach container state so a CI failure reads as
     # "worker crashed / never produced the run" rather than an opaque status miss.
     converged = all(
-        by_trigger.get(t, {}).get("status") in ("completed", "error")
-        for t in _COMPLETING_TRIGGERS
+        by_trigger.get(t, {}).get("status") in ("completed", "error") for t in _COMPLETING_TRIGGERS
     )
     diag = "" if converged else "\n" + _dump_stack_diagnostics("run feed did not converge")
 
