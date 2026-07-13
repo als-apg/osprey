@@ -504,9 +504,7 @@ def test_bluesky_template_mounts_channel_limits_when_writes_enabled() -> None:
     mount convention (build/services/ -> project root's data/).
     """
     rendered = _render_bluesky_template(va_deployed=False, writes_enabled=True)
-    assert (
-        "../../data/channel_limits.json:/app/project/data/channel_limits.json:ro" in rendered
-    )
+    assert "../../data/channel_limits.json:/app/project/data/channel_limits.json:ro" in rendered
 
 
 def test_bluesky_template_omits_channel_limits_mount_when_writes_disabled() -> None:
@@ -729,12 +727,11 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
     assert "./bluesky/config.yml:/app/project/config.yml:ro" in rendered, (
         "bridge must mount config.yml read-only under /app/project (Task 3.2)"
     )
-    assert (
-        "../../data/channel_limits.json:/app/project/data/channel_limits.json:ro" in rendered
-    ), (
+    assert "../../data/channel_limits.json:/app/project/data/channel_limits.json:ro" in rendered, (
         "control_system.writes_enabled=true (preset default) must mount "
         "channel_limits.json under the same /app/project root as config.yml"
     )
+
 
 # ---------------------------------------------------------------------------
 # Task 1.4: preserve-staged-config-python-env-path

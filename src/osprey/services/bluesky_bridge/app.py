@@ -327,8 +327,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 }
             )
             logger.info(
-                "%s is enabled: connected the bridge's single long-lived OSPREY "
-                "connector (%s)",
+                "%s is enabled: connected the bridge's single long-lived OSPREY connector (%s)",
                 _EPICS_SUBSTRATE_ENV,
                 type(_connector).__name__,
             )
@@ -348,9 +347,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 # connector-mediated (`read_channel`/`write_channel_checked`) —
                 # there is no raw Channel Access anywhere in this path.
                 return BlueskyScanner(
-                    devices=lambda: connector_devices.build_devices(
-                        motors, detectors, connector
-                    ),
+                    devices=lambda: connector_devices.build_devices(motors, detectors, connector),
                     plans=BUILTIN_PLANS,
                     tiled_writer_factory=_build_tiled_writer_factory(),
                 )

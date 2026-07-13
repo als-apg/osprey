@@ -168,9 +168,7 @@ async def test_connector_readable_describe_shape() -> None:
 
     described = await device.describe()
 
-    assert described == {
-        "bpm1": {"source": "connector:BPM:1", "dtype": "number", "shape": []}
-    }
+    assert described == {"bpm1": {"source": "connector:BPM:1", "dtype": "number", "shape": []}}
 
 
 async def test_build_devices_returns_expected_names_and_types() -> None:

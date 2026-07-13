@@ -102,7 +102,9 @@ class LimitsValidator:
             resolved_path = cls.resolve_database_path(db_path, project_root)
             if resolved_path != db_path:
                 if os.environ.get("CONFIG_FILE"):
-                    logger.debug(f"Resolved limits database path (via CONFIG_FILE): {resolved_path}")
+                    logger.debug(
+                        f"Resolved limits database path (via CONFIG_FILE): {resolved_path}"
+                    )
                 else:
                     logger.debug(f"Resolved limits database path: {resolved_path}")
             db_path = resolved_path

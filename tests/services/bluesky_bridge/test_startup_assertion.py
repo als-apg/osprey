@@ -131,9 +131,7 @@ def _patch_config(
 
 def _valid_limits_db(tmp_path: Path) -> Path:
     db = tmp_path / "channel_limits.json"
-    db.write_text(
-        json.dumps({"TEST:MOTOR:01:SP": {"min_value": 0.0, "max_value": 10.0}})
-    )
+    db.write_text(json.dumps({"TEST:MOTOR:01:SP": {"min_value": 0.0, "max_value": 10.0}}))
     return db
 
 

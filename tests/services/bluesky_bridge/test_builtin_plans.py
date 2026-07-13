@@ -246,12 +246,8 @@ def test_orm_plan_restore_refusal_does_not_mask_the_original_sweep_error(
 def test_orm_plan_restores_every_corrector_to_zero_when_no_refusal_occurs() -> None:
     """The ordinary (non-error) path: with no write refused, every corrector
     still ends its own sweep restored to 0 A."""
-    devices = asyncio.run(
-        build_devices(motor_names=["hcm1", "hcm2"], detector_names=["bpm1"])
-    )
-    params = ORMParams(
-        correctors=["hcm1", "hcm2"], detectors=["bpm1"], span_a=2.0, num=3
-    )
+    devices = asyncio.run(build_devices(motor_names=["hcm1", "hcm2"], detector_names=["bpm1"]))
+    params = ORMParams(correctors=["hcm1", "hcm2"], detectors=["bpm1"], span_a=2.0, num=3)
     plan = BUILTIN_PLANS["orm"].plan(devices, params)
 
     RE = RunEngine(context_managers=[])

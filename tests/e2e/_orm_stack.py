@@ -323,9 +323,7 @@ def select_correctors(
     return {f"corrector_{i + 1:02d}": pairs[i] for i in range(count)}
 
 
-def select_bpms(
-    limits: dict[str, Any], count: int | None = DEFAULT_BPM_COUNT
-) -> dict[str, str]:
+def select_bpms(limits: dict[str, Any], count: int | None = DEFAULT_BPM_COUNT) -> dict[str, str]:
     """Derive ``count`` SR BPM ``:POSITION:X``/``:POSITION:Y`` readbacks from
     the deployed project's own ``channel_limits.json`` -- same generic,
     no-hardcoded-channel convention as ``select_correctors``.
