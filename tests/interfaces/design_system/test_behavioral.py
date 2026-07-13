@@ -10,11 +10,11 @@ and Plotly.
 Follows the harness pattern from ``test_panels_browser.py``: a real uvicorn
 web-terminal server on a free port in a background thread, a real chromium
 browser via Playwright, and a clean skip when the chromium binary isn't
-installed. Two flows additionally launch a second real backend process (the
-production ``tuning`` app, or a minimal design-system-only "follower" stand-in
-app) so panel-manager's ``/panel/{id}`` reverse proxy exercises the exact
-production wiring — same-origin iframes, real ``initTheme({role:'follower'})``
-runtimes, real ``postMessage`` traffic.
+installed. Some flows additionally launch a second real backend process (a
+minimal design-system-only "follower" stand-in app) so panel-manager's
+``/panel/{id}`` reverse proxy exercises the exact production wiring —
+same-origin iframes, real ``initTheme({role:'follower'})`` runtimes, real
+``postMessage`` traffic.
 
 Run:
     .venv/bin/pytest tests/interfaces/design_system/test_behavioral.py -v
@@ -109,7 +109,7 @@ _FOLLOWER_HTML = """<!DOCTYPE html>
 def _create_follower_app() -> FastAPI:
     """A minimal real app mounting the real design-system static dir.
 
-    Stands in for a full embedded interface (artifacts/tuning/etc.) in flows
+    Stands in for a full embedded interface (artifacts/lattice/etc.) in flows
     that only need a genuine ``initTheme({role: 'follower'})`` runtime behind
     the panel-manager proxy — not a full production UI.
     """
@@ -134,13 +134,10 @@ def _hub_live_server(
     workspace_dir: Path,
     enabled_panels: set[str],
     custom_panels: list[dict] | None = None,
-    tuning_server_url: str | None = None,
 ) -> Iterator[str]:
     """Launch a real web-terminal (hub) server on a free port in a thread.
 
-    Mirrors ``test_panels_browser.py``'s ``_live_server``. ``tuning_server_url``
-    additionally patches ``_launch_tuning_server`` to point at an
-    already-running real tuning backend instead of attempting to spawn one.
+    Mirrors ``test_panels_browser.py``'s ``_live_server``.
 
     Yields:
         The hub's base URL.
@@ -162,13 +159,6 @@ def _hub_live_server(
             side_effect=lambda a: setattr(a.state, "artifact_server_url", "http://127.0.0.1:8086"),
         ),
     ]
-    if tuning_server_url is not None:
-        patches.append(
-            patch(
-                "osprey.interfaces.web_terminal.app._launch_tuning_server",
-                side_effect=lambda a: setattr(a.state, "tuning_server_url", tuning_server_url),
-            )
-        )
 
     # Patches stay live across create_app() AND the server lifespan (nested
     # _run_app_server), so the join happens while patched — see _run_app_server.
@@ -196,7 +186,7 @@ def _goto_with_seeded_theme(
 ) -> None:
     """Navigate, force the stored theme preference, then reload.
 
-    Makes toggle/broadcast/xterm/tuning assertions deterministic regardless
+    Makes toggle/broadcast/xterm assertions deterministic regardless
     of the sandbox's default ``prefers-color-scheme`` (which theme-boot.js
     would otherwise resolve 'auto' against on a bare first load).
     """
@@ -549,94 +539,3 @@ def test_xterm_palette_switches_on_toggle(tmp_path, chromium_browser):
 
         assert errors == []
         page.close()
-
-
-# ---------------------------------------------------------------------------
-# Test 7: tuning plot paper_bgcolor re-themes live on toggle
-# ---------------------------------------------------------------------------
-
-
-def test_tuning_plot_retheme_on_toggle(tmp_path, chromium_browser):
-    """A rendered tuning Plotly chart re-themes when the hub toggles.
-
-    Launches the REAL production tuning app as a second backend, proxied
-    through the hub's `/panel/tuning` route exactly as in deployment. Renders
-    a chart via `createEfficiencyPlot()` — dynamically imported at the exact
-    URL `progress-display.js`/`results-viewer.js` themselves use, so it's the
-    SAME module instance (same `_rerenderByContainer` registry, same
-    `subscribe()` registration) rather than a second, disconnected one.
-    Regression target: the dark-locked-plots bugfix (plots used to hardcode a
-    single dark layout with no light-theme re-render at all).
-    """
-    from osprey.interfaces.tuning.app import create_app as create_tuning_app
-
-    workspace = tmp_path / "_agent_data"
-    workspace.mkdir()
-
-    with _run_app_server(create_tuning_app()) as tuning_url:
-        with _hub_live_server(workspace, {"tuning"}, tuning_server_url=tuning_url) as base_url:
-            page = chromium_browser.new_page()
-            errors = _collect_sentinel_errors(page)
-
-            _goto_with_seeded_theme(page, base_url, "dark", first_tab_id="tuning")
-            _dismiss_welcome_modal(page)
-
-            tuning_tab = page.locator('button[data-panel-id="tuning"]:not(.disabled)')
-            expect(tuning_tab).to_be_attached(timeout=10_000)
-            tuning_tab.click()
-            expect(page.locator('iframe[data-panel-id="tuning"]')).to_be_attached(timeout=10_000)
-
-            tuning_frame = _content_frame(page, "tuning")
-            tuning_frame.wait_for_selector("#optimization-plot", timeout=10_000)
-            assert (
-                tuning_frame.evaluate("document.documentElement.getAttribute('data-theme')")
-                == "dark"
-            )
-
-            paper_bgcolor = tuning_frame.evaluate(
-                """
-                async () => {
-                    const mod = await import(
-                        new URL('/panel/tuning/static/js/plots.js', window.location.origin)
-                    );
-                    const container = document.getElementById('optimization-plot');
-                    mod.createEfficiencyPlot(container, [
-                        { efficiency: 1 }, { efficiency: 2 }, { efficiency: 3 },
-                    ]);
-                    return container._fullLayout ? container._fullLayout.paper_bgcolor : null;
-                }
-                """
-            )
-            dark_chart_token = tuning_frame.evaluate(
-                "getComputedStyle(document.documentElement).getPropertyValue('--chart-paper-bg').trim()"
-            )
-            assert paper_bgcolor == dark_chart_token, (
-                f"newly-rendered plot paper_bgcolor {paper_bgcolor!r} should match the dark "
-                f"--chart-paper-bg token {dark_chart_token!r}"
-            )
-
-            # Toggle the hub to light; the plot must re-render live via subscribe().
-            page.click("osprey-theme-switcher .theme-switcher-mode")
-            tuning_frame.wait_for_function(
-                "document.documentElement.getAttribute('data-theme') === 'light'", timeout=5_000
-            )
-            tuning_frame.wait_for_function(
-                """
-                () => {
-                    const container = document.getElementById('optimization-plot');
-                    const light = getComputedStyle(document.documentElement)
-                        .getPropertyValue('--chart-paper-bg').trim();
-                    return container._fullLayout && container._fullLayout.paper_bgcolor === light;
-                }
-                """,
-                timeout=5_000,
-            )
-            light_chart_token = tuning_frame.evaluate(
-                "getComputedStyle(document.documentElement).getPropertyValue('--chart-paper-bg').trim()"
-            )
-            assert light_chart_token != dark_chart_token, (
-                "expected --chart-paper-bg to actually differ between themes for this assertion to be meaningful"
-            )
-
-            assert errors == []
-            page.close()

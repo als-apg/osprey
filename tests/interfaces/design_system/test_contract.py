@@ -197,8 +197,8 @@ _ALLOWED_OPAQUE_LITERAL_DUPLICATES: frozenset[tuple[str, str]] = frozenset(
         # addition happens to coincide with it.
         ("interfaces/lattice_dashboard", "dark.lat-led.idle"),
         ("interfaces/lattice_dashboard", "light.lat-led.idle"),
-        # light.json chart.grid is net-new by design (tuning had no
-        # light-mode plot layout at all — the dark-locked-plots bug this
+        # light.json chart.grid is net-new by design (the pre-migration plots
+        # had no light-mode layout at all — the dark-locked-plots bug this
         # feature fixes), not copied from an existing ramp step.
         ("themes/light", "chart.grid"),
     }

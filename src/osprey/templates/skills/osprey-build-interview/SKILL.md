@@ -453,7 +453,7 @@ skills:
 agents: []            # Only agents for selected features
 output_styles:
   - control-operator
-web_panels: []        # e.g. ariel, channel-finder, tuning — only if web dashboard requested
+web_panels: []        # e.g. ariel, channel-finder, lattice — only if web dashboard requested
 
 config:
   project_name: "<project-name>"

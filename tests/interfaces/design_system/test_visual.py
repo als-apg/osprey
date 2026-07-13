@@ -190,12 +190,6 @@ def _channel_finder_server(tmp_path: Path):
     return _run_app_server(create_app(project_cwd=str(tmp_path / "cf_ws")))
 
 
-def _tuning_server(tmp_path: Path):
-    from osprey.interfaces.tuning.app import create_app
-
-    return _run_app_server(create_app())
-
-
 def _lattice_dashboard_server(tmp_path: Path):
     from osprey.interfaces.lattice_dashboard.app import create_app
 
@@ -248,7 +242,6 @@ TARGETS: list[VisualTarget] = [
     # theme switcher (component self-hides via body.embedded) while keeping
     # the pipeline switcher + nav usable — see channel-finder-narrowing.
     VisualTarget("channel_finder_embedded", _channel_finder_server, path="/?embedded=true"),
-    VisualTarget("tuning", _tuning_server, path="/"),
     VisualTarget("lattice_dashboard", _lattice_dashboard_server, path="/"),
     # Dispatch dashboard has no live dispatcher backend behind it here, so it
     # renders its genuine no-data empty state — a legitimate, stable baseline.

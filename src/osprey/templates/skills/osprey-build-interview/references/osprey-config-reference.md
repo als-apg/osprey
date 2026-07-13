@@ -323,7 +323,7 @@ web:
       enabled: false
     channel-finder:
       enabled: false
-    tuning:
+    lattice:
       enabled: false
 ```
 
@@ -522,7 +522,7 @@ web:
       enabled: false
     channel-finder:
       enabled: false
-    tuning:
+    lattice:
       enabled: false
     # Custom panel
     detector-monitor:
