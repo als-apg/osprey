@@ -102,6 +102,8 @@ def build_args(
     output_dir: Path,
     bridge_port: int = BRIDGE_PORT,
     va_port: int = VA_CA_PORT,
+    provider: str | None = None,
+    model: str | None = None,
 ) -> list[str]:
     """``osprey build`` CLI args (sans the leading ``build`` subcommand
     token) for FR11's turn-key scan-stack deploy config.
@@ -110,8 +112,16 @@ def build_args(
     no Docker -- see ``build_via_cli_runner``) and as
     ``[osprey_bin, "build", *build_args(...)]`` (subprocess, for a real
     ``deploy up`` afterward -- see ``build_project_subprocess``).
+
+    ``provider``/``model``, when given, append ``--set provider=<provider>``
+    and/or ``--set model=<model>`` overrides -- e.g. an agentic-discovery
+    caller that must pin an explicit provider rather than let the
+    control-assistant preset's own default apply silently (this project's
+    "no default provider" convention). Left ``None`` by default: nothing is
+    appended and the preset's own provider/model apply unchanged, so the
+    default deploy shape is byte-identical to before these params existed.
     """
-    return [
+    args = [
         project_name,
         "--preset",
         "control-assistant",
@@ -129,6 +139,11 @@ def build_args(
         str(output_dir),
         "--force",
     ]
+    if provider is not None:
+        args += ["--set", f"provider={provider}"]
+    if model is not None:
+        args += ["--set", f"model={model}"]
+    return args
 
 
 def build_via_cli_runner(
@@ -191,6 +206,8 @@ def build_project_subprocess(
     bridge_port: int = BRIDGE_PORT,
     va_port: int = VA_CA_PORT,
     timeout: int = BUILD_TIMEOUT_SEC,
+    provider: str | None = None,
+    model: str | None = None,
 ) -> Path:
     """Real ``osprey build`` subprocess for a project a caller will later
     ``osprey deploy up`` (that step needs Docker; this one doesn't -- it only
@@ -198,6 +215,10 @@ def build_project_subprocess(
     ``build_via_cli_runner``, but out-of-process so ``--dev``/``deploy up``
     against the resulting project directory behave exactly as they would for
     an operator running the real CLI).
+
+    ``provider``/``model`` thread straight through to ``build_args`` (see its
+    docstring for the override they append). Left ``None`` by default, which
+    preserves the exact default deploy shape.
     """
     osprey_bin = find_osprey_console_script()
     override_path = output_dir / "override.yml"
@@ -212,6 +233,8 @@ def build_project_subprocess(
             output_dir=output_dir,
             bridge_port=bridge_port,
             va_port=va_port,
+            provider=provider,
+            model=model,
         ),
     ]
     result = subprocess.run(
@@ -242,7 +265,7 @@ def _split_address(address: str) -> tuple[str, str, str, str, str, str] | None:
 
 
 def select_correctors(
-    limits: dict[str, Any], count: int = DEFAULT_CORRECTOR_COUNT
+    limits: dict[str, Any], count: int | None = DEFAULT_CORRECTOR_COUNT
 ) -> dict[str, tuple[str, str]]:
     """Derive ``count`` SR corrector (HCM/VCM) ``:SP``/``:RB`` pairs from the
     deployed project's own ``channel_limits.json`` -- never a hardcoded
@@ -252,6 +275,10 @@ def select_correctors(
     steers the beam via the AT lattice model) rather than any writable
     ``:SP``: the ORM plan sweeps correctors specifically, so a generic
     sp-echo pair (physics-free) would be the wrong device class here.
+
+    If ``count`` is ``None``, returns the FULL available pyat-coupled
+    corrector set instead of a fixed-size slice -- no assertion is raised in
+    that case, regardless of how many pairs are found.
 
     Returns a dict of synthetic motor name -> ``(sp_address, rb_address)``,
     ready for ``write_scan_env``'s ``BLUESKY_EPICS_MOTORS`` wiring.
@@ -285,6 +312,9 @@ def select_correctors(
         if rb in keys:
             pairs.append((sp, rb))
 
+    if count is None:
+        return {f"corrector_{i + 1:02d}": pairs[i] for i in range(len(pairs))}
+
     if len(pairs) < count:
         raise AssertionError(
             f"deployed project's channel_limits.json only yields {len(pairs)} SR "
@@ -293,10 +323,15 @@ def select_correctors(
     return {f"corrector_{i + 1:02d}": pairs[i] for i in range(count)}
 
 
-def select_bpms(limits: dict[str, Any], count: int = DEFAULT_BPM_COUNT) -> dict[str, str]:
+def select_bpms(
+    limits: dict[str, Any], count: int | None = DEFAULT_BPM_COUNT
+) -> dict[str, str]:
     """Derive ``count`` SR BPM ``:POSITION:X``/``:POSITION:Y`` readbacks from
     the deployed project's own ``channel_limits.json`` -- same generic,
     no-hardcoded-channel convention as ``select_correctors``.
+
+    If ``count`` is ``None``, returns the FULL available pyat-coupled BPM set
+    instead of a fixed-size slice -- no assertion is raised in that case.
 
     Returns a dict of synthetic detector name -> readback address, ready for
     ``write_scan_env``'s ``BLUESKY_EPICS_DETECTORS`` wiring.
@@ -327,6 +362,9 @@ def select_bpms(limits: dict[str, Any], count: int = DEFAULT_BPM_COUNT) -> dict[
         if classify_partition(path) != PARTITION_PYAT_COUPLED:
             continue
         addresses.append(addr)
+
+    if count is None:
+        return {f"bpm_{i + 1:02d}": addresses[i] for i in range(len(addresses))}
 
     if len(addresses) < count:
         raise AssertionError(
