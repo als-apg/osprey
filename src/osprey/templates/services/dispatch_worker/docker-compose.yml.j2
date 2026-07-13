@@ -47,6 +47,7 @@ services:
       DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
       DISPATCH_WORKER_PORT: "{{ services.dispatch_worker.worker_port_base | default(9190) }}"
       DISPATCH_TIMEOUT_SEC: "{{ services.dispatch_worker.timeout_sec | default(300) }}"
+      DISPATCH_INACTIVITY_SEC: "{{ services.dispatch_worker.inactivity_sec | default(120) }}"
       OSPREY_PROJECT_DIR: /app/{{ osprey_labels.project_name }}
       # The worker process reads OSPREY config directly (e.g. get_facility_timezone
       # while building the agent's system prompt), and spawns a CLI subprocess with

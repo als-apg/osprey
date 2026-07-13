@@ -1325,6 +1325,7 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
         "worker_port_base": dispatch.worker_port_base,
         "workspace_mode": dispatch.workspace_mode,
         "timeout_sec": dispatch.timeout_sec,
+        "inactivity_sec": dispatch.inactivity_sec,
     }
     deployed = config.get("deployed_services", []) or []
     for name in ("event_dispatcher", "dispatch_worker"):

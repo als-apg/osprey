@@ -97,6 +97,7 @@ class DispatchConfig:
     dispatcher_port: int = 8020
     worker_port_base: int = 9190
     timeout_sec: int = 300
+    inactivity_sec: int = 120
     facility_name: str = ""
     pv_strip_prefix: str = ""
 
@@ -497,6 +498,8 @@ class BuildProfile:
                 errors.append(f"dispatch.max_queue_depth must be >= 1 (got {d.max_queue_depth})")
             if d.timeout_sec <= 0:
                 errors.append(f"dispatch.timeout_sec must be > 0 (got {d.timeout_sec})")
+            if d.inactivity_sec <= 0:
+                errors.append(f"dispatch.inactivity_sec must be > 0 (got {d.inactivity_sec})")
             # triggers must be a non-empty, resolvable file
             # (profile-relative OR bundled preset name)
             if not d.triggers:
@@ -714,6 +717,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             dispatcher_port=dispatch_raw.get("dispatcher_port", 8020),
             worker_port_base=dispatch_raw.get("worker_port_base", 9190),
             timeout_sec=dispatch_raw.get("timeout_sec", 300),
+            inactivity_sec=dispatch_raw.get("inactivity_sec", 120),
             facility_name=dispatch_raw.get("facility_name", ""),
             pv_strip_prefix=dispatch_raw.get("pv_strip_prefix", ""),
         )

@@ -151,6 +151,24 @@ def test_parse_round_trip() -> None:
     assert profile.dispatch.workspace_mode == "isolated"
 
 
+def test_inactivity_sec_below_one_raises(tmp_path: Path) -> None:
+    triggers = _write_triggers(tmp_path)
+    profile = BuildProfile(name="x", dispatch=DispatchConfig(triggers=triggers, inactivity_sec=0))
+    with pytest.raises(BuildProfileError, match="inactivity_sec"):
+        profile.validate(tmp_path)
+
+
+def test_inactivity_sec_parses_and_defaults() -> None:
+    # An explicit value round-trips through _parse_profile.
+    p = _parse_profile({"name": "x", "dispatch": {"triggers": "t.yml", "inactivity_sec": 600}})
+    assert p.dispatch is not None
+    assert p.dispatch.inactivity_sec == 600
+    # Absent -> matches the worker's built-in 120s inactivity-watchdog default.
+    p2 = _parse_profile({"name": "x", "dispatch": {"triggers": "t.yml"}})
+    assert p2.dispatch is not None
+    assert p2.dispatch.inactivity_sec == 120
+
+
 def test_dispatch_not_a_mapping_raises() -> None:
     with pytest.raises(BuildProfileError, match="dispatch"):
         _parse_profile({"name": "x", "dispatch": "nope"})
