@@ -128,8 +128,7 @@ def _default_theme_stem(tree: TokenTree) -> str:
             actually be dark for a ``:root`` fallback to make sense.
     """
     dark_stems = [
-        stem for stem in tree.themes
-        if tree.theme_metadata.get(stem, {}).get("mode") == "dark"
+        stem for stem in tree.themes if tree.theme_metadata.get(stem, {}).get("mode") == "dark"
     ]
     for stem in dark_stems:
         if tree.theme_metadata.get(stem, {}).get("default") is True:
