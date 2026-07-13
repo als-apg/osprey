@@ -93,7 +93,7 @@ describe('<osprey-theme-switcher>', () => {
       const select = qs(el, '.theme-switcher-family', HTMLSelectElement);
       const values = Array.from(select.options).map((o) => o.value);
 
-      expect(values).toEqual(['osprey', 'high-contrast']);
+      expect(values).toEqual(['apex', 'osprey', 'high-contrast']);
     });
 
     test('derives a human family label by title-casing the family id', () => {
@@ -103,7 +103,7 @@ describe('<osprey-theme-switcher>', () => {
       const select = qs(el, '.theme-switcher-family', HTMLSelectElement);
       const labels = Array.from(select.options).map((o) => o.textContent);
 
-      expect(labels).toEqual(['Osprey', 'High Contrast']);
+      expect(labels).toEqual(['Apex', 'Osprey', 'High Contrast']);
     });
 
     test('renders an in-family mode toggle button', () => {
