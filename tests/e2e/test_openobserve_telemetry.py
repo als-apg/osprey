@@ -253,9 +253,7 @@ def _synthetic_metric(now_ns: int) -> dict:
         "resourceMetrics": [
             {
                 "resource": {
-                    "attributes": [
-                        {"key": "service.name", "value": {"stringValue": "claude-code"}}
-                    ]
+                    "attributes": [{"key": "service.name", "value": {"stringValue": "claude-code"}}]
                 },
                 "scopeMetrics": [
                     {
@@ -288,9 +286,7 @@ def _synthetic_event(now_ns: int) -> dict:
         "resourceLogs": [
             {
                 "resource": {
-                    "attributes": [
-                        {"key": "service.name", "value": {"stringValue": "claude-code"}}
-                    ]
+                    "attributes": [{"key": "service.name", "value": {"stringValue": "claude-code"}}]
                 },
                 "scopeLogs": [
                     {
@@ -333,9 +329,7 @@ def test_synthetic_otlp_roundtrip_via_computed_header(deployed_openobserve: Path
         f"/api/{OO_ORG}/v1/metrics", _synthetic_metric(now_ns), auth
     )
     assert metric_status == 200, f"metric ingest rejected: {metric_status} {metric_body}"
-    event_status, event_body = _otlp_post(
-        f"/api/{OO_ORG}/v1/logs", _synthetic_event(now_ns), auth
-    )
+    event_status, event_body = _otlp_post(f"/api/{OO_ORG}/v1/logs", _synthetic_event(now_ns), auth)
     assert event_status == 200, f"event ingest rejected: {event_status} {event_body}"
 
     # Poll the query API until both are visible (ingest is async).
@@ -422,7 +416,13 @@ def test_live_agent_metric_lands(deployed_openobserve: Path) -> None:
 
     osprey_bin = _find_osprey_console_script()
     turn = _run(
-        [str(osprey_bin), "claude", "chat", "--prompt", "Say 'telemetry-smoke-ok' and nothing else."],
+        [
+            str(osprey_bin),
+            "claude",
+            "chat",
+            "--prompt",
+            "Say 'telemetry-smoke-ok' and nothing else.",
+        ],
         cwd=project_dir,
         timeout=180,
     )
