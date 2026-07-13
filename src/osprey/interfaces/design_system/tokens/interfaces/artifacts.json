@@ -1,6 +1,6 @@
 {
   "$description": "Artifacts-only extension tokens: the 'memory domain' violet accent (art-violet-*). Source: artifacts/static/css/gallery.css lines 34-38 (dark) and 161-164 (light). Purely a decorative brand accent (not body text), so the high-contrast family opts out via $extensions.inherits rather than duplicating an identical group: these saturated violet values already read at equal-or-better contrast against high-contrast's more extreme (near-black/near-white) backgrounds than they do against dark/light's own.",
-  "$extensions": { "inherits": { "high-contrast-dark": "dark", "high-contrast-light": "light" } },
+  "$extensions": { "inherits": { "high-contrast-dark": "dark", "high-contrast-light": "light", "apex-dark": "dark", "apex-light": "light" } },
   "dark": {
     "art-violet": {
       "base": { "$value": "{color.violet.200}", "$type": "color" },

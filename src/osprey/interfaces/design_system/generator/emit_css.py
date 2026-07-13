@@ -105,10 +105,14 @@ def _resolved_value(token: ResolvedToken) -> str:
 
 
 def _default_theme_stem(tree: TokenTree) -> str:
-    """Return the stem of the theme whose ``$extensions.mode`` is ``"dark"``.
+    """Return the stem of the dark theme that doubles as the ``:root`` fallback.
 
-    That theme doubles as the ``:root`` fallback (see the module
-    docstring) and is always emitted first.
+    Prefer a dark theme explicitly flagged ``$extensions.default: true`` —
+    this pins the ``:root`` fallback deterministically, independent of
+    filename/manifest order, so adding a theme family whose files sort
+    before the canonical one can never hijack the product default. When no
+    dark theme is flagged, fall back to the first dark theme in manifest
+    order (the historical behavior).
 
     Args:
         tree: The loaded token tree.
@@ -123,9 +127,15 @@ def _default_theme_stem(tree: TokenTree) -> str:
             to be ``"dark"`` or ``"light"`` — but at least one theme must
             actually be dark for a ``:root`` fallback to make sense.
     """
-    for stem in tree.themes:
-        if tree.theme_metadata.get(stem, {}).get("mode") == "dark":
+    dark_stems = [
+        stem for stem in tree.themes
+        if tree.theme_metadata.get(stem, {}).get("mode") == "dark"
+    ]
+    for stem in dark_stems:
+        if tree.theme_metadata.get(stem, {}).get("default") is True:
             return stem
+    if dark_stems:
+        return dark_stems[0]
     raise ValueError("no theme declares $extensions.mode == 'dark'; cannot emit tokens.css")
 
 

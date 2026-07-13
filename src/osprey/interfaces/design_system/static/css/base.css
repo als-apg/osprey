@@ -50,3 +50,15 @@ html, body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--neutral-tint-35);
 }
+
+/* apex theme typography (theme-scoped, not app-scoped).
+   --font-display is the body/UI workhorse bound to html/body above, so it must
+   stay sans-serif — pointing it at a serif would render the whole app serif.
+   The apex brand serif (Instrument Serif) is applied to the single brand
+   wordmark only, in web_terminal/terminal.css. @font-face lives in
+   shared_fonts/fonts.css. The osprey (dark/light) and high-contrast themes are
+   untouched — they keep the tokens.css --font-display value. */
+[data-theme="apex-dark"],
+[data-theme="apex-light"] {
+  --font-display: 'IBM Plex Sans', system-ui, sans-serif;
+}
