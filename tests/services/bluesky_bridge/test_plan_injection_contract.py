@@ -110,8 +110,16 @@ def test_facility_devices_construct_from_config_loaded_module(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`get_devices()` from the config-pointed module actually runs and its
-    result is what the bridge holds — not just that the plan schema shows up."""
+    result is what the bridge holds — not just that the plan schema shows up.
+
+    Isolates the aggregate from the shipped/facility directory layers (an
+    empty `_SHIPPED_PLANS_DIR`, no `BLUESKY_PLAN_DIRS`) so the exact-set
+    assertion below reflects only the config-loaded legacy module, not
+    whatever exemplar plans the real `plans_core/` dir happens to ship.
+    """
     monkeypatch.delenv("BLUESKY_PLAN_MODULE", raising=False)
+    monkeypatch.delenv("BLUESKY_PLAN_DIRS", raising=False)
+    monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", tmp_path / "no_shipped_plans")
     module_path = _write_facility_module(tmp_path)
     _write_config(tmp_path, {"scan": {"plan_module": str(module_path)}})
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))
