@@ -280,10 +280,29 @@ myst_enable_extensions = [
     "dollarmath",
 ]
 
-# Make version available as substitution variables for RST files
+
+def _screenshot_caption_prolog():
+    """Build ``|captured_<name>|`` substitutions for every screenshot recipe.
+
+    Delegates to :func:`docs.screenshots.recipes.caption_substitutions` (which is
+    unit-tested): the set is derived from the recipe *registry*, not from
+    ``manifest.json`` presence, so every substitution is always defined and the
+    docs build never fails on a fresh clone with no captured manifest.
+    """
+    try:
+        from docs.screenshots.recipes import caption_substitutions
+    except Exception:  # pragma: no cover - registry import must never break the build
+        return ""
+    return "\n".join(
+        f".. |{name}| replace:: {value}" for name, value in caption_substitutions().items()
+    )
+
+
+# Make version (and per-screenshot capture provenance) available as RST substitutions
 rst_prolog = f"""
 .. |version| replace:: {release}
 .. |release| replace:: v{release}
+{_screenshot_caption_prolog()}
 """
 
 # -- Todo configuration -----------------------------------------------------

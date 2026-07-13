@@ -8,6 +8,7 @@ project (the project root is the current working directory).
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -16,6 +17,26 @@ from osprey.utils.config import load_config
 from osprey.utils.logger import get_logger
 
 logger = get_logger("sim")
+
+
+def _parse_now(now_iso: str) -> datetime:
+    """Parse an ISO-8601 ``--now`` anchor into an aware datetime.
+
+    A naive value takes the facility timezone — the same zone
+    :func:`osprey.simulation.apply.apply_scenarios` resolves seeded logbook
+    time-of-day into — so a bare ``2024-03-18T12:00:00`` freezes the narrative
+    on the facility clock rather than silently landing in UTC.
+    """
+    try:
+        anchor = datetime.fromisoformat(now_iso)
+    except ValueError:
+        click.echo(f"Error: --now value {now_iso!r} is not valid ISO-8601.", err=True)
+        raise SystemExit(1) from None
+    if anchor.tzinfo is None:
+        from osprey.utils.config import get_facility_timezone
+
+        anchor = anchor.replace(tzinfo=get_facility_timezone())
+    return anchor
 
 
 # ---------------------------------------------------------------------------
@@ -102,7 +123,20 @@ def status_command() -> None:
 @click.argument("names", nargs=-1, required=True)
 @click.option("--no-seed", is_flag=True, help="Change telemetry only; do not touch the logbook DB.")
 @click.option("--yes", "-y", is_flag=True, help="Skip the purge confirmation prompt.")
-def apply_command(names: tuple[str, ...], no_seed: bool, yes: bool) -> None:
+@click.option(
+    "--now",
+    "now_iso",
+    default=None,
+    envvar="OSPREY_SIM_NOW",
+    metavar="ISO8601",
+    help=(
+        "Freeze the apply-time anchor T0 to an ISO-8601 instant "
+        "(e.g. 2024-03-18T12:00:00) so seeded logbook dates are reproducible. "
+        "A naive value takes the facility timezone. Defaults to wall-clock now. "
+        "Falls back to the OSPREY_SIM_NOW environment variable."
+    ),
+)
+def apply_command(names: tuple[str, ...], no_seed: bool, yes: bool, now_iso: str | None) -> None:
     """Compose and activate scenarios NAMES, seeding their logbook (unless --no-seed).
 
     Active scenarios must touch disjoint channel sets. Seeding purges and
@@ -110,6 +144,7 @@ def apply_command(names: tuple[str, ...], no_seed: bool, yes: bool) -> None:
     """
     from osprey.simulation.apply import apply_scenarios
 
+    now = _parse_now(now_iso) if now_iso else None
     project_dir = Path.cwd()
     config = load_config(str(project_dir / "config.yml"))
     ariel_config = config.get("ariel")
@@ -130,7 +165,7 @@ def apply_command(names: tuple[str, ...], no_seed: bool, yes: bool) -> None:
             click.confirm("Continue?", abort=True)
 
     try:
-        result = apply_scenarios(project_dir, list(names), seed_logbook=not no_seed)
+        result = apply_scenarios(project_dir, list(names), seed_logbook=not no_seed, now=now)
     except ValueError as exc:
         click.echo(f"Error: {exc}", err=True)
         raise SystemExit(1) from None

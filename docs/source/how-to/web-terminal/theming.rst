@@ -33,6 +33,24 @@ The switcher in the header lets you change family and flip between light and
 dark; it remembers your choice, and an ``auto`` setting follows your operating
 system's light/dark preference.
 
+.. grid:: 1 1 2 2
+   :gutter: 2
+
+   .. grid-item::
+
+      .. image:: /_static/screenshots/theme_switcher_light.png
+         :alt: The header theme switcher in the light Osprey theme
+         :width: 100%
+
+   .. grid-item::
+
+      .. image:: /_static/screenshots/theme_switcher_dark.png
+         :alt: The header theme switcher in the dark Osprey theme
+         :width: 100%
+
+The header theme switcher, light and dark. Captured with OSPREY
+|captured_theme_switcher|.
+
 To set the theme a deployment *starts* in, use ``web.theme`` in ``config.yml``:
 
 .. code-block:: yaml
