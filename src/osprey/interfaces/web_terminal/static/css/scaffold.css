@@ -511,7 +511,7 @@
 }
 
 .prompts-diff-line.del {
-  background: var(--error-tint-08);
+  background: var(--diff-del-bg);
   color: var(--diff-del-text);
 }
 
@@ -843,7 +843,7 @@
   outline: none;
   appearance: none;
   -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23888'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%23888'/%3E%3C/svg%3E"); /* hygiene-allow-color: native <select> chevron in a data-URI (can't reference a token); fixed neutral gray reads on light and dark, full tokenization via a masked pseudo deferred */
   background-repeat: no-repeat;
   background-position: right 4px center;
   transition: border-color var(--wt-transition-fast);

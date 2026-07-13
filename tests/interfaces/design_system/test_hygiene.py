@@ -142,7 +142,14 @@ _ALLOW_BLOCK_END_MARKER = "hygiene-allow-color-end"
 
 
 def _count_hardcoded_colors(text: str) -> int:
-    """Count non-allowlisted hardcoded-color occurrences in one file's text."""
+    """Count non-allowlisted hardcoded-color occurrences in one file's text.
+
+    A ``#`` percent-encoded as ``%23`` inside a ``url()``/``data:`` URI (the
+    common shape for an inline-SVG icon's ``fill``/``stroke``) is decoded
+    before matching, so an encoded hex color is caught exactly like a literal
+    one — otherwise a themed-looking asset can smuggle a fixed color past the
+    literal-``#`` regex.
+    """
     count = 0
     in_allowed_block = False
     for line in text.splitlines():
@@ -154,8 +161,21 @@ def _count_hardcoded_colors(text: str) -> int:
             continue
         if in_allowed_block or _ALLOW_LINE_MARKER in line:
             continue
-        count += len(_COLOR_RE.findall(line))
+        count += len(_COLOR_RE.findall(line.replace("%23", "#")))
     return count
+
+
+def test_scanner_decodes_percent_encoded_hash() -> None:
+    """A ``%23``-encoded hex color in a data-URI is counted like a literal one.
+
+    Regression guard for the scanner scope hole: an inline-SVG icon whose
+    ``fill``/``stroke`` is written ``%23abcdef`` (URL-encoded ``#``) used to
+    pass the literal-``#`` regex untouched.
+    """
+    encoded = "background-image: url(\"data:image/svg+xml,...fill='%2394a3b8'...\");"
+    assert _count_hardcoded_colors(encoded) == 1
+    # The inline allow-marker still suppresses it, same as a literal color.
+    assert _count_hardcoded_colors(encoded + " /* hygiene-allow-color: x */") == 0
 
 
 def test_hardcoded_color_zero_tolerance() -> None:

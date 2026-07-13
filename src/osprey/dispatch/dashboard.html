@@ -689,10 +689,24 @@ header .stats .stat-value {
   border-radius: 3px;
   outline: none;
   transition: border-color 120ms ease;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b9ab5' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: 7px center;
-  background-size: 12px;
+}
+/* Search icon lives on the wrapper's ::before as a themed mask (a data-URI
+   background-image can't reference a token, so a fixed color there never
+   tracks the theme). The mask SVG's stroke is a shape-only named color;
+   the visible color is the token-driven mask fill. */
+.runs-filters .search-box { position: relative; display: inline-flex; align-items: center; }
+.runs-filters .search-box::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  background-color: var(--text-muted);
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E") no-repeat center / contain;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='8'/%3E%3Cpath d='m21 21-4.35-4.35'/%3E%3C/svg%3E") no-repeat center / contain;
 }
 .runs-filters input.search:focus { border-color: var(--color-accent-light); }
 .runs-filters .count-info {
@@ -1003,8 +1017,7 @@ table.runs-table tbody tr.active { background: var(--accent-tint-12); }
 ::-webkit-scrollbar-thumb { background: var(--neutral-tint-20); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--neutral-tint-35); }
 </style>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/fonts/fonts.css">
 </head>
 <body>
 <header>
@@ -1072,7 +1085,7 @@ table.runs-table tbody tr.active { background: var(--accent-tint-12); }
         <div class="runs-filters">
           <span class="chip" id="chip-trigger"><span class="label">trigger</span>: <select id="filter-trigger"><option value="">all</option></select></span>
           <span class="chip" id="chip-status"><span class="label">status</span>: <select id="filter-status"><option value="">all</option><option value="pending">pending</option><option value="completed">completed</option><option value="error">error</option></select></span>
-          <input class="search" id="filter-search" placeholder="search run id · output · tool names…" spellcheck="false" autocomplete="off">
+          <span class="search-box"><input class="search" id="filter-search" placeholder="search run id · output · tool names…" spellcheck="false" autocomplete="off"></span>
           <span class="count-info" id="runs-count">0 runs</span>
         </div>
         <div class="runs-scroll">

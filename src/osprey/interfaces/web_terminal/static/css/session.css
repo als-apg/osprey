@@ -280,8 +280,13 @@
       font-size: 9px;
       padding: 1px 5px;
       border-radius: 3px;
-      color: var(--srv, var(--text-muted));
-      background: var(--neutral-tint-08);
+      /* Legible name in every theme; the per-server hue (--srv, set by the
+         .srv-* class) reads as a tint/border fill rather than as text — the
+         categorical hues are picked for the dark surface and drop below AA
+         as text on the light/high-contrast-light badge background. */
+      color: var(--text-secondary);
+      background: color-mix(in srgb, var(--srv, var(--text-muted)) 14%, transparent);
+      border: 1px solid color-mix(in srgb, var(--srv, var(--text-muted)) 30%, transparent);
       white-space: nowrap;
     }
 
@@ -323,11 +328,9 @@
       color: var(--text-muted);
       margin-bottom: 2px;
     }
-    .tl-entry.tl-prompt .tl-kind { color: var(--color-amber); }
-    .tl-entry.tl-reasoning .tl-kind { color: var(--color-accent-light); }
-    .tl-entry.tl-tool_call .tl-kind { color: #a78bfa; } /* hygiene-allow-color: fixed categorical timeline-kind color, matches .srv-python */
-    .tl-entry.tl-tool_result .tl-kind { color: #60a5fa; } /* hygiene-allow-color: fixed categorical timeline-kind color, matches .srv-workspace */
-    .tl-entry.tl-thinking .tl-kind { color: #f472b6; } /* hygiene-allow-color: fixed categorical timeline-kind color, matches .srv-ariel */
+    /* The per-kind hue lives in the ::before timeline dot above; the label
+       itself stays the legible --text-muted (its base value) in every theme
+       rather than repeating the categorical hue as low-contrast text. */
     .tl-text {
       font-size: 11px;
       color: var(--text-secondary);

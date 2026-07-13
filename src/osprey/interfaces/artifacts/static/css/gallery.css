@@ -1428,7 +1428,7 @@ body.resizing iframe {
 
 .btn-primary {
   background: var(--color-accent);
-  color: var(--bg-primary);
+  color: var(--color-on-accent);
   border-color: var(--color-accent);
 }
 

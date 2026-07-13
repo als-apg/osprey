@@ -152,7 +152,9 @@ describe('renderPlotly', () => {
     expect(Plotly.react).toHaveBeenCalledTimes(1);
     const [plotEl, traces, layout, config] = Plotly.react.mock.calls[0];
     expect(plotEl).toBe(document.getElementById('plot-optics'));
-    expect(traces).toBe(figData.data);
+    // Traces pass through unchanged (a shallow copy from the themed-marker
+    // mapping, but element-identical for figures with no themed markers).
+    expect(traces).toEqual(figData.data);
 
     // Theme-independent shape: fixed font family/size, fixed margin, autosize on.
     expect(layout.font.family).toBe('JetBrains Mono, monospace');
@@ -177,6 +179,25 @@ describe('renderPlotly', () => {
     });
   });
 
+  test("a trace tagged meta='themed-fg-marker' gets its marker color set from the theme", () => {
+    const figData = {
+      data: [
+        { x: [1], y: [1], meta: 'themed-fg-marker', marker: { size: 14, symbol: 'star' } },
+        { x: [2], y: [2], marker: { size: 6, color: '#123456' } },
+      ],
+      layout: {},
+    };
+    renderPlotly('optics', figData);
+    const [, traces] = Plotly.react.mock.calls[0];
+    // Tagged trace: a color key is injected (value comes from chartTheme(),
+    // an empty string in this unstyled test DOM) while other marker props stay.
+    expect(traces[0].marker).toHaveProperty('color');
+    expect(traces[0].marker.size).toBe(14);
+    expect(traces[0].marker.symbol).toBe('star');
+    // Untagged trace is left exactly as-is.
+    expect(traces[1].marker.color).toBe('#123456');
+  });
+
   test('merges grid/zeroline colors into every x/y axis present in the source layout', () => {
     const figData = {
       data: [],
@@ -191,7 +212,7 @@ describe('renderPlotly', () => {
     expect(layout.yaxis2.title).toBe('y2');
   });
 
-  test('annotations keep their own color if set, otherwise inherit the theme font color', () => {
+  test('annotations pass through as authored; an uncolored one inherits (not bakes) the font color', () => {
     const figData = {
       data: [],
       layout: {
@@ -203,8 +224,13 @@ describe('renderPlotly', () => {
     };
     renderPlotly('optics', figData);
     const [, , layout] = Plotly.react.mock.calls[0];
+    // An explicit annotation color is preserved.
     expect(layout.annotations[0].font.color).toBe('red');
-    expect(layout.annotations[1].font.color).toBe(layout.font.color);
+    // One without a color is left uncolored so it inherits layout.font.color,
+    // which the theme relayout re-drives on switch (rather than being frozen
+    // at the first render's color).
+    expect(layout.annotations[1].font).toBeUndefined();
+    expect(layout).toHaveProperty('font.color');
   });
 
   test('does nothing when the target plot element is absent (unknown figure name)', () => {
