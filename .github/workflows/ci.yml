@@ -492,19 +492,21 @@ jobs:
           # Tier 3 per-preset agentic flows live in their own matrix job
           # (agentic-per-preset). The full Docker-stack tests
           # (dispatch-deploy-e2e, scan-deploy-e2e, tiled-roundtrip-e2e,
-          # va-substrate-equivalence-e2e) and the Dockerfile e2e
-          # (dockerfile-e2e) each have their own job because they build
-          # container images. Exclude all six here to avoid
+          # va-substrate-equivalence-e2e, scan-catalog-e2e) and the
+          # Dockerfile e2e (dockerfile-e2e) each have their own job because
+          # they build container images. Exclude all seven here to avoid
           # double-execution. NOTE: "--ignore" means "not in this
           # secret-gated LLM lane," NOT "not tested" — every ignored file
-          # below runs in its own secret-free job on every PR.
+          # below runs in its own secret-free job on every PR
+          # (scan-catalog-e2e is advisory-only — see that job's comment).
           uv run pytest tests/e2e/ -v --tb=short \
             --ignore=tests/e2e/test_preset_agentic.py \
             --ignore=tests/e2e/test_dispatch_deploy.py \
             --ignore=tests/e2e/test_scan_deploy.py \
             --ignore=tests/e2e/test_dockerfile_e2e.py \
             --ignore=tests/e2e/test_tiled_roundtrip.py \
-            --ignore=tests/e2e/test_va_substrate_equivalence.py
+            --ignore=tests/e2e/test_va_substrate_equivalence.py \
+            --ignore=tests/e2e/test_scan_catalog_e2e.py
         fi
 
   deploy-e2e:
@@ -731,6 +733,42 @@ jobs:
     - name: Run Tiled roundtrip E2E
       run: |
         uv run pytest tests/e2e/test_tiled_roundtrip.py -v --tb=short
+
+  scan-catalog-e2e:
+    name: Scan Catalog E2E (layered plan catalog, full Docker stack)
+    runs-on: ubuntu-latest
+    # ADVISORY LANE: deliberately NOT in all-checks-passed's `needs:` list —
+    # read this job's own log to see whether it passed. Only run on PRs from
+    # same repo (mirrors scan-deploy-e2e/tiled-roundtrip-e2e gating). This
+    # job needs no secrets — the bridge never shells out to an LLM — and no
+    # amd64-emulated Virtual Accelerator image (demo_scanner mode: real
+    # RunEngine, mock devices, no EPICS), so it's comparable in weight to
+    # scan-deploy-e2e rather than va-substrate-equivalence-e2e.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Run scan catalog E2E
+      run: |
+        uv run pytest tests/e2e/test_scan_catalog_e2e.py -v --tb=short
 
   dockerfile-e2e:
     name: Dockerfile E2E (generated container image)
