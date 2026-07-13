@@ -26,6 +26,31 @@ from osprey.utils.logger import get_logger
 logger = get_logger("epics_connector")
 
 
+def _configure_pyepics_libca() -> None:
+    """Point pyepics at epicscorelibs' per-architecture libca before it loads CA.
+
+    pyepics's bundled ``clibs`` are x86_64-only: its ``find_libca()`` selects
+    ``clibs/linux64`` for any 64-bit OS, so on an arm64 host it loads a
+    mismatched-architecture ``libca.so`` and Channel Access initialization
+    fails outright. ``epicscorelibs`` (already present via the CA stack) ships a
+    correct per-architecture libca; exporting ``PYEPICS_LIBCA`` to it makes the
+    connector's CA work in arm64 and amd64 containers alike.
+
+    Only sets the variable when it is unset, so an operator's explicit
+    ``PYEPICS_LIBCA`` override always wins. A no-op that leaves pyepics' own
+    resolution in place when ``epicscorelibs`` is not installed.
+    """
+    if os.environ.get("PYEPICS_LIBCA"):
+        return
+    try:
+        from epicscorelibs.path import get_lib
+
+        os.environ["PYEPICS_LIBCA"] = get_lib("ca")
+        logger.debug("Configured PYEPICS_LIBCA from epicscorelibs: %s", os.environ["PYEPICS_LIBCA"])
+    except Exception:  # epicscorelibs absent/failed -> pyepics falls back to its own resolution
+        logger.debug("epicscorelibs libca unavailable; using pyepics default libca resolution")
+
+
 class EPICSConnector(ControlSystemConnector):
     """
     EPICS control system connector using pyepics.
@@ -94,6 +119,9 @@ class EPICSConnector(ControlSystemConnector):
         Raises:
             ImportError: If pyepics is not installed
         """
+        # Ensure pyepics loads a correct-architecture libca before first CA use.
+        _configure_pyepics_libca()
+
         # Import epics here to give clear error if not installed
         try:
             import epics
