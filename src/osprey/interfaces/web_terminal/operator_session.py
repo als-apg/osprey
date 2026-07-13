@@ -13,6 +13,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from osprey.interfaces.web_terminal.env_utils import strip_claude_code_env
 from osprey.interfaces.web_terminal.sdk_context import build_system_prompt
 from osprey.utils.config import get_facility_timezone
 
@@ -136,15 +137,16 @@ def _message_to_events(message: Any) -> list[dict[str, Any]]:
 def build_clean_env(project_cwd: str | None = None) -> dict[str, str]:
     """Build a clean environment dict for the SDK subprocess.
 
-    Mirrors the logic in ``pty_manager.py`` — strips ``CLAUDECODE``/``CLAUDE_CODE_*``
-    variables and resolves auth token conflicts.
+    Strips ``CLAUDECODE``/``CLAUDE_CODE_*`` variables (via the shared
+    :func:`strip_claude_code_env` helper, which preserves the telemetry master
+    switch) and resolves auth token conflicts.
 
     Args:
         project_cwd: Optional project directory. When ``OSPREY_CONFIG`` is not
             already set and this directory contains ``config.yml``, the variable
             is set automatically so hooks can locate the configuration.
     """
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("CLAUDECODE", "CLAUDE_CODE_"))}
+    env = strip_claude_code_env(dict(os.environ))
 
     # When token-based auth is configured, strip ANTHROPIC_API_KEY to
     # prevent the "auth conflict" warning.
