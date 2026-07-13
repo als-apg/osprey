@@ -15,7 +15,8 @@
   },
   "accent": {
     "base": { "$value": "{color.amber.300}", "$type": "color", "$description": "GOLD-FORWARD: focal accent = warm gold #d4a574 (tuning --gold), aliased into core amber.300." },
-    "light": { "$value": "{color.amber.100}", "$type": "color", "$description": "GOLD-FORWARD: lighter gold #e8c9a0 for hover/glow, aliased into core amber.100." }
+    "light": { "$value": "{color.amber.100}", "$type": "color", "$description": "GOLD-FORWARD: lighter gold #e8c9a0 for hover/glow, aliased into core amber.100." },
+    "on": { "$value": "{color.slate.1000}", "$type": "color", "$description": "GOLD-FORWARD: dark ink (#0a0f1a) on the light gold accent.base (#d4a574) = 8.61:1 — legible primary-button text (gated >= 4.5 vs accent.base)." }
   },
   "amber": {
     "base": { "$value": "{color.teal.100}", "$type": "color", "$description": "DEMOTED TEAL: the secondary/data hue #4fd1c5 (tuning --cyan) lives in the amber.* slot under the gold-forward inversion." },

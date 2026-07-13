@@ -1,5 +1,5 @@
 {
-  "$description": "Apex Light — gold-forward skin ported from tuning_scripts (light companion of apex-dark). The warm GOLD is the focal/primary accent (accent.* + border.accent + all tint.accent.* carry gold), and the teal (#0a8f8c, core teal.400) is DEMOTED to the secondary/data slot: amber.* group, tint.amber.*, chart.series slot 1, terminal cursor/selection. Surfaces are the tuning light slate ramp; text is the tuning light ink ramp; status/overlay/shadow/diff keep osprey's exact light values. WCAG contract gates (text.primary/secondary >= 4.5, text.muted >= 3, accent >= 3, all vs bg.primary #f7f9fc) all pass — text-primary ~17.6:1, text-secondary ~9.71:1, text-muted ~4.51:1, accent (gold) ~4.07:1. The light gold accent WAS nudged (see accent.base): tuning's --gold #b8894e resolves to only ~2.96:1 vs bg.primary, below the 3.0 floor, so it was darkened to core amber.800 #a07040 (~4.07:1).",
+  "$description": "Apex Light — gold-forward skin ported from tuning_scripts (light companion of apex-dark). The warm GOLD is the focal/primary accent (accent.* + border.accent + all tint.accent.* carry gold), and the teal (#0a8f8c, core teal.400) is DEMOTED to the secondary/data slot: amber.* group, tint.amber.*, chart.series slot 1, terminal cursor/selection. Surfaces are the tuning light slate ramp; text is the tuning light ink ramp; status/overlay/shadow/diff keep osprey's exact light values. WCAG contract gates all pass: text.primary/secondary >= 4.5, text.muted >= 3, accent >= 3 vs bg.primary #f7f9fc (text-primary ~17.6:1, text-secondary ~9.71:1, text-muted ~4.51:1, accent gold ~3.30:1), and accent.on >= 4.5 vs accent.base (5.50:1). The light gold accent is WCAG-tuned (see accent.base): tuning's --gold #b8894e (2.96:1 vs bg) and amber.800 #a07040 (dead-zone for the on-accent gate) both fail a gate, so it uses core amber.700 #c07a00, which clears both.",
   "$extensions": { "mode": "light", "id": "apex-light", "label": "Apex Light", "family": "apex" },
   "bg": {
     "terminal": { "$value": "{color.slate.50}", "$type": "color", "$description": "Lightest surface (#fafbfd) — one shade above tuning --bg-0; exact core alias." },
@@ -14,8 +14,9 @@
     "muted": { "$value": "{color.slate.650}", "$type": "color" }
   },
   "accent": {
-    "base": { "$value": "{color.amber.800}", "$type": "color", "$description": "GOLD-FORWARD focal accent, WCAG-NUDGED: tuning's light --gold #b8894e resolves to ~2.96:1 vs bg.primary #f7f9fc (below the 3.0 accent floor), so it was darkened to core amber.800 #a07040 (~4.07:1)." },
-    "light": { "$value": "{color.amber.900}", "$type": "color", "$description": "GOLD-FORWARD: deeper gold #7a5530 for hover/active on-light, aliased into core amber.900." }
+    "base": { "$value": "{color.amber.700}", "$type": "color", "$description": "GOLD-FORWARD focal accent, WCAG-tuned for light mode: core amber.700 #c07a00 gives 3.30:1 vs bg.primary #f7f9fc (>= 3.0 accent floor) AND 5.50:1 for dark on-accent text (>= 4.5). Tuning's --gold #b8894e (2.96:1 vs bg) and amber.800 #a07040 (dead-zone: no on-accent color reaches 4.5) both fail one gate; amber.700 clears both." },
+    "light": { "$value": "{color.amber.900}", "$type": "color", "$description": "GOLD-FORWARD: deeper gold #7a5530 for hover/active on-light, aliased into core amber.900." },
+    "on": { "$value": "{color.slate.1000}", "$type": "color", "$description": "GOLD-FORWARD: dark ink (#0a0f1a) on the gold accent.base (#c07a00) = 5.50:1 — legible primary-button text (gated >= 4.5 vs accent.base)." }
   },
   "amber": {
     "base": { "$value": "{color.teal.400}", "$type": "color", "$description": "DEMOTED TEAL: the secondary/data hue #0a8f8c (tuning --cyan) lives in the amber.* slot under the gold-forward inversion." },
@@ -30,18 +31,18 @@
   },
   "border": {
     "default": { "$value": "{color.slate.450}", "$type": "color", "$description": "tuning --line-1 (#d1d8e3); solid hex, kept as a one-hop alias." },
-    "accent": { "$value": "rgba(160, 112, 64, 0.25)", "$type": "color", "$description": "GOLD-FORWARD: alpha composite of the focal gold accent #a07040." }
+    "accent": { "$value": "rgba(192, 122, 0, 0.25)", "$type": "color", "$description": "GOLD-FORWARD: alpha composite of the focal gold accent #c07a00." }
   },
   "tint": {
     "accent": {
-      "04": { "$value": "rgba(160, 112, 64, 0.04)", "$type": "color" },
-      "06": { "$value": "rgba(160, 112, 64, 0.06)", "$type": "color" },
-      "08": { "$value": "rgba(160, 112, 64, 0.08)", "$type": "color" },
-      "10": { "$value": "rgba(160, 112, 64, 0.10)", "$type": "color" },
-      "12": { "$value": "rgba(160, 112, 64, 0.12)", "$type": "color" },
-      "20": { "$value": "rgba(160, 112, 64, 0.20)", "$type": "color" },
-      "25": { "$value": "rgba(160, 112, 64, 0.25)", "$type": "color" },
-      "30": { "$value": "rgba(160, 112, 64, 0.30)", "$type": "color" }
+      "04": { "$value": "rgba(192, 122, 0, 0.04)", "$type": "color" },
+      "06": { "$value": "rgba(192, 122, 0, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(192, 122, 0, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(192, 122, 0, 0.10)", "$type": "color" },
+      "12": { "$value": "rgba(192, 122, 0, 0.12)", "$type": "color" },
+      "20": { "$value": "rgba(192, 122, 0, 0.20)", "$type": "color" },
+      "25": { "$value": "rgba(192, 122, 0, 0.25)", "$type": "color" },
+      "30": { "$value": "rgba(192, 122, 0, 0.30)", "$type": "color" }
     },
     "amber": {
       "04": { "$value": "rgba(13, 115, 119, 0.04)", "$type": "color" },
