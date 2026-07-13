@@ -10,20 +10,24 @@ with their own patch sets) stay local to each file.
 
 from __future__ import annotations
 
-import socket
-import threading
-import time
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 import pytest
-import uvicorn
-from fastapi import FastAPI
+
+# The port/uvicorn helpers now live in a supported module shared with the docs
+# screenshot runner; re-export them under their historical underscore names so
+# every ``tests/interfaces`` importer stays byte-for-byte unchanged.
+from osprey.interfaces._serving import free_port as _free_port
+from osprey.interfaces._serving import run_app_server as _run_app_server
+from osprey.interfaces._serving import wait_for_port as _wait_for_port
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from playwright.sync_api import Browser
+
+__all__ = ["_apply_all", "_free_port", "_run_app_server", "_wait_for_port", "chromium_browser"]
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
@@ -38,47 +42,8 @@ except ImportError:  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
-# Helpers: ports, uvicorn lifecycle
+# Helpers: mock-patch aggregation
 # ---------------------------------------------------------------------------
-
-
-def _free_port() -> int:
-    """Return an unused TCP port on 127.0.0.1."""
-    with socket.socket() as s:
-        s.bind(("127.0.0.1", 0))
-        return int(s.getsockname()[1])
-
-
-def _wait_for_port(port: int, timeout: float = 10.0) -> None:
-    """Block until the server accepts TCP connections, or raise RuntimeError."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            with socket.create_connection(("127.0.0.1", port), timeout=0.5):
-                return
-        except OSError:
-            time.sleep(0.1)
-    raise RuntimeError(f"Server did not become ready on port {port} within {timeout}s")
-
-
-@contextmanager
-def _run_app_server(app: FastAPI) -> Iterator[str]:
-    """Run any FastAPI app on a free port in a background thread.
-
-    Yields:
-        The server's base URL, e.g. ``"http://127.0.0.1:54321"``.
-    """
-    port = _free_port()
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning")
-    server = uvicorn.Server(config)
-    t = threading.Thread(target=server.run, daemon=True)
-    t.start()
-    _wait_for_port(port)
-    try:
-        yield f"http://127.0.0.1:{port}"
-    finally:
-        server.should_exit = True
-        t.join(timeout=5)
 
 
 @contextmanager
