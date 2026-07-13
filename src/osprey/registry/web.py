@@ -27,8 +27,9 @@ class WebServerDefinition:
         auto_launch_default: Default ``auto_launch`` value when key is absent.
         require_section: If True, missing/empty top-level section → auto_launch=False.
         factory_config_kwargs: Maps factory kwarg names to dotted config paths.
-            E.g. ``{"tuning_api_url": "tuning.api_url"}`` reads
-            ``config["tuning"]["api_url"]`` and passes it as ``tuning_api_url=``.
+            E.g. ``{"bundle_path": "facility_knowledge.bundle_path"}`` reads
+            ``config["facility_knowledge"]["bundle_path"]`` and passes it as
+            ``bundle_path=``.
         import_error_message: Custom message when the factory import fails.
             If None, ImportError propagates normally.
     """
@@ -60,14 +61,6 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         config_key="ariel",
         config_web_subkey="web",
         port_default=8085,
-    ),
-    "tuning": WebServerDefinition(
-        name="Tuning panel",
-        factory_path="osprey.interfaces.tuning.app:create_app",
-        config_key="tuning",
-        config_web_subkey="web",
-        port_default=8090,
-        factory_config_kwargs={"tuning_api_url": "tuning.api_url"},
     ),
     "channel_finder": WebServerDefinition(
         name="Channel Finder",

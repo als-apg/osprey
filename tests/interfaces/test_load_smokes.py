@@ -121,16 +121,6 @@ def _launch_lattice_dashboard(tmp_path, monkeypatch) -> Iterator[str]:
 
 
 @contextmanager
-def _launch_tuning(tmp_path, monkeypatch) -> Iterator[str]:
-    monkeypatch.chdir(tmp_path)
-    from osprey.interfaces.tuning.app import create_app
-
-    app = create_app()
-    with _run_app_server(app) as base_url:
-        yield base_url
-
-
-@contextmanager
 def _launch_okf_panel(tmp_path, monkeypatch) -> Iterator[str]:
     monkeypatch.chdir(tmp_path)
     from osprey.interfaces.okf_panel.app import create_app
@@ -155,7 +145,6 @@ _ALLOWLISTS: dict[str, object] = {
     "ariel": None,
     "channel_finder": None,
     "lattice_dashboard": None,
-    "tuning": None,
     "okf_panel": None,
     "web_terminal_session": None,
     "web_terminal_safety": None,
@@ -168,7 +157,6 @@ INTERFACE_LAUNCHERS = [
     ("ariel", _launch_ariel),
     ("channel_finder", _launch_channel_finder),
     ("lattice_dashboard", _launch_lattice_dashboard),
-    ("tuning", _launch_tuning),
     ("okf_panel", _launch_okf_panel),
 ]
 

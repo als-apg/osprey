@@ -2,7 +2,7 @@ Panels
 ======
 
 A **panel** is a self-contained, themed mini-app the Web Terminal shows as a tab
-beside the chat. OSPREY's own tools — Channel Finder, ARIEL, tuning, the lattice
+beside the chat. OSPREY's own tools — Channel Finder, ARIEL, the lattice
 dashboard, the artifact gallery — are all panels, and you can add your own.
 Because panels use the shared design tokens (:doc:`theming`), they match your
 theme automatically, in light and dark, with no extra work.
@@ -14,8 +14,8 @@ Enable OSPREY's built-in panels in ``config.yml``:
    web:
      panels:
        ariel: true
-       tuning: true
        channel-finder: true
+       lattice: true
 
 Adding your own panel
 ---------------------

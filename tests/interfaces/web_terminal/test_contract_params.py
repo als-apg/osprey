@@ -62,7 +62,6 @@ from tests.interfaces.test_load_smokes import (
     _launch_channel_finder,
     _launch_lattice_dashboard,
     _launch_okf_panel,
-    _launch_tuning,
     _launch_web_terminal,
 )
 
@@ -91,7 +90,6 @@ _EMBEDDED_PANELS = [
     ("channel_finder", _launch_channel_finder),
     ("okf_panel", _launch_okf_panel),
     ("ariel", _launch_ariel),
-    ("tuning", _launch_tuning),
     ("lattice_dashboard", _launch_lattice_dashboard),
 ]
 
@@ -410,7 +408,6 @@ _CHROME_CONTRACT_PANELS = [
     ("ariel", _launch_ariel, "", ".logo"),
     ("artifacts", _launch_artifacts, "", ".logo"),
     ("channel_finder", _launch_channel_finder, "", ".app-logo"),
-    ("tuning", _launch_tuning, "", ".tuning-header"),
     ("lattice_dashboard", _launch_lattice_dashboard, "", ".topbar-logo"),
     ("okf_panel", _launch_okf_panel, "", None),
     ("web_terminal_session", _launch_web_terminal, "/static/session.html", "header h1"),

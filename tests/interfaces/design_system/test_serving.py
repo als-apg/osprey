@@ -61,15 +61,6 @@ class TestDesignSystemMountedInEveryApp:
         assert "text/css" in resp.headers["content-type"]
         assert resp.text.strip()
 
-    def test_tuning(self):
-        from osprey.interfaces.tuning.app import create_app
-
-        app = create_app()
-        resp = TestClient(app).get("/design-system/css/tokens.css")
-        assert resp.status_code == 200
-        assert "text/css" in resp.headers["content-type"]
-        assert resp.text.strip()
-
     def test_lattice_dashboard(self, tmp_path):
         from osprey.interfaces.lattice_dashboard.app import create_app
 

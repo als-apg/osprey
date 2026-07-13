@@ -75,20 +75,12 @@ def _build_lattice_dashboard(tmp_path: Path) -> FastAPI:
     return create_app(workspace_root=tmp_path)
 
 
-def _build_tuning(tmp_path: Path) -> FastAPI:
-    from osprey.interfaces.tuning.app import create_app
-
-    # tuning_api_url is optional; the factory assembles fully without it.
-    return create_app()
-
-
 INTERFACE_BUILDERS = [
     ("web_terminal", _build_web_terminal),
     ("artifacts", _build_artifacts),
     ("ariel", _build_ariel),
     ("channel_finder", _build_channel_finder),
     ("lattice_dashboard", _build_lattice_dashboard),
-    ("tuning", _build_tuning),
 ]
 
 

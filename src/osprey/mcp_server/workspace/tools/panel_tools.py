@@ -45,7 +45,7 @@ def _fetch_panels(base: str) -> dict | None:
 async def list_panels() -> str:
     """List the panels available in the Web Terminal.
 
-    Returns the enabled built-in panels (e.g. artifacts, ariel, tuning,
+    Returns the enabled built-in panels (e.g. artifacts, ariel,
     channel-finder, lattice, okf, events) and any custom panels defined in
     config.yml, together with their current visibility state and the
     currently active panel.
@@ -153,7 +153,7 @@ async def show_panel(panel_id: str) -> str:
     panel IDs — they vary between deployments.
 
     Args:
-        panel_id: Panel identifier (e.g. 'artifacts', 'ariel', 'tuning').
+        panel_id: Panel identifier (e.g. 'artifacts', 'ariel', 'lattice').
 
     Returns:
         JSON with status confirmation and the updated ``visible`` state.
@@ -172,7 +172,7 @@ async def hide_panel(panel_id: str) -> str:
     panel IDs — they vary between deployments.
 
     Args:
-        panel_id: Panel identifier (e.g. 'artifacts', 'ariel', 'tuning').
+        panel_id: Panel identifier (e.g. 'artifacts', 'ariel', 'lattice').
 
     Returns:
         JSON with status confirmation and the updated ``visible`` state.
@@ -255,7 +255,7 @@ async def switch_panel(panel_id: str, url: str | None = None) -> str:
 
     Args:
         panel_id: Panel identifier returned by list_panels (e.g.
-            'artifacts', 'events', 'ariel', 'tuning', etc.).
+            'artifacts', 'events', 'ariel', 'lattice', etc.).
         url: Optional URL to navigate the panel iframe to.
 
     Returns:

@@ -1,6 +1,6 @@
 """Reverse proxy for companion panel servers running inside the container.
 
-Companion servers (artifact gallery, ARIEL, tuning, channel-finder, lattice)
+Companion servers (artifact gallery, ARIEL, channel-finder, lattice, OKF)
 bind to 127.0.0.1 inside the Docker container.  The browser cannot reach them
 directly, so this proxy forwards ``/panel/{panel_id}/{path}`` to the internal
 server and rewrites root-absolute paths in HTML/JS/CSS responses.
@@ -74,7 +74,6 @@ _HOP_BY_HOP = frozenset(
 _PANEL_STATE_MAP = {
     "artifacts": "artifact_server_url",
     "ariel": "ariel_server_url",
-    "tuning": "tuning_server_url",
     "channel-finder": "channel_finder_server_url",
     "lattice": "lattice_dashboard_server_url",
     "okf": "okf_server_url",

@@ -58,14 +58,6 @@ async def ariel_server_config(request: Request):
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
-@router.get("/api/tuning-server")
-async def tuning_server_config(request: Request):
-    """Return the tuning panel server URL for iframe embedding."""
-    url = getattr(request.app.state, "tuning_server_url", None)
-    proxy_url = "/panel/tuning" if url else None
-    return {"url": proxy_url, "available": proxy_url is not None}
-
-
 @router.get("/api/channel-finder-server")
 async def channel_finder_server_config(request: Request):
     """Return the Channel Finder server URL for iframe embedding."""

@@ -101,15 +101,15 @@ class DocShot:
 REGISTRY: list[DocShot] = [
     # Default (container-free) target of ``make screenshots``: an element crop of
     # the design-system theme switcher, light + dark, for the theming how-to. The
-    # switcher is embedded in every interface's header; ``tuning`` is the lightest
-    # to boot standalone — its ``create_app()`` needs no workspace or backend (an
-    # unset proxy URL is fine), unlike ``artifacts``/``lattice`` which require a
-    # workspace_root.
+    # switcher is embedded in every interface's header; ``ariel`` is the lightest
+    # to boot standalone — its ``create_app()`` needs no workspace or backend (it
+    # gracefully degrades to a DB-less mode), unlike ``artifacts``/``lattice``
+    # which require a workspace_root.
     DocShot(
         name="theme_switcher",
         environment="standalone_interface",
         kind="static",
-        app_factory="osprey.interfaces.tuning.app:create_app",
+        app_factory="osprey.interfaces.ariel.app:create_app",
         capture_mode="element",
         element_selector="osprey-theme-switcher",
         wait_selector="osprey-theme-switcher",

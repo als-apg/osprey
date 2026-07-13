@@ -46,10 +46,10 @@ class TestListPanels:
 
         api_response = json.dumps(
             {
-                "enabled": ["artifacts", "ariel", "tuning"],
+                "enabled": ["artifacts", "ariel", "lattice"],
                 "custom": [],
-                "labels": {"artifacts": "WORKSPACE", "ariel": "ARIEL", "tuning": "TUNING"},
-                "visible": ["artifacts", "tuning"],
+                "labels": {"artifacts": "WORKSPACE", "ariel": "ARIEL", "lattice": "LATTICE"},
+                "visible": ["artifacts", "lattice"],
                 "active": None,
             }
         ).encode()
@@ -65,15 +65,15 @@ class TestListPanels:
         assert result["status"] == "success"
         assert result["active"] is None
         ids = [p["id"] for p in result["panels"]]
-        assert ids == ["artifacts", "ariel", "tuning"]
+        assert ids == ["artifacts", "ariel", "lattice"]
         labels = {p["id"]: p["label"] for p in result["panels"]}
         assert labels["artifacts"] == "WORKSPACE"
         assert labels["ariel"] == "ARIEL"
-        assert labels["tuning"] == "TUNING"
+        assert labels["lattice"] == "LATTICE"
         visible = {p["id"]: p["visible"] for p in result["panels"]}
         assert visible["artifacts"] is True
         assert visible["ariel"] is False
-        assert visible["tuning"] is True
+        assert visible["lattice"] is True
 
     @pytest.mark.unit
     @pytest.mark.asyncio
