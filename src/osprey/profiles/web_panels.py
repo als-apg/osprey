@@ -13,7 +13,6 @@ UNIVERSAL_PANELS: set[str] = {"artifacts"}
 BUILTIN_PANELS: set[str] = {
     "artifacts",
     "ariel",
-    "tuning",
     "channel-finder",
     "lattice",
     "okf",
@@ -32,7 +31,6 @@ BUILTIN_PANELS: set[str] = {
 BUILTIN_PANEL_LABELS: dict[str, str] = {
     "artifacts": "WORKSPACE",
     "ariel": "ARIEL",
-    "tuning": "TUNING",
     "channel-finder": "CHANNELS",
     "lattice": "LATTICE",
     "okf": "KNOWLEDGE",

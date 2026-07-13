@@ -75,12 +75,6 @@ const PANELS = [
     statusBarId: 'ariel-status',
   },
   {
-    id: 'tuning',
-    label: 'TUNING',
-    configEndpoint: '/api/tuning-server',
-    statusBarId: 'tuning-status',
-  },
-  {
     id: 'channel-finder',
     label: 'CHANNELS',
     configEndpoint: '/api/channel-finder-server',

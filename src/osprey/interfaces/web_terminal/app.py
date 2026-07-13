@@ -77,25 +77,6 @@ def _launch_ariel_server(app: FastAPI) -> None:
         app.state.ariel_server_url = None
 
 
-def _launch_tuning_server(app: FastAPI) -> None:
-    """Auto-launch the tuning panel server if configured."""
-    try:
-        from osprey.infrastructure.server_launcher import ensure_tuning_server
-        from osprey.utils.workspace import load_osprey_config
-
-        config = load_osprey_config()
-        tuning_web = config.get("tuning", {}).get("web", {})
-        host = tuning_web.get("host", "127.0.0.1")
-        port = int(os.environ.get("OSPREY_TUNING_PORT", tuning_web.get("port", 8090)))
-
-        app.state.tuning_server_url = f"http://{host}:{port}"
-        ensure_tuning_server()
-        logger.info("Tuning server available at %s", app.state.tuning_server_url)
-    except Exception:
-        logger.warning("Could not auto-launch tuning server", exc_info=True)
-        app.state.tuning_server_url = None
-
-
 def _launch_channel_finder_server(app: FastAPI) -> None:
     """Auto-launch the Channel Finder web server if configured."""
     try:
@@ -606,8 +587,6 @@ def _create_lifespan(
         # Domain servers — template-controlled
         if "ariel" in enabled_panels:
             _launch_ariel_server(app)
-        if "tuning" in enabled_panels:
-            _launch_tuning_server(app)
         if "channel-finder" in enabled_panels:
             _launch_channel_finder_server(app)
         if "lattice" in enabled_panels:

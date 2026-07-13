@@ -96,7 +96,6 @@ def _preflight_vendor_check() -> None:
 # web.panels membership.
 _PANEL_ID_FOR_REGISTRY_KEY: dict[str, str] = {
     "ariel": "ariel",
-    "tuning": "tuning",
     "channel_finder": "channel-finder",
     "lattice_dashboard": "lattice",
     "okf": "okf",

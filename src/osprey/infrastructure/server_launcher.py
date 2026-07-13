@@ -292,7 +292,7 @@ def _make_auto_launch_checker(defn: WebServerDefinition) -> Callable[[], bool]:
 
 
 def _resolve_dotted(config: dict, dotted: str) -> object:
-    """Traverse a dotted path like ``"tuning.api_url"`` into *config*."""
+    """Traverse a dotted path like ``"ariel.web.port"`` into *config*."""
     obj: object = config
     for key in dotted.split("."):
         if not isinstance(obj, dict):
@@ -356,11 +356,6 @@ def ensure_artifact_server() -> None:
 def ensure_ariel_server() -> None:
     """Ensure the ARIEL server is running; launch if needed."""
     ensure_web_server("ariel")
-
-
-def ensure_tuning_server() -> None:
-    """Ensure the tuning panel server is running; launch if needed."""
-    ensure_web_server("tuning")
 
 
 def ensure_channel_finder_server() -> None:
