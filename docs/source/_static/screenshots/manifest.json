@@ -5,8 +5,13 @@
     "osprey_version": "2026.6.3"
   },
   "theme_switcher": {
-    "captured_utc": "2026-07-13T00:02:15.368798+00:00",
+    "captured_utc": "2026-07-13T01:36:37.432989+00:00",
     "kind": "static",
+    "osprey_version": "2026.6.3"
+  },
+  "web_terminal_hero": {
+    "captured_utc": "2026-07-13T02:09:20.559452+00:00",
+    "kind": "agentic",
     "osprey_version": "2026.6.3"
   }
 }

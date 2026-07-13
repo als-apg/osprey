@@ -120,7 +120,20 @@ def test_manifest_recovers_from_malformed_file(tmp_path, monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_tutorial_stack_provider_skips() -> None:
+def test_tutorial_stack_provider_skips(monkeypatch) -> None:
+    # When the container stack can't be brought up, capture_tutorial_stack must
+    # degrade to a ScreenshotSkip rather than crash. Hermetic: mock the stack
+    # builder to skip so this never touches a real container runtime (keeping
+    # this file CI-safe regardless of whether podman happens to be running).
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _skip_stack(*, artifact_port):
+        raise ScreenshotSkip("container runtime unavailable")
+        yield  # pragma: no cover - unreachable; marks this a generator
+
+    monkeypatch.setattr(capture, "_tutorial_stack", _skip_stack)
+
     shot = DocShot(
         name="hero",
         environment="tutorial_stack",

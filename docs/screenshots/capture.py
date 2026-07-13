@@ -427,24 +427,51 @@ def assert_hero_structural(png_bytes: bytes, viewport: tuple[int, int]) -> None:
         raise AssertionError("hero PNG is a single uniform color (blank capture)")
 
 
-def _wait_for_artifact(artifact_port: int, needle: str, *, timeout: float) -> None:
-    """Poll the artifact server until an ``artifact_type`` contains ``needle``.
+def _fetch_artifacts(artifact_port: int) -> list[dict]:
+    """Return the artifact-server's current artifact list ([] on any error)."""
+    url = f"http://127.0.0.1:{artifact_port}/api/artifacts"
+    try:
+        with urllib.request.urlopen(url, timeout=5.0) as resp:  # noqa: S310 (loopback only)
+            return json.loads(resp.read().decode()).get("artifacts", [])
+    except (urllib.error.URLError, json.JSONDecodeError, OSError):
+        return []
+
+
+def _artifact_ids(artifact_port: int) -> set[str]:
+    """Snapshot the ids already present, so a later wait can ignore them."""
+    return {a["id"] for a in _fetch_artifacts(artifact_port) if a.get("id")}
+
+
+def _wait_for_artifact(
+    artifact_port: int,
+    needle: str,
+    *,
+    timeout: float,
+    exclude_ids: set[str] | None = None,
+) -> str:
+    """Poll until a *new* ``artifact_type`` contains ``needle``; return its id.
+
+    ``exclude_ids`` are artifact ids already present before this theme's prompt
+    was submitted; matches against them are ignored so each theme waits for the
+    plot *its own* prompt produced (the artifact store accumulates across themes,
+    so a bare match would return the previous theme's stale plot immediately).
+
+    Returns the matched artifact's id so the caller can select *that* artifact in
+    the gallery — the agent often keeps producing artifacts (e.g. a summary) after
+    the plot, so the newest-auto-selected item is not reliably the plot.
 
     Raises :class:`TimeoutError` with a clear message if no matching artifact
     appears within ``timeout`` seconds, so a stalled agent run fails fast instead
     of hanging forever.
     """
-    url = f"http://127.0.0.1:{artifact_port}/api/artifacts"
+    seen = exclude_ids or set()
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        try:
-            with urllib.request.urlopen(url, timeout=5.0) as resp:  # noqa: S310 (loopback only)
-                payload = json.loads(resp.read().decode())
-        except (urllib.error.URLError, json.JSONDecodeError, OSError):
-            payload = {}
-        for artifact in payload.get("artifacts", []):
+        for artifact in _fetch_artifacts(artifact_port):
+            if artifact.get("id") in seen:
+                continue
             if needle in (artifact.get("artifact_type") or ""):
-                return
+                return artifact.get("id") or ""
         time.sleep(1.0)
     raise TimeoutError(
         f"no artifact with artifact_type containing {needle!r} appeared on "
@@ -506,19 +533,36 @@ def _capture_agentic(
 
                 # The Claude-Code trust prompt lives in the PTY, not the DOM:
                 # focus the terminal and answer it, then type the operator prompt.
+                # The Enter that accepts the trust prompt kicks the CLI into its
+                # REPL; typing before that transition finishes drops the prompt
+                # characters, so settle briefly before typing.
                 page.locator("#terminal-container").click(timeout=30_000)
                 page.keyboard.press("Enter")
+                page.wait_for_timeout(2_000)
+
+                # Baseline the artifacts already present (from earlier themes) so
+                # the wait below matches the plot *this* prompt produces, not a
+                # stale one carried over in the shared artifact store.
+                before = _artifact_ids(artifact_port)
                 page.keyboard.type(shot.prompt or "")
                 page.keyboard.press("Enter")
 
-                _wait_for_artifact(artifact_port, shot.wait_for or "", timeout=240.0)
+                plot_id = _wait_for_artifact(
+                    artifact_port, shot.wait_for or "", timeout=240.0, exclude_ids=before
+                )
 
+                # Reveal the artifacts panel and select the plot by its id. The
+                # embedded gallery defaults to the tree view (rows), not the card
+                # grid, and every row/card carries ``data-id`` — so a data-id
+                # selector reveals the plot's preview regardless of view mode,
+                # and (unlike relying on newest-auto-select) pins the preview to
+                # the plot even as the agent keeps emitting later artifacts.
                 page.locator('button[data-panel-id="artifacts"]').click(timeout=30_000)
                 panel = page.frame_locator('iframe.panel-iframe[data-panel-id="artifacts"]')
-                panel.locator(".gallery-card").first.click(timeout=30_000)
+                panel.locator(f'[data-id="{plot_id}"]').first.click(timeout=30_000)
 
-                # Let the preview render before shooting the viewport.
-                page.wait_for_timeout(1_000)
+                # Let the plot preview render (Plotly draws async) before shooting.
+                page.wait_for_timeout(2_000)
                 png = page.screenshot()
                 assert_hero_structural(png, shot.viewport)
 
