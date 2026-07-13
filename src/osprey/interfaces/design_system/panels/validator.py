@@ -88,6 +88,10 @@ _TOKENS_CSS_LINK_PATTERN = re.compile(
     r"<link\b[^>]*\bhref\s*=\s*['\"]/design-system/css/tokens\.css['\"][^>]*>",
     re.IGNORECASE,
 )
+_FONTS_CSS_LINK_PATTERN = re.compile(
+    r"<link\b[^>]*\bhref\s*=\s*['\"]/static/fonts/fonts\.css['\"][^>]*>",
+    re.IGNORECASE,
+)
 
 #: A raw hex *color* literal: ``#`` followed by exactly 3, 4, 6, or 8 hex
 #: digits (the CSS ``#rgb``/``#rgba``/``#rrggbb``/``#rrggbbaa`` shapes),
@@ -138,6 +142,9 @@ class PanelRule(StrEnum):
     MISSING_DESIGN_SYSTEM_LINK = "missing_design_system_link"
     #: The entry HTML does not reference the pre-paint theme-boot script.
     MISSING_THEME_BOOT = "missing_theme_boot"
+    #: The entry HTML does not reference the shared web-font stylesheet, so the
+    #: panel (and everything copied from it) falls back to system fonts.
+    MISSING_FONT_LINK = "missing_font_link"
     #: A raw hex color literal appears where a ``var(--…)`` token belongs.
     RAW_HEX_COLOR = "raw_hex_color"
 
@@ -282,6 +289,18 @@ def _check_design_system_linked(entry_path: Path, entry_html: str) -> list[Panel
                 message=(
                     "entry HTML must load the pre-paint theme boot script "
                     '(<script src="/design-system/js/theme-boot.js">)'
+                ),
+                source=str(entry_path),
+            )
+        )
+    if not _FONTS_CSS_LINK_PATTERN.search(entry_html):
+        errors.append(
+            PanelError(
+                rule=PanelRule.MISSING_FONT_LINK,
+                message=(
+                    "entry HTML must link the shared web-font stylesheet "
+                    '(<link href="/static/fonts/fonts.css">) so the panel uses the '
+                    "brand typeface instead of falling back to system fonts"
                 ),
                 source=str(entry_path),
             )

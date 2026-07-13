@@ -318,3 +318,117 @@ def _extract_blocks(css: str) -> tuple[str, str]:
     dark_start = css.index(':root, [data-theme="dark"]')
     light_start = css.index('[data-theme="light"]')
     return css[dark_start:light_start], css[light_start:]
+
+
+def _blocks_by_theme(css: str) -> dict[str, str]:
+    """Map each emitted theme id to the body text of its ``{ ... }`` block."""
+    blocks: dict[str, str] = {}
+    for match in re.finditer(
+        r'(?::root, )?\[data-theme="([^"]+)"\][^{]*\{([^}]*)\}', css
+    ):
+        blocks[match.group(1)] = match.group(2)
+    return blocks
+
+
+def _declared_names(body: str) -> set[str]:
+    """Every ``--name`` a CSS block body declares."""
+    return set(re.findall(r"(--[a-z0-9-]+)\s*:", body))
+
+
+# --- $extensions.inherits: opted-out theme borrows a base mode's tokens -----------
+
+
+def _inherits_tree() -> TokenTree:
+    """A 4-theme tree where an interface opts the high-contrast twins out via inherits.
+
+    ``web_terminal`` authors only ``dark``/``light`` groups and maps the two
+    high-contrast stems onto them, exactly as the real interface docs do.
+    """
+    primitives = {
+        "font.display": _token("font.display", "'Outfit', sans-serif", type_="fontFamily"),
+    }
+
+    def theme_tokens(bg: str) -> dict[str, ResolvedToken]:
+        return {"bg.primary": _token("bg.primary", bg)}
+
+    themes = {
+        "dark": theme_tokens("#0a0f1a"),
+        "light": theme_tokens("#f7f9fc"),
+        "high-contrast-dark": theme_tokens("#000000"),
+        "high-contrast-light": theme_tokens("#ffffff"),
+    }
+
+    def meta(id_: str, mode: str, family: str) -> dict[str, str]:
+        return {"id": id_, "label": id_, "mode": mode, "family": family}
+
+    theme_metadata = {
+        "dark": meta("dark", "dark", "osprey"),
+        "light": meta("light", "light", "osprey"),
+        "high-contrast-dark": meta("high-contrast-dark", "dark", "high-contrast"),
+        "high-contrast-light": meta("high-contrast-light", "light", "high-contrast"),
+    }
+
+    interfaces = {
+        "web_terminal": {
+            "dark.wt-crt.opacity": _token(
+                "dark.wt-crt.opacity", "1", type_="number", source_file=Path("wt.json")
+            ),
+            "light.wt-crt.opacity": _token(
+                "light.wt-crt.opacity", "0", type_="number", source_file=Path("wt.json")
+            ),
+        }
+    }
+
+    return TokenTree(
+        primitives=primitives,
+        themes=themes,
+        interfaces=interfaces,
+        theme_metadata=theme_metadata,
+        interface_metadata={
+            "web_terminal": {
+                "inherits": {"high-contrast-dark": "dark", "high-contrast-light": "light"}
+            }
+        },
+    )
+
+
+def test_emit_css_inherited_interface_tokens_reach_opted_out_themes() -> None:
+    """An interface that opts a theme out via inherits still emits into that theme's block.
+
+    Regression: emit_css used to match interface tokens only by an exact
+    ``{stem}.`` prefix, so an interface authoring only ``dark``/``light`` and
+    mapping the high-contrast twins onto them contributed *nothing* to either
+    high-contrast block — the tokens silently fell through to the dark ``:root``
+    cascade (near-black text on the high-contrast-light page).
+    """
+    blocks = _blocks_by_theme(emit_css(_inherits_tree()))
+
+    # high-contrast-dark borrows dark's group; high-contrast-light borrows light's.
+    assert "--wt-crt-opacity: 1;" in blocks["high-contrast-dark"]
+    assert "--wt-crt-opacity: 0;" in blocks["high-contrast-light"]
+
+
+@pytest.mark.skipif(not REAL_TOKENS_DIR.is_dir(), reason="real tokens/ tree not present yet")
+def test_real_tokens_every_theme_block_defines_every_interface_token() -> None:
+    """No interface token may appear in one theme block but be missing from another.
+
+    The union of interface extension token names (mode-stripped) must be
+    present in *every* emitted theme block — the invariant the
+    ``$extensions.inherits`` resolution guarantees. Without it, the
+    high-contrast themes emit none of the opted-out interfaces' tokens and
+    inherit the dark values instead.
+    """
+    tree = load_token_tree(REAL_TOKENS_DIR)
+    blocks = _blocks_by_theme(emit_css(tree))
+
+    expected: set[str] = set()
+    for tokens in tree.interfaces.values():
+        for path in tokens:
+            _mode, _, rest = path.partition(".")
+            name = css_variable_name(rest)
+            if name is not None:
+                expected.add(name)
+
+    for theme_id, body in blocks.items():
+        missing = expected - _declared_names(body)
+        assert not missing, f"theme {theme_id!r} block missing interface tokens: {sorted(missing)}"

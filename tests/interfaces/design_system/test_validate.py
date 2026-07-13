@@ -671,6 +671,8 @@ def test_wcag_gates_constant_matches_proposal_pairs_and_thresholds() -> None:
         ("text.secondary", "bg.primary", 4.5),
         ("text.muted", "bg.primary", 3.0),
         ("accent.base", "bg.primary", 3.0),
+        # accent.on is gated against accent.base (its fill), not bg.primary.
+        ("accent.on", "accent.base", 4.5),
     }
 
 
@@ -684,6 +686,7 @@ def test_wcag_gates_aaa_constant_matches_high_contrast_thresholds() -> None:
         ("text.secondary", "bg.primary", 7.0),
         ("text.muted", "bg.primary", 4.5),
         ("accent.base", "bg.primary", 4.5),
+        ("accent.on", "accent.base", 7.0),
     }
 
 

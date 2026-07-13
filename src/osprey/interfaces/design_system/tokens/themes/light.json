@@ -15,7 +15,8 @@
   },
   "accent": {
     "base": { "$value": "{color.teal.400}", "$type": "color" },
-    "light": { "$value": "{color.teal.500}", "$type": "color" }
+    "light": { "$value": "{color.teal.500}", "$type": "color" },
+    "on": { "$value": "{color.slate.1000}", "$type": "color", "$description": "Foreground for text/icons on accent.base fills (e.g. primary buttons). 4.85:1 on teal.400 (white would be 3.95:1, sub-AA)." }
   },
   "amber": {
     "base": { "$value": "{color.amber.800}", "$type": "color" },

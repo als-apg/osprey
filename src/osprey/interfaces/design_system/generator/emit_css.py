@@ -23,6 +23,7 @@ unchanged and the freshness gate (a future task) can byte-compare it.
 
 from __future__ import annotations
 
+from osprey.interfaces.design_system.generator.inherits import source_mode
 from osprey.interfaces.design_system.generator.model import ResolvedToken, TokenTree
 
 __all__ = ["css_variable_name", "emit_css"]
@@ -45,6 +46,7 @@ _EXCLUDED_GROUPS = frozenset({"code"})
 _NAME_OVERRIDES: dict[str, str] = {
     "accent.base": "--color-accent",
     "accent.light": "--color-accent-light",
+    "accent.on": "--color-on-accent",
     "amber.base": "--color-amber",
     "amber.light": "--color-amber-light",
     "amber.hover": "--color-amber-hover",
@@ -145,12 +147,18 @@ def _theme_declarations(tree: TokenTree, stem: str, *, include_fonts: bool) -> l
             continue
         lines.append(f"  {name}: {_resolved_value(token)};")
 
-    mode_prefix = f"{stem}."
-    for _interface_stem, tokens in sorted(tree.interfaces.items()):
+    for interface_stem, tokens in sorted(tree.interfaces.items()):
+        # An interface may author this theme's group directly or opt it out via
+        # $extensions.inherits onto a base mode it does author; either way the
+        # tokens are emitted under this theme's block with the same CSS names.
+        src = source_mode(tree, interface_stem, tokens, stem)
+        if src is None:
+            continue
+        src_prefix = f"{src}."
         for path, token in tokens.items():
-            if not path.startswith(mode_prefix):
+            if not path.startswith(src_prefix):
                 continue
-            name = css_variable_name(path[len(mode_prefix) :])
+            name = css_variable_name(path[len(src_prefix) :])
             if name is None:
                 continue
             lines.append(f"  {name}: {_resolved_value(token)};")
