@@ -40,6 +40,7 @@ from osprey.interfaces.design_system.panels.validator import (
 # mirroring the reference markup in osprey.interfaces.artifacts.app.
 _THEME_BOOT_TAG = '<script src="/design-system/js/theme-boot.js"></script>'
 _TOKENS_CSS_TAG = '<link rel="stylesheet" href="/design-system/css/tokens.css">'
+_FONTS_CSS_TAG = '<link rel="stylesheet" href="/static/fonts/fonts.css">'
 
 
 def _compliant_html(*, body: str = "") -> str:
@@ -51,6 +52,7 @@ def _compliant_html(*, body: str = "") -> str:
         '<meta charset="UTF-8">\n'
         f"{_THEME_BOOT_TAG}\n"
         f"{_TOKENS_CSS_TAG}\n"
+        f"{_FONTS_CSS_TAG}\n"
         "<style>\n"
         "  body { background: var(--bg-primary); color: var(--text-primary); }\n"
         "</style>\n"
@@ -202,6 +204,15 @@ def test_missing_theme_boot_script_errors(tmp_path: Path) -> None:
     errors = validate_panel(panel)
 
     assert _rules(errors) == {PanelRule.MISSING_THEME_BOOT}
+
+
+def test_missing_font_link_errors(tmp_path: Path) -> None:
+    html = _compliant_html().replace(_FONTS_CSS_TAG, "")
+    panel = _write_panel(tmp_path / "panel", entry_html=html)
+
+    errors = validate_panel(panel)
+
+    assert _rules(errors) == {PanelRule.MISSING_FONT_LINK}
 
 
 def test_design_system_link_matches_regardless_of_attribute_order(tmp_path: Path) -> None:

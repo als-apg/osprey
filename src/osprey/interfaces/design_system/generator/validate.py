@@ -50,6 +50,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from osprey.interfaces.design_system.generator.inherits import raw_inherits
 from osprey.interfaces.design_system.generator.model import (
     AliasStatus,
     ResolvedToken,
@@ -309,6 +310,10 @@ WCAG_GATES: tuple[WcagGate, ...] = (
     WcagGate(foreground="text.secondary", background="bg.primary", minimum=4.5),
     WcagGate(foreground="text.muted", background="bg.primary", minimum=3.0),
     WcagGate(foreground="accent.base", background="bg.primary", minimum=3.0),
+    # accent.on is text/icons ON an accent.base fill (primary buttons), so it
+    # is gated against accent.base, not bg.primary — the one consumer-color
+    # pairing the fleet actually depends on that bg.primary gates never see.
+    WcagGate(foreground="accent.on", background="accent.base", minimum=4.5),
 )
 
 #: Required contrast pairs for the ``high-contrast`` theme family (WCAG
@@ -321,6 +326,7 @@ WCAG_GATES_AAA: tuple[WcagGate, ...] = (
     WcagGate(foreground="text.secondary", background="bg.primary", minimum=7.0),
     WcagGate(foreground="text.muted", background="bg.primary", minimum=4.5),
     WcagGate(foreground="accent.base", background="bg.primary", minimum=4.5),
+    WcagGate(foreground="accent.on", background="accent.base", minimum=7.0),
 )
 
 #: Theme ``$extensions.family`` to its required WCAG gate tuple.
@@ -614,7 +620,7 @@ def _interface_inherits(
         A mapping from opted-out mode to the base mode it borrows, for
         every entry that passed validation.
     """
-    raw = tree.interface_metadata.get(stem, {}).get("inherits", {})
+    raw = raw_inherits(tree, stem)
     if not raw:
         return {}
     if not isinstance(raw, dict):

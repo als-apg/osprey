@@ -15,7 +15,8 @@
   },
   "accent": {
     "base": { "$value": "{color.teal.700}", "$type": "color", "$description": "7.25:1 vs bg.primary (AAA floor is 4.5:1); darker than light.json's teal.400 accent.base, which only reaches ~3.5:1 here." },
-    "light": { "$value": "{color.teal.500}", "$type": "color", "$description": "Same value as light.json's own accent.light — border.accent/tint.accent below are unchanged from light.json as a result." }
+    "light": { "$value": "{color.teal.500}", "$type": "color", "$description": "Same value as light.json's own accent.light — border.accent/tint.accent below are unchanged from light.json as a result." },
+    "on": { "$value": "#ffffff", "$type": "color", "$description": "Foreground for text/icons on accent.base fills (e.g. primary buttons). 7.50:1 on teal.700 (near-black would be 2.55:1, far below the AAA 7:1 floor)." }
   },
   "amber": {
     "base": { "$value": "{color.amber.800}", "$type": "color" },

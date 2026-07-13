@@ -294,6 +294,24 @@ async def design_system_asset(request: Request) -> FileResponse | JSONResponse:
     return FileResponse(candidate)
 
 
+#: Shared web fonts (Outfit / JetBrains Mono). The FastAPI interfaces mount
+#: these at ``/static/fonts`` via ``_app_setup``; the dashboard self-hosts them
+#: at the same URL here so its ``<head>`` never reaches out to the Google Fonts
+#: CDN — which fails in the air-gapped control room and drops the dashboard to
+#: system fonts while every sibling panel keeps the brand typeface.
+_SHARED_FONTS_DIR = (Path(__file__).parent.parent / "interfaces" / "shared_fonts").resolve()
+
+
+@mcp.custom_route("/static/fonts/{path:path}", methods=["GET"])
+async def shared_font_asset(request: Request) -> FileResponse | JSONResponse:
+    """Serve the shared web-font assets (fonts.css + .ttf files), same guard as above."""
+    requested = request.path_params["path"]
+    candidate = (_SHARED_FONTS_DIR / requested).resolve()
+    if not candidate.is_relative_to(_SHARED_FONTS_DIR) or not candidate.is_file():
+        return JSONResponse({"detail": "Not found"}, status_code=404)
+    return FileResponse(candidate)
+
+
 # ---------------------------------------------------------------------------
 # Server factory
 # ---------------------------------------------------------------------------

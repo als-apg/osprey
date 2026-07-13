@@ -19,7 +19,9 @@
   --surface-card: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
   --surface-hover: color-mix(in srgb, var(--bg-elevated) 60%, transparent);
 
-  --color-info: #3b82f6; /* hygiene-allow-color: no canonical "info" status token; theme-invariant one-off */
+  /* Info status blue tracks the per-family --ansi-blue (as artifacts does),
+     so it darkens for legibility on the light/high-contrast-light themes. */
+  --color-info: var(--ansi-blue);
   --text-accent: var(--color-accent-light);
 
   --shadow-md: 0 4px 12px var(--overlay-black-50);
@@ -806,7 +808,7 @@ textarea.form-input {
 
 .btn-primary {
   background: var(--color-accent);
-  color: #fff; /* hygiene-allow-color: fixed white-on-accent button text, theme-invariant by design */
+  color: var(--color-on-accent);
 }
 .btn-primary:hover:not(:disabled) {
   background: var(--color-accent-light);

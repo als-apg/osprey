@@ -183,12 +183,13 @@ export function renderPlotly(name, figData) {
         };
       }
     }
-    // Keep annotations from original with adjusted color
+    // Pass annotations through as authored. An annotation WITHOUT its own
+    // font.color inherits layout.font.color (set above, and re-driven by the
+    // theme relayout on switch) rather than being frozen at the first render's
+    // color — which previously left the "Area = …" overlay light-gray on the
+    // now-white plot after switching to light.
     if (figData.layout.annotations) {
-      layout.annotations = figData.layout.annotations.map((/** @type {any} */ a) => ({
-        ...a,
-        font: { ...(a.font || {}), color: (a.font && a.font.color) || defaultFontColor },
-      }));
+      layout.annotations = figData.layout.annotations;
     }
     if (figData.layout.title) {
       layout.title = figData.layout.title;
@@ -200,7 +201,25 @@ export function renderPlotly(name, figData) {
   delete layout.width;
   delete layout.height;
 
-  Plotly.react(plotEl, figData.data || [], layout, PLOTLY_CONFIG);
+  Plotly.react(plotEl, applyThemedMarkers(figData.data, defaultFontColor), layout, PLOTLY_CONFIG);
+}
+
+/**
+ * Paint the marker of every trace tagged ``meta === 'themed-fg-marker'`` with
+ * the current foreground color, so a worker can emit a marker (e.g. the
+ * resonance working-point star) that tracks the theme instead of baking a
+ * fixed color that goes invisible on one background.
+ *
+ * @param {any[] | undefined} data
+ * @param {string} fgColor
+ * @returns {any[]}
+ */
+function applyThemedMarkers(data, fgColor) {
+  return (data || []).map((/** @type {any} */ trace) =>
+    trace && trace.meta === 'themed-fg-marker'
+      ? { ...trace, marker: { ...(trace.marker || {}), color: fgColor } }
+      : trace
+  );
 }
 
 /**
@@ -406,6 +425,16 @@ export function createRenderer(figureNames, callbacks) {
           }
         }
         Plotly.relayout(plotEl, update);
+        // Re-theme opt-in markers (e.g. the working-point star) so they track
+        // the foreground across a live switch, not just at first render.
+        const themedIdx = (plotEl.data || [])
+          .map((/** @type {any} */ t, /** @type {number} */ i) =>
+            t && t.meta === 'themed-fg-marker' ? i : -1
+          )
+          .filter((/** @type {number} */ i) => i >= 0);
+        if (themedIdx.length) {
+          Plotly.restyle(plotEl, { 'marker.color': themeLayout.font.color }, themedIdx);
+        }
       }
     });
   });

@@ -5,7 +5,7 @@
  * Single gallery for all artifacts with type filtering, pin flag,
  * and inline timeseries rendering.
  */
-import { initTheme, subscribe } from "/design-system/js/theme-manager.js";
+import { initTheme, subscribe, chartSeries } from "/design-system/js/theme-manager.js";
 import { applyEmbedded } from "/design-system/js/frame-params.js";
 import "/design-system/js/components/osprey-theme-switcher.js";
 import {
@@ -345,6 +345,15 @@ function _restyleTimeseriesChart() {
       "yaxis.gridcolor": t.yaxis.gridcolor, "yaxis.linecolor": t.line,
       "legend.bgcolor": t.legendBg, "legend.bordercolor": t.legendBorder,
     });
+    // relayout doesn't touch trace colors, so the data lines and their legend
+    // dots keep the prior theme's palette until reload. Restyle each trace's
+    // line+marker to the current series palette so they re-theme live too.
+    const series = chartSeries();
+    const traces = /** @type {any} */ (tsChart).data || [];
+    if (series.length && traces.length) {
+      const colors = traces.map((/** @type {any} */ _t, /** @type {number} */ i) => series[i % series.length]);
+      Plotly.restyle(tsChart, { "line.color": colors, "marker.color": colors });
+    }
   // eslint-disable-next-line no-empty -- intentional empty catch: Plotly relayout is best-effort restyle
   } catch {}
 }

@@ -28,7 +28,7 @@
 
 .btn-primary {
   background: var(--color-accent);
-  color: var(--bg-primary);
+  color: var(--color-on-accent);
   border-color: var(--color-accent);
 }
 
@@ -163,7 +163,7 @@ textarea.input {
   font-size: var(--text-sm);
   color: var(--text-primary);
   background: var(--bg-panel);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%2394a3b8' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='%2394a3b8' viewBox='0 0 16 16'%3E%3Cpath d='M8 11L3 6h10l-5 5z'/%3E%3C/svg%3E"); /* hygiene-allow-color: native <select> chevron in a data-URI (can't reference a token); fixed neutral slate reads on light and dark, full tokenization via a masked pseudo deferred */
   background-repeat: no-repeat;
   background-position: right var(--space-2) center;
   border: 1px solid var(--border-default);

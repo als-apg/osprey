@@ -102,7 +102,7 @@ export async function renderAgents({ apiFetch, showToast, cache }) {
       html += `<div class="tool-row ${isErr ? 'is-error' : ''} ${tcSrv}" data-tool-key="${toolKey}">
         <span class="tool-time">${ts(tc.timestamp)}</span>
         <span class="tool-name">${esc(tc.tool_name || tc.tool || '')}</span>
-        <span class="server-badge ${tcSrv}" style="color:var(--srv, var(--text-muted))">${esc(tc.server_name || tc.server || '')}</span>
+        <span class="server-badge ${tcSrv}">${esc(tc.server_name || tc.server || '')}</span>
       </div>
       <div class="log-detail" data-tool-detail="${toolKey}">
         ${tc.arguments ? `<div class="detail-label">Arguments</div><pre>${esc(typeof tc.arguments === 'string' ? tc.arguments : JSON.stringify(tc.arguments, null, 2))}</pre>` : ''}
@@ -264,7 +264,7 @@ export async function renderToolLog({ apiFetch, showToast, cache }) {
     html += `<div class="log-row ${isErr ? 'is-error' : ''}" data-idx="${i}">
       <span class="col-time">${ts(ev.timestamp)}</span>
       <span class="col-tool">${esc(ev.tool_name || '')}</span>
-      <span class="col-server"><span class="server-badge ${srvCls}" style="color:var(--srv, var(--text-muted))">${esc(ev.server_name || '')}</span></span>
+      <span class="col-server"><span class="server-badge ${srvCls}">${esc(ev.server_name || '')}</span></span>
       <span class="col-agent">${esc((ev.agent_id || 'main').slice(0, 8))}</span>
     </div>
     <div class="log-detail" data-detail="${i}">
