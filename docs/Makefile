@@ -16,8 +16,10 @@ help:
 	@echo "  test-build          Test documentation build (like GitHub Actions)"
 	@echo "  test-deps           Install documentation dependencies"
 	@echo "  pre-commit-test     Quick test (assumes deps installed)"
+	@echo "  screenshots         Regenerate default (standalone) doc screenshots"
+	@echo "  screenshots-<name>  Regenerate one recipe by name (e.g. screenshots-theme_switcher)"
 
-.PHONY: help Makefile test-build test-deps pre-commit-test
+.PHONY: help Makefile test-build test-deps pre-commit-test screenshots screenshots-%
 
 html:
 	@$(SPHINXBUILD) -M html "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
@@ -26,6 +28,20 @@ LIVEHTML_PORT ?= 8008
 
 livehtml:
 	sphinx-autobuild "$(SOURCEDIR)" "$(BUILDDIR)" --port $(LIVEHTML_PORT) $(SPHINXOPTS) $(O)
+
+# Regenerate committed documentation screenshots from the declarative registry
+# (docs/screenshots). Run from the repo root so `docs.screenshots` resolves as a
+# namespace package. The default target captures only the container-free
+# standalone recipes; pass SCREENSHOTOPTS=--stack (containers + port 5432) or
+# SCREENSHOTOPTS=--agentic (live Claude session) to opt into the heavier ones.
+PYTHON        ?= python
+SCREENSHOTOPTS ?=
+
+screenshots:
+	cd .. && $(PYTHON) -m docs.screenshots $(SCREENSHOTOPTS)
+
+screenshots-%:
+	cd .. && $(PYTHON) -m docs.screenshots --only $* $(SCREENSHOTOPTS)
 
 # Catch-all target: route all unknown targets to Sphinx using the new
 # "make mode" option.  $(O) is meant as a shortcut for $(SPHINXOPTS).

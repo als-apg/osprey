@@ -18,7 +18,8 @@ between companion tools without ever leaving the page.
    :align: center
    :width: 100%
 
-   A live agent session on the left; the workspace and its artifacts on the right.
+   A live agent session on the left; the workspace and its artifacts on the
+   right. Captured with OSPREY |captured_web_terminal_hero|.
 
 .. grid:: 1 1 3 3
    :gutter: 3
