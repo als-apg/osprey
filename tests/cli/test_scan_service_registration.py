@@ -190,6 +190,91 @@ def test_demo_scanner_off_by_default_omits_env_var(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Facility plan-directory deploy wiring (Task 1.4).
+# ---------------------------------------------------------------------------
+
+
+def test_inject_bluesky_plan_dir_written_to_config(tmp_path: Path) -> None:
+    """A configured plan_dir is emitted into services.bluesky config."""
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(plan_dir="/opt/facility/scan_plans"), project_path)
+
+    config = _read_config(project_path)
+    assert config["services"]["bluesky"]["plan_dir"] == "/opt/facility/scan_plans"
+
+
+def test_inject_bluesky_no_plan_dir_omits_key(tmp_path: Path) -> None:
+    """No plan_dir configured -> no plan_dir key at all (bridge-only deploy unchanged)."""
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(), project_path)
+
+    config = _read_config(project_path)
+    assert "plan_dir" not in config["services"]["bluesky"]
+
+
+def test_plan_dir_mount_and_env_round_trip_through_compose(tmp_path: Path) -> None:
+    """A configured plan_dir renders both the read-only bind mount and the
+    in-container BLUESKY_PLAN_DIRS env var the loader (plan_loader.py) reads
+    — the host path must never leak into the container environment."""
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(plan_dir="/opt/facility/scan_plans"), project_path)
+    config = _read_config(project_path)
+    rendered = _render_copied_compose(project_path, config)
+
+    bridge = rendered["services"]["bluesky-bridge"]
+    assert bridge["environment"]["BLUESKY_PLAN_DIRS"] == "/app/project/plans"
+    assert "/opt/facility/scan_plans:/app/project/plans:ro" in bridge["volumes"]
+    # The host path never appears in the container's environment block.
+    assert "/opt/facility/scan_plans" not in bridge["environment"].values()
+
+
+def test_plan_dir_absent_omits_mount_and_env(tmp_path: Path) -> None:
+    """Regression: a bridge-only deploy (no plan_dir) renders no plan mount
+    and no BLUESKY_PLAN_DIRS env var — unchanged from every prior build."""
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(), project_path)
+    config = _read_config(project_path)
+    rendered = _render_copied_compose(project_path, config)
+
+    bridge = rendered["services"]["bluesky-bridge"]
+    assert "BLUESKY_PLAN_DIRS" not in bridge["environment"]
+    assert not any(str(v).endswith(":/app/project/plans:ro") for v in bridge["volumes"])
+
+
+def test_loopback_bind_and_failclosed_token_survive_plan_dir_wiring(tmp_path: Path) -> None:
+    """Regression guard for the two invariants this task must not touch:
+    the port bind stays loopback-only and BLUESKY_PROMOTE_TOKEN keeps no
+    ``:-`` default (an unset token must fail closed, never boot with a
+    guessable secret)."""
+    project_path = tmp_path / "project"
+    project_path.mkdir()
+    _write_config(project_path)
+
+    _inject_bluesky(BlueskyConfig(plan_dir="/opt/facility/scan_plans"), project_path)
+
+    template_text = (project_path / "services" / "bluesky" / "docker-compose.yml.j2").read_text()
+    assert (
+        "\"{{ deployment.bind_address | default('127.0.0.1') }}:"
+        "{{ services.bluesky.port | default(8090) }}:"
+        '{{ services.bluesky.port | default(8090) }}"' in template_text
+    )
+    assert "BLUESKY_PROMOTE_TOKEN: ${BLUESKY_PROMOTE_TOKEN}" in template_text
+    assert "BLUESKY_PROMOTE_TOKEN: ${BLUESKY_PROMOTE_TOKEN:-" not in template_text
+
+
+# ---------------------------------------------------------------------------
 # Build-profile parsing: bluesky stays opt-in, not default-on.
 # ---------------------------------------------------------------------------
 
@@ -208,6 +293,7 @@ def test_profile_bluesky_key_parses_overrides() -> None:
                 "tiled_enabled": True,
                 "tiled_port": 8124,
                 "demo_scanner": True,
+                "plan_dir": "/opt/facility/scan_plans",
             },
         }
     )
@@ -216,6 +302,7 @@ def test_profile_bluesky_key_parses_overrides() -> None:
     assert profile.bluesky.tiled_enabled is True
     assert profile.bluesky.tiled_port == 8124
     assert profile.bluesky.demo_scanner is True
+    assert profile.bluesky.plan_dir == "/opt/facility/scan_plans"
 
 
 def test_profile_bluesky_key_defaults_when_empty_mapping() -> None:
@@ -225,3 +312,4 @@ def test_profile_bluesky_key_defaults_when_empty_mapping() -> None:
     assert profile.bluesky.tiled_enabled is False
     assert profile.bluesky.tiled_port == 8091
     assert profile.bluesky.demo_scanner is False
+    assert profile.bluesky.plan_dir is None
