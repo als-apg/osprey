@@ -2,8 +2,8 @@
 
 Unlike the subprocess sweep (``test_dispatch_tutorial.py``), this exercises the
 REAL shipped artifacts: the compose templates, the bundled Dockerfile (which
-installs Node + the Claude Code CLI the worker needs), the worker ``.env`` mount
-that carries provider auth, and the in-network ``dispatch-worker-1:9190``
+installs Node + the Claude Code CLI the worker needs), the worker ``env_file``
+wiring that carries provider auth, and the in-network ``dispatch-worker-1:9190``
 routing baked into the shipped ``tutorial_triggers.yml`` — none of which the
 subprocess path touches.
 
@@ -14,9 +14,12 @@ It builds a control-assistant project, deploys the stack with
   * hello-dispatch / triage-event / save-report -> a run completes
   * denied-tool-demo -> rejected by the worker denylist (no completed run)
 
-The worker receives its provider key via the project ``.env`` mounted at
-``/app/<project>/.env`` (see the dispatch_worker compose template) — without that
-wiring the agent run cannot authenticate, so this test also guards that mount.
+The worker receives its provider key via ``env_file: ../../.env`` (see the
+dispatch_worker compose template) — the compose CLI reads the project ``.env``
+on the HOST (as its owner, even when it's 0600) and injects the vars directly
+into the container environment, so the non-root worker never has to open the
+file itself. Without that wiring the agent run cannot authenticate, so this
+test also guards it.
 
 Gating: needs Docker and ``ALS_APG_API_KEY``. We do NOT gate on a host
 ``claude`` binary — the CLI lives inside the built image, not on the runner.
@@ -123,11 +126,11 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
 
-    # The worker mounts this .env (compose template) so inject_provider_env can
-    # resolve the provider key. The compose templates have no token default (they
-    # fail closed), and `deploy up` would otherwise auto-generate a random token;
-    # we write fixed tokens here so the bearer below is predictable, and pass the
-    # provider secret through.
+    # The worker's env_file (compose template) delivers this .env's vars so
+    # inject_provider_env can resolve the provider key. The compose templates
+    # have no token default (they fail closed), and `deploy up` would otherwise
+    # auto-generate a random token; we write fixed tokens here so the bearer
+    # below is predictable, and pass the provider secret through.
     (project_dir / ".env").write_text(
         "EVENT_DISPATCHER_TOKEN=dev-token\n"
         "DISPATCH_WORKER_TOKEN=dev-token\n"

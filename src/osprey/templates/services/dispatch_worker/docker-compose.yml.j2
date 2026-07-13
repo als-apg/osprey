@@ -30,6 +30,18 @@ services:
       osprey.project.root: "{{ osprey_labels.project_root }}"
       osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
     restart: unless-stopped
+{% if osprey_env_present | default(false) %}
+    # Provider auth: the worker's startup hook (inject_provider_env) resolves
+    # the LLM provider key (e.g. ALS_APG_API_KEY -> ANTHROPIC_AUTH_TOKEN) from
+    # the process environment. `env_file:` is read by the compose CLI on the
+    # HOST (as the file's owner), so it works even though the project .env is
+    # deliberately 0600 and the worker itself runs as non-root `osprey` and
+    # cannot open it. Path is relative to the compose project directory
+    # (build/services/, same resolution rule as `volumes:` bind sources) — see
+    # the `../../.env` volume path elsewhere in this repo for the same prefix.
+    env_file:
+      - ../../.env
+{% endif %}
     environment:
       # No :-default (see event_dispatcher compose): fail closed on an unset token.
       DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
@@ -50,15 +62,6 @@ services:
       # Staged runtime config (python_env_path stripped) overlays the config.yml
       # baked into the image, so the worker reads the deploy-time config.
       - ./dispatch_worker/config.yml:/app/{{ osprey_labels.project_name }}/config.yml:ro
-{% if osprey_env_present | default(false) %}
-      # Provider auth: the worker's startup hook (inject_provider_env) reads
-      # $OSPREY_PROJECT_DIR/.env to resolve the LLM provider key (e.g.
-      # ALS_APG_API_KEY -> ANTHROPIC_AUTH_TOKEN). Without this, dispatched agent
-      # runs cannot authenticate. The project .env lives two levels up from the
-      # compose project directory (build/services/); mounted read-only so the
-      # secret is never copied into the build dir.
-      - ../../.env:/app/{{ osprey_labels.project_name }}/.env:ro
-{% endif %}
       # The image creates /app/<project>/_agent_data (and its subdirs) and
       # `chown -R osprey:osprey /app/<project>` before switching to USER osprey,
       # so a fresh named volume initialized from that path inherits osprey

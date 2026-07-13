@@ -280,11 +280,11 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     # built project so the worker image bakes them in.
     _mutate_project(project_dir)
 
-    # The worker mounts this .env (compose template) so inject_provider_env can
-    # resolve the provider key. The compose templates have no token default (they
-    # fail closed), and `deploy up` would otherwise auto-generate a random token;
-    # we write fixed tokens here so the bearer below is predictable, and pass the
-    # provider secret through.
+    # The worker's env_file (compose template) delivers this .env's vars so
+    # inject_provider_env can resolve the provider key. The compose templates
+    # have no token default (they fail closed), and `deploy up` would otherwise
+    # auto-generate a random token; we write fixed tokens here so the bearer
+    # below is predictable, and pass the provider secret through.
     (project_dir / ".env").write_text(
         "EVENT_DISPATCHER_TOKEN=dev-token\n"
         "DISPATCH_WORKER_TOKEN=dev-token\n"

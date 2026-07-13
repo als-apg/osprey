@@ -101,11 +101,15 @@ def test_copy_service_templates_root_always_present_with_valid_pkg_services(
 # Dispatch worker provider-auth wiring
 #
 # The worker container runs a headless agent that needs the LLM provider key.
-# Its startup hook (``inject_provider_env``) reads ``$OSPREY_PROJECT_DIR/.env``,
-# so the worker compose service must mount the project ``.env`` read-only —
-# otherwise dispatched runs cannot authenticate (status "error") in any real
-# container deploy. Gated on ``.env`` existence to avoid docker auto-creating a
-# stray empty ``.env`` directory when none is present.
+# Its startup hook (``inject_provider_env``) resolves it from the process
+# environment, so the worker compose service declares ``env_file: ../../.env``
+# — read by the compose CLI on the HOST (as the file's owner) and injected
+# into the container environment. This works even though the project ``.env``
+# is deliberately 0600 and the worker runs as non-root ``osprey``: the
+# container itself never opens the file, so a uid mismatch can't EACCES it
+# (unlike a bind mount, which the non-root process must open itself). Gated
+# on ``.env`` existence — an ``env_file:`` entry whose path is missing errors
+# ``compose up`` outright.
 # ---------------------------------------------------------------------------
 
 # The worker container now runs the full PROJECT image, whose layout bakes the
@@ -115,7 +119,7 @@ def test_copy_service_templates_root_always_present_with_valid_pkg_services(
 # ``<project>:local`` image tag), both from a single ``resolve_project_name(config)``
 # call — so the fixtures below drive the real injection rather than hardcoding "p".
 _WORKER_PROJECT_NAME = "hwt-fixture"
-_ENV_MOUNT = f"../../.env:/app/{_WORKER_PROJECT_NAME}/.env:ro"
+_ENV_FILE_LINE = "- ../../.env"
 
 
 def _render_worker_template(*, env_present: bool, project_name: str = _WORKER_PROJECT_NAME) -> str:
@@ -204,19 +208,23 @@ def test_worker_does_not_build_shared_image() -> None:
     )
 
 
-def test_worker_template_mounts_env_when_present() -> None:
+def test_worker_template_declares_env_file_when_present() -> None:
     rendered = _render_worker_template(env_present=True)
-    assert _ENV_MOUNT in rendered, (
-        "dispatch worker must mount the project .env so the agent can "
+    assert "env_file:" in rendered and _ENV_FILE_LINE in rendered, (
+        "dispatch worker must declare env_file: ../../.env so the agent can "
         "authenticate to the LLM provider"
+    )
+    assert f"/app/{_WORKER_PROJECT_NAME}/.env" not in rendered, (
+        "the project .env must not be bind-mounted into the container — the "
+        "non-root worker can't open a 0600 file owned by a different uid"
     )
 
 
-def test_worker_template_omits_env_mount_when_absent() -> None:
+def test_worker_template_omits_env_file_when_absent() -> None:
     rendered = _render_worker_template(env_present=False)
-    assert _ENV_MOUNT not in rendered, (
-        "no .env mount should be emitted when the project has no .env "
-        "(avoids docker creating a stray empty .env directory)"
+    assert "env_file:" not in rendered and _ENV_FILE_LINE not in rendered, (
+        "no env_file should be emitted when the project has no .env "
+        "(an env_file: pointing at a missing path errors compose up)"
     )
 
 
@@ -297,8 +305,12 @@ def test_worker_layout_paths_track_injected_project_name() -> None:
     # source unchanged (relative to build/services/).
     assert f"- ./dispatch_worker/config.yml:{root}/config.yml:ro" in rendered
 
-    # Provider-auth .env mount target
-    assert f"- ../../.env:{root}/.env:ro" in rendered
+    # Provider auth is delivered via env_file (host-side read), not a bind
+    # mount, so there is no `/app/<project>/.env` path in the container layout.
+    assert f"{root}/.env" not in rendered, (
+        "the worker must not reference /app/<project>/.env — env_file: delivers "
+        "provider auth without exposing the file inside the (non-root) container"
+    )
 
     # _agent_data named-volume mount target (default isolated mode -> per-worker)
     assert f"- dispatch_workspace_1:{root}/_agent_data" in rendered
