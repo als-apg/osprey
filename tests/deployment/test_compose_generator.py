@@ -404,14 +404,14 @@ def _render_bluesky_template(
     tpl = resources.files("osprey").joinpath("templates/services/bluesky/docker-compose.yml.j2")
     template = Template(tpl.read_text(encoding="utf-8"))
     deployed = ["bluesky"] + (["virtual_accelerator"] if va_deployed else [])
-    kwargs = dict(
-        services=services or {"bluesky": {"port": 8090}, "virtual_accelerator": {"port": 5064}},
-        deployment={},
-        system={"timezone": "UTC"},
-        deployed_services=deployed,
-        osprey_labels={"project_name": "p", "project_root": "/r", "deployed_at": "now"},
-        osprey_version="",
-    )
+    kwargs = {
+        "services": services or {"bluesky": {"port": 8090}, "virtual_accelerator": {"port": 5064}},
+        "deployment": {},
+        "system": {"timezone": "UTC"},
+        "deployed_services": deployed,
+        "osprey_labels": {"project_name": "p", "project_root": "/r", "deployed_at": "now"},
+        "osprey_version": "",
+    }
     # Task 3.2: control_system is omitted by default (matching every
     # pre-existing call site below), so `control_system.writes_enabled |
     # default(false)` must resolve against Jinja2's default Undefined without
