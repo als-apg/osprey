@@ -64,7 +64,7 @@ becomes user-owned:
 **Through the web terminal.** ``osprey web`` exposes the agent's ``.claude/``
 files in the browser: edit a rule in the setup editor, or use the scaffold
 gallery to override a framework-generated rule (which claims it for you). See
-:doc:`use-web-terminal`.
+:doc:`web-terminal/operate`.
 
 .. seealso::
 

@@ -86,7 +86,7 @@ same safety hooks, then adds production capabilities. The most visible additions
        support common control-room workflows.
    * - **Web terminal**
      - A browser split-pane UI with logbook, channel-finder, and tuning panels
-       (documented separately — see :doc:`../how-to/use-web-terminal`).
+       (documented separately — see :doc:`../how-to/web-terminal/operate`).
 
 The **safety model is unchanged**: limits checking, the pre-write check, and the
 human-approval prompt all behave exactly as in the Hello World Tutorial. Refer
@@ -247,7 +247,7 @@ repairs the project's configuration when something looks misconfigured.
 
    This project also ships a browser-based **web terminal** with logbook,
    channel-finder, and tuning panels. It has its own guide —
-   see :doc:`../how-to/use-web-terminal` to launch it with ``osprey web``.
+   see :doc:`../how-to/web-terminal/operate` to launch it with ``osprey web``.
 
 Step 7: Tune the Assistant and Go to Production
 ------------------------------------------------
@@ -297,7 +297,7 @@ search, historical plotting, and operator skills. Where to go next:
 - **Channel finder in depth**: :doc:`../how-to/use-channel-finder` compares the
   hierarchical, in-context, and middle-layer strategies and explains the database
   format.
-- **Web terminal**: :doc:`../how-to/use-web-terminal` launches the browser UI and
+- **Web terminal**: :doc:`../how-to/web-terminal/operate` launches the browser UI and
   its panels with ``osprey web``.
 - **Tailor a preset to your facility**: :doc:`../how-to/build-profiles` shows how
   to extend ``control-assistant`` with your own overrides and overlays.

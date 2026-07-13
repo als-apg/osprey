@@ -336,8 +336,9 @@ broadest/slowest:
   standalone and embedded modes -- ``applyEmbedded()`` on load, an
   ``<osprey-theme-switcher>`` that hides itself when embedded (the hub owns
   theme chrome there), branding hidden when embedded -- plus a
-  ``test_contract_params.py`` case. See :doc:`/how-to/embedding-osprey-panels`
-  for the full dual-mode checklist and the well-known query/hash parameters.
+  ``test_contract_params.py`` case, which is the up-to-date spec for the
+  dual-mode checklist and well-known parameters. See
+  :doc:`/how-to/web-terminal/panels` for how panels embed in the hub.
 - If the change is visible on screen: a ``test_visual.py`` ``TARGETS`` entry
   and a committed baseline PNG (regenerate with ``--regen-baselines`` on
   Linux/CI -- a baseline captured on macOS will mismatch there).
