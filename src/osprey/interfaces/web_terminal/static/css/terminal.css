@@ -173,6 +173,20 @@
   color: var(--color-accent-light);
 }
 
+/* apex theme: reserve the brand serif (Instrument Serif) for the brand
+   wordmark alone. Scoped to the apex themes and to .header-logo only so the
+   serif never leaks to body text, headings, buttons, or tabs (those keep the
+   apex --font-display = IBM Plex Sans set in the design-system base.css).
+   Instrument Serif ships a single 400 weight; a serif display face reads
+   larger and does not want the sans' negative tracking, so reset both. */
+[data-theme="apex-dark"] .header-logo,
+[data-theme="apex-light"] .header-logo {
+  font-family: 'Instrument Serif', serif;
+  font-weight: 400;
+  font-size: 20px;
+  letter-spacing: 0;
+}
+
 /* Optional per-deployment name badge (web.app_name), pinned to the header's
    right so otherwise-identical terminals are distinguishable. */
 .header-app-name {

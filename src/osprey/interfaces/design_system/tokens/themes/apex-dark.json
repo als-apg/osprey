@@ -1,27 +1,27 @@
 {
-  "$description": "Dark theme — canonical values taken verbatim from web-terminal's variables.css (the hub, per proposal). Aliases are one-hop into core.json primitives; rgba/composite values that combine a base color with a specific alpha or a multi-part shadow are kept as literals (no ramp step encodes 'primitive + alpha', so a one-hop alias can't express them). WCAG contract gates (text.primary/secondary >= 4.5:1, text.muted >= 3:1, accent >= 3:1, all vs bg.primary) were computed against these values and ALL PASS with margin — dark text-primary 17.49:1, text-secondary 6.74:1, text-muted 4.03:1, accent 5.47:1. Zero nudges applied to this theme.",
-  "$extensions": { "mode": "dark", "id": "dark", "label": "Dark", "family": "osprey", "default": true },
+  "$description": "Apex Dark — gold-forward skin ported from tuning_scripts. The warm GOLD (#d4a574, core amber.300) is the focal/primary accent (accent.base/light + border.accent + all tint.accent.* carry gold), and the teal/cyan (#4fd1c5, core teal.100) is DEMOTED to the secondary/data slot: it lives in the amber.* group, tint.amber.*, chart.series slot 1, and the terminal cursor/selection. This inverts the 'osprey' family (where teal is accent and gold lives in amber.*). Surfaces are the tuning dark slate ramp; text is the tuning ink ramp; status/overlay/shadow/diff keep osprey's exact values. WCAG contract gates (text.primary/secondary >= 4.5, text.muted >= 3, accent >= 3, all vs bg.primary #0f172a) all pass with margin — text-primary ~16.3:1, text-secondary ~6.96:1, text-muted ~3.75:1, accent (gold) ~8.0:1. Zero nudges needed in dark.",
+  "$extensions": { "mode": "dark", "id": "apex-dark", "label": "Apex Dark", "family": "apex" },
   "bg": {
-    "terminal": { "$value": "{color.slate.1050}", "$type": "color" },
-    "primary": { "$value": "{color.slate.1000}", "$type": "color" },
-    "secondary": { "$value": "{color.slate.850}", "$type": "color" },
-    "panel": { "$value": "{color.slate.900}", "$type": "color" },
-    "elevated": { "$value": "{color.slate.800}", "$type": "color" }
+    "terminal": { "$value": "#0a1120", "$type": "color", "$description": "Darkest surface — a shade below tuning --bg-0; not a core ramp step, kept literal." },
+    "primary": { "$value": "#0f172a", "$type": "color", "$description": "tuning --bg-0; the main canvas and WCAG reference background. Not a core ramp step, kept literal." },
+    "panel": { "$value": "#16203a", "$type": "color", "$description": "Intermediate surface between primary and secondary; not a core ramp step, kept literal." },
+    "secondary": { "$value": "{color.slate.750}", "$type": "color", "$description": "tuning --bg-1 (#1e293b) — exact core alias." },
+    "elevated": { "$value": "#334155", "$type": "color", "$description": "tuning --bg-2; lightest raised surface. Not a core ramp step, kept literal." }
   },
   "text": {
     "primary": { "$value": "{color.slate.250}", "$type": "color" },
-    "secondary": { "$value": "{color.slate.600}", "$type": "color" },
+    "secondary": { "$value": "{color.slate.550}", "$type": "color" },
     "muted": { "$value": "{color.slate.650}", "$type": "color" }
   },
   "accent": {
-    "base": { "$value": "{color.teal.300}", "$type": "color" },
-    "light": { "$value": "{color.teal.100}", "$type": "color" },
-    "on": { "$value": "{color.slate.1000}", "$type": "color", "$description": "Foreground for text/icons on accent.base fills (e.g. primary buttons). 5.47:1 on teal.300." }
+    "base": { "$value": "{color.amber.300}", "$type": "color", "$description": "GOLD-FORWARD: focal accent = warm gold #d4a574 (tuning --gold), aliased into core amber.300." },
+    "light": { "$value": "{color.amber.100}", "$type": "color", "$description": "GOLD-FORWARD: lighter gold #e8c9a0 for hover/glow, aliased into core amber.100." },
+    "on": { "$value": "{color.slate.1000}", "$type": "color", "$description": "GOLD-FORWARD: dark ink (#0a0f1a) on the light gold accent.base (#d4a574) = 8.61:1 — legible primary-button text (gated >= 4.5 vs accent.base)." }
   },
   "amber": {
-    "base": { "$value": "{color.amber.300}", "$type": "color" },
-    "light": { "$value": "{color.amber.100}", "$type": "color" },
-    "hover": { "$value": "{color.amber.500}", "$type": "color" }
+    "base": { "$value": "{color.teal.100}", "$type": "color", "$description": "DEMOTED TEAL: the secondary/data hue #4fd1c5 (tuning --cyan) lives in the amber.* slot under the gold-forward inversion." },
+    "light": { "$value": "{color.teal.50}", "$type": "color", "$description": "DEMOTED TEAL: brighter teal #67e8f9." },
+    "hover": { "$value": "{color.teal.300}", "$type": "color", "$description": "DEMOTED TEAL: deeper teal #319795 for hover states." }
   },
   "status": {
     "success": { "$value": "{color.green.400}", "$type": "color" },
@@ -30,27 +30,27 @@
     "error-hover": { "$value": "{color.red.500}", "$type": "color" }
   },
   "border": {
-    "default": { "$value": "rgba(148, 163, 184, 0.12)", "$type": "color", "$description": "Alpha composite of the tint.neutral base (#94a3b8) — not a solid ramp step, kept literal." },
-    "accent": { "$value": "rgba(79, 209, 197, 0.15)", "$type": "color", "$description": "Alpha composite of accent.light (#4fd1c5)." }
+    "default": { "$value": "rgba(148, 163, 184, 0.12)", "$type": "color", "$description": "Neutral alpha composite (#94a3b8) — not a solid ramp step, kept literal." },
+    "accent": { "$value": "rgba(212, 165, 116, 0.15)", "$type": "color", "$description": "GOLD-FORWARD: alpha composite of the focal gold #d4a574 (tuning --gold, matching tuning's --gold-soft base rgb)." }
   },
   "tint": {
     "accent": {
-      "04": { "$value": "rgba(79, 209, 197, 0.04)", "$type": "color" },
-      "06": { "$value": "rgba(79, 209, 197, 0.06)", "$type": "color" },
-      "08": { "$value": "rgba(79, 209, 197, 0.08)", "$type": "color" },
-      "10": { "$value": "rgba(79, 209, 197, 0.10)", "$type": "color" },
-      "12": { "$value": "rgba(79, 209, 197, 0.12)", "$type": "color" },
-      "20": { "$value": "rgba(79, 209, 197, 0.20)", "$type": "color" },
-      "25": { "$value": "rgba(79, 209, 197, 0.25)", "$type": "color" },
-      "30": { "$value": "rgba(79, 209, 197, 0.30)", "$type": "color" }
-    },
-    "amber": {
       "04": { "$value": "rgba(212, 165, 116, 0.04)", "$type": "color" },
       "06": { "$value": "rgba(212, 165, 116, 0.06)", "$type": "color" },
       "08": { "$value": "rgba(212, 165, 116, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(212, 165, 116, 0.10)", "$type": "color" },
       "12": { "$value": "rgba(212, 165, 116, 0.12)", "$type": "color" },
-      "15": { "$value": "rgba(212, 165, 116, 0.15)", "$type": "color" },
-      "25": { "$value": "rgba(212, 165, 116, 0.25)", "$type": "color" }
+      "20": { "$value": "rgba(212, 165, 116, 0.20)", "$type": "color" },
+      "25": { "$value": "rgba(212, 165, 116, 0.25)", "$type": "color" },
+      "30": { "$value": "rgba(212, 165, 116, 0.30)", "$type": "color" }
+    },
+    "amber": {
+      "04": { "$value": "rgba(79, 209, 197, 0.04)", "$type": "color" },
+      "06": { "$value": "rgba(79, 209, 197, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(79, 209, 197, 0.08)", "$type": "color" },
+      "12": { "$value": "rgba(79, 209, 197, 0.12)", "$type": "color" },
+      "15": { "$value": "rgba(79, 209, 197, 0.15)", "$type": "color" },
+      "25": { "$value": "rgba(79, 209, 197, 0.25)", "$type": "color" }
     },
     "error": {
       "04": { "$value": "rgba(239, 68, 68, 0.04)", "$type": "color" },
@@ -67,7 +67,7 @@
       "50": { "$value": "rgba(34, 197, 94, 0.50)", "$type": "color" }
     },
     "neutral": {
-      "$description": "Base rgb(148,163,184) = color.slate.550 — a lighter slate than text.secondary's rgb(139,154,181); both exist independently in source.",
+      "$description": "Base rgb(148,163,184) = color.slate.550 (tuning --ink-2).",
       "03": { "$value": "rgba(148, 163, 184, 0.03)", "$type": "color" },
       "06": { "$value": "rgba(148, 163, 184, 0.06)", "$type": "color" },
       "08": { "$value": "rgba(148, 163, 184, 0.08)", "$type": "color" },
@@ -103,14 +103,14 @@
     "word-add-text": { "$value": "{color.green.400}", "$type": "color" }
   },
   "terminal": {
-    "cursor": { "$value": "{color.teal.100}", "$type": "color" },
+    "cursor": { "$value": "{color.teal.100}", "$type": "color", "$description": "DEMOTED TEAL: cursor stays teal #4fd1c5 as a data cue." },
     "text": { "$value": "{color.slate.500}", "$type": "color" },
-    "selection": { "$value": "rgba(79, 209, 197, 0.25)", "$type": "color" },
+    "selection": { "$value": "rgba(79, 209, 197, 0.25)", "$type": "color", "$description": "DEMOTED TEAL: selection stays teal." },
     "ansi": {
-      "background": { "$value": "{color.slate.1050}", "$type": "color" },
+      "background": { "$value": "#0a1120", "$type": "color", "$description": "= bg.terminal (literal)." },
       "foreground": { "$value": "{color.slate.500}", "$type": "color" },
       "cursor": { "$value": "{color.teal.100}", "$type": "color" },
-      "cursor-accent": { "$value": "{color.slate.1050}", "$type": "color" },
+      "cursor-accent": { "$value": "#0a1120", "$type": "color", "$description": "= bg.terminal (literal)." },
       "selection": { "$value": "rgba(79, 209, 197, 0.25)", "$type": "color" },
       "black": { "$value": "{color.slate.800}", "$type": "color" },
       "red": { "$value": "{color.red.300}", "$type": "color" },
@@ -131,14 +131,13 @@
     }
   },
   "chart": {
-    "$description": "Harmonized canonical values — tuning/plots.js, artifacts/gallery.js and lattice_dashboard/dashboard.js each hand-rolled distinct paper/plot/grid/axis colors (tuning: #0a0f1a flat; artifacts: #131c2e/#0b1120 two-tone; lattice: transparent/rgba(22,26,36,.95)). Canonical choice: paper-bg = plot-bg = bg.primary (tuning's flat single-background convention, closest to hub/app-shell values); axis-text/grid = text.secondary family at low alpha (tuning AND artifacts dark both already used #8b9ab5 for axis-text — the one point of agreement). Artifacts and lattice will visually shift when migrated (Task 3.1/3.6) — authorized minor-shade harmonization, not a redesign.",
-    "paper-bg": { "$value": "{color.slate.1000}", "$type": "color" },
-    "plot-bg": { "$value": "{color.slate.1000}", "$type": "color" },
-    "grid": { "$value": "rgba(139, 154, 181, 0.1)", "$type": "color", "$description": "text.secondary base (#8b9ab5) at 10% alpha — tuning's exact dark-mode grid value." },
-    "axis-text": { "$value": "{color.slate.600}", "$type": "color" },
+    "$description": "paper/plot = bg.primary (tuning --bg-0 #0f172a); grid/axis-text = text.secondary family (#94a3b8). series slot 1 stays TEAL (the demoted data hue); the remaining five categorical slots are unchanged from the osprey palette.",
+    "paper-bg": { "$value": "#0f172a", "$type": "color", "$description": "= bg.primary (literal)." },
+    "plot-bg": { "$value": "#0f172a", "$type": "color", "$description": "= bg.primary (literal)." },
+    "grid": { "$value": "rgba(148, 163, 184, 0.1)", "$type": "color", "$description": "text.secondary base (#94a3b8) at 10% alpha." },
+    "axis-text": { "$value": "{color.slate.550}", "$type": "color" },
     "series": {
-      "$description": "Canonical 6-slot categorical palette = tuning's COLORS.bo_palette verbatim (all 6 steps already existed as ramp aliases). Artifacts' own 8-color array (which adds #d4a574 and an unratified pink #e879f9 not in any of the 7 approved ramp families) is NOT carried forward; artifacts' migration (Task 3.1, out of this task's scope) maps down to these 6 slots.",
-      "1": { "$value": "{color.teal.100}", "$type": "color" },
+      "1": { "$value": "{color.teal.100}", "$type": "color", "$description": "DEMOTED TEAL survives as the primary data-series color." },
       "2": { "$value": "{color.amber.400}", "$type": "color" },
       "3": { "$value": "{color.green.400}", "$type": "color" },
       "4": { "$value": "{color.red.300}", "$type": "color" },

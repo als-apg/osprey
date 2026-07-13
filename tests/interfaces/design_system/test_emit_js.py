@@ -431,6 +431,43 @@ def test_render_theme_boot_js_default_family_is_first_declared_family() -> None:
     }
 
 
+def test_explicit_default_flag_overrides_first_declared_family() -> None:
+    # $extensions.default: true pins DEFAULT_FAMILY regardless of manifest
+    # order, so a family whose files sort first cannot hijack the product
+    # default. Here 'apex' is declared FIRST but 'osprey' is flagged default.
+    tree = _tree(
+        {
+            "apex-dark": {
+                "id": "apex-dark",
+                "label": "Apex Dark",
+                "mode": "dark",
+                "family": "apex",
+            },
+            "apex-light": {
+                "id": "apex-light",
+                "label": "Apex Light",
+                "mode": "light",
+                "family": "apex",
+            },
+            "dark": {
+                "id": "dark",
+                "label": "Dark",
+                "mode": "dark",
+                "family": "osprey",
+                "default": True,
+            },
+            "light": {"id": "light", "label": "Light", "mode": "light", "family": "osprey"},
+        }
+    )
+
+    tokens_literals = _exported_const(render_tokens_js(tree), "DEFAULT_FAMILY")
+    boot_literals = _boot_globals(render_theme_boot_js(tree))
+
+    # First-declared would be 'apex'; the flag makes it 'osprey' in both files.
+    assert tokens_literals == "osprey"
+    assert boot_literals["DEFAULT_FAMILY"] == "osprey"
+
+
 def test_render_theme_boot_js_multiline_defaults_are_reindented() -> None:
     # Regression: json.dumps(..., indent=2) embedded after "  const DEFAULTS = "
     # must have every continuation line re-indented to the surrounding
@@ -648,12 +685,15 @@ def test_real_tokens_tree_renders_both_artifacts_cleanly() -> None:
         "light",
         "high-contrast-dark",
         "high-contrast-light",
+        "apex-dark",
+        "apex-light",
     }
     assert {entry["mode"] for entry in themes} == {"dark", "light"}
-    assert {entry["family"] for entry in themes} == {"osprey", "high-contrast"}
+    assert {entry["family"] for entry in themes} == {"osprey", "high-contrast", "apex"}
     assert _exported_const(tokens_js, "DEFAULTS") == {
         "osprey": {"dark": "dark", "light": "light"},
         "high-contrast": {"dark": "high-contrast-dark", "light": "high-contrast-light"},
+        "apex": {"dark": "apex-dark", "light": "apex-light"},
     }
 
     literals = _boot_globals(boot_js)
@@ -662,17 +702,26 @@ def test_real_tokens_tree_renders_both_artifacts_cleanly() -> None:
         "light",
         "high-contrast-dark",
         "high-contrast-light",
+        "apex-dark",
+        "apex-light",
     }
     assert literals["DEFAULTS"] == {
         "osprey": {"dark": "dark", "light": "light"},
         "high-contrast": {"dark": "high-contrast-dark", "light": "high-contrast-light"},
+        "apex": {"dark": "apex-dark", "light": "apex-light"},
     }
     assert literals["FAMILY_BY_ID"] == {
         "dark": "osprey",
         "light": "osprey",
         "high-contrast-dark": "high-contrast",
         "high-contrast-light": "high-contrast",
+        "apex-dark": "apex",
+        "apex-light": "apex",
     }
+    # osprey stays the product default even though apex-*.json sorts before
+    # dark.json — dark.json carries $extensions.default: true (see the
+    # explicit-default flag in emit_css/_default_theme_stem and emit_js/
+    # _default_family).
     assert literals["DEFAULT_FAMILY"] == "osprey"
 
     _assert_hook_clean(tokens_js)

@@ -188,24 +188,35 @@ def build_theme_defaults(entries: Sequence[ThemeManifestEntry]) -> dict[str, dic
     return defaults
 
 
-def _default_family(defaults: dict[str, dict[str, str]]) -> str | None:
+def _default_family(tree: TokenTree, defaults: dict[str, dict[str, str]]) -> str | None:
     """The fallback family for ``auto`` when no better signal is available.
 
-    The first family declared in the manifest (insertion order, itself
-    manifest/filename order -- never re-sorted). Shared by
-    :func:`render_tokens_js` (which exports it as ``DEFAULT_FAMILY`` for
-    ``theme-manager.js`` to read) and :func:`render_theme_boot_js` (which
-    bakes it as a literal, for the same fallback role -- see that
-    function's docstring), so the two generated files can never disagree
-    on what "first family" means.
+    Prefer the family of a theme explicitly flagged ``$extensions.default:
+    true`` -- this pins ``DEFAULT_FAMILY`` deterministically, independent
+    of filename/manifest order, so a family whose files sort before the
+    canonical one can never silently become the product default. When no
+    theme is flagged, fall back to the first family declared in the
+    manifest (insertion order, itself manifest/filename order -- the
+    historical behavior).
+
+    Shared by :func:`render_tokens_js` (which exports it as
+    ``DEFAULT_FAMILY`` for ``theme-manager.js`` to read) and
+    :func:`render_theme_boot_js` (which bakes it as a literal, for the same
+    fallback role), so the two generated files can never disagree.
 
     Args:
+        tree: The loaded token tree (for ``$extensions.default`` lookup).
         defaults: The per-family ``{family: {mode: id}}`` map, as returned
             by :func:`build_theme_defaults`.
 
     Returns:
-        The first family key, or ``None`` if ``defaults`` is empty.
+        The default family key, or ``None`` if ``defaults`` is empty.
     """
+    for metadata in tree.theme_metadata.values():
+        if metadata.get("default") is True:
+            family = metadata.get("family")
+            if family in defaults:
+                return family
     return next(iter(defaults), None)
 
 
@@ -258,7 +269,7 @@ def render_tokens_js(tree: TokenTree) -> str:
     """
     entries = build_theme_manifest(tree)
     defaults = build_theme_defaults(entries)
-    default_family = _default_family(defaults)
+    default_family = _default_family(tree, defaults)
 
     themes_json = json.dumps(
         [{"id": e.id, "label": e.label, "mode": e.mode, "family": e.family} for e in entries],
@@ -274,7 +285,8 @@ def render_tokens_js(tree: TokenTree) -> str:
         "// tokens.css via theme-manager.js's computed-style bridges.\n"
         f"export const THEMES = {themes_json};\n\n"
         f"export const DEFAULTS = {defaults_json};\n\n"
-        "// The first family declared in the manifest -- the single fallback\n"
+        "// The explicit-default family ($extensions.default), else the first\n"
+        "// declared -- the single fallback\n"
         "// theme-manager.js reads instead of re-deriving it from DEFAULTS.\n"
         f"export const DEFAULT_FAMILY = {default_family_json};"
     )
@@ -338,7 +350,7 @@ def render_theme_boot_js(tree: TokenTree) -> str:
     family_by_id = {entry.id: entry.family for entry in entries}
     # Fallback for when the server data-theme attribute is absent/invalid;
     # see docstring above and _default_family's own docstring.
-    default_family = _default_family(defaults)
+    default_family = _default_family(tree, defaults)
 
     valid_ids_json = json.dumps(valid_ids, ensure_ascii=True)
     defaults_json = _indent_continuation(json.dumps(defaults, indent=2, ensure_ascii=True), "  ")
