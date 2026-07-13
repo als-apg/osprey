@@ -85,7 +85,7 @@ same safety hooks, then adds production capabilities. The most visible additions
      - ``/diagnose``, ``/session-report``, ``setup-mode``, and ``demo-gallery``
        support common control-room workflows.
    * - **Web terminal**
-     - A browser split-pane UI with logbook, channel-finder, and tuning panels
+     - A browser split-pane UI with logbook and channel-finder panels
        (documented separately — see :doc:`../how-to/web-terminal/operate`).
 
 The **safety model is unchanged**: limits checking, the pre-write check, and the
@@ -245,8 +245,8 @@ repairs the project's configuration when something looks misconfigured.
 
 .. note::
 
-   This project also ships a browser-based **web terminal** with logbook,
-   channel-finder, and tuning panels. It has its own guide —
+   This project also ships a browser-based **web terminal** with logbook
+   and channel-finder panels. It has its own guide —
    see :doc:`../how-to/web-terminal/operate` to launch it with ``osprey web``.
 
 Step 7: Tune the Assistant and Go to Production
