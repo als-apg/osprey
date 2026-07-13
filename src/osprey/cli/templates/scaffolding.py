@@ -18,6 +18,16 @@ from osprey.cli.templates._rendering import render_template
 
 logger = logging.getLogger("osprey.cli.templates")
 
+# Fallback default for the Dockerfile.j2 CLAUDE_CLI_VERSION build ARG when
+# the project's config.yml doesn't set claude_code.cli_version (the common
+# case — it's an opt-in pin). Matches the dispatch-worker image's pinned
+# version (src/osprey/templates/services/event_dispatcher/Dockerfile) so a
+# freshly-built project image ships a deliberately-chosen CLI version rather
+# than silently tracking whatever `npm install -g @anthropic-ai/claude-code`
+# resolves to at build time. Bump deliberately, alongside the dispatch-worker
+# pin.
+_DEFAULT_CLAUDE_CLI_VERSION = "2.1.146"
+
 
 def _detect_system_timezone() -> str | None:
     """Detect the system IANA timezone name (e.g., 'America/New_York').
@@ -128,6 +138,17 @@ def create_project_structure(
     """
     project_template_dir = template_root / "project"
     app_template_dir = template_root / "apps" / data_bundle
+
+    # Expose claude_code.cli_version to Dockerfile.j2's CLAUDE_CLI_VERSION ARG
+    # default, so the same version pin that `osprey claude chat`/`osprey web`
+    # honor at runtime (osprey.utils.claude_launcher) also pins the image's
+    # build-time CLI install. Callers may pre-populate ctx["claude_code_cli_version"]
+    # (flat) or ctx["claude_code"]["cli_version"] (nested, mirroring config.yml's
+    # shape); absent either, fall back to the framework's last verified pin.
+    if "claude_code_cli_version" not in ctx:
+        ctx["claude_code_cli_version"] = (
+            ctx.get("claude_code", {}).get("cli_version") or _DEFAULT_CLAUDE_CLI_VERSION
+        )
 
     # Render template files (no pyproject.toml or requirements.txt -- no src/ package)
     files_to_render = [

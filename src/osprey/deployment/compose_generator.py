@@ -110,6 +110,37 @@ def find_service_config(config, service_name):
     return None, None
 
 
+def resolve_project_name(config):
+    """Derive the project name used for labels and the ``<project>:local`` image tag.
+
+    The name is resolved with a fixed priority order so that every consumer
+    (container labels here, plus the ``<project>:local`` image tag that
+    ``osprey deploy up`` builds for the dispatch worker) agrees on one value:
+
+    1. Root-level ``project_name`` attribute (preferred, explicit)
+    2. Last component of the ``project_root`` path (smart fallback)
+    3. ``"unnamed-project"`` (final fallback)
+
+    :param config: Configuration dictionary
+    :type config: dict
+    :return: Resolved project name
+    :rtype: str
+    """
+    project_name = config.get("project_name")
+
+    if not project_name:
+        # Fallback: Extract from project_root path
+        project_root = config.get("project_root", "")
+        if project_root:
+            project_name = os.path.basename(str(project_root).rstrip("/"))
+
+    if not project_name:
+        # Final fallback: Default
+        project_name = "unnamed-project"
+
+    return project_name
+
+
 def _inject_project_metadata(config):
     """Add project tracking metadata for container labels.
 
@@ -117,10 +148,14 @@ def _inject_project_metadata(config):
     be used as Docker labels in the rendered compose files. These labels enable
     tracking which project/agent owns each container.
 
-    The project name is extracted with the following priority:
-    1. Root-level 'project_name' attribute (preferred, explicit)
-    2. Last component of 'project_root' path (smart fallback)
-    3. Default to 'unnamed-project'
+    The project name is extracted via :func:`resolve_project_name` (explicit
+    ``project_name`` > last component of ``project_root`` > ``unnamed-project``).
+
+    It also defaults the dispatch worker's image to ``<project>:local`` — the
+    tag ``osprey deploy up`` builds from the project ``Dockerfile`` — unless the
+    profile pinned an explicit ``services.dispatch_worker.image``. The
+    event-dispatcher is left untouched (it builds ``osprey-dispatch:local`` via
+    its own compose ``build:`` block; the worker deliberately has none).
 
     :param config: Configuration dictionary
     :type config: dict
@@ -129,18 +164,7 @@ def _inject_project_metadata(config):
     """
     import datetime
 
-    # Extract project name with priority order
-    project_name = config.get("project_name")
-
-    if not project_name:
-        # Fallback: Extract from project_root path
-        project_root = config.get("project_root", "")
-        if project_root:
-            project_name = os.path.basename(project_root.rstrip("/"))
-
-    if not project_name:
-        # Final fallback: Default
-        project_name = "unnamed-project"
+    project_name = resolve_project_name(config)
 
     # Resolve the running framework version so service Dockerfiles can pin the
     # PyPI install (`pip install osprey-framework==<version>`) for production
@@ -164,6 +188,22 @@ def _inject_project_metadata(config):
     # startup; gating the mount on existence avoids docker auto-creating a stray
     # empty ``.env`` directory when none is present.
     config_with_labels["osprey_env_present"] = os.path.exists(".env")
+
+    # Default the dispatch worker's image to the project image that
+    # ``osprey deploy up`` builds (``<project>:local``). The worker compose
+    # template renders ``${OSPREY_WORKER_IMAGE:-{{ services.dispatch_worker.image
+    # | default('osprey-dispatch:local') }}}``, so setting this key here makes
+    # the rendered default the project image instead of the shared dispatch
+    # image. ``setdefault`` honors a profile that pinned its own image. Copy the
+    # nested dicts we touch so the shared input config is never mutated (the
+    # top-level copy() above is shallow).
+    services = config_with_labels.get("services")
+    if isinstance(services, dict) and isinstance(services.get("dispatch_worker"), dict):
+        services = dict(services)
+        worker_cfg = dict(services["dispatch_worker"])
+        worker_cfg.setdefault("image", f"{project_name}:local")
+        services["dispatch_worker"] = worker_cfg
+        config_with_labels["services"] = services
 
     return config_with_labels
 

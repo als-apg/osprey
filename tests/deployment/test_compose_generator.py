@@ -11,9 +11,11 @@ deployed_services. Two failure modes have to stay fixed:
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 import pytest
+import yaml
 from ruamel.yaml import YAML
 
 from osprey.cli.build_cmd import _copy_service_templates
@@ -99,34 +101,60 @@ def test_copy_service_templates_root_always_present_with_valid_pkg_services(
 # Dispatch worker provider-auth wiring
 #
 # The worker container runs a headless agent that needs the LLM provider key.
-# Its startup hook (``inject_provider_env``) reads ``$OSPREY_PROJECT_DIR/.env``,
-# so the worker compose service must mount the project ``.env`` read-only —
-# otherwise dispatched runs cannot authenticate (status "error") in any real
-# container deploy. Gated on ``.env`` existence to avoid docker auto-creating a
-# stray empty ``.env`` directory when none is present.
+# Its startup hook (``inject_provider_env``) resolves it from the process
+# environment, so the worker compose service declares ``env_file: ../../.env``
+# — read by the compose CLI on the HOST (as the file's owner) and injected
+# into the container environment. This works even though the project ``.env``
+# is deliberately 0600 and the worker runs as non-root ``osprey``: the
+# container itself never opens the file, so a uid mismatch can't EACCES it
+# (unlike a bind mount, which the non-root process must open itself). Gated
+# on ``.env`` existence — an ``env_file:`` entry whose path is missing errors
+# ``compose up`` outright.
 # ---------------------------------------------------------------------------
 
-_ENV_MOUNT = "../../.env:/app/project/.env:ro"
+# The worker container now runs the full PROJECT image, whose layout bakes the
+# project at /app/<project> (Dockerfile ``COPY . /app/{{ project_name }}/``). The
+# compose paths must track that same <project> name — resolved by the generator's
+# ``_inject_project_metadata`` into ``osprey_labels.project_name`` (and the
+# ``<project>:local`` image tag), both from a single ``resolve_project_name(config)``
+# call — so the fixtures below drive the real injection rather than hardcoding "p".
+_WORKER_PROJECT_NAME = "hwt-fixture"
+_ENV_FILE_LINE = "- ../../.env"
 
 
-def _render_worker_template(*, env_present: bool) -> str:
-    # Load the packaged template directly (CWD-independent — other tests in the
-    # suite may chdir, so a FileSystemLoader(".") lookup is not safe here).
+def _render_worker_template(*, env_present: bool, project_name: str = _WORKER_PROJECT_NAME) -> str:
+    """Render the worker compose through the real generator injection.
+
+    Feeds a minimal config through ``_inject_project_metadata`` (the production
+    code that sets ``osprey_labels.project_name`` and defaults the worker image to
+    ``<project>:local``), then renders the packaged template with that config as
+    context — exactly the ctx ``render_template`` passes in production. This proves
+    the rendered layout path equals the injected project name (M1 alignment) rather
+    than asserting against a value the test itself hardcoded into the ctx.
+    """
     from importlib import resources
 
     from jinja2 import Template
+
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    config = _inject_project_metadata(
+        {
+            "project_name": project_name,
+            "project_root": f"/r/{project_name}",
+            "services": {"dispatch_worker": {}},
+            "system": {"timezone": "UTC"},
+        }
+    )
+    # ``_inject_project_metadata`` sets osprey_env_present from the deploy CWD;
+    # override it here so the mount gating is exercised deterministically.
+    config["osprey_env_present"] = env_present
 
     tpl = resources.files("osprey").joinpath(
         "templates/services/dispatch_worker/docker-compose.yml.j2"
     )
     template = Template(tpl.read_text(encoding="utf-8"))
-    return template.render(
-        services={"dispatch_worker": {}},
-        system={"timezone": "UTC"},
-        osprey_labels={"project_name": "p", "project_root": "/r", "deployed_at": "now"},
-        osprey_version="",
-        osprey_env_present=env_present,
-    )
+    return template.render(**config)
 
 
 def _render_dispatcher_template() -> str:
@@ -180,19 +208,23 @@ def test_worker_does_not_build_shared_image() -> None:
     )
 
 
-def test_worker_template_mounts_env_when_present() -> None:
+def test_worker_template_declares_env_file_when_present() -> None:
     rendered = _render_worker_template(env_present=True)
-    assert _ENV_MOUNT in rendered, (
-        "dispatch worker must mount the project .env so the agent can "
+    assert "env_file:" in rendered and _ENV_FILE_LINE in rendered, (
+        "dispatch worker must declare env_file: ../../.env so the agent can "
         "authenticate to the LLM provider"
+    )
+    assert f"/app/{_WORKER_PROJECT_NAME}/.env" not in rendered, (
+        "the project .env must not be bind-mounted into the container — the "
+        "non-root worker can't open a 0600 file owned by a different uid"
     )
 
 
-def test_worker_template_omits_env_mount_when_absent() -> None:
+def test_worker_template_omits_env_file_when_absent() -> None:
     rendered = _render_worker_template(env_present=False)
-    assert _ENV_MOUNT not in rendered, (
-        "no .env mount should be emitted when the project has no .env "
-        "(avoids docker creating a stray empty .env directory)"
+    assert "env_file:" not in rendered and _ENV_FILE_LINE not in rendered, (
+        "no env_file should be emitted when the project has no .env "
+        "(an env_file: pointing at a missing path errors compose up)"
     )
 
 
@@ -215,10 +247,114 @@ def test_inject_project_metadata_flags_env_presence(
 # "No config.yml found in current directory: /app".
 def test_worker_template_sets_config_file() -> None:
     rendered = _render_worker_template(env_present=True)
-    assert "CONFIG_FILE: /app/project/config.yml" in rendered, (
+    assert f"CONFIG_FILE: /app/{_WORKER_PROJECT_NAME}/config.yml" in rendered, (
         "dispatch worker must set CONFIG_FILE so the worker process (and the CLI "
-        "subprocess it spawns) resolve config from the mounted project, not /app"
+        "subprocess it spawns) resolve config from the mounted project image layout"
     )
+
+
+# ---------------------------------------------------------------------------
+# Task 1.3: the worker container layout must match the PROJECT image
+#
+# The worker now runs ``<project>:local`` (the project image built by
+# ``osprey deploy up``), which bakes the project at ``/app/<project>``
+# (Dockerfile ``COPY . /app/{{ project_name }}/``, ``WORKDIR /app/<project>``,
+# ``chown -R osprey:osprey /app/<project>``). Every worker path — OSPREY_PROJECT_DIR,
+# CONFIG_FILE, the staged config bind-mount, the .env mount, the _agent_data volume
+# — must point at that same ``/app/<project>`` root, or the worker points at an
+# empty/absent directory (plan risk M1). The image tag prefix, the label project
+# name, and the layout path all derive from one ``resolve_project_name(config)``
+# call in ``_inject_project_metadata``, so they are provably the same string.
+# ---------------------------------------------------------------------------
+
+
+def test_worker_image_defaults_to_project_local_when_override_unset() -> None:
+    """With OSPREY_WORKER_IMAGE unset, the worker image resolves to <project>:local.
+
+    ``_inject_project_metadata`` defaults ``services.dispatch_worker.image`` to
+    ``<project>:local`` (the tag ``osprey deploy up`` builds), so the rendered
+    ``image:`` line falls back to it rather than the template literal default
+    ``osprey-dispatch:local``.
+    """
+    rendered = _render_worker_template(env_present=True)
+    assert f"image: ${{OSPREY_WORKER_IMAGE:-{_WORKER_PROJECT_NAME}:local}}" in rendered, (
+        "worker image must default to the injected <project>:local project image"
+    )
+    assert "osprey-dispatch:local" not in rendered, (
+        "the shared-dispatch fallback must not survive the <project>:local injection"
+    )
+
+
+def test_worker_layout_paths_track_injected_project_name() -> None:
+    """OSPREY_PROJECT_DIR, CONFIG_FILE, and every mount target must live under
+    ``/app/<project>`` — the exact path the project image bakes (M1 alignment).
+
+    The expected path is derived from the SAME project name the fixture feeds the
+    generator, so this asserts the rendered layout equals the injected name rather
+    than a literal the test invented.
+    """
+    proj = _WORKER_PROJECT_NAME
+    root = f"/app/{proj}"
+    rendered = _render_worker_template(env_present=True)
+
+    # Env: project dir + config file
+    assert f"OSPREY_PROJECT_DIR: {root}" in rendered
+    assert f"CONFIG_FILE: {root}/config.yml" in rendered
+
+    # Staged config bind-mount (python_env_path stripped) — repointed target,
+    # source unchanged (relative to build/services/).
+    assert f"- ./dispatch_worker/config.yml:{root}/config.yml:ro" in rendered
+
+    # Provider auth is delivered via env_file (host-side read), not a bind
+    # mount, so there is no `/app/<project>/.env` path in the container layout.
+    assert f"{root}/.env" not in rendered, (
+        "the worker must not reference /app/<project>/.env — env_file: delivers "
+        "provider auth without exposing the file inside the (non-root) container"
+    )
+
+    # _agent_data named-volume mount target (default isolated mode -> per-worker)
+    assert f"- dispatch_workspace_1:{root}/_agent_data" in rendered
+
+    # No stale hardcoded /app/project layout may survive anywhere.
+    assert "/app/project" not in rendered, (
+        "the worker template must not retain the hardcoded /app/project layout"
+    )
+
+
+def test_worker_agent_data_volume_shared_mode_targets_project_layout() -> None:
+    """In shared workspace mode the single ``dispatch_workspace`` volume must also
+    mount under ``/app/<project>/_agent_data``."""
+    rendered = _render_worker_template(env_present=True)
+    # Re-render with shared mode via a config that sets workspace_mode.
+    from importlib import resources
+
+    from jinja2 import Template
+
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    config = _inject_project_metadata(
+        {
+            "project_name": _WORKER_PROJECT_NAME,
+            "project_root": f"/r/{_WORKER_PROJECT_NAME}",
+            "services": {"dispatch_worker": {"workspace_mode": "shared"}},
+            "system": {"timezone": "UTC"},
+        }
+    )
+    config["osprey_env_present"] = True
+    tpl = resources.files("osprey").joinpath(
+        "templates/services/dispatch_worker/docker-compose.yml.j2"
+    )
+    shared = Template(tpl.read_text(encoding="utf-8")).render(**config)
+    assert f"- dispatch_workspace:/app/{_WORKER_PROJECT_NAME}/_agent_data" in shared
+    # The isolated-mode default (from the other fixture) uses the per-worker name.
+    assert f"- dispatch_workspace_1:/app/{_WORKER_PROJECT_NAME}/_agent_data" in rendered
+
+
+def test_worker_command_unchanged() -> None:
+    """The worker overrides only ``command:`` — it must still launch the
+    dispatch-worker MCP server, unchanged by the image/layout repoint."""
+    rendered = _render_worker_template(env_present=True)
+    assert 'command: ["python", "-m", "osprey.mcp_server.dispatch_worker"]' in rendered
 
 
 def test_dev_wheel_build_uses_sys_executable(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -501,3 +637,199 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
     assert "\n  virtual-accelerator:\n" in rendered, "VA service must be deployed"
     assert "\n  bluesky-bridge:\n" in rendered, "bridge service must be deployed"
     assert "\n  tiled:\n" in rendered, "Tiled must be co-deployed (bluesky.tiled_enabled=true)"
+
+
+# ---------------------------------------------------------------------------
+# Task 1.4: preserve-staged-config-python-env-path
+#
+# The M2 concern: the dispatch worker's runtime config.yml must never carry
+# the HOST build machine's ``execution.python_env_path`` (e.g.
+# ``/Users/.../.venv/bin/python``) into the container — that path does not
+# exist in-container, and Claude Code's MCP-server command generation prefers
+# it over ``sys.executable`` when present, so every MCP server would fail to
+# launch. This is already handled by two independent mechanisms:
+#
+# 1. ``setup_build_dir`` (compose_generator.py, ~L728-738) pops
+#    ``execution.python_env_path`` from the flattened config it stages for
+#    the worker's config.yml bind-mount.
+# 2. ``build_claude_code_context`` (osprey.cli.templates.claude_code, L91)
+#    resolves ``current_python_env`` as
+#    ``config.execution.python_env_path or sys.executable`` — so a config
+#    with the key stripped falls back to the container's own interpreter.
+#
+# These tests prove both mechanisms against the real generator entrypoints
+# rather than re-asserting the ``or`` expression in isolation. Mechanism 2's
+# companion (build-time ``osprey claude regen`` self-healing a *recorded*
+# stale python_env_path baked into an existing project) is covered by
+# tests/cli/test_claude_regen.py and is out of this file's scope.
+# ---------------------------------------------------------------------------
+
+
+def test_setup_build_dir_strips_python_env_path_from_staged_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``setup_build_dir`` must pop ``execution.python_env_path`` from the
+    flattened config it writes for the service's ``config.yml`` bind-mount.
+
+    Drives the real staging code path: a project ``config.yml`` on disk with
+    a host-looking venv path, loaded internally via ``ConfigBuilder()``
+    (which resolves against ``os.getcwd()``), flattened, and written to
+    ``<build_dir>/<service_dir>/config.yml``. The written file must have the
+    key removed entirely, not merely emptied.
+    """
+    from osprey.deployment.compose_generator import setup_build_dir
+
+    host_python = "/Users/someone/.venv/bin/python"
+
+    project_config_path = tmp_path / "config.yml"
+    project_config_path.write_text(
+        yaml.dump(
+            {
+                "project_name": "pep-fixture",
+                "execution": {"python_env_path": host_python},
+            }
+        )
+    )
+
+    service_dir = tmp_path / "services" / "worker"
+    service_dir.mkdir(parents=True)
+    (service_dir / "docker-compose.yml.j2").write_text("services:\n  worker:\n    image: test\n")
+
+    monkeypatch.chdir(tmp_path)
+
+    template_path = str(Path("services") / "worker" / "docker-compose.yml.j2")
+    config = {"project_name": "pep-fixture", "build_dir": "./build"}
+    container_cfg = {"copy_src": False, "render_kernel_templates": False}
+
+    setup_build_dir(template_path, config, container_cfg)
+
+    staged_config_path = tmp_path / "build" / "services" / "worker" / "config.yml"
+    assert staged_config_path.is_file(), (
+        f"expected a staged config.yml at {staged_config_path} "
+        "(flattening must have failed and fallen back to a verbatim copy)"
+    )
+    staged_config = yaml.safe_load(staged_config_path.read_text())
+    assert "python_env_path" not in staged_config.get("execution", {}), (
+        f"host python_env_path leaked into the staged config: {staged_config.get('execution')}"
+    )
+
+
+def test_setup_build_dir_staged_config_has_no_execution_python_env_path_key_at_all(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Same as above, phrased as a positive contract on the whole ``execution``
+    block: no key named ``python_env_path`` survives staging, regardless of
+    whatever else lives under ``execution``.
+    """
+    from osprey.deployment.compose_generator import setup_build_dir
+
+    project_config_path = tmp_path / "config.yml"
+    project_config_path.write_text(
+        yaml.dump(
+            {
+                "project_name": "pep-fixture-2",
+                "execution": {
+                    "python_env_path": "/Users/someone/.venv/bin/python3.11",
+                    "execution_method": "local",
+                },
+            }
+        )
+    )
+
+    service_dir = tmp_path / "services" / "worker"
+    service_dir.mkdir(parents=True)
+    (service_dir / "docker-compose.yml.j2").write_text("services:\n  worker:\n    image: test\n")
+
+    monkeypatch.chdir(tmp_path)
+
+    template_path = str(Path("services") / "worker" / "docker-compose.yml.j2")
+    config = {"project_name": "pep-fixture-2", "build_dir": "./build"}
+    container_cfg = {"copy_src": False, "render_kernel_templates": False}
+
+    setup_build_dir(template_path, config, container_cfg)
+
+    staged_config_path = tmp_path / "build" / "services" / "worker" / "config.yml"
+    staged_config = yaml.safe_load(staged_config_path.read_text())
+    assert list(staged_config["execution"].keys()) == ["execution_method"], (
+        "only python_env_path should be dropped; sibling execution keys must survive"
+    )
+
+
+def test_missing_python_env_path_falls_back_to_sys_executable() -> None:
+    """The real ``.mcp.json`` generation seam: with ``execution.python_env_path``
+    absent (exactly what ``setup_build_dir`` staging produces), MCP-server
+    commands must resolve to the CONTAINER's own ``sys.executable``, never a
+    host path.
+
+    Drives ``build_claude_code_context`` (the actual context-builder used by
+    both ``osprey build`` and ``osprey claude regen``) followed by
+    ``resolve_servers``'s real command resolution, rather than asserting the
+    ``config.execution.python_env_path or sys.executable`` expression in
+    isolation.
+    """
+    import tempfile
+
+    from osprey.cli.templates import claude_code
+    from osprey.cli.templates.manager import TemplateManager
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="pep-fallback",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config.setdefault("execution", {}).pop("python_env_path", None)
+
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
+
+        assert ctx["current_python_env"] == sys.executable
+
+        controls_server = next(s for s in ctx["servers"] if s["name"] == "controls")
+        assert controls_server["command"] == sys.executable, (
+            "MCP server command must fall back to sys.executable when "
+            f"python_env_path is absent, got {controls_server['command']!r}"
+        )
+
+
+def test_host_python_env_path_would_bake_host_interpreter_into_mcp_command() -> None:
+    """Companion to the above: proves what the strip in ``setup_build_dir``
+    prevents. If a host-looking ``python_env_path`` survived staging (it does
+    not, per the tests above), the exact same generator would bake that host
+    path into every MCP server's ``command`` — the M2 failure mode.
+    """
+    import tempfile
+
+    from osprey.cli.templates import claude_code
+    from osprey.cli.templates.manager import TemplateManager
+
+    host_python = "/Users/someone/.venv/bin/python"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="pep-host",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+
+        config = yaml.safe_load((project_dir / "config.yml").read_text())
+        config.setdefault("execution", {})["python_env_path"] = host_python
+
+        ctx = claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project_dir, config
+        )
+
+        assert ctx["current_python_env"] == host_python
+
+        controls_server = next(s for s in ctx["servers"] if s["name"] == "controls")
+        assert controls_server["command"] == host_python
+        assert controls_server["command"] != sys.executable

@@ -52,6 +52,25 @@ models:
         with pytest.raises(FileNotFoundError, match="Config file not found"):
             ConfigBuilder(str(missing))
 
+    def test_unreadable_env_file_does_not_crash(self, tmp_path, monkeypatch):
+        """A ``.env`` that exists but can't be read (e.g. a 0600 file owned by
+        another uid, as happens when the non-root dispatch worker reads a
+        host-owned secrets file) must degrade gracefully, not crash-loop the
+        process. Regression test for the worker startup PermissionError."""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text("project_root: /test/project\n")
+        (tmp_path / ".env").write_text("SOME_KEY=value\n")
+        monkeypatch.chdir(tmp_path)
+
+        def _raise_permission_error(*args, **kwargs):
+            raise PermissionError(13, "Permission denied")
+
+        monkeypatch.setattr("dotenv.load_dotenv", _raise_permission_error)
+
+        builder = ConfigBuilder(str(config_file))
+
+        assert builder.raw_config["project_root"] == "/test/project"
+
     def test_environment_variable_resolution(self, tmp_path, monkeypatch):
         """Test that environment variables are resolved in config."""
         # Set environment variables

@@ -330,7 +330,7 @@ async def test_dispatch_with_policy_injects_payload_into_prompt(monkeypatch):
 
     captured: dict = {}
 
-    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0):
+    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
         captured["prompt"] = prompt
         return {"run_id": "r1", "status": "ok"}
 
@@ -354,7 +354,7 @@ async def test_dispatch_with_policy_empty_payload_no_injection(monkeypatch):
 
     captured: dict = {}
 
-    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0):
+    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
         captured["prompt"] = prompt
         return {"run_id": "r1", "status": "ok"}
 
@@ -366,6 +366,105 @@ async def test_dispatch_with_policy_empty_payload_no_injection(monkeypatch):
     await server._dispatch_with_policy(trig, {}, reg, "http://w", "tok")
 
     assert captured["prompt"] == "base prompt"
+
+
+# ---------------------------------------------------------------------------
+# Surface prompt / per-surface tool scope: read at the trigger and forwarded
+# to the worker via dispatch_to_worker. See TriggerConfig.surface_prompt
+# (Task 2.1) and DispatchRequest.surface_prompt/surface_tools (dispatch_api).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_dispatch_with_policy_forwards_surface_prompt(monkeypatch):
+    """A trigger with ``action.surface_prompt`` set forwards it to the worker."""
+    from osprey.dispatch.registry import TriggerRegistry
+    from osprey.dispatch.trigger_config import TriggerConfig
+
+    captured: dict = {}
+
+    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
+        captured.update(kwargs)
+        return {"run_id": "r1", "status": "ok"}
+
+    monkeypatch.setattr(server, "dispatch_to_worker", fake_dispatch)
+
+    reg = TriggerRegistry()
+    trig = TriggerConfig(
+        name="t",
+        source="webhook",
+        action={"prompt": "base prompt", "surface_prompt": "You are the deploy-bot."},
+        surface_prompt="You are the deploy-bot.",
+    )
+    await reg.register(trig)
+    await server._dispatch_with_policy(trig, {}, reg, "http://w", "tok")
+
+    assert captured["surface_prompt"] == "You are the deploy-bot."
+
+
+@pytest.mark.asyncio
+async def test_dispatch_with_policy_forwards_surface_tools(monkeypatch):
+    """A per-surface tool scope on the trigger's action is forwarded to the worker."""
+    from osprey.dispatch.registry import TriggerRegistry
+    from osprey.dispatch.trigger_config import TriggerConfig
+
+    captured: dict = {}
+
+    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
+        captured.update(kwargs)
+        return {"run_id": "r1", "status": "ok"}
+
+    monkeypatch.setattr(server, "dispatch_to_worker", fake_dispatch)
+
+    reg = TriggerRegistry()
+    trig = TriggerConfig(
+        name="t",
+        source="webhook",
+        action={
+            "prompt": "base prompt",
+            "allowed_tools": ["read_pv"],
+            "surface_tools": ["read_pv", "mcp__osprey_workspace__list_files"],
+        },
+    )
+    await reg.register(trig)
+    await server._dispatch_with_policy(trig, {}, reg, "http://w", "tok")
+
+    assert captured["surface_tools"] == ["read_pv", "mcp__osprey_workspace__list_files"]
+
+
+@pytest.mark.asyncio
+async def test_dispatch_with_policy_absent_surface_fields_forward_as_none(monkeypatch):
+    """No ``surface`` config on the trigger -> the forwarded surface fields are None.
+
+    Existing prompt/allowed_tools behavior must be identical to a pre-surface
+    trigger; only the new, additive kwargs carry ``None``.
+    """
+    from osprey.dispatch.registry import TriggerRegistry
+    from osprey.dispatch.trigger_config import TriggerConfig
+
+    captured: dict = {}
+
+    async def fake_dispatch(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
+        captured["prompt"] = prompt
+        captured["allowed_tools"] = allowed_tools
+        captured.update(kwargs)
+        return {"run_id": "r1", "status": "ok"}
+
+    monkeypatch.setattr(server, "dispatch_to_worker", fake_dispatch)
+
+    reg = TriggerRegistry()
+    trig = TriggerConfig(
+        name="t",
+        source="webhook",
+        action={"prompt": "base prompt", "allowed_tools": ["read_pv"]},
+    )
+    await reg.register(trig)
+    await server._dispatch_with_policy(trig, {}, reg, "http://w", "tok")
+
+    assert captured["prompt"] == "base prompt"
+    assert captured["allowed_tools"] == ["read_pv"]
+    assert captured["surface_prompt"] is None
+    assert captured["surface_tools"] is None
 
 
 @pytest.mark.asyncio
@@ -384,7 +483,7 @@ async def test_dispatch_with_policy_retries_with_backoff_on_dispatch_error(monke
 
     attempts = {"dispatch": 0}
 
-    async def always_fails(url, prompt, allowed_tools, token, timeout=30.0):
+    async def always_fails(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
         attempts["dispatch"] += 1
         raise DispatchError("worker unreachable")
 
@@ -438,7 +537,7 @@ async def test_dispatch_with_policy_alert_records_and_returns_none(monkeypatch):
     from osprey.dispatch.trigger_config import TriggerConfig
     from osprey.dispatch.worker_client import DispatchError
 
-    async def always_fails(url, prompt, allowed_tools, token, timeout=30.0):
+    async def always_fails(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
         raise DispatchError("worker unreachable")
 
     monkeypatch.setattr(server, "dispatch_to_worker", always_fails)
@@ -465,7 +564,7 @@ async def test_dispatch_with_policy_auth_error_flows_through_policy(monkeypatch)
     from osprey.dispatch.trigger_config import TriggerConfig
     from osprey.dispatch.worker_client import AuthError
 
-    async def auth_fails(url, prompt, allowed_tools, token, timeout=30.0):
+    async def auth_fails(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
         raise AuthError("Unauthorized (401)")
 
     monkeypatch.setattr(server, "dispatch_to_worker", auth_fails)
@@ -486,7 +585,7 @@ async def test_dispatch_with_policy_generic_exception_propagates(monkeypatch):
     from osprey.dispatch.registry import TriggerRegistry
     from osprey.dispatch.trigger_config import TriggerConfig
 
-    async def boom(url, prompt, allowed_tools, token, timeout=30.0):
+    async def boom(url, prompt, allowed_tools, token, timeout=30.0, **kwargs):
         raise RuntimeError("genuine bug")
 
     monkeypatch.setattr(server, "dispatch_to_worker", boom)

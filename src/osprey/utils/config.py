@@ -157,6 +157,12 @@ class ConfigBuilder:
                 logger.debug(f"No .env file found at {dotenv_path}")
         except ImportError:
             logger.warning("python-dotenv not available, skipping .env file loading")
+        except OSError as e:
+            # e.g. a 0600 .env owned by another uid mounted into a non-root
+            # container (dispatch worker on a uid-mismatched host). Provider
+            # env should already be in os.environ by the time config is built,
+            # so degrade gracefully instead of crash-looping the process.
+            logger.warning(f"Could not read .env file at {dotenv_path}: {e}")
 
         if config_path is None:
             cwd_config = Path.cwd() / "config.yml"

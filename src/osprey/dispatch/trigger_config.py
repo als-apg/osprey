@@ -16,11 +16,30 @@ _DEFAULT_ON_ERROR: dict[str, Any] = {
 
 @dataclass
 class TriggerConfig:
+    """Parsed configuration for a single dispatch trigger.
+
+    Attributes:
+        name: Unique trigger name.
+        source: Event source type (e.g. ``webhook``, ``cron``).
+        action: Free-form action mapping. Only ``action.prompt`` is required;
+            unread keys pass through untouched for forward compatibility.
+        on_error: Error-handling policy (action/max_retries/backoff_sec).
+        source_config: Free-form source-specific configuration.
+        surface: Optional label naming the UI/output surface the triggered
+            agent run is associated with (e.g. a dashboard or channel name).
+            ``None`` when ``action.surface`` is absent.
+        surface_prompt: Optional free-text fragment appended to the agent's
+            system prompt at run time. ``None`` when ``action.surface_prompt``
+            is absent.
+    """
+
     name: str
     source: str
     action: dict[str, Any]
     on_error: dict[str, Any] = field(default_factory=lambda: dict(_DEFAULT_ON_ERROR))
     source_config: dict[str, Any] = field(default_factory=dict)
+    surface: str | None = None
+    surface_prompt: str | None = None
 
 
 @dataclass
@@ -43,6 +62,14 @@ def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
     if not action or not action.get("prompt"):
         raise ValueError(f"Trigger '{name}' is missing required field 'action.prompt'")
 
+    surface = action.get("surface")
+    if surface is not None and not isinstance(surface, str):
+        raise ValueError(f"Trigger '{name}' field 'action.surface' must be a string")
+
+    surface_prompt = action.get("surface_prompt")
+    if surface_prompt is not None and not isinstance(surface_prompt, str):
+        raise ValueError(f"Trigger '{name}' field 'action.surface_prompt' must be a string")
+
     on_error_raw = raw.get("on_error")
     if on_error_raw is None:
         on_error = dict(_DEFAULT_ON_ERROR)
@@ -56,7 +83,13 @@ def _parse_trigger(raw: dict[str, Any], index: int) -> TriggerConfig:
     source_config = raw.get("source_config", {})
 
     return TriggerConfig(
-        name=name, source=source, action=action, on_error=on_error, source_config=source_config
+        name=name,
+        source=source,
+        action=action,
+        on_error=on_error,
+        source_config=source_config,
+        surface=surface,
+        surface_prompt=surface_prompt,
     )
 
 

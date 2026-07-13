@@ -8,27 +8,57 @@
 #   docker run --rm -p 8087:8087 --env-file .env {{ project_name }}
 #
 # Build args:
-#   OSPREY_PIP_SPEC  pip requirement for OSPREY (default: PyPI release;
-#                    override with a git+https URL to pin an unreleased build)
-#   PIP_NO_PROXY     hosts exempted from any proxy during pip install
-#   OSPREY_OFFLINE   "1" vendors web assets into the image (air-gapped hosts)
+#   OSPREY_PIP_SPEC     pip requirement for OSPREY (default: PyPI release;
+#                       override with a git+https URL to pin an unreleased
+#                       build). Ignored when a *.whl is present in the build
+#                       context — `osprey deploy up --dev` drops a
+#                       locally-built wheel there and it wins.
+#   CLAUDE_CLI_VERSION  Claude Code CLI version to pin (default: this
+#                       project's claude_code.cli_version). Bump deliberately
+#                       — an unpinned upstream release could silently change
+#                       agent behavior between image builds.
+#   PIP_NO_PROXY        hosts exempted from any proxy during pip install
+#   OSPREY_OFFLINE      "1" vendors web assets into the image (air-gapped hosts)
 
 FROM python:3.12-slim
 ARG OSPREY_PIP_SPEC="osprey-framework"
+ARG CLAUDE_CLI_VERSION={{ claude_code_cli_version }}
 ARG PIP_NO_PROXY=""
 ARG OSPREY_OFFLINE="0"
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends curl git procps \
+ && apt-get install -y --no-install-recommends curl git procps ca-certificates gnupg \
+ && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+ && apt-get install -y --no-install-recommends nodejs \
+ && apt-get purge -y gnupg \
+ && apt-get autoremove -y \
  && rm -rf /var/lib/apt/lists/*
 
-# Claude Code (native installer)
-RUN curl -fsSL https://claude.ai/install.sh | bash \
- && ln -s /root/.local/bin/claude /usr/local/bin/claude
+# Claude Code CLI, pinned via CLAUDE_CLI_VERSION (npm global install) so an
+# upstream release cannot silently change agent behavior between image
+# builds — mirrors the dispatch-worker image's pinned install.
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}"
 
-# OSPREY + profile dependencies
-RUN NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY" \
-    pip install --no-cache-dir "$OSPREY_PIP_SPEC" {{ pip_dependency_args | default("") }}
+# OSPREY + profile dependencies. `osprey deploy up --dev` drops a
+# locally-built wheel into the build context; if present it wins over
+# OSPREY_PIP_SPEC (dev override), mirroring the dispatch-worker image's
+# --dev convention so this image can also serve as the dispatch worker.
+# A C toolchain (build-essential + python3-dev) is needed at install time to
+# compile native deps (e.g. accelerator-toolbox); it is purged in the same
+# layer so it never bloats the final image (mirrors the dispatch image).
+COPY . /tmp/ctx/
+RUN export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY" \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends build-essential python3-dev \
+    && if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
+        echo "Installing osprey from local wheel (dev build)" \
+        && pip install --no-cache-dir /tmp/ctx/*.whl {{ pip_dependency_args | default("") }} ; \
+    else \
+        pip install --no-cache-dir "$OSPREY_PIP_SPEC" {{ pip_dependency_args | default("") }} ; \
+    fi \
+    && apt-get purge -y build-essential python3-dev \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/* /tmp/ctx
 
 # Optional offline mode: vendor web assets (JS/CSS/fonts) into the image so
 # the web UI works without internet access. "0" is falsy for is_offline().
@@ -46,13 +76,9 @@ RUN mkdir -p /app/{{ project_name }}/_agent_data/executed_scripts \
 # Claude Code artifacts (.mcp.json, CLAUDE.md, .claude/) against it
 RUN osprey claude regen --project /app/{{ project_name }} --runtime-root /app/{{ project_name }}
 
-# Non-root user: Claude Code refuses bypassPermissions mode as root. The
-# native installer lives under /root/.local — make the chain traversable
-# for the runtime user.
+# Non-root user: Claude Code refuses bypassPermissions mode as root.
 RUN useradd --create-home --shell /bin/bash osprey \
- && chown -R osprey:osprey /app/{{ project_name }} \
- && chmod o+x /root /root/.local /root/.local/bin /root/.local/share \
- && chmod -R o+rX /root/.local/share/claude
+ && chown -R osprey:osprey /app/{{ project_name }}
 USER osprey
 ENV HOME=/home/osprey
 WORKDIR /app/{{ project_name }}

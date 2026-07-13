@@ -102,6 +102,8 @@ async def run_dispatch(
     event_queue: asyncio.Queue | None = None,
     denied_tools: Iterable[str] = (),
     run_id: str | None = None,
+    surface_prompt: str | None = None,
+    surface_tools: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run a prompt headlessly via the Claude Agent SDK.
 
@@ -115,6 +117,16 @@ async def run_dispatch(
         run_id: Dispatch run id. Exported to the agent (and the MCP tool
             subprocesses it spawns) as ``OSPREY_DISPATCH_RUN_ID`` so every
             artifact saved during the run is attributed to it.
+        surface_prompt: Optional static fragment appended to the system prompt
+            (via ``build_system_prompt``'s ``extra``) to describe the surface
+            this dispatch was triggered from. Not templated/interpolated per
+            run. When ``None`` (default), the system prompt is unchanged.
+        surface_tools: Optional keep-list narrowing ``allowed_tools`` down to
+            the subset a specific surface may use (via
+            ``tool_policy.narrow_allowed_tools``). Can only remove tools from
+            the trigger's allow set, never add one, and never touches
+            ``denied_tools`` — the deny floor is enforced independently.
+            ``None`` or empty is a no-op (``allowed_tools`` used as-is).
 
     Returns:
         dict with keys:
@@ -150,6 +162,7 @@ async def run_dispatch(
     from osprey.mcp_server.dispatch_worker.tool_policy import (
         make_backstop,
         make_pretooluse_hook,
+        narrow_allowed_tools,
     )
     from osprey.utils.config import get_facility_timezone
 
@@ -187,9 +200,15 @@ async def run_dispatch(
     # each subagent is held to exactly its declared tools (web-terminal parity)
     # without the trigger having to enumerate them.
     agent_surfaces = parse_project_agents(project_dir)
+
+    # Narrow the main thread's allow set to this surface's keep-list, if any.
+    # Pure removal only — cannot add a tool absent from allowed_tools, and
+    # never touches denied_tools (the deny floor below is independent).
+    effective_tools = narrow_allowed_tools(allowed_tools, surface_tools)
     logger.info(
-        "Dispatch tool policy: %d trigger tools, subagent surfaces %s",
+        "Dispatch tool policy: %d trigger tools (%d after surface narrowing), subagent surfaces %s",
         len(allowed_tools),
+        len(effective_tools),
         {name: (len(s) if s is not None else None) for name, s in agent_surfaces.items()},
     )
 
@@ -211,11 +230,11 @@ async def run_dispatch(
     ]
     # Any-typed so the SDK's HookCallback union (typed against its own
     # TypedDict inputs) accepts our dict-based callback.
-    policy_hook: Any = make_pretooluse_hook(allowed_tools, agent_surfaces, denied_tools)
+    policy_hook: Any = make_pretooluse_hook(effective_tools, agent_surfaces, denied_tools)
     options = ClaudeAgentOptions(
-        allowed_tools=allowed_tools,
-        system_prompt=build_system_prompt(get_facility_timezone()),
-        can_use_tool=make_backstop(allowed_tools, agent_surfaces, denied_tools),
+        allowed_tools=effective_tools,
+        system_prompt=build_system_prompt(get_facility_timezone(), extra=surface_prompt),
+        can_use_tool=make_backstop(effective_tools, agent_surfaces, denied_tools),
         hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[policy_hook])]},
         disallowed_tools=sorted(disallowed),
         cwd=project_dir,

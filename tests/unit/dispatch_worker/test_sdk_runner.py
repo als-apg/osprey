@@ -412,6 +412,66 @@ async def test_tool_use_and_result_are_captured(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_surface_prompt_forwarded_to_build_system_prompt(monkeypatch):
+    """A provided ``surface_prompt`` reaches ``build_system_prompt`` as ``extra``.
+
+    Asserting on the call args to ``build_system_prompt`` (rather than the
+    rendered prompt text) sidesteps the ``datetime.now(tz)`` timestamp baked
+    into the real implementation.
+    """
+    calls: list[tuple[tuple, dict]] = []
+
+    def _spy_build_system_prompt(*args, **kwargs):
+        calls.append((args, kwargs))
+        return "system"
+
+    monkeypatch.setattr(
+        "osprey.interfaces.web_terminal.sdk_context.build_system_prompt",
+        _spy_build_system_prompt,
+    )
+
+    async def fake_query(prompt, options):
+        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
+        yield _result_message(cost_usd=0.1, num_turns=1)
+
+    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    await sdk_runner.run_dispatch(
+        "do it", ["Read"], event_queue=asyncio.Queue(), surface_prompt="triggered from Slack"
+    )
+
+    assert len(calls) == 1
+    _, kwargs = calls[0]
+    assert kwargs.get("extra") == "triggered from Slack"
+
+
+@pytest.mark.asyncio
+async def test_surface_prompt_omitted_leaves_system_prompt_unchanged(monkeypatch):
+    """When ``surface_prompt`` is not passed, ``build_system_prompt`` gets no
+    ``extra`` (or ``extra=None``) — identical to pre-Task-2.3 behavior."""
+    calls: list[tuple[tuple, dict]] = []
+
+    def _spy_build_system_prompt(*args, **kwargs):
+        calls.append((args, kwargs))
+        return "system"
+
+    monkeypatch.setattr(
+        "osprey.interfaces.web_terminal.sdk_context.build_system_prompt",
+        _spy_build_system_prompt,
+    )
+
+    async def fake_query(prompt, options):
+        yield AssistantMessage(content=[TextBlock(text="ok")], model="m")
+        yield _result_message(cost_usd=0.1, num_turns=1)
+
+    monkeypatch.setattr(sdk_runner, "query", fake_query)
+    await sdk_runner.run_dispatch("do it", ["Read"], event_queue=asyncio.Queue())
+
+    assert len(calls) == 1
+    _, kwargs = calls[0]
+    assert kwargs.get("extra") is None
+
+
+@pytest.mark.asyncio
 async def test_oversized_tool_result_is_truncated(monkeypatch):
     from claude_agent_sdk import ToolResultBlock, ToolUseBlock
 
