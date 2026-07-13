@@ -280,6 +280,7 @@ myst_enable_extensions = [
     "dollarmath",
 ]
 
+
 def _screenshot_caption_prolog():
     """Build ``|captured_<name>|`` substitutions for every screenshot recipe.
 
@@ -292,7 +293,9 @@ def _screenshot_caption_prolog():
         from docs.screenshots.recipes import caption_substitutions
     except Exception:  # pragma: no cover - registry import must never break the build
         return ""
-    return "\n".join(f".. |{name}| replace:: {value}" for name, value in caption_substitutions().items())
+    return "\n".join(
+        f".. |{name}| replace:: {value}" for name, value in caption_substitutions().items()
+    )
 
 
 # Make version (and per-screenshot capture provenance) available as RST substitutions
