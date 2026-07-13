@@ -172,6 +172,22 @@ artifact_server:
   auto_launch: true
 
 # ============================================================
+# SERVICE CONFIGURATION
+# ============================================================
+# Containerized companion services. Declare a service under `services:` (so
+# `osprey health` recognizes it) and add its name to `deployed_services:` to
+# actually launch it with `osprey deploy up`.
+
+services:
+  # Opt-in local telemetry backend for the OSPREY agent — a single-binary
+  # OTLP logs/traces store (see docs/how-to/monitor-agent.rst). Declared here
+  # so `osprey health` accepts it; it stays OFF until you opt in by adding
+  # `- openobserve` to a `deployed_services:` list.
+  openobserve:
+    path: ./services/openobserve
+    port: 5080          # Host port for the OpenObserve UI + OTLP ingest
+
+# ============================================================
 # CLAUDE CODE INTEGRATION
 # ============================================================
 # Only the controls MCP server is enabled for this minimal template.

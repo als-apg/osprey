@@ -958,3 +958,138 @@ def test_host_python_env_path_would_bake_host_interpreter_into_mcp_command() -> 
         controls_server = next(s for s in ctx["servers"] if s["name"] == "controls")
         assert controls_server["command"] == host_python
         assert controls_server["command"] != sys.executable
+
+
+# ---------------------------------------------------------------------------
+# OpenObserve telemetry add-on: Docker-free compose render gate
+#
+# The opt-in ``openobserve`` service pulls a single public OTLP-native store so
+# the agent can emit telemetry to a local backend. It is a pure-image service
+# (no Dockerfile, no wheel, no src) — the closest analog is ``postgresql``.
+# These gates render the packaged template through the SAME deployed_services
+# gating path the CLI uses (``_copy_service_templates`` -> ``prepare_compose_files``,
+# mirroring ``test_prepare_compose_files_no_services_renders_root_only``), never
+# a container: they assert the compose text alone.
+#
+# Shared constants that must match the telemetry resolver stream: compose service
+# (and in-network DNS host) ``openobserve``, port ``5080``, root-cred env vars
+# ``ZO_ROOT_USER_EMAIL`` / ``ZO_ROOT_USER_PASSWORD``. The pinned image tag
+# (``v0.14.4``) is a to-confirm pin — kept overridable via
+# ``OSPREY_OPENOBSERVE_IMAGE`` — so these gates assert the image *reference and
+# override var*, not a specific tag.
+# ---------------------------------------------------------------------------
+
+_OPENOBSERVE_IMAGE_REF = "public.ecr.aws/zinclabs/openobserve"
+
+
+def _write_openobserve_config(project_path: Path, deployed_services: list[str]) -> Path:
+    """Write a config.yml that declares ``services.openobserve`` and return its path.
+
+    Unlike the module's ``_write_config`` helper (which declares no services),
+    this always declares the ``openobserve`` service block — ``deployed_services``
+    controls only whether it is *launched*, exercising the opt-in gating.
+    """
+    config_path = project_path / "config.yml"
+    yaml_rt = YAML()
+    config: dict = {
+        "project_name": "oo-fixture",
+        "project_root": str(project_path),
+        "build_dir": str(project_path / "build"),
+        # Real configs always carry system.timezone; the compose template uses it
+        # bare (the postgresql/VA precedent has no default), so declare it here.
+        "system": {"timezone": "UTC"},
+        "services": {
+            "openobserve": {
+                "path": "./services/openobserve",
+                "port": 5080,
+            }
+        },
+        "deployed_services": deployed_services,
+    }
+    with open(config_path, "w") as fh:
+        yaml_rt.dump(config, fh)
+    return config_path
+
+
+def _render_project_compose(config_path: Path, project_path: Path) -> str:
+    """Copy service templates, render via ``prepare_compose_files``, return the text.
+
+    Runs the real CLI gating path from inside the project dir (SERVICES_DIR and
+    the service ``path`` both resolve relative to cwd), then joins every rendered
+    compose file so callers can assert on the aggregate text.
+    """
+    import os
+
+    _copy_service_templates(project_path)
+
+    monkey_cwd = Path.cwd()
+    try:
+        os.chdir(project_path)
+        _, compose_files = prepare_compose_files(str(config_path))
+        return "\n".join(Path(f).read_text(encoding="utf-8") for f in compose_files)
+    finally:
+        os.chdir(monkey_cwd)
+
+
+def test_openobserve_renders_when_deployed(tmp_path: Path) -> None:
+    """With ``openobserve`` in deployed_services the compose renders (exit 0) with
+    the expected image reference, port, named volume, and root-cred env vars.
+
+    The service name, port, and env var names are the shared constants the
+    telemetry resolver stream also depends on — a drift here silently breaks the
+    agent's OTLP push against the local store.
+    """
+    config_path = _write_openobserve_config(tmp_path, deployed_services=["openobserve"])
+    rendered = _render_project_compose(config_path, tmp_path)
+
+    # The service block and its in-network DNS host name.
+    assert "\n  openobserve:\n" in rendered
+
+    # Image reference + overridable pin (assert the ref and the override var, not
+    # the specific to-confirm tag).
+    assert f"${{OSPREY_OPENOBSERVE_IMAGE:-{_OPENOBSERVE_IMAGE_REF}:" in rendered
+
+    # Exposed port 5080 (host:container).
+    assert ":5080:5080/tcp" in rendered
+
+    # Named data volume for persistence (both the mount and the top-level decl).
+    assert "openobserve_data:/data" in rendered
+    assert "\nvolumes:\n  openobserve_data:\n" in rendered
+
+    # Root credentials sourced from compose env with overridable defaults, using
+    # the exact env var names the resolver expects.
+    assert "ZO_ROOT_USER_EMAIL: ${ZO_ROOT_USER_EMAIL:-" in rendered
+    assert "ZO_ROOT_USER_PASSWORD: ${ZO_ROOT_USER_PASSWORD:-" in rendered
+
+
+def test_openobserve_absent_when_not_deployed(tmp_path: Path) -> None:
+    """With ``openobserve`` declared but NOT in deployed_services it must not
+    render — the opt-in posture. Only the root compose is produced, with no
+    openobserve service, image, or volume anywhere in the output.
+    """
+    config_path = _write_openobserve_config(tmp_path, deployed_services=[])
+    rendered = _render_project_compose(config_path, tmp_path)
+
+    assert "openobserve" not in rendered, (
+        f"openobserve must stay off when absent from deployed_services (opt-in):\n{rendered}"
+    )
+
+
+def test_openobserve_service_config_lookup_succeeds(tmp_path: Path) -> None:
+    """``osprey health`` accepts a service only when it resolves under both
+    ``services:`` and (for deployment) ``deployed_services:``. Health is out of
+    this module's scope, so this asserts the underlying seam it relies on:
+    ``find_service_config`` resolves the declared ``openobserve`` entry to its
+    packaged compose template path.
+    """
+    from osprey.deployment.compose_generator import find_service_config
+
+    config_path = _write_openobserve_config(tmp_path, deployed_services=["openobserve"])
+    yaml_rt = YAML()
+    with open(config_path) as fh:
+        config = yaml_rt.load(fh)
+
+    service_config, template_path = find_service_config(config, "openobserve")
+    assert service_config is not None, "openobserve must resolve as a declared service"
+    assert service_config.get("port") == 5080
+    assert template_path == "./services/openobserve/docker-compose.yml.j2"

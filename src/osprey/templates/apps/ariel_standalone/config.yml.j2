@@ -101,6 +101,14 @@ services:
     password: ariel
     port_host: 5432
 
+  # Opt-in local telemetry backend for the OSPREY agent — a single-binary
+  # OTLP logs/traces store (see docs/how-to/monitor-agent.rst). Declared here
+  # so `osprey health` accepts it; it stays OFF until you opt in by adding
+  # `- openobserve` to `deployed_services:` below.
+  openobserve:
+    path: ./services/openobserve
+    port: 5080          # Host port for the OpenObserve UI + OTLP ingest
+
 # Services to deploy with `osprey deploy up`
 deployed_services:
   - postgresql

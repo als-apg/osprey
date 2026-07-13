@@ -25,6 +25,27 @@ project_root: {{ project_root }}
 container_runtime: auto
 
 # ============================================================
+# SERVICE CONFIGURATION
+# ============================================================
+# Containerized companion services. Declare a service under `services:` (so
+# `osprey health` recognizes it) and add its name to `deployed_services:` to
+# actually launch it with `osprey deploy up`.
+
+services:
+  # Opt-in local telemetry backend for the OSPREY agent — a single-binary
+  # OTLP logs/traces store (see the commented `telemetry:` block under
+  # claude_code below and docs/how-to/monitor-agent.rst). Declared here so
+  # `osprey health` accepts it; it stays OFF until you opt in by adding
+  # `- openobserve` to `deployed_services:` below.
+  openobserve:
+    path: ./services/openobserve
+    port: 5080          # Host port for the OpenObserve UI + OTLP ingest
+
+# Services launched by `osprey deploy up`. openobserve is intentionally
+# omitted (opt-in): add `- openobserve` to turn on the local telemetry store.
+deployed_services: []
+
+# ============================================================
 # SAFETY CONTROLS
 # ============================================================
 
@@ -189,6 +210,45 @@ claude_code:
   # agent_models:
   #   logbook-search: haiku
   #   logbook-deep-research: sonnet
+  #
+  # ── Telemetry / Observability (opt-in, off by default) ──────
+  # Emit the agent's operational telemetry (logs + metrics) over OTLP to any
+  # OpenTelemetry-compatible backend. The Python resolver's defaults are
+  # authoritative — this block is DISCOVERABILITY ONLY and stays commented
+  # (telemetry is off unless you set telemetry.enabled: true). Tracing and
+  # OTEL_LOG_TOOL_CONTENT are intentionally NOT wired.
+  # telemetry:
+  #   enabled: false                       # Master switch (default off)
+  #   backend: openobserve                 # Backend hint: openobserve | generic
+  #   # Endpoint handling depends on the backend:
+  #   #  - GENERIC OTLP backend (backend: generic): set `endpoint` explicitly,
+  #   #    e.g. endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}
+  #   #  - OPENOBSERVE backend (backend: openobserve): OMIT `endpoint` and let it
+  #   #    auto-derive per network context — http://localhost:5080/api/<org> on
+  #   #    the host, http://openobserve:5080/api/<org> inside the deploy network.
+  #   #    Hardcoding localhost here makes the in-container dispatch worker emit to
+  #   #    its own loopback and silently drop everything.
+  #   endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT}   # generic backend only; omit for openobserve
+  #   protocol: http/protobuf              # Default; http/protobuf | grpc
+  #   headers:                             # Extra OTLP headers (e.g. routing)
+  #     stream-name: default
+  #   resource_attributes:                 # Attached to every emitted record
+  #     service.name: osprey-agent
+  #     deployment.environment: dev
+  #   # Phase 2 local add-on: OpenObserve auth + org routing. user/password are
+  #   # the OpenObserve root credentials — the SAME values the openobserve
+  #   # service reads from the project .env, so telemetry auth stays in sync.
+  #   openobserve:
+  #     user: ${ZO_ROOT_USER_EMAIL}
+  #     password: ${ZO_ROOT_USER_PASSWORD}
+  #     org: default
+  #   # Content gates — all default ON. The local store is air-gapped, so full
+  #   # content capture is the default posture; set any to false to suppress
+  #   # that category from emitted telemetry.
+  #   log_user_prompts: true               # Operator chat prompts
+  #   log_assistant_responses: true        # Agent replies
+  #   log_tool_details: true               # Tool names + arguments
+  #   log_raw_api_bodies: true             # Raw provider request/response bodies
 
 # ============================================================
 # WEB TERMINAL CONFIGURATION
