@@ -436,6 +436,83 @@ class TestLimitsValidator:
         error_msg = str(exc_info.value)
         assert "Failed to load" in error_msg
 
+    # =========================================================================
+    # Relative database_path resolution base (R4 container fix)
+    # =========================================================================
+
+    def test_from_config_resolves_relative_path_against_config_file_dir(
+        self, monkeypatch, tmp_path
+    ):
+        """A relative database_path resolves against CONFIG_FILE's directory
+        when CONFIG_FILE is set, NOT against project_root.
+
+        Simulates the container deploy: config.yml (and CONFIG_FILE) live
+        under the mounted /app/project, while project_root is the flattened
+        HOST build path — which does not exist in the container and must
+        NOT be used as the resolution base.
+        """
+        # CONFIG_FILE dir: where the mounted config.yml actually lives.
+        container_dir = tmp_path / "app_project"
+        container_dir.mkdir()
+        db_file = container_dir / "data" / "channel_limits.json"
+        db_file.parent.mkdir()
+        db_file.write_text(json.dumps({"TEST:PV": {"min_value": 0.0, "max_value": 100.0}}))
+        monkeypatch.setenv("CONFIG_FILE", str(container_dir / "config.yml"))
+
+        # project_root: a HOST path that does NOT exist in this environment
+        # either — proves resolution did not fall through to it.
+        bogus_project_root = tmp_path / "host_build_path_does_not_exist"
+
+        def config_side_effect(key, default):
+            if key == "control_system.limits_checking.enabled":
+                return True
+            elif key == "control_system.limits_checking.database_path":
+                return "data/channel_limits.json"
+            elif key == "control_system.limits_checking.allow_unlisted_channels":
+                return False
+            elif key == "project_root":
+                return str(bogus_project_root)
+            return default
+
+        with patch("osprey.utils.config.get_config_value", side_effect=config_side_effect):
+            validator = LimitsValidator.from_config()
+
+        assert validator is not None
+        assert len(validator.limits) == 1
+        assert "TEST:PV" in validator.limits
+
+    def test_from_config_resolves_relative_path_against_project_root_when_no_config_file(
+        self, monkeypatch, tmp_path
+    ):
+        """Unchanged host/local behavior: with CONFIG_FILE unset, a relative
+        database_path still resolves against project_root.
+        """
+        monkeypatch.delenv("CONFIG_FILE", raising=False)
+
+        project_root = tmp_path / "project"
+        project_root.mkdir()
+        db_file = project_root / "data" / "channel_limits.json"
+        db_file.parent.mkdir()
+        db_file.write_text(json.dumps({"TEST:PV": {"min_value": 0.0, "max_value": 100.0}}))
+
+        def config_side_effect(key, default):
+            if key == "control_system.limits_checking.enabled":
+                return True
+            elif key == "control_system.limits_checking.database_path":
+                return "data/channel_limits.json"
+            elif key == "control_system.limits_checking.allow_unlisted_channels":
+                return False
+            elif key == "project_root":
+                return str(project_root)
+            return default
+
+        with patch("osprey.utils.config.get_config_value", side_effect=config_side_effect):
+            validator = LimitsValidator.from_config()
+
+        assert validator is not None
+        assert len(validator.limits) == 1
+        assert "TEST:PV" in validator.limits
+
 
 class TestChannelLimitsViolationError:
     """Test ChannelLimitsViolationError exception class."""

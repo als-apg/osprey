@@ -52,6 +52,13 @@ services:
       # strong random token into the project .env when unset (see
       # container_lifecycle.py's per-service token-mint map).
       BLUESKY_PROMOTE_TOKEN: ${BLUESKY_PROMOTE_TOKEN}
+      # The connector-backed bridge reads control_system.type/writes_enabled
+      # and control_system.limits_checking.database_path from config.yml at
+      # runtime (Task 3.2). CWD is the image WORKDIR (/app), not the project
+      # dir, so without CONFIG_FILE this falls back to /app/config.yml and
+      # every connector lookup errors "No config.yml found" — mirrors
+      # dispatch_worker's identical CONFIG_FILE convention.
+      CONFIG_FILE: /app/project/config.yml
       TZ: {{ system.timezone }}
 {% if 'virtual_accelerator' in deployed_services %}
       # Reach the co-deployed Virtual Accelerator (Task 4.1) over Channel
@@ -87,6 +94,28 @@ services:
       # unauthenticated.
       BLUESKY_TILED_URI: "http://tiled:8000"
       BLUESKY_TILED_API_KEY: ${BLUESKY_TILED_API_KEY}
+{% endif %}
+    volumes:
+      # Bind-mount source is relative to the compose project directory
+      # (build/services/), not this file's own subdir — hence the bluesky/
+      # prefix (mirrors dispatch_worker's config.yml:ro mount convention).
+      # Always present, unlike the VA/tiled blocks above: the bridge needs
+      # config.yml to resolve control_system settings regardless of which
+      # optional services are co-deployed (Task 3.2).
+      - ./bluesky/config.yml:/app/project/config.yml:ro
+{% if (control_system | default({})).writes_enabled | default(false) %}
+      # Channel limits DB (Task 3.2, CC-2): only meaningful once writes are
+      # enabled — a read-only deploy never opens it. Mounted under the SAME
+      # /app/project root as config.yml above so a relative
+      # control_system.limits_checking.database_path (e.g.
+      # "data/channel_limits.json") resolves against the CONFIG_FILE
+      # directory (/app/project, set above) exactly as the connector/startup
+      # guard expect (limits_validator.py, app.py's
+      # _assert_limits_readable_if_writable) — the mounted config.yml lives
+      # there, not at the host build's project_root. Source path mirrors the
+      # Virtual Accelerator's data mount convention (../../ reaches the
+      # project root's data/ dir from build/services/).
+      - ../../data/channel_limits.json:/app/project/data/channel_limits.json:ro
 {% endif %}
     networks:
       - osprey-network

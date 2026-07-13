@@ -1,6 +1,7 @@
 """Runtime channel limits validation engine - simplified single-layer design."""
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,6 +47,35 @@ class LimitsValidator:
         self.policy = policy_config
         self._raw_db = raw_db  # Keep raw database for verification config access
 
+    @staticmethod
+    def resolve_database_path(db_path: str, project_root: str | None) -> str:
+        """Resolve a relative ``database_path`` the same way for every caller.
+
+        Resolves a relative path against the ``CONFIG_FILE`` env var's
+        directory when ``CONFIG_FILE`` is set, falling back to
+        ``project_root`` otherwise. CONFIG_FILE wins because it reflects
+        where the config actually lives at runtime: on a host/local run
+        config.yml sits at the project root, so this is a no-op
+        (``Path(CONFIG_FILE).parent == project_root``). In a container
+        deploy, CONFIG_FILE points at the config mounted inside the
+        container (e.g. /app/project/config.yml) while project_root is
+        flattened in as the HOST build path, which does not exist in the
+        container - so resolving against the CONFIG_FILE's directory is the
+        only base that yields a path the container can actually read.
+
+        Returns ``db_path`` unchanged if it is already absolute, or if
+        neither ``CONFIG_FILE`` nor ``project_root`` is available.
+        """
+        db_path_obj = Path(db_path)
+        if db_path_obj.is_absolute():
+            return db_path
+        config_file = os.environ.get("CONFIG_FILE")
+        if config_file:
+            return str(Path(config_file).parent / db_path)
+        if project_root:
+            return str(Path(project_root) / db_path)
+        return db_path
+
     @classmethod
     def from_config(cls):
         """Load validator from Osprey configuration.
@@ -68,13 +98,16 @@ class LimitsValidator:
                 )
                 return cls({}, {}, {})  # Empty DB = blocks all (failsafe)
 
-            # Resolve relative paths against project_root for subprocess compatibility
-            db_path_obj = Path(db_path)
-            if not db_path_obj.is_absolute():
-                project_root = get_config_value("project_root", None)
-                if project_root:
-                    db_path = str(Path(project_root) / db_path)
-                    logger.debug(f"Resolved limits database path: {db_path}")
+            project_root = get_config_value("project_root", None)
+            resolved_path = cls.resolve_database_path(db_path, project_root)
+            if resolved_path != db_path:
+                if os.environ.get("CONFIG_FILE"):
+                    logger.debug(
+                        f"Resolved limits database path (via CONFIG_FILE): {resolved_path}"
+                    )
+                else:
+                    logger.debug(f"Resolved limits database path: {resolved_path}")
+            db_path = resolved_path
 
             limits_db, raw_db = cls._load_limits_database(db_path)
             logger.debug(f"Loaded limits database with {len(limits_db)} channels")

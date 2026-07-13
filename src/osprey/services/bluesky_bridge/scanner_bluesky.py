@@ -51,8 +51,8 @@ logger = logging.getLogger("osprey.services.bluesky_bridge.scanner_bluesky")
 # comes from a facility plan module, the mock factory (`devices/mock.py`), or
 # a plain pre-built dict (tests). The callable may be sync (a plain
 # `Mapping[str, Any]` return) OR async (e.g. `devices.mock.build_devices`/
-# `devices.epics.build_devices`, which connect ophyd-async devices and are
-# `async def`) — `reinitialize()` bridges either via `_resolve_devices`.
+# `devices.connector.build_devices`, which connect ophyd-async devices and
+# are `async def`) — `reinitialize()` bridges either via `_resolve_devices`.
 DeviceSource = Mapping[str, Any] | Callable[[], "Mapping[str, Any] | Awaitable[Mapping[str, Any]]"]
 
 # How long `_resolve_devices` waits for an async device factory to connect on
@@ -224,14 +224,15 @@ class BlueskyScanner:
 
         `plan_loader.py`'s facility contract calls `get_devices()` synchronously,
         but the actual device factories (`devices/mock.py`'s `build_devices`, and
-        `devices/epics.py`'s ophyd-async equivalent) are `async def` — connecting
-        a device is an async operation. aioca binds a device's CA monitors to
-        whichever event loop is *running* when `Device.connect()` awaits them,
-        and bluesky drives all signal I/O for a scan on `self.RE.loop` (running
-        in the RunEngine's own daemon thread, started at `RunEngine.__init__`
-        time — already alive here, well before `start_scan_thread()`). So an
-        async factory must be awaited *on that loop*, not a throwaway one, or
-        its monitors end up bound to a loop the scan itself never touches.
+        `devices/connector.py`'s connector-mediated equivalent) are `async def`
+        — connecting a device is an async operation, and the resulting devices'
+        async `set()`/`read()` methods run on whichever event loop is *running*
+        when they're awaited. bluesky drives all signal I/O for a scan on
+        `self.RE.loop` (running in the RunEngine's own daemon thread, started
+        at `RunEngine.__init__` time — already alive here, well before
+        `start_scan_thread()`). So an async factory must be awaited *on that
+        loop*, not a throwaway one, or the devices it builds end up bound to a
+        loop the scan itself never touches.
         `asyncio.run_coroutine_threadsafe` schedules the await onto `self.RE.loop`
         from whichever thread calls `reinitialize()` (the promote HTTP request
         thread) and blocks that thread for the result — the sync-`Mapping`

@@ -90,7 +90,6 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import re
 import shutil
 import subprocess
 import time
@@ -143,60 +142,6 @@ pytestmark = [
 # ---------------------------------------------------------------------------
 
 
-def _full_count(select_fn, limits: dict) -> int:
-    """The total device count ``select_fn`` (``_orm_stack.select_correctors``
-    or ``select_bpms``) can yield from ``limits``, discovered by deliberately
-    overshooting ``count`` and parsing the actual total out of its own
-    failure message.
-
-    Avoids duplicating ``_orm_stack``'s manifest-partition filtering here:
-    both scenarios' faulted devices (QF07, BPM17) sort well past index 4
-    (``_orm_stack``'s small default), and the ORM plan's own contract is
-    "read all BPM detectors" (PROPOSAL FR1) -- so this module always wires
-    in the FULL SR pyat-coupled set rather than a hand-picked subset that
-    would risk conveniently including (or excluding) the faulted device.
-    """
-    try:
-        select_fn(limits, count=10_000)
-    except AssertionError as exc:
-        match = re.search(r"only yields (\d+)", str(exc))
-        if match:
-            return int(match.group(1))
-        raise
-    return 10_000  # pragma: no cover — would mean a 10k+-device ring
-
-
-def _build_discovery_project(project_name: str, output_dir: Path) -> Path:
-    """``_orm_stack``'s build (task 4.3's single source), extended with an
-    explicit ``provider``/``model`` -- see module docstring for why this
-    can't just be ``_orm_stack.build_project_subprocess()`` unmodified.
-    """
-    osprey_bin = _orm_stack.find_osprey_console_script()
-    override_path = output_dir / "override.yml"
-    override_path.write_text(_orm_stack.override_yaml(), encoding="utf-8")
-    args = _orm_stack.build_args(
-        project_name,
-        override_path=override_path,
-        output_dir=output_dir,
-    )
-    args += ["--set", f"provider={PROVIDER}", "--set", f"model={AGENT_MODEL_TIER}"]
-    cmd = [str(osprey_bin), "build", *args]
-    result = subprocess.run(
-        cmd,
-        cwd=str(output_dir),
-        capture_output=True,
-        text=True,
-        timeout=BUILD_TIMEOUT_SEC,
-        env={**os.environ, "CLAUDECODE": ""},
-    )
-    if result.returncode != 0:
-        raise RuntimeError(
-            f"osprey build failed (rc={result.returncode}):\n"
-            f"--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
-        )
-    return output_dir / project_name
-
-
 def _wait_for_health(url: str, timeout: float) -> None:
     deadline = time.monotonic() + timeout
     last_err = "(no response yet)"
@@ -243,13 +188,17 @@ def _deployed_discovery_stack(tmp_path: Path, project_name: str, scenario: str) 
     never shared across the two scenarios below.
     """
     osprey_bin = _orm_stack.find_osprey_console_script()
-    project_dir = _build_discovery_project(project_name, tmp_path)
+    project_dir = _orm_stack.build_project_subprocess(
+        project_name,
+        output_dir=tmp_path,
+        timeout=BUILD_TIMEOUT_SEC,
+        provider=PROVIDER,
+        model=AGENT_MODEL_TIER,
+    )
 
     limits = _channel_limits(project_dir)
-    correctors = _orm_stack.select_correctors(
-        limits, count=_full_count(_orm_stack.select_correctors, limits)
-    )
-    bpms = _orm_stack.select_bpms(limits, count=_full_count(_orm_stack.select_bpms, limits))
+    correctors = _orm_stack.select_correctors(limits, count=None)
+    bpms = _orm_stack.select_bpms(limits, count=None)
     # No promote_token kwarg: control-assistant's default writes_enabled=true
     # + this override's execution.execution_method=container is exactly the
     # arming-safe combination (_local_exec_arming_unsafe is False), so
@@ -314,6 +263,12 @@ def _deployed_discovery_stack(tmp_path: Path, project_name: str, scenario: str) 
             )
 
 
+# Orbit-response-CLASS plan names this assertion accepts, by exact
+# `plan_name` match. `BUILTIN_PLANS` (src/osprey/services/bluesky_bridge/
+# plans.py) ships only "orm" today; the extra names are reserved for an
+# alternate orbit-response-style sweep (e.g. a k-modulation plan) the agent
+# could legitimately choose instead of the literal `orm` plan without this
+# assertion being able to anticipate its exact spelling.
 def _assert_orm_scan_ran(result, *, plan_hint: str = "orm") -> None:
     """The deterministic tool-trace contract shared by both scenarios: the
     agent created a scan intent for the `orm` plan, launched it, and read
