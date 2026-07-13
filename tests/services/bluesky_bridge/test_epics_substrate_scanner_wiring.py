@@ -1,10 +1,11 @@
 """Tests for the opt-in EPICS-substrate scanner startup wiring (task 2.3).
 
 `app.py`'s `_lifespan` hook wires a real bluesky-backed `BlueskyScanner`
-against real EPICS devices (Channel Access clients built by
-`devices/epics.py`, from a PV list parsed by `devices/_specs_from_env.py`)
-ONLY when `BLUESKY_EPICS_SUBSTRATE` is truthy (`_is_epics_substrate_enabled`)
-AND bluesky/ophyd-async are importable — mirroring the mock demo scanner's
+against connector-mediated devices (built by `devices/connector.py` from a
+PV list parsed by `devices/_specs_from_env.py`, delegating every read/write
+to the bridge's single long-lived OSPREY connector — see task 2.1/2.2) ONLY
+when `BLUESKY_EPICS_SUBSTRATE` is truthy (`_is_epics_substrate_enabled`) AND
+bluesky/ophyd-async are importable — mirroring the mock demo scanner's
 guarded/lazy-import pattern (see `test_demo_scanner_wiring.py`) so the
 Phase-1 "app.py import-clean of bluesky" invariant holds whether the extra is
 absent or the flag is unset. Exercised here:
@@ -15,8 +16,10 @@ absent or the flag is unset. Exercised here:
   file only spot-checks it for the substrate flag's own name).
 - Flag absent: app.py stays import-clean and keeps the `FakeScanner` default.
 - Flag truthy AND bluesky/ophyd-async present: the app wires a
-  `BlueskyScanner` whose device source is `epics.build_devices(motors,
-  detectors)`, built from `BLUESKY_EPICS_MOTORS`/`BLUESKY_EPICS_DETECTORS`.
+  `BlueskyScanner` whose device source is
+  `connector_devices.build_devices(motors, detectors, connector)`, built
+  from `BLUESKY_EPICS_MOTORS`/`BLUESKY_EPICS_DETECTORS` and the bridge's
+  single long-lived connector.
 - Flag truthy but the bluesky-bridge extra absent: guarded fallback to
   `FakeScanner`, simulated by forcing `ophyd_async` out of `sys.modules` (see
   `_ophyd_async_absent`) since this environment actually has the extra
@@ -70,7 +73,8 @@ def _isolated_state(monkeypatch: pytest.MonkeyPatch):
 
 @pytest.fixture
 def _ophyd_async_absent(monkeypatch: pytest.MonkeyPatch):
-    """Force `from .devices import epics` to raise ImportError(name="ophyd_async...").
+    """Force `from .devices import connector as connector_devices` to raise
+    ImportError(name="ophyd_async...").
 
     This environment actually has the `bluesky-bridge` extra installed, so
     the only way to exercise the "extra not installed" fallback branch is to
@@ -164,16 +168,36 @@ def test_flag_set_but_extra_absent_falls_back_to_fake_scanner(
 
 
 # =========================================================================
-# Flag truthy AND the extra present: real wiring against epics.build_devices
+# Flag truthy AND the extra present: real wiring against
+# connector_devices.build_devices (task 2.2 — connector-mediated, no raw CA)
 # =========================================================================
 
 
 @pytest.mark.parametrize("value", ["1", "true"])
-def test_flag_set_with_extra_present_wires_epics_backed_scanner(
+async def test_flag_set_with_extra_present_wires_connector_backed_scanner(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
     pytest.importorskip("bluesky")
     pytest.importorskip("ophyd_async")
+
+    from osprey.connectors.factory import ConnectorFactory
+
+    class _SpyConnector:
+        """Minimal stand-in identifiable by identity, not by CA behavior."""
+
+        async def disconnect(self) -> None:
+            pass
+
+    spy_connector = _SpyConnector()
+
+    async def fake_create_control_system_connector(config):
+        return spy_connector
+
+    monkeypatch.setattr(
+        ConnectorFactory,
+        "create_control_system_connector",
+        fake_create_control_system_connector,
+    )
 
     monkeypatch.setenv(_SUBSTRATE_ENV, value)
     monkeypatch.setenv(_MOTORS_ENV, "mot1=TEST:MOTOR:01:SP|TEST:MOTOR:01:RB")
@@ -185,6 +209,10 @@ def test_flag_set_with_extra_present_wires_epics_backed_scanner(
 
     assert app_module._scanner_factory is not FakeScanner
 
+    from osprey.services.bluesky_bridge.devices.connector import (
+        ConnectorReadable,
+        ConnectorSettable,
+    )
     from osprey.services.bluesky_bridge.scanner_bluesky import BlueskyScanner
 
     scanner = app_module._scanner_factory()
@@ -192,6 +220,14 @@ def test_flag_set_with_extra_present_wires_epics_backed_scanner(
     # `devices` is the bare async factory (not its awaited result) — matches
     # `scanner_bluesky.BlueskyScanner._resolve_devices`'s expected shape.
     assert callable(scanner._devices_source)
+
+    # The factory builds connector-backed devices, mediated by the exact
+    # connector `_lifespan` constructed — never raw-CA `epics.py` devices.
+    devices = await scanner._devices_source()
+    assert isinstance(devices["mot1"], ConnectorSettable)
+    assert devices["mot1"]._osprey_connector is spy_connector
+    assert isinstance(devices["det1"], ConnectorReadable)
+    assert devices["det1"]._osprey_connector is spy_connector
 
 
 def test_flag_set_with_no_pv_env_wires_scanner_with_zero_devices(

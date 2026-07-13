@@ -80,6 +80,26 @@ _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 # The `Scanner` implementation `do_promote` builds for every promotion.
 _scanner_factory: Callable[[], Scanner] = FakeScanner
 
+# Task 2.1: the bridge's single long-lived OSPREY connector — one Channel
+# Access client for the process's whole lifetime, constructed by `_lifespan`
+# only when `_is_epics_substrate_enabled()`, and disconnected exactly once on
+# shutdown. `None` whenever the EPICS substrate isn't enabled, or before
+# `_lifespan` has constructed it, or after shutdown has torn it down. Wired
+# into the scanner factory by task 2.2's `_epics_scanner_factory` closure,
+# which builds every scan device against this one connector.
+_connector: Any | None = None
+
+
+def get_connector() -> Any | None:
+    """The bridge's single long-lived OSPREY connector, or `None` if unset.
+
+    `None` whenever the EPICS substrate isn't enabled, before `_lifespan` has
+    constructed it, or after shutdown has disconnected it. A later task's
+    `_epics_scanner_factory` closure reads this to build connector-backed
+    devices.
+    """
+    return _connector
+
 
 def set_scanner_factory(factory: Callable[[], Scanner]) -> None:
     """Override the `Scanner` implementation `do_promote` builds.
@@ -139,6 +159,79 @@ def _build_tiled_writer_factory() -> Callable[[], Any] | None:
     return factory
 
 
+def _assert_limits_readable_if_writable() -> None:
+    """Refuse startup if writes are enabled but the limits database can't be read.
+
+    Fail-OPEN by design (task 3.1): this is the ONLY combination that refuses
+    startup — ``control_system.writes_enabled`` AND
+    ``control_system.limits_checking.enabled`` both true, AND the limits
+    database is missing, unreadable, or unparseable. Every other combination
+    starts normally: writes disabled (read-only posture) never even probes
+    the database; writes enabled with limits checking disabled needs no
+    database at all; writes enabled with a readable database is the healthy
+    case. A writable deploy with no working limits enforcement is the one
+    unsafe posture this guard exists to catch before any connector/CA work
+    begins.
+
+    Mirrors `LimitsValidator.from_config`'s ``database_path`` resolution
+    (a relative path resolved against the ``CONFIG_FILE`` env var's directory
+    when set, falling back to ``project_root`` otherwise — container-correct,
+    since the deploy flattens ``project_root`` in as the HOST build path,
+    while ``CONFIG_FILE`` points at the config actually mounted in-container),
+    but probes readability via `LimitsValidator._load_limits_database`
+    directly rather than calling `from_config` — `from_config` swallows every
+    load failure to `None`, which would hide the exact failure this guard
+    must detect and raise on.
+
+    No project config context at all (e.g. running outside a configured
+    OSPREY project — most unit-test environments) is treated the same way
+    `LimitsValidator.from_config` treats it: nothing to probe, so this
+    returns without blocking startup, rather than raising on the config
+    lookup itself.
+
+    Raises:
+        RuntimeError: naming which condition failed (config keys, and
+            whether the database path was configured/found/parseable) —
+            never the database's file contents or any other secret value.
+    """
+    from osprey.utils.config import get_config_value
+
+    try:
+        writes_enabled = get_config_value("control_system.writes_enabled", False)
+        limits_enabled = get_config_value("control_system.limits_checking.enabled", False)
+        db_path = get_config_value("control_system.limits_checking.database_path", None)
+        project_root = get_config_value("project_root", None)
+    except (FileNotFoundError, KeyError, RuntimeError):
+        return
+
+    if not writes_enabled:
+        return
+    if not limits_enabled:
+        return
+
+    if not db_path or not isinstance(db_path, str):
+        raise RuntimeError(
+            "refusing to start writable: control_system.writes_enabled and "
+            "control_system.limits_checking.enabled are both set, but "
+            "control_system.limits_checking.database_path is not configured"
+        )
+
+    from osprey.connectors.control_system.limits_validator import LimitsValidator
+
+    # Same relative-path resolution as `LimitsValidator.from_config`.
+    db_path = LimitsValidator.resolve_database_path(db_path, project_root)
+
+    try:
+        LimitsValidator._load_limits_database(db_path)
+    except Exception as exc:
+        raise RuntimeError(
+            "refusing to start writable: control_system.writes_enabled and "
+            "control_system.limits_checking.enabled are both set, but the "
+            "configured control_system.limits_checking.database_path could "
+            "not be read or parsed"
+        ) from exc
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Opt-in guarded startup: wire a real bluesky-backed `BlueskyScanner`.
@@ -159,7 +252,22 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
     If both flags are set, the EPICS substrate wins: an operator who asked
     for real EPICS must never silently get routed to the mock demo instead.
+
+    Task 2.1: when the EPICS substrate branch runs, this also constructs and
+    connects the bridge's single long-lived OSPREY connector (module global
+    `_connector`, readable via `get_connector()`) — one Channel Access client
+    for the whole process lifetime. Task 2.2 wires that same connector into
+    `_epics_scanner_factory`, so every scan device it builds is
+    connector-mediated. The connector is disconnected exactly once after
+    `yield`, on shutdown.
+
+    Task 3.1: before any of that connector/CA work, the EPICS-substrate
+    branch calls `_assert_limits_readable_if_writable`, which fail-OPEN
+    refuses startup (raises) only if writes are enabled, limits checking is
+    enabled, and the limits database can't be read — every other combination
+    (including writes disabled entirely) starts normally.
     """
+    global _connector
     epics_substrate_enabled = _is_epics_substrate_enabled()
     demo_scanner_enabled = _is_demo_scanner_enabled()
     if epics_substrate_enabled and demo_scanner_enabled:
@@ -173,7 +281,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
     if epics_substrate_enabled:
         try:
-            from .devices import epics
+            from .devices import connector as connector_devices
             from .devices._specs_from_env import specs_from_env
             from .plans import BUILTIN_PLANS
             from .scanner_bluesky import BlueskyScanner
@@ -188,14 +296,61 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 exc.name,
             )
         else:
+            # Task 3.1: fail-OPEN startup guard, before any connector/CA work
+            # begins — refuses startup only for the one unsafe combination
+            # (writable + limits checking enabled + limits database
+            # unreadable). See `_assert_limits_readable_if_writable`'s
+            # docstring for the full condition and why every other
+            # combination starts normally.
+            _assert_limits_readable_if_writable()
+
+            # Task 2.1: construct the single long-lived OSPREY connector this
+            # bridge holds for its whole process lifetime. `osprey.connectors.factory`
+            # and `epics_connector` are import-safe even in a base install (pyepics
+            # is imported lazily inside `EPICSConnector.connect()`), but the import
+            # stays inside this already-guarded branch regardless. A gateway-less
+            # `type_config` (no "gateways" key) makes `connect()` skip the block
+            # that sets process-wide `EPICS_CA_*` env, so the compose-inherited
+            # `EPICS_CA_NAME_SERVERS` (pointing at the virtual accelerator or real
+            # hardware) survives untouched (FR8/CF-1) — and it needs no running CA
+            # server, so this is safe to do unconditionally at startup.
+            from osprey.connectors.factory import (
+                ConnectorFactory,
+                register_builtin_connectors,
+            )
+
+            register_builtin_connectors()  # idempotent (CF-3); must run before create
+            _connector = await ConnectorFactory.create_control_system_connector(
+                {
+                    "type": "virtual_accelerator",
+                    "connector": {"virtual_accelerator": {"timeout": 5.0}},
+                }
+            )
+            logger.info(
+                "%s is enabled: connected the bridge's single long-lived OSPREY "
+                "connector (%s)",
+                _EPICS_SUBSTRATE_ENV,
+                type(_connector).__name__,
+            )
+
             motors, detectors = specs_from_env(os.environ)
 
+            # Bind the closure to THE one long-lived connector constructed
+            # above, not a re-fetch of the (possibly reassigned-on-shutdown)
+            # module global.
+            connector = _connector
+
             def _epics_scanner_factory() -> BlueskyScanner:
-                # `epics.build_devices` is `async def` (it connects real CA
-                # signals) — `BlueskyScanner._resolve_devices` bridges that
-                # for us; passing the bare lambda here, not its result.
+                # `connector_devices.build_devices` is `async def` (it builds
+                # connector-mediated devices) — `BlueskyScanner._resolve_devices`
+                # bridges that for us; passing the bare lambda here, not its
+                # result. Every read and write these devices perform is
+                # connector-mediated (`read_channel`/`write_channel_checked`) —
+                # there is no raw Channel Access anywhere in this path.
                 return BlueskyScanner(
-                    devices=lambda: epics.build_devices(motors, detectors),
+                    devices=lambda: connector_devices.build_devices(
+                        motors, detectors, connector
+                    ),
                     plans=BUILTIN_PLANS,
                     tiled_writer_factory=_build_tiled_writer_factory(),
                 )
@@ -251,6 +406,10 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 _DEMO_SCANNER_ENV,
             )
     yield
+
+    if _connector is not None:
+        await _connector.disconnect()
+        _connector = None
 
 
 app = FastAPI(title="OSPREY Bluesky Bridge", lifespan=_lifespan)

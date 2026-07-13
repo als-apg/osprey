@@ -12,6 +12,7 @@ reaches it via a guarded import inside the `/plans` route).
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 from bluesky import plan_stubs as bps
@@ -20,6 +21,8 @@ from bluesky import preprocessors as bpp
 from pydantic import BaseModel, Field, model_validator
 
 from .plan_types import PlanSpec
+
+logger = logging.getLogger("osprey.services.bluesky_bridge.plans")
 
 
 class ScanAxis(BaseModel):
@@ -172,7 +175,11 @@ def _orm_plan(devices: dict[str, Any], params: ORMParams) -> Any:
     began — every other corrector simply reads back its idle (0 A) value in
     those rows. Each corrector is restored to 0 A once its own sweep
     finishes, including on abort (the ``try``/``finally`` runs on
-    ``GeneratorExit`` too).
+    ``GeneratorExit`` too). Writes route through ``write_channel_checked``,
+    which raises on a refused/failed write, so the restore move itself can
+    raise: if it does, the failure is caught and logged rather than allowed
+    to propagate, so an in-flight sweep exception (the actual abort cause)
+    reaches the caller instead of being replaced by the restore's own error.
     """
     correctors = [(name, devices[name]) for name in params.correctors]
     corrector_devices = [corrector for _, corrector in correctors]
@@ -190,13 +197,21 @@ def _orm_plan(devices: dict[str, Any], params: ORMParams) -> Any:
     @bpp.stage_decorator(all_devices)
     @bpp.run_decorator()
     def _sweep():
-        for _, corrector in correctors:
+        for name, corrector in correctors:
             try:
                 for current in currents:
                     yield from bps.mv(corrector, current)
                     yield from bps.trigger_and_read(all_devices)
             finally:
-                yield from bps.mv(corrector, 0.0)
+                try:
+                    yield from bps.mv(corrector, 0.0)
+                except Exception:
+                    logger.warning(
+                        "orm plan: failed to restore corrector %s to 0 A during "
+                        "cleanup; preserving the original error",
+                        name,
+                        exc_info=True,
+                    )
 
     return _sweep()
 

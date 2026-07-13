@@ -16,8 +16,10 @@ That makes this module suitable ONLY for:
 It must NEVER be the substrate for the Phase 3 scenario benchmark — that
 benchmark's whole point is cross-checking ophyd-async's view of a PV against
 OSPREY's own ``channel_read`` on a real (soft-IOC) Channel Access server, and
-this module never touches CA. Use :mod:`osprey.services.bluesky_bridge.devices.epics`
-for anything that needs to read/write a real PV.
+this module never touches CA. Use
+:mod:`osprey.services.bluesky_bridge.devices.connector` for anything that
+needs to read/write a real PV — it mediates every read/write through the
+OSPREY connector rather than speaking Channel Access directly.
 
 Reimplements the shape of ``ophyd_async.sim.SimMotor``/``SimPointDetector``
 (soft position signal with instant "move"; a triggerable soft readout) rather

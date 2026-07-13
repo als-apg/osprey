@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 
-from .epics import EpicsDetectorSpec, EpicsMotorSpec
+from .specs import ReadableSpec, SettableSpec
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.devices._specs_from_env")
 
@@ -46,15 +46,15 @@ def _split_entries(raw: str) -> list[str]:
     return [entry.strip() for entry in raw.split(",") if entry.strip()]
 
 
-def parse_motor_specs(raw: str) -> list[EpicsMotorSpec]:
-    """Parse ``BLUESKY_EPICS_MOTORS``-shaped text into ``EpicsMotorSpec``\\ s.
+def parse_motor_specs(raw: str) -> list[SettableSpec]:
+    """Parse ``BLUESKY_EPICS_MOTORS``-shaped text into ``SettableSpec``\\ s.
 
     Each entry is ``name=SETPOINT_PV`` or ``name=SETPOINT_PV|READBACK_PV``.
     A malformed entry (no ``=``, empty name, empty setpoint PV, or more than
     one ``|``) is skipped with a warning log rather than raising — one typo
     in a long PV list should not prevent every other device from connecting.
     """
-    specs: list[EpicsMotorSpec] = []
+    specs: list[SettableSpec] = []
     for entry in _split_entries(raw):
         name, sep, spec_text = entry.partition("=")
         name = name.strip()
@@ -83,18 +83,18 @@ def parse_motor_specs(raw: str) -> list[EpicsMotorSpec]:
             continue
 
         specs.append(
-            EpicsMotorSpec(name=name, setpoint_pv=setpoint_pv, readback_pv=readback_pv or None)
+            SettableSpec(name=name, setpoint_pv=setpoint_pv, readback_pv=readback_pv or None)
         )
     return specs
 
 
-def parse_detector_specs(raw: str) -> list[EpicsDetectorSpec]:
-    """Parse ``BLUESKY_EPICS_DETECTORS``-shaped text into ``EpicsDetectorSpec``\\ s.
+def parse_detector_specs(raw: str) -> list[ReadableSpec]:
+    """Parse ``BLUESKY_EPICS_DETECTORS``-shaped text into ``ReadableSpec``\\ s.
 
     Each entry is ``name=READ_PV``. A malformed entry (no ``=``, empty name,
     or empty PV) is skipped with a warning log — see ``parse_motor_specs``.
     """
-    specs: list[EpicsDetectorSpec] = []
+    specs: list[ReadableSpec] = []
     for entry in _split_entries(raw):
         name, sep, read_pv = entry.partition("=")
         name = name.strip()
@@ -106,13 +106,13 @@ def parse_detector_specs(raw: str) -> list[EpicsDetectorSpec]:
                 entry,
             )
             continue
-        specs.append(EpicsDetectorSpec(name=name, read_pv=read_pv))
+        specs.append(ReadableSpec(name=name, read_pv=read_pv))
     return specs
 
 
 def _drop_duplicate_names(
-    motors: list[EpicsMotorSpec], detectors: list[EpicsDetectorSpec]
-) -> tuple[list[EpicsMotorSpec], list[EpicsDetectorSpec]]:
+    motors: list[SettableSpec], detectors: list[ReadableSpec]
+) -> tuple[list[SettableSpec], list[ReadableSpec]]:
     """Drop any spec whose device name was already seen (motors first, then
     detectors), warning on each collision.
 
@@ -139,7 +139,7 @@ def _drop_duplicate_names(
     return _keep(motors), _keep(detectors)
 
 
-def specs_from_env(env: Mapping[str, str]) -> tuple[list[EpicsMotorSpec], list[EpicsDetectorSpec]]:
+def specs_from_env(env: Mapping[str, str]) -> tuple[list[SettableSpec], list[ReadableSpec]]:
     """Read and parse both PV-list env vars from ``env`` (typically ``os.environ``).
 
     Returns ``([], [])`` when a var is absent or empty — an empty device set is

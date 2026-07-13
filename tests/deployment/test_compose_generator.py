@@ -387,7 +387,12 @@ def test_dev_wheel_build_uses_sys_executable(monkeypatch: pytest.MonkeyPatch) ->
     assert captured["cmd"][1:4] == ["-m", "build", "--wheel"]
 
 
-def _render_bluesky_template(*, va_deployed: bool, services: dict | None = None) -> str:
+def _render_bluesky_template(
+    *,
+    va_deployed: bool,
+    services: dict | None = None,
+    writes_enabled: bool | None = None,
+) -> str:
     # Load the packaged template directly (CWD-independent — mirrors
     # _render_worker_template above). Bare jinja2.Template uses the default
     # Undefined, the same mode compose_generator's Environment uses, so this
@@ -399,7 +404,7 @@ def _render_bluesky_template(*, va_deployed: bool, services: dict | None = None)
     tpl = resources.files("osprey").joinpath("templates/services/bluesky/docker-compose.yml.j2")
     template = Template(tpl.read_text(encoding="utf-8"))
     deployed = ["bluesky"] + (["virtual_accelerator"] if va_deployed else [])
-    return template.render(
+    kwargs = dict(
         services=services or {"bluesky": {"port": 8090}, "virtual_accelerator": {"port": 5064}},
         deployment={},
         system={"timezone": "UTC"},
@@ -407,6 +412,13 @@ def _render_bluesky_template(*, va_deployed: bool, services: dict | None = None)
         osprey_labels={"project_name": "p", "project_root": "/r", "deployed_at": "now"},
         osprey_version="",
     )
+    # Task 3.2: control_system is omitted by default (matching every
+    # pre-existing call site below), so `control_system.writes_enabled |
+    # default(false)` must resolve against Jinja2's default Undefined without
+    # raising. Only pass it when a caller explicitly cares.
+    if writes_enabled is not None:
+        kwargs["control_system"] = {"writes_enabled": writes_enabled}
+    return template.render(**kwargs)
 
 
 def test_bluesky_wires_va_ca_env_and_ordering_only_when_va_co_deployed() -> None:
@@ -445,6 +457,70 @@ def test_bluesky_va_ca_port_defaults_when_va_config_block_absent() -> None:
         services={"bluesky": {"port": 8090}},  # no virtual_accelerator key
     )
     assert 'EPICS_CA_NAME_SERVERS: "virtual-accelerator:5064"' in rendered
+
+
+# ---------------------------------------------------------------------------
+# Task 3.2 / CC-2: read-only config + limits mounts under one /app/project
+# root. The connector-backed bridge reads control_system.type/writes_enabled
+# and control_system.limits_checking.database_path from config.yml at
+# runtime, and (when writes are enabled) resolves a relative database_path
+# against project_root -- so config.yml and channel_limits.json must land
+# under the SAME /app/project root the connector expects.
+# ---------------------------------------------------------------------------
+
+
+def test_bluesky_template_sets_config_file() -> None:
+    """Mirrors dispatch_worker's identical CONFIG_FILE convention: CWD is the
+    image WORKDIR (/app), not the project dir, so without CONFIG_FILE the
+    connector's config lookups fall back to /app/config.yml and error "No
+    config.yml found in current directory: /app".
+    """
+    rendered = _render_bluesky_template(va_deployed=False)
+    assert "CONFIG_FILE: /app/project/config.yml" in rendered
+
+
+def test_bluesky_template_always_mounts_config_yml_read_only() -> None:
+    """The config.yml :ro mount must be present unconditionally -- unlike the
+    VA/tiled env blocks, the bridge needs control_system settings regardless
+    of which optional services are co-deployed or whether writes are
+    enabled.
+    """
+    rendered = _render_bluesky_template(va_deployed=False)
+    assert "./bluesky/config.yml:/app/project/config.yml:ro" in rendered
+
+    # And it must still be present when writes ARE enabled (the two mounts
+    # are independent, not mutually exclusive).
+    rendered_writable = _render_bluesky_template(va_deployed=False, writes_enabled=True)
+    assert "./bluesky/config.yml:/app/project/config.yml:ro" in rendered_writable
+
+
+def test_bluesky_template_mounts_channel_limits_when_writes_enabled() -> None:
+    """control_system.writes_enabled=true must mount channel_limits.json
+    read-only under /app/project/data/, the same /app/project root as
+    config.yml, so a relative control_system.limits_checking.database_path
+    (e.g. "data/channel_limits.json") resolves against project_root exactly
+    as limits_validator.py / app.py's _assert_limits_readable_if_writable
+    expect. Source path mirrors the Virtual Accelerator's ../../data/...
+    mount convention (build/services/ -> project root's data/).
+    """
+    rendered = _render_bluesky_template(va_deployed=False, writes_enabled=True)
+    assert (
+        "../../data/channel_limits.json:/app/project/data/channel_limits.json:ro" in rendered
+    )
+
+
+def test_bluesky_template_omits_channel_limits_mount_when_writes_disabled() -> None:
+    """A read-only deploy must never mount channel_limits.json -- a
+    read-only posture never opens the limits DB. Both the explicit
+    ``writes_enabled: false`` case and the default render (no
+    ``control_system`` key at all in the context, matching every
+    pre-existing call site in this module) must omit it.
+    """
+    rendered = _render_bluesky_template(va_deployed=False, writes_enabled=False)
+    assert "channel_limits.json" not in rendered
+
+    rendered_default = _render_bluesky_template(va_deployed=False)
+    assert "channel_limits.json" not in rendered_default
 
 
 def _render_bluesky_tiled(*, tiled_enabled: bool, va_deployed: bool = False) -> str:
@@ -638,6 +714,27 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
     assert "\n  bluesky-bridge:\n" in rendered, "bridge service must be deployed"
     assert "\n  tiled:\n" in rendered, "Tiled must be co-deployed (bluesky.tiled_enabled=true)"
 
+    # -- Task 3.2 / CC-2: read-only config + limits mounts under /app/project -
+    # The control-assistant preset defaults control_system.writes_enabled to
+    # true (this deploy config never overrides it off), so the real,
+    # fully-flattened render must mount both config.yml and channel_limits.json
+    # under the same /app/project root the connector resolves project_root
+    # against.
+    assert config["control_system"]["writes_enabled"] is True, (
+        "this assertion block assumes the control-assistant preset's "
+        "writes_enabled default -- if that default ever changes, this test's "
+        "premise for asserting the channel_limits.json mount changes too"
+    )
+    assert "CONFIG_FILE: /app/project/config.yml" in rendered
+    assert "./bluesky/config.yml:/app/project/config.yml:ro" in rendered, (
+        "bridge must mount config.yml read-only under /app/project (Task 3.2)"
+    )
+    assert (
+        "../../data/channel_limits.json:/app/project/data/channel_limits.json:ro" in rendered
+    ), (
+        "control_system.writes_enabled=true (preset default) must mount "
+        "channel_limits.json under the same /app/project root as config.yml"
+    )
 
 # ---------------------------------------------------------------------------
 # Task 1.4: preserve-staged-config-python-env-path
