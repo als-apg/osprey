@@ -89,7 +89,7 @@ dependencies = [
     "seaborn",
     "scikit-learn",
     "plotly>=5.0.0",
-    "bokeh>=3.0",  # Interactive dashboards (data-visualizer agent)
+    "bokeh>=3.9.1",  # Interactive dashboards (data-visualizer agent)
     "playwright>=1.40.0",
     "ipywidgets",  # Interactive widgets for Jupyter notebooks
     # Natural language processing
