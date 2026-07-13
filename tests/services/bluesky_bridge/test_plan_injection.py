@@ -170,7 +170,17 @@ def test_load_facility_plans_does_not_leave_module_in_sys_modules_on_exec_failur
 def test_get_plans_serves_facility_injected_plan_via_http(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, client: TestClient
 ) -> None:
-    """End-to-end: GET /plans includes the facility's plan, with its schema."""
+    """End-to-end: GET /plans includes the facility's plan, with its schema.
+
+    Also asserts every plan carries `metadata`/`provenance` keys (task 1.3):
+    the legacy contract's `wiggle` plan never set `PlanSpec.metadata`, so it
+    stays `None`, but its `provenance` is loader-normalized to `"facility"`
+    regardless of what the module declared (see `load_facility_plans`). A
+    built-in (`count`) is the other half of the contract: `provenance ==
+    "shipped"` with `metadata: None`, since built-ins don't author
+    `PLAN_METADATA` — see `test_plan_loader_layered.py` for the directory-layer
+    case where `metadata` is populated.
+    """
     module_path = _write_facility_module(tmp_path)
     monkeypatch.setenv(_ENV_VAR, str(module_path))
 
@@ -182,6 +192,12 @@ def test_get_plans_serves_facility_injected_plan_via_http(
     wiggle = plans_by_name["wiggle"]
     assert wiggle["description"] == "A facility-specific plan not in the built-in set."
     assert wiggle["schema"]["properties"]["amplitude"]["default"] == 1.0
+    assert wiggle["metadata"] is None
+    assert wiggle["provenance"] == "facility"
+
+    count = plans_by_name["count"]
+    assert count["metadata"] is None
+    assert count["provenance"] == "shipped"
 
 
 def test_get_facility_plans_constructs_devices_once_and_caches(
@@ -254,3 +270,40 @@ def test_get_plans_reraises_a_non_bridge_import_error_from_builtins(
 
     with pytest.raises(ImportError):
         client.get("/plans")
+
+
+def test_get_plans_serves_directory_layer_metadata_via_http(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, client: TestClient
+) -> None:
+    """A directory-layer plan (task 1.2's `BLUESKY_PLAN_DIRS`, `facility` tier)
+    authors real `PLAN_METADATA` — unlike the legacy single-module contract
+    above, `GET /plans` must surface it verbatim, not just `provenance`."""
+    facility_dir = tmp_path / "facility_layer"
+    facility_dir.mkdir()
+    (facility_dir / "sniff.py").write_text(
+        "from pydantic import BaseModel\n\n\n"
+        "PLAN_METADATA = {\n"
+        '    "name": "sniff",\n'
+        '    "description": "A directory-layer test plan.",\n'
+        '    "category": "accelerator",\n'
+        '    "required_devices": ["sniffer"],\n'
+        '    "writes": False,\n'
+        "}\n\n\n"
+        "def build_plan(devices, params):\n"
+        '    return {"plan": "sniff"}\n'
+    )
+    monkeypatch.setenv("BLUESKY_PLAN_DIRS", str(facility_dir))
+
+    resp = client.get("/plans")
+
+    assert resp.status_code == 200
+    plans_by_name = {p["name"]: p for p in resp.json()}
+    sniff = plans_by_name["sniff"]
+    assert sniff["provenance"] == "facility"
+    assert sniff["metadata"] == {
+        "name": "sniff",
+        "description": "A directory-layer test plan.",
+        "category": "accelerator",
+        "required_devices": ["sniffer"],
+        "writes": False,
+    }

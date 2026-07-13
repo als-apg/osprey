@@ -81,6 +81,38 @@ async def test_list_scan_plans_success():
     assert data["plans"] == plans
 
 
+async def test_list_scan_plans_passes_through_metadata_and_provenance():
+    """The bridge's `metadata`/`provenance` fields (task 1.3) must survive the
+    tool's JSON round-trip unmodified — an agent picking a plan needs both to
+    weigh trust tier and required devices."""
+    plans = [
+        {
+            "name": "count",
+            "description": "",
+            "schema": {},
+            "metadata": None,
+            "provenance": "shipped",
+        },
+        {
+            "name": "sniff",
+            "description": "A directory-layer test plan.",
+            "schema": {},
+            "metadata": {
+                "name": "sniff",
+                "description": "A directory-layer test plan.",
+                "category": "accelerator",
+                "required_devices": ["sniffer"],
+                "writes": False,
+            },
+            "provenance": "facility",
+        },
+    ]
+    with patch(f"{_MOD}._http_get_json", return_value=(200, plans)):
+        result = await _fn("list_scan_plans")()
+    data = extract_response_dict(result)
+    assert data["plans"] == plans
+
+
 async def test_list_scan_plans_empty():
     with patch(f"{_MOD}._http_get_json", return_value=(200, [])):
         result = await _fn("list_scan_plans")()
