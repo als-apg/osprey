@@ -350,6 +350,37 @@ def test_worker_agent_data_volume_shared_mode_targets_project_layout() -> None:
     assert f"- dispatch_workspace_1:/app/{_WORKER_PROJECT_NAME}/_agent_data" in rendered
 
 
+def test_worker_template_inactivity_defaults_to_120() -> None:
+    """With no inactivity_sec configured, the worker env pins the watchdog to the
+    built-in 120s default — older configs missing the field still render cleanly."""
+    rendered = _render_worker_template(env_present=True)
+    assert 'DISPATCH_INACTIVITY_SEC: "120"' in rendered
+
+
+def test_worker_template_inactivity_reflects_injected_value() -> None:
+    """A configured services.dispatch_worker.inactivity_sec flows to the worker's
+    DISPATCH_INACTIVITY_SEC env, so a long single step is not cut off at 120s."""
+    from importlib import resources
+
+    from jinja2 import Template
+
+    from osprey.deployment.compose_generator import _inject_project_metadata
+
+    config = _inject_project_metadata(
+        {
+            "project_name": "p",
+            "project_root": "/r/p",
+            "services": {"dispatch_worker": {"inactivity_sec": 600}},
+            "system": {"timezone": "UTC"},
+        }
+    )
+    tpl = resources.files("osprey").joinpath(
+        "templates/services/dispatch_worker/docker-compose.yml.j2"
+    )
+    rendered = Template(tpl.read_text(encoding="utf-8")).render(**config)
+    assert 'DISPATCH_INACTIVITY_SEC: "600"' in rendered
+
+
 def test_worker_command_unchanged() -> None:
     """The worker overrides only ``command:`` — it must still launch the
     dispatch-worker MCP server, unchanged by the image/layout repoint."""
