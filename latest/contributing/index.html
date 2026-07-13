@@ -64,7 +64,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Jul 12, 2026"/>
+    <meta name="docbuild:last-update" content="Jul 13, 2026"/>
   </head>
   
   
@@ -746,8 +746,9 @@ thrown exception instead of a silent no-op.</p></li>
 standalone and embedded modes – <code class="docutils literal notranslate"><span class="pre">applyEmbedded()</span></code> on load, an
 <code class="docutils literal notranslate"><span class="pre">&lt;osprey-theme-switcher&gt;</span></code> that hides itself when embedded (the hub owns
 theme chrome there), branding hidden when embedded – plus a
-<code class="docutils literal notranslate"><span class="pre">test_contract_params.py</span></code> case. See <a class="reference internal" href="../how-to/embedding-osprey-panels.html"><span class="doc">Embedding OSPREY Panels</span></a>
-for the full dual-mode checklist and the well-known query/hash parameters.</p></li>
+<code class="docutils literal notranslate"><span class="pre">test_contract_params.py</span></code> case, which is the up-to-date spec for the
+dual-mode checklist and well-known parameters. See
+<a class="reference internal" href="../how-to/web-terminal/panels.html"><span class="doc">Panels</span></a> for how panels embed in the hub.</p></li>
 <li><p>If the change is visible on screen: a <code class="docutils literal notranslate"><span class="pre">test_visual.py</span></code> <code class="docutils literal notranslate"><span class="pre">TARGETS</span></code> entry
 and a committed baseline PNG (regenerate with <code class="docutils literal notranslate"><span class="pre">--regen-baselines</span></code> on
 Linux/CI – a baseline captured on macOS will mismatch there).</p></li>

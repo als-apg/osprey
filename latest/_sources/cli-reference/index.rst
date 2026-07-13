@@ -319,7 +319,7 @@ analysis sessions. Artifacts are written by the Osprey agent via ``save_artifact
 osprey web
 ==========
 
-Launch the Web Terminal interface. See :doc:`/how-to/use-web-terminal`.
+Launch the Web Terminal interface. See :doc:`/how-to/web-terminal/operate`.
 
 ``osprey web [OPTIONS]``
    Start the web terminal server (default: ``http://127.0.0.1:8087``).
