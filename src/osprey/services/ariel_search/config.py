@@ -301,6 +301,16 @@ class ARIELConfig:
         embedding: Embedding provider configuration
         default_max_results: Default maximum results to return
         cache_embeddings: Whether to cache embeddings
+
+    Documented top-level config keys read at runtime (not dataclass fields):
+        entry_url_template: Optional ``str`` template for the canonical logbook
+            entry URL, e.g. ``"https://logbook.example/olog.php?id={entry_id}"``.
+            Read at egress time via ``get_config_value("ariel.entry_url_template")``
+            (see ``mcp_server.ariel.server.build_entry_url``), NOT parsed by
+            ``from_dict`` — the ARIEL read tools render it with the URL-encoded
+            ``entry_id`` so the agent links entries verbatim. Facility-neutral by
+            default (unset -> no ``entry_url`` emitted); the facility supplies the
+            value in its own config (for ALS, ``als-base.yml``).
     """
 
     database: DatabaseConfig
