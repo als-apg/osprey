@@ -45,9 +45,7 @@ def string_inherits(tree: TokenTree, stem: str) -> dict[str, str]:
     if not isinstance(raw, dict):
         return {}
     return {
-        mode: base
-        for mode, base in raw.items()
-        if isinstance(mode, str) and isinstance(base, str)
+        mode: base for mode, base in raw.items() if isinstance(mode, str) and isinstance(base, str)
     }
 
 

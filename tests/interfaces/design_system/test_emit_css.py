@@ -323,9 +323,7 @@ def _extract_blocks(css: str) -> tuple[str, str]:
 def _blocks_by_theme(css: str) -> dict[str, str]:
     """Map each emitted theme id to the body text of its ``{ ... }`` block."""
     blocks: dict[str, str] = {}
-    for match in re.finditer(
-        r'(?::root, )?\[data-theme="([^"]+)"\][^{]*\{([^}]*)\}', css
-    ):
+    for match in re.finditer(r'(?::root, )?\[data-theme="([^"]+)"\][^{]*\{([^}]*)\}', css):
         blocks[match.group(1)] = match.group(2)
     return blocks
 

@@ -17,7 +17,6 @@ Skips cleanly when the chromium headless binary is not installed.
 from __future__ import annotations
 
 import pytest
-
 from tests.interfaces.test_load_smokes import _launch_lattice_dashboard
 
 pytestmark = [pytest.mark.browser, pytest.mark.slow]
@@ -99,7 +98,11 @@ def test_resonance_figure_rethemes_live_on_toggle(tmp_path, monkeypatch, chromiu
         )
 
         light = page.evaluate(_READ_STATE)
-        assert light["marker"] != dark["marker"], "star marker stayed dark-locked after switching to light"
-        assert light["paper"] != dark["paper"], "resonance paper stayed dark-locked after switching to light"
+        assert light["marker"] != dark["marker"], (
+            "star marker stayed dark-locked after switching to light"
+        )
+        assert light["paper"] != dark["paper"], (
+            "resonance paper stayed dark-locked after switching to light"
+        )
 
         page.close()
