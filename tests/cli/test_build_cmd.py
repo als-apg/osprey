@@ -2087,3 +2087,127 @@ def test_writes_disabled_hard_block_covers_extends_clones(tmp_path: Path) -> Non
     # Template and clone execute both pulled out of ask (remove_ask leg).
     assert "mcp__python__execute" not in ask
     assert "mcp__python2__execute" not in ask
+
+
+# ---------------------------------------------------------------------------
+# Service template bundling (_copy_service_templates)
+# ---------------------------------------------------------------------------
+
+
+class TestCopyServiceTemplates:
+    """Tests for _copy_service_templates() — bundles package service templates.
+
+    A service merely DECLARED under `services:` (an opt-in add-on left out of
+    `deployed_services`) must still have its package template bundled, so it can
+    be switched on later with a `deployed_services` edit + `osprey deploy up`
+    without rebuilding.
+    """
+
+    def _write_config(self, project_path: Path, config: dict) -> None:
+        from ruamel.yaml import YAML
+
+        yaml_rt = YAML()
+        with open(project_path / "config.yml", "w") as fh:
+            yaml_rt.dump(config, fh)
+
+    def test_declared_but_not_deployed_service_is_bundled(self, tmp_path: Path) -> None:
+        """openobserve declared under `services:` but absent from
+        deployed_services is still copied into the project's services/ tree,
+        while a deployed service (postgresql) still bundles (no regression)."""
+        from osprey.cli.build_cmd import _copy_service_templates
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        self._write_config(
+            project_path,
+            {
+                # postgresql is deployed; openobserve is only declared (opt-in).
+                "deployed_services": ["postgresql"],
+                "services": {
+                    "postgresql": {"path": "./services/postgresql"},
+                    "openobserve": {"path": "./services/openobserve"},
+                },
+            },
+        )
+
+        count = _copy_service_templates(project_path)
+
+        # Deployed service still bundles (regression guard).
+        assert (project_path / "services" / "postgresql" / "docker-compose.yml.j2").exists()
+        # Declared-but-not-deployed add-on is bundled too (the new behavior).
+        assert (project_path / "services" / "openobserve" / "docker-compose.yml.j2").exists()
+        assert count == 2
+
+    def test_declared_only_service_bundles_without_deployed_services(self, tmp_path: Path) -> None:
+        """With an empty deployed_services, a declared service with a package
+        template is still bundled — the copy path no longer early-returns when
+        deployed_services is empty."""
+        from osprey.cli.build_cmd import _copy_service_templates
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        self._write_config(
+            project_path,
+            {
+                "deployed_services": [],
+                "services": {"openobserve": {"path": "./services/openobserve"}},
+            },
+        )
+
+        count = _copy_service_templates(project_path)
+
+        assert (project_path / "services" / "openobserve" / "docker-compose.yml.j2").exists()
+        assert count == 1
+
+    def test_declared_service_without_package_template_skipped_silently(
+        self, tmp_path: Path, caplog
+    ) -> None:
+        """A declared-only service with no package template is skipped without
+        a warning (it may be facility-injected elsewhere)."""
+        import logging
+
+        from osprey.cli.build_cmd import _copy_service_templates
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        self._write_config(
+            project_path,
+            {
+                "deployed_services": [],
+                "services": {"typesense": {"path": "./services/typesense"}},
+            },
+        )
+
+        with caplog.at_level(logging.WARNING, logger="osprey.cli.build_cmd"):
+            count = _copy_service_templates(project_path)
+
+        assert count == 0
+        assert not (project_path / "services" / "typesense").exists()
+        assert not any("typesense" in r.getMessage() for r in caplog.records), (
+            "declared-only service without a template must not warn"
+        )
+
+    def test_deployed_service_without_package_template_warns(self, tmp_path: Path, caplog) -> None:
+        """A *deployed* service missing its package template still warns —
+        that would break `osprey deploy up`, so the operator must be told."""
+        import logging
+
+        from osprey.cli.build_cmd import _copy_service_templates
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        self._write_config(
+            project_path,
+            {
+                "deployed_services": ["typesense"],
+                "services": {"typesense": {"path": "./services/typesense"}},
+            },
+        )
+
+        with caplog.at_level(logging.WARNING, logger="osprey.cli.build_cmd"):
+            count = _copy_service_templates(project_path)
+
+        assert count == 0
+        assert any("typesense" in r.getMessage() for r in caplog.records), (
+            "a deployed service without a template must warn"
+        )
