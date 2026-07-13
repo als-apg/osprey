@@ -6,6 +6,10 @@ and the interactive PTY path cannot drift apart.
 
 from __future__ import annotations
 
+import os
+
+from osprey.utils.shell_resolver import user_bin_dirs
+
 # The telemetry master switch must survive the strip so that OpenTelemetry
 # stays enabled on both the web-terminal chat path and the interactive PTY
 # path. It starts with the ``CLAUDE_CODE_`` prefix but is a user-facing
@@ -36,3 +40,39 @@ def strip_claude_code_env(env: dict[str, str]) -> dict[str, str]:
         for k, v in env.items()
         if k == _TELEMETRY_MASTER_SWITCH or not k.startswith(_STRIP_PREFIXES)
     }
+
+
+def build_base_child_env() -> dict[str, str]:
+    """Build the base environment shared by both Web Terminal child launchers.
+
+    The interactive PTY path (:func:`pty_manager.build_pty_env`) and the SDK
+    operator subprocess (:func:`operator_session.build_clean_env`) both need the
+    same three preparation steps, in the same order, before each overlays its
+    own path-specific keys:
+
+    1. Strip Claude Code internal session variables via
+       :func:`strip_claude_code_env` (preserving the telemetry master switch).
+    2. Resolve the auth-token conflict: when token-based auth is configured
+       (e.g. the CBORG proxy at LBNL), drop a stale ``ANTHROPIC_API_KEY`` that
+       Claude Code would otherwise auto-load from the project ``.env`` and warn
+       about.
+    3. Augment ``PATH`` with user-local bin dirs (e.g. ``~/.local/bin``) so child
+       processes resolve their dependencies even from a non-login context
+       (lifecycle hooks, ``nohup``, etc.).
+
+    Centralising all three here — not just the strip step — is what keeps the two
+    launch paths from drifting apart, the reason this module exists.
+
+    Returns:
+        A fresh env dict, ready for path-specific keys to be overlaid.
+    """
+    env = strip_claude_code_env(dict(os.environ))
+
+    if env.get("ANTHROPIC_AUTH_TOKEN"):
+        env.pop("ANTHROPIC_API_KEY", None)
+
+    extra_dirs = user_bin_dirs()
+    if extra_dirs:
+        env["PATH"] = os.pathsep.join(extra_dirs) + os.pathsep + env.get("PATH", "")
+
+    return env

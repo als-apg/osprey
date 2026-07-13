@@ -3,8 +3,10 @@
 Prevents the "two diverging copies" regression: the strip comprehension must
 live ONLY in ``osprey.interfaces.web_terminal.env_utils.strip_claude_code_env``.
 Both ``operator_session.py`` (the SDK path) and ``pty_manager.py`` (the PTY
-path) must call that shared helper rather than re-implementing the inline
-comprehension. This test fails fast if anyone reintroduces a local copy.
+path) build on the shared ``env_utils.build_base_child_env`` helper — which owns
+the full common prelude (strip + auth-conflict + PATH) and is the single caller
+of ``strip_claude_code_env`` — rather than re-implementing any step inline. This
+test fails fast if anyone reintroduces a local copy.
 """
 
 from __future__ import annotations
@@ -52,12 +54,22 @@ def test_consumers_do_not_reimplement_strip():
 
 
 def test_both_consumers_call_shared_helper():
-    """Both consumer modules invoke the shared helper."""
-    assert "strip_claude_code_env(" in _source(operator_session), (
-        "operator_session.py does not call the shared strip_claude_code_env() helper"
+    """Both consumer modules funnel through the shared base-env helper.
+
+    The consumers build on :func:`env_utils.build_base_child_env`, which owns the
+    full shared prelude (strip + auth-conflict + PATH) and is itself the single
+    caller of ``strip_claude_code_env``. Asserting the consumers reach the base
+    helper — and that the base helper reaches the strip — keeps both paths on the
+    one shared code path without either re-inlining a step.
+    """
+    assert "build_base_child_env(" in _source(operator_session), (
+        "operator_session.py does not call the shared build_base_child_env() helper"
     )
-    assert "strip_claude_code_env(" in _source(pty_manager), (
-        "pty_manager.py does not call the shared strip_claude_code_env() helper"
+    assert "build_base_child_env(" in _source(pty_manager), (
+        "pty_manager.py does not call the shared build_base_child_env() helper"
+    )
+    assert "strip_claude_code_env(" in _source(env_utils), (
+        "build_base_child_env() must funnel through the shared strip_claude_code_env() helper"
     )
 
 

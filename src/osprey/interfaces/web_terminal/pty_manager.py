@@ -17,7 +17,7 @@ import termios
 from collections import OrderedDict
 from collections.abc import AsyncIterator
 
-from osprey.interfaces.web_terminal.env_utils import strip_claude_code_env
+from osprey.interfaces.web_terminal.env_utils import build_base_child_env
 from osprey.utils.logger import get_logger
 
 logger = get_logger("pty_manager")
@@ -26,12 +26,10 @@ logger = get_logger("pty_manager")
 def build_pty_env(extra_env: dict[str, str] | None = None) -> dict[str, str]:
     """Build the environment for the PTY child process.
 
-    Strips Claude Code internal session variables (nesting detection,
-    entrypoint tracking, beta flags) via the shared
-    :func:`strip_claude_code_env` helper, which preserves the telemetry master
-    switch so telemetry survives on the interactive PTY path. Then resolves the
-    auth-token conflict, sets terminal type variables, augments ``PATH`` with
-    user-local bin dirs, and finally applies any caller-supplied ``extra_env``.
+    Layers the PTY-specific keys on top of :func:`build_base_child_env` (which
+    strips Claude Code session vars while preserving the telemetry master switch,
+    resolves the auth-token conflict, and augments ``PATH``): sets the terminal
+    type variables, then applies any caller-supplied ``extra_env`` last.
 
     Args:
         extra_env: Additional environment variables to overlay last.
@@ -39,26 +37,10 @@ def build_pty_env(extra_env: dict[str, str] | None = None) -> dict[str, str]:
     Returns:
         The fully resolved environment dict for the child process.
     """
-    env = strip_claude_code_env(dict(os.environ))
-
-    # When token-based auth is configured (e.g. CBORG proxy at LBNL),
-    # strip ANTHROPIC_API_KEY to prevent the "auth conflict" warning.
-    # The .env in the project dir may contain a stale API key that
-    # Claude Code loads automatically, conflicting with the token.
-    if env.get("ANTHROPIC_AUTH_TOKEN"):
-        env.pop("ANTHROPIC_API_KEY", None)
+    env = build_base_child_env()
 
     env["TERM"] = "xterm-256color"
     env["COLORTERM"] = "truecolor"
-
-    # Augment PATH with user-local bin dirs (e.g. ~/.local/bin) so the
-    # shell and its child processes can find their dependencies even when
-    # launched from a non-login context (lifecycle hooks, nohup, etc.).
-    from osprey.utils.shell_resolver import user_bin_dirs
-
-    extra_dirs = user_bin_dirs()
-    if extra_dirs:
-        env["PATH"] = os.pathsep.join(extra_dirs) + os.pathsep + env.get("PATH", "")
 
     if extra_env:
         env.update(extra_env)
