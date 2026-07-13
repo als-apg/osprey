@@ -108,10 +108,19 @@ async def scan_status(run_id: str) -> str:
 async def list_scan_plans() -> str:
     """List the plans registered on the bridge.
 
+    Each plan entry carries ``metadata`` (the plan's authoring-declared
+    ``PLAN_METADATA`` — description/category/required_devices/writes — or
+    ``null`` for a built-in that doesn't author one) and ``provenance`` (its
+    trust tier: ``shipped``/``preset``/``facility``/``session``/
+    ``unreviewed``, ascending ephemerality). Use these to prefer a
+    higher-provenance plan and to check ``required_devices``/``writes``
+    before selecting a plan for ``create_scan_intent``.
+
     Returns:
-        JSON ``{"status": "success", "plans": [...]}``. An empty list means
-        the facility has not injected a plan module (or this bridge version
-        does not yet support plan discovery).
+        JSON ``{"status": "success", "plans": [...]}``, each entry shaped
+        like ``{"name", "description", "schema", "metadata", "provenance"}``.
+        An empty list means the facility has not injected a plan module (or
+        this bridge version does not yet support plan discovery).
     """
     status, body = await anyio.to_thread.run_sync(_http_get_json, "/plans")
     if status != 200:

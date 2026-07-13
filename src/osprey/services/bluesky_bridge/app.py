@@ -495,6 +495,11 @@ def list_plans() -> list:
     installed. `plan_loader.py` (facility injection, task 2.4) is import-clean
     of bluesky, so facility-injected plans are always served regardless — see
     that module for how the plan module path is resolved.
+
+    Each entry (`PlanSpec.to_dict()`) carries `metadata` (the plan's
+    authoring-declared `PLAN_METADATA`, or `None` for a built-in that doesn't
+    author one) and `provenance` (its loader-assigned trust tier) alongside
+    `name`/`description`/`schema` — see `plan_types.py`.
     """
     from .plan_loader import get_facility_plans
 
