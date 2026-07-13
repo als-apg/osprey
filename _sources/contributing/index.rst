@@ -412,6 +412,56 @@ All public functions, classes, and methods need Google-style docstrings:
 
 ----
 
+Refreshing documentation screenshots
+------------------------------------
+
+The committed doc images under ``docs/source/_static/screenshots/`` are
+regenerated from a declarative registry, not captured by hand. Each image is one
+``DocShot`` recipe in ``docs/screenshots/recipes.py`` -- the authoritative list
+of every doc screenshot and how it is produced. List them with:
+
+.. code-block:: console
+
+   $ python -m docs.screenshots list
+
+**The default is container-free.** ``make screenshots`` (or ``python -m
+docs.screenshots``) captures only the ``standalone_interface`` recipes -- each
+boots a single interface ``create_app()`` on a throwaway port, so it needs
+neither a container runtime nor seeded data. Regenerate one recipe with
+``make screenshots-<name>``.
+
+**Two opt-in environments** cover the images that need real data:
+
+- ``SCREENSHOTOPTS=--stack`` -- the ARIEL search/browse/create/status views.
+  Builds the ``control-assistant`` tutorial project, brings up Postgres
+  (``osprey deploy up -d``), and seeds the logbook with
+  ``osprey sim apply nominal --yes --now <anchor>``. Needs a container runtime
+  and a free host port 5432. The ``--now`` anchor freezes the seeded dates, so
+  repeat captures are byte-stable.
+- ``SCREENSHOTOPTS=--agentic`` -- the Web Terminal hero. Drives a live agent
+  session to produce a real beam-current plot, so it needs a live Claude
+  session on your subscription budget. Success is a structural check (non-blank
+  image, correct viewport, plot present), not a byte comparison.
+
+.. code-block:: console
+
+   $ make screenshots                          # default: standalone only
+   $ make screenshots SCREENSHOTOPTS=--stack    # + ARIEL views (containers)
+   $ python -m docs.screenshots --agentic --only web_terminal_hero
+
+**Provenance is automatic.** Every capture stamps ``manifest.json`` with the
+OSPREY version and UTC timestamp, and each figure's *"Captured with OSPREY
+vX.Y.Z"* caption is generated from it -- never hand-edit the version in a
+caption.
+
+This framework is **capture-only**: it is never a CI gate (the stack needs
+Postgres; the hero needs a live agent). It is distinct from the CI visual-drift
+guard -- pixel diffs of each rendered interface against a committed baseline
+live in the front-end **Visual** tests above (regenerated with
+``--regen-baselines``), and continue to run in CI unchanged.
+
+----
+
 Community Guidelines
 --------------------
 

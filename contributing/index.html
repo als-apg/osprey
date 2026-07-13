@@ -821,6 +821,49 @@ under the type-checker, Vitest, and the real browser.</p></li>
 </section>
 </section>
 <hr class="docutils" />
+<section id="refreshing-documentation-screenshots">
+<h2>Refreshing documentation screenshots<a class="headerlink" href="#refreshing-documentation-screenshots" title="Link to this heading">#</a></h2>
+<p>The committed doc images under <code class="docutils literal notranslate"><span class="pre">docs/source/_static/screenshots/</span></code> are
+regenerated from a declarative registry, not captured by hand. Each image is one
+<code class="docutils literal notranslate"><span class="pre">DocShot</span></code> recipe in <code class="docutils literal notranslate"><span class="pre">docs/screenshots/recipes.py</span></code> – the authoritative list
+of every doc screenshot and how it is produced. List them with:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>python<span class="w"> </span>-m<span class="w"> </span>docs.screenshots<span class="w"> </span>list
+</pre></div>
+</div>
+<p><strong>The default is container-free.</strong> <code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">screenshots</span></code> (or <code class="docutils literal notranslate"><span class="pre">python</span> <span class="pre">-m</span>
+<span class="pre">docs.screenshots</span></code>) captures only the <code class="docutils literal notranslate"><span class="pre">standalone_interface</span></code> recipes – each
+boots a single interface <code class="docutils literal notranslate"><span class="pre">create_app()</span></code> on a throwaway port, so it needs
+neither a container runtime nor seeded data. Regenerate one recipe with
+<code class="docutils literal notranslate"><span class="pre">make</span> <span class="pre">screenshots-&lt;name&gt;</span></code>.</p>
+<p><strong>Two opt-in environments</strong> cover the images that need real data:</p>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">SCREENSHOTOPTS=--stack</span></code> – the ARIEL search/browse/create/status views.
+Builds the <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> tutorial project, brings up Postgres
+(<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span> <span class="pre">-d</span></code>), and seeds the logbook with
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span> <span class="pre">nominal</span> <span class="pre">--yes</span> <span class="pre">--now</span> <span class="pre">&lt;anchor&gt;</span></code>. Needs a container runtime
+and a free host port 5432. The <code class="docutils literal notranslate"><span class="pre">--now</span></code> anchor freezes the seeded dates, so
+repeat captures are byte-stable.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">SCREENSHOTOPTS=--agentic</span></code> – the Web Terminal hero. Drives a live agent
+session to produce a real beam-current plot, so it needs a live Claude
+session on your subscription budget. Success is a structural check (non-blank
+image, correct viewport, plot present), not a byte comparison.</p></li>
+</ul>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>make<span class="w"> </span>screenshots<span class="w">                          </span><span class="c1"># default: standalone only</span>
+<span class="gp">$ </span>make<span class="w"> </span>screenshots<span class="w"> </span><span class="nv">SCREENSHOTOPTS</span><span class="o">=</span>--stack<span class="w">    </span><span class="c1"># + ARIEL views (containers)</span>
+<span class="gp">$ </span>python<span class="w"> </span>-m<span class="w"> </span>docs.screenshots<span class="w"> </span>--agentic<span class="w"> </span>--only<span class="w"> </span>web_terminal_hero
+</pre></div>
+</div>
+<p><strong>Provenance is automatic.</strong> Every capture stamps <code class="docutils literal notranslate"><span class="pre">manifest.json</span></code> with the
+OSPREY version and UTC timestamp, and each figure’s <em>“Captured with OSPREY
+vX.Y.Z”</em> caption is generated from it – never hand-edit the version in a
+caption.</p>
+<p>This framework is <strong>capture-only</strong>: it is never a CI gate (the stack needs
+Postgres; the hero needs a live agent). It is distinct from the CI visual-drift
+guard – pixel diffs of each rendered interface against a committed baseline
+live in the front-end <strong>Visual</strong> tests above (regenerated with
+<code class="docutils literal notranslate"><span class="pre">--regen-baselines</span></code>), and continue to run in CI unchanged.</p>
+</section>
+<hr class="docutils" />
 <section id="community-guidelines">
 <h2>Community Guidelines<a class="headerlink" href="#community-guidelines" title="Link to this heading">#</a></h2>
 <p><strong>Code of Conduct</strong>: We are committed to a welcoming and inclusive environment. Be respectful, welcome newcomers, accept constructive criticism, and show empathy. Harassment, personal attacks, trolling, or publishing private information are unacceptable. Report issues to the maintainers; all reports are handled confidentially.</p>
@@ -901,6 +944,7 @@ under the type-checker, Vitest, and the real browser.</p></li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#docstrings">Docstrings</a></li>
 </ul>
 </li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#refreshing-documentation-screenshots">Refreshing documentation screenshots</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#community-guidelines">Community Guidelines</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#getting-help">Getting Help</a></li>
 </ul>

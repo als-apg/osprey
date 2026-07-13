@@ -73,6 +73,9 @@ The interface has four views, accessible via the navigation bar. All views are r
 
          Status dashboard showing service health and configuration.
 
+The four ARIEL views above were captured with OSPREY |captured_ariel| from the
+``control-assistant`` tutorial's seeded logbook.
+
 Capabilities API
 ================
 
