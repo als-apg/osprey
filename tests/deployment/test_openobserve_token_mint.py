@@ -131,7 +131,7 @@ def test_openobserve_mint_is_idempotent(tmp_path, monkeypatch):
 def test_minted_password_yields_a_valid_openobserve_auth_header(tmp_path, monkeypatch):
     """Cross-check the two halves: a minted password flows through the agent's
     telemetry resolver into a clean base64 Basic-auth header (no ${VAR} leak)."""
-    from osprey.cli.claude_code_resolver import _openobserve_auth_header
+    from osprey.cli.claude_code_telemetry import _openobserve_auth_header
 
     monkeypatch.delenv("ZO_ROOT_USER_PASSWORD", raising=False)
     env_path = tmp_path / ".env"

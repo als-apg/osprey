@@ -15,9 +15,11 @@ import pytest
 from osprey.cli import claude_code_resolver as resolver
 from osprey.cli.claude_code_resolver import (
     MANAGED_ENV_VARS,
-    TELEMETRY_ENV_VARS,
     ClaudeCodeModelResolver,
     ClaudeCodeModelSpec,
+)
+from osprey.cli.claude_code_telemetry import (
+    TELEMETRY_ENV_VARS,
     _build_telemetry_env,
 )
 

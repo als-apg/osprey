@@ -42,7 +42,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from osprey.cli.claude_code_resolver import _build_telemetry_env
+from osprey.cli.claude_code_telemetry import _build_telemetry_env
 
 # Deliberately NOT OpenObserve's 5080 default: this is a shared dev machine and
 # 5080 can collide with an unrelated process. Pinned via the generated config's
