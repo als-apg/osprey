@@ -214,6 +214,7 @@ def test_allowlist_membership_is_pinned():
         "BLUESKY_TILED_API_KEY",
         "EVENT_DISPATCHER_TOKEN",
         "DISPATCH_WORKER_TOKEN",
+        "ZO_ROOT_USER_PASSWORD",
     }
     assert "BLUESKY_PROMOTE_TOKEN" not in container_lifecycle._LOCAL_EXEC_SAFE_VARS
 

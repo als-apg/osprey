@@ -6,6 +6,7 @@ Docker or Podman compose.
 
 import os
 import secrets
+import string
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -40,10 +41,25 @@ logger = get_logger("deployment.lifecycle")
 # "tiled" key of its own because "tiled" is never a member of
 # ``deployed_services``, so the membership guard in ``_ensure_service_tokens``
 # would skip it and the key would never mint.
+#
+# openobserve is included for a DIFFERENT reason than the others. Its compose
+# template *does* carry an insecure ``${ZO_ROOT_USER_PASSWORD:-Complexpass#123}``
+# default, so a deploy does not fail without a real secret — left alone it
+# silently comes up on a shared, publicly-known password. Because that store
+# captures full agent conversation transcripts (every telemetry content gate
+# defaults ON), minting a per-deploy ``ZO_ROOT_USER_PASSWORD`` replaces the
+# shared default with a strong secret that BOTH the container and the agent's
+# telemetry resolver read from the same ``.env`` value (single source of truth).
+# The agent's config references ``${ZO_ROOT_USER_PASSWORD:-Complexpass#123}``, so
+# it stays launchable before the first deploy and picks up the minted value on
+# its next launch. The email is a username, not a secret (it has a sensible
+# non-secret default), so only the password is minted. See
+# ``_generate_openobserve_password`` for why a plain token recipe won't do.
 _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     "event_dispatcher": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
     "dispatch_worker": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
     "bluesky": ("BLUESKY_PROMOTE_TOKEN", "BLUESKY_TILED_API_KEY"),
+    "openobserve": ("ZO_ROOT_USER_PASSWORD",),
 }
 
 # Token vars that are safe to auto-mint even when the agent's code execution is
@@ -67,12 +83,47 @@ _LOCAL_EXEC_SAFE_VARS = {
     "BLUESKY_TILED_API_KEY",  # outbound credential to the Tiled catalog; gates no bridge route
     "EVENT_DISPATCHER_TOKEN",  # inbound webhook boundary, not a write path the agent walks
     "DISPATCH_WORKER_TOKEN",  # worker-routing boundary, same
+    "ZO_ROOT_USER_PASSWORD",  # OpenObserve admin/ingest cred; gates an observability store, not a control-system write path
 }
 
 
 def _default_token() -> str:
     """The default secret recipe, also the one ``.env.template`` documents."""
     return secrets.token_urlsafe(32)
+
+
+def _generate_openobserve_password() -> str:
+    """Mint a ``ZO_ROOT_USER_PASSWORD`` that satisfies OpenObserve's policy.
+
+    OpenObserve refuses to start unless the root password is 8–128 characters
+    with at least one lowercase letter, one uppercase letter, one digit, and
+    one special (non-alphanumeric) character — otherwise the container
+    crash-loops at startup. ``_default_token``'s ``token_urlsafe`` draws from
+    ``[A-Za-z0-9_-]``, which carries no character a strict policy counts as
+    "special", so that recipe crash-loops the container non-deterministically:
+    the same class of failure as ``BLUESKY_TILED_API_KEY``'s Tiled-alphabet
+    constraint (see ``_VAR_GENERATORS`` below).
+
+    Build a value that guarantees all four required classes instead, drawing
+    every character from ``secrets`` (never ``random``): a 44-char alphanumeric
+    core (>=256 bits of entropy on its own, meeting the module's CSPRNG bar)
+    plus one guaranteed member of each class, then shuffled so the class
+    positions are not fixed. The special is drawn from ``@%*^`` — punctuation
+    every reasonable policy counts as "special", and each of which is safe both
+    in a ``.env`` value (unlike ``#``, ``$``, quotes, backslash, ``=`` or a
+    space, which break dotenv parsing) and in the base64 Basic-auth header the
+    resolver computes from it.
+    """
+    alphabet = string.ascii_letters + string.digits
+    chars = [secrets.choice(alphabet) for _ in range(44)]
+    chars += [
+        secrets.choice(string.ascii_lowercase),
+        secrets.choice(string.ascii_uppercase),
+        secrets.choice(string.digits),
+        secrets.choice("@%*^"),
+    ]
+    secrets.SystemRandom().shuffle(chars)
+    return "".join(chars)
 
 
 # Per-variable overrides of the default recipe. A var absent here gets
@@ -98,6 +149,9 @@ def _default_token() -> str:
 # entropy silently.
 _VAR_GENERATORS: dict[str, Callable[[], str]] = {
     "BLUESKY_TILED_API_KEY": lambda: secrets.token_hex(32),
+    # OpenObserve rejects a root password that misses any of its four required
+    # character classes and crash-loops — see _generate_openobserve_password.
+    "ZO_ROOT_USER_PASSWORD": _generate_openobserve_password,
 }
 
 
@@ -144,6 +198,28 @@ def _validate_ariel_dsn(value: str) -> bool:
     return True
 
 
+def _validate_openobserve_password(value: str) -> bool:
+    """True if ``value`` satisfies OpenObserve's root-password policy.
+
+    OpenObserve refuses to start unless ``ZO_ROOT_USER_PASSWORD`` is 8–128
+    characters with at least one lowercase letter, one uppercase letter, one
+    digit, and one special (non-alphanumeric) character — a non-conforming
+    value crash-loops the container at startup with an OpenObserve-internal
+    error. Rejecting it here turns that opaque crash-loop into a clear
+    deploy-time failure for an *operator-supplied* password (a minted one
+    already conforms — see ``_generate_openobserve_password``), mirroring the
+    ``BLUESKY_TILED_API_KEY``/Tiled-alphabet check.
+    """
+    if not 8 <= len(value) <= 128:
+        return False
+    return (
+        any(c.islower() for c in value)
+        and any(c.isupper() for c in value)
+        and any(c.isdigit() for c in value)
+        and any(not c.isalnum() for c in value)
+    )
+
+
 # Per-variable validators applied to the *effective* value of a required var
 # at the deploy boundary (see ``_ensure_service_tokens``), regardless of
 # whether that value was freshly minted, carried over from an existing
@@ -166,6 +242,9 @@ _VAR_VALIDATORS: dict[str, Callable[[str], bool]] = {
     # time instead of crash-looping the Tiled container.
     "BLUESKY_TILED_API_KEY": str.isalnum,
     "ARIEL_DSN": _validate_ariel_dsn,
+    # OpenObserve crash-loops on a root password that misses any required
+    # character class; validate an operator-supplied value at deploy time.
+    "ZO_ROOT_USER_PASSWORD": _validate_openobserve_password,
 }
 
 # Human-readable constraint text shown in the RuntimeError _ensure_service_tokens
@@ -178,6 +257,11 @@ _VAR_VALIDATOR_DESCRIPTIONS: dict[str, str] = {
     "ARIEL_DSN": (
         "must parse as a URI whose password contains no unescaped reserved "
         "character (@ : / ? #); percent-encode the password"
+    ),
+    "ZO_ROOT_USER_PASSWORD": (
+        "must be 8–128 characters with at least one lowercase letter, one "
+        "uppercase letter, one digit, and one special character — OpenObserve "
+        "rejects any weaker root password at startup"
     ),
 }
 

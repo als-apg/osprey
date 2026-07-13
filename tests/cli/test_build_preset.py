@@ -165,6 +165,47 @@ def test_preset_ariel_standalone_renders_logbook_persona(runner: CliRunner, tmp_
     assert manifest["creation"]["claude_md_template"] == "CLAUDE.ariel.md.j2"
 
 
+def test_preset_control_assistant_ships_live_openobserve_telemetry(
+    runner: CliRunner, tmp_path: Path
+) -> None:
+    """control_assistant is the production-shaped reference facility: telemetry
+    is wired LIVE against a co-deployed OpenObserve store. This pins the full
+    wiring so a regression in the preset template (dropped service, disabled
+    switch, hardcoded endpoint, or missing :- fallback) fails loudly.
+    """
+    result = runner.invoke(
+        build,
+        [
+            "smoke",
+            "--preset",
+            "control-assistant",
+            "--skip-deps",
+            "--skip-lifecycle",
+            "--output-dir",
+            str(tmp_path),
+        ],
+    )
+    assert result.exit_code == 0, result.output
+
+    cfg = _config_yaml(tmp_path / "smoke")
+
+    # openobserve is deployed alongside postgresql (not merely declared).
+    assert "openobserve" in cfg["deployed_services"]
+    assert "postgresql" in cfg["deployed_services"]
+
+    tel = cfg["claude_code"]["telemetry"]
+    assert tel["enabled"] is True
+    assert tel["backend"] == "openobserve"
+    # openobserve backend auto-derives the endpoint per network context — a
+    # hardcoded localhost endpoint would make the in-container worker emit to its
+    # own loopback and silently drop everything, so it must be absent.
+    assert "endpoint" not in tel
+    # Creds carry the ${VAR:-default} form (mirrors the compose template) so the
+    # resolver never hits its fail-loud path before the first deploy mints them.
+    assert tel["openobserve"]["password"] == "${ZO_ROOT_USER_PASSWORD:-Complexpass#123}"
+    assert tel["openobserve"]["user"] == "${ZO_ROOT_USER_EMAIL:-root@example.com}"
+
+
 def test_positional_profile_still_works(runner: CliRunner, tmp_path: Path) -> None:
     """Backward-compat: existing osprey build PROJECT PROFILE.yml flow."""
     profile = tmp_path / "p.yml"

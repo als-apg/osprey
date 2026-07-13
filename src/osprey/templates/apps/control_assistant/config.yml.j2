@@ -122,10 +122,12 @@ services:
     password: ariel
     port_host: 5432
 
-  # Opt-in local telemetry backend for the OSPREY agent — a single-binary
-  # OTLP logs/traces store (see docs/how-to/monitor-agent.rst). Declared here
-  # so `osprey health` accepts it; it stays OFF until you opt in by adding
-  # `- openobserve` to `deployed_services:` below.
+  # Local telemetry backend for the OSPREY agent — a single-binary OTLP
+  # logs/metrics store (see docs/how-to/monitor-agent.rst). This reference
+  # facility ships it LIVE: it is deployed below and the agent emits to it (see
+  # the `telemetry:` block under `claude_code:`), so `osprey deploy up` +
+  # `osprey web` gives you a working, production-shaped observability wiring to
+  # copy. `osprey deploy up` mints a strong ZO_ROOT_USER_PASSWORD into .env.
   openobserve:
     path: ./services/openobserve
     port: 5080          # Host port for the OpenObserve UI + OTLP ingest
@@ -133,6 +135,7 @@ services:
 # Services to deploy with `osprey deploy up`
 deployed_services:
   - postgresql
+  - openobserve
 
 # ============================================================
 # SAFETY CONTROLS
@@ -634,6 +637,42 @@ claude_code:
   # agent_models:
   #   logbook-search: haiku
   #   logbook-deep-research: sonnet
+  #
+  # ── Telemetry / Observability (LIVE in this reference facility) ──
+  # control_assistant ships telemetry ON so `osprey deploy up` + `osprey web`
+  # produces a working, production-shaped wiring you can copy into your own
+  # facility: the agent emits OTLP logs + metrics to the co-deployed
+  # OpenObserve store (declared in `services:` and listed in
+  # `deployed_services:` above; UI at http://localhost:5080). Tracing and
+  # OTEL_LOG_TOOL_CONTENT are intentionally NOT wired. See
+  # docs/how-to/monitor-agent.rst.
+  telemetry:
+    enabled: true                        # Master switch (on for this reference facility)
+    backend: openobserve                 # openobserve | generic
+    protocol: http/protobuf              # http/protobuf | grpc
+    # backend: openobserve auto-derives the endpoint per network context —
+    # http://localhost:5080/api/<org> on the host, http://openobserve:5080/api/<org>
+    # inside the deploy network — so `endpoint` is intentionally OMITTED here.
+    # (Hardcoding localhost would make the in-container dispatch worker emit to
+    # its own loopback and silently drop everything.)
+    #
+    # OpenObserve auth + org routing. user/password read the OpenObserve root
+    # credentials from the project .env — the SAME values the openobserve
+    # service reads — so container and agent auth stay in sync (single source of
+    # truth). `osprey deploy up` mints a strong ZO_ROOT_USER_PASSWORD into .env;
+    # the ${VAR:-default} fallbacks (mirroring the openobserve compose defaults)
+    # keep the agent launchable before the first deploy.
+    openobserve:
+      user: ${ZO_ROOT_USER_EMAIL:-root@example.com}
+      password: ${ZO_ROOT_USER_PASSWORD:-Complexpass#123}
+      org: default
+    # Content gates — all default ON. This store captures full transcripts; it
+    # is local and air-gapped, so full capture is the default posture. Set any
+    # to false to suppress that category from emitted telemetry.
+    log_user_prompts: true               # Operator chat prompts
+    log_assistant_responses: true        # Agent replies
+    log_tool_details: true               # Tool names + arguments
+    log_raw_api_bodies: true             # Raw provider request/response bodies
 
 # ============================================================
 # WEB PANEL CONFIGURATION

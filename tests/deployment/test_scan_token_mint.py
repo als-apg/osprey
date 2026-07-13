@@ -240,9 +240,14 @@ def test_ensure_service_tokens_writes_an_alphanumeric_tiled_key_every_time(
         assert key.isalnum(), f"mint {i} produced a Tiled-rejecting key: {key!r}"
 
 
-def test_only_the_tiled_key_overrides_the_default_generator():
-    """Pin the blast radius: exactly one var changed alphabets."""
-    assert set(container_lifecycle._VAR_GENERATORS) == {"BLUESKY_TILED_API_KEY"}
+def test_var_generators_registry_is_pinned():
+    """Pin the blast radius: only vars with a downstream alphabet/policy
+    constraint override the default token recipe (Tiled's alphanumeric
+    --api-key, OpenObserve's four-class root password)."""
+    assert set(container_lifecycle._VAR_GENERATORS) == {
+        "BLUESKY_TILED_API_KEY",
+        "ZO_ROOT_USER_PASSWORD",
+    }
     declared = {
         var for token_vars in container_lifecycle._SERVICE_TOKEN_VARS.values() for var in token_vars
     }
@@ -462,7 +467,11 @@ def test_validator_registry_keyset_is_pinned():
     (test_only_the_tiled_key_overrides_the_default_generator above). Closes
     "someone silently widens the registry."
     """
-    assert set(container_lifecycle._VAR_VALIDATORS) == {"BLUESKY_TILED_API_KEY", "ARIEL_DSN"}
+    assert set(container_lifecycle._VAR_VALIDATORS) == {
+        "BLUESKY_TILED_API_KEY",
+        "ARIEL_DSN",
+        "ZO_ROOT_USER_PASSWORD",
+    }
 
     declared = {
         var for token_vars in container_lifecycle._SERVICE_TOKEN_VARS.values() for var in token_vars
