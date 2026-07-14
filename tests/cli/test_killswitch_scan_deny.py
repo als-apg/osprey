@@ -9,6 +9,12 @@ off, stop_scan (approval-only, no writes-check) is NEVER denied or
 removed-from-ask (the kill switch must not block stopping a scan), the
 existing controls/python behavior is preserved, and an extends clone gets the
 rewritten-prefix matcher.
+
+Also pins the task-2.3 authoring tools (``write_bluesky_plan``,
+``validate_bluesky_plan``): both reach no hardware regardless of
+``writes_enabled`` (write only emits a file, validate only dry-runs mock
+devices), so they carry ``_APPROVAL`` only — same as ``stop_scan`` — and must
+never be denied or removed-from-ask by the kill switch.
 """
 
 import yaml
@@ -101,6 +107,29 @@ def test_scan_stop_never_denied_or_removed(tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# scan.write_bluesky_plan / scan.validate_bluesky_plan — task 2.3 authoring
+# tools; never denied or removed-from-ask (neither reaches hardware)
+# ---------------------------------------------------------------------------
+
+
+def test_scan_authoring_tools_never_denied_or_removed(tmp_path):
+    """write_bluesky_plan/validate_bluesky_plan carry approval only (no
+    _WRITES_CHECK) — like stop_scan, the kill switch must never block them,
+    regardless of writes_enabled, since neither reaches hardware."""
+    for writes_enabled in (True, False):
+        ctx = _build_ctx(
+            tmp_path,
+            writes_enabled=writes_enabled,
+            claude_code_overrides={"servers": {"scan": {"enabled": True}}},
+        )
+        perms = ctx["facility_permissions"]
+        for tool in ("write_bluesky_plan", "validate_bluesky_plan"):
+            matcher = f"mcp__scan__{tool}"
+            assert matcher not in perms.get("deny", [])
+            assert matcher not in perms.get("remove_ask", [])
+
+
+# ---------------------------------------------------------------------------
 # Regression parity: controls/python behavior preserved after generalizing
 # ---------------------------------------------------------------------------
 
@@ -142,3 +171,7 @@ def test_extends_clone_of_scan_denied_with_rewritten_prefix(tmp_path):
     assert "mcp__scan2__launch_scan" in perms["deny"]
     # The template name itself must not leak into the clone's deny entry.
     assert "mcp__scan__launch_scan" not in perms["deny"]
+    # The clone's authoring tools (approval-only, no _WRITES_CHECK) are never
+    # denied under the rewritten prefix either.
+    assert "mcp__scan2__write_bluesky_plan" not in perms.get("deny", [])
+    assert "mcp__scan2__validate_bluesky_plan" not in perms.get("deny", [])

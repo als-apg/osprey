@@ -272,9 +272,12 @@ def test_both_flags_set_epics_substrate_wins(
 
     scanner = app_module._scanner_factory()
     assert isinstance(scanner, BlueskyScanner)
-    # Substrate scanners are built with the explicit built-in plan set, not
-    # the demo path's default (None -> merged built-ins + facility plans).
-    assert scanner._plans is not None
+    # Substrate scanners are built with `plans=None` too (task 2.5), same as
+    # the demo path — so `reinitialize()` resolves plan names through
+    # `_default_plan_registry()` (built-ins merged with the gated
+    # `get_facility_plans().plans`), letting a validated session/facility
+    # plan launch on this connector-mediated path.
+    assert scanner._plans is None
 
 
 # =========================================================================
