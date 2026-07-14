@@ -237,6 +237,20 @@ def test_every_declared_var_is_classified():
     assert container_lifecycle._LOCAL_EXEC_SAFE_VARS <= declared
 
 
+def test_authoring_tools_declare_no_new_bluesky_arming_token():
+    """The task-2.3 authoring MCP tools (write_bluesky_plan, validate_bluesky_plan)
+    reach no hardware and gate on ``_APPROVAL`` only in the registry (see
+    ``tests/registry/test_scan_server_definition.py``) — they need no arming
+    token of their own. Pin that ``bluesky``'s declared token vars are still
+    exactly the pre-2.3 pair, so this guard's promote-token-withheld
+    invariant (asserted above) still covers the whole deployed surface and
+    hasn't silently been left behind by an unclassified third var."""
+    assert container_lifecycle._SERVICE_TOKEN_VARS["bluesky"] == (
+        "BLUESKY_PROMOTE_TOKEN",
+        "BLUESKY_TILED_API_KEY",
+    )
+
+
 def test_unlisted_arming_token_fails_closed_under_unsafe_local_exec(
     captured_argv, _clean_token_env, monkeypatch, tmp_path, caplog
 ):
