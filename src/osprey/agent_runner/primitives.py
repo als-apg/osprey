@@ -92,14 +92,16 @@ def _apply_e2e_overrides(spec: Any) -> Any:
     tier_to_model = dict(spec.tier_to_model)
     env_block = dict(spec.env_block)
     if force_model:
+        from osprey.cli.claude_code_resolver import TIER_MODEL_ENV_VARS
+
         for tier in tier_to_model:
             tier_to_model[tier] = force_model
-        for key in (
-            "ANTHROPIC_MODEL",
-            "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-            "ANTHROPIC_DEFAULT_SONNET_MODEL",
-            "ANTHROPIC_DEFAULT_OPUS_MODEL",
-        ):
+        # Force exactly ANTHROPIC_MODEL plus the tier-model vars, derived from
+        # the single TIER_MODEL_ENV_VARS source so this key set cannot drift
+        # from resolve()'s env_block (the #350 failure). Only keys actually
+        # present in env_block are rewritten.
+        forced_keys = {"ANTHROPIC_MODEL"} | set(TIER_MODEL_ENV_VARS.values())
+        for key in forced_keys:
             if key in env_block:
                 env_block[key] = force_model
     if proxy_base:
@@ -180,18 +182,11 @@ def provider_env_for_project(project_dir: Path, *, provider: str | None = None) 
     env: dict[str, str] = dict(spec.env_block)
 
     # Overlay a project-level .env so freshly-configured keys win over stale
-    # shell exports; strictly a superset of reading os.environ alone.
-    lookup: dict[str, str] = dict(os.environ)
-    env_file = project_dir / ".env"
-    if env_file.is_file():
-        try:
-            from dotenv import dotenv_values
+    # shell exports; strictly a superset of reading os.environ alone. Uses the
+    # shared overlay helper (no circular import: resolver never imports primitives).
+    from osprey.cli.claude_code_resolver import _env_lookup
 
-            for key, value in dotenv_values(env_file).items():
-                if value is not None:
-                    lookup[key] = value
-        except ImportError:
-            pass
+    lookup: dict[str, str] = _env_lookup(project_dir)
 
     if spec.auth_secret_env:
         secret = lookup.get(spec.auth_secret_env)
