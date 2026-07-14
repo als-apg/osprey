@@ -492,13 +492,15 @@ jobs:
           # Tier 3 per-preset agentic flows live in their own matrix job
           # (agentic-per-preset). The full Docker-stack tests
           # (dispatch-deploy-e2e, scan-deploy-e2e, tiled-roundtrip-e2e,
-          # va-substrate-equivalence-e2e, scan-catalog-e2e) and the
-          # Dockerfile e2e (dockerfile-e2e) each have their own job because
-          # they build container images. Exclude all seven here to avoid
+          # va-substrate-equivalence-e2e, scan-catalog-e2e,
+          # scan-sandbox-escape-e2e) and the Dockerfile e2e
+          # (dockerfile-e2e) each have their own job because they build
+          # container images. Exclude all eight here to avoid
           # double-execution. NOTE: "--ignore" means "not in this
           # secret-gated LLM lane," NOT "not tested" — every ignored file
           # below runs in its own secret-free job on every PR
-          # (scan-catalog-e2e is advisory-only — see that job's comment).
+          # (scan-catalog-e2e and scan-sandbox-escape-e2e are advisory-only —
+          # see those jobs' comments).
           uv run pytest tests/e2e/ -v --tb=short \
             --ignore=tests/e2e/test_preset_agentic.py \
             --ignore=tests/e2e/test_dispatch_deploy.py \
@@ -506,7 +508,8 @@ jobs:
             --ignore=tests/e2e/test_dockerfile_e2e.py \
             --ignore=tests/e2e/test_tiled_roundtrip.py \
             --ignore=tests/e2e/test_va_substrate_equivalence.py \
-            --ignore=tests/e2e/test_scan_catalog_e2e.py
+            --ignore=tests/e2e/test_scan_catalog_e2e.py \
+            --ignore=tests/e2e/test_scan_sandbox_escape_e2e.py
         fi
 
   deploy-e2e:
@@ -769,6 +772,45 @@ jobs:
     - name: Run scan catalog E2E
       run: |
         uv run pytest tests/e2e/test_scan_catalog_e2e.py -v --tb=short
+
+  scan-sandbox-escape-e2e:
+    name: Scan Sandbox Escape E2E (session-plan authoring gates, full Docker stack)
+    runs-on: ubuntu-latest
+    # ADVISORY LANE: deliberately NOT in all-checks-passed's `needs:` list —
+    # read this job's own log to see whether it passed (mirrors
+    # scan-catalog-e2e's advisory precedent). Only run on PRs from same repo
+    # (mirrors scan-deploy-e2e/va-substrate-equivalence-e2e gating). This job
+    # needs no secrets — neither the bridge nor the virtual accelerator
+    # shells out to an LLM — but DOES need the amd64-emulated Virtual
+    # Accelerator image (the negative case's IOC no-write proof reads a real
+    # corrector setpoint over Channel Access, independent of the bridge), so
+    # it's as heavy as va-substrate-equivalence-e2e, not scan-catalog-e2e.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    timeout-minutes: 45
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Run scan sandbox escape E2E
+      run: |
+        uv run pytest tests/e2e/test_scan_sandbox_escape_e2e.py -v --tb=short
 
   dockerfile-e2e:
     name: Dockerfile E2E (generated container image)

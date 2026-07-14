@@ -14,11 +14,12 @@ proves two things end to end:
       HTTP+container stack rather than a direct ``PhysicsBridge`` call).
   (b) the scan reaches a terminal "completed" status within a bounded
       timeout -- i.e. no corrector step ever hangs the bridge's
-      ``EpicsMotor.set()`` settle-wait. A corrector readback that never
-      leaves 0.0 (the FR10 regression this deploy config's
-      ``echo-pyat-coupled-sp-to-rb`` fix addresses) blocks exactly there, so
-      a fixture-level timeout on this assertion IS the regression signature,
-      not an incidentally slow test.
+      ``ConnectorSettable.set()`` settle-wait (``devices/connector.py`` --
+      the connector-mediated device layer replacing the old direct-CA
+      ``EpicsMotor``). A corrector readback that never leaves 0.0 (the FR10
+      regression this deploy config's ``echo-pyat-coupled-sp-to-rb`` fix
+      addresses) blocks exactly there, so a fixture-level timeout on this
+      assertion IS the regression signature, not an incidentally slow test.
 
 No physics fault is seeded on this stack (no ``VA_QUAD_MISALIGN``/
 ``VA_BPM_ERRORS``/``VA_CORR_GAIN`` in the written ``.env`` -- see
@@ -298,9 +299,9 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
 
     # (b) no corrector-step hang: poll to a terminal status within a bounded
     # deadline. A corrector whose :RB never echoes its :SP (the FR10
-    # regression) blocks the bridge's EpicsMotor.set() settle-wait forever --
-    # so a non-"completed" status here, after the deadline, IS the failure
-    # this proves absent, not merely a slow run.
+    # regression) blocks the bridge's ConnectorSettable.set() settle-wait
+    # forever -- so a non-"completed" status here, after the deadline, IS the
+    # failure this proves absent, not merely a slow run.
     deadline = time.monotonic() + SCAN_TIMEOUT_SEC
     status_body: dict = {}
     while time.monotonic() < deadline:
@@ -311,7 +312,7 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     assert status_body.get("status") == "completed", (
         f"orm scan did not complete within {SCAN_TIMEOUT_SEC:.0f}s (status={status_body}) -- "
         "a corrector step whose :RB never echoes its :SP (the FR10 echo regression) hangs "
-        "exactly here, at the bridge's EpicsMotor.set() settle-wait"
+        "exactly here, at the bridge's ConnectorSettable.set() settle-wait"
     )
 
     status, data = _get(f"/runs/{run_id}/data")
