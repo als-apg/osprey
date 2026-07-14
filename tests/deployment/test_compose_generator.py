@@ -253,6 +253,18 @@ def test_worker_template_sets_config_file() -> None:
     )
 
 
+# The worker runs on the compose bridge network, so the OpenObserve store is
+# reachable only by its service DNS name — never localhost. The compose declares
+# the host explicitly (rather than sniffing the runtime) so telemetry emit works
+# identically under docker and podman; the resolver reads it as an override.
+def test_worker_template_declares_openobserve_host() -> None:
+    rendered = _render_worker_template(env_present=True)
+    assert "OSPREY_OTEL_OPENOBSERVE_HOST: openobserve" in rendered, (
+        "dispatch worker must declare the in-network OpenObserve host so an "
+        "in-container agent targets the service DNS name, not its own loopback"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Task 1.3: the worker container layout must match the PROJECT image
 #
@@ -982,7 +994,9 @@ def test_host_python_env_path_would_bake_host_interpreter_into_mcp_command() -> 
 _OPENOBSERVE_IMAGE_REF = "public.ecr.aws/zinclabs/openobserve"
 
 
-def _write_openobserve_config(project_path: Path, deployed_services: list[str]) -> Path:
+def _write_openobserve_config(
+    project_path: Path, deployed_services: list[str], retention_days: int | None = None
+) -> Path:
     """Write a config.yml that declares ``services.openobserve`` and return its path.
 
     Unlike the module's ``_write_config`` helper (which declares no services),
@@ -991,6 +1005,9 @@ def _write_openobserve_config(project_path: Path, deployed_services: list[str]) 
     """
     config_path = project_path / "config.yml"
     yaml_rt = YAML()
+    oo_service: dict = {"path": "./services/openobserve", "port": 5080}
+    if retention_days is not None:
+        oo_service["retention_days"] = retention_days
     config: dict = {
         "project_name": "oo-fixture",
         "project_root": str(project_path),
@@ -998,12 +1015,7 @@ def _write_openobserve_config(project_path: Path, deployed_services: list[str]) 
         # Real configs always carry system.timezone; the compose template uses it
         # bare (the postgresql/VA precedent has no default), so declare it here.
         "system": {"timezone": "UTC"},
-        "services": {
-            "openobserve": {
-                "path": "./services/openobserve",
-                "port": 5080,
-            }
-        },
+        "services": {"openobserve": oo_service},
         "deployed_services": deployed_services,
     }
     with open(config_path, "w") as fh:
@@ -1051,6 +1063,22 @@ def test_openobserve_renders_when_deployed(tmp_path: Path) -> None:
 
     # Exposed port 5080 (host:container).
     assert ":5080:5080/tcp" in rendered
+
+
+def test_openobserve_retention_env_default_rendered(tmp_path: Path) -> None:
+    """Omitting retention_days renders the 14-day growth bound (the compose default)."""
+    config_path = _write_openobserve_config(tmp_path, deployed_services=["openobserve"])
+    rendered = _render_project_compose(config_path, tmp_path)
+    assert 'ZO_COMPACT_DATA_RETENTION_DAYS: "14"' in rendered
+
+
+def test_openobserve_retention_env_custom_rendered(tmp_path: Path) -> None:
+    """A configured retention_days flows into ZO_COMPACT_DATA_RETENTION_DAYS."""
+    config_path = _write_openobserve_config(
+        tmp_path, deployed_services=["openobserve"], retention_days=30
+    )
+    rendered = _render_project_compose(config_path, tmp_path)
+    assert 'ZO_COMPACT_DATA_RETENTION_DAYS: "30"' in rendered
 
     # Named data volume for persistence (both the mount and the top-level decl).
     assert "openobserve_data:/data" in rendered

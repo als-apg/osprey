@@ -37,6 +37,12 @@ services:
       # defaults ZO_DATA_DIR to ./data/openobserve/ (relative to the container
       # CWD); pin it to the volume mount point so persistence is deterministic.
       ZO_DATA_DIR: /data
+      # Growth bound. A Docker/Podman NAMED VOLUME has no portable hard size cap,
+      # so the store is bounded by AGE, not bytes: OpenObserve drops data older
+      # than this many days. Sourced from services.openobserve.retention_days
+      # (default 14). OpenObserve's own floor is 3 days; its default is 3650
+      # (~10y, effectively unbounded), which we override to a sane local value.
+      ZO_COMPACT_DATA_RETENTION_DAYS: "{{ (services.openobserve | default({})).retention_days | default(14) }}"
       TZ: {{ system.timezone }}
     volumes:
       - openobserve_data:/data
