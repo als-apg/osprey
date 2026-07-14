@@ -146,11 +146,25 @@ def _inject_provider_env_once() -> None:
         from pathlib import Path
 
         from osprey.cli.claude_code_resolver import inject_provider_env, load_provider_spec
+        from osprey.cli.claude_code_telemetry import TelemetryConfigError
 
         # load_provider_spec expands ${VAR} in provider config (e.g. a custom
         # provider's base_url: ${ARGO_PROD_URL}) against the container-mounted
         # /app/project/.env before resolving.
-        spec = load_provider_spec(Path(project_dir))
+        #
+        # Telemetry is an observability add-on; a misconfigured telemetry block
+        # must never take down the worker's provider auth. Degrade telemetry
+        # (loud ERROR) and re-resolve without it, keeping auth/base-url/model.
+        try:
+            spec = load_provider_spec(Path(project_dir))
+        except TelemetryConfigError:
+            logger.error(
+                "claude_code.telemetry is misconfigured — continuing WITHOUT "
+                "telemetry so provider auth is preserved. Fix the telemetry "
+                "block to restore emit.",
+                exc_info=True,
+            )
+            spec = load_provider_spec(Path(project_dir), include_telemetry=False)
         if spec:
             injected = inject_provider_env(os.environ, spec, project_dir=Path(project_dir))
             logger.info("Provider env injected: %s (provider=%s)", injected, spec.provider)

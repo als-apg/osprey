@@ -62,6 +62,12 @@ services:
       # (python_env_path stripped), not the copy baked into the image.
       CONFIG_FILE: /app/{{ osprey_labels.project_name }}/config.yml
       TZ: {{ system.timezone }}
+      # OpenObserve telemetry (opt-in): the worker and its CLI subprocess run on
+      # this bridge network, so the store is reachable by its compose service
+      # DNS name, not localhost. Declaring the host here — rather than sniffing
+      # the container runtime — is what makes emit work under docker AND podman.
+      # Inert unless claude_code.telemetry is enabled with backend: openobserve.
+      OSPREY_OTEL_OPENOBSERVE_HOST: openobserve
     # Bind-mount source is relative to the compose project directory
     # (build/services/), not this service's subdir — hence the dispatch_worker/ prefix.
     volumes:

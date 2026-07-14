@@ -21,6 +21,12 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from osprey.cli.claude_code_telemetry import (
+    TELEMETRY_ENV_VARS,
+    _build_telemetry_env,
+    _openobserve_host_override,
+    _running_in_container,
+)
 from osprey.models.tiers import VALID_TIERS
 
 CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
@@ -260,6 +266,7 @@ def load_provider_spec(
     project_dir: Path,
     *,
     provider: str | None = None,
+    include_telemetry: bool = True,
 ) -> ClaudeCodeModelSpec | None:
     """Read ``config.yml``, expand ``${VAR}`` placeholders, and resolve the spec.
 
@@ -319,6 +326,7 @@ def load_provider_spec(
     return ClaudeCodeModelResolver.resolve(
         cc_config,
         cfg.get("api", {}).get("providers", {}),
+        include_telemetry=include_telemetry,
     )
 
 
@@ -369,9 +377,17 @@ class ClaudeCodeModelSpec:
         return self.tier_to_model.get(tier, tier)
 
     def detect_env_conflicts(self, environ: dict[str, str]) -> dict[str, tuple[str, str]]:
-        """Return {var: (shell_value, settings_value)} for vars where shell != settings.json."""
+        """Return {var: (shell_value, settings_value)} for vars where shell != settings.json.
+
+        Telemetry vars (:data:`TELEMETRY_ENV_VARS`) are exempt: they configure
+        observability, not the provider backend, so a pre-existing operator
+        ``OTEL_*`` / ``CLAUDE_CODE_ENABLE_TELEMETRY`` export is a legitimate
+        override — not a conflict that should hard-refuse Web Terminal startup.
+        """
         conflicts = {}
         for var, settings_val in self.env_block.items():
+            if var in TELEMETRY_ENV_VARS:
+                continue
             if var in environ and environ[var] != settings_val:
                 conflicts[var] = (environ[var], settings_val)
         return conflicts
@@ -384,6 +400,8 @@ class ClaudeCodeModelResolver:
     def resolve(
         claude_code_config: dict,
         api_providers: dict | None = None,
+        *,
+        include_telemetry: bool = True,
     ) -> ClaudeCodeModelSpec | None:
         """Build a ``ClaudeCodeModelSpec`` from config.
 
@@ -516,6 +534,25 @@ class ClaudeCodeModelResolver:
         # ANTHROPIC_BASE_URL above. Every launch path starts the proxy from this
         # field (never from the env var) — see runner.py / dispatch_api.py.
         _upstream_url = provider_def.get("base_url") if _needs_proxy else None
+
+        # ── Telemetry (absent block == disabled → helper returns {}) ──
+        # Container context is the ONE place fs/env is consulted; the helper
+        # itself stays pure. Telemetry keys are deliberately excluded from
+        # MANAGED_ENV_VARS (they are not backend/model selectors).
+        # Telemetry is an observability concern, not a provider/model selector.
+        # Callers that only read tier_to_model (model-id readers) or that must
+        # not let a telemetry misconfig abort provider resolution pass
+        # include_telemetry=False; a raised TelemetryConfigError then cannot
+        # poison the rest of the spec.
+        if include_telemetry:
+            telemetry_cfg = claude_code_config.get("telemetry")
+            env_block.update(
+                _build_telemetry_env(
+                    telemetry_cfg,
+                    in_container=_running_in_container(),
+                    openobserve_host=_openobserve_host_override(),
+                )
+            )
 
         return ClaudeCodeModelSpec(
             provider=provider_name,

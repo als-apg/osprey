@@ -125,7 +125,11 @@ class ChannelFinderICContext:
             from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
 
             api_providers = self._raw_config.get("api", {}).get("providers", {})
-            spec = ClaudeCodeModelResolver.resolve(cc_config, api_providers)
+            # Model-id reader only (consumes tier_to_model); a telemetry
+            # misconfig must not crash subagent model resolution.
+            spec = ClaudeCodeModelResolver.resolve(
+                cc_config, api_providers, include_telemetry=False
+            )
             if spec is None:
                 raise RuntimeError(
                     "No subagent model configured. Set either "
