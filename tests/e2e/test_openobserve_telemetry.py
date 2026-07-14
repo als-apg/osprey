@@ -390,22 +390,27 @@ def test_bad_credentials_are_rejected(deployed_openobserve: Path) -> None:
 
 
 @pytest.mark.skipif(
-    not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("OSPREY_E2E_PROVIDER_KEY")),
-    reason="live-agent smoke needs a provider API key (advisory lane only)",
+    not os.environ.get("ALS_APG_API_KEY"),
+    reason="live-agent smoke needs ALS_APG_API_KEY (advisory lane only)",
 )
 def test_live_agent_metric_lands(deployed_openobserve: Path) -> None:
     """OPTIONAL advisory smoke: one real agent turn emits a real claude_code_* metric.
 
-    Not a CI gate. Skipped unless a provider key is present. Proves the true
-    end-to-end path (agent launch -> native OTEL export -> OpenObserve) that the
-    synthetic test deliberately stops short of.
+    Not a CI gate, but it *runs* whenever ALS_APG_API_KEY is present (the same
+    provider key CI provisions and the rest of the e2e suite uses). Proves the
+    true end-to-end path (agent launch -> native OTEL export -> OpenObserve)
+    that the synthetic test deliberately stops short of.
     """
     project_dir = deployed_openobserve
 
-    # Enable telemetry against the deployed store (host-run agent -> localhost),
-    # then drive one turn through the console script.
+    # Enable telemetry against the deployed store (host-run agent -> localhost)
+    # and point the turn at the als-apg provider (the CI-provisioned key), then
+    # drive one turn through the console script. The fixture build defaults to
+    # provider: anthropic; this in-place edit switches only the live turn.
     config_path = project_dir / "config.yml"
     config = yaml.safe_load(config_path.read_text())
+    config["claude_code"]["provider"] = "als-apg"
+    config["claude_code"]["default_model"] = "haiku"
     config["claude_code"]["telemetry"] = {
         "enabled": True,
         "backend": "openobserve",
@@ -418,9 +423,7 @@ def test_live_agent_metric_lands(deployed_openobserve: Path) -> None:
     turn = _run(
         [
             str(osprey_bin),
-            "claude",
-            "chat",
-            "--prompt",
+            "query",
             "Say 'telemetry-smoke-ok' and nothing else.",
         ],
         cwd=project_dir,
