@@ -54,8 +54,8 @@ trap cleanup EXIT
 # Idempotency: remove any prior probe container before starting.
 "${RUNTIME}" rm -f "${CONTAINER}" >/dev/null 2>&1 || true
 
-echo "--- Building ${IMAGE} (linux/amd64) ---"
-"${RUNTIME}" build --platform linux/amd64 --build-arg TARGET_PLATFORM=linux/amd64 \
+echo "--- Building ${IMAGE} (native arch) ---"
+"${RUNTIME}" build \
     -t "${IMAGE}" -f "${PROBE_DIR}/Containerfile" "${PROBE_DIR}"
 
 echo "--- Starting ${CONTAINER} ---"

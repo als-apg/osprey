@@ -73,8 +73,8 @@ cp -R "${WORKTREE_ROOT}/src/." "${STAGING_DIR}/src/"
 cp "${VA_DIR}/Containerfile" "${STAGING_DIR}/docker/virtual-accelerator/Containerfile"
 find "${STAGING_DIR}" -name "__pycache__" -type d -prune -exec rm -rf {} +
 
-echo "--- Building ${IMAGE} (linux/amd64) ---"
-"${RUNTIME}" build --platform linux/amd64 --build-arg TARGET_PLATFORM=linux/amd64 \
+echo "--- Building ${IMAGE} (native arch) ---"
+"${RUNTIME}" build \
     -t "${IMAGE}" -f "${STAGING_DIR}/docker/virtual-accelerator/Containerfile" "${STAGING_DIR}"
 
 echo "--- Starting ${CONTAINER} (data dir: ${DATA_DIR}) ---"

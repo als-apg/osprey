@@ -33,8 +33,8 @@ Container safety: every docker invocation below names an exact container/image
 ``test_scan_deploy.py``'s precedent for forcing a fresh ``--dev`` build.
 Teardown goes through ``osprey deploy down``, never a raw ``docker rm`` sweep.
 
-Gating: needs Docker; the VA image is amd64-only (PyAT/softioc have no
-aarch64 wheels), so it builds/boots under QEMU emulation on Apple Silicon —
+Gating: needs Docker; the VA image builds natively for the host arch, so on
+Apple Silicon PyAT/softioc compile from source (no prebuilt aarch64 wheels) —
 slow (minutes) on a cold image cache. Lives in ``tests/e2e/`` (never
 collected by the fast lane, see ``ci_check.sh``/ci.yml).
 
@@ -108,7 +108,7 @@ P5_DETECTOR = "p5_det"
 PROMOTE_TOKEN = "e2e-substrate-equivalence-promote-token"
 
 BUILD_TIMEOUT_SEC = 300
-DEPLOY_UP_TIMEOUT_SEC = 1200  # amd64-emulated VA image build is slow (minutes)
+DEPLOY_UP_TIMEOUT_SEC = 1200  # first-time native VA source build is slow (minutes)
 HEALTH_TIMEOUT_SEC = 300.0
 SWEEP_TIMEOUT_SEC = 120.0  # sweep()'s own connect deadline defaults to 45s
 SCAN_TIMEOUT_SEC = 60.0
@@ -325,7 +325,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # otherwise reuse a stale cached image). Exact-named images only.
     # E2E_REUSE_IMAGES=1 skips this (dev-only: fast local iteration on the test
     # itself when the osprey source is unchanged; never set it in CI, where a
-    # source change must always rebuild). The amd64-emulated VA build is slow.
+    # source change must always rebuild). The first-time native VA build is slow.
     if not os.environ.get("E2E_REUSE_IMAGES"):
         subprocess.run(["docker", "rmi", "-f", VA_IMAGE], capture_output=True, text=True)
         subprocess.run(["docker", "rmi", "-f", BRIDGE_IMAGE], capture_output=True, text=True)
@@ -632,7 +632,7 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     # SP->RB echo is asynchronous, so the host op polls the readback until it
     # reflects the write (bounded) instead of racing the echo (see
     # _va_host_ca_op.py) — the failure mode that a fixed no-wait read hits under
-    # heavy emulation load.
+    # heavy load.
     host = _run_host_ca_op(
         _host_ca_op_spec(
             deployed_stack.project_dir,

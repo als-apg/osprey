@@ -14,10 +14,13 @@
 # here — the extra + core deps resolve them, so this Dockerfile can't drift
 # from pyproject.toml's declared constraints.
 #
-# linux/amd64 only: neither accelerator-toolbox nor softioc (nor softioc's
-# epicscorelibs/pvxslibs deps) publish manylinux_aarch64 wheels — see the
-# probe README's platform note. The compose template pins `platform:
-# linux/amd64` accordingly.
+# Architecture-agnostic: this image builds for the host's native architecture
+# (no `--platform` pin). On arm64 the native deps (accelerator-toolbox, softioc,
+# and softioc's epicscorelibs/pvxslibs deps) publish no manylinux_aarch64 wheels,
+# so pip compiles them from sdist using the build toolchain installed below —
+# purged in the same layer — for native execution with no x86 emulation. On
+# x86_64 pip installs the prebuilt wheels as before. See the probe README's
+# platform note for the historical amd64 rationale.
 #
 # This image is built locally by `osprey deploy up`; override with
 # OSPREY_VA_IMAGE to use a prebuilt/published image.

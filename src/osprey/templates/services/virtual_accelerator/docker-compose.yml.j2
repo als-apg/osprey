@@ -6,15 +6,18 @@
 # Use `osprey deploy up --dev` to bake in your local osprey checkout (incl.
 # unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
 #
-# linux/amd64 only: neither accelerator-toolbox nor softioc (nor softioc's
-# epicscorelibs/pvxslibs deps) publish manylinux_aarch64 wheels, so this
-# service always builds/runs under amd64 emulation on Apple Silicon hosts —
-# see src/osprey/services/virtual_accelerator/probe/README.md.
+# Native architecture: the service resolves to the host's arch (no platform
+# pin). On arm64 hosts the four native deps (accelerator-toolbox, softioc,
+# epicscorelibs, pvxslibs) have no manylinux_aarch64 wheels, so they compile
+# from sdist during the image build — a one-time cost of a couple of minutes,
+# no x86 emulation involved — see
+# src/osprey/services/virtual_accelerator/probe/README.md.
 
 services:
   virtual-accelerator:
+    # OSPREY_VA_IMAGE now inherits host-arch resolution too: a single-arch amd64
+    # published image on an arm64 host must supply its own `platform` override (VA-8).
     image: ${OSPREY_VA_IMAGE:-{{ services.virtual_accelerator.image | default('osprey-va:local') }}}
-    platform: linux/amd64
     build:
       # With multiple `-f` compose files, ALL relative paths (build contexts and
       # bind mounts alike) resolve against the FIRST file's dir — the compose
@@ -73,9 +76,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-      # Grace period before failed probes count — the amd64-emulated image
-      # build/boot (PyAT lattice load + softioc iocInit) takes a few seconds
-      # longer than the framework's native-arch services.
+      # Grace period before failed probes count — generous because a first-time
+      # native-arch image build (source-compiling the native deps) plus boot
+      # (PyAT lattice load + softioc iocInit) takes a few seconds longer than
+      # the framework's other native-arch services.
       start_period: 20s
 
 networks:

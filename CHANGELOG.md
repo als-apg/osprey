@@ -32,6 +32,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- The Virtual Accelerator image now builds for the host's native architecture instead of pinning `linux/amd64`. On Apple Silicon it compiles `accelerator-toolbox`/`softioc` from source at build time (a slower first build) and then runs natively with no x86 emulation; on x86_64 it installs the prebuilt wheels as before. A single-arch `amd64` published image on an arm64 host must supply its own `platform` override.
 - **The event-dispatch worker now runs the full project image** instead of a lean image that rebuilt its `.claude` artifacts from `config.yml` at startup. Dispatched agents now see the same facility overlays (custom skills, agents, and rules) and `data/` files as the Web Terminal agent, by construction — previously overlays and `data/` were silently absent from dispatched runs. `osprey deploy up` builds the project image (`<project>:local`; `--dev` installs the locally built wheel) and the worker references it via `OSPREY_WORKER_IMAGE`. **Requires rebuilding the dispatch worker image on redeploy.**
 - `claude-agent-sdk` upgraded to 0.2.110 (bundles CLI 2.1.191); `uv.lock` regenerated (#311).
 - README rewritten: corrected the connector claim (EPICS and Mock ship in-tree; other stacks use the connector interface), fixed the `osprey skills install` quickstart command, and removed stale release and conference notices. The PyPI package description now matches the documentation.
