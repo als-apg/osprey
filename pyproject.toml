@@ -200,7 +200,7 @@ screen-capture-linux = [
 # never required in OSPREY's main venv. fastapi/uvicorn/httpx are already core
 # dependencies, so they're not repeated here.
 bluesky-bridge = [
-    "bluesky>=1.12",
+    "bluesky>=1.15.1",
     # [ca]: the aioca Channel Access backend. Required for the real EPICS-on-VA
     # substrate scanner (EpicsMotor/EpicsDetector over epics_signal_*); without
     # it ophyd-async's CA transport is unavailable and device construction
