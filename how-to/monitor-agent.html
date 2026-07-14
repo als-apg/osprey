@@ -8,7 +8,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
 
-    <title>Containerize a Project &#8212; Osprey Framework 2026.6.2 documentation</title>
+    <title>Monitor Your OSPREY Agent &#8212; Osprey Framework 2026.6.2 documentation</title>
   
   
   
@@ -49,7 +49,7 @@
     <script src="../_static/clipboard.min.js?v=a7894cd8"></script>
     <script src="../_static/copybutton.js?v=30646c52"></script>
     <script src="../_static/design-tabs.js?v=f930bc37"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/containerize-project';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'how-to/monitor-agent';</script>
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.16.1';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://als-apg.github.io/osprey/_static/versions.json';
@@ -60,8 +60,8 @@
     <link rel="icon" href="../_static/logo.svg"/>
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Build Profiles" href="build-profiles.html" />
-    <link rel="prev" title="Container Deployment" href="deploy-project.html" />
+    <link rel="next" title="Add a Connector" href="add-connector.html" />
+    <link rel="prev" title="Event Dispatch" href="event-dispatch.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
@@ -371,7 +371,7 @@
 <li class="toctree-l1"><a class="reference internal" href="configure-providers.html">Configure LLM Providers</a></li>
 <li class="toctree-l1"><a class="reference internal" href="run-open-models.html">Run Open &amp; Local Models</a></li>
 <li class="toctree-l1"><a class="reference internal" href="deploy-project.html">Container Deployment</a></li>
-<li class="toctree-l1 current active"><a class="current reference internal" href="#">Containerize a Project</a></li>
+<li class="toctree-l1"><a class="reference internal" href="containerize-project.html">Containerize a Project</a></li>
 <li class="toctree-l1"><a class="reference internal" href="build-profiles.html">Build Profiles</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-mcp-server.html">Add an MCP Server</a></li>
 <li class="toctree-l1 has-children"><a class="reference internal" href="web-terminal/index.html">Web Terminal</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
@@ -391,7 +391,7 @@
 
 <li class="toctree-l1"><a class="reference internal" href="use-python-executor.html">Python Execution Service</a></li>
 <li class="toctree-l1"><a class="reference internal" href="event-dispatch.html">Event Dispatch</a></li>
-<li class="toctree-l1"><a class="reference internal" href="monitor-agent.html">Monitor Your OSPREY Agent</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">Monitor Your OSPREY Agent</a></li>
 <li class="toctree-l1"><a class="reference internal" href="add-connector.html">Add a Connector</a></li>
 
 
@@ -456,7 +456,7 @@
     
     <li class="breadcrumb-item"><a href="index.html" class="nav-link">How-To Guides</a></li>
     
-    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Containerize a Project</span></li>
+    <li class="breadcrumb-item active" aria-current="page"><span class="ellipsis">Monitor Your OSPREY Agent</span></li>
   </ul>
 </nav>
 </div>
@@ -473,191 +473,235 @@
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="containerize-a-project">
-<h1>Containerize a Project<a class="headerlink" href="#containerize-a-project" title="Link to this heading">#</a></h1>
-<p>How to build and run the container image that <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> generates for
-every project.</p>
+  <section id="monitor-your-osprey-agent">
+<h1>Monitor Your OSPREY Agent<a class="headerlink" href="#monitor-your-osprey-agent" title="Link to this heading">#</a></h1>
+<p>How to emit the OSPREY agent’s operational telemetry — logs and metrics — over
+OpenTelemetry (OTLP), and optionally view it in a self-hosted store deployed
+alongside your project.</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header sd-bg-primary sd-bg-text-primary">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-book" viewBox="0 0 16 16" aria-hidden="true"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"></path></svg></span><span class="sd-summary-text">What You’ll Learn</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
 <ul class="simple">
-<li><p class="sd-card-text">What the generated <code class="docutils literal notranslate"><span class="pre">Dockerfile</span></code> / <code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> are and who owns them</p></li>
-<li><p class="sd-card-text">Building and running the image (ports, secrets, volumes)</p></li>
-<li><p class="sd-card-text">The three build-arg extension points for site-specific installs</p></li>
-<li><p class="sd-card-text">Path relocation with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span> <span class="pre">--runtime-root</span></code></p></li>
-<li><p class="sd-card-text">Air-gapped images, the non-root requirement, and Kubernetes notes</p></li>
+<li><p class="sd-card-text">What telemetry the agent emits and how it is transported (OTLP)</p></li>
+<li><p class="sd-card-text"><strong>Phase 1:</strong> enabling emit against any OTLP-compatible backend
+(backend-agnostic)</p></li>
+<li><p class="sd-card-text"><strong>Phase 2:</strong> the opt-in local OpenObserve add-on for an all-in-one,
+air-gapped store</p></li>
+<li><p class="sd-card-text">The full-content-capture posture and how to suppress content categories</p></li>
+<li><p class="sd-card-text">Single-admin and data-volume caveats</p></li>
 </ul>
-<p class="sd-card-text"><strong>Prerequisites:</strong> Docker (or Podman) installed; a project built with
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
+<p class="sd-card-text"><strong>Prerequisites (Phase 2 only):</strong> Docker (or Podman) installed locally.</p>
 </div>
 </details><section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
-<p>Every project built by <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code> includes a reference container
-recipe at the project root:</p>
+<p>The OSPREY agent can emit its operational telemetry — structured event logs and
+runtime metrics — over the OpenTelemetry Protocol (OTLP). Emit is <strong>off by
+default</strong>; you turn it on with a <code class="docutils literal notranslate"><span class="pre">telemetry:</span></code> block under <code class="docutils literal notranslate"><span class="pre">claude_code:</span></code> in
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. There are two ways to consume it:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">Dockerfile</span></code> — an image definition that installs Claude Code and OSPREY,
-copies the project in, relocates its recorded paths, and serves the web
-terminal.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> — keeps secrets (<code class="docutils literal notranslate"><span class="pre">.env</span></code>) and host-specific state
-(<code class="docutils literal notranslate"><span class="pre">.venv</span></code>, <code class="docutils literal notranslate"><span class="pre">.git</span></code>, <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code>) out of the image.</p></li>
+<li><p><strong>Phase 1 — any OTLP endpoint (backend-agnostic).</strong> Point the agent at an
+OTLP collector or observability platform you already run. OSPREY only produces
+OTLP; it does not care what receives it.</p></li>
+<li><p><strong>Phase 2 — the local OpenObserve add-on (opt-in).</strong> Deploy a single-binary
+OpenObserve store next to your project with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> and keep all
+telemetry on the same host. This is the turn-key option when you have no
+existing observability stack.</p></li>
 </ul>
-<p>Both files are <strong>generated once and then yours</strong>: edit them freely or delete
-them. <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code> never touches them. To get a fresh copy,
-rebuild the project with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span></code>.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>This page covers the <strong>project image</strong> — one container that runs the
-assistant and its web terminal. It is unrelated to <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code>,
-which manages the project’s <em>service</em> containers (databases, MCP
-servers); see <a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a> for those.</p>
+<p>Only logs and metrics are wired. Distributed <strong>tracing</strong> (and the
+<code class="docutils literal notranslate"><span class="pre">OTEL_LOG_TOOL_CONTENT</span></code> toggle) is intentionally left out of this
+configuration surface.</p>
 </div>
 </section>
-<section id="quickstart">
-<h2>Quickstart<a class="headerlink" href="#quickstart" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="nb">cd</span><span class="w"> </span>my-project<span class="w">          </span><span class="c1"># the directory osprey build created</span>
-docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span>.
-docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">8087</span>:8087<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span>my-project
+<section id="phase-1-emit-to-any-otlp-endpoint">
+<h2>Phase 1 — Emit to any OTLP endpoint<a class="headerlink" href="#phase-1-emit-to-any-otlp-endpoint" title="Link to this heading">#</a></h2>
+<p>Add a <code class="docutils literal notranslate"><span class="pre">telemetry:</span></code> block under <code class="docutils literal notranslate"><span class="pre">claude_code:</span></code> in your project’s
+<code class="docutils literal notranslate"><span class="pre">config.yml</span></code>. The minimal backend-agnostic form only needs to be enabled and
+pointed at an endpoint:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">claude_code</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">telemetry</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">endpoint</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${OTEL_EXPORTER_OTLP_ENDPOINT}</span><span class="w">   </span><span class="c1"># your OTLP collector</span>
+<span class="w">    </span><span class="nt">protocol</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http/protobuf</span><span class="w">                    </span><span class="c1"># default; or grpc</span>
+<span class="w">    </span><span class="nt">resource_attributes</span><span class="p">:</span><span class="w">                       </span><span class="c1"># attached to every record</span>
+<span class="w">      </span><span class="nt">service.name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">osprey-agent</span>
+<span class="w">      </span><span class="nt">deployment.environment</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">dev</span>
 </pre></div>
 </div>
-<p>Then open <a class="reference external" href="http://localhost:8087">http://localhost:8087</a>. Secrets are passed at runtime via
-<code class="docutils literal notranslate"><span class="pre">--env-file</span></code> — the <code class="docutils literal notranslate"><span class="pre">.dockerignore</span></code> guarantees <code class="docutils literal notranslate"><span class="pre">.env</span></code> itself never
-enters the image.</p>
-</section>
-<section id="build-arguments">
-<h2>Build Arguments<a class="headerlink" href="#build-arguments" title="Link to this heading">#</a></h2>
-<p>The image exposes exactly three knobs for site-specific builds:</p>
+<p>Keys:</p>
 <div class="pst-scrollable-table-container"><table class="table">
 <colgroup>
-<col style="width: 22.0%" />
-<col style="width: 22.0%" />
-<col style="width: 56.0%" />
+<col style="width: 26.0%" />
+<col style="width: 74.0%" />
 </colgroup>
 <thead>
-<tr class="row-odd"><th class="head"><p>ARG</p></th>
-<th class="head"><p>Default</p></th>
-<th class="head"><p>Purpose</p></th>
+<tr class="row-odd"><th class="head"><p>Key</p></th>
+<th class="head"><p>Meaning</p></th>
 </tr>
 </thead>
 <tbody>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_PIP_SPEC</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">osprey-framework</span></code></p></td>
-<td><p>pip requirement for OSPREY. Override with a <code class="docutils literal notranslate"><span class="pre">git+https</span></code> URL to pin
-an unreleased build or an internal mirror.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">enabled</span></code></p></td>
+<td><p>Master switch. <code class="docutils literal notranslate"><span class="pre">false</span></code> (the default) emits nothing.</p></td>
 </tr>
-<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">PIP_NO_PROXY</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">&quot;&quot;</span></code></p></td>
-<td><p>Hosts exempted from any proxy during <code class="docutils literal notranslate"><span class="pre">pip</span> <span class="pre">install</span></code> (e.g. an
-internal GitLab serving the OSPREY package).</p></td>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">backend</span></code></p></td>
+<td><p>Backend hint — <code class="docutils literal notranslate"><span class="pre">generic</span></code> for a plain OTLP endpoint, <code class="docutils literal notranslate"><span class="pre">openobserve</span></code>
+for the Phase 2 add-on.</p></td>
 </tr>
-<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">OSPREY_OFFLINE</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">&quot;0&quot;</span></code></p></td>
-<td><p><code class="docutils literal notranslate"><span class="pre">&quot;1&quot;</span></code> vendors web assets (JS/CSS/fonts) into the image via
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span> <span class="pre">fetch</span></code> so the web UI works without internet access.</p></td>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">endpoint</span></code></p></td>
+<td><p>OTLP base endpoint. Use the <code class="docutils literal notranslate"><span class="pre">${VAR}</span></code> form so the value comes from your
+<code class="docutils literal notranslate"><span class="pre">.env</span></code> rather than being committed to <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">protocol</span></code></p></td>
+<td><p>OTLP transport. Defaults to <code class="docutils literal notranslate"><span class="pre">http/protobuf</span></code>; set <code class="docutils literal notranslate"><span class="pre">grpc</span></code> if your
+collector prefers it.</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">headers</span></code></p></td>
+<td><p>Extra OTLP headers (for example, routing or auth headers your backend
+requires).</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">resource_attributes</span></code></p></td>
+<td><p>Attributes stamped onto every emitted record — useful for separating
+environments or agent instances in your backend.</p></td>
 </tr>
 </tbody>
 </table>
 </div>
-<p>Example — install OSPREY from an internal mirror behind a proxy, with
-vendored assets for an air-gapped host:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>build<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--build-arg<span class="w"> </span><span class="nv">OSPREY_PIP_SPEC</span><span class="o">=</span><span class="s2">&quot;git+https://git.example.gov/tools/osprey.git@main&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--build-arg<span class="w"> </span><span class="nv">PIP_NO_PROXY</span><span class="o">=</span><span class="s2">&quot;git.example.gov&quot;</span><span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>--build-arg<span class="w"> </span><span class="nv">OSPREY_OFFLINE</span><span class="o">=</span><span class="m">1</span><span class="w"> </span>.
+<p>Set the endpoint in your project <code class="docutils literal notranslate"><span class="pre">.env</span></code> and run the agent as usual:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># .env</span>
+<span class="nv">OTEL_EXPORTER_OTLP_ENDPOINT</span><span class="o">=</span>https://otel-collector.example.com
 </pre></div>
 </div>
-<div class="admonition warning">
-<p class="admonition-title">Warning</p>
-<p>Build-arg <strong>values persist in the image history</strong> (<code class="docutils literal notranslate"><span class="pre">docker</span> <span class="pre">history</span></code>).
-Never put credentials in <code class="docutils literal notranslate"><span class="pre">OSPREY_PIP_SPEC</span></code> URLs for images you
-distribute — prefer <a class="reference external" href="https://docs.docker.com/build/building/secrets/">Docker build secrets</a> or a credential-free
-internal mirror.</p>
-</div>
+<p>That is all Phase 1 requires — the agent begins emitting on its next run.</p>
 </section>
-<section id="path-relocation">
-<h2>Path Relocation<a class="headerlink" href="#path-relocation" title="Link to this heading">#</a></h2>
-<p>A project built on a host records host paths in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
-(<code class="docutils literal notranslate"><span class="pre">project_root</span></code>, <code class="docutils literal notranslate"><span class="pre">execution.python_env_path</span></code>). The generated Dockerfile
-fixes both during the image build:</p>
-<div class="highlight-docker notranslate"><div class="highlight"><pre><span></span><span class="k">RUN</span><span class="w"> </span>osprey<span class="w"> </span>claude<span class="w"> </span>regen<span class="w"> </span>--project<span class="w"> </span>/app/my-project<span class="w"> </span>--runtime-root<span class="w"> </span>/app/my-project
+<section id="phase-2-the-local-openobserve-add-on">
+<h2>Phase 2 — The local OpenObserve add-on<a class="headerlink" href="#phase-2-the-local-openobserve-add-on" title="Link to this heading">#</a></h2>
+<p>If you do not already run an observability stack, OSPREY ships an opt-in
+<a class="reference external" href="https://openobserve.ai/">OpenObserve</a> service: a single binary that ingests
+OTLP directly and serves a browser UI, with no external dependencies. Everything
+stays on the deploy host.</p>
+<section id="enable-the-service">
+<h3>1. Enable the service<a class="headerlink" href="#enable-the-service" title="Link to this heading">#</a></h3>
+<p>The <code class="docutils literal notranslate"><span class="pre">openobserve</span></code> service is declared in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code> but left out of
+<code class="docutils literal notranslate"><span class="pre">deployed_services</span></code> so it stays off until you opt in. Add it to the list:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">services</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">openobserve</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">path</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">./services/openobserve</span>
+<span class="w">    </span><span class="nt">port</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">5080</span><span class="w">          </span><span class="c1"># host port for the UI + OTLP ingest</span>
+
+<span class="nt">deployed_services</span><span class="p">:</span>
+<span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openobserve</span>
 </pre></div>
 </div>
-<p><code class="docutils literal notranslate"><span class="pre">--runtime-root</span></code> rewrites <code class="docutils literal notranslate"><span class="pre">project_root</span></code> in <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>
-(comment-preserving), replaces a recorded <code class="docutils literal notranslate"><span class="pre">python_env_path</span></code> that doesn’t
-exist in the container with the image’s interpreter, and re-renders the
-Claude Code artifacts (<code class="docutils literal notranslate"><span class="pre">.mcp.json</span></code>, <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>, <code class="docutils literal notranslate"><span class="pre">.claude/</span></code>) against
-the new root. This works for projects built with or without
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">build</span> <span class="pre">--runtime-root</span></code>.</p>
 </section>
-<section id="why-non-root">
-<h2>Why Non-Root<a class="headerlink" href="#why-non-root" title="Link to this heading">#</a></h2>
-<p>The image creates and switches to an unprivileged <code class="docutils literal notranslate"><span class="pre">osprey</span></code> user because
-<strong>Claude Code refuses to run in bypassPermissions mode as root</strong>. The
-native Claude Code installer lives under <code class="docutils literal notranslate"><span class="pre">/root/.local</span></code>; the Dockerfile
-makes that chain world-traversable so the runtime user can execute it.
-Keep both pieces if you customize the recipe.</p>
-</section>
-<section id="runtime-state-and-volumes">
-<h2>Runtime State and Volumes<a class="headerlink" href="#runtime-state-and-volumes" title="Link to this heading">#</a></h2>
-<p>Two kinds of state are worth persisting across container restarts:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>run<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">8087</span>:8087<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-v<span class="w"> </span>my-project-agent-data:/app/my-project/_agent_data<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>-v<span class="w"> </span>my-project-home:/home/osprey<span class="w"> </span><span class="se">\</span>
-<span class="w">  </span>my-project
+<section id="set-the-admin-credentials">
+<h3>2. Set the admin credentials<a class="headerlink" href="#set-the-admin-credentials" title="Link to this heading">#</a></h3>
+<p>The OpenObserve root account doubles as the OTLP ingest credential, so set both
+in your project <code class="docutils literal notranslate"><span class="pre">.env</span></code>. The same two variables configure the container <strong>and</strong>
+authenticate the agent’s OTLP push — one source of truth:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># .env</span>
+<span class="nv">ZO_ROOT_USER_EMAIL</span><span class="o">=</span>you@example.com
+<span class="nv">ZO_ROOT_USER_PASSWORD</span><span class="o">=</span>choose-a-strong-password
 </pre></div>
 </div>
+</section>
+<section id="deploy-it">
+<h3>3. Deploy it<a class="headerlink" href="#deploy-it" title="Link to this heading">#</a></h3>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w">        </span><span class="c1"># brings up openobserve alongside your other services</span>
+</pre></div>
+</div>
+<p>The UI is then available at <code class="docutils literal notranslate"><span class="pre">http://localhost:5080</span></code> (log in with the
+credentials above). Verify the service is recognized with <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code>.</p>
+</section>
+<section id="point-the-agent-at-it">
+<h3>4. Point the agent at it<a class="headerlink" href="#point-the-agent-at-it" title="Link to this heading">#</a></h3>
+<p>Wire the <code class="docutils literal notranslate"><span class="pre">telemetry:</span></code> block to <code class="docutils literal notranslate"><span class="pre">backend:</span> <span class="pre">openobserve</span></code> and supply the
+OpenObserve auth in the <code class="docutils literal notranslate"><span class="pre">openobserve:</span></code> sub-block. <strong>Do not set</strong> <code class="docutils literal notranslate"><span class="pre">endpoint</span></code>
+for this backend — omit it and the agent derives the OTLP ingest URL
+automatically per network context:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">claude_code</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">telemetry</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">backend</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">openobserve</span>
+<span class="w">    </span><span class="c1"># No `endpoint:` here — for the openobserve backend it is derived</span>
+<span class="w">    </span><span class="c1"># automatically (see the note below).</span>
+<span class="w">    </span><span class="nt">protocol</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">http/protobuf</span>
+<span class="w">    </span><span class="nt">openobserve</span><span class="p">:</span>
+<span class="w">      </span><span class="nt">user</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${ZO_ROOT_USER_EMAIL}</span>
+<span class="w">      </span><span class="nt">password</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">${ZO_ROOT_USER_PASSWORD}</span>
+<span class="w">      </span><span class="nt">org</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">default</span>
+</pre></div>
+</div>
+<div class="admonition important">
+<p class="admonition-title">Important</p>
+<p>For <code class="docutils literal notranslate"><span class="pre">backend:</span> <span class="pre">openobserve</span></code> the OTLP endpoint is <strong>auto-derived</strong> and you
+should not hardcode it. The derived form is <code class="docutils literal notranslate"><span class="pre">http://&lt;host&gt;:5080/api/&lt;org&gt;</span></code>,
+where <code class="docutils literal notranslate"><span class="pre">&lt;host&gt;</span></code> is chosen for the running context:</p>
 <ul class="simple">
-<li><p><code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code> — executed scripts, user memory, API call logs.</p></li>
-<li><p><code class="docutils literal notranslate"><span class="pre">/home/osprey</span></code> — Claude Code’s per-user state (sessions, credentials);
-set <code class="docutils literal notranslate"><span class="pre">CLAUDE_CONFIG_DIR</span></code> if you want it somewhere more explicit.</p></li>
+<li><p><strong>On the host</strong> (<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> / <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">query</span></code> on your machine) the host
+is <code class="docutils literal notranslate"><span class="pre">localhost</span></code> — the store’s published port.</p></li>
+<li><p><strong>Inside a bridge-networked container</strong> (for example the containerized
+dispatch worker) the store is reachable only by its compose service DNS
+name, <code class="docutils literal notranslate"><span class="pre">openobserve</span></code>. The framework’s dispatch-worker service declares this
+by setting <code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_OPENOBSERVE_HOST=openobserve</span></code> in its compose
+environment. That explicit declaration — rather than sniffing the container
+runtime — is what makes emit work identically under Docker and Podman.</p></li>
 </ul>
-<section id="kubernetes-notes">
-<h3>Kubernetes notes<a class="headerlink" href="#kubernetes-notes" title="Link to this heading">#</a></h3>
-<ul class="simple">
-<li><p>Give each user/instance a PVC for <code class="docutils literal notranslate"><span class="pre">/home/osprey</span></code> (or
-<code class="docutils literal notranslate"><span class="pre">CLAUDE_CONFIG_DIR</span></code>) and one for <code class="docutils literal notranslate"><span class="pre">_agent_data/</span></code> — session state does
-not survive pod rescheduling otherwise.</p></li>
-<li><p>The container already runs as a non-root user, so a restricted
-<code class="docutils literal notranslate"><span class="pre">securityContext</span></code> (<code class="docutils literal notranslate"><span class="pre">runAsNonRoot:</span> <span class="pre">true</span></code>) works out of the box.</p></li>
-<li><p>Expose port <code class="docutils literal notranslate"><span class="pre">8087</span></code> (or override the <code class="docutils literal notranslate"><span class="pre">CMD</span></code> with <code class="docutils literal notranslate"><span class="pre">--port</span></code>).</p></li>
-</ul>
+<p>If you run your own containerized emitter, set
+<code class="docutils literal notranslate"><span class="pre">OSPREY_OTEL_OPENOBSERVE_HOST</span></code> to whatever host reaches OpenObserve from
+inside that container: the compose service name on a bridge network, or
+<code class="docutils literal notranslate"><span class="pre">localhost</span></code> when the container uses host networking (<code class="docutils literal notranslate"><span class="pre">network_mode:</span> <span class="pre">host</span></code>),
+where the compose DNS name would not resolve. Leave it unset on a plain host
+run. Hardcoding <code class="docutils literal notranslate"><span class="pre">endpoint:</span></code> instead would point every context at the same
+host and silently drop records from the ones it doesn’t fit.</p>
+</div>
+<p>On its next run the agent emits to OpenObserve, and its logs and metrics appear
+in the UI.</p>
 </section>
 </section>
-<section id="troubleshooting">
-<h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h2>
-<p><strong>pip fails building</strong> <code class="docutils literal notranslate"><span class="pre">accelerator-toolbox</span></code> <strong>on Apple Silicon</strong> — OSPREY’s
-dependency chain ships <code class="docutils literal notranslate"><span class="pre">linux/amd64</span></code> wheels only, and the slim base image
-has no compiler. Build (and run) the amd64 image under Docker Desktop’s
-emulation instead; it matches the usual amd64 deployment target:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>docker<span class="w"> </span>build<span class="w"> </span>--platform<span class="w"> </span>linux/amd64<span class="w"> </span>-t<span class="w"> </span>my-project<span class="w"> </span>.
-docker<span class="w"> </span>run<span class="w"> </span>--platform<span class="w"> </span>linux/amd64<span class="w"> </span>--rm<span class="w"> </span>-p<span class="w"> </span><span class="m">8087</span>:8087<span class="w"> </span>--env-file<span class="w"> </span>.env<span class="w"> </span>my-project
+<section id="content-capture">
+<h2>Content capture<a class="headerlink" href="#content-capture" title="Link to this heading">#</a></h2>
+<p>By default the agent captures <strong>full content</strong> in its telemetry — operator
+prompts, agent responses, tool calls, and raw provider bodies. Because the
+Phase 2 store is local and air-gapped, this full-fidelity posture is the
+default: nothing leaves the host, and complete transcripts make post-incident
+review far more useful.</p>
+<p>Four independent gates control it, all defaulting <strong>on</strong>. Set any to <code class="docutils literal notranslate"><span class="pre">false</span></code>
+to suppress that category from emitted telemetry:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">claude_code</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">telemetry</span><span class="p">:</span>
+<span class="w">    </span><span class="nt">enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+<span class="w">    </span><span class="nt">log_user_prompts</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># operator chat prompts</span>
+<span class="w">    </span><span class="nt">log_assistant_responses</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">   </span><span class="c1"># agent replies</span>
+<span class="w">    </span><span class="nt">log_tool_details</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">          </span><span class="c1"># tool names + arguments</span>
+<span class="w">    </span><span class="nt">log_raw_api_bodies</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span><span class="w">        </span><span class="c1"># raw provider request/response bodies</span>
 </pre></div>
 </div>
+<p>If you route telemetry to a shared or off-host backend (Phase 1), review these
+gates and disable the categories you do not want to leave the machine.</p>
 </section>
-<section id="customizing">
-<h2>Customizing<a class="headerlink" href="#customizing" title="Link to this heading">#</a></h2>
-<p>The file is yours — common edits:</p>
+<section id="caveats">
+<h2>Caveats<a class="headerlink" href="#caveats" title="Link to this heading">#</a></h2>
 <ul class="simple">
-<li><p><strong>Layer a site image on top</strong>: build the generated image as a base, then
-<code class="docutils literal notranslate"><span class="pre">FROM</span></code> it in a small site Dockerfile that adds credentials helpers,
-enterprise <code class="docutils literal notranslate"><span class="pre">managed-settings.json</span></code>, or extra processes.</p></li>
-<li><p><strong>Change the entrypoint</strong>: the default <code class="docutils literal notranslate"><span class="pre">CMD</span></code> runs
-<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span> <span class="pre">--host</span> <span class="pre">0.0.0.0</span> <span class="pre">--port</span> <span class="pre">8087</span></code>; override it to run a process
-supervisor if you add sidecars.</p></li>
-<li><p><strong>Template-level override</strong>: a build profile’s app bundle can ship its own
-<code class="docutils literal notranslate"><span class="pre">apps/&lt;bundle&gt;/Dockerfile.j2</span></code>, which takes precedence over the framework
-template at build time — use this when every project built from a bundle
-needs the same customization.</p></li>
+<li><p><strong>Single admin.</strong> The OpenObserve add-on provisions one root account from
+<code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_EMAIL</span></code> / <code class="docutils literal notranslate"><span class="pre">ZO_ROOT_USER_PASSWORD</span></code>. It is intended for a
+single operator or a small trusted team on the deploy host, not for
+multi-tenant access control.</p></li>
+<li><p><strong>Data volume growth is bounded by retention, not a size cap.</strong> Ingested
+telemetry persists in a named container volume, which has no portable hard
+size limit — so the store is bounded by <em>age</em>: <code class="docutils literal notranslate"><span class="pre">services.openobserve.retention_days</span></code>
+(default 14) sets <code class="docutils literal notranslate"><span class="pre">ZO_COMPACT_DATA_RETENTION_DAYS</span></code> in the container, dropping
+telemetry older than N days (OpenObserve’s floor is 3 days). Raise it for
+longer history, but watch disk. Removing the volume still discards all history;
+back it up if you need retention across redeploys.</p></li>
+<li><p><strong>Health.</strong> <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">health</span></code> reports the store’s <code class="docutils literal notranslate"><span class="pre">/healthz</span></code> readiness (a
+running container is not necessarily ready), the effective retention (warning
+if below OpenObserve’s floor of 3 days), and the percentage-full of the disk
+the volume grows into.</p></li>
+<li><p><strong>Local by design.</strong> The service binds to localhost by default. Do not expose
+port 5080 beyond the host without putting authentication and transport
+security in front of it.</p></li>
 </ul>
-<div class="admonition seealso">
-<p class="admonition-title">See also</p>
-<dl class="simple">
-<dt><a class="reference internal" href="deploy-project.html"><span class="doc">Container Deployment</span></a></dt><dd><p>Service containers (databases, MCP servers) via <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span></code> —
-the complement to the project image on this page.</p>
-</dd>
-<dt><a class="reference internal" href="../cli-reference/index.html"><span class="doc">CLI Reference</span></a></dt><dd><p><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span> <span class="pre">--runtime-root</span></code> and <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">vendor</span></code> reference.</p>
-</dd>
-</dl>
-</div>
 </section>
 </section>
 
@@ -672,20 +716,20 @@ the complement to the project image on this page.</p>
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="deploy-project.html"
+       href="event-dispatch.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Container Deployment</p>
+        <p class="prev-next-title">Event Dispatch</p>
       </div>
     </a>
     <a class="right-next"
-       href="build-profiles.html"
+       href="add-connector.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Build Profiles</p>
+        <p class="prev-next-title">Add a Connector</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -709,16 +753,16 @@ the complement to the project image on this page.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quickstart">Quickstart</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#build-arguments">Build Arguments</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#path-relocation">Path Relocation</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#why-non-root">Why Non-Root</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#runtime-state-and-volumes">Runtime State and Volumes</a><ul class="visible nav section-nav flex-column">
-<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#kubernetes-notes">Kubernetes notes</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-1-emit-to-any-otlp-endpoint">Phase 1 — Emit to any OTLP endpoint</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#phase-2-the-local-openobserve-add-on">Phase 2 — The local OpenObserve add-on</a><ul class="visible nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#enable-the-service">1. Enable the service</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#set-the-admin-credentials">2. Set the admin credentials</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#deploy-it">3. Deploy it</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#point-the-agent-at-it">4. Point the agent at it</a></li>
 </ul>
 </li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#troubleshooting">Troubleshooting</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#customizing">Customizing</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#content-capture">Content capture</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#caveats">Caveats</a></li>
 </ul>
   </nav></div>
 
@@ -726,7 +770,7 @@ the complement to the project image on this page.</p>
 
   
   <div class="tocsection editthispage">
-    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/containerize-project.rst">
+    <a href="https://github.com/als-apg/osprey/edit/main/docs/source/how-to/monitor-agent.rst">
       <i class="fa-solid fa-pencil"></i>
       
       
