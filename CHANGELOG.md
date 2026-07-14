@@ -101,6 +101,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The Web Terminal's panel nav bar (WORKSPACE, ARIEL, CHANNELS, LATTICE, …) now scrolls horizontally when the tabs outgrow the header instead of letting the trailing tabs get clipped or slide under the header action buttons on a narrow viewport; the scroll has no visible scrollbar and the action buttons stay pinned on the right.
 - ARIEL `semantic_search` now degrades gracefully when semantic search is unavailable (no pgvector table / Ollama) — returns an empty result steering the agent to `keyword_search` instead of a tool failure (#276).
 - Workspace gallery now shows new artifacts without a manual refresh: the store index is written atomically (temp file + `os.replace`) and the watcher detects the rename (`on_moved`), so a cross-process reader no longer reads a half-written file (#289).
 - Channel Finder in-context Explore filter now searches the whole database and re-chunks results, instead of filtering only the displayed page (a match on a later page previously read as "No channels match the filter") (#299).

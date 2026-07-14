@@ -222,7 +222,19 @@
   align-items: center;
   gap: 2px;
   height: 100%;
+  flex: 1 1 auto;
+  /* Allow the flex item to shrink below content width so overflow can scroll
+     instead of pushing tabs off-viewport / under .header-actions. */
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* Scroll without a visible scrollbar (Firefox, legacy Edge). */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
+
+/* Scroll without a visible scrollbar (Chrome, Safari, WebKit). */
+.header-tabs::-webkit-scrollbar { display: none; }
 
 .header-tab {
   display: flex;
@@ -230,6 +242,8 @@
   gap: 6px;
   padding: 0 14px;
   height: 100%;
+  flex: 0 0 auto;
+  white-space: nowrap;
   cursor: pointer;
   border: none;
   background: transparent;
