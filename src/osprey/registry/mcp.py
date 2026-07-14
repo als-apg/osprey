@@ -307,7 +307,16 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         ],
         # launch_scan starts a real scan (promote); stop_scan is the safe direction
         # and must never be kill-switch-blocked, so it carries approval only.
-        permissions_ask=["launch_scan", "stop_scan"],
+        # write_bluesky_plan/validate_bluesky_plan (task 2.3) reach NO hardware
+        # either way: write_bluesky_plan only writes a file (never imports/execs
+        # it), and validate_bluesky_plan's dry run drives mock devices only, in a
+        # subprocess with EPICS_CA_* neutralized — both work identically whether
+        # control_system.writes_enabled is on or off, so like stop_scan neither
+        # carries _WRITES_CHECK. They get their own (distinct, independently
+        # allowlistable) short-names rather than reusing launch_scan/stop_scan's
+        # tier, since an operator may want to permit authoring/validating plan
+        # bodies without also auto-approving launch_scan/stop_scan, or vice versa.
+        permissions_ask=["launch_scan", "stop_scan", "write_bluesky_plan", "validate_bluesky_plan"],
         hooks_pre=[
             HookRule(
                 matcher="mcp__scan__launch_scan",
@@ -315,6 +324,14 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             ),
             HookRule(
                 matcher="mcp__scan__stop_scan",
+                hooks=[_APPROVAL],
+            ),
+            HookRule(
+                matcher="mcp__scan__write_bluesky_plan",
+                hooks=[_APPROVAL],
+            ),
+            HookRule(
+                matcher="mcp__scan__validate_bluesky_plan",
                 hooks=[_APPROVAL],
             ),
         ],

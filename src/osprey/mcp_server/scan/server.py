@@ -2,9 +2,11 @@
 
 FastMCP server exposing Bluesky scan control as a thin HTTP client of the
 facility-side Bluesky bridge: list scan plans, create a scan intent, check run
-status, launch (promote) an intent to a running scan, and stop a run. This
-module and its tools make no bluesky/ophyd/tiled imports — every operation is
-an HTTP request to the bridge (see ``osprey.services.bluesky_bridge``).
+status, launch (promote) an intent to a running scan, stop a run, and author
+(write_bluesky_plan) plus validate (validate_bluesky_plan) a session-tier plan
+file. This module and its tools make no bluesky/ophyd/tiled imports — every
+operation is an HTTP request to the bridge (see
+``osprey.services.bluesky_bridge``).
 
 Usage:
     python -m osprey.mcp_server.scan
@@ -49,6 +51,7 @@ def create_server() -> FastMCP:
     # Import tool modules (each registers itself via @mcp.tool())
     with startup_timer("tool_imports"):
         from osprey.mcp_server.scan.tools import (  # noqa: F401
+            authoring,
             launch,
             read_tools,
             stop,
