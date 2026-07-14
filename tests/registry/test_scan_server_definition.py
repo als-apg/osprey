@@ -6,6 +6,11 @@ carries approval only — the kill switch must never block stopping a scan),
 hooks_post error guidance, opt-in default_enabled, and that the registry-driven
 read-only disallow floor (``read_only_disallowed_tools``) automatically picks
 up both ask-gated scan tools without any scan-specific code there.
+
+Also covers the authoring tools added in task 2.3 — ``write_bluesky_plan`` and
+``validate_bluesky_plan`` — which reach no hardware either way (write only
+emits a file, validate only dry-runs mock devices in an EPICS_CA_*-scrubbed
+subprocess), so both carry ``_APPROVAL`` only and must never be kill-switched.
 """
 
 from pathlib import Path
@@ -77,7 +82,12 @@ def test_scan_permissions_allow():
 
 def test_scan_permissions_ask():
     scan = _resolve_scan()
-    assert scan["permissions_ask"] == ["launch_scan", "stop_scan"]
+    assert scan["permissions_ask"] == [
+        "launch_scan",
+        "stop_scan",
+        "write_bluesky_plan",
+        "validate_bluesky_plan",
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +98,12 @@ def test_scan_permissions_ask():
 def test_scan_hooks_pre_structure():
     scan = _resolve_scan()
     by_matcher = {r["matcher"]: r for r in scan["hooks_pre"]}
-    assert set(by_matcher) == {"mcp__scan__launch_scan", "mcp__scan__stop_scan"}
+    assert set(by_matcher) == {
+        "mcp__scan__launch_scan",
+        "mcp__scan__stop_scan",
+        "mcp__scan__write_bluesky_plan",
+        "mcp__scan__validate_bluesky_plan",
+    }
 
     launch = by_matcher["mcp__scan__launch_scan"]
     launch_commands = [h["command"] for h in launch["hooks"]]
@@ -103,6 +118,56 @@ def test_scan_hooks_pre_structure():
     assert len(stop["hooks"]) == 1
     assert "osprey_approval.py" in stop_commands[0]
     assert not any("osprey_writes_check.py" in c for c in stop_commands)
+
+    # write_bluesky_plan/validate_bluesky_plan (task 2.3) reach no hardware
+    # either way — write only emits a file, validate only dry-runs mock
+    # devices in an EPICS_CA_*-scrubbed subprocess — so both are
+    # approval-gated but NEVER kill-switchable, exactly like stop_scan.
+    for tool in ("write_bluesky_plan", "validate_bluesky_plan"):
+        rule = by_matcher[f"mcp__scan__{tool}"]
+        commands = [h["command"] for h in rule["hooks"]]
+        assert len(rule["hooks"]) == 1
+        assert "osprey_approval.py" in commands[0]
+        assert not any("osprey_writes_check.py" in c for c in commands)
+
+
+def test_scan_authoring_tools_never_writes_check_gated():
+    """Regression: assert directly on the dataclass HookRule/HookEntry objects
+    (not the resolved dict form) that write_bluesky_plan and
+    validate_bluesky_plan carry _APPROVAL but never _WRITES_CHECK — the
+    safety posture that keeps them permitted when control_system.writes_enabled
+    is off, since neither reaches hardware."""
+    from osprey.registry.mcp import FRAMEWORK_SERVERS
+
+    scan_def = FRAMEWORK_SERVERS["scan"]
+    by_matcher = {rule.matcher: rule for rule in scan_def.hooks_pre}
+
+    for tool in ("write_bluesky_plan", "validate_bluesky_plan"):
+        rule = by_matcher[f"mcp__scan__{tool}"]
+        assert tool in scan_def.permissions_ask
+        assert len(rule.hooks) == 1
+        assert "osprey_approval.py" in rule.hooks[0].command
+        assert not any("osprey_writes_check.py" in h.command for h in rule.hooks)
+
+    # launch_scan stays kill-switchable; stop_scan stays approval-only —
+    # unchanged by the new authoring tools.
+    launch_rule = by_matcher["mcp__scan__launch_scan"]
+    assert any("osprey_writes_check.py" in h.command for h in launch_rule.hooks)
+    assert any("osprey_approval.py" in h.command for h in launch_rule.hooks)
+
+    stop_rule = by_matcher["mcp__scan__stop_scan"]
+    assert len(stop_rule.hooks) == 1
+    assert "osprey_approval.py" in stop_rule.hooks[0].command
+    assert not any("osprey_writes_check.py" in h.command for h in stop_rule.hooks)
+
+    # The read tiers are unchanged by task 2.3's authoring additions.
+    assert scan_def.permissions_allow == [
+        "create_scan_intent",
+        "scan_status",
+        "list_scan_plans",
+        "list_runs",
+        "read_scan_data",
+    ]
 
 
 def test_scan_hooks_post_error_guidance():
@@ -159,9 +224,19 @@ def test_scan_can_be_extended_like_other_framework_servers():
 
     clone = build_extended_server("scan2", {"extends": "scan"})
     assert clone is not None
-    assert clone.permissions_ask == ["launch_scan", "stop_scan"]
+    assert clone.permissions_ask == [
+        "launch_scan",
+        "stop_scan",
+        "write_bluesky_plan",
+        "validate_bluesky_plan",
+    ]
     matchers = {r.matcher for r in clone.hooks_pre}
-    assert matchers == {"mcp__scan2__launch_scan", "mcp__scan2__stop_scan"}
+    assert matchers == {
+        "mcp__scan2__launch_scan",
+        "mcp__scan2__stop_scan",
+        "mcp__scan2__write_bluesky_plan",
+        "mcp__scan2__validate_bluesky_plan",
+    }
 
 
 def test_scan_present_in_framework_servers():
