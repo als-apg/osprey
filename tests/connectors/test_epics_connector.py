@@ -106,7 +106,11 @@ class TestConfigurePyepicsLibca:
     def test_no_op_when_epicscorelibs_absent(self, monkeypatch):
         """epicscorelibs missing -> PYEPICS_LIBCA stays unset (pyepics resolves itself)."""
         monkeypatch.delenv("PYEPICS_LIBCA", raising=False)
+        # Block both the package and the submodule: in an env where EPICS is
+        # installed, `epicscorelibs.path` is already cached in sys.modules, so
+        # nulling only the parent would not stop `from epicscorelibs.path import`.
         monkeypatch.setitem(sys.modules, "epicscorelibs", None)
+        monkeypatch.setitem(sys.modules, "epicscorelibs.path", None)
 
         _configure_pyepics_libca()
 

@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+import osprey.connectors.control_system.limits_validator as limits_validator_module
 from osprey.connectors.control_system.limits_validator import (
     DEFAULTS_FIELD,
     ChannelLimitsConfig,
@@ -361,12 +362,30 @@ class TestGetVerificationConfig:
 # ---------------------------------------------------------------------------
 
 
+def _capture_warnings(monkeypatch) -> list[str]:
+    """Record limits_validator warning messages without depending on logging config.
+
+    caplog is unreliable here: get_logger() reconfigures the root logger and can
+    drop pytest's capture handler depending on test order, so we patch the
+    module logger directly (the pattern used in test_epics_gateway_selection.py).
+    """
+    messages: list[str] = []
+    monkeypatch.setattr(
+        limits_validator_module.logger,
+        "warning",
+        lambda msg, *a, **k: messages.append(str(msg)),
+    )
+    return messages
+
+
 class TestValidateChannelConfig:
-    def test_unknown_field_warns_but_does_not_raise(self, caplog):
+    def test_unknown_field_warns_but_does_not_raise(self, monkeypatch):
         # Unknown fields are a warning, not an error — the config still loads.
+        warnings = _capture_warnings(monkeypatch)
+
         LimitsValidator._validate_channel_config("FOO", {"bogus_field": 1})
 
-        assert "unknown fields" in caplog.text
+        assert any("unknown fields" in m for m in warnings), warnings
 
     def test_non_numeric_bound_raises(self):
         with pytest.raises(ValueError, match="must be numeric"):
@@ -380,12 +399,14 @@ class TestValidateChannelConfig:
         with pytest.raises(ValueError, match="must be a dictionary"):
             LimitsValidator._validate_channel_config("FOO", {"verification": "readback"})
 
-    def test_unknown_verification_field_warns(self, caplog):
+    def test_unknown_verification_field_warns(self, monkeypatch):
+        warnings = _capture_warnings(monkeypatch)
+
         LimitsValidator._validate_channel_config(
             "FOO", {"verification": {"level": "callback", "bogus": 1}}
         )
 
-        assert "verification has unknown fields" in caplog.text
+        assert any("verification has unknown fields" in m for m in warnings), warnings
 
     def test_invalid_verification_level_raises(self):
         with pytest.raises(ValueError, match="verification.level must be"):
