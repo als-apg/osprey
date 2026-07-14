@@ -4,7 +4,7 @@ Builds the ``OTEL_*`` / ``CLAUDE_CODE_ENABLE_TELEMETRY`` environment block that
 :class:`osprey.cli.claude_code_resolver.ClaudeCodeModelResolver` injects into a
 launch when ``claude_code.telemetry`` is enabled. Kept separate from the
 resolver's provider/model logic because telemetry is a distinct observability
-concern: :func:`_build_telemetry_env` is pure and side-effect-free (all
+concern: :func:`_build_telemetry_env` does no I/O and reads no env (all
 ``${VAR}``-expansion and container detection happen upstream), which makes it
 directly unit-testable — see ``tests/cli/test_telemetry_env.py``.
 """
@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 import os
+import warnings
 
 # OTEL / Claude Code telemetry vars the resolver may inject into the env block.
 #
@@ -49,6 +50,42 @@ _TELEMETRY_CONTENT_GATES: dict[str, str] = {
 }
 
 
+# Config values that suppress a content gate. ``resolve_env_vars`` turns
+# ``${VAR:-false}`` into the *string* "false" (YAML never re-coerces it to a
+# bool), so a bare ``is not False`` check would silently keep the gate ON. Treat
+# the common false-y spellings as OFF, matching bash/YAML intuition.
+_GATE_FALSEY: frozenset[str] = frozenset({"false", "0", "no", "off", ""})
+
+
+def _gate_is_on(value: object) -> bool:
+    """Whether a content-capture gate is enabled — default ON.
+
+    A gate is suppressed only by an explicit false-y value: the bool ``False``
+    (bare YAML ``false``) or a case-insensitive false-y string
+    (``"false"``/``"0"``/``"no"``/``"off"``/``""``) — the latter is what
+    ``resolve_env_vars`` yields for ``${VAR:-false}``. A missing key (``None``)
+    or any other value leaves the gate ON.
+    """
+    if value is None:
+        return True
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() not in _GATE_FALSEY
+    return bool(value)
+
+
+class TelemetryConfigError(ValueError):
+    """A ``claude_code.telemetry`` block is enabled but misconfigured.
+
+    A subclass of :class:`ValueError` so every existing caller that catches
+    ``ValueError`` (the template-render paths) keeps working unchanged, while a
+    caller that must not let an observability misconfiguration take down an
+    orthogonal concern — the dispatch worker's provider-auth injection — can
+    catch this type specifically and degrade telemetry without dropping auth.
+    """
+
+
 def _running_in_container() -> bool:
     """Best-effort detection of whether this process runs inside a container.
 
@@ -58,6 +95,21 @@ def _running_in_container() -> bool:
     :func:`_build_telemetry_env` helper never touches ``os``.
     """
     return os.path.exists("/.dockerenv") or bool(os.environ.get("OSPREY_IN_CONTAINER"))
+
+
+def _openobserve_host_override() -> str | None:
+    """Explicit OpenObserve host from the deploy environment, or ``None``.
+
+    ``_running_in_container`` cannot know the network topology: whether the
+    ``openobserve`` compose service is reachable by DNS name depends on the
+    network mode, which only the compose author knows. A bridge-networked
+    service sets ``OSPREY_OTEL_OPENOBSERVE_HOST=openobserve`` so the emitter
+    targets the service DNS name regardless of runtime (docker *or* podman); a
+    host-networked deployment leaves it unset so the derived ``localhost`` wins.
+    Kept deliberately docker-agnostic — this env var, not filesystem sniffing,
+    is the reliable in-container signal.
+    """
+    return os.environ.get("OSPREY_OTEL_OPENOBSERVE_HOST") or None
 
 
 def _parse_header_map(value: dict | str) -> dict[str, str]:
@@ -91,7 +143,9 @@ def _render_kv_map(value: dict | str) -> str:
     return str(value)
 
 
-def _resolve_telemetry_endpoint(telemetry_cfg: dict, *, in_container: bool) -> str:
+def _resolve_telemetry_endpoint(
+    telemetry_cfg: dict, *, in_container: bool, openobserve_host: str | None = None
+) -> str:
     """Resolve the OTLP exporter endpoint, failing loud on misconfiguration.
 
     Priority: an explicit ``endpoint`` wins verbatim; otherwise an
@@ -108,18 +162,20 @@ def _resolve_telemetry_endpoint(telemetry_cfg: dict, *, in_container: bool) -> s
     endpoint = telemetry_cfg.get("endpoint")
     if not endpoint:
         if telemetry_cfg.get("backend") == "openobserve":
-            host = "openobserve" if in_container else "localhost"
+            # An explicit host from the deploy env wins (the compose author knows
+            # the network topology); otherwise derive from container context.
+            host = openobserve_host or ("openobserve" if in_container else "localhost")
             org = telemetry_cfg.get("openobserve", {}).get("org", "default")
             endpoint = f"http://{host}:5080/api/{org}"
         else:
-            raise ValueError(
+            raise TelemetryConfigError(
                 "claude_code.telemetry is enabled but no 'endpoint' is set and "
                 "'backend' is not 'openobserve'; cannot resolve an OTLP endpoint. "
                 "Set claude_code.telemetry.endpoint or backend: openobserve."
             )
     endpoint = str(endpoint)
     if "${" in endpoint:
-        raise ValueError(
+        raise TelemetryConfigError(
             f"OTLP endpoint still contains an unresolved '${{VAR}}': {endpoint!r}. "
             "The referenced environment variable is unset — refusing to ship a "
             "literal placeholder in the exporter URL."
@@ -149,7 +205,7 @@ def _openobserve_auth_header(telemetry_cfg: dict) -> tuple[str, str]:
     user = oo.get("user")
     password = oo.get("password")
     if not user or not password:
-        raise ValueError(
+        raise TelemetryConfigError(
             "claude_code.telemetry.backend is 'openobserve' but "
             "openobserve.user / openobserve.password are missing or blank; "
             "refusing to emit an unauthenticated OTLP exporter to an "
@@ -161,7 +217,7 @@ def _openobserve_auth_header(telemetry_cfg: dict) -> tuple[str, str]:
     # instead of failing clearly here at resolve() time.
     for field_name, cred in (("openobserve.user", user), ("openobserve.password", password)):
         if "${" in str(cred):
-            raise ValueError(
+            raise TelemetryConfigError(
                 f"{field_name} still contains an unresolved '${{VAR}}': {cred!r}. "
                 "The referenced environment variable is unset — refusing to "
                 "encode a literal placeholder into the OpenObserve auth header."
@@ -171,12 +227,17 @@ def _openobserve_auth_header(telemetry_cfg: dict) -> tuple[str, str]:
 
 
 def _build_telemetry_env(
-    telemetry_cfg: dict | None, *, in_container: bool = False
+    telemetry_cfg: dict | None,
+    *,
+    in_container: bool = False,
+    openobserve_host: str | None = None,
 ) -> dict[str, str]:
     """Build the OTEL/telemetry env block from the ``claude_code.telemetry`` config.
 
-    Pure and side-effect-free: it reads no environment and does no I/O — the
-    ``${VAR}``-expansion and container detection happen upstream. Returns an
+    Reads no environment and does no filesystem/network I/O — the
+    ``${VAR}``-expansion, container detection, and host override happen
+    upstream. Its only side effect is a single advisory ``warnings.warn`` when
+    full content capture is active on a non-openobserve backend. Returns an
     empty dict when telemetry is absent or disabled.
 
     Args:
@@ -184,6 +245,9 @@ def _build_telemetry_env(
             ``${VAR}``-expanded), or ``None``.
         in_container: Whether the agent runs in a container — selects the
             OpenObserve default host (``openobserve`` vs ``localhost``).
+        openobserve_host: Explicit OpenObserve host from the deploy env; when
+            set it wins over the ``in_container`` derivation (the compose author
+            knows the network topology).
 
     Returns:
         A ``{VAR: "value"}`` dict; every value is a string (never bool). Keys
@@ -202,7 +266,7 @@ def _build_telemetry_env(
         "OTEL_LOGS_EXPORTER": "otlp",
         "OTEL_EXPORTER_OTLP_PROTOCOL": str(telemetry_cfg.get("protocol", "http/protobuf")),
         "OTEL_EXPORTER_OTLP_ENDPOINT": _resolve_telemetry_endpoint(
-            telemetry_cfg, in_container=in_container
+            telemetry_cfg, in_container=in_container, openobserve_host=openobserve_host
         ),
     }
 
@@ -222,9 +286,30 @@ def _build_telemetry_env(
     if resource_attrs:
         env["OTEL_RESOURCE_ATTRIBUTES"] = _render_kv_map(resource_attrs)
 
-    # Content-capture gates default ON; each is dropped only on an explicit false.
-    for env_var, cfg_key in _TELEMETRY_CONTENT_GATES.items():
-        if telemetry_cfg.get(cfg_key) is not False:
-            env[env_var] = "1"
+    # Content-capture gates default ON; each is dropped only on an explicit
+    # false-y value (bool False, or a false-y string from ${VAR:-false}).
+    on_gates = [
+        env_var
+        for env_var, cfg_key in _TELEMETRY_CONTENT_GATES.items()
+        if _gate_is_on(telemetry_cfg.get(cfg_key))
+    ]
+    for env_var in on_gates:
+        env[env_var] = "1"
+
+    # Safe-state advisory: full-fidelity content capture is the default only
+    # because the openobserve backend is local and air-gapped. On any other
+    # backend the captured transcripts leave the host, so warn once (the
+    # warnings registry deduplicates identical messages) when content still
+    # ships off-host.
+    if on_gates and telemetry_cfg.get("backend") != "openobserve":
+        warnings.warn(
+            "claude_code.telemetry ships full content capture "
+            f"({', '.join(sorted(on_gates))}) to a non-openobserve backend; "
+            "these transcripts leave the host. Set log_user_prompts / "
+            "log_assistant_responses / log_tool_details / log_raw_api_bodies "
+            "to false to suppress categories you do not want to emit.",
+            UserWarning,
+            stacklevel=2,
+        )
 
     return env

@@ -20,7 +20,10 @@ from osprey.cli.claude_code_resolver import (
 )
 from osprey.cli.claude_code_telemetry import (
     TELEMETRY_ENV_VARS,
+    TelemetryConfigError,
     _build_telemetry_env,
+    _gate_is_on,
+    _openobserve_host_override,
 )
 
 # ── on / off gating ──────────────────────────────────────────────
@@ -420,3 +423,132 @@ def test_no_conflict_on_preexisting_otel():
         assert var not in conflicts
     # ...but a genuine provider-var mismatch still is.
     assert conflicts["ANTHROPIC_MODEL"] == ("stale-model", "claude-opus-4-6")
+
+
+# ── OpenObserve host override (deploy-topology aware, F1) ─────────
+
+
+_OO_CFG = {
+    "enabled": True,
+    "backend": "openobserve",
+    "openobserve": {"user": "u", "password": "p"},
+}
+
+
+def test_host_override_wins_over_derivation():
+    """An explicit host beats both the localhost and container-DNS derivation."""
+    # Not in a container -> would derive localhost; override wins.
+    env = _build_telemetry_env(_OO_CFG, in_container=False, openobserve_host="openobserve")
+    assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://openobserve:5080/api/default"
+    # In a container -> would derive "openobserve"; override still wins.
+    env2 = _build_telemetry_env(_OO_CFG, in_container=True, openobserve_host="oo-host")
+    assert env2["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://oo-host:5080/api/default"
+
+
+def test_host_override_none_falls_through_to_derivation():
+    """No override + not in a container -> localhost (the ALS host-net guard)."""
+    env = _build_telemetry_env(_OO_CFG, in_container=False, openobserve_host=None)
+    assert env["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://localhost:5080/api/default"
+
+
+def test_host_override_helper_empty_string_is_none(monkeypatch):
+    monkeypatch.delenv("OSPREY_OTEL_OPENOBSERVE_HOST", raising=False)
+    assert _openobserve_host_override() is None
+    monkeypatch.setenv("OSPREY_OTEL_OPENOBSERVE_HOST", "")
+    assert _openobserve_host_override() is None
+    monkeypatch.setenv("OSPREY_OTEL_OPENOBSERVE_HOST", "openobserve")
+    assert _openobserve_host_override() == "openobserve"
+
+
+def test_resolve_consults_host_override(monkeypatch):
+    """resolve() threads OSPREY_OTEL_OPENOBSERVE_HOST into the endpoint even
+    when not detected as in-container (the podman-bridge fix)."""
+    monkeypatch.setattr(resolver, "_running_in_container", lambda: False)
+    monkeypatch.setattr(resolver, "_openobserve_host_override", lambda: "openobserve")
+    spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic", "telemetry": _OO_CFG})
+    assert spec.env_block["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://openobserve:5080/api/default"
+
+
+# ── content-gate truthiness + off-host advisory (F5) ─────────────
+
+
+@pytest.mark.parametrize("env_var,cfg_key", CONTENT_GATES)
+@pytest.mark.parametrize(
+    "falsey", [False, "false", "False", "FALSE", "0", "no", "off", " false ", ""]
+)
+def test_falsey_gate_values_suppress(env_var, cfg_key, falsey):
+    """bool False AND false-y strings (incl. ${VAR:-false} -> "false") drop the gate."""
+    env = _build_telemetry_env(
+        {
+            "enabled": True,
+            "backend": "openobserve",
+            "openobserve": {"user": "u", "password": "p"},
+            cfg_key: falsey,
+        }
+    )
+    assert env_var not in env
+
+
+@pytest.mark.parametrize("truthy", [True, "true", "True", "1", "yes"])
+def test_truthy_gate_values_stay_on(truthy):
+    env = _build_telemetry_env(
+        {
+            "enabled": True,
+            "backend": "openobserve",
+            "openobserve": {"user": "u", "password": "p"},
+            "log_user_prompts": truthy,
+        }
+    )
+    assert env["OTEL_LOG_USER_PROMPTS"] == "1"
+
+
+def test_gate_is_on_helper():
+    assert _gate_is_on(None) is True  # missing key -> on
+    assert _gate_is_on(True) is True
+    assert _gate_is_on(False) is False
+    assert _gate_is_on("false") is False
+    assert _gate_is_on("FALSE") is False
+    assert _gate_is_on("true") is True
+
+
+def test_warns_on_content_capture_non_openobserve():
+    """Full content capture to a non-openobserve backend leaves the host -> warn."""
+    with pytest.warns(UserWarning, match="leave the host"):
+        _build_telemetry_env({"enabled": True, "endpoint": "http://collector:4318"})
+
+
+def test_no_warning_for_openobserve_backend(recwarn):
+    _build_telemetry_env(
+        {"enabled": True, "backend": "openobserve", "openobserve": {"user": "u", "password": "p"}}
+    )
+    assert not [w for w in recwarn.list if issubclass(w.category, UserWarning)]
+
+
+def test_no_warning_when_all_content_off(recwarn):
+    """A non-openobserve backend with every content gate off must not warn."""
+    _build_telemetry_env(
+        {
+            "enabled": True,
+            "endpoint": "http://collector:4318",
+            "log_user_prompts": False,
+            "log_assistant_responses": False,
+            "log_tool_details": False,
+            "log_raw_api_bodies": False,
+        }
+    )
+    assert not [w for w in recwarn.list if issubclass(w.category, UserWarning)]
+
+
+# ── telemetry-specific error type (F4) ───────────────────────────
+
+
+def test_telemetry_misconfig_raises_telemetry_config_error():
+    """Telemetry faults raise TelemetryConfigError (a ValueError subclass), so a
+    caller can single out a telemetry misconfig without catching every ValueError."""
+    assert issubclass(TelemetryConfigError, ValueError)
+    with pytest.raises(TelemetryConfigError):
+        _build_telemetry_env(
+            {"enabled": True, "backend": "openobserve", "openobserve": {"user": "u"}}
+        )
+    with pytest.raises(TelemetryConfigError):
+        _build_telemetry_env({"enabled": True})

@@ -429,6 +429,19 @@ claude_code:
   provider: cborg
 """
 
+# Telemetry enabled but misconfigured (openobserve backend, password missing) —
+# resolve() raises TelemetryConfigError. The worker must degrade telemetry, not
+# lose provider auth.
+_TELEMETRY_BROKEN_CONFIG = """\
+claude_code:
+  provider: anthropic
+  telemetry:
+    enabled: true
+    backend: openobserve
+    openobserve:
+      user: root@example.com
+"""
+
 
 def _isolated_environ(monkeypatch, tmp_path, **extra):
     """Swap os.environ for a throwaway dict so the function's mutations don't leak."""
@@ -467,6 +480,31 @@ def test_inject_provider_env_no_proxy_for_native(tmp_path, monkeypatch):
     dispatch_api._inject_provider_env_once()
 
     proxy.assert_not_called()
+
+
+def test_inject_provider_env_degrades_on_telemetry_misconfig(tmp_path, monkeypatch, caplog):
+    """A broken telemetry block must NOT cost the worker its provider auth.
+
+    Telemetry is an observability add-on; a misconfig degrades it (logged loud)
+    while provider auth/model injection still happens (F4 regression guard).
+    """
+    import logging
+
+    (tmp_path / "config.yml").write_text(_TELEMETRY_BROKEN_CONFIG)
+    fake = _isolated_environ(monkeypatch, tmp_path, ANTHROPIC_API_KEY="sk-ant")
+
+    with caplog.at_level(logging.ERROR):
+        dispatch_api._inject_provider_env_once()
+
+    # Provider env WAS injected despite the telemetry fault.
+    assert fake.get("ANTHROPIC_MODEL"), "provider env must survive a telemetry misconfig"
+    # Telemetry was dropped rather than shipped from a broken config.
+    assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in fake
+    assert "CLAUDE_CODE_ENABLE_TELEMETRY" not in fake
+    # ...and the fault was surfaced loudly, not swallowed silently.
+    assert any(
+        "telemetry" in r.getMessage().lower() for r in caplog.records if r.levelno >= logging.ERROR
+    )
 
 
 def test_inject_provider_env_refuses_on_managed_policy_conflict(tmp_path, monkeypatch):

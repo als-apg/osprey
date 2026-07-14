@@ -24,6 +24,7 @@ from pathlib import Path
 from osprey.cli.claude_code_telemetry import (
     TELEMETRY_ENV_VARS,
     _build_telemetry_env,
+    _openobserve_host_override,
     _running_in_container,
 )
 from osprey.models.tiers import VALID_TIERS
@@ -265,6 +266,7 @@ def load_provider_spec(
     project_dir: Path,
     *,
     provider: str | None = None,
+    include_telemetry: bool = True,
 ) -> ClaudeCodeModelSpec | None:
     """Read ``config.yml``, expand ``${VAR}`` placeholders, and resolve the spec.
 
@@ -324,6 +326,7 @@ def load_provider_spec(
     return ClaudeCodeModelResolver.resolve(
         cc_config,
         cfg.get("api", {}).get("providers", {}),
+        include_telemetry=include_telemetry,
     )
 
 
@@ -397,6 +400,8 @@ class ClaudeCodeModelResolver:
     def resolve(
         claude_code_config: dict,
         api_providers: dict | None = None,
+        *,
+        include_telemetry: bool = True,
     ) -> ClaudeCodeModelSpec | None:
         """Build a ``ClaudeCodeModelSpec`` from config.
 
@@ -534,8 +539,20 @@ class ClaudeCodeModelResolver:
         # Container context is the ONE place fs/env is consulted; the helper
         # itself stays pure. Telemetry keys are deliberately excluded from
         # MANAGED_ENV_VARS (they are not backend/model selectors).
-        telemetry_cfg = claude_code_config.get("telemetry")
-        env_block.update(_build_telemetry_env(telemetry_cfg, in_container=_running_in_container()))
+        # Telemetry is an observability concern, not a provider/model selector.
+        # Callers that only read tier_to_model (model-id readers) or that must
+        # not let a telemetry misconfig abort provider resolution pass
+        # include_telemetry=False; a raised TelemetryConfigError then cannot
+        # poison the rest of the spec.
+        if include_telemetry:
+            telemetry_cfg = claude_code_config.get("telemetry")
+            env_block.update(
+                _build_telemetry_env(
+                    telemetry_cfg,
+                    in_container=_running_in_container(),
+                    openobserve_host=_openobserve_host_override(),
+                )
+            )
 
         return ClaudeCodeModelSpec(
             provider=provider_name,
