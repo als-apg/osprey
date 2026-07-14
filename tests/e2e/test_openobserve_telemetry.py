@@ -49,7 +49,23 @@ from osprey.cli.claude_code_telemetry import _build_telemetry_env
 # services.openobserve.port below; the container still listens on 5080 inside.
 OO_HOST_PORT = 15080
 OO_BASE_URL = f"http://localhost:{OO_HOST_PORT}"
-OO_CONTAINER = "osprey-openobserve"  # matches container_name in the compose template
+# The project the fixture builds; feeds both the build arg and the derived
+# container name (compose renders container_name as ``<project>-openobserve``,
+# per the per-project namespacing convention). Mirrors the deploy-e2e pattern of
+# deriving container targets from the project rather than hardcoding a
+# host-global literal.
+OO_PROJECT = "proj"
+OO_CONTAINER = f"{OO_PROJECT}-openobserve"  # matches the rendered container_name
+
+# The named volume OpenObserve pins its root credentials into on FIRST init.
+# Its name is ``<compose-project>_openobserve_data`` where the compose project is
+# ``services`` (the compose files live under ``build/services/``) — so it is
+# HOST-GLOBAL, shared by every OSPREY project's openobserve on one host. Because
+# OpenObserve ignores new root creds once a volume is initialized, a volume left
+# behind by another deploy (now that telemetry is on by default) would make this
+# credential-sensitive test 401. The fixture removes it before deploy and on
+# teardown so the store always initializes with THIS test's credentials.
+OO_DATA_VOLUME = "services_openobserve_data"
 OO_ORG = "default"
 
 # Credentials the compose service and the telemetry resolver BOTH read from the
@@ -97,6 +113,23 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
     )
 
 
+def _remove_oo_data_volume() -> None:
+    """Remove the host-global OpenObserve data volume by EXACT name, if present.
+
+    OpenObserve pins its root credentials on the volume's first init, so a volume
+    left behind by an earlier deploy would reject this test's credentials (401).
+    Removing it guarantees a clean init. Exact-named and failure-tolerant — never
+    a wildcard, never a prune; a missing/in-use volume is a no-op.
+    """
+    subprocess.run(
+        ["docker", "volume", "rm", OO_DATA_VOLUME],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+
+
 def _enable_openobserve(project_dir: Path) -> None:
     """Opt the generated project into the openobserve add-on and pin its host port."""
     config_path = project_dir / "config.yml"
@@ -125,13 +158,13 @@ def deployed_openobserve(tmp_path_factory: pytest.TempPathFactory) -> Iterator[P
     """Build + ``osprey deploy up`` an openobserve-enabled project; tear down after."""
     osprey_bin = _find_osprey_console_script()
     base = tmp_path_factory.mktemp("openobserve_e2e")
-    project_dir = base / "proj"
+    project_dir = base / OO_PROJECT
 
     build = _run(
         [
             str(osprey_bin),
             "build",
-            "proj",
+            OO_PROJECT,
             "--preset",
             "hello-world",
             "--skip-deps",
@@ -150,6 +183,12 @@ def deployed_openobserve(tmp_path_factory: pytest.TempPathFactory) -> Iterator[P
         )
 
     _enable_openobserve(project_dir)
+
+    # Guarantee a clean store: the data volume is host-global (see OO_DATA_VOLUME),
+    # so a volume left by another project's openobserve — common now that telemetry
+    # is on by default — would pin foreign credentials and 401 this test. Remove it
+    # before deploy so OpenObserve initializes with THIS test's credentials.
+    _remove_oo_data_volume()
 
     try:
         up = _run(
@@ -170,6 +209,9 @@ def deployed_openobserve(tmp_path_factory: pytest.TempPathFactory) -> Iterator[P
             print(  # noqa: T201 - surface teardown issues in CI logs
                 f"osprey deploy down rc={down.returncode}\n{down.stdout}\n{down.stderr}"
             )
+        # ``deploy down`` keeps volumes; drop the host-global data volume so this
+        # test never leaves foreign credentials pinned for a later deploy.
+        _remove_oo_data_volume()
 
 
 def _wait_for_health(url: str, timeout: float) -> None:

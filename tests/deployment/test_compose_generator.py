@@ -1064,6 +1064,13 @@ def test_openobserve_renders_when_deployed(tmp_path: Path) -> None:
     # Exposed port 5080 (host:container).
     assert ":5080:5080/tcp" in rendered
 
+    # container_name is namespaced per-project (project_name is "oo-fixture"), not
+    # the host-global "osprey-openobserve" — so two projects can run the store on
+    # one host without colliding. In-network reach is by the service key
+    # "openobserve", which is unaffected.
+    assert "container_name: oo-fixture-openobserve" in rendered
+    assert "osprey-openobserve" not in rendered
+
 
 def test_openobserve_retention_env_default_rendered(tmp_path: Path) -> None:
     """Omitting retention_days renders the 14-day growth bound (the compose default)."""
