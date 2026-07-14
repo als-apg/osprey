@@ -197,9 +197,7 @@ def test_malformed_session_file_is_quarantined_and_siblings_still_register(
 
     assert "good_session_plan" in facility.plans
     assert "missing_build_plan" not in facility.plans
-    assert any(
-        r.levelno == logging.WARNING and "quarantining" in r.message for r in caplog.records
-    )
+    assert any(r.levelno == logging.WARNING and "quarantining" in r.message for r in caplog.records)
 
 
 def test_builtins_and_shipped_exemplars_are_not_gated() -> None:

@@ -162,9 +162,7 @@ def test_shipped_plan_is_located_by_declared_name_not_file_stem(
     — the source route must resolve by the declared name, not the stem."""
     shipped_dir = tmp_path / "shipped"
     shipped_dir.mkdir()
-    (shipped_dir / "some_file_stem.py").write_text(
-        _session_plan_source("declared_plan_name")
-    )
+    (shipped_dir / "some_file_stem.py").write_text(_session_plan_source("declared_plan_name"))
     monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", shipped_dir)
 
     resp = client.get("/plans/declared_plan_name/source")

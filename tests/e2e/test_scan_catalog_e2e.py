@@ -294,7 +294,9 @@ def test_plans_endpoint_shows_shipped_and_facility_provenance(
     by_name = {p["name"]: p for p in plans}
 
     for shipped_name in ("response_matrix", "grid_scan_nd"):
-        assert shipped_name in by_name, f"{shipped_name!r} missing from GET /plans: {sorted(by_name)}"
+        assert shipped_name in by_name, (
+            f"{shipped_name!r} missing from GET /plans: {sorted(by_name)}"
+        )
         entry = by_name[shipped_name]
         assert entry["provenance"] == "shipped", (
             f"{shipped_name!r}: expected provenance 'shipped', got {entry['provenance']!r}"

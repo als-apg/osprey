@@ -408,9 +408,7 @@ def deployed_sandbox_stack(
     correctors = _orm_stack.select_correctors(limits, count=CORRECTOR_COUNT)
     bpms = _orm_stack.select_bpms(limits, count=BPM_COUNT)
     escape_name, (escape_sp, escape_rb) = sorted(correctors.items())[0]
-    positive_correctors = {
-        name: pair for name, pair in correctors.items() if name != escape_name
-    }
+    positive_correctors = {name: pair for name, pair in correctors.items() if name != escape_name}
     _orm_stack.write_scan_env(project_dir, correctors=correctors, bpms=bpms)
 
     osprey_bin = _orm_stack.find_osprey_console_script()
@@ -517,7 +515,9 @@ def test_sandbox_escape_is_caught_and_no_write_reaches_the_ioc(
 
     token = _minted_token(deployed_sandbox_stack.project_dir)
     status, body = _post(f"/runs/{run_id}/promote", {}, headers={"X-Promote-Token": token})
-    assert status == 409, f"expected 409 promoting an unvalidated session plan, got {status}: {body}"
+    assert status == 409, (
+        f"expected 409 promoting an unvalidated session plan, got {status}: {body}"
+    )
     assert "validation record" in body.get("detail", ""), (
         f"409 detail doesn't name the validation-record gate: {body}"
     )
@@ -565,9 +565,7 @@ def test_obfuscated_residual_is_a_documented_known_uncaught_case(
     # Bounded dry-run timeout: keeps this test's worst case (the reflected
     # caput's connection attempt against an intentionally inert CA env)
     # bounded, without asserting anything about how it resolves.
-    status, body = _post(
-        "/plans/validate", {"name": _RESIDUAL_PLAN_NAME, "dry_run_timeout": 10.0}
-    )
+    status, body = _post("/plans/validate", {"name": _RESIDUAL_PLAN_NAME, "dry_run_timeout": 10.0})
     assert status == 200, f"POST /plans/validate failed: {status} {body}"
     assert isinstance(body.get("content_hash"), str) and body["content_hash"], (
         f"validate response missing a content_hash: {body}"

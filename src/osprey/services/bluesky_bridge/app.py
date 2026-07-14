@@ -474,7 +474,9 @@ def get_run_status(run_id: str) -> dict:
     out = run.to_dict()
     request = run.request
     plan_name = (
-        request.get("plan_name") if isinstance(request, dict) else getattr(request, "plan_name", None)
+        request.get("plan_name")
+        if isinstance(request, dict)
+        else getattr(request, "plan_name", None)
     )
     if plan_name is not None:
         out["plan_name"] = plan_name
