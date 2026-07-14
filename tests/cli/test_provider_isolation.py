@@ -16,28 +16,36 @@ from click.testing import CliRunner
 from osprey.cli.claude_cmd import chat_claude
 from osprey.cli.claude_code_resolver import (
     MANAGED_ENV_VARS,
+    TIER_MODEL_ENV_VARS,
     ClaudeCodeModelResolver,
     ClaudeCodeModelSpec,
     detect_managed_policy_conflicts,
     inject_provider_env,
 )
+from osprey.models.tiers import VALID_TIERS
 
 # ── MANAGED_ENV_VARS ─────────────────────────────────────────────
 
 
 class TestManagedEnvVars:
-    """MANAGED_ENV_VARS contains the right vars."""
+    """MANAGED_ENV_VARS contains the right vars.
+
+    ``EXPECTED`` is the *single* human-readable review-gate pin for the managed
+    set — changing what OSPREY scrubs should require one conscious edit here (in
+    lockstep with the source frozenset), never a third hand-list. The per-tier
+    ``ANTHROPIC_DEFAULT_*_MODEL`` names are therefore spliced in from the single
+    ``TIER_MODEL_ENV_VARS`` source rather than re-typed, so a tier added there
+    cannot silently disagree with this pin (#357).
+    """
 
     EXPECTED = {
         # Auth + endpoint
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",
         "ANTHROPIC_BASE_URL",
-        # Model selectors
+        # Model selectors — the tier vars derive from the single source
         "ANTHROPIC_MODEL",
-        "ANTHROPIC_DEFAULT_HAIKU_MODEL",
-        "ANTHROPIC_DEFAULT_SONNET_MODEL",
-        "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        *TIER_MODEL_ENV_VARS.values(),
         "ANTHROPIC_DEFAULT_FABLE_MODEL",
         "ANTHROPIC_SMALL_FAST_MODEL",
         "CLAUDE_CODE_SUBAGENT_MODEL",
@@ -59,6 +67,11 @@ class TestManagedEnvVars:
 
     def test_contains_expected(self):
         assert MANAGED_ENV_VARS == self.EXPECTED
+
+    def test_tier_model_vars_are_managed(self):
+        """The tier-model env vars are always a subset of the scrub set, derived
+        from the single source (not re-listed) — guards the #350 drift class."""
+        assert set(TIER_MODEL_ENV_VARS.values()) <= MANAGED_ENV_VARS
 
     def test_excludes_secret_keys(self):
         """Provider-specific secret keys should NOT be in the managed set."""
@@ -447,3 +460,152 @@ class TestChatProviderIsolation:
         assert "Refusing to launch" in result.output
         assert "ANTHROPIC_BASE_URL" in result.output
         mock_run.assert_not_called()
+
+
+# ── Single-source list agreement (#357) ──────────────────────────
+
+
+class TestManagedListsAgree:
+    """The scrub (MANAGED_ENV_VARS), inject (resolve env_block), and e2e-force
+    lists all derive from one declaration and cannot silently drift.
+
+    Regression guard for the #350 failure class: a model var reaching one list
+    but not the others (there, a fifth model var reached env_block but not the
+    e2e force-tuple, so the matrix sent the wrong model on background calls).
+    """
+
+    def test_lists_agree_tier_map_keys_equal_valid_tiers(self):
+        assert set(TIER_MODEL_ENV_VARS) == VALID_TIERS
+
+    def test_lists_agree_injectable_model_keys_are_managed(self):
+        """Every model/endpoint key resolve() can inject is in the scrub set —
+        so a stale copy is always cleared before the provider value is set."""
+        injectable = {"ANTHROPIC_MODEL", "ANTHROPIC_BASE_URL"} | set(
+            TIER_MODEL_ENV_VARS.values()
+        )
+        assert injectable <= MANAGED_ENV_VARS
+
+    @pytest.mark.parametrize("provider", ["anthropic", "cborg", "als-apg"])
+    def test_lists_agree_resolve_env_block_subset_of_managed(self, provider):
+        spec = ClaudeCodeModelResolver.resolve({"provider": provider})
+        leaked = set(spec.env_block) - MANAGED_ENV_VARS
+        assert not leaked, (
+            f"{provider} env_block escapes MANAGED_ENV_VARS (would survive a "
+            f"stale shell export uncleared): {sorted(leaked)}"
+        )
+
+
+# ── inject_provider_env .env branch (previously blind) ───────────
+
+
+class TestInjectDotenvPassthrough:
+    """Covers ``inject_provider_env``'s ``.env`` branch — the spot the autouse
+    ``_no_dotenv`` fixture on ``TestChatProviderIsolation`` blinds.
+
+    This class deliberately does NOT inherit that fixture, so ``.env`` loading
+    is exercised for real (``tmp_path`` + a written ``.env`` + importorskip,
+    the idiom from ``test_primitives.py``). Asserts the #357 contract: the full
+    project ``.env`` crosses into ``environ`` (host propagation for ``.mcp.json``
+    ``${VAR}`` refs), ``.env`` beats a stale shell export, and the raw
+    ``auth_secret_env`` is carried for proxy providers (FR5).
+    """
+
+    def test_dotenv_nonsecret_key_passes_through(self, tmp_path):
+        """A non-secret .env key (EPICS_CA_ADDR_LIST) reaches environ — the host
+        propagation contract the claude CLI relies on for .mcp.json ${VAR}."""
+        pytest.importorskip("dotenv")
+        (tmp_path / ".env").write_text("EPICS_CA_ADDR_LIST=192.168.1.10:5064\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+        environ = {"CBORG_API_KEY": "sk-secret"}
+
+        inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert environ["EPICS_CA_ADDR_LIST"] == "192.168.1.10:5064"
+
+    def test_dotenv_secret_beats_stale_shell_export(self, tmp_path):
+        """A .env value for the provider's auth secret overrides a stale shell
+        export (freshly-configured key wins)."""
+        pytest.importorskip("dotenv")
+        (tmp_path / ".env").write_text("CBORG_API_KEY=sk-fresh-from-dotenv\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+        environ = {"CBORG_API_KEY": "sk-stale-shell"}
+
+        inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert environ["ANTHROPIC_AUTH_TOKEN"] == "sk-fresh-from-dotenv"
+
+    def test_dotenv_proxy_raw_secret_carried(self, tmp_path):
+        """For a proxy provider the raw auth_secret_env (CBORG_API_KEY) is
+        carried into environ alongside the CLI auth var — the in-context
+        channel-finder MCP subprocess expands ${CBORG_API_KEY} from it (FR5)."""
+        pytest.importorskip("dotenv")
+        (tmp_path / ".env").write_text("CBORG_API_KEY=sk-fresh\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+        environ: dict[str, str] = {}
+
+        inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert environ["CBORG_API_KEY"] == "sk-fresh"  # raw secret (FR5)
+        assert environ["ANTHROPIC_AUTH_TOKEN"] == "sk-fresh"  # CLI auth var
+
+
+# ── resolve() env_block characterization (#357, Task 1.2) ────────
+
+
+class TestResolveEnvBlockRegression:
+    """Characterization pin: ``resolve().env_block`` is byte-identical to main
+    for every provider, proving the map-driven rewrite (Task 1.2) is a pure
+    refactor (exact key set, order, and values unchanged). If a provider's
+    default model IDs are updated, update the snapshot in the same edit.
+    """
+
+    def test_env_block_regression_anthropic(self):
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        assert spec.env_block == {
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5-20251001",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-5-20250929",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6",
+            "ANTHROPIC_MODEL": "claude-sonnet-4-5-20250929",
+        }
+
+    def test_env_block_regression_cborg(self):
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+        assert spec.env_block == {
+            "ANTHROPIC_BASE_URL": "https://api.cborg.lbl.gov",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-6",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-7",
+            "ANTHROPIC_MODEL": "claude-haiku-4-5",
+        }
+
+    def test_env_block_regression_als_apg(self):
+        spec = ClaudeCodeModelResolver.resolve({"provider": "als-apg"})
+        assert spec.env_block == {
+            "ANTHROPIC_BASE_URL": "https://llm.gianlucamartino.com",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5-20251001",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-6",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6",
+            "ANTHROPIC_MODEL": "claude-haiku-4-5-20251001",
+        }
+
+    def test_env_block_regression_custom_provider(self):
+        """A custom api.providers entry (proxy base_url with a trailing /v1
+        stripped for the Claude-Code-facing var, issue #312)."""
+        spec = ClaudeCodeModelResolver.resolve(
+            {"provider": "my-lab"},
+            {"my-lab": {"base_url": "https://proxy.example.com/v1"}},
+        )
+        assert spec.env_block == {
+            "ANTHROPIC_BASE_URL": "https://proxy.example.com",
+            "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5-20251001",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-5-20250929",
+            "ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-opus-4-6",
+            "ANTHROPIC_MODEL": "claude-opus-4-6",
+        }
+
+    def test_env_block_regression_key_order_is_map_order(self):
+        """The tier-var keys appear in TIER_MODEL_ENV_VARS insertion order
+        (haiku→sonnet→opus) — the property the loop rewrite could have broken."""
+        spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
+        tier_keys = [k for k in spec.env_block if k in set(TIER_MODEL_ENV_VARS.values())]
+        assert tier_keys == list(TIER_MODEL_ENV_VARS.values())
