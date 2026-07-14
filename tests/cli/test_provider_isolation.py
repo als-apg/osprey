@@ -480,9 +480,7 @@ class TestManagedListsAgree:
     def test_lists_agree_injectable_model_keys_are_managed(self):
         """Every model/endpoint key resolve() can inject is in the scrub set —
         so a stale copy is always cleared before the provider value is set."""
-        injectable = {"ANTHROPIC_MODEL", "ANTHROPIC_BASE_URL"} | set(
-            TIER_MODEL_ENV_VARS.values()
-        )
+        injectable = {"ANTHROPIC_MODEL", "ANTHROPIC_BASE_URL"} | set(TIER_MODEL_ENV_VARS.values())
         assert injectable <= MANAGED_ENV_VARS
 
     @pytest.mark.parametrize("provider", ["anthropic", "cborg", "als-apg"])
