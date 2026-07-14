@@ -52,6 +52,7 @@ skills:
   - setup-mode      # Toggle between interactive and automated operating modes
   - session-report  # Summarise session actions and outcomes to the logbook
   - demo-gallery    # Launch guided capability demonstrations
+  - writing-bluesky-plans  # Author, validate, and launch a session-tier scan plan (requires the scan MCP server)
 
 agents:
   - channel-finder          # Semantic search over channel databases (hierarchical)
