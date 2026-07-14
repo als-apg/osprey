@@ -146,13 +146,42 @@ class RunRegistry:
 registry = RunRegistry()
 
 
-def do_promote(run: Run, scanner_factory: Callable[[], Scanner]) -> Run:
+def do_promote(
+    run: Run,
+    scanner_factory: Callable[[], Scanner],
+    *,
+    validator: Callable[[Run], None] | None = None,
+) -> Run:
     """The single choke point that starts a real scan.
 
     Callers (the token-gated ``POST /runs/{id}/promote`` route, task 1.5) must
     already have enforced their sanctioned human decision — the promote token
     (``security.verify_promote_token``) plus `launch_scan`'s in-tool
     ``writes_enabled`` re-check — before calling this.
+
+    ``validator``, if given, is called with ``run`` BEFORE ``registry.lock``
+    is acquired at all — deliberately outside the lock below, not folded into
+    its check-and-set. That lock exists to guard a fast in-memory
+    check-and-set only (see the next paragraph); a validator may do
+    unbounded author-controlled work (task 2.5's session-plan validation gate
+    re-scans and re-``exec_module``s every validated session plan via
+    ``get_facility_plans()``), and running that under the same lock
+    ``stop_run`` (``app.py``) shares would let a concurrent promote's
+    validator delay an emergency stop of an unrelated, already-running scan —
+    exactly the kind of latency this lock must never carry. It must raise
+    ``fastapi.HTTPException`` to refuse the promotion or return `None` to
+    allow it. Dependency-injected (mirroring ``scanner_factory``) so this
+    module never has to import bluesky/``plan_loader`` itself — `None` (the
+    default) skips the call entirely, preserving every existing caller that
+    doesn't pass one. Running before the lock means a validator also runs
+    ahead of the ``promoted``/``promoting``/``stopped`` checks below — a run
+    that is both stopped and unvalidated gets the validator's 409 rather than
+    the ``stopped`` 409, which is an immaterial precedence swap (both are
+    409 rejections). The validator's own correctness never depends on the
+    lock: it re-reads/re-hashes the plan file fresh off disk, and
+    ``scanner_factory().reinitialize()`` below re-resolves the plan registry
+    again regardless, which is the actual TOCTOU-safe barrier against a plan
+    that changes between the validator call and the scan actually starting.
 
     ``scanner_factory`` builds a fresh `Scanner` OUTSIDE the lock (it may be
     slow, e.g. constructing a real bluesky `RunEngine`); the lock only guards
@@ -184,6 +213,9 @@ def do_promote(run: Run, scanner_factory: Callable[[], Scanner]) -> Run:
     actually started, since every `Scanner.stop_scanning_thread()` must
     already tolerate being called on an inactive scanner.
     """
+    if validator is not None:
+        validator(run)
+
     with registry.lock:
         if run.promoted:
             raise HTTPException(status_code=409, detail=f"run {run.id!r} already promoted")
