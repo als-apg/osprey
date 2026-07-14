@@ -214,6 +214,7 @@ body.drawer-resizing {
   align-items: center;
   gap: 4px;
   margin-left: 12px;
+  flex: 0 0 auto;
 }
 
 .header-icon-btn {

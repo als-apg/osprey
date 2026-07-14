@@ -1,7 +1,12 @@
 services:
   postgresql:
     image: pgvector/pgvector:pg16
-    container_name: ariel-postgres
+    # container_name is a HOST-GLOBAL docker identifier: a bare `ariel-postgres`
+    # collides when two OSPREY projects deploy postgres on one host, forcing them
+    # to serialize. Namespace it per-project so concurrent deploys don't fight
+    # over one name. The DNS hostname the ARIEL DSN resolves (`ariel-postgres`) is
+    # pinned separately via a network alias below, so the DSN is unaffected.
+    container_name: {{ osprey_labels.project_name }}-ariel-postgres
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
@@ -17,7 +22,14 @@ services:
     volumes:
       - ariel_postgres_data:/var/lib/postgresql/data
     networks:
-      - osprey-network
+      # The container_name above is now per-project, but the ARIEL DSN
+      # (`postgresql://ariel:ariel@ariel-postgres:5432/ariel`) hosts the stable
+      # name `ariel-postgres`. Pin it as a network alias so in-network consumers
+      # keep resolving it regardless of the namespaced container_name — without
+      # this, the DSN breaks with "could not translate host name".
+      osprey-network:
+        aliases:
+          - ariel-postgres
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U {{ services.postgresql.username | default('ariel') }} -d {{ services.postgresql.database_name | default('ariel') }}"]
       interval: 10s

@@ -38,8 +38,8 @@ container/image -- never a wildcard, never ``system prune``/``--volumes``.
 Teardown goes through ``osprey deploy down``, matching every other e2e in
 this directory.
 
-Gating: needs Docker; the VA image is amd64-only (PyAT/softioc have no
-aarch64 wheels), so it builds/boots under QEMU emulation on Apple Silicon --
+Gating: needs Docker; the VA image builds natively for the host arch, so on
+Apple Silicon PyAT/softioc compile from source (no prebuilt aarch64 wheels) --
 slow (minutes) on a cold image cache. Advisory CI lane (see ci.yml); run
 locally with ``E2E_REUSE_IMAGES=1`` set for fast iteration once the image
 cache is warm.
@@ -73,10 +73,10 @@ pytestmark = [
 BRIDGE_URL = f"http://localhost:{_orm_stack.BRIDGE_PORT}"
 
 BUILD_TIMEOUT_SEC = _orm_stack.BUILD_TIMEOUT_SEC
-DEPLOY_UP_TIMEOUT_SEC = 1200  # amd64-emulated VA image build is slow (minutes)
+DEPLOY_UP_TIMEOUT_SEC = 1200  # first-time native VA source build is slow (minutes)
 HEALTH_TIMEOUT_SEC = 300.0
 # 4 correctors x 5 points x an 8-device (4 corrector + 4 BPM) bundle read per
-# point, amd64-emulated -- generous headroom over a healthy run's expected
+# point -- generous headroom over a healthy run's expected
 # few-tens-of-seconds so this stays a meaningful "did it hang" gate rather
 # than a flaky timing assertion.
 SCAN_TIMEOUT_SEC = 240.0

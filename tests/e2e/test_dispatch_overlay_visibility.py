@@ -67,10 +67,15 @@ RUN_TIMEOUT_SEC = 300.0
 
 # The unified worker runs the PROJECT image; its in-container project dir and
 # artifact dir are named after the project ("proj"), not the old "/app/project".
-WORKER_CONTAINER = "osprey-dispatch-worker-1"
-WORKER_ARTIFACT_DIR = "/app/proj/_agent_data/artifacts"
+# The compose template renders the worker container_name as
+# ``<project>-dispatch-worker-1`` (services/dispatch_worker/docker-compose.yml.j2),
+# so derive both it and the in-container paths from the one project name rather
+# than hardcode a host-global name that breaks once the template is namespaced.
+PROJECT_NAME = "proj"
+WORKER_CONTAINER = f"{PROJECT_NAME}-dispatch-worker-1"
+WORKER_ARTIFACT_DIR = f"/app/{PROJECT_NAME}/_agent_data/artifacts"
 # The worker persists each completed run (full result incl. tool_calls) here.
-WORKER_DISPATCH_DIR = "/app/proj/_agent_data/dispatch"
+WORKER_DISPATCH_DIR = f"/app/{PROJECT_NAME}/_agent_data/dispatch"
 
 # The named volume the worker mounts at ``/app/proj/_agent_data``. Its name is
 # ``<compose-project>_<volume>_<replica>`` = ``services`` (the compose files live
@@ -248,13 +253,13 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
 
     osprey_bin = _find_osprey_console_script()
     base = tmp_path_factory.mktemp("dispatch_overlay_build")
-    project_dir = base / "proj"
+    project_dir = base / PROJECT_NAME
 
     build = _run(
         [
             str(osprey_bin),
             "build",
-            "proj",
+            PROJECT_NAME,
             "--preset",
             "control-assistant",
             "--set",
@@ -584,7 +589,7 @@ def _diagnostics(dispatch_id: str, run: dict, record: dict, artifact_body: str) 
     lines.append(f"text_output[:500]={(record.get('text_output') or '')[:500]!r}")
     lines.append(f"artifact_body[:800]={artifact_body[:800]!r}")
     skills = subprocess.run(
-        ["docker", "exec", WORKER_CONTAINER, "ls", "-la", "/app/proj/.claude/skills"],
+        ["docker", "exec", WORKER_CONTAINER, "ls", "-la", f"/app/{PROJECT_NAME}/.claude/skills"],
         capture_output=True,
         text=True,
     )

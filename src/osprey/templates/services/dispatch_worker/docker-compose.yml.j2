@@ -23,7 +23,12 @@ services:
     # is pulled normally instead.
     depends_on:
       - event-dispatcher
-    container_name: osprey-dispatch-worker-{{ i }}
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy workers on one host without colliding on
+    # one name. The dispatcher routes to the compose service key
+    # `dispatch-worker-{{ i }}` (see tutorial_triggers.yml dispatch_target),
+    # unchanged here — so this rename needs no network alias.
+    container_name: {{ osprey_labels.project_name }}-dispatch-worker-{{ i }}
     command: ["python", "-m", "osprey.mcp_server.dispatch_worker"]
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
