@@ -5,7 +5,7 @@ name: Human Approval Gate
 description: Requires human approval for dangerous operations based on per-tool policy
 summary: Requires human approval for dangerous operations
 event: PreToolUse
-tools: channel_write, execute, setup_patch, entry_create
+tools: channel_write, execute, setup_patch, entry_create, launch_scan
 safety_layer: 2
 ---
 
@@ -179,6 +179,116 @@ def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
         urllib.request.urlopen(req, timeout=2)
     except Exception:
         pass
+
+
+# Default Bluesky bridge base URL — mirrors
+# osprey.mcp_server.scan.server_context.ScanContext._resolve_bridge_url's
+# fallback (`_DEFAULT_BRIDGE_URL`) without importing that module: this hook
+# runs standalone, in a different process/venv from OSPREY's own package.
+_DEFAULT_BRIDGE_URL = "http://127.0.0.1:8090"
+
+
+def _resolve_bridge_url(config: dict) -> str:
+    """Resolve the Bluesky bridge base URL: env wins outright over config.yml.
+
+    Resolution order mirrors `ScanContext._resolve_bridge_url` exactly:
+    ``BLUESKY_BRIDGE_URL`` env var, then ``scan.bridge_url`` in config.yml,
+    then the loopback default above.
+    """
+    full = os.environ.get("BLUESKY_BRIDGE_URL")
+    if full:
+        return full.rstrip("/")
+    url = config.get("scan", {}).get("bridge_url", _DEFAULT_BRIDGE_URL)
+    return str(url).rstrip("/")
+
+
+def _bridge_get_json(base_url: str, path: str, timeout: float = 3.0):
+    """GET ``path`` off the bridge and return parsed JSON, or `None` on ANY failure.
+
+    Fail-open (same pattern as `_focus_artifact` below): an unreachable
+    bridge, a 404, a network hiccup, or a malformed response must never block
+    the launch-approval prompt — every caller here treats `None` as "render
+    less detail", never as a reason to raise.
+    """
+    try:
+        import urllib.request
+
+        req = urllib.request.Request(f"{base_url}{path}", method="GET")
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.load(resp)
+    except Exception:
+        return None
+
+
+def _describe_launch_scan(tool_input: dict, config: dict) -> list[str]:
+    """Render the launch-approval prompt's plan detail lines.
+
+    This is the human backstop for the plan-validator's documented, accepted
+    residual (a `getattr`/string-concat obfuscated body that passes the
+    sandbox's AST import/pattern scan — see `plan_validation.py`'s module
+    docstring): an approver who can actually SEE the plan's source has a
+    chance to refuse it even where the earlier automated stages could not.
+    Every bridge call goes through `_bridge_get_json`, so any fetch/parse
+    failure just yields a shorter (or empty) line list — never an exception.
+    """
+    run_id = tool_input.get("run_id")
+    if not run_id:
+        return []
+
+    base_url = _resolve_bridge_url(config)
+    run = _bridge_get_json(base_url, f"/runs/{run_id}")
+    plan_name = run.get("plan_name") if run else None
+    if not plan_name:
+        return []
+
+    lines = [f"Plan: {plan_name}"]
+
+    plan_args = run.get("plan_args") if run else None
+    if plan_args:
+        lines.append(f"Plan args: {json.dumps(plan_args)}")
+
+    plans = _bridge_get_json(base_url, "/plans") or []
+    plan_entry = next((p for p in plans if p.get("name") == plan_name), None)
+    metadata = (plan_entry or {}).get("metadata")
+    if metadata:
+        lines.append(f"Category: {metadata.get('category', 'unknown')}")
+        devices = metadata.get("required_devices") or []
+        lines.append(f"Required devices: {', '.join(devices) if devices else 'none declared'}")
+        lines.append(
+            "Hazard: writes to hardware"
+            if metadata.get("writes")
+            else "Hazard: read-only (no hardware writes declared)"
+        )
+    else:
+        lines.append("Category/devices/hazard: unavailable (no authoring metadata — built-in plan)")
+
+    source_info = _bridge_get_json(base_url, f"/plans/{plan_name}/source")
+    provenance = (source_info or {}).get("provenance") or (plan_entry or {}).get("provenance")
+    if provenance in ("session", "unreviewed"):
+        lines.append(f"Provenance: {provenance.upper()} — AGENT-AUTHORED, NOT REVIEWED BY A HUMAN")
+    elif provenance:
+        lines.append(f"Provenance: {provenance} (operator-supplied)")
+    else:
+        lines.append("Provenance: unknown")
+
+    if source_info is None:
+        lines.append("Validation status: unknown (could not reach the plan-source endpoint)")
+    elif provenance in ("session", "unreviewed"):
+        lines.append(
+            "Validation status: PASSED (content hash matches a recorded validation run)"
+            if source_info.get("validated")
+            else "Validation status: NO PASSING RECORD — would be refused/quarantined at launch"
+        )
+    else:
+        lines.append("Validation status: not applicable (operator-supplied plan)")
+
+    if source_info is not None:
+        source_text = source_info.get("source", "")
+        if source_text:
+            note = " (truncated)" if source_info.get("truncated") else ""
+            lines.append(f"\nPlan source{note}:\n{source_text}")
+
+    return lines
 
 
 def _create_pre_execution_notebook(code: str, exec_mode: str, config: dict) -> str | None:
@@ -371,6 +481,11 @@ def main():
         channel_list = ", ".join(f"{op.get('channel')}={op.get('value')}" for op in channels)
         if channel_list:
             reason_parts.append(f"Channels: {channel_list}")
+    elif short_name == "launch_scan":
+        try:
+            reason_parts.extend(_describe_launch_scan(tool_input, config))
+        except Exception:
+            pass
 
     reason = "\n".join(reason_parts)
     log_hook(
