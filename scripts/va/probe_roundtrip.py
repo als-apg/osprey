@@ -98,10 +98,6 @@ def _ensure_image(runtime: str) -> None:
         [
             runtime,
             "build",
-            "--platform",
-            "linux/amd64",
-            "--build-arg",
-            "TARGET_PLATFORM=linux/amd64",
             "-t",
             IMAGE,
             "-f",

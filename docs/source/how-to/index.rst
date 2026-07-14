@@ -87,6 +87,13 @@ Framework & Infrastructure
       Turn external events — webhooks and cron ticks — into headless Osprey agent
       runs, deployed as containers or run locally.
 
+   .. grid-item-card:: Monitor the Agent
+      :link: monitor-agent
+      :link-type: doc
+
+      Emit the agent's logs and metrics over OTLP to any backend, or deploy the
+      opt-in local OpenObserve store alongside your project.
+
    .. grid-item-card:: CLI Reference
       :link: /cli-reference/index
       :link-type: doc
@@ -152,6 +159,7 @@ Services & Connectors
    non_interactive_query
    use-python-executor
    event-dispatch
+   monitor-agent
    add-connector
    use-channel-finder
    use-virtual-accelerator

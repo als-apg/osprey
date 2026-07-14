@@ -92,6 +92,7 @@ class HealthChecker:
         self.check_python_environment()
 
         self.check_containers()
+        self.check_openobserve()
         self.check_api_providers()
         self.check_claude_cli_version()
 
@@ -533,17 +534,31 @@ class HealthChecker:
             # Don't fail if we can't check registry
             pass
 
-        # Check disk space
+        # Check disk space. Container volumes (incl. the OpenObserve telemetry
+        # store, which has no hard size cap) grow into this filesystem, so report
+        # the percentage used and warn as it fills — the honest "how full" signal.
         try:
             stat = shutil.disk_usage(self.cwd)
             free_gb = stat.free / (1024**3)
+            pct_used = (stat.used / stat.total * 100) if stat.total else 0.0
 
-            if free_gb < 1.0:
-                self.add_result("disk_space", "warning", f"Low disk space: {free_gb:.1f} GB free")
-                console.print(f"  {Messages.warning(f' Low disk space: {free_gb:.1f} GB free')}")
+            if free_gb < 1.0 or pct_used >= 90.0:
+                self.add_result(
+                    "disk_space",
+                    "warning",
+                    f"Disk {pct_used:.0f}% full ({free_gb:.1f} GB free)",
+                    "Container volumes (incl. the OpenObserve store) grow into this disk.",
+                )
+                console.print(
+                    f"  {Messages.warning(f' Disk {pct_used:.0f}% full — {free_gb:.1f} GB free')}"
+                )
             else:
-                self.add_result("disk_space", "ok", f"{free_gb:.1f} GB free")
-                console.print(f"  {Messages.success(f'Disk space: {free_gb:.1f} GB free')}")
+                self.add_result(
+                    "disk_space", "ok", f"Disk {pct_used:.0f}% full ({free_gb:.1f} GB free)"
+                )
+                console.print(
+                    f"  {Messages.success(f'Disk {pct_used:.0f}% full ({free_gb:.1f} GB free)')}"
+                )
         except Exception as e:
             self.add_result("disk_space", "warning", f"Could not check disk space: {e}")
 
@@ -720,6 +735,66 @@ class HealthChecker:
         except Exception as e:
             if self.verbose:
                 console.print(f"  [dim]Could not check container status: {e}[/dim]")
+
+    def check_openobserve(self):
+        """Probe the OpenObserve telemetry store (only when it is deployed).
+
+        Surfaces two signals the generic container check cannot: whether the
+        store answers its readiness endpoint (``running`` != ``ready``), and
+        whether its data volume is growth-bounded. A Docker/Podman named volume
+        has no hard size cap, so growth is bounded by OpenObserve's own
+        retention (``ZO_COMPACT_DATA_RETENTION_DAYS``), surfaced from
+        ``services.openobserve.retention_days``.
+        """
+        import urllib.error
+        import urllib.request
+
+        deployed = self.config.get("deployed_services", []) or []
+        if "openobserve" not in deployed:
+            return
+
+        console.print("\n[bold]OpenObserve Telemetry Store[/bold]")
+
+        oo = (self.config.get("services", {}) or {}).get("openobserve", {}) or {}
+        port = oo.get("port", 5080)
+        bind = (self.config.get("deployment", {}) or {}).get("bind_address", "127.0.0.1")
+
+        # (1) Readiness endpoint — running != ready.
+        url = f"http://{bind}:{port}/healthz"
+        try:
+            with urllib.request.urlopen(url, timeout=5) as resp:  # noqa: S310 (fixed localhost URL)
+                if resp.status == 200:
+                    self.add_result("openobserve_healthz", "ok", f"Store ready ({url})")
+                    console.print(f"  {Messages.success(f'Endpoint ready: {url}')}")
+                else:
+                    self.add_result(
+                        "openobserve_healthz", "warning", f"/healthz returned HTTP {resp.status}"
+                    )
+                    console.print(f"  {Messages.warning(f' /healthz returned HTTP {resp.status}')}")
+        except (urllib.error.URLError, OSError) as e:
+            self.add_result(
+                "openobserve_healthz",
+                "warning",
+                f"Store unreachable at {url}: {e}",
+                "Deploy it with `osprey deploy up`, or check the bind address / port.",
+            )
+            console.print(f"  {Messages.warning(f' Store not reachable at {url}')}")
+
+        # (2) Retention posture — the practical size bound for a capless volume.
+        retention = oo.get("retention_days", 14)  # mirror the compose default
+        if isinstance(retention, int) and retention < 3:
+            self.add_result(
+                "openobserve_retention",
+                "warning",
+                f"retention_days={retention} is below OpenObserve's floor of 3",
+                "OpenObserve will not honor a retention under 3 days.",
+            )
+            console.print(
+                f"  {Messages.warning(f' retention_days={retention} below floor (min 3)')}"
+            )
+        else:
+            self.add_result("openobserve_retention", "ok", f"Retention: {retention} day(s)")
+            console.print(f"  {Messages.success(f'Data retention: {retention} day(s)')}")
 
     def check_api_providers(self):
         """Check API provider configurations and connectivity."""

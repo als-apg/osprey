@@ -8,11 +8,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 from pathlib import Path
 from typing import Any
 
+from osprey.interfaces.web_terminal.env_utils import build_base_child_env
 from osprey.interfaces.web_terminal.sdk_context import build_system_prompt
 from osprey.utils.config import get_facility_timezone
 
@@ -136,28 +136,17 @@ def _message_to_events(message: Any) -> list[dict[str, Any]]:
 def build_clean_env(project_cwd: str | None = None) -> dict[str, str]:
     """Build a clean environment dict for the SDK subprocess.
 
-    Mirrors the logic in ``pty_manager.py`` — strips ``CLAUDECODE``/``CLAUDE_CODE_*``
-    variables and resolves auth token conflicts.
+    Layers the SDK-specific keys on top of :func:`build_base_child_env` (which
+    strips ``CLAUDECODE``/``CLAUDE_CODE_*`` variables while preserving the
+    telemetry master switch, resolves the auth-token conflict, and augments
+    ``PATH``): auto-sets ``OSPREY_CONFIG`` from the project directory.
 
     Args:
         project_cwd: Optional project directory. When ``OSPREY_CONFIG`` is not
             already set and this directory contains ``config.yml``, the variable
             is set automatically so hooks can locate the configuration.
     """
-    env = {k: v for k, v in os.environ.items() if not k.startswith(("CLAUDECODE", "CLAUDE_CODE_"))}
-
-    # When token-based auth is configured, strip ANTHROPIC_API_KEY to
-    # prevent the "auth conflict" warning.
-    if env.get("ANTHROPIC_AUTH_TOKEN"):
-        env.pop("ANTHROPIC_API_KEY", None)
-
-    # Augment PATH with user-local bin dirs (e.g. ~/.local/bin) so operator
-    # child processes can find their dependencies in non-login contexts.
-    from osprey.utils.shell_resolver import user_bin_dirs
-
-    extra_dirs = user_bin_dirs()
-    if extra_dirs:
-        env["PATH"] = os.pathsep.join(extra_dirs) + os.pathsep + env.get("PATH", "")
+    env = build_base_child_env()
 
     # Auto-set OSPREY_CONFIG when a config.yml exists in the project directory
     if "OSPREY_CONFIG" not in env and project_cwd:

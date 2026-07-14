@@ -1090,10 +1090,14 @@ def _locate_pkg_services() -> Path:
 def _copy_service_templates(project_path: Path) -> int:
     """Copy service compose templates from the OSPREY package into the project.
 
-    Reads ``deployed_services`` from the generated config.yml and copies each
-    service's compose template directory from the package to the project's
-    ``services/`` tree.  This makes the project self-contained so that
-    ``osprey deploy up`` works directly from the project directory.
+    Copies each service's compose template directory from the package to the
+    project's ``services/`` tree for the UNION of ``deployed_services`` and
+    every service merely DECLARED under ``services:`` that ships a package
+    template.  This makes the project self-contained so that ``osprey deploy
+    up`` works directly from the project directory, and — crucially — bundles
+    opt-in add-ons (declared but not deployed) so they can be switched on later
+    via a ``deployed_services`` edit + ``osprey deploy up`` without rebuilding.
+    A bundled-but-not-deployed template is inert until deployed.
 
     Returns:
         Number of service template directories copied.
@@ -1125,16 +1129,28 @@ def _copy_service_templates(project_path: Path) -> int:
     if root_template.exists():
         shutil.copy2(root_template, dest_services_root / "docker-compose.yml.j2")
 
-    deployed = config.get("deployed_services", [])
-    if not deployed:
-        return 0
-
     services_config = config.get("services", {})
 
-    count = 0
-    for service_name in deployed:
-        name = str(service_name)
+    # Bundle the UNION of deployed services and every service merely DECLARED
+    # under `services:`.  deployed_services come first (preserving prior
+    # behavior exactly), then any declared key not already present.  Bundling a
+    # declared-but-not-deployed template keeps it inert until deployed, so
+    # opt-in add-ons (e.g. the openobserve telemetry backend) can be turned on
+    # later via a `deployed_services` edit + `osprey deploy up`, no rebuild.
+    deployed = [str(s) for s in config.get("deployed_services", [])]
+    names = list(deployed)
+    for declared in services_config:
+        name = str(declared)
+        if name not in names:
+            names.append(name)
 
+    if not names:
+        return 0
+
+    deployed_set = set(deployed)
+
+    count = 0
+    for name in names:
         # Resolve package source directory
         parts = name.split(".")
         if parts[0] == "osprey" and len(parts) == 2:
@@ -1146,7 +1162,12 @@ def _copy_service_templates(project_path: Path) -> int:
             continue
 
         if not src_dir.is_dir():
-            logger.warning("No package template for service %r at %s", name, src_dir)
+            # A declared-but-not-deployed service may legitimately ship no
+            # package template (e.g. facility-injected elsewhere) — skip it
+            # silently.  Only warn when a *deployed* service is missing its
+            # template, which would break `osprey deploy up`.
+            if name in deployed_set:
+                logger.warning("No package template for service %r at %s", name, src_dir)
             continue
 
         # Determine destination from the service config's path field
@@ -1534,8 +1555,9 @@ def _inject_va(va: VAConfig, project_path: Path) -> None:
     )
     logger.info(
         "    Images:     `osprey deploy up` builds the virtual-accelerator image "
-        "locally (first run is slow, and only on linux/amd64 — PyAT/softioc have "
-        "no aarch64 wheels). Use `--dev` to bake in your local osprey checkout; "
+        "locally for your native architecture (first run is slow — the native deps "
+        "PyAT/softioc are compiled from source, so no prebuilt aarch64 wheels are "
+        "needed). Use `--dev` to bake in your local osprey checkout; "
         "set OSPREY_VA_IMAGE to use a published image."
     )
 

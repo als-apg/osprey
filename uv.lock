@@ -17,7 +17,7 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-07-05T18:49:47.257244Z"
+exclude-newer = "2026-07-07T05:14:43.699559Z"
 exclude-newer-span = "P7D"
 
 [[package]]
@@ -3734,6 +3734,7 @@ dependencies = [
     { name = "scikit-learn" },
     { name = "scipy" },
     { name = "seaborn" },
+    { name = "softioc" },
     { name = "tenacity" },
     { name = "typing-extensions" },
     { name = "unique-namer" },
@@ -3829,9 +3830,6 @@ screen-capture-linux = [
 ]
 sheets = [
     { name = "gspread" },
-]
-virtual-accelerator = [
-    { name = "softioc" },
 ]
 
 [package.metadata]
@@ -3930,7 +3928,7 @@ requires-dist = [
     { name = "scikit-learn" },
     { name = "scipy", specifier = ">=1.15.3" },
     { name = "seaborn" },
-    { name = "softioc", marker = "extra == 'virtual-accelerator'" },
+    { name = "softioc" },
     { name = "sphinx", marker = "extra == 'all'", specifier = ">=8.0.0" },
     { name = "sphinx", marker = "extra == 'docs'", specifier = ">=8.0.0" },
     { name = "sphinx-autobuild", marker = "extra == 'all'" },

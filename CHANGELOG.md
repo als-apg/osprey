@@ -13,6 +13,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Added
 
+- **Agent telemetry over OpenTelemetry (opt-in)** — a `claude_code.telemetry` block in `config.yml` (off by default) makes the OSPREY agent emit its operational logs and metrics over OTLP to any OpenTelemetry-compatible backend, from every launch path (CLI chat, Web Terminal, dispatch worker, SDK). An optional local **OpenObserve** backend ships as an opt-in `osprey deploy` add-on (add `openobserve` to `deployed_services`) — a single public container that ingests OTLP and serves a browser UI, with ingest auth bootstrapped from the same `.env` credentials it uses for its admin login. Full-content capture (prompts, responses, tool calls, raw provider bodies) defaults on for the local air-gapped store and is per-key configurable. See the "Monitor Your OSPREY Agent" how-to.
 - **Per-surface dispatch differentiation** — a trigger's `action.surface_prompt` appends a static awareness fragment to the dispatched agent's system prompt, and an optional per-surface tool scope narrows (never widens) the trigger's `allowed_tools`. Both are no-ops when unset, so existing triggers behave exactly as before.
 - Every OSPREY browser interface — Web Terminal, Artifacts, ARIEL, Channel Finder, the Lattice dashboard, the event dispatch dashboard, the KNOWLEDGE (facility-knowledge) panel, and the session activity/safety pages — now themes itself from one shared design-token system with dark, light, and `auto` (follows your OS color-scheme preference) modes. See the "Theming" how-to for adding a new theme or wiring a new interface into it.
 - Themes are now grouped into **families** — a family is a `{light, dark}` pair. Alongside the existing `osprey` family, a new WCAG-AAA `high-contrast` family ships out of the box. The theme switcher now picks a family, and toggling light/dark stays within the active family. A new `web.theme` key under `config.yml`'s `web:` section sets the default family (or a specific theme) the Web Terminal server-renders on first paint, independent of the CLI's own `cli.theme`. See the "Theming" how-to for authoring a new theme or family.
@@ -32,6 +33,8 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Changed
 
+- `osprey build` now bundles the compose template for every service *declared* under `services:`, not only those in `deployed_services`. An opt-in deploy add-on can therefore be enabled later by adding it to `deployed_services` and running `osprey deploy up`, with no rebuild; a bundled-but-not-deployed template is inert until deployed.
+- The Virtual Accelerator image now builds for the host's native architecture instead of pinning `linux/amd64`. On Apple Silicon it compiles `accelerator-toolbox`/`softioc` from source at build time (a slower first build) and then runs natively with no x86 emulation; on x86_64 it installs the prebuilt wheels as before. A single-arch `amd64` published image on an arm64 host must supply its own `platform` override.
 - **The event-dispatch worker now runs the full project image** instead of a lean image that rebuilt its `.claude` artifacts from `config.yml` at startup. Dispatched agents now see the same facility overlays (custom skills, agents, and rules) and `data/` files as the Web Terminal agent, by construction — previously overlays and `data/` were silently absent from dispatched runs. `osprey deploy up` builds the project image (`<project>:local`; `--dev` installs the locally built wheel) and the worker references it via `OSPREY_WORKER_IMAGE`. **Requires rebuilding the dispatch worker image on redeploy.**
 - `claude-agent-sdk` upgraded to 0.2.110 (bundles CLI 2.1.191); `uv.lock` regenerated (#311).
 - README rewritten: corrected the connector claim (EPICS and Mock ship in-tree; other stacks use the connector interface), fixed the `osprey skills install` quickstart command, and removed stale release and conference notices. The PyPI package description now matches the documentation.
@@ -67,6 +70,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Toggling the theme (in the Web Terminal hub or any standalone interface) no longer leaves a stale `?theme=` in the URL; reloading after a toggle now falls back to your saved preference (or the OS setting in `auto` mode) instead of being pinned to whatever value was in the URL at toggle time.
 - Creating a new artifact from the Web Terminal's Scaffold gallery no longer fails with an HTTP 405 — the create-artifact request now uses `POST` directly instead of being routed through a GET-only fetch helper.
 - Artifacts gallery: filter chips no longer accumulate click listeners across live-refresh cycles, and a failed Plotly script load is retried on the next chart render instead of failing for the rest of the page's lifetime.
+- Deployed service containers are now named `<project>-<service>` (e.g. `<project>-ariel-postgres`, `<project>-virtual-accelerator`, `<project>-bluesky-bridge`) instead of host-global names, so two OSPREY projects can deploy the same services on one host concurrently without colliding on a container name. In-network service discovery is unaffected (it uses the compose service key, not the container name); the `ariel-postgres` DSN hostname is preserved via a network alias.
 
 ### Security
 
@@ -101,6 +105,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- The Web Terminal's panel nav bar (WORKSPACE, ARIEL, CHANNELS, LATTICE, …) now scrolls horizontally when the tabs outgrow the header instead of letting the trailing tabs get clipped or slide under the header action buttons on a narrow viewport; the scroll has no visible scrollbar and the action buttons stay pinned on the right.
 - ARIEL `semantic_search` now degrades gracefully when semantic search is unavailable (no pgvector table / Ollama) — returns an empty result steering the agent to `keyword_search` instead of a tool failure (#276).
 - Workspace gallery now shows new artifacts without a manual refresh: the store index is written atomically (temp file + `os.replace`) and the watcher detects the rename (`on_moved`), so a cross-process reader no longer reads a half-written file (#289).
 - Channel Finder in-context Explore filter now searches the whole database and re-chunks results, instead of filtering only the displayed page (a match on a later page previously read as "No channels match the filter") (#299).

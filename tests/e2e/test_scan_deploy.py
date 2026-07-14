@@ -71,7 +71,12 @@ import pytest
 BRIDGE_PORT = 18090
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 BRIDGE_IMAGE = "osprey-bluesky-bridge:local"
-BRIDGE_CONTAINER = "osprey-bluesky-bridge"
+# The fixture builds/deploys under this project name; the compose template
+# renders the bridge container_name as ``<project>-bluesky-bridge``
+# (services/bluesky/docker-compose.yml.j2), so derive it rather than hardcode a
+# host-global name that breaks the moment the template is namespaced per-project.
+PROJECT_NAME = "proj"
+BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
 
 DEPLOY_UP_TIMEOUT_SEC = 600
 HEALTH_TIMEOUT_SEC = 120.0
@@ -126,13 +131,13 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     """Build + ``osprey deploy up --dev`` a bluesky-bridge-enabled project; tear down after."""
     osprey_bin = _find_osprey_console_script()
     base = tmp_path_factory.mktemp("scan_deploy_build")
-    project_dir = base / "proj"
+    project_dir = base / PROJECT_NAME
 
     build = _run(
         [
             str(osprey_bin),
             "build",
-            "proj",
+            PROJECT_NAME,
             "--preset",
             "hello-world",
             "--set",

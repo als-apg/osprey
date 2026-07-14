@@ -23,7 +23,12 @@ services:
     # is pulled normally instead.
     depends_on:
       - event-dispatcher
-    container_name: osprey-dispatch-worker-{{ i }}
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy workers on one host without colliding on
+    # one name. The dispatcher routes to the compose service key
+    # `dispatch-worker-{{ i }}` (see tutorial_triggers.yml dispatch_target),
+    # unchanged here — so this rename needs no network alias.
+    container_name: {{ osprey_labels.project_name }}-dispatch-worker-{{ i }}
     command: ["python", "-m", "osprey.mcp_server.dispatch_worker"]
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
@@ -57,6 +62,12 @@ services:
       # (python_env_path stripped), not the copy baked into the image.
       CONFIG_FILE: /app/{{ osprey_labels.project_name }}/config.yml
       TZ: {{ system.timezone }}
+      # OpenObserve telemetry (opt-in): the worker and its CLI subprocess run on
+      # this bridge network, so the store is reachable by its compose service
+      # DNS name, not localhost. Declaring the host here — rather than sniffing
+      # the container runtime — is what makes emit work under docker AND podman.
+      # Inert unless claude_code.telemetry is enabled with backend: openobserve.
+      OSPREY_OTEL_OPENOBSERVE_HOST: openobserve
     # Bind-mount source is relative to the compose project directory
     # (build/services/), not this service's subdir — hence the dispatch_worker/ prefix.
     volumes:

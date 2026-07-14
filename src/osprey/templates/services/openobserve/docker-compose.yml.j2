@@ -1,0 +1,62 @@
+# Opt-in local telemetry backend for the OSPREY agent. OpenObserve is a
+# single-binary logs/traces/metrics store that speaks OTLP natively, so the
+# agent can emit its telemetry to it directly (see the `claude_code.telemetry`
+# block in config.yml and docs/how-to/monitor-agent.rst). Unlike the framework's
+# own services this pulls a single PUBLIC upstream image — there is no Dockerfile,
+# no wheel, and no osprey source baked in.
+#
+# The pinned image tag is overridable via OSPREY_OPENOBSERVE_IMAGE (e.g.
+# OSPREY_OPENOBSERVE_IMAGE=my-registry/openobserve:dev). Pin a digest in
+# production if you need byte-for-byte reproducibility.
+#
+# Root credentials double as the OTLP ingest credentials: ZO_ROOT_USER_EMAIL /
+# ZO_ROOT_USER_PASSWORD configure the single admin account AND authenticate the
+# agent's OTLP push. Set them once in the project .env so the compose service and
+# the agent's telemetry resolver read the SAME values (single source of truth) —
+# the `${VAR:-default}` form below falls back to a dev default when unset, which
+# you MUST override before exposing the store beyond localhost.
+
+services:
+  openobserve:
+    image: ${OSPREY_OPENOBSERVE_IMAGE:-public.ecr.aws/zinclabs/openobserve:v0.14.4}
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy the telemetry store on one host without
+    # colliding on one name. The emitter reaches this service by its compose
+    # service key `openobserve` (OSPREY_OTEL_OPENOBSERVE_HOST for an in-network
+    # worker) or the published localhost port — never the container name — so
+    # this rename needs no network alias.
+    container_name: {{ osprey_labels.project_name }}-openobserve
+    labels:
+      osprey.project.name: "{{ osprey_labels.project_name }}"
+      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+    restart: unless-stopped
+    ports:
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ (services.openobserve | default({})).port | default(5080) }}:5080/tcp"
+    environment:
+      # Single-admin root account. These same credentials authenticate the
+      # agent's OTLP ingest, so they must match what the telemetry resolver
+      # sends — hence sourcing both from the project .env (overridable defaults).
+      ZO_ROOT_USER_EMAIL: ${ZO_ROOT_USER_EMAIL:-root@example.com}
+      ZO_ROOT_USER_PASSWORD: ${ZO_ROOT_USER_PASSWORD:-Complexpass#123}
+      # Persist all ingested data to the mounted named volume. OpenObserve
+      # defaults ZO_DATA_DIR to ./data/openobserve/ (relative to the container
+      # CWD); pin it to the volume mount point so persistence is deterministic.
+      ZO_DATA_DIR: /data
+      # Growth bound. A Docker/Podman NAMED VOLUME has no portable hard size cap,
+      # so the store is bounded by AGE, not bytes: OpenObserve drops data older
+      # than this many days. Sourced from services.openobserve.retention_days
+      # (default 14). OpenObserve's own floor is 3 days; its default is 3650
+      # (~10y, effectively unbounded), which we override to a sane local value.
+      ZO_COMPACT_DATA_RETENTION_DAYS: "{{ (services.openobserve | default({})).retention_days | default(14) }}"
+      TZ: {{ system.timezone }}
+    volumes:
+      - openobserve_data:/data
+    networks:
+      - osprey-network
+
+volumes:
+  openobserve_data:
+
+networks:
+  osprey-network:
