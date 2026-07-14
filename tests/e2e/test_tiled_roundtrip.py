@@ -23,7 +23,7 @@ vacuously.
 Container safety: every docker invocation below names an exact container or
 image — never a wildcard, never ``system prune``/``--volumes``. Teardown
 goes through ``osprey deploy down``, never a raw ``docker rm`` sweep. The
-restart step names ``osprey-bluesky-bridge`` only; ``osprey deploy restart``
+restart step names the ``<project>-bluesky-bridge`` container only; ``osprey deploy restart``
 is never used here because it bounces every service, including Tiled, which
 would defeat the whole proof.
 
@@ -56,8 +56,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 BRIDGE_PORT = 18101
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 BRIDGE_IMAGE = "osprey-bluesky-bridge:local"
-BRIDGE_CONTAINER = "osprey-bluesky-bridge"
-TILED_CONTAINER = "osprey-bluesky-tiled"
+# The fixture builds/deploys under this project name; the compose template
+# renders each container_name as ``<project>-<service>``
+# (services/bluesky/docker-compose.yml.j2), so derive them rather than hardcode
+# host-global names that break the moment the template is namespaced per-project.
+PROJECT_NAME = "proj"
+BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
+TILED_CONTAINER = f"{PROJECT_NAME}-bluesky-tiled"
 
 # The demo scanner's mock device factory (devices/mock.py's build_devices())
 # defaults to a single "det1" MockDetector when the bridge's app.py lifespan
@@ -133,7 +138,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     """Build + co-deploy the bridge and Tiled; yield the project directory."""
     osprey_bin = _find_osprey_console_script()
     base = tmp_path_factory.mktemp("tiled_roundtrip_build")
-    project_dir = base / "proj"
+    project_dir = base / PROJECT_NAME
 
     # `dispatch: null` drops control-assistant's default event-dispatcher
     # stack (Node + Claude CLI image) -- irrelevant to this proof and far
@@ -166,7 +171,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         [
             str(osprey_bin),
             "build",
-            "proj",
+            PROJECT_NAME,
             "--preset",
             "control-assistant",
             "--override",

@@ -80,14 +80,19 @@ HOST_CA_RESULT_MARKER = "__HOST_CA_RESULT__"
 # at this value, or the two silently drift apart.
 VA_CA_PORT = 5064
 VA_IMAGE = "osprey-va:local"
-VA_CONTAINER = "osprey-virtual-accelerator"
+# The fixture builds/deploys under this project name; the compose templates
+# render each service's container_name as ``<project>-<service>``
+# (services/*/docker-compose.yml.j2), so derive them rather than hardcode
+# host-global names that break the moment the templates are namespaced per-project.
+PROJECT_NAME = "proj"
+VA_CONTAINER = f"{PROJECT_NAME}-virtual-accelerator"
 
 # Deliberately non-default (avoids colliding with test_scan_deploy.py's 18090
 # on a shared dev machine — see that module's docstring).
 BRIDGE_PORT = 18099
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 BRIDGE_IMAGE = "osprey-bluesky-bridge:local"
-BRIDGE_CONTAINER = "osprey-bluesky-bridge"
+BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
 
 # Device names wired into the bridge via BLUESKY_EPICS_MOTORS/_DETECTORS —
 # arbitrary, resolved against explicit PV addresses (see _write_scan_env
@@ -266,7 +271,7 @@ class DeployedStack:
 def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedStack]:
     osprey_bin = _find_osprey_console_script()
     base = tmp_path_factory.mktemp("va_substrate_build")
-    project_dir = base / "proj"
+    project_dir = base / PROJECT_NAME
 
     # Extends control-assistant (which already ships data/simulation/machine.json
     # + channel_limits.json) with the one flag it doesn't default to: the
@@ -289,7 +294,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         [
             str(osprey_bin),
             "build",
-            "proj",
+            PROJECT_NAME,
             "--preset",
             "control-assistant",
             "--override",

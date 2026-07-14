@@ -958,3 +958,202 @@ def test_host_python_env_path_would_bake_host_interpreter_into_mcp_command() -> 
         controls_server = next(s for s in ctx["servers"] if s["name"] == "controls")
         assert controls_server["command"] == host_python
         assert controls_server["command"] != sys.executable
+
+
+# ---------------------------------------------------------------------------
+# postgresql service: per-project container_name (concurrent-deploy safety)
+#
+# `container_name` is a HOST-GLOBAL docker identifier, so two OSPREY projects
+# deploying postgres on one host collide on a hardcoded name (they serialize on
+# the build/up). The service key `postgresql` doubles as the intra-network DNS
+# name, but the ARIEL DSN (`postgresql://ariel:ariel@ariel-postgres:5432/ariel`)
+# resolves the host `ariel-postgres`, which today works ONLY because it is the
+# container_name. Namespacing the container_name per-project must therefore keep
+# `ariel-postgres` resolvable via an explicit network alias, or every in-network
+# DSN consumer breaks with "could not translate host name".
+# ---------------------------------------------------------------------------
+def _render_postgres_template(project_name: str) -> str:
+    from importlib import resources
+
+    from jinja2 import Template
+
+    tpl = resources.files("osprey").joinpath("templates/services/postgresql/docker-compose.yml.j2")
+    template = Template(tpl.read_text(encoding="utf-8"))
+    return template.render(
+        services={"postgresql": {"port_host": 5432}},
+        deployment={},
+        system={"timezone": "UTC"},
+        osprey_labels={
+            "project_name": project_name,
+            "project_root": f"/r/{project_name}",
+            "deployed_at": "now",
+        },
+        osprey_version="",
+    )
+
+
+def test_postgres_container_name_is_project_namespaced() -> None:
+    """Two projects render distinct, project-scoped postgres container names.
+
+    A hardcoded `container_name: ariel-postgres` is host-global, so two projects
+    deploying postgres on one host collide and serialize. The name must carry the
+    project so concurrent deploys don't fight over one identifier.
+    """
+    svc_a = yaml.safe_load(_render_postgres_template("proj-a"))["services"]["postgresql"]
+    svc_b = yaml.safe_load(_render_postgres_template("proj-b"))["services"]["postgresql"]
+
+    assert svc_a["container_name"] == "proj-a-ariel-postgres", svc_a["container_name"]
+    assert svc_b["container_name"] == "proj-b-ariel-postgres", svc_b["container_name"]
+    assert svc_a["container_name"] != svc_b["container_name"], (
+        "two projects must get distinct postgres container names or they collide "
+        "on one host and cannot deploy concurrently"
+    )
+
+
+def test_postgres_preserves_ariel_postgres_dns_alias() -> None:
+    """`ariel-postgres` stays resolvable as a network alias after namespacing.
+
+    The default ARIEL DSN hosts `ariel-postgres`; namespacing the container_name
+    must not break that hostname. An explicit `ariel-postgres` alias on
+    osprey-network keeps in-network DSN consumers resolving regardless of the
+    now-unique container_name.
+    """
+    svc = yaml.safe_load(_render_postgres_template("proj-a"))["services"]["postgresql"]
+
+    aliases = svc["networks"]["osprey-network"]["aliases"]
+    assert "ariel-postgres" in aliases, (
+        "postgres must keep the `ariel-postgres` network alias so the ARIEL DSN "
+        f"hostname resolves after the container_name is namespaced; got {aliases}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# sibling system-1 services: per-project container_name (concurrent-deploy safety)
+#
+# Every deployed system-1 service shares postgres's problem: `container_name` is
+# a HOST-GLOBAL docker identifier, so two OSPREY projects deploying the same
+# service on one host collide on a hardcoded name and cannot come up
+# concurrently. Unlike postgres, these siblings are reached IN-NETWORK only by
+# their compose *service key* (`virtual-accelerator`, `event-dispatcher`,
+# `dispatch-worker-1`, `bluesky-bridge`, `tiled`) — never by container_name — so
+# namespacing the container_name needs no network alias. The service key (and
+# thus every depends_on / EPICS_CA_NAME_SERVERS / tiled URI / dispatch route)
+# is left untouched; only the host-global container_name is namespaced.
+# ---------------------------------------------------------------------------
+def _render_service_template(rel_path: str, project_name: str, **overrides: object) -> str:
+    """Render a service compose template with a broad, sibling-agnostic context.
+
+    Mirrors ``_render_postgres_template`` but generalized: it supplies enough
+    context for any system-1 service template and lets a caller override any top
+    key (e.g. ``services`` to flip ``tiled_enabled`` or bump ``worker_count``).
+    """
+    from importlib import resources
+
+    from jinja2 import Template
+
+    tpl = resources.files("osprey").joinpath(f"templates/services/{rel_path}")
+    template = Template(tpl.read_text(encoding="utf-8"))
+    ctx: dict = {
+        "services": {
+            "virtual_accelerator": {"port": 5064},
+            "event_dispatcher": {"port": 8020},
+            "dispatch_worker": {"worker_count": 1, "workspace_mode": "isolated"},
+            "bluesky": {"port": 8090},
+        },
+        "deployment": {},
+        "system": {"timezone": "UTC"},
+        "osprey_labels": {
+            "project_name": project_name,
+            "project_root": f"/r/{project_name}",
+            "deployed_at": "now",
+        },
+        "osprey_version": "",
+        "osprey_env_present": False,
+        "deployed_services": [],
+        "control_system": {},
+    }
+    ctx.update(overrides)
+    return template.render(**ctx)
+
+
+# (template rel-path, compose service key, expected container_name suffix, render overrides)
+_SIBLING_SERVICES = [
+    ("virtual_accelerator/docker-compose.yml.j2", "virtual-accelerator", "virtual-accelerator", {}),
+    ("event_dispatcher/docker-compose.yml.j2", "event-dispatcher", "event-dispatcher", {}),
+    ("dispatch_worker/docker-compose.yml.j2", "dispatch-worker-1", "dispatch-worker-1", {}),
+    ("bluesky/docker-compose.yml.j2", "bluesky-bridge", "bluesky-bridge", {}),
+    (
+        "bluesky/docker-compose.yml.j2",
+        "tiled",
+        "bluesky-tiled",
+        {"services": {"bluesky": {"port": 8090, "tiled_enabled": True}}},
+    ),
+]
+
+
+@pytest.mark.parametrize(
+    ("rel_path", "service_key", "suffix", "overrides"),
+    _SIBLING_SERVICES,
+    ids=[s[1] for s in _SIBLING_SERVICES],
+)
+def test_sibling_container_name_is_project_namespaced(
+    rel_path: str, service_key: str, suffix: str, overrides: dict
+) -> None:
+    """Two projects render distinct, project-scoped sibling container names.
+
+    A hardcoded `container_name: osprey-<svc>` is host-global, so two projects
+    deploying the same service on one host collide and cannot deploy
+    concurrently. Every system-1 service must carry the project in its
+    container_name, exactly as postgres does.
+    """
+    svc_a = yaml.safe_load(_render_service_template(rel_path, "proj-a", **overrides))
+    svc_b = yaml.safe_load(_render_service_template(rel_path, "proj-b", **overrides))
+
+    name_a = svc_a["services"][service_key]["container_name"]
+    name_b = svc_b["services"][service_key]["container_name"]
+
+    assert name_a == f"proj-a-{suffix}", name_a
+    assert name_b == f"proj-b-{suffix}", name_b
+    assert name_a != name_b, (
+        f"two projects must get distinct `{suffix}` container names or they "
+        "collide on one host and cannot deploy concurrently"
+    )
+
+
+def test_sibling_container_names_carry_no_stale_osprey_prefix() -> None:
+    """No system-1 sibling template ships a bare host-global `osprey-<svc>` name.
+
+    Guards against a future service (or a reverted edit) reintroducing the
+    static prefix that defeats compose's per-project scoping.
+    """
+    for rel_path, service_key, _suffix, overrides in _SIBLING_SERVICES:
+        svc = yaml.safe_load(_render_service_template(rel_path, "proj-a", **overrides))
+        container_name = svc["services"][service_key]["container_name"]
+        assert not container_name.startswith("osprey-"), (
+            f"{service_key} still renders a host-global `{container_name}`; "
+            "namespace it with the project name"
+        )
+
+
+def test_multi_worker_dispatch_container_names_are_each_namespaced() -> None:
+    """Every dispatch worker replica gets its own project-scoped container name.
+
+    The worker service is a Jinja `for` loop over `worker_count`; namespacing
+    must apply per-replica, not just to worker-1.
+    """
+    rendered = yaml.safe_load(
+        _render_service_template(
+            "dispatch_worker/docker-compose.yml.j2",
+            "proj-a",
+            services={"dispatch_worker": {"worker_count": 2, "workspace_mode": "isolated"}},
+        )
+    )
+    names = {
+        key: svc["container_name"]
+        for key, svc in rendered["services"].items()
+        if key.startswith("dispatch-worker-")
+    }
+    assert names == {
+        "dispatch-worker-1": "proj-a-dispatch-worker-1",
+        "dispatch-worker-2": "proj-a-dispatch-worker-2",
+    }, names

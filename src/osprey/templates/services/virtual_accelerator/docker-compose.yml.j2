@@ -27,7 +27,12 @@ services:
       dockerfile: Dockerfile
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
-    container_name: osprey-virtual-accelerator
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy the VA on one host without colliding on
+    # one name. In-network consumers reach this service by its compose service
+    # key `virtual-accelerator` (EPICS_CA_NAME_SERVERS, depends_on) — unchanged
+    # here — so unlike postgres this rename needs no network alias.
+    container_name: {{ osprey_labels.project_name }}-virtual-accelerator
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
       osprey.project.root: "{{ osprey_labels.project_root }}"
