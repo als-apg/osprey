@@ -444,10 +444,20 @@ claude_code:
 
 
 def _isolated_environ(monkeypatch, tmp_path, **extra):
-    """Swap os.environ for a throwaway dict so the function's mutations don't leak."""
+    """Swap os.environ for a throwaway dict so the function's mutations don't leak.
+
+    Also strips any ambient telemetry vars: CI exports OTEL_*/
+    CLAUDE_CODE_ENABLE_TELEMETRY for its own agent runs, and these tests assert on
+    the telemetry env THIS function does (or does not) inject, so the baseline
+    must start free of inherited telemetry state.
+    """
+    from osprey.cli.claude_code_telemetry import TELEMETRY_ENV_VARS
+
     fake = dict(os.environ)
     fake["OSPREY_PROJECT_DIR"] = str(tmp_path)
     fake.pop("ANTHROPIC_BASE_URL", None)
+    for _var in TELEMETRY_ENV_VARS:
+        fake.pop(_var, None)
     fake.update(extra)
     monkeypatch.setattr(os, "environ", fake)
     return fake
