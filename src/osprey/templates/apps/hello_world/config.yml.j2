@@ -179,13 +179,22 @@ artifact_server:
 # actually launch it with `osprey deploy up`.
 
 services:
-  # Opt-in local telemetry backend for the OSPREY agent — a single-binary
-  # OTLP logs/traces store (see docs/how-to/monitor-agent.rst). Declared here
-  # so `osprey health` accepts it; it stays OFF until you opt in by adding
-  # `- openobserve` to a `deployed_services:` list.
+  # Local telemetry backend for the OSPREY agent — a single-binary OTLP
+  # logs/metrics store (see the `telemetry:` block under `claude_code:` below
+  # and docs/how-to/monitor-agent.rst). Deployed by default: the agent emits its
+  # telemetry here, so `osprey deploy up` + `osprey web` gives you a working,
+  # queryable observability store out of the box. Bound to localhost. This is the
+  # only container this minimal template deploys, so `osprey deploy up` needs a
+  # container runtime (Docker/podman) running.
   openobserve:
     path: ./services/openobserve
     port: 5080          # Host port for the OpenObserve UI + OTLP ingest
+    retention_days: 14  # Growth bound: drop data older than N days (min 3). A
+                        # named volume has no size cap, so age is the size knob.
+
+# Services to deploy with `osprey deploy up`
+deployed_services:
+  - openobserve
 
 # ============================================================
 # CLAUDE CODE INTEGRATION
@@ -202,3 +211,33 @@ claude_code:
     logbook-deep-research: {enabled: false}
   provider: {{ default_provider }}
   default_model: {{ default_model | default("haiku") }}
+
+  # ── Telemetry / Observability (on by default, local + loopback-bound) ──
+  # The agent emits OTLP logs + metrics to the co-deployed OpenObserve store
+  # (declared in `services:` and listed in `deployed_services:` above; UI at
+  # http://localhost:5080). On by default: the underlying harness already records
+  # every prompt, response, and API body to disk, so this adds no new exposure —
+  # it just makes that data queryable in a local store you own. To turn it off,
+  # set `enabled: false`. Tracing and OTEL_LOG_TOOL_CONTENT are intentionally
+  # NOT wired. See docs/how-to/monitor-agent.rst.
+  telemetry:
+    enabled: true                        # Master switch
+    backend: openobserve                 # openobserve | generic
+    protocol: http/protobuf              # http/protobuf | grpc
+    # backend: openobserve auto-derives the endpoint per network context, so
+    # `endpoint` is intentionally OMITTED. OpenObserve auth reads the root
+    # credentials from the project .env — the SAME values the openobserve service
+    # reads — so container and agent auth stay in sync. `osprey deploy up` mints a
+    # strong ZO_ROOT_USER_PASSWORD into .env; the ${VAR:-default} fallbacks keep
+    # the agent launchable before the first deploy.
+    openobserve:
+      user: ${ZO_ROOT_USER_EMAIL:-root@example.com}
+      password: ${ZO_ROOT_USER_PASSWORD:-Complexpass#123}
+      org: default
+    # Content gates — all default ON. The store is local and loopback-bound, so
+    # full capture is the default posture; set any to false to suppress that
+    # category.
+    log_user_prompts: true               # Operator chat prompts
+    log_assistant_responses: true        # Agent replies
+    log_tool_details: true               # Tool names + arguments
+    log_raw_api_bodies: true             # Raw provider request/response bodies

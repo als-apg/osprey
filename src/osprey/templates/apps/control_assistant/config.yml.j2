@@ -131,6 +131,11 @@ services:
   openobserve:
     path: ./services/openobserve
     port: 5080          # Host port for the OpenObserve UI + OTLP ingest
+    retention_days: 14  # Growth bound: drop telemetry older than N days. A named
+                        # volume has no hard size cap, so age-based retention is
+                        # the "size" knob (min 3; OpenObserve default is ~10y).
+                        # `osprey health` reports this and warns if the backing
+                        # disk fills.
 
 # Services to deploy with `osprey deploy up`
 deployed_services:
@@ -638,14 +643,16 @@ claude_code:
   #   logbook-search: haiku
   #   logbook-deep-research: sonnet
   #
-  # ── Telemetry / Observability (LIVE in this reference facility) ──
-  # control_assistant ships telemetry ON so `osprey deploy up` + `osprey web`
-  # produces a working, production-shaped wiring you can copy into your own
-  # facility: the agent emits OTLP logs + metrics to the co-deployed
-  # OpenObserve store (declared in `services:` and listed in
-  # `deployed_services:` above; UI at http://localhost:5080). Tracing and
-  # OTEL_LOG_TOOL_CONTENT are intentionally NOT wired. See
-  # docs/how-to/monitor-agent.rst.
+  # ── Telemetry / Observability (on by default, local + loopback-bound) ──
+  # Like every OSPREY template, this facility ships telemetry ON: `osprey deploy
+  # up` + `osprey web` produces a working, production-shaped wiring where the
+  # agent emits OTLP logs + metrics to the co-deployed OpenObserve store
+  # (declared in `services:` and listed in `deployed_services:` above; UI at
+  # http://localhost:5080). On by default: the underlying harness already records
+  # every prompt, response, and API body to disk, so this adds no new exposure —
+  # it just makes that data queryable in a local store you own. To turn it off,
+  # set `enabled: false`. Tracing and OTEL_LOG_TOOL_CONTENT are intentionally NOT
+  # wired. See docs/how-to/monitor-agent.rst.
   telemetry:
     enabled: true                        # Master switch (on for this reference facility)
     backend: openobserve                 # openobserve | generic
