@@ -82,12 +82,15 @@ partitions:
 
 ## Image contents and why they're pinned this way
 
-- **Base:** `python:3.11-slim`, built and run for **`linux/amd64`** only
-  (`--platform linux/amd64`; on Apple Silicon this runs under the container
-  runtime's x86_64 emulation). Neither `accelerator-toolbox` nor `softioc`
-  (nor softioc's `epicscorelibs`/`pvxslibs` dependencies) publish
-  `linux/aarch64` wheels at any version — building the EPICS base C library
-  from source for arm64 is out of scope.
+- **Base:** `python:3.11-slim`, built and run **native-arch** — no
+  `--platform` pin, so the image matches the host architecture. On x86_64,
+  `accelerator-toolbox` and `softioc` (with softioc's
+  `epicscorelibs`/`pvxslibs` dependencies) install as prebuilt
+  `manylinux2014_x86_64` wheels. On arm64 (Apple Silicon), no
+  `manylinux_aarch64` wheels are published for these packages, so they build
+  from source at image-build time — this pulls in a C toolchain and the
+  EPICS base C library, making the arm64 build slower and heavier, but it
+  runs natively with no emulation overhead.
 - **`accelerator-toolbox==0.7.1`, `softioc==4.7.0`** — *not* the
   `accelerator-toolbox==0.6.1` / `softioc==4.5.0` pins from the Phase-1
   probe investigation. Those were fine for the probe (a standalone script

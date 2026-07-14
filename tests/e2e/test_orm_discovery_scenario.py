@@ -77,7 +77,7 @@ judge's provider) is unavailable. Collection-validate with:
 
     .venv/bin/pytest tests/e2e/test_orm_discovery_scenario.py --collect-only -q
 
-Real run (needs Docker + amd64 + judge creds -- unlikely to be available in
+Real run (needs Docker + judge creds -- unlikely to be available in
 any given session; do not weaken the prompts or the wiring to force a local
 pass):
 
@@ -117,7 +117,7 @@ PROVIDER = "als-apg"
 AGENT_MODEL_TIER = "opus"  # diagnostic reasoning needs Opus, not the haiku default
 
 BUILD_TIMEOUT_SEC = _orm_stack.BUILD_TIMEOUT_SEC
-DEPLOY_UP_TIMEOUT_SEC = 1200  # amd64-emulated VA image build is slow (minutes)
+DEPLOY_UP_TIMEOUT_SEC = 1200  # first-time native VA source build is slow (minutes)
 HEALTH_TIMEOUT_SEC = 300.0
 
 pytestmark = [
@@ -126,13 +126,13 @@ pytestmark = [
     pytest.mark.requires_als_apg,
     pytest.mark.skipif(not HAS_SDK, reason="claude_agent_sdk not installed"),
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
-    # Skipped on CI: needs a real Docker (amd64) VA+bridge+Tiled+postgres
+    # Skipped on CI: needs a real Docker VA+bridge+Tiled+postgres
     # stack, which the default GitHub Actions runner does not provision (see
     # tests/e2e/README.md and test_va_substrate_equivalence.py's identical
     # gate).
     pytest.mark.skipif(
         os.environ.get("GITHUB_ACTIONS") == "true",
-        reason="needs a real Docker (amd64) stack; not provisioned on CI runners",
+        reason="needs a real Docker stack; not provisioned on CI runners",
     ),
 ]
 

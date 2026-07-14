@@ -37,20 +37,28 @@ this task touched it. `scripts/va/probe_build_and_caget.sh` auto-detects this
 with a cheap health-check container run and falls back to docker, so it will
 pick podman back up automatically once that machine is repaired.
 
-The probe image itself targets **`linux/amd64`** explicitly (`Containerfile`
-takes `TARGET_PLATFORM` as a build arg, default `linux/amd64`), not the
-host's native `linux/arm64`. Reason: **neither `accelerator-toolbox==0.6.1`
+**(Historical — Phase-1.)** Originally the probe was pinned to
+**`linux/amd64`** explicitly — the `Containerfile` took a `TARGET_PLATFORM`
+build arg defaulting to `linux/amd64`, rather than the host's native
+`linux/arm64`. The reason at the time: **neither `accelerator-toolbox==0.6.1`
 nor `softioc==4.5.0`** (nor softioc's `epicscorelibs`/`pvxslibs` dependencies)
 publish `manylinux_aarch64` wheels on PyPI -- only macOS and
-`manylinux2014_x86_64` wheels exist for the pinned versions. Building
-`epicscorelibs`/`pvxslibs` from source on arm64 would mean building the full
-EPICS base C library, which is out of scope for a toy probe. Running the
-image under `linux/amd64` emulation (via Docker Desktop's Rosetta/QEMU
-backend on Apple Silicon) lets both pinned packages install as prebuilt
-wheels with no compiler needed in the image. This does cost real emulation
-overhead but the probe still boots to serving PVs in about 2 seconds.
-`softioc==4.5.0` also caps at Python 3.10 for its manylinux wheel (no cp311+
-Linux wheel), so the base image is `python:3.10-slim`, not a newer Python.
+`manylinux2014_x86_64` wheels exist for those pinned versions. Building
+`epicscorelibs`/`pvxslibs` from source on arm64 means building the full EPICS
+base C library, which was judged out of scope for a toy probe, so the probe
+ran under `linux/amd64` emulation (via Docker Desktop's Rosetta/QEMU backend
+on Apple Silicon) to install both pinned packages as prebuilt wheels with no
+compiler in the image. This cost real emulation overhead but the probe still
+booted to serving PVs in about 2 seconds. `softioc==4.5.0` also caps at
+Python 3.10 for its manylinux wheel (no cp311+ Linux wheel), so the probe's
+base image is `python:3.10-slim`, not a newer Python.
+
+That amd64 pin is no longer a constraint anywhere: the probe `Containerfile`
+now builds native-arch too (no `TARGET_PLATFORM` arg), compiling these deps
+from source on arm64 exactly as the full VA image does (see
+`docker/virtual-accelerator/README.md`). Only the probe's *version* pins
+(`accelerator-toolbox==0.6.1`, `softioc==4.5.0`, and the `python:3.10-slim`
+base they require) are retained here as the historical Phase-1 record.
 
 ## Empirical CA host<->container reachability finding
 
@@ -100,9 +108,10 @@ Desktop as an artifact of this specific runtime, not a portable guarantee.
 
 - Host: Apple Silicon (arm64), macOS. Container runtime VM (`podman machine`)
   is applehv-backed arm64; Docker Desktop's engine is also `linux/arm64`.
-- `linux/amd64` container images run under Docker Desktop's built-in
-  cross-arch emulation (confirmed working here); no manual `qemu-user-static`
-  binfmt setup was needed.
+- (Historical — Phase-1.) The probe's `linux/amd64` image ran under Docker
+  Desktop's built-in cross-arch emulation (confirmed working here); no manual
+  `qemu-user-static` binfmt setup was needed. The full VA image no longer
+  pins amd64 and builds native-arch instead.
 - Host CA client used: `~/EPICS/epics-base/bin/darwin-aarch64/caget` /
   `caput` (real EPICS base build, not a Python stand-in). The gate script
   falls back to a `pyepics` one-liner via the worktree `.venv` if that binary

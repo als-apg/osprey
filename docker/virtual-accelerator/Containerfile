@@ -18,15 +18,12 @@
 # lattice/response.py and ioc/physics_bridge.py were actually built and
 # tested against) rather than the stale 0.6.1 probe-era pin.
 #
-# accelerator-toolbox/softioc (and softioc's epicscorelibs/pvxslibs deps)
-# still publish no linux/aarch64 wheels at any version, so this image is
-# still built and run for linux/amd64 explicitly, same as the probe.
-ARG TARGET_PLATFORM=linux/amd64
-FROM --platform=${TARGET_PLATFORM} python:3.11-slim
-
-RUN pip install --no-cache-dir \
-    accelerator-toolbox==0.7.1 \
-    softioc==4.7.0
+# Native architecture: no `--platform` pin, so the image resolves to the host
+# arch. accelerator-toolbox/softioc (and softioc's epicscorelibs/pvxslibs deps)
+# publish no manylinux_aarch64 wheels at any version, so on arm64 they compile from
+# sdist at build time using the toolchain installed below (purged in the same
+# RUN layer); on x86_64 the prebuilt wheels install as before -- no emulation.
+FROM python:3.11-slim
 
 # osprey itself -- manifest/lattice/ioc/entrypoint now live under
 # src/osprey/services/virtual_accelerator/ and install as part of the
@@ -39,7 +36,19 @@ RUN pip install --no-cache-dir \
 WORKDIR /opt/osprey
 COPY pyproject.toml README.md /opt/osprey/
 COPY src/ /opt/osprey/src/
-RUN pip install --no-cache-dir .
+
+# A C toolchain is needed at install time to compile the native deps from sdist
+# on arm64; it is installed and purged in this single RUN layer so it never
+# bloats the final image. build-essential pulls in the perl it needs
+# transitively -- no explicit perl package is required. Both pip installs (the
+# pinned native deps and osprey itself) run while the toolchain is present.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential python3-dev \
+    && pip install --no-cache-dir accelerator-toolbox==0.7.1 softioc==4.7.0 \
+    && pip install --no-cache-dir . \
+    && apt-get purge -y build-essential python3-dev \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 # Channel Access server port. TCP only is required -- CA name-server mode
 # (EPICS_CA_NAME_SERVERS=<host>:5064, EPICS_CA_AUTO_ADDR_LIST=NO on the
