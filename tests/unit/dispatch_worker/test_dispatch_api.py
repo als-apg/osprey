@@ -9,8 +9,10 @@ SDK and tests never assert a timing-dependent terminal status.
 
 from __future__ import annotations
 
+import os
 import time
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -44,7 +46,17 @@ def client(monkeypatch):
     monkeypatch.setattr(dispatch_api, "_queues", {})
     monkeypatch.setattr(dispatch_api, "_tasks", {})
 
-    async def _fake_run_dispatch(*, prompt, allowed_tools, max_turns, event_queue, denied_tools=()):
+    async def _fake_run_dispatch(
+        *,
+        prompt,
+        allowed_tools,
+        max_turns,
+        event_queue,
+        denied_tools=(),
+        run_id=None,
+        surface_prompt=None,
+        surface_tools=None,
+    ):
         if event_queue is not None:
             await event_queue.put({"type": "done"})
         return dict(_CANNED_RESULT)
@@ -271,78 +283,41 @@ def test_dashboard_runs_with_auth(client):
 
 
 # ---------------------------------------------------------------------------
-# Startup Claude-artifact provisioning
+# Startup lifecycle: provider-env injection, no artifact regeneration
 # ---------------------------------------------------------------------------
 #
-# The deployed worker mounts only config.yml into the project dir, so it must
-# regenerate .mcp.json / .claude/ at startup; otherwise dispatched agents have
-# no project MCP servers (e.g. osprey_workspace) and no safety hooks.
+# The project image now bakes .claude/ and data/ at build time (COPY . +
+# osprey claude regen), so the worker no longer regenerates those artifacts
+# at runtime. Provider auth/model env injection still has to happen at
+# process startup, since it depends on the mounted config.yml/environment.
 
 
-def test_provision_skips_when_no_config(tmp_path, monkeypatch):
-    """No config.yml in the project dir → provisioning is a no-op (no regen call)."""
-    monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
-    called = {"n": 0}
+@pytest.mark.asyncio
+async def test_lifespan_injects_provider_env_once(monkeypatch):
+    """Entering the lifespan calls provider-env injection exactly once."""
+    import asyncio
 
-    class _FakeTM:
-        def regenerate_claude_code(self, *a, **k):
-            called["n"] += 1
-            return {"changed": []}
+    calls = {"n": 0}
 
-    monkeypatch.setattr("osprey.cli.templates.manager.TemplateManager", _FakeTM, raising=True)
-    dispatch_api._provision_claude_artifacts_once()  # must not raise
-    assert called["n"] == 0, "regen must not run without a config.yml"
+    def _spy():
+        calls["n"] += 1
 
+    monkeypatch.setattr(dispatch_api, "_inject_provider_env_once", _spy)
+    monkeypatch.setattr(dispatch_api, "_load_persisted_runs", lambda: None)
 
-def test_provision_regenerates_when_mcp_json_absent(tmp_path, monkeypatch):
-    """config.yml present but .mcp.json absent (the container case) → regen runs."""
-    (tmp_path / "config.yml").write_text("project_name: t\n", encoding="utf-8")
-    monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
-    seen = {}
+    async with dispatch_api._lifespan(dispatch_api.app):
+        pass
+    await asyncio.sleep(0)  # let the cancelled cleanup task settle
 
-    class _FakeTM:
-        def regenerate_claude_code(self, project_dir, *a, **k):
-            seen["project_dir"] = project_dir
-            return {"changed": [".mcp.json", "CLAUDE.md"]}
-
-    monkeypatch.setattr("osprey.cli.templates.manager.TemplateManager", _FakeTM, raising=True)
-    dispatch_api._provision_claude_artifacts_once()
-    assert str(seen.get("project_dir")) == str(tmp_path)
+    assert calls["n"] == 1
 
 
-def test_provision_skips_when_already_provisioned(tmp_path, monkeypatch):
-    """A project that already has .mcp.json must NOT be regenerated.
+def test_no_artifact_regeneration_path():
+    """The config.yml-only artifact-regen path has been removed (Task 1.5).
 
-    The subprocess path and non-container deploys run in the real project dir,
-    which ships container-correct artifacts and may carry user customizations
-    (e.g. via ``osprey eject``). Regenerating would clobber them.
+    Encodes the removal so a future change cannot silently reintroduce it.
     """
-    (tmp_path / "config.yml").write_text("project_name: t\n", encoding="utf-8")
-    (tmp_path / ".mcp.json").write_text("{}", encoding="utf-8")
-    monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
-    called = {"n": 0}
-
-    class _FakeTM:
-        def regenerate_claude_code(self, *a, **k):
-            called["n"] += 1
-            return {"changed": []}
-
-    monkeypatch.setattr("osprey.cli.templates.manager.TemplateManager", _FakeTM, raising=True)
-    dispatch_api._provision_claude_artifacts_once()
-    assert called["n"] == 0, "must not regenerate when .mcp.json already exists"
-
-
-def test_provision_swallows_regen_errors(tmp_path, monkeypatch):
-    """A regen failure must not crash the worker (it still serves no-tool triggers)."""
-    (tmp_path / "config.yml").write_text("project_name: t\n", encoding="utf-8")
-    monkeypatch.setenv("OSPREY_PROJECT_DIR", str(tmp_path))
-
-    class _FakeTM:
-        def regenerate_claude_code(self, *a, **k):
-            raise RuntimeError("boom")
-
-    monkeypatch.setattr("osprey.cli.templates.manager.TemplateManager", _FakeTM, raising=True)
-    dispatch_api._provision_claude_artifacts_once()  # must not raise
+    assert not hasattr(dispatch_api, "_provision_claude_artifacts_once")
 
 
 # ---------------------------------------------------------------------------
@@ -434,3 +409,78 @@ def test_unconfigured_worker_token_fails_closed_500(monkeypatch):
         resp = c.get("/dispatch/some-id", headers={"Authorization": "Bearer anything"})
     assert resp.status_code == 500
     assert "DISPATCH_WORKER_TOKEN" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# _inject_provider_env_once: ${VAR} expansion + proxy-start for the worker (#307)
+# ---------------------------------------------------------------------------
+
+_ARGO_CONFIG = """\
+api:
+  providers:
+    argo:
+      base_url: ${ARGO_PROD_URL}
+claude_code:
+  provider: argo
+"""
+
+_CBORG_CONFIG = """\
+claude_code:
+  provider: cborg
+"""
+
+
+def _isolated_environ(monkeypatch, tmp_path, **extra):
+    """Swap os.environ for a throwaway dict so the function's mutations don't leak."""
+    fake = dict(os.environ)
+    fake["OSPREY_PROJECT_DIR"] = str(tmp_path)
+    fake.pop("ANTHROPIC_BASE_URL", None)
+    fake.update(extra)
+    monkeypatch.setattr(os, "environ", fake)
+    return fake
+
+
+def test_inject_provider_env_expands_and_starts_proxy(tmp_path, monkeypatch):
+    """Custom provider: ${VAR} base_url is expanded, proxy started, base URL repointed."""
+    (tmp_path / "config.yml").write_text(_ARGO_CONFIG)
+    (tmp_path / ".env").write_text("ARGO_PROD_URL=https://argo.example/v1\nARGO_API_KEY=sk-argo\n")
+    fake = _isolated_environ(monkeypatch, tmp_path)
+    proxy = MagicMock(return_value=7777)
+    monkeypatch.setattr("osprey.infrastructure.proxy.lifecycle.start_proxy", proxy)
+
+    dispatch_api._inject_provider_env_once()
+
+    proxy.assert_called_once()
+    upstream, api_key = proxy.call_args[0]
+    assert upstream == "https://argo.example/v1"
+    assert api_key == "sk-argo"
+    assert fake["ANTHROPIC_BASE_URL"] == "http://127.0.0.1:7777"
+
+
+def test_inject_provider_env_no_proxy_for_native(tmp_path, monkeypatch):
+    """Native provider (cborg): env injected but no translation proxy started."""
+    (tmp_path / "config.yml").write_text(_CBORG_CONFIG)
+    _isolated_environ(monkeypatch, tmp_path, CBORG_API_KEY="sk-cborg")
+    proxy = MagicMock(return_value=1)
+    monkeypatch.setattr("osprey.infrastructure.proxy.lifecycle.start_proxy", proxy)
+
+    dispatch_api._inject_provider_env_once()
+
+    proxy.assert_not_called()
+
+
+def test_inject_provider_env_refuses_on_managed_policy_conflict(tmp_path, monkeypatch):
+    """A managed-policy env override aborts worker startup rather than starting
+    the agent against a backend the project did not configure (#355).
+
+    The refusal must propagate — it is raised before the broad ``except`` that
+    otherwise swallows provider-injection errors."""
+    (tmp_path / "config.yml").write_text(_CBORG_CONFIG)
+    _isolated_environ(monkeypatch, tmp_path, CBORG_API_KEY="sk-cborg")
+    monkeypatch.setattr(
+        "osprey.cli.claude_code_resolver.detect_managed_policy_conflicts",
+        lambda: {"ANTHROPIC_BASE_URL": ("https://evil.example", "/etc/.../managed-settings.json")},
+    )
+
+    with pytest.raises(RuntimeError, match="Refusing to start the dispatch worker"):
+        dispatch_api._inject_provider_env_once()

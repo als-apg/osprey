@@ -106,6 +106,45 @@ pytest tests/ --ignore=tests/e2e -v
 pytest tests/e2e/ -v
 ```
 
+## Front-End JavaScript Tooling
+
+The browser interfaces ship a small dev/CI-only JS toolchain. It is **not**
+needed to install or run OSPREY — only if you edit front-end JavaScript. It
+requires Node LTS.
+
+```bash
+# One-time: install the dev-only toolchain
+npm install
+
+# Type-check the JS (tsc --noEmit)
+npm run typecheck
+
+# Lint the JS (eslint — house style + a per-file LOC cap)
+npm run lint
+
+# Run the JS unit tests (Vitest)
+npm run test:js
+```
+
+All three run in CI (the `frontend-js` job); any failure blocks the merge.
+
+**Type-checking is on by default.** `tsconfig.json` sets `checkJs: true`, so every
+JS file under the interface and test globs is type-checked — no per-file opt-in,
+which makes a `// @ts-check` header a redundant no-op. The one directive that still
+changes behavior is `// @ts-nocheck`, which opts a file out of `tsc` entirely. That
+directive is **machine-banned**: the custom `local/no-ts-nocheck` rule fails
+`npm run lint` on any `// @ts-nocheck` line comment — anywhere in the file, with or
+without a space after `//` — across interface and test JS. Type-clean the file instead.
+
+**No file-scoped exemptions remain.** Every interface and test JS file is fully
+type-checked and lint-clean; `eslint.config.js` carries no per-file `off` blocks.
+The house rules (`no-var`, `prefer-const`, `eqeqeq`, the 450-line `max-lines` cap,
+`no-unused-vars`, and `local/no-ts-nocheck`) run at `error` across all interface and
+test JS, so any fresh violation fails CI immediately.
+
+A localized one-off residual uses an inline `// eslint-disable-next-line <rule> --
+<reason>` at the site instead of a file-wide exemption.
+
 ## Building Documentation
 
 ```bash

@@ -21,11 +21,13 @@ try:
     from claude_agent_sdk import (
         AssistantMessage,
         ClaudeAgentOptions,
+        HookMatcher,
         ResultMessage,
         SystemMessage,
         TextBlock,
         ToolResultBlock,
         ToolUseBlock,
+        UserMessage,
         query,
     )
 
@@ -47,6 +49,18 @@ _MAX_TOOL_CALLS = 200  # number of tool calls retained
 # return (provider auth tokens, dispatch bearer tokens, etc.).
 _SECRET_ENV_NAME_HINTS = ("TOKEN", "SECRET", "PASSWORD", "API_KEY")
 _MIN_SECRET_LEN = 12
+
+# Inactivity watchdog: max seconds to wait for the *next* SDK message before
+# treating the run as silently hung. A healthy run emits an init SystemMessage
+# within seconds of CLI startup and then streams text/tool events continuously,
+# so each message resets this clock — only a true stall trips it. The classic
+# trigger is a bad/expired provider credential or an unreachable base URL: the
+# bundled CLI does not fast-fail on those, it simply produces no output. Without
+# this guard such a run stalls all the way to the dispatch worker's outer
+# DISPATCH_TIMEOUT_SEC (default 300s) and surfaces only a generic "timed out"
+# error that masks the auth cause. Generous default so legitimately slow single
+# turns are not cut off; raise via DISPATCH_INACTIVITY_SEC for slow providers.
+_INACTIVITY_TIMEOUT_SEC = float(os.environ.get("DISPATCH_INACTIVITY_SEC", "120"))
 
 
 def _secret_values() -> list[str]:
@@ -87,6 +101,9 @@ async def run_dispatch(
     max_turns: int = 25,
     event_queue: asyncio.Queue | None = None,
     denied_tools: Iterable[str] = (),
+    run_id: str | None = None,
+    surface_prompt: str | None = None,
+    surface_tools: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run a prompt headlessly via the Claude Agent SDK.
 
@@ -97,6 +114,19 @@ async def run_dispatch(
         denied_tools: Hard denylist enforced at the permission layer regardless
             of ``allowed_tools`` (defense-in-depth; the worker threads its
             ``DENIED_TOOLS`` here). Entries ending in ``*`` match by prefix.
+        run_id: Dispatch run id. Exported to the agent (and the MCP tool
+            subprocesses it spawns) as ``OSPREY_DISPATCH_RUN_ID`` so every
+            artifact saved during the run is attributed to it.
+        surface_prompt: Optional static fragment appended to the system prompt
+            (via ``build_system_prompt``'s ``extra``) to describe the surface
+            this dispatch was triggered from. Not templated/interpolated per
+            run. When ``None`` (default), the system prompt is unchanged.
+        surface_tools: Optional keep-list narrowing ``allowed_tools`` down to
+            the subset a specific surface may use (via
+            ``tool_policy.narrow_allowed_tools``). Can only remove tools from
+            the trigger's allow set, never add one, and never touches
+            ``denied_tools`` — the deny floor is enforced independently.
+            ``None`` or empty is a no-op (``allowed_tools`` used as-is).
 
     Returns:
         dict with keys:
@@ -127,9 +157,12 @@ async def run_dispatch(
     # conflicts.  Provider env (auth token, base URL, model tier IDs) is already
     # injected into os.environ by _inject_provider_env_once() at worker startup.
     from osprey.interfaces.web_terminal.operator_session import build_clean_env
-    from osprey.interfaces.web_terminal.sdk_context import (
-        build_system_prompt,
-        make_tool_allowlist,
+    from osprey.interfaces.web_terminal.sdk_context import build_system_prompt
+    from osprey.mcp_server.dispatch_worker.agent_surfaces import parse_project_agents
+    from osprey.mcp_server.dispatch_worker.tool_policy import (
+        make_backstop,
+        make_pretooluse_hook,
+        narrow_allowed_tools,
     )
     from osprey.utils.config import get_facility_timezone
 
@@ -149,15 +182,61 @@ async def run_dispatch(
     dispatch_home = os.environ.get("HOME", "/home/dispatch")
     sdk_env["CLAUDE_CONFIG_DIR"] = os.path.join(dispatch_home, ".claude")
 
+    # Marks this CLI session as a headless dispatch run for the project's own
+    # hooks: osprey_approval must not emit explicit allow decisions here (CLI
+    # hook aggregation is not deny-dominates, so an allow would override the
+    # trigger-allowlist hook below).
+    sdk_env["OSPREY_DISPATCH_RUN"] = "1"
+
+    # Attribute every artifact this run saves to the run, so the worker can
+    # later report and serve exactly this run's plots. NOT OSPREY_SESSION_ID:
+    # that variable also relocates the artifact store into
+    # _agent_data/sessions/<id>/ (resolve_agent_data_root), which would move
+    # dispatch plots off the shared root the gallery reads.
+    if run_id:
+        sdk_env["OSPREY_DISPATCH_RUN_ID"] = run_id
+
+    # Declared subagent tool surfaces from the provisioned .claude/agents/ —
+    # each subagent is held to exactly its declared tools (web-terminal parity)
+    # without the trigger having to enumerate them.
+    agent_surfaces = parse_project_agents(project_dir)
+
+    # Narrow the main thread's allow set to this surface's keep-list, if any.
+    # Pure removal only — cannot add a tool absent from allowed_tools, and
+    # never touches denied_tools (the deny floor below is independent).
+    effective_tools = narrow_allowed_tools(allowed_tools, surface_tools)
+    logger.info(
+        "Dispatch tool policy: %d trigger tools (%d after surface narrowing), subagent surfaces %s",
+        len(allowed_tools),
+        len(effective_tools),
+        {name: (len(s) if s is not None else None) for name, s in agent_surfaces.items()},
+    )
+
     # NOTE: do NOT use permission_mode="bypassPermissions" — the CLI short-circuits
     # can_use_tool under bypass, so the allowlist would not be enforced. With the
     # default mode and can_use_tool set, the SDK auto-configures
-    # permission_prompt_tool_name="stdio" (see client.py:122) which routes every
-    # tool permission check to our allowlist callback.
+    # permission_prompt_tool_name="stdio" (see client.py:122) which routes
+    # unresolved permission checks to our backstop callback.
+    #
+    # The PreToolUse hook is the single authority: unlike can_use_tool — which
+    # the CLI never consults for calls already permitted by settings.json
+    # permissions.allow rules — the hook fires for EVERY tool call, including
+    # inside subagents, so project settings cannot widen the trigger's surface.
+    # Exact-name denied tools additionally go to disallowed_tools, which strips
+    # them from the model's context entirely; prefix entries (``server__*``)
+    # become server-level rules (``server``).
+    disallowed = [t for t in denied_tools if not t.endswith("*")] + [
+        t[: -len("__*")] for t in denied_tools if t.endswith("__*")
+    ]
+    # Any-typed so the SDK's HookCallback union (typed against its own
+    # TypedDict inputs) accepts our dict-based callback.
+    policy_hook: Any = make_pretooluse_hook(effective_tools, agent_surfaces, denied_tools)
     options = ClaudeAgentOptions(
-        allowed_tools=allowed_tools,
-        system_prompt=build_system_prompt(get_facility_timezone()),
-        can_use_tool=make_tool_allowlist(allowed_tools, denied_tools),
+        allowed_tools=effective_tools,
+        system_prompt=build_system_prompt(get_facility_timezone(), extra=surface_prompt),
+        can_use_tool=make_backstop(effective_tools, agent_surfaces, denied_tools),
+        hooks={"PreToolUse": [HookMatcher(matcher=None, hooks=[policy_hook])]},
+        disallowed_tools=sorted(disallowed),
         cwd=project_dir,
         env=sdk_env,
         max_turns=max_turns,
@@ -200,10 +279,51 @@ async def run_dispatch(
     t0 = time.monotonic()
     agen = query(prompt=_prompt_stream(), options=options)
     try:
-        async for message in agen:
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
+        # Drive the generator manually (rather than ``async for``) so each
+        # ``__anext__`` is bounded by the inactivity watchdog. A full-window
+        # silence means the provider never responded — fail fast with a clear
+        # message instead of stalling to the worker's outer DISPATCH_TIMEOUT_SEC.
+        while True:
+            try:
+                message = await asyncio.wait_for(agen.__anext__(), timeout=_INACTIVITY_TIMEOUT_SEC)
+            except StopAsyncIteration:
+                break
+            except TimeoutError:
+                try:
+                    await agen.aclose()
+                except Exception:
+                    logger.debug("agen.aclose() raised after inactivity timeout", exc_info=True)
+                duration_sec = time.monotonic() - t0
+                msg = (
+                    f"No response from the model provider for "
+                    f"{_INACTIVITY_TIMEOUT_SEC:.0f}s — dispatch aborted. This usually "
+                    "means an invalid or expired provider credential, or an "
+                    "unreachable provider base URL."
+                )
+                logger.error("Dispatch aborted after %.1fs: %s", duration_sec, msg)
+                await _push({"type": "error", "message": msg})
+                return _finalize(
+                    {
+                        "status": "error",
+                        "text_output": "".join(text_parts),
+                        "tool_calls": tool_calls,
+                        "error": msg,
+                        "stderr": "\n".join(stderr_lines) if stderr_lines else None,
+                        "duration_sec": round(duration_sec, 2),
+                        "cost_usd": cost_usd,
+                        "num_turns": num_turns,
+                    }
+                )
+
+            # Tool RESULTS arrive as ToolResultBlock inside UserMessage (the
+            # SDK's message_parser wraps tool_result content that way), while
+            # text and ToolUseBlock arrive in AssistantMessage — handle both so
+            # per-call results (including permission denials) are captured.
+            if isinstance(message, AssistantMessage | UserMessage):
+                msg_content = message.content
+                blocks = msg_content if isinstance(msg_content, list) else []
+                for block in blocks:
+                    if isinstance(block, TextBlock) and isinstance(message, AssistantMessage):
                         text_parts.append(block.text)
                         await _push({"type": "text", "content": block.text})
                     elif isinstance(block, ToolUseBlock):

@@ -1,0 +1,149 @@
+{
+  "$description": "High Contrast Light — WCAG-AAA member of the 'high-contrast' family (the light twin of high-contrast-dark.json). Same semantic key set as dark.json/light.json (contract-enforced). Every value aliases an EXISTING core.json primitive; no new primitives were needed to hit AAA. bg.primary/bg.terminal use the lightest existing slate step (slate.50, #fafbfd); text.primary uses the darkest existing slate step (slate.1100, #020408). AAA gates computed against these values (via validate.py's own contrast_ratio()) and ALL PASS: text.primary 19.82:1 (>=7), text.secondary 9.90:1 (>=7), text.muted 4.60:1 (>=4.5), accent.base 7.25:1 (>=4.5). Note text.muted's margin (4.60 vs a 4.5 floor) is the tightest of the four high-contrast-light gates — flagged here per this design system's convention of calling out thin margins (light.json itself flags its own tightest AA margin); no existing slate step between slate.650 and slate.700 was available to widen it further, and both those steps were checked directly against this theme's own bg.primary via validate.py before being chosen (not estimated).",
+  "$extensions": { "mode": "light", "id": "high-contrast-light", "label": "High Contrast Light", "family": "high-contrast" },
+  "bg": {
+    "terminal": { "$value": "{color.slate.50}", "$type": "color" },
+    "primary": { "$value": "{color.slate.50}", "$type": "color", "$description": "Lightest existing slate step (#fafbfd); anchors the AAA gates below." },
+    "secondary": { "$value": "{color.slate.150}", "$type": "color" },
+    "panel": { "$value": "{color.slate.200}", "$type": "color" },
+    "elevated": { "$value": "{color.slate.300}", "$type": "color" }
+  },
+  "text": {
+    "primary": { "$value": "{color.slate.1100}", "$type": "color", "$description": "Darkest existing slate step (#020408); 19.82:1 vs bg.primary." },
+    "secondary": { "$value": "{color.slate.700}", "$type": "color", "$description": "9.90:1 vs bg.primary." },
+    "muted": { "$value": "{color.slate.650}", "$type": "color", "$description": "4.60:1 vs bg.primary — the lightest existing slate step that still clears the AAA 4.5:1 floor (slate.600 only reaches 2.75:1 and was rejected)." }
+  },
+  "accent": {
+    "base": { "$value": "{color.teal.700}", "$type": "color", "$description": "7.25:1 vs bg.primary (AAA floor is 4.5:1); darker than light.json's teal.400 accent.base, which only reaches ~3.5:1 here." },
+    "light": { "$value": "{color.teal.500}", "$type": "color", "$description": "Same value as light.json's own accent.light — border.accent/tint.accent below are unchanged from light.json as a result." },
+    "on": { "$value": "#ffffff", "$type": "color", "$description": "Foreground for text/icons on accent.base fills (e.g. primary buttons). 7.50:1 on teal.700 (near-black would be 2.55:1, far below the AAA 7:1 floor)." }
+  },
+  "amber": {
+    "base": { "$value": "{color.amber.800}", "$type": "color" },
+    "light": { "$value": "{color.amber.900}", "$type": "color" },
+    "hover": { "$value": "{color.amber.700}", "$type": "color" }
+  },
+  "status": {
+    "success": { "$value": "{color.green.700}", "$type": "color" },
+    "warning": { "$value": "{color.amber.600}", "$type": "color" },
+    "error": { "$value": "{color.red.500}", "$type": "color" },
+    "error-hover": { "$value": "{color.red.700}", "$type": "color" }
+  },
+  "border": {
+    "default": { "$value": "{color.slate.450}", "$type": "color" },
+    "accent": { "$value": "rgba(13, 115, 119, 0.25)", "$type": "color", "$description": "Alpha composite of accent.light (teal.500, #0d7377) — identical to light.json's border.accent since accent.light is unchanged." }
+  },
+  "tint": {
+    "accent": {
+      "04": { "$value": "rgba(13, 115, 119, 0.04)", "$type": "color" },
+      "06": { "$value": "rgba(13, 115, 119, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(13, 115, 119, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(13, 115, 119, 0.10)", "$type": "color" },
+      "12": { "$value": "rgba(13, 115, 119, 0.12)", "$type": "color" },
+      "20": { "$value": "rgba(13, 115, 119, 0.20)", "$type": "color" },
+      "25": { "$value": "rgba(13, 115, 119, 0.25)", "$type": "color" },
+      "30": { "$value": "rgba(13, 115, 119, 0.30)", "$type": "color" }
+    },
+    "amber": {
+      "04": { "$value": "rgba(160, 112, 64, 0.04)", "$type": "color" },
+      "06": { "$value": "rgba(160, 112, 64, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(160, 112, 64, 0.08)", "$type": "color" },
+      "12": { "$value": "rgba(160, 112, 64, 0.12)", "$type": "color" },
+      "15": { "$value": "rgba(160, 112, 64, 0.15)", "$type": "color" },
+      "25": { "$value": "rgba(160, 112, 64, 0.25)", "$type": "color" }
+    },
+    "error": {
+      "04": { "$value": "rgba(220, 38, 38, 0.04)", "$type": "color" },
+      "08": { "$value": "rgba(220, 38, 38, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(220, 38, 38, 0.10)", "$type": "color" },
+      "15": { "$value": "rgba(220, 38, 38, 0.15)", "$type": "color" },
+      "25": { "$value": "rgba(220, 38, 38, 0.25)", "$type": "color" },
+      "30": { "$value": "rgba(220, 38, 38, 0.30)", "$type": "color" },
+      "40": { "$value": "rgba(220, 38, 38, 0.40)", "$type": "color" }
+    },
+    "success": {
+      "08": { "$value": "rgba(22, 163, 74, 0.08)", "$type": "color" },
+      "40": { "$value": "rgba(22, 163, 74, 0.40)", "$type": "color" },
+      "50": { "$value": "rgba(22, 163, 74, 0.50)", "$type": "color" }
+    },
+    "neutral": {
+      "03": { "$value": "rgba(100, 116, 139, 0.03)", "$type": "color" },
+      "06": { "$value": "rgba(100, 116, 139, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(100, 116, 139, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(100, 116, 139, 0.10)", "$type": "color" },
+      "12": { "$value": "rgba(100, 116, 139, 0.12)", "$type": "color" },
+      "20": { "$value": "rgba(100, 116, 139, 0.20)", "$type": "color" },
+      "35": { "$value": "rgba(100, 116, 139, 0.35)", "$type": "color" }
+    }
+  },
+  "overlay": {
+    "black-20": { "$value": "rgba(0, 0, 0, 0.06)", "$type": "color" },
+    "black-30": { "$value": "rgba(0, 0, 0, 0.05)", "$type": "color" },
+    "black-40": { "$value": "rgba(0, 0, 0, 0.08)", "$type": "color" },
+    "black-50": { "$value": "rgba(0, 0, 0, 0.15)", "$type": "color" },
+    "black-60": { "$value": "rgba(0, 0, 0, 0.10)", "$type": "color" },
+    "black-70": { "$value": "rgba(0, 0, 0, 0.25)", "$type": "color" },
+    "white-03": { "$value": "rgba(255, 255, 255, 0.5)", "$type": "color" }
+  },
+  "shadow": {
+    "panel": { "$value": "-2px 0 8px rgba(0, 0, 0, 0.08)", "$type": "shadow" },
+    "dropdown": { "$value": "0 4px 12px rgba(0, 0, 0, 0.1)", "$type": "shadow" },
+    "dialog": { "$value": "0 4px 16px rgba(0, 0, 0, 0.12)", "$type": "shadow" },
+    "error-dialog": { "$value": "0 4px 16px rgba(220, 38, 38, 0.1), 0 4px 16px rgba(0, 0, 0, 0.1)", "$type": "shadow" }
+  },
+  "diff": {
+    "add-bg": { "$value": "rgba(22, 163, 74, 0.1)", "$type": "color" },
+    "add-text": { "$value": "{color.green.700}", "$type": "color" },
+    "del-bg": { "$value": "rgba(220, 38, 38, 0.1)", "$type": "color" },
+    "del-text": { "$value": "{color.red.500}", "$type": "color" },
+    "word-del-bg": { "$value": "rgba(220, 38, 38, 0.20)", "$type": "color" },
+    "word-del-text": { "$value": "{color.red.700}", "$type": "color" },
+    "word-add-bg": { "$value": "rgba(22, 163, 74, 0.20)", "$type": "color" },
+    "word-add-text": { "$value": "{color.green.800}", "$type": "color" }
+  },
+  "terminal": {
+    "cursor": { "$value": "{color.teal.700}", "$type": "color", "$description": "Matches this theme's accent.base (vs light.json's teal.400) for a higher-contrast cursor." },
+    "text": { "$value": "{color.slate.1100}", "$type": "color", "$description": "Bumped to the darkest slate step (vs light.json's slate.750) so the terminal's own body text also reads at high contrast." },
+    "selection": { "$value": "rgba(13, 115, 119, 0.2)", "$type": "color" },
+    "ansi": {
+      "background": { "$value": "{color.slate.50}", "$type": "color" },
+      "foreground": { "$value": "{color.slate.1100}", "$type": "color" },
+      "cursor": { "$value": "{color.teal.700}", "$type": "color" },
+      "cursor-accent": { "$value": "{color.slate.50}", "$type": "color" },
+      "selection": { "$value": "rgba(13, 115, 119, 0.2)", "$type": "color" },
+      "black": { "$value": "{color.slate.350}", "$type": "color" },
+      "red": { "$value": "{color.red.500}", "$type": "color" },
+      "green": { "$value": "{color.green.700}", "$type": "color" },
+      "yellow": { "$value": "{color.amber.600}", "$type": "color" },
+      "blue": { "$value": "{color.blue.500}", "$type": "color" },
+      "magenta": { "$value": "{color.violet.500}", "$type": "color" },
+      "cyan": { "$value": "{color.teal.500}", "$type": "color" },
+      "white": { "$value": "{color.slate.750}", "$type": "color" },
+      "bright-black": { "$value": "{color.slate.550}", "$type": "color" },
+      "bright-red": { "$value": "{color.red.300}", "$type": "color" },
+      "bright-green": { "$value": "{color.green.400}", "$type": "color" },
+      "bright-yellow": { "$value": "{color.amber.400}", "$type": "color" },
+      "bright-blue": { "$value": "{color.blue.300}", "$type": "color" },
+      "bright-magenta": { "$value": "{color.violet.300}", "$type": "color" },
+      "bright-cyan": { "$value": "{color.teal.400}", "$type": "color" },
+      "bright-white": { "$value": "{color.slate.950}", "$type": "color" }
+    }
+  },
+  "chart": {
+    "paper-bg": { "$value": "{color.slate.50}", "$type": "color" },
+    "plot-bg": { "$value": "{color.slate.50}", "$type": "color" },
+    "grid": { "$value": "rgba(55, 65, 85, 0.1)", "$type": "color" },
+    "axis-text": { "$value": "{color.slate.700}", "$type": "color" },
+    "series": {
+      "1": { "$value": "{color.teal.400}", "$type": "color" },
+      "2": { "$value": "{color.amber.600}", "$type": "color" },
+      "3": { "$value": "{color.green.700}", "$type": "color" },
+      "4": { "$value": "{color.red.500}", "$type": "color" },
+      "5": { "$value": "{color.violet.500}", "$type": "color" },
+      "6": { "$value": "{color.blue.500}", "$type": "color" }
+    }
+  },
+  "code": {
+    "theme": { "$value": "highlight.js atom-one-light theme", "$type": "string", "$description": "No dedicated high-contrast highlight.js theme is vendored; reuses the light family's asset name (contract-tested against src/osprey/interfaces/vendor_manifest.json)." }
+  }
+}

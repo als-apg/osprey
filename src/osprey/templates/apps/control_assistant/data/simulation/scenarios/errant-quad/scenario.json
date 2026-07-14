@@ -1,0 +1,40 @@
+{
+  "description": "Storage-ring focusing quadrupole QF07 has settled off its nominal transverse position, kicking a persistent closed-orbit distortion localized near sector-2 BPMs. Physics fault applies at VA boot (real ORM measurement); the archiver overlay below approximates the same distortion for telemetry/monitoring views.",
+  "physics": {
+    "quad_misalign": {
+      "QF07": 3.0e-4
+    }
+  },
+  "archiver": [
+    {
+      "channel": "SR:DIAG:BPM:06:POSITION:X",
+      "events": [
+        {
+          "shape": "step",
+          "at": 0.0,
+          "to": 0.18
+        }
+      ]
+    },
+    {
+      "channel": "SR:DIAG:BPM:07:POSITION:X",
+      "events": [
+        {
+          "shape": "step",
+          "at": 0.0,
+          "to": 0.62
+        }
+      ]
+    },
+    {
+      "channel": "SR:DIAG:BPM:08:POSITION:X",
+      "events": [
+        {
+          "shape": "step",
+          "at": 0.0,
+          "to": -0.24
+        }
+      ]
+    }
+  ]
+}

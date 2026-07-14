@@ -1,12 +1,38 @@
+// @ts-check
 /**
  * ARIEL UI Components
  *
  * Reusable component rendering functions.
  */
 
+import { escapeHtml } from '/design-system/js/dom.js';
+import { parseEntryText } from './entries-helpers.js';
+import { messageOf } from './utils.js';
+
+/**
+ * @typedef {Object} Entry
+ * @property {string} entry_id
+ * @property {string} [timestamp]
+ * @property {string} [author]
+ * @property {string} [source_system]
+ * @property {string} [raw_text]
+ * @property {number|null} [score]
+ * @property {Array<*>} [attachments]
+ * @property {string[]} [keywords]
+ * @property {string[]} [highlights]
+ */
+
+/**
+ * @typedef {Object} Diagnostic
+ * @property {string} level - Severity ('info', 'warning', 'error')
+ * @property {string} source
+ * @property {string} message
+ * @property {string} [category]
+ */
+
 /**
  * Format a timestamp for display.
- * @param {string} timestamp - ISO timestamp
+ * @param {string} [timestamp] - ISO timestamp
  * @returns {string} Formatted date/time
  */
 export function formatTimestamp(timestamp) {
@@ -30,7 +56,7 @@ export function formatRelativeTime(timestamp) {
   if (!timestamp) return '';
   const date = new Date(timestamp);
   const now = new Date();
-  const diff = now - date;
+  const diff = now.getTime() - date.getTime();
 
   const minutes = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
@@ -56,7 +82,7 @@ export function getScoreClass(score) {
 
 /**
  * Render a score badge.
- * @param {number} score - Score value
+ * @param {number|null|undefined} score - Score value
  * @returns {string} HTML string
  */
 export function renderScoreBadge(score) {
@@ -109,14 +135,16 @@ export function sanitizeHighlight(html) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;')
+    .replace(/'/g, '&#039;') // hygiene-allow-color: HTML entity, not a hex color (scanner false positive)
+    // eslint-disable-next-line no-control-regex -- NUL sentinels are intentional bold-marker placeholders swapped back to tags
     .replace(/\x00B_OPEN\x00/g, '<b>')
+    // eslint-disable-next-line no-control-regex -- NUL sentinels are intentional bold-marker placeholders swapped back to tags
     .replace(/\x00B_CLOSE\x00/g, '</b>');
 }
 
 /**
  * Render an entry card.
- * @param {Object} entry - Entry data
+ * @param {Entry} entry - Entry data
  * @param {boolean} isCited - Whether this entry was cited in the answer
  * @returns {string} HTML string
  */
@@ -127,9 +155,7 @@ export function renderEntryCard(entry, isCited = false) {
   const citedClass = isCited ? ' entry-card-cited' : '';
 
   // Extract preview from raw_text
-  const rawText = entry.raw_text || '';
-  const lines = rawText.split('\n');
-  const preview = lines.slice(1).join('\n').trim() || rawText;
+  const { details: preview } = parseEntryText(entry.raw_text);
 
   // Use highlighted snippet if available, otherwise fall back to plain-text preview
   const highlights = entry.highlights || [];
@@ -141,7 +167,7 @@ export function renderEntryCard(entry, isCited = false) {
   }
 
   return `
-    <article class="entry-card${citedClass}" data-entry-id="${escapeHtml(entry.entry_id)}" onclick="window.app.showEntry('${escapeHtml(entry.entry_id)}')">
+    <article class="entry-card${citedClass}" data-entry-id="${escapeHtml(entry.entry_id)}">
       <div class="entry-card-header">
         <div class="entry-card-meta">
           <span class="entry-id">${escapeHtml(entry.entry_id)}</span>
@@ -175,6 +201,7 @@ export function renderEntryCard(entry, isCited = false) {
 export function renderAnswerBox(answer, sources = [], mode = 'keyword', toolsUsed = []) {
   if (!answer) return '';
 
+  /** @type {Object<string, string>} */
   const modeLabels = { keyword: 'Keyword', semantic: 'Semantic' };
   const modeName = modeLabels[mode] || 'Answer';
   const tools = toolsUsed.filter(t => t !== mode);
@@ -182,7 +209,7 @@ export function renderAnswerBox(answer, sources = [], mode = 'keyword', toolsUse
   const label = `${modeName} Answer${toolsSuffix}`;
 
   const sourceLinks = sources.map(id =>
-    `<a href="#" onclick="window.app.showEntry('${escapeHtml(id)}'); return false;">${escapeHtml(id)}</a>`
+    `<a href="#" data-entry-id="${escapeHtml(id)}">${escapeHtml(id)}</a>`
   ).join(', ');
 
   return `
@@ -239,11 +266,29 @@ export function renderEmptyState(title, text) {
 }
 
 /**
+ * Render an error state for a failed load, matching renderEmptyState's markup
+ * minus the icon, with the message sourced from a caught error via messageOf().
+ * Shared by every module's load-failure catch block (dashboard, search, entries,
+ * entries-detail) so they render identical markup instead of four copies of it.
+ * @param {string} title - Error heading
+ * @param {unknown} error - The caught error
+ * @returns {string} HTML string
+ */
+export function renderErrorState(title, error) {
+  return `
+    <div class="empty-state">
+      <h3 class="empty-state-title text-error">${escapeHtml(title)}</h3>
+      <p class="empty-state-text">${escapeHtml(messageOf(error))}</p>
+    </div>
+  `;
+}
+
+/**
  * Render a stat card for the dashboard.
  * @param {string} title - Stat title
  * @param {string|number} value - Stat value
  * @param {string} subtitle - Stat subtitle
- * @param {string} status - Status (healthy, warning, error)
+ * @param {string|null} status - Status (healthy, warning, error)
  * @returns {string} HTML string
  */
 export function renderStatCard(title, value, subtitle = '', status = null) {
@@ -263,7 +308,7 @@ export function renderStatCard(title, value, subtitle = '', status = null) {
 /**
  * Render a diagnostics bar for search issues.
  * Uses native <details>/<summary> for zero-JS collapsibility.
- * @param {Array} diagnostics - Array of {level, source, message, category}
+ * @param {Diagnostic[]} diagnostics - Array of {level, source, message, category}
  * @returns {string} HTML string (empty if no diagnostics)
  */
 export function renderDiagnosticsBar(diagnostics) {
@@ -303,22 +348,16 @@ export function renderDiagnosticsBar(diagnostics) {
   `;
 }
 
-/**
- * Escape HTML special characters.
- * @param {string} text - Text to escape
- * @returns {string} Escaped text
- */
-export function escapeHtml(text) {
-  if (!text) return '';
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
+// Re-exported from the shared design-system dom module. The import above creates
+// a real local binding, so internal call sites and the `export default {…}`
+// object below keep resolving `escapeHtml`, and importer files (dashboard.js,
+// search.js, entries.js) continue to get it from './components.js'.
+export { escapeHtml };
 
 /**
  * Create an element from HTML string.
  * @param {string} html - HTML string
- * @returns {Element} DOM element
+ * @returns {ChildNode|null} DOM node
  */
 export function createElement(html) {
   const template = document.createElement('template');
@@ -339,6 +378,7 @@ export default {
   renderDiagnosticsBar,
   renderLoading,
   renderEmptyState,
+  renderErrorState,
   renderStatCard,
   escapeHtml,
   createElement,

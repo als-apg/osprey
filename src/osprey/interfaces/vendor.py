@@ -13,14 +13,49 @@ then run ``osprey vendor fetch`` to populate the target dirs.
 from __future__ import annotations
 
 import hashlib
+import http.client
 import json
 import os
 import ssl
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 
 MANIFEST_PATH = Path(__file__).parent / "vendor_manifest.json"
+
+# `osprey vendor fetch` runs during image builds (OSPREY_OFFLINE=1), where a
+# momentary DNS or route failure reaching the public CDN would otherwise abort
+# the whole build. Retry the errors that a later attempt can plausibly fix.
+_FETCH_ATTEMPTS = 3
+_BACKOFF_SECONDS = 1.0
+
+# 408 Request Timeout and 429 Too Many Requests are transient despite being 4xx.
+_RETRYABLE_HTTP_STATUS = frozenset({408, 429})
+
+
+def _is_cert_error(exc: BaseException) -> bool:
+    """urllib wraps SSLCertVerificationError in URLError(reason=...)."""
+    return isinstance(exc, ssl.SSLCertVerificationError) or (
+        isinstance(exc, urllib.error.URLError)
+        and isinstance(exc.reason, ssl.SSLCertVerificationError)
+    )
+
+
+def _is_retryable(exc: BaseException) -> bool:
+    """True for failures a retry can plausibly fix.
+
+    A bad cert, a 404, or a checksum mismatch will fail identically on every
+    attempt — retrying those only slows the build down and buries the real
+    error behind a delay.
+    """
+    if _is_cert_error(exc):
+        return False
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code in _RETRYABLE_HTTP_STATUS or 500 <= exc.code < 600
+    # URLError covers DNS failure and ENETUNREACH; both subclass OSError, as do
+    # socket.timeout (TimeoutError) and connection resets mid-body.
+    return isinstance(exc, (urllib.error.URLError, OSError, http.client.HTTPException))
 
 
 def _ssl_context(insecure: bool) -> ssl.SSLContext:
@@ -52,35 +87,50 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def _fetch_one(url: str, dest: Path, expected_sha256: str, insecure: bool = False) -> None:
-    """Download a single file and verify its checksum."""
+def _fetch_one(
+    url: str,
+    dest: Path,
+    expected_sha256: str,
+    insecure: bool = False,
+    attempts: int = _FETCH_ATTEMPTS,
+) -> None:
+    """Download a single file and verify its checksum.
+
+    Transient network failures are retried with exponential backoff; a cert
+    error, an HTTP 404, or a checksum mismatch fails immediately.
+    """
     dest.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "osprey-vendor/1.0"})
-        with urllib.request.urlopen(req, timeout=60, context=_ssl_context(insecure)) as resp:
-            data = resp.read()
-        dest.write_bytes(data)
-    except Exception as exc:
-        if dest.exists():
-            dest.unlink()
-        # urllib wraps SSLCertVerificationError in URLError(reason=...)
-        cert_err = isinstance(exc, ssl.SSLCertVerificationError) or (
-            isinstance(exc, urllib.error.URLError)
-            and isinstance(exc.reason, ssl.SSLCertVerificationError)
-        )
-        if cert_err:
-            raise RuntimeError(
-                f"TLS cert verification failed fetching {url}: {exc}\n"
-                "  This usually means a corporate proxy (e.g. Squid) is "
-                "intercepting TLS.\n"
-                "  Fix:\n"
-                "    - Point at your CA bundle:\n"
-                "        SSL_CERT_FILE=/path/to/ca-bundle.pem osprey vendor fetch\n"
-                "    - Or skip verification (safe — SHA256 is still checked):\n"
-                "        osprey vendor fetch --insecure   "
-                "(or OSPREY_VENDOR_INSECURE=1)"
-            ) from exc
-        raise RuntimeError(f"Failed to fetch {url}: {exc}") from exc
+    for attempt in range(1, attempts + 1):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "osprey-vendor/1.0"})
+            with urllib.request.urlopen(req, timeout=60, context=_ssl_context(insecure)) as resp:
+                data = resp.read()
+            dest.write_bytes(data)
+            break
+        except Exception as exc:
+            if dest.exists():
+                dest.unlink()
+            if _is_cert_error(exc):
+                raise RuntimeError(
+                    f"TLS cert verification failed fetching {url}: {exc}\n"
+                    "  This usually means a corporate proxy (e.g. Squid) is "
+                    "intercepting TLS.\n"
+                    "  Fix:\n"
+                    "    - Point at your CA bundle:\n"
+                    "        SSL_CERT_FILE=/path/to/ca-bundle.pem osprey vendor fetch\n"
+                    "    - Or skip verification (safe — SHA256 is still checked):\n"
+                    "        osprey vendor fetch --insecure   "
+                    "(or OSPREY_VENDOR_INSECURE=1)"
+                ) from exc
+            if _is_retryable(exc):
+                if attempt < attempts:
+                    time.sleep(_BACKOFF_SECONDS * 2 ** (attempt - 1))
+                    continue
+                raise RuntimeError(
+                    f"Failed to fetch {url} after {attempts} attempts: {exc}"
+                ) from exc
+            raise RuntimeError(f"Failed to fetch {url}: {exc}") from exc
+
     actual = _sha256(dest)
     if actual != expected_sha256:
         dest.unlink()

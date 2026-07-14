@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 
 from fastmcp.exceptions import ToolError
 
-from osprey.errors import ChannelLimitsViolationError
+from osprey.errors import ChannelLimitsViolationError, ChannelWriteBlockedError
 from osprey.mcp_server.errors import make_error
 
 logger = logging.getLogger("osprey.mcp_server.control_system.error_handling")
@@ -93,6 +93,16 @@ async def connector_error_handler(
                 "Report the violation to the operator with the allowed range.",
             ],
             details=violation,
+        )
+    except ChannelWriteBlockedError as exc:
+        make_error(
+            "write_refused",
+            f"Write refused by the reference monitor during {tool_name}: {exc}",
+            [
+                "This write was refused on policy grounds; it was never sent to the control system.",
+                "Do NOT attempt to work around the refusal.",
+            ],
+            details={"channel": exc.channel_address, "reason": exc.reason},
         )
     except Exception as exc:
         logger.exception("%s failed", tool_name)

@@ -48,8 +48,8 @@ Bring It Up
 ===========
 
 Both services are registered in ``deployed_services``, so they come up with the
-rest of the stack. One command, secure by default — ``osprey deploy up``
-auto-generates both bearer tokens into ``.env`` when they are unset:
+rest of the stack. ``osprey deploy up`` auto-generates both bearer tokens into
+``.env`` when they are unset:
 
 .. code-block:: bash
 
@@ -168,8 +168,8 @@ The EVENTS Panel
 Projects built from the ``control-assistant`` preset surface this dashboard as
 an **EVENTS** tab inside the web terminal, so ``osprey web`` exposes it without a
 separate browser window. The tab health-gates itself: while the dispatcher is
-down it shows *unavailable* rather than a broken frame, and turns live once the
-dispatcher answers ``/health``.
+down the tab is disabled with an offline indicator rather than showing a broken
+frame, and it turns live once the dispatcher answers ``/health``.
 
 The panel points at ``${EVENT_DISPATCHER_URL:-http://localhost:8020}``, which
 works out of the box for the host-run flow above. When the web terminal runs in
@@ -178,6 +178,25 @@ a container, repoint it at the dispatcher service:
 .. code-block:: bash
 
    EVENT_DISPATCHER_URL=http://event-dispatcher:8020
+
+Auto-derived URL
+----------------
+
+You do not have to set ``web.panels.events.url`` by hand. Whenever a profile
+lists the ``events`` panel **and** declares a ``dispatch:`` block, the build
+derives the panel's route from ``dispatch.dispatcher_port``:
+
+.. code-block:: yaml
+
+   web.panels.events.url: http://localhost:<dispatcher_port>   # bare host
+   web.panels.events.path: /dashboard                          # route
+
+The ``url`` is the bare dispatcher host and ``path`` carries the ``/dashboard``
+route — the web terminal composes the backend target as ``url`` + ``path``, so
+baking ``/dashboard`` into ``url`` would double-prefix sub-routes. Keep them
+split. If a profile already pins ``web.panels.events.path`` the build leaves it
+untouched, and an explicit ``web.panels.events.url`` override always wins (use it
+for remote/containerized terminals that cannot reach ``localhost``).
 
 Authoring Triggers
 ==================
@@ -216,8 +235,9 @@ Authoring Triggers
    ``KillShell``). This sits on top of the per-trigger allowlist, so a trigger
    can never widen its way to a shell or the open network.
 
-   **Retry policy.** ``on_error: retry`` fires only when the dispatcher *cannot
-   reach the worker* (connection error or timeout) — it re-dispatches up to
+   **Retry policy.** ``on_error: retry`` fires only when the *dispatch itself*
+   fails — the worker being unreachable (connection error or timeout), returning
+   an HTTP error, or rejecting the dispatcher's token — and it re-dispatches up to
    ``max_retries`` with ``backoff_sec`` between attempts. It does *not* retry a
    run that the agent itself ends in error, so firing a trigger against a healthy
    stack never exercises it; the behaviour is covered by
@@ -228,8 +248,8 @@ Authentication
 
 Two bearer tokens live in the project ``.env``. ``osprey deploy up``
 auto-generates a strong random value for each when it is unset (and logs where
-it wrote it), so a containerized deploy is secure by default — no editing
-required. Set your own values in ``.env`` to override:
+it wrote it), so a containerized deploy needs no token editing. Set your own
+values in ``.env`` to override:
 
 - ``EVENT_DISPATCHER_TOKEN`` — guards **inbound** webhook and write endpoints.
   Send it as ``Authorization: Bearer <token>``.

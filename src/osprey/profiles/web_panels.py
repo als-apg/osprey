@@ -13,10 +13,27 @@ UNIVERSAL_PANELS: set[str] = {"artifacts"}
 BUILTIN_PANELS: set[str] = {
     "artifacts",
     "ariel",
-    "tuning",
     "channel-finder",
     "lattice",
-    "events",  # event-dispatcher dashboard (control-assistant); URL-backed, see preset
+    "okf",
+}
+
+# The event-dispatcher dashboard (``events``) is intentionally NOT a builtin: it
+# is a URL-backed custom panel (the control-assistant preset sets
+# ``web.panels.events.url`` to the dispatcher's ``/dashboard``). Listing it here
+# would make ``_load_panel_config`` discard that url and the frontend has no
+# builtin ``events`` tab, so the tab would never render.
+
+# Canonical display labels for built-in panels.  This is the single source of
+# truth consumed by the /api/panels endpoint and by MCP panel tools — do not
+# duplicate these strings elsewhere in the framework.  ``events`` is omitted on
+# purpose: it is a URL-backed custom panel (see above) and carries its own label.
+BUILTIN_PANEL_LABELS: dict[str, str] = {
+    "artifacts": "WORKSPACE",
+    "ariel": "ARIEL",
+    "channel-finder": "CHANNELS",
+    "lattice": "LATTICE",
+    "okf": "KNOWLEDGE",
 }
 
 # Frontend fallback when a profile/config doesn't pin a default tab.

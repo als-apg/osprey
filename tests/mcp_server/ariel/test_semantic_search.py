@@ -118,6 +118,38 @@ async def test_semantic_search_empty_query():
 
 
 @pytest.mark.unit
+async def test_semantic_search_degraded_returns_non_error(tmp_path, monkeypatch):
+    """When semantic is unavailable, the tool returns a non-error result (#276).
+
+    The service degrades gracefully (empty entries + reasoning steering to
+    keyword search). The MCP tool must surface that as a normal response, not
+    an error envelope, so agents don't hit a hard tool failure.
+    """
+    _setup_registry(tmp_path, monkeypatch)
+
+    mock_result = _make_search_result(
+        [],
+        reasoning="Semantic search is unavailable (embeddings not configured). "
+        "Use keyword search instead.",
+    )
+
+    mock_service = AsyncMock()
+    mock_service.search.return_value = mock_result
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_semantic_search()
+        result = await fn(query="beam loss problems")
+
+    data = extract_response_dict(result)
+    assert not data.get("error", False)
+    assert data["results_found"] == 0
+    assert "keyword" in data["reasoning"].lower()
+
+
+@pytest.mark.unit
 async def test_semantic_search_service_error(tmp_path, monkeypatch):
     """Service failure returns standard error format."""
     _setup_registry(tmp_path, monkeypatch)

@@ -2,7 +2,7 @@
   "_metadata": {
     "version": "1.0",
     "tier": "tier1",
-    "total_channels": 205,
+    "total_channels": 217,
     "generated_by": "osprey-benchmark-generator"
   },
   "channels": [
@@ -1030,6 +1030,66 @@
       "channel": "StorageRing_Cavity_02_Voltage_Setpoint",
       "address": "SR:RF:CAVITY:02:VOLTAGE:SP",
       "description": "Storage ring RF cavity 02 voltage setpoint"
+    },
+    {
+      "channel": "StorageRing_VacGauge_SR01_Pressure_Readback",
+      "address": "SR:VAC:GAUGE:SR01:PRESSURE:RB",
+      "description": "Storage ring vacuum gauge SR01 pressure readback"
+    },
+    {
+      "channel": "StorageRing_VacGauge_SR02_Pressure_Readback",
+      "address": "SR:VAC:GAUGE:SR02:PRESSURE:RB",
+      "description": "Storage ring vacuum gauge SR02 pressure readback"
+    },
+    {
+      "channel": "StorageRing_VacGauge_SR03_Pressure_Readback",
+      "address": "SR:VAC:GAUGE:SR03:PRESSURE:RB",
+      "description": "Storage ring vacuum gauge SR03 pressure readback"
+    },
+    {
+      "channel": "StorageRing_VacGauge_SR04_Pressure_Readback",
+      "address": "SR:VAC:GAUGE:SR04:PRESSURE:RB",
+      "description": "Storage ring vacuum gauge SR04 pressure readback"
+    },
+    {
+      "channel": "StorageRing_VacGauge_SR05_Pressure_Readback",
+      "address": "SR:VAC:GAUGE:SR05:PRESSURE:RB",
+      "description": "Storage ring vacuum gauge SR05 pressure readback"
+    },
+    {
+      "channel": "StorageRing_VacGauge_SR06_Pressure_Readback",
+      "address": "SR:VAC:GAUGE:SR06:PRESSURE:RB",
+      "description": "Storage ring vacuum gauge SR06 pressure readback"
+    },
+    {
+      "channel": "StorageRing_VacGauge_SR07_Pressure_Readback",
+      "address": "SR:VAC:GAUGE:SR07:PRESSURE:RB",
+      "description": "Storage ring vacuum gauge SR07 pressure readback"
+    },
+    {
+      "channel": "StorageRing_VacGauge_SR08_Pressure_Readback",
+      "address": "SR:VAC:GAUGE:SR08:PRESSURE:RB",
+      "description": "Storage ring vacuum gauge SR08 pressure readback"
+    },
+    {
+      "channel": "StorageRing_VacGauge_SR09_Pressure_Readback",
+      "address": "SR:VAC:GAUGE:SR09:PRESSURE:RB",
+      "description": "Storage ring vacuum gauge SR09 pressure readback"
+    },
+    {
+      "channel": "StorageRing_VacGauge_SR10_Pressure_Readback",
+      "address": "SR:VAC:GAUGE:SR10:PRESSURE:RB",
+      "description": "Storage ring vacuum gauge SR10 pressure readback"
+    },
+    {
+      "channel": "StorageRing_VacGauge_SR11_Pressure_Readback",
+      "address": "SR:VAC:GAUGE:SR11:PRESSURE:RB",
+      "description": "Storage ring vacuum gauge SR11 pressure readback"
+    },
+    {
+      "channel": "StorageRing_VacGauge_SR12_Pressure_Readback",
+      "address": "SR:VAC:GAUGE:SR12:PRESSURE:RB",
+      "description": "Storage ring vacuum gauge SR12 pressure readback"
     }
   ]
 }

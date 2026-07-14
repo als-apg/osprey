@@ -2,8 +2,14 @@
 
 Scenario 1: Verify that channel_read succeeds for a valid channel.
 
-Uses run_sdk_query_with_hooks to exercise the full hook chain. Reads in
-selective mode don't trigger approval, so hook_events should be EMPTY.
+Uses run_sdk_query_with_hooks to exercise the full hook chain. The
+``safety_project`` fixture builds the DEFAULT control_assistant project, which
+ships ``approval.tools.channel_read: skip``. Under a ``skip`` policy the
+approval hook auto-approves the read (no human prompt) by emitting
+``permissionDecision: 'allow'``. The safety-relevant invariant is therefore
+"every channel_read event is an allow, never a deny/ask" — NOT "no events at
+all". See the assertion comment for why an ``allow`` hook decision still
+surfaces through can_use_tool while a ``deny`` does not.
 """
 
 from __future__ import annotations
@@ -62,9 +68,19 @@ async def test_channel_read_succeeds(safety_project):
     # The tool call should not have errored
     assert not read_calls[0].is_error, f"channel_read returned error: {read_calls[0].result}"
 
-    # Reads in selective mode don't trigger approval → hook_events should be EMPTY
-    assert len(result.hook_events) == 0, (
-        f"Expected no hook_events for reads in selective mode "
-        f"but got {len(result.hook_events)}: "
-        f"{[(e.tool_name, e.decision) for e in result.hook_events]}"
+    # Under the default config's `channel_read: skip` policy the approval hook
+    # auto-approves the read by emitting permissionDecision='allow' (no human
+    # prompt). With claude-agent-sdk 0.2.93 / CLI 2.1.x an `allow` hook decision
+    # is STILL routed through can_use_tool and recorded as a hook event — only a
+    # hook `deny` suppresses the callback (see test_safety_kill_switch.py
+    # scenarios 9/10, which legitimately assert zero hook_events for denies, and
+    # scenario 2d/2e in test_safety_approval_e2e.py). So asserting len==0 here
+    # was wrong: it conflated allow-suppresses-callback with
+    # deny-suppresses-callback. The real safety invariant is that a skip-policy
+    # read is auto-approved — never DENIED and never human-blocked — i.e. every
+    # recorded channel_read event must be an `allow`.
+    read_events = [e for e in result.hook_events if "channel_read" in e.tool_name]
+    assert all(e.decision == "allow" for e in read_events), (
+        f"channel_read under skip policy must auto-approve (allow), got: "
+        f"{[(e.tool_name, e.decision) for e in read_events]}"
     )

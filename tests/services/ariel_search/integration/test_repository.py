@@ -58,6 +58,29 @@ class TestRepositoryCRUD:
         assert isinstance(count, int)
         assert count >= 0
 
+    async def test_count_entries_honors_filters(self, repository, seed_entry_factory):
+        """count_entries applies the same filters as search_by_time_range.
+
+        So a filtered Browse listing's total_pages matches the rows returned,
+        instead of counting the whole table. Scoped to a unique source_system
+        so other rows in the shared test database do not bleed in.
+        """
+        base = datetime(2005, 5, 5, tzinfo=UTC)
+        src = "integ-count-src"
+        for i in range(3):
+            await repository.upsert_entry(
+                seed_entry_factory(
+                    entry_id=f"integ-count-{i:03d}",
+                    source_system=src,
+                    author="integ-count-alice" if i == 0 else "integ-count-bob",
+                    timestamp=base + timedelta(hours=i),
+                )
+            )
+
+        assert await repository.count_entries(source_system=src) == 3
+        assert await repository.count_entries(source_system=src, author="integ-count-alice") == 1
+        assert await repository.count_entries(source_system="integ-count-nope") == 0
+
     async def test_get_entries_by_ids_empty_list(self, repository):
         """Test get_entries_by_ids with empty list returns empty list."""
         results = await repository.get_entries_by_ids([])
@@ -117,6 +140,66 @@ class TestRepositoryTimeRange:
 
         results = await repository.search_by_time_range(limit=2)
         assert len(results) <= 2
+
+    async def test_search_by_time_range_filters_by_author(self, repository, seed_entry_factory):
+        """search_by_time_range filters by author when supplied."""
+        base = datetime(2002, 2, 2, tzinfo=UTC)
+        await repository.upsert_entry(
+            seed_entry_factory(entry_id="integ-auth-alice", author="integ-alice", timestamp=base)
+        )
+        await repository.upsert_entry(
+            seed_entry_factory(entry_id="integ-auth-bob", author="integ-bob", timestamp=base)
+        )
+
+        results = await repository.search_by_time_range(author="integ-alice", limit=100)
+
+        entry_ids = [e["entry_id"] for e in results]
+        assert "integ-auth-alice" in entry_ids
+        assert "integ-auth-bob" not in entry_ids
+
+    async def test_search_by_time_range_filters_by_source_system(
+        self, repository, seed_entry_factory
+    ):
+        """search_by_time_range filters by source_system when supplied."""
+        base = datetime(2003, 3, 3, tzinfo=UTC)
+        await repository.upsert_entry(
+            seed_entry_factory(entry_id="integ-src-als", source_system="integ-ALS", timestamp=base)
+        )
+        await repository.upsert_entry(
+            seed_entry_factory(
+                entry_id="integ-src-other", source_system="integ-OTHER", timestamp=base
+            )
+        )
+
+        results = await repository.search_by_time_range(source_system="integ-ALS", limit=100)
+
+        entry_ids = [e["entry_id"] for e in results]
+        assert "integ-src-als" in entry_ids
+        assert "integ-src-other" not in entry_ids
+
+    async def test_search_by_time_range_offset_paginates(self, repository, seed_entry_factory):
+        """offset advances the page so older entries become reachable.
+
+        Scoped to a unique source_system so other rows in the shared test
+        database do not bleed into the assertions.
+        """
+        base = datetime(2004, 4, 4, tzinfo=UTC)
+        src = "integ-offset-src"
+        for i in range(3):
+            await repository.upsert_entry(
+                seed_entry_factory(
+                    entry_id=f"integ-offset-{i:03d}",
+                    source_system=src,
+                    timestamp=base + timedelta(hours=i),  # 002 newest, 000 oldest
+                    raw_text=f"offset entry {i}",
+                )
+            )
+
+        page1 = await repository.search_by_time_range(source_system=src, limit=2, offset=0)
+        page2 = await repository.search_by_time_range(source_system=src, limit=2, offset=2)
+
+        assert [e["entry_id"] for e in page1] == ["integ-offset-002", "integ-offset-001"]
+        assert [e["entry_id"] for e in page2] == ["integ-offset-000"]
 
 
 class TestRepositoryHealth:
@@ -318,6 +401,65 @@ class TestRepositoryMetadata:
         retrieved = await repository.get_entry("integ-meta-002")
         assert retrieved is not None
         assert retrieved.get("metadata", {}).get("title") == "Test Title"
+
+
+class TestRepositoryAttachmentPreservation:
+    """Re-ingestion must not erase ARIEL-native (web-uploaded) attachments.
+
+    ARIEL-native attachments (URL ``/api/attachments/{id}``) live in ARIEL only —
+    the OLOG write API cannot accept file uploads. A background re-ingestion poll
+    re-fetches an already-published entry and upserts the upstream copy, which has
+    *no* attachments. Without preservation, that upsert would overwrite the entry's
+    attachment references to ``[]`` and orphan the stored blobs.
+    """
+
+    async def test_reingest_with_no_attachments_preserves_ariel_native(
+        self, repository, seed_entry_factory
+    ):
+        """An upsert carrying no attachments keeps the existing ARIEL-native ones."""
+        ariel_native = [
+            {"url": "/api/attachments/abc123", "type": "image/png", "filename": "shot.png"}
+        ]
+        entry = seed_entry_factory(
+            entry_id="integ-attach-preserve-001",
+            raw_text="Published entry with an ARIEL-only attachment",
+            attachments=ariel_native,
+        )
+        await repository.upsert_entry(entry)
+
+        # Simulate the background poller re-ingesting the upstream entry, which has
+        # no attachments (the logbook API never received the file).
+        reingested = seed_entry_factory(
+            entry_id="integ-attach-preserve-001",
+            raw_text="Published entry with an ARIEL-only attachment",
+            attachments=[],
+        )
+        await repository.upsert_entry(reingested)
+
+        retrieved = await repository.get_entry("integ-attach-preserve-001")
+        assert retrieved is not None
+        assert retrieved["attachments"] == ariel_native
+
+    async def test_reingest_with_attachments_replaces(self, repository, seed_entry_factory):
+        """A non-empty incoming attachment list still replaces (upstream wins when it has data)."""
+        entry = seed_entry_factory(
+            entry_id="integ-attach-preserve-002",
+            raw_text="Entry",
+            attachments=[{"url": "/api/attachments/old", "type": "image/png", "filename": "a.png"}],
+        )
+        await repository.upsert_entry(entry)
+
+        upstream = [{"url": "https://elog.example/img/1", "type": "image/png", "filename": "b.png"}]
+        replacement = seed_entry_factory(
+            entry_id="integ-attach-preserve-002",
+            raw_text="Entry",
+            attachments=upstream,
+        )
+        await repository.upsert_entry(replacement)
+
+        retrieved = await repository.get_entry("integ-attach-preserve-002")
+        assert retrieved is not None
+        assert retrieved["attachments"] == upstream
 
 
 class TestRepositoryBulkOperations:

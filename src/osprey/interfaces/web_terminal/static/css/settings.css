@@ -24,7 +24,7 @@
   border-radius: 3px;
   padding: 3px 10px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--wt-transition-fast);
 }
 
 .settings-mode-btn:hover {
@@ -56,7 +56,7 @@
   cursor: pointer;
   user-select: none;
   background: var(--amber-tint-04);
-  transition: background var(--transition-fast);
+  transition: background var(--wt-transition-fast);
 }
 
 .settings-section-header:hover {
@@ -67,7 +67,7 @@
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--text-muted);
-  transition: transform var(--transition-fast);
+  transition: transform var(--wt-transition-fast);
   width: 12px;
   text-align: center;
   flex-shrink: 0;
@@ -171,7 +171,7 @@
   border: 1px solid var(--border-default);
   border-radius: 10px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--wt-transition-fast);
 }
 
 .toggle-slider::after {
@@ -183,7 +183,7 @@
   height: 14px;
   border-radius: 50%;
   background: var(--text-muted);
-  transition: all var(--transition-fast);
+  transition: all var(--wt-transition-fast);
 }
 
 .toggle-switch input:checked + .toggle-slider {
@@ -209,7 +209,7 @@
   width: 100%;
   max-width: 180px;
   outline: none;
-  transition: border-color var(--transition-fast);
+  transition: border-color var(--wt-transition-fast);
 }
 
 .settings-input:focus {
@@ -234,10 +234,10 @@
   max-width: 180px;
   outline: none;
   cursor: pointer;
-  transition: border-color var(--transition-fast);
+  transition: border-color var(--wt-transition-fast);
   appearance: none;
   -webkit-appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2364748b'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' viewBox='0 0 8 5'%3E%3Cpath d='M0 0l4 5 4-5z' fill='%2364748b'/%3E%3C/svg%3E"); /* hygiene-allow-color: native <select> chevron in a data-URI (can't reference a token); fixed neutral slate reads on light and dark, full tokenization via a masked pseudo deferred */
   background-repeat: no-repeat;
   background-position: right 6px center;
   padding-right: 20px;
@@ -309,7 +309,7 @@
   border-radius: 3px;
   padding: 5px 14px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--wt-transition-fast);
 }
 
 .settings-apply-btn:hover {
@@ -381,7 +381,7 @@
   border-radius: 3px;
   padding: 5px 16px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--wt-transition-fast);
 }
 
 .settings-cancel-btn {
@@ -475,7 +475,7 @@
   cursor: pointer;
   user-select: none;
   background: var(--bg-secondary);
-  transition: background var(--transition-fast);
+  transition: background var(--wt-transition-fast);
 }
 
 .hook-debug-log-header:hover {
@@ -485,7 +485,7 @@
 .hook-debug-log-chevron {
   font-size: 8px;
   color: var(--text-muted);
-  transition: transform var(--transition-fast);
+  transition: transform var(--wt-transition-fast);
   width: 12px;
   text-align: center;
   flex-shrink: 0;
@@ -512,7 +512,7 @@
   border: none;
   cursor: pointer;
   padding: 0 4px;
-  transition: color var(--transition-fast);
+  transition: color var(--wt-transition-fast);
 }
 
 .hook-debug-refresh-btn:hover {

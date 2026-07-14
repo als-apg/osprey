@@ -19,11 +19,12 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from fastmcp import FastMCP
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, JSONResponse, StreamingResponse
+from starlette.responses import FileResponse, HTMLResponse, JSONResponse, StreamingResponse
 
 from osprey.dispatch.dashboard import render_dashboard_html
 from osprey.dispatch.mcp_tools import register_tools
@@ -69,6 +70,19 @@ async def _dispatch_with_policy(
     prompt = action.get("prompt", "")
     allowed_tools = action.get("allowed_tools", [])
 
+    # Per-surface prompt fragment and tool scope, resolved as
+    # source default -> trigger override. No trigger source currently supplies
+    # a default (see SourceRegistry) — the two locals below are the seam a
+    # future source-level default would extend without moving this read site.
+    # ``trigger.surface_prompt`` is already the parsed ``action.surface_prompt``
+    # (TriggerConfig); ``surface_tools`` has no typed field yet, so it is read
+    # straight off the free-form ``action`` mapping like ``allowed_tools`` above.
+    source_default_surface_prompt: str | None = None
+    surface_prompt = trigger.surface_prompt or source_default_surface_prompt
+
+    source_default_surface_tools: list[str] | None = None
+    surface_tools = action.get("surface_tools") or source_default_surface_tools
+
     # Fold the event payload into the prompt so payload-driven triggers can act
     # on it. The payload is UNTRUSTED input (a webhook body); the per-trigger
     # tool allowlist and the worker's denylist — not the prompt — are the
@@ -82,6 +96,8 @@ async def _dispatch_with_policy(
             prompt=prompt,
             allowed_tools=allowed_tools,
             token=dispatch_token,
+            surface_prompt=surface_prompt,
+            surface_tools=surface_tools,
         )
         await registry.record_event(trigger.name, payload, "dispatched")
         return result
@@ -244,6 +260,56 @@ async def get_dispatch_result(request: Request) -> JSONResponse:
     # is an internal topology detail and the poll response should carry only the
     # dispatch's own status/run_id.
     return JSONResponse({**result})
+
+
+# FastMCP has no static-file mount (unlike the FastAPI interfaces, which mount
+# StaticFiles at "/design-system"), so the dashboard's tokens.css/base.css/
+# theme-boot.js/theme-manager.js are served through this hand-rolled route
+# instead. Resolved once at import time — package-relative from this file, up
+# to src/osprey/, then across into interfaces/design_system/static.
+_DESIGN_SYSTEM_STATIC_DIR = (
+    Path(__file__).parent.parent / "interfaces" / "design_system" / "static"
+).resolve()
+
+
+@mcp.custom_route("/design-system/{path:path}", methods=["GET"])
+async def design_system_asset(request: Request) -> FileResponse | JSONResponse:
+    """Serve design-system static assets (tokens.css, base.css, theme JS).
+
+    Ungated on purpose, like the ``/dashboard`` shell (see the security-model
+    note above ``create_server``'s dashboard routes): these are non-secret,
+    static assets that the dashboard's ``<head>`` must load before any auth
+    handshake happens.
+
+    Path-traversal guard: the requested path is joined onto the static root
+    and resolved (following ``..`` segments and symlinks), then checked with
+    ``is_relative_to`` against the resolved root. Anything that escapes the
+    root — or simply doesn't exist — gets a 404, never a 403, so a traversal
+    probe learns nothing about what does or doesn't exist outside the root.
+    """
+    requested = request.path_params["path"]
+    candidate = (_DESIGN_SYSTEM_STATIC_DIR / requested).resolve()
+    if not candidate.is_relative_to(_DESIGN_SYSTEM_STATIC_DIR) or not candidate.is_file():
+        return JSONResponse({"detail": "Not found"}, status_code=404)
+    return FileResponse(candidate)
+
+
+#: Shared web fonts (Outfit / JetBrains Mono). The FastAPI interfaces mount
+#: these at ``/static/fonts`` via ``_app_setup``; the dashboard self-hosts them
+#: at the same URL here so its ``<head>`` never reaches out to the Google Fonts
+#: CDN — which fails in the air-gapped control room and drops the dashboard to
+#: system fonts while every sibling panel keeps the brand typeface.
+_SHARED_FONTS_DIR = (Path(__file__).parent.parent / "interfaces" / "shared_fonts").resolve()
+
+
+@mcp.custom_route("/static/fonts/{path:path}", methods=["GET"])
+async def shared_font_asset(request: Request) -> FileResponse | JSONResponse:
+    """Serve the shared web-font assets (fonts.css + .ttf files), same guard as above."""
+    requested = request.path_params["path"]
+    candidate = (_SHARED_FONTS_DIR / requested).resolve()
+    if not candidate.is_relative_to(_SHARED_FONTS_DIR) or not candidate.is_file():
+        return JSONResponse({"detail": "Not found"}, status_code=404)
+    return FileResponse(candidate)
 
 
 # ---------------------------------------------------------------------------

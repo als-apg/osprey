@@ -1,17 +1,51 @@
 /* OSPREY Web Terminal — Agent Settings Panel */
 
 import { fetchJSON } from './api.js';
-import { closeDrawer } from './drawer.js';
 import { restartTerminal, startTerminal } from './terminal.js';
 
-let currentConfig = null;  // { sections, raw, path }
+/**
+ * The config document returned by GET /api/config.
+ * @typedef {object} ConfigPayload
+ * @property {Record<string, any>} sections  nested config tree, keyed by section
+ * @property {string} raw  the raw YAML file text
+ * @property {string} [path]
+ */
+
+/**
+ * A dot-keyed map of changed fields sent to PATCH /api/config.
+ * @typedef {Record<string, any>} SettingsFormUpdates
+ */
+
+/**
+ * The osprey-drawer custom element: an HTMLElement superset that adds
+ * imperative open()/close()/toggle() methods over the `open` attribute.
+ * @typedef {HTMLElement & { open(): void; close(): void; toggle(): void }} DrawerElement
+ */
+
+/** @type {ConfigPayload|null} */
+let currentConfig = null;
 let isDirty = false;
 let currentMode = 'form';  // 'form' | 'raw'
 
 // The agent tab panel — all DOM queries are scoped to this element
+/** @type {HTMLElement|null} */
 let agentPanel = null;
 
+// The settings drawer element — resolved once in initSettings(), reused by
+// applySettings() to close it and by the warning gate below to open it.
+/** @type {DrawerElement|null} */
+let settingsDrawer = null;
+
+// Per-session warning for the settings drawer (resets on server restart)
+const SETTINGS_WARNING_KEY = 'osprey-settings-warning-ack';
+
+// True from the moment a trigger click starts the gate (health check in
+// flight, or the warning dialog itself is up) until it resolves one way or
+// another. Guards against a rapid second click spawning a second dialog.
+let warningGatePending = false;
+
 // Known enum values for select dropdowns
+/** @type {Record<string, string[]>} */
 const ENUM_FIELDS = {
   'claude_code.effort': ['low', 'medium', 'high', 'max'],
   'control_system.write_verification': ['none', 'callback', 'readback'],
@@ -39,16 +73,22 @@ const BOOLEAN_FIELDS = new Set([
  * Initialize the settings panel. Call once on DOMContentLoaded.
  */
 export function initSettings() {
-  const drawer = document.getElementById('settings-drawer');
+  settingsDrawer = /** @type {DrawerElement|null} */ (document.getElementById('settings-drawer'));
+  // Invariant: the warning gate must never be gated on elements unrelated to
+  // the drawer (fail-closed) — install it as soon as the drawer itself is
+  // resolved, before the unrelated `#tab-config` guard clause below, so a
+  // missing/renamed config tab can never silently leave the drawer ungated.
+  if (settingsDrawer) initSettingsWarningGate();
+
   agentPanel = document.getElementById('tab-config');
-  if (!drawer || !agentPanel) return;
+  if (!settingsDrawer || !agentPanel) return;
 
   // Load config when agent tab becomes active (covers both drawer open and tab switch)
   agentPanel.addEventListener('drawer:tab-activate', () => loadConfig());
 
   // Mode toggle buttons (scoped to agent panel)
-  agentPanel.querySelectorAll('.settings-mode-btn').forEach((btn) => {
-    btn.addEventListener('click', () => switchMode(btn.dataset.mode));
+  /** @type {NodeListOf<HTMLElement>} */ (agentPanel.querySelectorAll('.settings-mode-btn')).forEach((btn) => {
+    btn.addEventListener('click', () => switchMode(/** @type {string} */ (btn.dataset.mode)));
   });
 
   // Apply button
@@ -66,9 +106,148 @@ export function initSettings() {
   if (rawEditor) rawEditor.addEventListener('input', markDirty);
 }
 
+/**
+ * Gate opening the settings drawer behind a first-time-per-session warning
+ * (these settings control agent behavior, safety hooks, and security
+ * policies). The trigger button intentionally carries `data-drawer-trigger`
+ * rather than osprey-drawer's own `[data-drawer]` marker, so the component's
+ * delegated handler never matches it and never toggles the drawer directly —
+ * this gate is the sole open path, and the click reaches every other
+ * document-level listener (e.g. sessions.js's outside-click dropdown close)
+ * completely unmodified, with no propagation tampering.
+ */
+function initSettingsWarningGate() {
+  const trigger = document.querySelector('[data-drawer-trigger="settings-drawer"]');
+  if (!trigger) return;
+
+  trigger.addEventListener('click', () => {
+    if (settingsDrawer?.hasAttribute('open')) {
+      settingsDrawer?.close();
+      return;
+    }
+    if (warningGatePending) return; // a check or the dialog itself is already in flight
+    maybeWarnThenOpen();
+  });
+}
+
+// Bounds how long a trigger click can leave `warningGatePending` true while
+// waiting on /health -- a stalled backend or a dropped connection with no
+// RST would otherwise never settle the fetch and permanently brick the
+// gear (every later click a no-op, only a reload recovering).
+const HEALTH_CHECK_TIMEOUT_MS = 4000;
+
+async function maybeWarnThenOpen() {
+  warningGatePending = true;
+  let timeoutId;
+  try {
+    const timeout = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error('health check timed out')), HEALTH_CHECK_TIMEOUT_MS);
+    });
+    const healthCheck = fetchJSON('/health');
+    // If the timeout wins the race, the still-pending fetch may reject later;
+    // swallow that late rejection so it doesn't surface as an unhandled one.
+    healthCheck.catch(() => {});
+    const health = await Promise.race([healthCheck, timeout]);
+    clearTimeout(timeoutId);
+    const serverSession = health.session_id;
+    if (!serverSession || localStorage.getItem(SETTINGS_WARNING_KEY) !== serverSession) {
+      safelyShowSettingsWarning(serverSession);
+      return;
+    }
+  } catch {
+    // Health endpoint unreachable, or slow enough to hit the timeout above —
+    // show the warning to be safe (fail-safe-to-warning; the flag clears via
+    // the dialog's own cleanup() once dismissed).
+    clearTimeout(timeoutId);
+    safelyShowSettingsWarning(null);
+    return;
+  }
+  warningGatePending = false;
+  settingsDrawer?.open();
+}
+
+/**
+ * Defense-in-depth: if building/showing the dialog itself throws (e.g. DOM
+ * corruption), reset the gate rather than leaving it permanently pending.
+ * @param {string|null} serverSession
+ */
+function safelyShowSettingsWarning(serverSession) {
+  try {
+    showSettingsWarning(serverSession);
+  } catch (error) {
+    warningGatePending = false;
+    console.error('osprey web_terminal: failed to show the settings warning dialog; gate reset', error);
+  }
+}
+
+/**
+ * Show a first-time warning dialog before opening the settings drawer.
+ * Persists acknowledgment per server session so it reappears on restart.
+ * @param {string|null} serverSession
+ */
+function showSettingsWarning(serverSession) {
+  const overlay = document.createElement('div');
+  overlay.className = 'settings-warning-overlay';
+
+  const dialog = document.createElement('div');
+  dialog.className = 'settings-warning-dialog';
+
+  dialog.innerHTML = `
+    <div class="settings-warning-icon">⚠</div>
+    <div class="settings-warning-title">Expert Configuration Area</div>
+    <div class="settings-warning-body">
+      <p>These settings directly control <strong>agent behavior</strong>,
+      <strong>safety hooks</strong>, and <strong>security policies</strong>.</p>
+      <p>Incorrect changes can <strong>disable safety checks</strong>,
+      bypass human approval requirements, or allow unvalidated writes
+      to control system hardware.</p>
+      <p>Only modify these settings if you understand the safety
+      implications of each option.</p>
+    </div>
+    <div class="settings-warning-actions">
+      <button class="settings-warning-cancel">Cancel</button>
+      <button class="settings-warning-proceed">I Understand, Proceed</button>
+    </div>
+  `;
+
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  // Animate in
+  requestAnimationFrame(() => overlay.classList.add('visible'));
+
+  // Unconditional on every dismissal path (Cancel, Proceed, Escape) — leaves
+  // no stale `keydown` listener behind and always resolves the pending gate.
+  const cleanup = () => {
+    document.removeEventListener('keydown', onKey);
+    warningGatePending = false;
+    overlay.classList.remove('visible');
+    overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
+    // Fallback removal if transition doesn't fire
+    setTimeout(() => { if (overlay.parentNode) overlay.remove(); }, 300);
+  };
+
+  /** @type {HTMLElement} */ (dialog.querySelector('.settings-warning-cancel')).addEventListener('click', cleanup);
+
+  /** @type {HTMLElement} */ (dialog.querySelector('.settings-warning-proceed')).addEventListener('click', () => {
+    if (serverSession) {
+      localStorage.setItem(SETTINGS_WARNING_KEY, serverSession);
+    }
+    cleanup();
+    settingsDrawer?.open();
+  });
+
+  // Escape key cancels
+  /** @param {KeyboardEvent} e */
+  const onKey = (e) => {
+    if (e.key === 'Escape') cleanup();
+  };
+  document.addEventListener('keydown', onKey);
+}
+
 async function loadConfig() {
   const formContainer = document.getElementById('settings-form');
-  const rawTextarea = document.getElementById('settings-raw-editor');
+  const rawTextarea = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('settings-raw-editor'));
   const loading = document.getElementById('settings-loading');
   const error = document.getElementById('settings-error');
 
@@ -77,7 +256,7 @@ async function loadConfig() {
   if (formContainer) formContainer.innerHTML = '';
 
   try {
-    currentConfig = await fetchJSON('/api/config');
+    currentConfig = /** @type {ConfigPayload} */ (await fetchJSON('/api/config'));
     if (loading) loading.style.display = 'none';
 
     // Populate form view
@@ -92,16 +271,17 @@ async function loadConfig() {
     if (loading) loading.style.display = 'none';
     if (error) {
       error.style.display = 'flex';
-      error.textContent = `Failed to load config: ${e.message}`;
+      error.textContent = `Failed to load config: ${e instanceof Error ? e.message : String(e)}`;
     }
   }
 }
 
+/** @param {string} mode */
 function switchMode(mode) {
   currentMode = mode;
   if (!agentPanel) return;
 
-  agentPanel.querySelectorAll('.settings-mode-btn').forEach((btn) => {
+  /** @type {NodeListOf<HTMLElement>} */ (agentPanel.querySelectorAll('.settings-mode-btn')).forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.mode === mode);
   });
 
@@ -117,6 +297,7 @@ function switchMode(mode) {
   // unsaved-changes guard on tab/drawer close.
 }
 
+/** @param {Record<string, any>} sections */
 function renderFormSections(sections) {
   const container = document.getElementById('settings-form');
   if (!container) return;
@@ -149,6 +330,12 @@ function renderFormSections(sections) {
   }
 }
 
+/**
+ * @param {HTMLElement} container
+ * @param {Record<string, any>} obj
+ * @param {string} prefix
+ * @param {number} [depth]
+ */
 function renderFields(container, obj, prefix, depth = 0) {
   for (const [key, value] of Object.entries(obj)) {
     const fullKey = `${prefix}.${key}`;
@@ -156,7 +343,7 @@ function renderFields(container, obj, prefix, depth = 0) {
     if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
       const group = document.createElement('div');
       group.className = 'settings-subgroup';
-      group.style.setProperty('--depth', depth);
+      group.style.setProperty('--depth', String(depth));
 
       const groupLabel = document.createElement('div');
       groupLabel.className = 'settings-subgroup-label';
@@ -190,6 +377,11 @@ function renderFields(container, obj, prefix, depth = 0) {
   }
 }
 
+/**
+ * @param {string} fullKey
+ * @param {any} value
+ * @returns {HTMLElement}
+ */
 function createInputForValue(fullKey, value) {
   if (ENUM_FIELDS[fullKey]) {
     const select = document.createElement('select');
@@ -225,7 +417,7 @@ function createInputForValue(fullKey, value) {
     const input = document.createElement('input');
     input.type = 'number';
     input.className = 'settings-input';
-    input.value = value;
+    input.value = String(value);
     input.dataset.key = fullKey;
     input.addEventListener('input', markDirty);
     return input;
@@ -265,12 +457,16 @@ function updateSaveBar() {
  * Collect all form field values that differ from the original config into a
  * dot-keyed updates object suitable for PATCH /api/config.
  */
+/** @returns {SettingsFormUpdates} */
 function collectFormUpdates() {
+  /** @type {SettingsFormUpdates} */
   const updates = {};
-  const inputs = document.querySelectorAll('#settings-form [data-key]');
+  const inputs = /** @type {NodeListOf<HTMLInputElement>} */ (
+    document.querySelectorAll('#settings-form [data-key]')
+  );
 
   for (const input of inputs) {
-    const key = input.dataset.key;
+    const key = /** @type {string} */ (input.dataset.key);
     let newValue;
 
     if (input.type === 'checkbox') {
@@ -284,7 +480,7 @@ function collectFormUpdates() {
     }
 
     // Compare against original to only send changed fields
-    const originalValue = getNestedValue(currentConfig.sections, key);
+    const originalValue = getNestedValue(currentConfig?.sections, key);
     if (!deepEqual(originalValue, newValue)) {
       updates[key] = newValue;
     }
@@ -293,6 +489,11 @@ function collectFormUpdates() {
   return updates;
 }
 
+/**
+ * @param {any} obj
+ * @param {string} dottedKey
+ * @returns {any}
+ */
 function getNestedValue(obj, dottedKey) {
   const parts = dottedKey.split('.');
   let node = obj;
@@ -303,6 +504,11 @@ function getNestedValue(obj, dottedKey) {
   return node;
 }
 
+/**
+ * @param {any} a
+ * @param {any} b
+ * @returns {boolean}
+ */
 function deepEqual(a, b) {
   if (a === b) return true;
   if (a == null || b == null) return false;
@@ -336,7 +542,7 @@ async function applySettings() {
   hideConfirmDialog();
 
   const status = agentPanel ? agentPanel.querySelector('.settings-status') : null;
-  const applyBtn = agentPanel ? agentPanel.querySelector('.settings-apply-btn') : null;
+  const applyBtn = /** @type {HTMLButtonElement|null} */ (agentPanel ? agentPanel.querySelector('.settings-apply-btn') : null);
   if (applyBtn) applyBtn.disabled = true;
   if (status) status.textContent = 'Saving...';
 
@@ -344,7 +550,7 @@ async function applySettings() {
   try {
     if (currentMode === 'raw') {
       // Raw mode: send the full YAML text as-is (user is responsible for content)
-      const textarea = document.getElementById('settings-raw-editor');
+      const textarea = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('settings-raw-editor'));
       const yamlContent = textarea ? textarea.value : '';
       const saveResp = await fetch('/api/config', {
         method: 'PUT',
@@ -381,16 +587,17 @@ async function applySettings() {
     if (status) status.textContent = '';
     if (applyBtn) applyBtn.disabled = false;
 
-    closeDrawer();
+    settingsDrawer?.close();
     await restartTerminal();
     startTerminal();
   } catch (e) {
     const prefix = configSaved ? 'Config saved, but: ' : '';
-    if (status) status.textContent = `${prefix}${e.message}`;
+    if (status) status.textContent = `${prefix}${e instanceof Error ? e.message : String(e)}`;
     if (applyBtn) applyBtn.disabled = false;
   }
 }
 
+/** @param {string} key */
 function formatLabel(key) {
   return key.replace(/_/g, ' ');
 }

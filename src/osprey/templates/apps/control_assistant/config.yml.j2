@@ -31,6 +31,10 @@ api:
     amsc-i2:
       api_key: ${AMSC_I2_API_KEY}
       base_url: https://api.i2-core.american-science-cloud.org/v1
+      models:                        # Model IDs as named by this provider
+        haiku: claude-haiku
+        sonnet: claude-sonnet
+        opus: claude-opus
     stanford:
       api_key: ${STANFORD_API_KEY}
       base_url: https://aiapi-prod.stanford.edu/v1
@@ -62,6 +66,18 @@ api:
         haiku: claude-haiku-4-5-20251001
         sonnet: claude-sonnet-4-6
         opus: claude-opus-4-6
+    # DwarfStar (ds4) — local DeepSeek V4 server (https://github.com/antirez/ds4)
+    # No API key required. If the server runs on a remote host, forward the port:
+    #   ssh -L 8000:127.0.0.1:8000 <host>
+    ds4:
+      api_key: EMPTY                  # ds4 ignores auth; any non-empty string works
+      base_url: http://127.0.0.1:8000/v1
+      # ds4 serves two model sizes; mapped onto the standard tiers so ds4 is a
+      # drop-in (flash = fast/cheap tier, pro = capable tiers).
+      models:
+        haiku: deepseek-v4-flash
+        sonnet: deepseek-v4-pro
+        opus: deepseek-v4-pro
 
 # ============================================================
 # ENVIRONMENT VARIABLES
@@ -148,10 +164,13 @@ hooks:
 control_system:
   # Control system type - determines which runtime connector to use
   # Note: Pattern detection is control-system-agnostic (same for all types)
-  # Options:
-  #   - mock: Development mode (accepts any channel names, no hardware)
-  #   - epics: Production EPICS control system
-  type: mock  # <-- Change to 'epics' for production
+  # Options (three-state switch):
+  #   - mock: Development mode (accepts any channel names, no hardware) — DEFAULT
+  #   - virtual_accelerator: Containerized PyAT-backed soft-IOC over real EPICS
+  #     Channel Access. Requires the VA container running first — see
+  #     docker/virtual-accelerator/README.md for the run command.
+  #   - epics: Production EPICS control system (ALS values below — untouched)
+  type: mock  # <-- Change to 'virtual_accelerator' or 'epics' for other modes
 
   # Write Access Control - Master safety switch for hardware control
   # This is OPERATOR-LEVEL authorization (always hard-stops if false)
@@ -164,10 +183,6 @@ control_system:
     enabled: true
     database_path: "data/channel_limits.json"
     allow_unlisted_channels: true  # Permissive mode for tutorial
-    on_violation: "skip"   # Options: "error" | "skip" (DEFAULT)
-                           # - error: Strict - ANY violation blocks entire operation
-                           # - skip: Resilient - skip invalid writes, continue with valid ones
-                           # Production: "skip" recommended for multi-channel operations
 
   # Write Verification Configuration
   # Configures how channel writes are verified for accuracy
@@ -218,7 +233,37 @@ control_system:
     mock:
       simulation_file: data/simulation/machine.json
 
-    # EPICS connector (production mode)
+    # Virtual Accelerator connector (middle rung of the three-state switch) —
+    # a containerized PyAT-backed soft-IOC reached over real EPICS Channel
+    # Access via VirtualAcceleratorConnector (an EPICSConnector subclass, so
+    # the gateway shape below is identical to the `epics` block's). Requires
+    # the VA container running first: see docker/virtual-accelerator/README.md
+    # for the run command.
+    #
+    # simulation_file: same simulation machine model as the mock connector
+    # above, so `osprey sim apply NAME...` stays type-aware and consistent
+    # whether you're running mock or virtual_accelerator.
+    #
+    # Gateway config is CA name-server/TCP mode against localhost:5064 — the
+    # one host<->container CA configuration confirmed to work across
+    # container runtimes (broadcast discovery does not reliably cross the
+    # macOS<->container VM boundary). See
+    # src/osprey/services/virtual_accelerator/probe/README.md for the
+    # empirical finding.
+    virtual_accelerator:
+      timeout: 5.0
+      simulation_file: data/simulation/machine.json
+      gateways:
+        read_only:
+          address: localhost
+          port: 5064
+          use_name_server: true
+        write_access:
+          address: localhost
+          port: 5064
+          use_name_server: true
+
+    # EPICS connector (production mode) — untouched ALS production values.
     epics:
       timeout: 5.0
       gateways:
@@ -415,7 +460,12 @@ cli:
 # ============================================================
 
 system:
-  timezone: ${TZ:-UTC}
+  # Facility timezone: how the agent interprets operator-provided times
+  # (parsed as facility-local) and renders all timestamps (with an explicit
+  # offset). Pinned to UTC for reproducibility — set your real facility zone
+  # (e.g. America/Los_Angeles) in production. Avoid ${TZ:-...}: inheriting the
+  # host $TZ makes archiver queries and simulated events non-deterministic.
+  timezone: UTC
 
 # File paths - Data storage organization
 file_paths:
@@ -585,7 +635,7 @@ claude_code:
 # Domain-specific panels are listed here — remove or disable as needed.
 
 web:
-{%- set _BUILTIN_PANELS = ["ariel", "channel-finder", "tuning"] %}
+{%- set _BUILTIN_PANELS = builtin_panels | default(["ariel", "channel-finder"]) %}
 {%- set _enabled_builtin_panels = selected_web_panels | select("in", _BUILTIN_PANELS) | list %}
 {%- if default_panel is defined and default_panel %}
   # Tab focused on cold load. Falls back to "artifacts" (Workspace) when unset.
@@ -603,6 +653,11 @@ web:
     #   web.panels.my-grafana.url: "http://grafana.local:3000"
     #   web.panels.my-grafana.health_endpoint: "/api/health"
     #   web.panels.my-grafana.path: "/"
+    #   web.panels.my-grafana.hidden: true   # launch the panel but keep its tab hidden until the agent shows it
+    #
+    # Runtime panel control by the agent (optional; OFF by default):
+    #   web.allow_runtime_panels: true                       # let the agent register ad-hoc URL panels at runtime
+    #   web.runtime_panel_allowlist: ["grafana.local:3000"]  # restrict registration targets to these host[:port]
 {%- else %}
   panels: {}  # No builtin panels enabled; custom panels (if any) added via config overrides
 {%- endif %}

@@ -2,11 +2,23 @@
 
 import { fetchJSON } from './api.js';
 import { stopTerminal, startTerminal, restartTerminal, getCurrentSessionId, notifySessionChange, switchSession } from './terminal.js';
+import { escapeHtml } from '/design-system/js/dom.js';
 
+/**
+ * A session summary as returned by `/api/sessions`.
+ * @typedef {object} SessionRecord
+ * @property {string} session_id
+ * @property {string} last_modified
+ * @property {number} message_count
+ * @property {string} [first_message]
+ */
+
+/** @type {SessionRecord[]} */
 let sessionsData = [];
 
 /**
  * Initialize the session selector dropdown.
+ * @param {string} containerId
  */
 export function initSessionSelector(containerId) {
   const container = document.getElementById(containerId);
@@ -23,8 +35,8 @@ export function initSessionSelector(containerId) {
     </div>
   `;
 
-  const btn = document.getElementById('session-picker-btn');
-  const dropdown = document.getElementById('session-dropdown');
+  const btn = /** @type {HTMLElement} */ (document.getElementById('session-picker-btn'));
+  const dropdown = /** @type {HTMLElement} */ (document.getElementById('session-dropdown'));
 
   btn.addEventListener('click', async (e) => {
     e.stopPropagation();
@@ -40,7 +52,7 @@ export function initSessionSelector(containerId) {
 
   // Close on outside click
   document.addEventListener('click', (e) => {
-    if (!container.contains(e.target)) {
+    if (!container.contains(/** @type {Node} */ (e.target))) {
       dropdown.classList.remove('open');
     }
   });
@@ -93,10 +105,13 @@ function renderSessionList() {
   }).join('');
 
   // Attach click handlers
-  list.querySelectorAll('.session-item[data-session-id]').forEach(el => {
+  const items = /** @type {NodeListOf<HTMLElement>} */ (
+    list.querySelectorAll('.session-item[data-session-id]')
+  );
+  items.forEach(el => {
     el.addEventListener('click', () => {
-      const id = el.dataset.sessionId;
-      document.getElementById('session-dropdown').classList.remove('open');
+      const id = /** @type {string} */ (el.dataset.sessionId);
+      /** @type {HTMLElement} */ (document.getElementById('session-dropdown')).classList.remove('open');
       resumeSession(id);
     });
   });
@@ -107,6 +122,7 @@ function renderSessionList() {
  *
  * Fast path: send switch_session over the existing WebSocket (near-instant
  * for warm sessions). Cold fallback: full stop/start cycle if no WS is open.
+ * @param {string} sessionId
  */
 export async function resumeSession(sessionId) {
   if (switchSession(sessionId)) {
@@ -136,11 +152,12 @@ export async function startNewSession() {
 
 /**
  * Compute a human-readable relative time string.
+ * @param {string} isoString
  */
 function relativeTime(isoString) {
   const date = new Date(isoString);
   const now = new Date();
-  const diffMs = now - date;
+  const diffMs = now.getTime() - date.getTime();
   const diffMin = Math.floor(diffMs / 60000);
 
   if (diffMin < 1) return 'just now';
@@ -150,13 +167,4 @@ function relativeTime(isoString) {
   const diffDay = Math.floor(diffHr / 24);
   if (diffDay < 7) return `${diffDay}d ago`;
   return date.toLocaleDateString();
-}
-
-/**
- * Escape HTML to prevent XSS.
- */
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
 }

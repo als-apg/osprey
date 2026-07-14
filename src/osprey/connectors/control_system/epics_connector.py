@@ -20,9 +20,35 @@ from osprey.connectors.control_system.base import (
     ControlSystemConnector,
     WriteVerification,
 )
+from osprey.utils.config import get_facility_timezone
 from osprey.utils.logger import get_logger
 
 logger = get_logger("epics_connector")
+
+
+def _configure_pyepics_libca() -> None:
+    """Point pyepics at epicscorelibs' per-architecture libca before it loads CA.
+
+    pyepics's bundled ``clibs`` are x86_64-only: its ``find_libca()`` selects
+    ``clibs/linux64`` for any 64-bit OS, so on an arm64 host it loads a
+    mismatched-architecture ``libca.so`` and Channel Access initialization
+    fails outright. ``epicscorelibs`` (already present via the CA stack) ships a
+    correct per-architecture libca; exporting ``PYEPICS_LIBCA`` to it makes the
+    connector's CA work in arm64 and amd64 containers alike.
+
+    Only sets the variable when it is unset, so an operator's explicit
+    ``PYEPICS_LIBCA`` override always wins. A no-op that leaves pyepics' own
+    resolution in place when ``epicscorelibs`` is not installed.
+    """
+    if os.environ.get("PYEPICS_LIBCA"):
+        return
+    try:
+        from epicscorelibs.path import get_lib
+
+        os.environ["PYEPICS_LIBCA"] = get_lib("ca")
+        logger.debug("Configured PYEPICS_LIBCA from epicscorelibs: %s", os.environ["PYEPICS_LIBCA"])
+    except Exception:  # epicscorelibs absent/failed -> pyepics falls back to its own resolution
+        logger.debug("epicscorelibs libca unavailable; using pyepics default libca resolution")
 
 
 class EPICSConnector(ControlSystemConnector):
@@ -93,6 +119,9 @@ class EPICSConnector(ControlSystemConnector):
         Raises:
             ImportError: If pyepics is not installed
         """
+        # Ensure pyepics loads a correct-architecture libca before first CA use.
+        _configure_pyepics_libca()
+
         # Import epics here to give clear error if not installed
         try:
             import epics
@@ -103,8 +132,33 @@ class EPICSConnector(ControlSystemConnector):
                 "pyepics is required for EPICS connector. Install with: pip install pyepics"
             ) from None
 
-        # Extract gateway configuration
-        gateway_config = config.get("gateways", {}).get("read_only", {})
+        # Select the CA gateway. EPICS uses one process-wide context, so the
+        # connector points at a single gateway. A read-only gateway rejects
+        # writes, so a write-enabled deployment must route through the
+        # write-capable gateway. Defense-in-depth: only use write_access when
+        # writes are enabled, so a read-only deployment also has its writes
+        # rejected at the network layer (reinforcing the writes_enabled switch).
+        from osprey.utils.config import get_config_value
+
+        gateways = config.get("gateways", {})
+        try:
+            writes_enabled = get_config_value("control_system.writes_enabled", False)
+        except (FileNotFoundError, KeyError, RuntimeError):
+            writes_enabled = False  # Can't tell -> assume the safe (read-only) path
+
+        write_gateway = gateways.get("write_access") or {}
+        if writes_enabled and write_gateway:
+            gateway_config = write_gateway
+            logger.debug("EPICS connector: routing through write_access gateway (writes enabled)")
+        else:
+            gateway_config = gateways.get("read_only", {})
+            if writes_enabled and not write_gateway:
+                logger.warning(
+                    "control_system.writes_enabled is true but no gateways.write_access "
+                    "is configured; routing through the read_only gateway, which may "
+                    "reject writes. Configure gateways.write_access to enable hardware writes."
+                )
+
         if gateway_config:
             address = gateway_config.get("address", "")
             port = gateway_config.get("port", 5064)
@@ -217,11 +271,11 @@ class EPICSConnector(ControlSystemConnector):
         # context needs extra time to receive the first value.
         value = pv.get(timeout=timeout)
 
-        # Get timestamp from EPICS (seconds since epoch)
+        # Get timestamp from EPICS (seconds since epoch), rendered in facility tz
         if pv.timestamp:
-            timestamp = datetime.fromtimestamp(pv.timestamp)
+            timestamp = datetime.fromtimestamp(pv.timestamp, get_facility_timezone())
         else:
-            timestamp = datetime.now()
+            timestamp = datetime.now(get_facility_timezone())
 
         # Extract metadata
         metadata = ChannelMetadata(
@@ -271,23 +325,10 @@ class EPICSConnector(ControlSystemConnector):
         """
         timeout = timeout or self._timeout
 
-        # Step 1: Validate limits (if enabled)
-        if self._limits_validator:
-            try:
-                self._limits_validator.validate(channel_address, value)
-                logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
-            except Exception as e:
-                # Import here to avoid circular dependency
-                from osprey.errors import ChannelLimitsViolationError
+        # Import here to avoid circular dependency
+        from osprey.errors import ChannelLimitsViolationError
 
-                # Re-raise limits violations
-                if isinstance(e, ChannelLimitsViolationError):
-                    raise
-
-                # Log unexpected errors but don't block (fail-open for non-limit errors)
-                logger.warning(f"Limits validation error (non-blocking): {e}")
-
-        # Step 2: Auto-determine verification config if not provided
+        # Step 1: Auto-determine verification config if not provided (cheap, on-loop)
         if verification_level is None:
             verification_level, auto_tolerance = self._get_verification_config(
                 channel_address, float(value)
@@ -295,13 +336,52 @@ class EPICSConnector(ControlSystemConnector):
             if tolerance is None:
                 tolerance = auto_tolerance
 
-        # Step 3: Execute write with verification
-        if verification_level == "none":
-            # Fast path - no verification, no wait for callback
-            success = await asyncio.to_thread(
-                self._epics.caput, channel_address, value, wait=False, timeout=timeout
+        # Step 2: Validate the verification level up front — reject invalid levels
+        # BEFORE issuing any caput (preserves the no-caput-on-invalid-level behavior).
+        if verification_level not in ("none", "callback", "readback"):
+            raise ValueError(
+                f"Invalid verification_level: {verification_level}. Must be 'none', 'callback', or 'readback'"
             )
 
+        # callback/readback wait for the IOC callback; none does not.
+        wait = verification_level != "none"
+
+        # Step 3: Validate limits (FAIL CLOSED) and issue the caput in ONE thread
+        # offload, so a caller on the event loop is never stalled by the blocking
+        # caget that max_step validation performs.
+        def _validate_and_put():
+            if self._limits_validator:
+                try:
+                    self._limits_validator.validate(channel_address, value)
+                    logger.debug(f"✓ Limits validation passed: {channel_address}={value}")
+                except ChannelLimitsViolationError:
+                    raise  # limits refusal propagates unchanged (carries LIMITS semantics)
+                except Exception as e:
+                    # FAIL CLOSED: any other validation error refuses the write — no caput issued
+                    logger.warning(
+                        f"Validation error — refusing write (fail-closed): {channel_address}: {e}"
+                    )
+                    return ("refused", e)  # sentinel: no caput issued
+            success = self._epics.caput(channel_address, value, wait=wait, timeout=timeout)
+            return ("ok", success)
+
+        outcome, payload = await asyncio.to_thread(_validate_and_put)
+
+        if outcome == "refused":
+            return ChannelWriteResult(
+                channel_address=channel_address,
+                value_written=value,
+                success=False,
+                error_message=f"Write to '{channel_address}' refused: validation error: {payload}",
+                blocked=True,
+                refusal_reason="VALIDATION_ERROR",
+            )
+
+        success = payload
+
+        # Step 4: Build the per-level result (observable output identical to before)
+        if verification_level == "none":
+            # Fast path - no verification, no wait for callback
             if not success:
                 return ChannelWriteResult(
                     channel_address=channel_address,
@@ -324,15 +404,7 @@ class EPICSConnector(ControlSystemConnector):
             )
 
         elif verification_level == "callback":
-            # EPICS callback - wait for IOC to confirm processing
-            success = await asyncio.to_thread(
-                self._epics.caput,
-                channel_address,
-                value,
-                wait=True,  # Wait for IOC callback
-                timeout=timeout,
-            )
-
+            # EPICS callback - the caput above waited for the IOC to confirm processing
             if not success:
                 return ChannelWriteResult(
                     channel_address=channel_address,
@@ -355,11 +427,7 @@ class EPICSConnector(ControlSystemConnector):
             )
 
         elif verification_level == "readback":
-            # Full verification - callback + readback
-            success = await asyncio.to_thread(
-                self._epics.caput, channel_address, value, wait=True, timeout=timeout
-            )
-
+            # Full verification - the caput above waited (callback); now read back
             if not success:
                 return ChannelWriteResult(
                     channel_address=channel_address,
@@ -413,11 +481,6 @@ class EPICSConnector(ControlSystemConnector):
                     error_message=f"Readback verification failed: {str(e)}",
                 )
 
-        else:
-            raise ValueError(
-                f"Invalid verification_level: {verification_level}. Must be 'none', 'callback', or 'readback'"
-            )
-
     async def read_multiple_channels(
         self, channel_addresses: list[str], timeout: float | None = None
     ) -> dict[str, ChannelValue]:
@@ -450,7 +513,11 @@ class EPICSConnector(ControlSystemConnector):
             """Wrapper to convert EPICS callback to our format."""
             pv_value = ChannelValue(
                 value=value,
-                timestamp=datetime.fromtimestamp(timestamp) if timestamp else datetime.now(),
+                timestamp=(
+                    datetime.fromtimestamp(timestamp, get_facility_timezone())
+                    if timestamp
+                    else datetime.now(get_facility_timezone())
+                ),
                 metadata=ChannelMetadata(
                     units=kwargs.get("units", ""), alarm_status=kwargs.get("status")
                 ),

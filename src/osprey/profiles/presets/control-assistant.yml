@@ -66,7 +66,6 @@ output_styles:
 web_panels:
   - ariel           # ARIEL search interface (past experiments, papers)
   - channel-finder  # Interactive channel-finder web UI
-  - tuning          # Beam tuning dashboard
   - events          # EVENTS dashboard tab (event dispatcher)
 
 # ── Config overrides ─────────────────────────────────────────────────────────

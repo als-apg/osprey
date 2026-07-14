@@ -1,6 +1,7 @@
 """Runtime channel limits validation engine - simplified single-layer design."""
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -45,8 +46,35 @@ class LimitsValidator:
         self.limits = limits_database
         self.policy = policy_config
         self._raw_db = raw_db  # Keep raw database for verification config access
-        # Validation behavior: "error" (raise exception) or "skip" (return False, log warning)
-        self.on_violation = policy_config.get("on_violation", "error")
+
+    @staticmethod
+    def resolve_database_path(db_path: str, project_root: str | None) -> str:
+        """Resolve a relative ``database_path`` the same way for every caller.
+
+        Resolves a relative path against the ``CONFIG_FILE`` env var's
+        directory when ``CONFIG_FILE`` is set, falling back to
+        ``project_root`` otherwise. CONFIG_FILE wins because it reflects
+        where the config actually lives at runtime: on a host/local run
+        config.yml sits at the project root, so this is a no-op
+        (``Path(CONFIG_FILE).parent == project_root``). In a container
+        deploy, CONFIG_FILE points at the config mounted inside the
+        container (e.g. /app/project/config.yml) while project_root is
+        flattened in as the HOST build path, which does not exist in the
+        container - so resolving against the CONFIG_FILE's directory is the
+        only base that yields a path the container can actually read.
+
+        Returns ``db_path`` unchanged if it is already absolute, or if
+        neither ``CONFIG_FILE`` nor ``project_root`` is available.
+        """
+        db_path_obj = Path(db_path)
+        if db_path_obj.is_absolute():
+            return db_path
+        config_file = os.environ.get("CONFIG_FILE")
+        if config_file:
+            return str(Path(config_file).parent / db_path)
+        if project_root:
+            return str(Path(project_root) / db_path)
+        return db_path
 
     @classmethod
     def from_config(cls):
@@ -70,13 +98,16 @@ class LimitsValidator:
                 )
                 return cls({}, {}, {})  # Empty DB = blocks all (failsafe)
 
-            # Resolve relative paths against project_root for subprocess compatibility
-            db_path_obj = Path(db_path)
-            if not db_path_obj.is_absolute():
-                project_root = get_config_value("project_root", None)
-                if project_root:
-                    db_path = str(Path(project_root) / db_path)
-                    logger.debug(f"Resolved limits database path: {db_path}")
+            project_root = get_config_value("project_root", None)
+            resolved_path = cls.resolve_database_path(db_path, project_root)
+            if resolved_path != db_path:
+                if os.environ.get("CONFIG_FILE"):
+                    logger.debug(
+                        f"Resolved limits database path (via CONFIG_FILE): {resolved_path}"
+                    )
+                else:
+                    logger.debug(f"Resolved limits database path: {resolved_path}")
+            db_path = resolved_path
 
             limits_db, raw_db = cls._load_limits_database(db_path)
             logger.debug(f"Loaded limits database with {len(limits_db)} channels")
@@ -84,10 +115,6 @@ class LimitsValidator:
             policy = {
                 "allow_unlisted_channels": get_config_value(
                     "control_system.limits_checking.allow_unlisted_channels", False
-                ),
-                "on_violation": get_config_value(
-                    "control_system.limits_checking.on_violation",
-                    "skip",  # Default to skip for resilience
                 ),
             }
 
@@ -148,12 +175,17 @@ class LimitsValidator:
         if not hasattr(self, "_raw_db") or self._raw_db is None:
             return None, None
 
-        # Get raw channel config
-        raw_config = self._raw_db.get(channel_address)
-        if not raw_config or "verification" not in raw_config:
+        # Get raw channel config; fall back to the 'defaults' block's
+        # verification when the channel does not declare its own.
+        raw_config = self._raw_db.get(channel_address) or {}
+        verif = raw_config.get("verification")
+        if verif is None:
+            defaults_config = self._raw_db.get(DEFAULTS_FIELD, {})
+            if isinstance(defaults_config, dict):
+                verif = defaults_config.get("verification")
+        if verif is None:
             return None, None
 
-        verif = raw_config["verification"]
         level = verif.get("level", "callback")
 
         # Calculate tolerance (only for readback level)
@@ -267,6 +299,7 @@ class LimitsValidator:
                 )
 
             # Validate 'defaults' field if present
+            defaults_config: dict = {}
             if DEFAULTS_FIELD in raw_db:
                 defaults_config = raw_db[DEFAULTS_FIELD]
                 if not isinstance(defaults_config, dict):
@@ -304,13 +337,19 @@ class LimitsValidator:
                     # Validate configuration structure
                     LimitsValidator._validate_channel_config(channel_name, config_dict)
 
+                    # Merge the 'defaults' block under the channel's own config so
+                    # the channel inherits any default field it does not override.
+                    # Shallow merge: the channel's own keys take precedence, and a
+                    # channel that declares 'verification' replaces it wholesale.
+                    merged = {**defaults_config, **config_dict}
+
                     # Create validated config object
                     config = ChannelLimitsConfig(
                         channel_address=channel_name,
-                        min_value=config_dict.get("min_value"),
-                        max_value=config_dict.get("max_value"),
-                        max_step=config_dict.get("max_step"),
-                        writable=config_dict.get("writable", True),
+                        min_value=merged.get("min_value"),
+                        max_value=merged.get("max_value"),
+                        max_step=merged.get("max_step"),
+                        writable=merged.get("writable", True),
                     )
 
                     # Log performance warning for max_step

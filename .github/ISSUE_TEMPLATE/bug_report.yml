@@ -1,0 +1,71 @@
+name: Bug report
+description: Report something that does not work as documented.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. If this is a **security or safety issue** — an approval gate
+        that can be bypassed, a hook that fails open, or a leaked credential — please do not
+        file it here. Follow the [security policy](https://github.com/als-apg/osprey/blob/main/SECURITY.md)
+        instead.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what did you get instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: >-
+        A reproduction using the Mock connector is far easier for us to act on than one
+        requiring live hardware. Include the command you ran.
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Osprey version
+      description: "Output of `osprey --version`."
+      placeholder: "2026.6.2"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: connector
+    attributes:
+      label: Connector
+      options:
+        - Mock
+        - EPICS
+        - Custom / other
+        - Not applicable
+    validations:
+      required: true
+
+  - type: input
+    id: provider
+    attributes:
+      label: Model provider and model
+      description: Which provider and model were configured when this occurred?
+      placeholder: "anthropic / claude-opus-4-8"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: >-
+        Paste any error output or agent transcript. Please redact API keys and any
+        facility-internal channel names you would rather not publish.
+      render: shell
+    validations:
+      required: false

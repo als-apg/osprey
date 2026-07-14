@@ -1,5 +1,7 @@
 """Tests for Claude Code model provider resolver."""
 
+import os
+
 import pytest
 
 from osprey.cli.claude_code_resolver import (
@@ -582,3 +584,156 @@ class TestInjectProviderEnv:
         )
         result = inject_provider_env(env, spec)
         assert result == ["ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL"]
+
+
+ARGO_CONFIG = """\
+api:
+  providers:
+    argo:
+      base_url: ${ARGO_PROD_URL}
+claude_code:
+  provider: argo
+"""
+
+CBORG_CONFIG = """\
+api:
+  providers:
+    cborg: {}
+claude_code:
+  provider: cborg
+"""
+
+
+def _write_project(tmp_path, config_text, env_text=None):
+    (tmp_path / "config.yml").write_text(config_text)
+    if env_text is not None:
+        (tmp_path / ".env").write_text(env_text)
+    return tmp_path
+
+
+class TestLoadProviderSpec:
+    """load_provider_spec() reads config.yml and expands ${VAR} before resolving."""
+
+    def test_expands_custom_base_url_from_dotenv(self, tmp_path, monkeypatch):
+        """${VAR} in a custom provider base_url is expanded from the project .env."""
+        from osprey.cli.claude_code_resolver import load_provider_spec
+
+        monkeypatch.delenv("ARGO_PROD_URL", raising=False)
+        proj = _write_project(tmp_path, ARGO_CONFIG, "ARGO_PROD_URL=https://argo.example/v1\n")
+
+        spec = load_provider_spec(proj)
+
+        assert spec is not None
+        assert spec.needs_proxy is True
+        # Claude-Code-facing var is stripped of the OpenAI /v1 (issue #312)…
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://argo.example"
+        # …while the proxy upstream keeps it (proxy appends /chat/completions).
+        assert spec.upstream_base_url == "https://argo.example/v1"
+
+    def test_expands_from_os_environ_when_no_dotenv(self, tmp_path, monkeypatch):
+        """${VAR} also resolves from os.environ when there is no .env."""
+        from osprey.cli.claude_code_resolver import load_provider_spec
+
+        monkeypatch.setenv("ARGO_PROD_URL", "https://argo.from-env/v1")
+        proj = _write_project(tmp_path, ARGO_CONFIG)
+
+        spec = load_provider_spec(proj)
+
+        # /v1 stripped for the Claude-Code-facing var; upstream retains it.
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://argo.from-env"
+        assert spec.upstream_base_url == "https://argo.from-env/v1"
+
+    def test_dotenv_overrides_os_environ(self, tmp_path, monkeypatch):
+        """A project .env value wins over a stale shell export."""
+        from osprey.cli.claude_code_resolver import load_provider_spec
+
+        monkeypatch.setenv("ARGO_PROD_URL", "https://stale-shell/v1")
+        proj = _write_project(tmp_path, ARGO_CONFIG, "ARGO_PROD_URL=https://fresh-dotenv/v1\n")
+
+        spec = load_provider_spec(proj)
+
+        # /v1 stripped for the Claude-Code-facing var; upstream retains it.
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://fresh-dotenv"
+        assert spec.upstream_base_url == "https://fresh-dotenv/v1"
+
+    def test_native_config_byte_identical(self, tmp_path):
+        """A literal-URL native config resolves identically to the raw resolver."""
+        from osprey.cli.claude_code_resolver import load_provider_spec
+
+        proj = _write_project(tmp_path, CBORG_CONFIG)
+        loaded = load_provider_spec(proj)
+        direct = ClaudeCodeModelResolver.resolve({"provider": "cborg"}, {"cborg": {}})
+        assert loaded.env_block == direct.env_block
+
+    def test_provider_override(self, tmp_path):
+        """provider= overrides claude_code.provider before resolving."""
+        from osprey.cli.claude_code_resolver import load_provider_spec
+
+        proj = _write_project(tmp_path, CBORG_CONFIG)
+        spec = load_provider_spec(proj, provider="anthropic")
+        assert spec.provider == "anthropic"
+
+    def test_returns_none_when_no_provider(self, tmp_path):
+        from osprey.cli.claude_code_resolver import load_provider_spec
+
+        proj = _write_project(tmp_path, "api:\n  providers: {}\n")
+        assert load_provider_spec(proj) is None
+
+    def test_does_not_mutate_os_environ(self, tmp_path, monkeypatch):
+        """Resolving against the .env overlay must not leak into os.environ."""
+        from osprey.cli.claude_code_resolver import load_provider_spec
+
+        monkeypatch.delenv("ARGO_PROD_URL", raising=False)
+        proj = _write_project(tmp_path, ARGO_CONFIG, "ARGO_PROD_URL=https://argo.example/v1\n")
+
+        load_provider_spec(proj)
+
+        assert "ARGO_PROD_URL" not in os.environ
+
+
+class TestBaseUrlV1Normalization:
+    """ANTHROPIC_BASE_URL vs upstream_base_url /v1 handling (issue #312).
+
+    Claude Code appends ``/v1/messages`` to ``ANTHROPIC_BASE_URL``, so that var
+    must never end in ``/v1``. The proxy appends ``/chat/completions`` to
+    ``upstream_base_url``, so that one must KEEP its ``/v1``. A single
+    configured ``base_url`` feeds both; these tests pin the split.
+    """
+
+    def _resolve(self, base_url, *, native):
+        entry = {"base_url": base_url}
+        if native:
+            entry["api_protocol"] = "anthropic"
+        return ClaudeCodeModelResolver.resolve({"provider": "argo"}, {"argo": entry})
+
+    def test_anthropic_native_strips_v1_and_skips_proxy(self):
+        """The #312 case: native provider + /v1 URL → single /v1, no proxy."""
+        spec = self._resolve("https://apps.inside.anl.gov/argoapi/v1", native=True)
+        assert spec.needs_proxy is False
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://apps.inside.anl.gov/argoapi"
+        # Claude Code appends /v1/messages → exactly one /v1.
+        assert (
+            spec.env_block["ANTHROPIC_BASE_URL"] + "/v1/messages"
+            == "https://apps.inside.anl.gov/argoapi/v1/messages"
+        )
+        assert spec.upstream_base_url is None
+
+    def test_openai_proxy_keeps_v1_on_upstream(self):
+        """Proxy provider: env var stripped, upstream keeps /v1 for the proxy."""
+        spec = self._resolve("https://apps.inside.anl.gov/argoapi/v1", native=False)
+        assert spec.needs_proxy is True
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://apps.inside.anl.gov/argoapi"
+        assert spec.upstream_base_url == "https://apps.inside.anl.gov/argoapi/v1"
+        # Proxy appends /chat/completions → the /v1 must survive.
+        assert (
+            spec.upstream_base_url.rstrip("/") + "/chat/completions"
+            == "https://apps.inside.anl.gov/argoapi/v1/chat/completions"
+        )
+
+    def test_trailing_slash_before_v1_is_stripped(self):
+        spec = self._resolve("https://host/argoapi/v1/", native=True)
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://host/argoapi"
+
+    def test_url_without_v1_is_left_alone(self):
+        spec = self._resolve("https://api.example.com", native=True)
+        assert spec.env_block["ANTHROPIC_BASE_URL"] == "https://api.example.com"

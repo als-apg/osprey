@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * OSPREY Channel Finder — Middle Layer Explore (Three-Column Drill-Down)
  *
@@ -7,22 +8,33 @@
 
 import { fetchJSON, postJSON, deleteJSON } from './api.js';
 import { showToast } from './app.js';
-import { esc } from './utils.js';
+import { esc, messageOf } from './utils.js';
 import { formModal, confirmModal } from './modal.js';
 import { refreshStatsBadges } from './stats-badges.js';
+import { groupFieldChannels } from './explore-grouping.js';
 
-let containerEl = null;
+/** @type {string|null} */
 let selectedSystem = null;
+/** @type {string|null} */
 let selectedFamily = null;
 let showDescriptions = false;
+/** @type {any} */
 let currentDeviceInfo = null;  // device arrangement info for current family
+/** @type {Set<string>} */
 let activeSectors = new Set();   // selected sector filter chips
+/** @type {Set<string>} */
 let activeDevices = new Set();   // selected device filter chips
+/** @type {string[]} */
 let cachedFieldNames = [];       // save fieldNames for re-render on chip toggle
+/** @type {string[]} */
 let allSectorValues = [];        // all sector strings for "all" action
+/** @type {string[]} */
 let allDeviceValues = [];        // all device strings for "all" action
 
-/** Toggle full description visibility and re-render loaded panels. */
+/**
+ * Toggle full description visibility and re-render loaded panels.
+ * @param {boolean} val
+ */
 export function setShowDescriptions(val) {
   showDescriptions = val;
   // Re-render descriptions in place via CSS class toggle
@@ -31,9 +43,10 @@ export function setShowDescriptions(val) {
   });
 }
 
+/**
+ * @param {HTMLElement} container
+ */
 export async function mountMiddleLayer(container) {
-  containerEl = container;
-
   container.innerHTML = `
     <div class="three-column-layout">
       <div class="column-panel" id="ml-systems">
@@ -67,7 +80,6 @@ export async function mountMiddleLayer(container) {
 }
 
 export function unmountMiddleLayer() {
-  containerEl = null;
   selectedSystem = null;
   selectedFamily = null;
   currentDeviceInfo = null;
@@ -86,7 +98,7 @@ async function loadSystems() {
     const data = await fetchJSON('/api/explore/systems');
     const systems = data.systems || [];
 
-    body.innerHTML = systems.map(sys => {
+    body.innerHTML = systems.map((/** @type {any} */ sys) => {
       const name = typeof sys === 'string' ? sys : (sys.name || sys.system || '');
       const desc = typeof sys === 'object' ? (sys.description || '') : '';
       const fullCls = showDescriptions ? ' column-item-desc-full' : '';
@@ -99,20 +111,23 @@ async function loadSystems() {
     }).join('') || '<div class="empty-state">No systems found</div>';
 
     body.querySelectorAll('.column-item').forEach(item => {
-      item.addEventListener('click', () => selectSystem(item.dataset.system));
+      item.addEventListener('click', () => selectSystem(/** @type {HTMLElement} */ (item).dataset.system ?? null));
     });
   } catch (e) {
-    body.innerHTML = `<div class="empty-state">Failed: ${e.message}</div>`;
+    body.innerHTML = `<div class="empty-state">Failed: ${esc(messageOf(e))}</div>`;
   }
 }
 
+/**
+ * @param {string|null} system
+ */
 async function selectSystem(system) {
   selectedSystem = system;
   selectedFamily = null;
 
   // Highlight
   document.querySelectorAll('#ml-systems-body .column-item').forEach(el => {
-    el.classList.toggle('selected', el.dataset.system === system);
+    el.classList.toggle('selected', /** @type {HTMLElement} */ (el).dataset.system === system);
   });
 
   // Show add family button
@@ -136,7 +151,7 @@ async function loadFamilies() {
     const data = await fetchJSON(`/api/explore/families?system=${encodeURIComponent(selectedSystem)}`);
     const families = data.families || [];
 
-    body.innerHTML = families.map(fam => {
+    body.innerHTML = families.map((/** @type {any} */ fam) => {
       const name = typeof fam === 'string' ? fam : (fam.name || fam.family || '');
       const desc = typeof fam === 'object' ? (fam.description || '') : '';
       const fullCls = showDescriptions ? ' column-item-desc-full' : '';
@@ -153,31 +168,36 @@ async function loadFamilies() {
 
     body.querySelectorAll('.column-item').forEach(item => {
       item.addEventListener('click', (e) => {
-        if (e.target.closest('.item-action-btn')) return;
-        selectFamily(item.dataset.family);
+        if (/** @type {HTMLElement} */ (e.target).closest('.item-action-btn')) return;
+        selectFamily(/** @type {HTMLElement} */ (item).dataset.family ?? null);
       });
     });
 
     body.querySelectorAll('.item-action-btn.action-delete').forEach(btn => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        handleDeleteFamily(btn.dataset.family);
+        handleDeleteFamily(/** @type {HTMLElement} */ (btn).dataset.family ?? null);
       });
     });
   } catch (e) {
-    body.innerHTML = `<div class="empty-state">Failed: ${e.message}</div>`;
+    body.innerHTML = `<div class="empty-state">Failed: ${esc(messageOf(e))}</div>`;
   }
 }
 
 // Cache of per-field channel arrays for client-side sector filtering.
+/** @type {Record<string, any[]|null>} */
 let cachedFieldChannels = {};
 
+/**
+ * @param {string|null} family
+ */
 async function selectFamily(family) {
+  if (!selectedSystem || !family) return;
   selectedFamily = family;
 
   // Highlight
   document.querySelectorAll('#ml-families-body .column-item').forEach(el => {
-    el.classList.toggle('selected', el.dataset.family === family);
+    el.classList.toggle('selected', /** @type {HTMLElement} */ (el).dataset.family === family);
   });
 
   // Load fields then channels
@@ -219,13 +239,14 @@ async function selectFamily(family) {
     cachedFieldNames = fieldNames;
     renderChannelsPanel(body, fieldNames);
   } catch (e) {
-    body.innerHTML = `<div class="empty-state">Failed: ${e.message}</div>`;
+    body.innerHTML = `<div class="empty-state">Failed: ${esc(messageOf(e))}</div>`;
   }
 }
 
 /**
  * Render the channels panel from cached data.
- * Reads activeSectors / activeDevices module state for filtering.
+ * Reads activeSectors / activeDevices module state for filtering; sector
+ * grouping/ordering/truncation is delegated to the pure groupFieldChannels().
  * @param {HTMLElement} body - The panel body element.
  * @param {string[]} fieldNames - Ordered field names to render.
  */
@@ -237,15 +258,15 @@ function renderChannelsPanel(body, fieldNames) {
 
   // Filter chip bar
   if (hasDeviceList) {
-    const sectorChips = deviceInfo.sectors.map(s => {
+    const sectorChips = deviceInfo.sectors.map((/** @type {any} */ s) => {
       const sv = String(s);
       const cls = activeSectors.has(sv) ? ' active' : '';
       return `<span class="filter-chip${cls}" data-filter-type="sector" data-value="${esc(sv)}">${esc(sv)}</span>`;
     }).join('');
 
-    const uniqueDevices = [...new Set(deviceInfo.device_list.map(e => e[1]))]
-      .sort((a, b) => a - b);
-    const deviceChips = uniqueDevices.map(d => {
+    const uniqueDevices = [...new Set(deviceInfo.device_list.map((/** @type {any} */ e) => e[1]))]
+      .sort((/** @type {any} */ a, /** @type {any} */ b) => a - b);
+    const deviceChips = uniqueDevices.map((/** @type {any} */ d) => {
       const dv = String(d);
       const cls = activeDevices.has(dv) ? ' active' : '';
       return `<span class="filter-chip${cls}" data-filter-type="device" data-value="${esc(dv)}">${esc(dv)}</span>`;
@@ -283,43 +304,16 @@ function renderChannelsPanel(body, fieldNames) {
     }
 
     if (hasDeviceList) {
-      // Build channel-to-device mapping (positional alignment)
-      const deviceList = deviceInfo.device_list;
-      const commonNames = deviceInfo.common_names;
-      const grouped = {};  // sector -> [{channel, device, commonName}]
-      let visibleCount = 0;
-
-      channels.forEach((ch, i) => {
-        const name = typeof ch === 'string' ? ch : (ch.name || ch.channel || '');
-        const entry = i < deviceList.length ? deviceList[i] : null;
-        const sector = entry && entry.length >= 2 ? String(entry[0]) : null;
-        const device = entry && entry.length >= 2 ? String(entry[1]) : null;
-        const commonName = commonNames && i < commonNames.length ? commonNames[i] : null;
-
-        if (activeSectors.size > 0 && !activeSectors.has(sector)) return;
-        if (activeDevices.size > 0 && !activeDevices.has(device)) return;
-
-        const key = sector || '_unknown';
-        if (!grouped[key]) grouped[key] = [];
-        grouped[key].push({ name, device, commonName });
-        visibleCount++;
-      });
-
-      // Sort sectors
-      const sectorKeys = Object.keys(grouped).sort((a, b) => {
-        if (a === '_unknown') return 1;
-        if (b === '_unknown') return -1;
-        return a < b ? -1 : a > b ? 1 : 0;
-      });
+      // Positional device alignment + sector grouping/ordering/truncation (pure).
+      const { sectors, visibleCount } = groupFieldChannels(
+        channels, deviceInfo.device_list, deviceInfo.common_names, activeSectors, activeDevices
+      );
 
       let innerHtml = '';
-      for (const sKey of sectorKeys) {
-        const items = grouped[sKey];
-        const sectorLabel = sKey === '_unknown' ? 'Unknown' : `Sector ${sKey}`;
-        innerHtml += `<div class="sector-group-header">${esc(sectorLabel)} (${items.length})</div>`;
+      for (const sec of sectors) {
+        innerHtml += `<div class="sector-group-header">${esc(sec.label)} (${sec.total})</div>`;
 
-        const shown = items.slice(0, 50);
-        innerHtml += shown.map(item =>
+        innerHtml += sec.shown.map(item =>
           `<div class="column-item" style="padding: var(--space-1) var(--space-3); border-left: none;">
             <span class="pv-name" style="font-size: var(--text-sm);">${esc(item.name)}</span>${
               item.commonName ? `<span class="common-name">${esc(item.commonName)}</span>` : ''
@@ -330,8 +324,8 @@ function renderChannelsPanel(body, fieldNames) {
           </div>`
         ).join('');
 
-        if (items.length > 50) {
-          innerHtml += `<div style="padding: var(--space-1) var(--space-3); color: var(--text-muted); font-size: var(--text-xs);">... and ${items.length - 50} more</div>`;
+        if (sec.hidden > 0) {
+          innerHtml += `<div style="padding: var(--space-1) var(--space-3); color: var(--text-muted); font-size: var(--text-xs);">... and ${sec.hidden} more</div>`;
         }
       }
 
@@ -348,7 +342,7 @@ function renderChannelsPanel(body, fieldNames) {
       `;
     } else {
       // Fallback: flat display (no device info)
-      const channelItems = channels.slice(0, 50).map(ch => {
+      const channelItems = channels.slice(0, 50).map((/** @type {any} */ ch) => {
         const name = typeof ch === 'string' ? ch : (ch.name || ch.channel || '');
         return `<div class="column-item" style="padding: var(--space-1) var(--space-3); border-left: none;">
           <span class="pv-name" style="font-size: var(--text-sm);">${esc(name)}</span>
@@ -378,20 +372,23 @@ function renderChannelsPanel(body, fieldNames) {
   }
 
   // Snapshot which field groups are open before replacing DOM
+  /** @type {Set<string>} */
   const openFields = new Set();
   body.querySelectorAll('.field-group.open .field-group-header').forEach(h => {
-    if (h.dataset.field) openFields.add(h.dataset.field);
+    const f = /** @type {HTMLElement} */ (h).dataset.field;
+    if (f) openFields.add(f);
   });
 
   body.innerHTML = html || '<div class="empty-state">No channels</div>';
 
   // Restore open state and wire up collapsible field group headers
   body.querySelectorAll('.field-group-header').forEach(header => {
-    if (openFields.has(header.dataset.field)) {
-      header.parentElement.classList.add('open');
+    const f = /** @type {HTMLElement} */ (header).dataset.field;
+    if (f && openFields.has(f)) {
+      header.parentElement?.classList.add('open');
     }
     header.addEventListener('click', () => {
-      header.parentElement.classList.toggle('open');
+      header.parentElement?.classList.toggle('open');
     });
   });
 
@@ -399,15 +396,18 @@ function renderChannelsPanel(body, fieldNames) {
   body.querySelectorAll('.item-action-btn.action-delete').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
-      handleDeleteChannel(btn.dataset.field, btn.dataset.channel);
+      const el = /** @type {HTMLElement} */ (btn);
+      handleDeleteChannel(el.dataset.field ?? null, el.dataset.channel ?? null);
     });
   });
 
   // Wire up filter chip toggles
   body.querySelectorAll('.filter-chip').forEach(chip => {
     chip.addEventListener('click', () => {
-      const type = chip.dataset.filterType;
-      const val = chip.dataset.value;
+      const el = /** @type {HTMLElement} */ (chip);
+      const type = el.dataset.filterType;
+      const val = el.dataset.value;
+      if (!val) return;
       const set = type === 'sector' ? activeSectors : activeDevices;
       if (set.has(val)) set.delete(val); else set.add(val);
       renderChannelsPanel(body, cachedFieldNames);
@@ -417,8 +417,9 @@ function renderChannelsPanel(body, fieldNames) {
   // Wire up all/none actions
   body.querySelectorAll('.filter-chip-action').forEach(btn => {
     btn.addEventListener('click', () => {
-      const type = btn.dataset.filterType;
-      const action = btn.dataset.action;
+      const el = /** @type {HTMLElement} */ (btn);
+      const type = el.dataset.filterType;
+      const action = el.dataset.action;
       const set = type === 'sector' ? activeSectors : activeDevices;
       const vals = type === 'sector' ? allSectorValues : allDeviceValues;
       if (action === 'all') { vals.forEach(v => set.add(v)); } else { set.clear(); }
@@ -452,12 +453,15 @@ async function handleAddFamily() {
     await loadFamilies();
     refreshStatsBadges();
   } catch (e) {
-    showToast(`Failed to add family: ${e.message}`, 'error');
+    showToast(`Failed to add family: ${messageOf(e)}`, 'error');
   }
 }
 
+/**
+ * @param {string|null} family
+ */
 async function handleDeleteFamily(family) {
-  if (!selectedSystem) return;
+  if (!selectedSystem || !family) return;
 
   // Get impact
   let impactText = '';
@@ -495,12 +499,16 @@ async function handleDeleteFamily(family) {
     await loadFamilies();
     refreshStatsBadges();
   } catch (e) {
-    showToast(`Failed to delete family: ${e.message}`, 'error');
+    showToast(`Failed to delete family: ${messageOf(e)}`, 'error');
   }
 }
 
+/**
+ * @param {string|null} field
+ * @param {string|null} channelName
+ */
 async function handleDeleteChannel(field, channelName) {
-  if (!selectedSystem || !selectedFamily) return;
+  if (!selectedSystem || !selectedFamily || !field || !channelName) return;
 
   const confirmed = await confirmModal({
     title: `Delete channel?`,
@@ -522,6 +530,6 @@ async function handleDeleteChannel(field, channelName) {
     await selectFamily(selectedFamily);
     refreshStatsBadges();
   } catch (e) {
-    showToast(`Failed to delete channel: ${e.message}`, 'error');
+    showToast(`Failed to delete channel: ${messageOf(e)}`, 'error');
   }
 }

@@ -3,11 +3,12 @@
 import json
 import logging
 import math
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
+from osprey.utils.config import get_facility_timezone
 
 logger = logging.getLogger("osprey.mcp_server.tools.archiver_read")
 
@@ -16,9 +17,13 @@ def _parse_time(time_str: str) -> datetime:
     """Parse a time string into a timezone-aware datetime.
 
     Supports ISO-8601 and simple relative expressions like "1h ago", "30m ago", "2d ago".
+    Naive inputs (operator-provided wall-clock with no offset) are interpreted as
+    facility-local — the agent rule promises operator times are facility-local, so the
+    query window and the echoed range must honor the facility zone, not the box/UTC.
     """
+    tz = get_facility_timezone()
     if not time_str or time_str.strip().lower() == "now":
-        return datetime.now(UTC)
+        return datetime.now(tz)
 
     stripped = time_str.strip().lower()
 
@@ -30,7 +35,7 @@ def _parse_time(time_str: str) -> datetime:
             if amount_unit.endswith(suffix):
                 try:
                     amount = float(amount_unit[:-1])
-                    return datetime.now(UTC) - timedelta(**{kwarg: amount})
+                    return datetime.now(tz) - timedelta(**{kwarg: amount})
                 except ValueError:
                     break
 
@@ -39,7 +44,7 @@ def _parse_time(time_str: str) -> datetime:
 
     dt = dateutil_parser.parse(time_str)
     if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
+        dt = dt.replace(tzinfo=tz)
     return dt
 
 

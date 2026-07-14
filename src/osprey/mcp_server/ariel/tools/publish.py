@@ -7,6 +7,7 @@ from fastmcp.exceptions import ToolError
 
 from osprey.mcp_server.ariel.server import make_error, mcp
 from osprey.mcp_server.ariel.server_context import get_ariel_context
+from osprey.services.ariel_search.exceptions import AuthenticationRequiredError
 
 logger = logging.getLogger("osprey.mcp_server.ariel.tools.publish")
 
@@ -63,6 +64,15 @@ async def entry_publish(
             "not_supported",
             str(exc),
             ["The configured adapter does not support writing entries."],
+        )
+    except AuthenticationRequiredError as exc:
+        return make_error(
+            "auth_required",
+            str(exc),
+            [
+                "This logbook requires credentials to publish. Configure "
+                "ARIEL_WRITE_USER and ARIEL_WRITE_PASSWORD for the service.",
+            ],
         )
     except ToolError:
         raise

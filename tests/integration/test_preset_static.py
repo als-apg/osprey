@@ -144,19 +144,25 @@ def test_preset_yaml_parses_and_artifacts_resolve(preset_path: Path) -> None:
 
 @pytest.mark.parametrize("preset_path", _all_presets(), ids=lambda p: p.stem)
 def test_preset_web_panels_against_registry(preset_path: Path) -> None:
-    """Every ``web_panels`` entry in a preset must resolve to a built-in panel.
+    """Every ``web_panels`` entry must be a built-in panel or a URL-backed custom panel.
 
-    The runtime registry lives in ``osprey.profiles.web_panels`` and is shared
-    with both the web terminal and the template-manifest validator. A drifted
-    preset entry would render a broken UI tab at runtime.
+    Mirrors the real contract in ``build_profile`` validation: a panel is valid
+    if it is in the shared ``osprey.profiles.web_panels`` registry *or* it is
+    backed by a ``web.panels.<id>.url`` config override (rendered as an iframe
+    tab). A drifted entry that is neither would render a broken UI tab at runtime.
     """
     from osprey.profiles.web_panels import BUILTIN_PANELS
 
     profile = load_profile(preset_path)
-    unknown = [p for p in profile.web_panels if p not in BUILTIN_PANELS]
+    config = getattr(profile, "config", {}) or {}
+    unknown = [
+        p
+        for p in profile.web_panels
+        if p not in BUILTIN_PANELS and f"web.panels.{p}.url" not in config
+    ]
     assert not unknown, (
         f"{preset_path.name} declares unknown web_panels: {unknown} "
-        f"(valid: {sorted(BUILTIN_PANELS)})"
+        f"(valid: built-in {sorted(BUILTIN_PANELS)} or a web.panels.<id>.url override)"
     )
 
 
@@ -194,6 +200,48 @@ def test_skill_referenced_mcp_tools_exist() -> None:
     assert not orphans, "Skill files reference MCP tools that do not exist:\n  " + "\n  ".join(
         orphans
     )
+
+
+def test_phoebus2_extends_clone_round_trips(tmp_path: Path) -> None:
+    """A second framework-server instance declared via the ``extends`` form must
+    round-trip through the same dotted-override path the build uses
+    (config_update_fields + resolve_env_vars) into a working clone. The framework
+    phoebus2 registry entry was deleted, so ``extends: phoebus`` is the only
+    supported way to stand up a second live Phoebus instance.
+    """
+    import yaml
+
+    from osprey.registry.mcp import resolve_servers
+    from osprey.utils.config import resolve_env_vars
+    from osprey.utils.config_writer import config_update_fields
+
+    # The dotted overrides a facility would declare in config.yml for a second
+    # live Phoebus instance (its own bridge URL, cloned from the phoebus server).
+    overrides: dict = {
+        "claude_code.servers.phoebus2.extends": "phoebus",
+        "claude_code.servers.phoebus2.env.PHOEBUS_BRIDGE_URL": (
+            "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}"
+        ),
+    }
+
+    config_path = tmp_path / "config.yml"
+    config_path.write_text("claude_code:\n  servers:\n    phoebus: {enabled: true}\n")
+    config_update_fields(config_path, overrides)
+
+    loaded = resolve_env_vars(
+        yaml.safe_load(config_path.read_text(encoding="utf-8")),
+        environ={"PHOEBUS2_BRIDGE_URL": "http://10.0.0.5:7980"},
+    )
+    servers = resolve_servers(
+        loaded["claude_code"],
+        {"project_root": str(tmp_path), "current_python_env": "/usr/bin/python3"},
+    )
+    p2 = [s for s in servers if s["name"] == "phoebus2"]
+    assert len(p2) == 1 and p2[0]["enabled"] is True
+    assert p2[0]["args"] == ["-m", "osprey.mcp_server.phoebus"]
+    # Server env survives verbatim (${...} expanded at MCP launch, not here).
+    assert p2[0]["env"]["PHOEBUS_BRIDGE_URL"] == "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}"
+    assert p2[0]["hooks_pre"][0]["matcher"] == "mcp__phoebus2__phoebus_drive"
 
 
 def test_slash_commands_resolve_targets() -> None:

@@ -1,7 +1,9 @@
 """Model provider resolution for Claude Code agent deployments.
 
 Maps canonical model tiers (haiku/sonnet/opus) to provider-specific model IDs
-and generates the env block for settings.json. Pure Python, no I/O.
+and generates the env block for settings.json. ``ClaudeCodeModelResolver`` does
+no file or network I/O; the ``load_provider_spec`` and ``inject_provider_env``
+helpers in this module do read ``config.yml`` / ``.env`` from disk.
 
 Design: model IDs are owned by the provider and live in ``api.providers``
 in config.yml.  ``CLAUDE_CODE_PROVIDERS`` defines only the auth pattern,
@@ -13,6 +15,9 @@ design.
 
 from __future__ import annotations
 
+import json
+import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -70,17 +75,134 @@ AGENT_DEFAULT_TIERS: dict[str, str] = {
 
 # Env vars that settings.json controls — scrubbed from shell before launch
 # so runtime-injected provider vars are authoritative.
+#
+# The rule: scrub every ANTHROPIC_* / CLAUDE_CODE_* var that selects a *backend*
+# or a *model*. A stale one of these reroutes the agent away from the configured
+# provider without any error — the worst failure mode for a framework that talks
+# to control systems. Shared cloud-SDK vars (AWS_REGION, GCLOUD_PROJECT,
+# CLOUD_ML_REGION) are deliberately left alone: they belong to other tooling in
+# the operator's shell, and only reach Claude Code when a CLAUDE_CODE_USE_* flag
+# is set — which is scrubbed here. ANTHROPIC_CUSTOM_HEADERS is likewise left
+# alone: headers cannot redirect the endpoint, so a stale value fails loudly,
+# and it is the only way to supply corporate-proxy headers.
 MANAGED_ENV_VARS = frozenset(
     {
+        # Auth + endpoint
         "ANTHROPIC_API_KEY",
         "ANTHROPIC_AUTH_TOKEN",
         "ANTHROPIC_BASE_URL",
+        # Model selectors (ANTHROPIC_SMALL_FAST_MODEL is deprecated upstream
+        # but still honored; CLAUDE_CODE_SUBAGENT_MODEL overrides AGENT_DEFAULT_TIERS)
         "ANTHROPIC_MODEL",
         "ANTHROPIC_DEFAULT_HAIKU_MODEL",
         "ANTHROPIC_DEFAULT_SONNET_MODEL",
         "ANTHROPIC_DEFAULT_OPUS_MODEL",
+        "ANTHROPIC_DEFAULT_FABLE_MODEL",
+        "ANTHROPIC_SMALL_FAST_MODEL",
+        "CLAUDE_CODE_SUBAGENT_MODEL",
+        # Backend selectors — no OSPREY provider sets these; Bedrock and friends
+        # are reached through a proxy base_url, never Claude Code's native backend.
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
+        "CLAUDE_CODE_USE_FOUNDRY",
+        "CLAUDE_CODE_USE_MANTLE",
+        # Backend endpoint / auth overrides — inert once the flags above are
+        # scrubbed, cleared anyway so the agent environment carries no stale
+        # backend configuration at all.
+        "ANTHROPIC_BEDROCK_BASE_URL",
+        "ANTHROPIC_VERTEX_BASE_URL",
+        "ANTHROPIC_FOUNDRY_BASE_URL",
+        "ANTHROPIC_FOUNDRY_RESOURCE",
+        "ANTHROPIC_VERTEX_PROJECT_ID",
+        "CLAUDE_CODE_SKIP_BEDROCK_AUTH",
+        "CLAUDE_CODE_SKIP_VERTEX_AUTH",
+        "CLAUDE_CODE_SKIP_FOUNDRY_AUTH",
     }
 )
+
+
+def _managed_policy_settings_paths() -> list[Path]:
+    """Return the Claude Code managed-policy settings files for this OS.
+
+    Managed (enterprise) policy settings are the one scope that outranks
+    everything OSPREY can reach — the process environment, the project settings
+    file, and the ``--setting-sources`` restriction alike. The main file plus
+    any fragments in the ``managed-settings.d`` drop-in directory are returned in
+    load order (docs: https://code.claude.com/docs/en/settings).
+    """
+    if sys.platform == "darwin":
+        root = Path("/Library/Application Support/ClaudeCode")
+    elif sys.platform == "win32":
+        root = Path(r"C:\Program Files\ClaudeCode")
+    else:
+        root = Path("/etc/claude-code")
+    paths = [root / "managed-settings.json"]
+    dropin = root / "managed-settings.d"
+    if dropin.is_dir():
+        # Claude Code ignores dropin fragments whose name starts with a dot;
+        # skip them too so OSPREY never refuses on a file Claude never applies.
+        paths.extend(sorted(p for p in dropin.glob("*.json") if not p.name.startswith(".")))
+    return paths
+
+
+def detect_managed_policy_conflicts(
+    paths: list[Path] | None = None,
+) -> dict[str, tuple[str, str]]:
+    """Return managed-policy ``env`` entries that shadow OSPREY-managed vars.
+
+    A managed-policy ``env`` block outranks OSPREY's runtime-injected provider
+    configuration and the ``--setting-sources project`` restriction, so any key
+    it sets that OSPREY also manages silently redirects the agent — the wrong
+    failure mode for a framework driving control systems. Callers refuse to
+    launch on a non-empty result rather than start against a provider the
+    project did not configure.
+
+    Args:
+        paths: Override the managed-policy files to scan (for testing).
+            Defaults to the OS-standard locations.
+
+    Returns:
+        ``{var: (policy_value, source_file)}`` for each :data:`MANAGED_ENV_VARS`
+        key found in a managed-policy ``env`` block. Missing or unreadable files
+        are skipped; a later fragment overriding an earlier one keeps the last
+        source, matching Claude Code's own merge order.
+    """
+    if paths is None:
+        paths = _managed_policy_settings_paths()
+    conflicts: dict[str, tuple[str, str]] = {}
+    for path in paths:
+        try:
+            data = json.loads(Path(path).read_text())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        env = data.get("env")
+        if not isinstance(env, dict):
+            continue
+        for var, value in env.items():
+            if var in MANAGED_ENV_VARS:
+                conflicts[var] = (str(value), str(path))
+    return conflicts
+
+
+def format_managed_policy_conflicts(conflicts: dict[str, tuple[str, str]]) -> str:
+    """Render a launch-refusal message for managed-policy conflicts.
+
+    Shared by every launch path (CLI, Web Terminal, dispatch worker) so the
+    refusal reads identically regardless of where it fires.
+    """
+    lines = [
+        "Managed-policy settings override OSPREY-managed provider variables:",
+    ]
+    for var, (value, source) in sorted(conflicts.items()):
+        lines.append(f"    {var} = {value}  ({source})")
+    lines.append(
+        "Managed policy outranks the project's provider configuration. Remove "
+        "these keys from the policy file or reconcile them with config.yml "
+        "before launching."
+    )
+    return "\n".join(lines)
 
 
 def inject_provider_env(
@@ -132,6 +254,72 @@ def inject_provider_env(
         environ[spec.auth_env_var] = secret
 
     return sorted(spec.env_block.keys())
+
+
+def load_provider_spec(
+    project_dir: Path,
+    *,
+    provider: str | None = None,
+) -> ClaudeCodeModelSpec | None:
+    """Read ``config.yml``, expand ``${VAR}`` placeholders, and resolve the spec.
+
+    This is the single chokepoint that resolves environment-variable
+    placeholders (e.g. a custom provider's ``base_url: ${ARGO_PROD_URL}``)
+    before handing the config to the pure :class:`ClaudeCodeModelResolver`.
+    Expansion uses an ``os.environ`` + project ``.env`` overlay (``.env``
+    wins, mirroring :func:`inject_provider_env`) and never mutates global
+    ``os.environ`` — preserving SDK env-isolation and benchmark
+    cross-provider-sweep safety.
+
+    Use this anywhere a ``${VAR}`` in a custom provider's ``base_url`` is
+    consumed at *runtime* (the CLI chat/status paths, the SDK runner, the
+    web-terminal lifespan, the dispatch worker). Callsites that stay on the
+    pure :class:`ClaudeCodeModelResolver` do so on purpose: the template-render
+    paths (``templates/claude_code.py``, ``templates/manager.py``) want the
+    literal ``${VAR}`` written into ``settings.json`` for deferred runtime
+    expansion, and the model-id-only readers (``benchmarks/sdk.py``,
+    ``channel_finder_in_context/server_context.py``) consume only
+    ``tier_to_model`` wire ids, which never contain ``${VAR}``. See
+    ``benchmarks/backends/react_backend.py`` for the one genuine deferral.
+
+    Args:
+        project_dir: Path to an initialized OSPREY project (contains config.yml).
+        provider: When given, overrides ``claude_code.provider`` in the loaded
+            config before resolving — used by cross-provider model sweeps.
+
+    Returns:
+        Resolved :class:`ClaudeCodeModelSpec` with ``${VAR}`` expanded in both
+        ``env_block['ANTHROPIC_BASE_URL']`` and ``upstream_base_url``, or
+        ``None`` when no provider is configured.
+    """
+    import yaml
+
+    from osprey.utils.config import resolve_env_vars
+
+    project_dir = Path(project_dir)
+    raw = yaml.safe_load((project_dir / "config.yml").read_text()) or {}
+
+    # Build an os.environ + .env overlay (.env wins) WITHOUT mutating os.environ.
+    lookup: dict[str, str] = dict(os.environ)
+    env_file = project_dir / ".env"
+    if env_file.is_file():
+        try:
+            from dotenv import dotenv_values
+
+            for key, value in dotenv_values(env_file).items():
+                if value is not None:
+                    lookup[key] = value
+        except ImportError:
+            pass
+
+    cfg = resolve_env_vars(raw, environ=lookup)
+    cc_config = cfg.get("claude_code", {})
+    if provider is not None:
+        cc_config = {**cc_config, "provider": provider}
+    return ClaudeCodeModelResolver.resolve(
+        cc_config,
+        cfg.get("api", {}).get("providers", {}),
+    )
 
 
 @dataclass(frozen=True)
@@ -279,9 +467,18 @@ class ClaudeCodeModelResolver:
         # shell variable references; values are treated as literals.
         env_block: dict[str, str] = {}
 
-        # Base URL: use provider literal (no /v1); skip for direct Anthropic
+        # Base URL for Claude Code. Claude Code always appends "/v1/messages",
+        # so ANTHROPIC_BASE_URL must be the bare origin — never ending in /v1.
+        # OpenAI-compatible endpoints carry a trailing /v1 by convention (it is
+        # the OpenAI API root); strip it here so an anthropic-native provider
+        # configured with such a URL doesn't resolve to "…/v1/v1/messages"
+        # (issue #312). The proxy upstream keeps the original /v1 (see
+        # upstream_base_url below); for proxy providers this value is overwritten
+        # with the loopback URL at launch. Skipped for direct Anthropic (no base_url).
         if provider_def.get("base_url"):
-            env_block["ANTHROPIC_BASE_URL"] = provider_def["base_url"]
+            env_block["ANTHROPIC_BASE_URL"] = (
+                provider_def["base_url"].rstrip("/").removesuffix("/v1")
+            )
 
         # Tier model env vars (all providers)
         env_block["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = tier_to_model["haiku"]
@@ -314,7 +511,11 @@ class ClaudeCodeModelResolver:
         from osprey.infrastructure.proxy.lifecycle import is_proxy_needed
 
         _needs_proxy = is_proxy_needed(provider_name, api_providers)
-        _upstream_url = env_block.get("ANTHROPIC_BASE_URL") if _needs_proxy else None
+        # The proxy forwards to upstream + "/chat/completions", so the upstream
+        # must keep its /v1. Use the raw configured base_url, NOT the /v1-stripped
+        # ANTHROPIC_BASE_URL above. Every launch path starts the proxy from this
+        # field (never from the env var) — see runner.py / dispatch_api.py.
+        _upstream_url = provider_def.get("base_url") if _needs_proxy else None
 
         return ClaudeCodeModelSpec(
             provider=provider_name,

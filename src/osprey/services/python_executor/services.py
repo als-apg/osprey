@@ -13,6 +13,7 @@ from typing import Any
 
 import nbformat
 
+from osprey.utils.config import get_facility_timezone
 from osprey.utils.logger import get_logger
 
 from .models import NotebookAttempt, NotebookType, PythonExecutionContext
@@ -581,7 +582,9 @@ class NotebookManager:
             notebook_path=notebook_path,
             notebook_link=self._file_manager._create_jupyter_url(notebook_path),
             error_context=error_context,
-            created_at=datetime.now().isoformat(),
+            # Operator-facing run time → facility-local ISO with offset (host-side
+            # stamp). The strftime filename above stays naive on purpose.
+            created_at=datetime.now(get_facility_timezone()).isoformat(),
         )
         context.add_notebook_attempt(attempt)
 
@@ -643,7 +646,8 @@ class NotebookManager:
         # Header
         header = f"# Python Executor - Attempt #{attempt_number}\n\n"
         header += f"**Stage:** {stage}\n"
-        header += f"**Created:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+        # Operator-facing header → facility-local wall clock with zone label.
+        header += f"**Created:** {datetime.now(get_facility_timezone()).strftime('%Y-%m-%d %H:%M:%S %Z')}\n\n"
 
         if approval_context:
             header += f"{approval_context}\n\n"

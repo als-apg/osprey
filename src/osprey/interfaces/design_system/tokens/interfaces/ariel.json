@@ -1,0 +1,44 @@
+{
+  "$description": "ARIEL-only extension tokens: relevance-score badge colors (ariel-score-*). Source: ariel/static/css/variables.css lines 56-61 (dark) and 184-189 (light). ARIEL's own --color-amber/--font-sans etc. are NOT reproduced here — those are retired in Task 3.5 in favor of the canonical amber.*/font.display tokens; only the score-badge triplet is a genuine ARIEL-specific extension. Every score.* value here already coincides exactly with an existing ramp step used elsewhere (no new primitives needed). The high-contrast-dark/high-contrast-light groups are AUTHORED explicitly (not opted out) because these badge foreground colors are genuine information-bearing text, and checking them against the high-contrast family's own (more extreme) bg.primary values via validate.py's contrast_ratio() surfaced two real gaps the base dark/light values don't cover: (1) dark's 'low' (slate.650) only reaches 4.31:1 against high-contrast-dark's near-black bg — bumped to slate.600 (7.22:1); (2) light's 'high'/'medium' (green.700/amber.600) only reach ~3.1:1 against high-contrast-light's near-white bg (below even AA) — bumped to green.800/amber.900 (4.84:1 / 6.40:1). The *-bg tint composites are unchanged (decorative low-alpha backgrounds, not text). The apex family inherits the base dark/light badge groups (its bg.primary values are ordinary-contrast, so no per-family bump is needed).",
+  "$extensions": { "inherits": { "apex-dark": "dark", "apex-light": "light" } },
+  "dark": {
+    "ariel-score": {
+      "high": { "$value": "{color.green.400}", "$type": "color" },
+      "high-bg": { "$value": "rgba(34, 197, 94, 0.15)", "$type": "color" },
+      "medium": { "$value": "{color.amber.400}", "$type": "color" },
+      "medium-bg": { "$value": "rgba(245, 158, 11, 0.15)", "$type": "color" },
+      "low": { "$value": "{color.slate.650}", "$type": "color" },
+      "low-bg": { "$value": "rgba(100, 116, 139, 0.15)", "$type": "color" }
+    }
+  },
+  "light": {
+    "ariel-score": {
+      "high": { "$value": "{color.green.700}", "$type": "color" },
+      "high-bg": { "$value": "rgba(22, 163, 74, 0.12)", "$type": "color" },
+      "medium": { "$value": "{color.amber.600}", "$type": "color" },
+      "medium-bg": { "$value": "rgba(217, 119, 6, 0.12)", "$type": "color" },
+      "low": { "$value": "{color.slate.650}", "$type": "color" },
+      "low-bg": { "$value": "rgba(100, 116, 139, 0.12)", "$type": "color" }
+    }
+  },
+  "high-contrast-dark": {
+    "ariel-score": {
+      "high": { "$value": "{color.green.400}", "$type": "color" },
+      "high-bg": { "$value": "rgba(34, 197, 94, 0.15)", "$type": "color" },
+      "medium": { "$value": "{color.amber.400}", "$type": "color" },
+      "medium-bg": { "$value": "rgba(245, 158, 11, 0.15)", "$type": "color" },
+      "low": { "$value": "{color.slate.600}", "$type": "color", "$description": "Bumped from dark's slate.650 (4.31:1 vs high-contrast-dark's bg.primary) to slate.600 (7.22:1)." },
+      "low-bg": { "$value": "rgba(100, 116, 139, 0.15)", "$type": "color" }
+    }
+  },
+  "high-contrast-light": {
+    "ariel-score": {
+      "high": { "$value": "{color.green.800}", "$type": "color", "$description": "Bumped from light's green.700 (~3.18:1 vs high-contrast-light's bg.primary) to green.800 (4.84:1)." },
+      "high-bg": { "$value": "rgba(22, 163, 74, 0.12)", "$type": "color" },
+      "medium": { "$value": "{color.amber.900}", "$type": "color", "$description": "Bumped from light's amber.600 (~3.08:1 vs high-contrast-light's bg.primary) to amber.900 (6.40:1)." },
+      "medium-bg": { "$value": "rgba(217, 119, 6, 0.12)", "$type": "color" },
+      "low": { "$value": "{color.slate.650}", "$type": "color" },
+      "low-bg": { "$value": "rgba(100, 116, 139, 0.12)", "$type": "color" }
+    }
+  }
+}

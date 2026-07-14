@@ -30,6 +30,10 @@ api:
     amsc-i2:
       api_key: ${AMSC_I2_API_KEY}
       base_url: https://api.i2-core.american-science-cloud.org/v1
+      models:                        # Model IDs as named by this provider
+        haiku: claude-haiku
+        sonnet: claude-sonnet
+        opus: claude-opus
     stanford:
       api_key: ${STANFORD_API_KEY}
       base_url: https://aiapi-prod.stanford.edu/v1
@@ -61,6 +65,18 @@ api:
         haiku: claude-haiku-4-5-20251001
         sonnet: claude-sonnet-4-6
         opus: claude-opus-4-6
+    # DwarfStar (ds4) — local DeepSeek V4 server (https://github.com/antirez/ds4)
+    # No API key required. If the server runs on a remote host, forward the port:
+    #   ssh -L 8000:127.0.0.1:8000 <host>
+    ds4:
+      api_key: EMPTY                  # ds4 ignores auth; any non-empty string works
+      base_url: http://127.0.0.1:8000/v1
+      # ds4 serves two model sizes; mapped onto the standard tiers so ds4 is a
+      # drop-in (flash = fast/cheap tier, pro = capable tiers).
+      models:
+        haiku: deepseek-v4-flash
+        sonnet: deepseek-v4-pro
+        opus: deepseek-v4-pro
 
 # ============================================================
 # ENVIRONMENT VARIABLES
@@ -94,8 +110,6 @@ control_system:
     enabled: true
     database_path: "data/channel_limits.json"
     allow_unlisted_channels: true  # Permissive mode for tutorial
-    on_violation: "skip"   # Options: "error" | "skip" (DEFAULT)
-                           # - error: Strict - ANY violation blocks entire operation
 
   # Runtime connector settings
   connector:
@@ -133,7 +147,11 @@ execution:
 # ============================================================
 
 system:
-  timezone: ${TZ:-UTC}
+  # Pinned to UTC for reproducibility — set your real facility zone in
+  # production. Avoid ${TZ:-...}: inheriting the host $TZ makes archiver
+  # queries and simulated events non-deterministic. Governs how the agent
+  # interprets operator times and renders all timestamps.
+  timezone: UTC
 
 file_paths:
   agent_data_dir: _agent_data

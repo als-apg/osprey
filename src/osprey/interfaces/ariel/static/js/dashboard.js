@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * ARIEL Dashboard Module
  *
@@ -10,10 +11,12 @@ import {
   formatRelativeTime,
   renderStatCard,
   renderLoading,
+  renderErrorState,
   escapeHtml,
 } from './components.js';
 
 // Refresh interval
+/** @type {ReturnType<typeof setInterval> | null} */
 let refreshInterval = null;
 
 /**
@@ -21,7 +24,9 @@ let refreshInterval = null;
  */
 export function initDashboard() {
   const refreshBtn = document.getElementById('refresh-status');
-  refreshBtn?.addEventListener('click', () => loadStatus());
+  if (refreshBtn) {
+    refreshBtn.addEventListener('click', () => loadStatus());
+  }
 }
 
 /**
@@ -38,19 +43,14 @@ export async function loadStatus() {
     renderStatus(container, status);
   } catch (error) {
     console.error('Failed to load status:', error);
-    container.innerHTML = `
-      <div class="empty-state">
-        <h3 class="empty-state-title text-error">Failed to Load Status</h3>
-        <p class="empty-state-text">${escapeHtml(error.message)}</p>
-      </div>
-    `;
+    container.innerHTML = renderErrorState('Failed to Load Status', error);
   }
 }
 
 /**
  * Render status dashboard.
  * @param {HTMLElement} container - Container element
- * @param {Object} status - Status data
+ * @param {any} status - Status data
  */
 function renderStatus(container, status) {
   const healthStatus = status.healthy ? 'healthy' : 'error';
@@ -129,7 +129,7 @@ function renderStatus(container, status) {
               </tr>
             </thead>
             <tbody>
-              ${status.embedding_tables.map(table => `
+              ${status.embedding_tables.map((/** @type {any} */ table) => `
                 <tr>
                   <td class="font-mono">${escapeHtml(table.table_name.replace('text_embeddings_', ''))}</td>
                   <td class="font-mono">${table.entry_count.toLocaleString()}</td>
@@ -156,7 +156,7 @@ function renderStatus(container, status) {
         </div>
         <div class="card-body">
           <ul style="margin: 0; padding-left: 20px;">
-            ${status.errors.map(err => `<li class="text-error">${escapeHtml(err)}</li>`).join('')}
+            ${status.errors.map((/** @type {any} */ err) => `<li class="text-error">${escapeHtml(err)}</li>`).join('')}
           </ul>
         </div>
       </div>
@@ -166,14 +166,14 @@ function renderStatus(container, status) {
 
 /**
  * Render module list.
- * @param {Array} modules - Module definitions
+ * @param {Array<any>} modules - Module definitions
  * @returns {string} HTML string
  */
 function renderModuleList(modules) {
   return `
     <div style="display: flex; flex-direction: column; gap: 12px;">
-      ${modules.map(m => {
-        const dot = m.enabled ? 'healthy' : (m.future ? 'inactive' : 'inactive');
+      ${modules.map((/** @type {any} */ m) => {
+        const dot = m.enabled ? 'healthy' : 'inactive';
         const label = m.enabled ? 'Enabled' : (m.future ? '(Future)' : 'Disabled');
         const labelColor = m.enabled ? 'text-success' : 'text-muted';
         return `

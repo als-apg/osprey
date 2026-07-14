@@ -47,8 +47,12 @@ approval:
 # ============================================================
 
 system:
-  # Timezone configuration for all containers and services
-  timezone: ${TZ:-UTC}
+  # Facility timezone: how the agent interprets operator-provided times
+  # (parsed as facility-local) and renders all timestamps (with an explicit
+  # offset). Pinned to UTC for reproducibility — set your real facility zone
+  # (e.g. America/Los_Angeles) in production. Avoid ${TZ:-...}: inheriting the
+  # host $TZ makes archiver queries and simulated events non-deterministic.
+  timezone: UTC
 
 # File paths - Data storage organization
 file_paths:
@@ -88,7 +92,6 @@ control_system:
     enabled: false  # Enable for production safety
     database_path: null  # Path to channel_limits.json
     allow_unlisted_channels: true
-    on_violation: "skip"  # Options: error | skip
 
   # Write Verification Configuration
   write_verification:
@@ -188,6 +191,19 @@ claude_code:
   #   logbook-deep-research: sonnet
 
 # ============================================================
+# WEB TERMINAL CONFIGURATION
+# ============================================================
+# Browser-based Web Terminal UI. Independent of the CLI's `cli.theme` below
+# (console-only) — the two never share a value.
+
+web:
+  # Default web UI theme: a theme FAMILY (e.g. "osprey", "high-contrast") or
+  # a concrete theme id (e.g. "high-contrast-light") to pin a specific mode.
+  # A user's in-browser choice (switcher selection, ?theme=, localStorage)
+  # always overrides this default. An unknown value falls back to "osprey".
+  theme: osprey
+
+# ============================================================
 # CLI CONFIGURATION
 # ============================================================
 # Customize the command-line interface appearance
@@ -230,6 +246,10 @@ api:
     amsc-i2:
       api_key: ${AMSC_I2_API_KEY}
       base_url: https://api.i2-core.american-science-cloud.org/v1
+      models:                        # Model IDs as named by this provider
+        haiku: claude-haiku
+        sonnet: claude-sonnet
+        opus: claude-opus
     stanford:
       api_key: ${STANFORD_API_KEY}
       base_url: https://aiapi-prod.stanford.edu/v1

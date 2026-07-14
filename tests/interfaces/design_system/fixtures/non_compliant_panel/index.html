@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<!--
+  Deliberately non-compliant fixture. The manifest is schema-valid and its
+  entry file exists, so the validator reaches the HTML checks and must fail
+  this panel three ways:
+    * MISSING_THEME_BOOT          — no /design-system/js/theme-boot.js script
+    * MISSING_DESIGN_SYSTEM_LINK  — no /design-system/css/tokens.css stylesheet
+    * RAW_HEX_COLOR               — a literal hex color instead of a var(--…)
+  Do NOT "fix" this file; the panel-validator tests assert it stays broken.
+-->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Non-Compliant Panel</title>
+<style>
+  body { background: #101418; color: #e8eef2; font-family: sans-serif; }
+</style>
+</head>
+<body>
+<h1 style="color: #ff3355;">Raw hex colors everywhere</h1>
+<p>This panel never opts into the shared design system.</p>
+</body>
+</html>

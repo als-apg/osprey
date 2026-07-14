@@ -11,6 +11,7 @@ import os
 import pytest
 import yaml
 
+from osprey.cli.claude_code_resolver import MANAGED_ENV_VARS
 from osprey.cli.templates import claude_code
 from osprey.cli.templates.manager import TemplateManager
 
@@ -196,11 +197,82 @@ class TestSafetyPreservation:
         manager.regenerate_claude_code(project_dir)
         return project_dir
 
+    @pytest.fixture()
+    def regen_project_writes_off(self, tmp_path):
+        """Create a project, disable control-system writes, regenerate."""
+        manager = TemplateManager()
+        project_dir = manager.create_project(
+            project_name="safety-writes-off",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+        config_path = project_dir / "config.yml"
+        config = yaml.safe_load(config_path.read_text())
+        config["control_system"]["writes_enabled"] = False
+        config_path.write_text(yaml.dump(config, default_flow_style=False))
+        manager.regenerate_claude_code(project_dir)
+        return project_dir
+
+    def test_writes_off_kill_switch_covers_python_execute(self, regen_project_writes_off):
+        """Kill-switch parity for the python-executor write path.
+
+        When control-system writes are disabled, neither write entry point may
+        reach Claude Code's ``permissions.ask`` -> ``can_use_tool`` approval
+        path:
+
+        - ``mcp__controls__channel_write`` is hard-denied via ``permissions.deny``.
+        - ``mcp__python__execute`` cannot be denied wholesale (it has a
+          legitimate read-only path), so it is instead removed from
+          ``permissions.ask``; the ``osprey_writes_check`` PreToolUse hook then
+          denies the read-write case with nothing forcing an approval prompt.
+
+        Regression guard: under ``claude-agent-sdk==0.2.93`` a static
+        ``permissions.ask`` entry drives a read-write ``execute`` to
+        ``can_use_tool`` even when the writes_check hook denies it in parallel,
+        so leaving ``mcp__python__execute`` in ``ask`` silently bypasses the
+        kill switch (the operator is prompted instead of the call being blocked).
+        """
+        claude = regen_project_writes_off / ".claude"
+        settings = json.loads((claude / "settings.json").read_text())
+        perms = settings["permissions"]
+        hook_config = json.loads((claude / "hooks" / "hook_config.json").read_text())
+
+        # Anti-vacuous guard: the python executor IS active and write-gated.
+        assert "mcp__python__execute" in hook_config["write_tools"]
+
+        # channel_write: declarative hard block.
+        assert "mcp__controls__channel_write" in perms["deny"]
+
+        # python execute: must NOT sit in the ask list while writes are off,
+        # or a read-write execute reaches the approval path and bypasses the
+        # kill switch.
+        assert "mcp__python__execute" not in perms["ask"], (
+            "mcp__python__execute is in permissions.ask while writes are "
+            "disabled — a read-write execute would reach the can_use_tool "
+            "approval path, bypassing the kill switch."
+        )
+
     def test_always_includes_safety_hooks(self, regen_project):
         """After regen, settings.json still has PreToolUse/PostToolUse hook chains."""
         settings = json.loads((regen_project / ".claude" / "settings.json").read_text())
         assert "PreToolUse" in settings["hooks"]
         assert "PostToolUse" in settings["hooks"]
+
+    def test_settings_json_has_no_managed_env_block(self, regen_project):
+        """The generated project settings.json must not set any OSPREY-managed
+        provider variable in an ``env`` block.
+
+        Provider vars are injected into the process environment at launch and
+        must stay there: the project settings scope outranks the process
+        environment, so a value baked into settings.json would pin a stale
+        loopback proxy port or a wrong model ID (issue #355). Provider isolation
+        relies on settings.json staying env-block-free.
+        """
+        settings = json.loads((regen_project / ".claude" / "settings.json").read_text())
+        env_block = settings.get("env", {})
+        leaked = MANAGED_ENV_VARS & set(env_block)
+        assert not leaked, f"settings.json leaks managed provider vars: {sorted(leaked)}"
 
     def test_always_denies_dangerous_tools(self, regen_project):
         """After regen, settings.json denies Bash, Edit, WebFetch, WebSearch.
@@ -241,6 +313,40 @@ class TestSafetyPreservation:
             if hook.is_file() and hook.suffix == ".py":
                 mode = os.stat(hook).st_mode
                 assert mode & 0o111, f"Hook {hook.name} should be executable after regen"
+
+    def test_framework_hooks_launch_via_resolved_interpreter(self, regen_project):
+        """Framework PreToolUse/PostToolUse hooks must launch via an absolute
+        interpreter path, never bare ``python``/``python3``.
+
+        Regression guard for the "dark hook layer" bug: framework hook commands
+        were rendered as bare ``python "..."``. On hosts without a ``python`` on
+        PATH (stock macOS, many Linux), the entire approval / writes-kill-switch
+        / feedback hook layer silently failed to launch and the safety tests
+        passed vacuously. The renderer now rewrites the interpreter token to the
+        project's resolved venv python (``current_python_env``), so every
+        framework hook command must invoke a real, absolute interpreter path.
+        """
+        settings = json.loads((regen_project / ".claude" / "settings.json").read_text())
+        framework_cmds = [
+            hook["command"]
+            for event in ("PreToolUse", "PostToolUse")
+            for entry in settings["hooks"].get(event, [])
+            for hook in entry["hooks"]
+            if "/.claude/hooks/osprey_" in hook["command"]
+        ]
+        assert framework_cmds, "expected framework osprey_*.py hook commands after regen"
+        for cmd in framework_cmds:
+            assert not cmd.startswith("python "), (
+                f"bare `python` re-introduces the dark-hook bug: {cmd}"
+            )
+            assert not cmd.startswith("python3 "), (
+                f"PATH-relative `python3` is not the resolved interpreter: {cmd}"
+            )
+            # Command must launch via a quoted, absolute interpreter path.
+            assert cmd.startswith('"/'), (
+                f"framework hook must launch via the resolved venv interpreter "
+                f"(absolute path), got: {cmd}"
+            )
 
 
 class TestUserFilePreservation:

@@ -6,8 +6,8 @@ How to Use the Channel Finder
 
 The Channel Finder translates natural language queries (e.g., "beam current,"
 "terminal voltage") into control system addresses (e.g., ``SR:DCCT:Current``,
-``TMVST``). It uses LLM-powered pipelines so operators do not need to memorize
-technical naming conventions.
+``TMVST``). It uses LLM-based pipelines, so a query can use everyday terms
+rather than exact channel names.
 
 .. seealso::
 
@@ -42,8 +42,9 @@ In-Context Pipeline
 Loads the entire channel database into the LLM context for direct semantic
 matching.
 
-**Pipeline stages:** query splitting, semantic matching against full database,
-iterative validation/correction.
+**How it works:** a single inner-LLM call — the complete channel database is
+embedded in the system prompt and the model returns the most relevant channels
+in one shot (no query-splitting or iterative-correction stage).
 
 The database uses a flat JSON structure loaded by ``TemplateChannelDatabase``,
 with standalone entries and template entries for device families:
@@ -112,7 +113,7 @@ Middle Layer Pipeline
 
 A React agent explores the database using query tools
 (``list_systems``, ``list_families``, ``inspect_fields``,
-``list_channel_names``, ``get_common_names``).
+``list_channels``, ``get_common_names``).
 
 The database follows MATLAB Middle Layer (MML) functional organization
 (System -> Family -> Field -> ChannelNames). Convert from MML exports:
@@ -120,7 +121,7 @@ The database follows MATLAB Middle Layer (MML) functional organization
 .. code-block:: bash
 
    python -m osprey.services.channel_finder.utils.mml_converter \
-      --input path/to/mml_exports.py \
+      --input path/to/mml_exports.py:MML_ao_SR \
       --output data/channel_databases/middle_layer.json
 
 
@@ -147,16 +148,15 @@ Key ``config.yml`` settings:
      pipelines:
        in_context:
          database: {type: template, path: data/channel_databases/in_context.json}
-         processing: {chunk_dictionary: false, chunk_size: 50}
        hierarchical:
          database: {type: hierarchical, path: data/channel_databases/hierarchical.json}
        middle_layer:
          database: {type: middle_layer, path: data/channel_databases/middle_layer.json}
      benchmark:
        dataset_path: data/benchmarks/queries.json
-   benchmark:
-     execution: {max_concurrent_queries: 5}
-     output: {results_dir: data/benchmarks/results}
+       # Concurrency and output dir are set per run via CLI flags
+       # (osprey channel-finder benchmark --concurrency / --output-dir);
+       # they are not read from config.yml.
 
 
 .. _channel-finder-framework-integration:
@@ -168,7 +168,8 @@ Each pipeline is exposed to the agent through a dedicated MCP server
 (``channel_finder_in_context``, ``channel_finder_hierarchical``,
 ``channel_finder_middle_layer``). The active server is selected from
 ``channel_finder.pipeline_mode`` in ``config.yml`` and wired into the
-agent automatically by ``osprey deploy``. There is no public Python
+agent's artifacts when you run ``osprey build`` (or ``osprey claude regen``
+after editing the config). There is no public Python
 ``find_channels(...)`` entry point — drive the resolver from natural
 language via the agent, or invoke the CLI directly:
 

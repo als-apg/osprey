@@ -1,0 +1,152 @@
+{
+  "$description": "Apex Light — gold-forward skin ported from tuning_scripts (light companion of apex-dark). The warm GOLD is the focal/primary accent (accent.* + border.accent + all tint.accent.* carry gold), and the teal (#0a8f8c, core teal.400) is DEMOTED to the secondary/data slot: amber.* group, tint.amber.*, chart.series slot 1, terminal cursor/selection. Surfaces are the tuning light slate ramp; text is the tuning light ink ramp; status/overlay/shadow/diff keep osprey's exact light values. WCAG contract gates all pass: text.primary/secondary >= 4.5, text.muted >= 3, accent >= 3 vs bg.primary #f7f9fc (text-primary ~17.6:1, text-secondary ~9.71:1, text-muted ~4.51:1, accent gold ~3.30:1), and accent.on >= 4.5 vs accent.base (5.50:1). The light gold accent is WCAG-tuned (see accent.base): tuning's --gold #b8894e (2.96:1 vs bg) and amber.800 #a07040 (dead-zone for the on-accent gate) both fail a gate, so it uses core amber.700 #c07a00, which clears both.",
+  "$extensions": { "mode": "light", "id": "apex-light", "label": "Apex Light", "family": "apex" },
+  "bg": {
+    "terminal": { "$value": "{color.slate.50}", "$type": "color", "$description": "Lightest surface (#fafbfd) — one shade above tuning --bg-0; exact core alias." },
+    "primary": { "$value": "{color.slate.150}", "$type": "color", "$description": "tuning --bg-0 (#f7f9fc); the main canvas and WCAG reference background." },
+    "panel": { "$value": "{color.slate.200}", "$type": "color", "$description": "Intermediate surface (#f2f5fa) between primary and secondary; exact core alias." },
+    "secondary": { "$value": "{color.slate.300}", "$type": "color", "$description": "tuning --bg-1 (#eef2f7)." },
+    "elevated": { "$value": "{color.slate.350}", "$type": "color", "$description": "tuning --bg-2 (#e4e9f0); darkest raised surface in light." }
+  },
+  "text": {
+    "primary": { "$value": "{color.slate.950}", "$type": "color" },
+    "secondary": { "$value": "{color.slate.700}", "$type": "color" },
+    "muted": { "$value": "{color.slate.650}", "$type": "color" }
+  },
+  "accent": {
+    "base": { "$value": "{color.amber.700}", "$type": "color", "$description": "GOLD-FORWARD focal accent, WCAG-tuned for light mode: core amber.700 #c07a00 gives 3.30:1 vs bg.primary #f7f9fc (>= 3.0 accent floor) AND 5.50:1 for dark on-accent text (>= 4.5). Tuning's --gold #b8894e (2.96:1 vs bg) and amber.800 #a07040 (dead-zone: no on-accent color reaches 4.5) both fail one gate; amber.700 clears both." },
+    "light": { "$value": "{color.amber.900}", "$type": "color", "$description": "GOLD-FORWARD: deeper gold #7a5530 for hover/active on-light, aliased into core amber.900." },
+    "on": { "$value": "{color.slate.1000}", "$type": "color", "$description": "GOLD-FORWARD: dark ink (#0a0f1a) on the gold accent.base (#c07a00) = 5.50:1 — legible primary-button text (gated >= 4.5 vs accent.base)." }
+  },
+  "amber": {
+    "base": { "$value": "{color.teal.400}", "$type": "color", "$description": "DEMOTED TEAL: the secondary/data hue #0a8f8c (tuning --cyan) lives in the amber.* slot under the gold-forward inversion." },
+    "light": { "$value": "{color.teal.500}", "$type": "color", "$description": "DEMOTED TEAL: deeper teal #0d7377." },
+    "hover": { "$value": "{color.teal.700}", "$type": "color", "$description": "DEMOTED TEAL: deepest teal #065f5c for hover states." }
+  },
+  "status": {
+    "success": { "$value": "{color.green.700}", "$type": "color" },
+    "warning": { "$value": "{color.amber.600}", "$type": "color" },
+    "error": { "$value": "{color.red.500}", "$type": "color" },
+    "error-hover": { "$value": "{color.red.700}", "$type": "color" }
+  },
+  "border": {
+    "default": { "$value": "{color.slate.450}", "$type": "color", "$description": "tuning --line-1 (#d1d8e3); solid hex, kept as a one-hop alias." },
+    "accent": { "$value": "rgba(192, 122, 0, 0.25)", "$type": "color", "$description": "GOLD-FORWARD: alpha composite of the focal gold accent #c07a00." }
+  },
+  "tint": {
+    "accent": {
+      "04": { "$value": "rgba(192, 122, 0, 0.04)", "$type": "color" },
+      "06": { "$value": "rgba(192, 122, 0, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(192, 122, 0, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(192, 122, 0, 0.10)", "$type": "color" },
+      "12": { "$value": "rgba(192, 122, 0, 0.12)", "$type": "color" },
+      "20": { "$value": "rgba(192, 122, 0, 0.20)", "$type": "color" },
+      "25": { "$value": "rgba(192, 122, 0, 0.25)", "$type": "color" },
+      "30": { "$value": "rgba(192, 122, 0, 0.30)", "$type": "color" }
+    },
+    "amber": {
+      "04": { "$value": "rgba(13, 115, 119, 0.04)", "$type": "color" },
+      "06": { "$value": "rgba(13, 115, 119, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(13, 115, 119, 0.08)", "$type": "color" },
+      "12": { "$value": "rgba(13, 115, 119, 0.12)", "$type": "color" },
+      "15": { "$value": "rgba(13, 115, 119, 0.15)", "$type": "color" },
+      "25": { "$value": "rgba(13, 115, 119, 0.25)", "$type": "color" }
+    },
+    "error": {
+      "04": { "$value": "rgba(220, 38, 38, 0.04)", "$type": "color" },
+      "08": { "$value": "rgba(220, 38, 38, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(220, 38, 38, 0.10)", "$type": "color" },
+      "15": { "$value": "rgba(220, 38, 38, 0.15)", "$type": "color" },
+      "25": { "$value": "rgba(220, 38, 38, 0.25)", "$type": "color" },
+      "30": { "$value": "rgba(220, 38, 38, 0.30)", "$type": "color" },
+      "40": { "$value": "rgba(220, 38, 38, 0.40)", "$type": "color" }
+    },
+    "success": {
+      "08": { "$value": "rgba(22, 163, 74, 0.08)", "$type": "color" },
+      "40": { "$value": "rgba(22, 163, 74, 0.40)", "$type": "color" },
+      "50": { "$value": "rgba(22, 163, 74, 0.50)", "$type": "color" }
+    },
+    "neutral": {
+      "$description": "Base rgb(100,116,139) = color.slate.650 = text.muted's exact color (tuning --ink-3).",
+      "03": { "$value": "rgba(100, 116, 139, 0.03)", "$type": "color" },
+      "06": { "$value": "rgba(100, 116, 139, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(100, 116, 139, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(100, 116, 139, 0.10)", "$type": "color" },
+      "12": { "$value": "rgba(100, 116, 139, 0.12)", "$type": "color" },
+      "20": { "$value": "rgba(100, 116, 139, 0.20)", "$type": "color" },
+      "35": { "$value": "rgba(100, 116, 139, 0.35)", "$type": "color" }
+    }
+  },
+  "overlay": {
+    "$description": "Non-monotonic alphas preserved exactly from osprey light (black-30 < black-20; black-60 < black-50).",
+    "black-20": { "$value": "rgba(0, 0, 0, 0.06)", "$type": "color" },
+    "black-30": { "$value": "rgba(0, 0, 0, 0.05)", "$type": "color" },
+    "black-40": { "$value": "rgba(0, 0, 0, 0.08)", "$type": "color" },
+    "black-50": { "$value": "rgba(0, 0, 0, 0.15)", "$type": "color" },
+    "black-60": { "$value": "rgba(0, 0, 0, 0.10)", "$type": "color" },
+    "black-70": { "$value": "rgba(0, 0, 0, 0.25)", "$type": "color" },
+    "white-03": { "$value": "rgba(255, 255, 255, 0.5)", "$type": "color", "$description": "Same slot name as dark's white-03 but a different alpha (0.5) in light, preserved from osprey." }
+  },
+  "shadow": {
+    "panel": { "$value": "-2px 0 8px rgba(0, 0, 0, 0.08)", "$type": "shadow" },
+    "dropdown": { "$value": "0 4px 12px rgba(0, 0, 0, 0.1)", "$type": "shadow" },
+    "dialog": { "$value": "0 4px 16px rgba(0, 0, 0, 0.12)", "$type": "shadow" },
+    "error-dialog": { "$value": "0 4px 16px rgba(220, 38, 38, 0.1), 0 4px 16px rgba(0, 0, 0, 0.1)", "$type": "shadow" }
+  },
+  "diff": {
+    "add-bg": { "$value": "rgba(22, 163, 74, 0.1)", "$type": "color" },
+    "add-text": { "$value": "{color.green.700}", "$type": "color" },
+    "del-bg": { "$value": "rgba(220, 38, 38, 0.1)", "$type": "color" },
+    "del-text": { "$value": "{color.red.500}", "$type": "color" },
+    "word-del-bg": { "$value": "rgba(220, 38, 38, 0.20)", "$type": "color" },
+    "word-del-text": { "$value": "{color.red.700}", "$type": "color" },
+    "word-add-bg": { "$value": "rgba(22, 163, 74, 0.20)", "$type": "color" },
+    "word-add-text": { "$value": "{color.green.800}", "$type": "color" }
+  },
+  "terminal": {
+    "cursor": { "$value": "{color.teal.400}", "$type": "color", "$description": "DEMOTED TEAL: cursor stays teal #0a8f8c as a data cue." },
+    "text": { "$value": "{color.slate.750}", "$type": "color" },
+    "selection": { "$value": "rgba(13, 115, 119, 0.2)", "$type": "color", "$description": "DEMOTED TEAL: selection stays teal." },
+    "ansi": {
+      "background": { "$value": "{color.slate.50}", "$type": "color" },
+      "foreground": { "$value": "{color.slate.950}", "$type": "color" },
+      "cursor": { "$value": "{color.teal.400}", "$type": "color" },
+      "cursor-accent": { "$value": "{color.slate.50}", "$type": "color" },
+      "selection": { "$value": "rgba(13, 115, 119, 0.2)", "$type": "color" },
+      "black": { "$value": "{color.slate.350}", "$type": "color" },
+      "red": { "$value": "{color.red.500}", "$type": "color" },
+      "green": { "$value": "{color.green.700}", "$type": "color" },
+      "yellow": { "$value": "{color.amber.600}", "$type": "color" },
+      "blue": { "$value": "{color.blue.500}", "$type": "color" },
+      "magenta": { "$value": "{color.violet.500}", "$type": "color" },
+      "cyan": { "$value": "{color.teal.500}", "$type": "color" },
+      "white": { "$value": "{color.slate.750}", "$type": "color" },
+      "bright-black": { "$value": "{color.slate.550}", "$type": "color" },
+      "bright-red": { "$value": "{color.red.300}", "$type": "color" },
+      "bright-green": { "$value": "{color.green.400}", "$type": "color" },
+      "bright-yellow": { "$value": "{color.amber.400}", "$type": "color" },
+      "bright-blue": { "$value": "{color.blue.300}", "$type": "color" },
+      "bright-magenta": { "$value": "{color.violet.300}", "$type": "color" },
+      "bright-cyan": { "$value": "{color.teal.400}", "$type": "color" },
+      "bright-white": { "$value": "{color.slate.950}", "$type": "color" }
+    }
+  },
+  "chart": {
+    "$description": "paper/plot = bg.primary (tuning --bg-0 #f7f9fc); grid/axis-text = text.secondary family (#374155). series slot 1 stays TEAL (the demoted data hue); the remaining five categorical slots are unchanged from the osprey light palette.",
+    "paper-bg": { "$value": "{color.slate.150}", "$type": "color" },
+    "plot-bg": { "$value": "{color.slate.150}", "$type": "color" },
+    "grid": { "$value": "rgba(55, 65, 85, 0.1)", "$type": "color", "$description": "text.secondary (light) base (#374155) at 10% alpha." },
+    "axis-text": { "$value": "{color.slate.700}", "$type": "color" },
+    "series": {
+      "1": { "$value": "{color.teal.400}", "$type": "color", "$description": "DEMOTED TEAL survives as the primary data-series color." },
+      "2": { "$value": "{color.amber.600}", "$type": "color" },
+      "3": { "$value": "{color.green.700}", "$type": "color" },
+      "4": { "$value": "{color.red.500}", "$type": "color" },
+      "5": { "$value": "{color.violet.500}", "$type": "color" },
+      "6": { "$value": "{color.blue.500}", "$type": "color" }
+    }
+  },
+  "code": {
+    "theme": { "$value": "highlight.js atom-one-light theme", "$type": "string", "$description": "Must exactly match an asset 'name' in src/osprey/interfaces/vendor_manifest.json (contract-tested)." }
+  }
+}

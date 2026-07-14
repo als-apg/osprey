@@ -1,13 +1,17 @@
 {% if system_timezone is defined and system_timezone %}---
 summary: Facility timezone context for timestamp interpretation
-description: Tells agents what timezone ARIEL timestamps are in
+description: Tells agents what timezone OSPREY timestamps are in
 ---
 
 # Timezone
 
-All timestamps returned by ARIEL tools (logbook search, browse, entry details)
-are in **{{ system_timezone }}**.
+The facility timezone is **{{ system_timezone }}**.
 
-When interpreting user references to time ("today", "this morning", "last Tuesday"),
-use this timezone.
+Every data timestamp an OSPREY tool reports — archiver and live channel reads,
+logbook entries, simulated events, executed-script run times — is in this
+timezone, with an explicit UTC offset. (Internal artifacts like log filenames are
+not operator-facing and may use another format.)
+
+When the operator refers to a time ("today", "this morning", "14:32",
+"last Tuesday"), interpret it as **facility-local** in this timezone.
 {% endif %}

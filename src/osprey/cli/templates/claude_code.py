@@ -17,6 +17,15 @@ from osprey.utils.config import resolve_env_vars
 
 logger = logging.getLogger("osprey.cli.templates")
 
+# python's execute is the one documented read/write-mixed exception to the
+# kill-switch's hard-deny default (see the docstring in
+# build_claude_code_context below): it accepts both read-only and write-access
+# kernels, so the kill switch pulls it OUT of `ask` instead of hard-denying it
+# outright. Every other _WRITES_CHECK-gated tool is presumed pure-write and
+# must be denied. Module-level so tests can assert against the same set the
+# renderer actually uses instead of re-declaring it.
+_MIXED_READ_WRITE_TEMPLATES = {"python"}
+
 
 def build_claude_code_context(
     template_root: Path,
@@ -144,6 +153,34 @@ def build_claude_code_context(
 
     ctx["enabled_servers"] = {s["name"] for s in ctx["servers"] if s["enabled"]}
     ctx["enabled_agents"] = {a["name"] for a in ctx["agents"] if a["enabled"]}
+
+    # Approval-overlap guard: a facility permissions.remove_ask or
+    # permissions.allow entry naming an approval-gated (ask) tool of an enabled
+    # server auto-approves it at the permission layer — and the osprey_approval
+    # hook keys its policy on the bare tool name, so a skip/allow there applies
+    # to EVERY instance of a template (extends clones included; per-instance
+    # gating is not possible). Warn loudly at build time.
+    _facility_perms = ctx["facility_permissions"] or {}
+    _overridden = set(_facility_perms.get("remove_ask") or []) | set(
+        _facility_perms.get("allow") or []
+    )
+    if _overridden:
+        for _srv in ctx["servers"]:
+            if not _srv["enabled"]:
+                continue
+            _ask_full = [f"mcp__{_srv['name']}__{t}" for t in _srv["permissions_ask"]] + list(
+                _srv["fixed_ask"]
+            )
+            for _tool in _ask_full:
+                if _tool in _overridden:
+                    logger.warning(
+                        "facility permissions remove_ask/allow overrides the "
+                        "approval-gated tool %s of server %r — it will be "
+                        "auto-approved at the permission layer",
+                        _tool,
+                        _srv["name"],
+                    )
+
     # User-owned files: regen skips these, users edit in-place
     ctx["user_owned"] = config.get("scaffold", {}).get("user_owned", [])
 
@@ -180,16 +217,53 @@ def build_claude_code_context(
     # pure-write tools into permissions.deny so Claude Code's permissions layer
     # blocks the call before can_use_tool ever fires. The osprey_writes_check
     # PreToolUse hook is defense-in-depth but cannot suppress the permissions.ask
-    # → can_use_tool path when sibling hooks (limits, approval) participate in
-    # decision aggregation for the same tool. mcp__python__execute is NOT added
-    # here because it has a legitimate readonly path; its kill switch lives in
-    # the writes_check hook (which works in its 2-hook chain).
+    # → can_use_tool path: a static ask entry still drives the tool to the
+    # approval prompt even when the hook returns deny (observed under
+    # claude-agent-sdk 0.2.93). mcp__python__execute cannot be denied wholesale
+    # (it has a legitimate readonly path), so instead it is pulled OUT of
+    # permissions.ask — with no static ask entry, the writes_check hook's deny
+    # on a readwrite execute stands alone and blocks the call before the prompt.
+    #
+    # Generalized over FRAMEWORK_SERVERS rather than hardcoded per server name:
+    # any hooks_pre rule gated by _WRITES_CHECK is a hardware/state write and
+    # defaults to a hard deny (covers controls' channel_write and scan's
+    # launch_scan automatically, plus any future write server with no code
+    # change here). python's execute is the one documented exception — it
+    # accepts both read_only and write_access kernels, so it is pulled into
+    # remove_ask instead (see docstring above); every other writes-check-gated
+    # tool is presumed pure-write and denied outright.
     if not config.get("control_system", {}).get("writes_enabled", False):
+        from osprey.registry.mcp import _WRITES_CHECK, FRAMEWORK_SERVERS
+
         facility_perms = dict(ctx["facility_permissions"])
         deny = list(facility_perms.get("deny", []))
-        if "mcp__controls__channel_write" not in deny:
-            deny.append("mcp__controls__channel_write")
+        remove_ask = list(facility_perms.get("remove_ask", []))
+        # Cover extends clones too, not just the literal template names: the
+        # runtime hook templates (osprey_writes_check.py, osprey_approval.py)
+        # exact-match template tool names and are clone-unaware — they are the
+        # belt layer only; this settings.json deny/remove_ask rendering is the
+        # enforced layer for clones.
+        for srv in ctx["servers"]:
+            if not srv["enabled"]:
+                continue
+            template = srv.get("extends_of") or srv["name"]
+            template_def = FRAMEWORK_SERVERS.get(template)
+            if template_def is None:
+                continue  # custom (non-framework) server — out of scope here
+            old_prefix, new_prefix = f"mcp__{template}__", f"mcp__{srv['name']}__"
+            for rule in template_def.hooks_pre:
+                if _WRITES_CHECK not in rule.hooks:
+                    continue
+                matcher = rule.matcher
+                if matcher.startswith(old_prefix):
+                    matcher = new_prefix + matcher[len(old_prefix) :]
+                if template in _MIXED_READ_WRITE_TEMPLATES:
+                    if matcher not in remove_ask:
+                        remove_ask.append(matcher)
+                elif matcher not in deny:
+                    deny.append(matcher)
         facility_perms["deny"] = deny
+        facility_perms["remove_ask"] = remove_ask
         ctx["facility_permissions"] = facility_perms
 
     return ctx
@@ -293,7 +367,14 @@ def _build_framework_hook_rules(
             "hooks": [
                 {
                     "type": "command",
-                    "command": f'python "$CLAUDE_PROJECT_DIR/.claude/hooks/{hook_path.name}"',
+                    # Invoke via ``python3``, not bare ``python``: stock macOS and
+                    # many Linux distros ship only ``python3``, so a bare ``python``
+                    # hook command silently fails to launch (Claude Code logs and
+                    # continues) — the entire PreToolUse/PostToolUse hook layer
+                    # (approval, writes kill-switch, feedback capture) goes dark.
+                    # settings.json.j2 rewrites this ``python3`` token to the
+                    # project's resolved venv interpreter (``current_python_env``).
+                    "command": f'python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/{hook_path.name}"',
                     "timeout": meta["timeout"],
                 }
             ],
@@ -419,16 +500,24 @@ def create_claude_code_integration(
                 if str(output_rel) == "rules/facility.md":
                     continue
 
-                # Skip files not in manifest (when manifest is active)
-                if allowed_outputs is not None and dst_rel not in allowed_outputs:
-                    continue
-
                 # Skip user-owned files
                 if is_user_owned(dst_rel, ctx):
                     continue
 
-                # Render Jinja2 template, strip .j2 extension
                 dst_file = project_dir / ".claude" / output_rel
+
+                # Not in manifest (when manifest is active): remove any stale
+                # file left by an earlier render pass with a wider manifest
+                # (e.g. an agent dropped from the profile's artifact
+                # selection) instead of orphaning it on disk.
+                if allowed_outputs is not None and dst_rel not in allowed_outputs:
+                    if dst_file.exists():
+                        dst_file.unlink()
+                        if dst_file.parent != project_dir and not any(dst_file.parent.iterdir()):
+                            dst_file.parent.rmdir()
+                    continue
+
+                # Render Jinja2 template, strip .j2 extension
                 dst_file.parent.mkdir(parents=True, exist_ok=True)
                 template_path = f"claude_code/claude/{rel_path}"
                 render_template(jinja_env, template_path, ctx, dst_file)
@@ -443,15 +532,19 @@ def create_claude_code_integration(
             else:
                 dst_rel = f".claude/{rel_path}"
 
-                # Skip files not in manifest (when manifest is active)
-                if allowed_outputs is not None and dst_rel not in allowed_outputs:
-                    continue
-
                 # Skip user-owned files
                 if is_user_owned(dst_rel, ctx):
                     continue
 
                 dst_file = project_dir / ".claude" / rel_path
+
+                # Not in manifest: remove any stale file from an earlier,
+                # wider render pass instead of orphaning it on disk.
+                if allowed_outputs is not None and dst_rel not in allowed_outputs:
+                    if dst_file.exists():
+                        dst_file.unlink()
+                    continue
+
                 dst_file.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src_file, dst_file)
             files_created += 1
@@ -720,6 +813,8 @@ def regenerate_claude_code(
                 changed.append(rel_path)
             else:
                 unchanged.append(rel_path)
+        elif rel_path in old_checksums:
+            changed.append(rel_path)  # Removed (e.g. dropped from manifest)
 
     # Check for newly created files (e.g., new agents)
     new_agents_dir = project_dir / ".claude" / "agents"

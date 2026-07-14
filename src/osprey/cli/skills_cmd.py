@@ -26,6 +26,8 @@ _SKILL_SOURCES: dict[str, str] = {
     "osprey-contribute": "templates/skills/osprey-contribute",
     "osprey-pre-commit": "templates/skills/osprey-pre-commit",
     "osprey-release": "templates/skills/osprey-release",
+    "osprey-design-philosophy": "templates/skills/osprey-design-philosophy",
+    "creating-an-osprey-panel": "templates/skills/creating-an-osprey-panel",
 }
 
 
@@ -56,6 +58,8 @@ def install(name: str, target: Path | None) -> None:
       osprey-contribute       Walk a contributor through the GitHub Flow journey
       osprey-pre-commit       Run quick / ci / premerge check scripts at the right gate
       osprey-release          Cut a CalVer release: bump PR, tag, verify publish
+      osprey-design-philosophy  OSPREY's design and architecture principles for review/design
+      creating-an-osprey-panel  Author a themed, token-only OSPREY web-terminal panel
 
     On an existing non-empty target, the prior content is renamed to
     <name>.bak.<YYYYMMDD-HHMMSS>/ before the new copy is written, so a

@@ -89,6 +89,25 @@ class TestChannelsEndpoint:
         assert len(data["channels"]) == 1
         assert data["formatted"] == "ch1 - test"
 
+    def test_get_channels_returns_full_db_without_chunk_idx(self, client):
+        """Omitting chunk_idx returns the ENTIRE DB in one response.
+
+        The in-context Explore UI relies on this to fetch every channel once and
+        filter/re-chunk client-side, so a search match on any page is found
+        (issue #299). Guards the contract the client fix depends on.
+        """
+        all_channels = [{"channel": f"SR:CH:{i:03d}", "description": f"d{i}"} for i in range(120)]
+        mock_db = MagicMock()
+        mock_db.get_all_channels.return_value = all_channels
+        with patch(_DB_PATCH, return_value=mock_db):
+            resp = client.get("/api/channels")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["total"] == 120
+        assert len(data["channels"]) == 120
+        # No chunking: the server must not slice when chunk_idx is omitted.
+        mock_db.chunk_database.assert_not_called()
+
 
 class TestPipelineGating:
     """Tests that pipeline-specific endpoints return 404 for wrong pipeline."""

@@ -1,18 +1,18 @@
 /* OSPREY Web Terminal — Application Entry Point */
 
-import { initTerminal, fitTerminal, focusTerminal, getTerminalDimensions, stopTerminal, startTerminal, restartTerminal, pasteToTerminal } from './terminal.js';
+import { initTerminal, fitTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal } from './terminal.js';
 import { onConnectionStateChange, fetchJSON } from './api.js';
 import { initPanelManager } from './panel-manager.js';
-import { initDrawers } from './drawer.js';
+import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
 import { initMemoryGallery } from './memory-gallery.js';
 import { initScaffoldGallery } from './scaffold-gallery.js';
 import { initHookDebug } from './hook-debug.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
-import { initTheme } from './theme.js';
+import { initTheme } from '/design-system/js/theme-manager.js';
 
 document.addEventListener('DOMContentLoaded', () => {
-  initTheme();
+  initTheme({ role: 'hub' });
   initTerminal('terminal-container');
   initPanelManager('right-panel');
   initSessionSelector('session-selector');
@@ -20,7 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initResizeHandle();
   initKeyboardShortcuts();
   initNewSessionButton();
-  initDrawers();
+  initDrawerTriggerHighlight();
   initSettings();
   initMemoryGallery();
   initScaffoldGallery();
@@ -35,7 +35,7 @@ document.addEventListener('DOMContentLoaded', () => {
 /* ---- New Session Button ---- */
 
 function initNewSessionButton() {
-  const btn = document.getElementById('new-session-btn');
+  const btn = /** @type {HTMLButtonElement} */ (document.getElementById('new-session-btn'));
   if (!btn) return;
 
   btn.addEventListener('click', async () => {
@@ -48,6 +48,32 @@ function initNewSessionButton() {
       btn.disabled = false;
     }
   });
+}
+
+/* ---- Drawer Trigger Highlight ---- */
+
+/**
+ * osprey-drawer doesn't manage its `[data-drawer]` trigger's `.active` state
+ * itself (a page-level nicety, not part of the component's contract — see
+ * its module docstring). Web_terminal owns its own triggers, so it wires
+ * this via the `drawer:open`/`drawer:close` events the component dispatches
+ * (bubbling) on the host, matching any trigger for that drawer id — either
+ * the component's own `[data-drawer]` marker, or `[data-drawer-trigger]`,
+ * web_terminal's convention for a trigger (like the settings gear) that
+ * needs its own gating logic before opening and so must never match the
+ * component's delegated `[data-drawer]` handler. Either way the highlight
+ * stays in sync.
+ */
+function initDrawerTriggerHighlight() {
+  const setActive = (/** @type {boolean} */ active) => (/** @type {Event} */ event) => {
+    const drawer = event.target;
+    if (!(drawer instanceof HTMLElement) || !drawer.id) return;
+    document
+      .querySelectorAll(`[data-drawer="${drawer.id}"], [data-drawer-trigger="${drawer.id}"]`)
+      .forEach((btn) => btn.classList.toggle('active', active));
+  };
+  document.addEventListener('drawer:open', setActive(true));
+  document.addEventListener('drawer:close', setActive(false));
 }
 
 /* ---- Status Bar ---- */
@@ -83,11 +109,11 @@ function initStatusBar() {
 
 function initResizeHandle() {
   const handle = document.getElementById('resize-handle');
-  const terminalPanel = document.querySelector('.terminal-panel');
-  const rightPanel = document.querySelector('.files-panel');
-  const container = document.querySelector('.main-container');
-  const headerLeft = document.querySelector('.header-left');
-  const headerRight = document.querySelector('.header-right');
+  const terminalPanel = /** @type {HTMLElement} */ (document.querySelector('.terminal-panel'));
+  const rightPanel = /** @type {HTMLElement} */ (document.querySelector('.files-panel'));
+  const container = /** @type {HTMLElement} */ (document.querySelector('.main-container'));
+  const headerLeft = /** @type {HTMLElement} */ (document.querySelector('.header-left'));
+  const headerRight = /** @type {HTMLElement} */ (document.querySelector('.header-right'));
 
   if (!handle || !terminalPanel || !rightPanel || !container) return;
 
@@ -98,6 +124,7 @@ function initResizeHandle() {
 
   // Track the terminal's share of total width so the split scales with
   // the browser window.  null = CSS default (no user drag yet).
+  /** @type {number | null} */
   let terminalRatio = null;
 
   function applyRatio() {
@@ -172,6 +199,7 @@ function initResizeHandle() {
 
 function initIframePasteBridge() {
   window.addEventListener('message', (e) => {
+    if (e.origin !== window.location.origin) return;
     // Accept paste-to-terminal messages from embedded iframes
     if (e.data && e.data.type === 'osprey-paste-to-terminal' && e.data.text) {
       pasteToTerminal(e.data.text);
@@ -184,11 +212,11 @@ function initIframePasteBridge() {
   if (termContainer) {
     termContainer.addEventListener('dragover', (e) => {
       e.preventDefault();
-      e.dataTransfer.dropEffect = 'copy';
+      /** @type {DataTransfer} */ (e.dataTransfer).dropEffect = 'copy';
     });
     termContainer.addEventListener('drop', (e) => {
       e.preventDefault();
-      const text = e.dataTransfer.getData('text/plain');
+      const text = /** @type {DataTransfer} */ (e.dataTransfer).getData('text/plain');
       if (text) {
         pasteToTerminal(text);
         focusTerminal();

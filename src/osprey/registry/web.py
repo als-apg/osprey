@@ -27,8 +27,9 @@ class WebServerDefinition:
         auto_launch_default: Default ``auto_launch`` value when key is absent.
         require_section: If True, missing/empty top-level section → auto_launch=False.
         factory_config_kwargs: Maps factory kwarg names to dotted config paths.
-            E.g. ``{"tuning_api_url": "tuning.api_url"}`` reads
-            ``config["tuning"]["api_url"]`` and passes it as ``tuning_api_url=``.
+            E.g. ``{"bundle_path": "facility_knowledge.bundle_path"}`` reads
+            ``config["facility_knowledge"]["bundle_path"]`` and passes it as
+            ``bundle_path=``.
         import_error_message: Custom message when the factory import fails.
             If None, ImportError propagates normally.
     """
@@ -61,14 +62,6 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         config_web_subkey="web",
         port_default=8085,
     ),
-    "tuning": WebServerDefinition(
-        name="Tuning panel",
-        factory_path="osprey.interfaces.tuning.app:create_app",
-        config_key="tuning",
-        config_web_subkey="web",
-        port_default=8090,
-        factory_config_kwargs={"tuning_api_url": "tuning.api_url"},
-    ),
     "channel_finder": WebServerDefinition(
         name="Channel Finder",
         factory_path="osprey.interfaces.channel_finder.app:create_app",
@@ -84,5 +77,19 @@ FRAMEWORK_WEB_SERVERS: dict[str, WebServerDefinition] = {
         port_default=8097,
         pass_workspace=True,
         require_section=True,
+    ),
+    # OKF "KNOWLEDGE" panel. config_key is the shared facility_knowledge section
+    # (also read by the MCP server + CLI); require_section gates auto-launch on
+    # that section existing, and factory_config_kwargs feeds the resolved
+    # bundle_path into create_app (None → the panel's guarded mode). Port lives
+    # directly under the section (no config_web_subkey); env override is
+    # OSPREY_FACILITY_KNOWLEDGE_PORT.
+    "okf": WebServerDefinition(
+        name="OKF Knowledge Panel",
+        factory_path="osprey.interfaces.okf_panel.app:create_app",
+        config_key="facility_knowledge",
+        port_default=8093,
+        require_section=True,
+        factory_config_kwargs={"bundle_path": "facility_knowledge.bundle_path"},
     ),
 }

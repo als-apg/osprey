@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -61,6 +62,9 @@ class ServerDefinition:
     port: int | None = (
         None  # Host/container port for HTTP servers; informational for non-Claude consumers
     )
+    # Framework template name this definition was cloned from via ``extends``
+    # (set by build_extended_server); None for framework/custom definitions.
+    extends_of: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -68,23 +72,23 @@ class ServerDefinition:
 # ---------------------------------------------------------------------------
 
 _APPROVAL = HookEntry(
-    command='python "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_approval.py"',
+    command='python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_approval.py"',
     timeout=5,
 )
 _WRITES_CHECK = HookEntry(
-    command='python "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_writes_check.py"',
+    command='python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_writes_check.py"',
     timeout=5,
 )
 _LIMITS = HookEntry(
-    command='python "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_limits.py"',
+    command='python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_limits.py"',
     timeout=10,
 )
 _ERROR_GUIDANCE = HookEntry(
-    command='python "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_error_guidance.py"',
+    command='python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_error_guidance.py"',
     timeout=5,
 )
 _CF_FEEDBACK = HookEntry(
-    command='python "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_cf_feedback_capture.py"',
+    command='python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/osprey_cf_feedback_capture.py"',
     timeout=10,
 )
 
@@ -132,13 +136,49 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         ],
         hooks_post=[_post_error("mcp__controls__.*")],
     ),
+    "phoebus": ServerDefinition(
+        name="phoebus",
+        module="osprey.mcp_server.phoebus",
+        # Off by default: only profiles that opt in (claude_code.servers.phoebus.enabled
+        # = true) get the native-Phoebus tools. A second live instance is declared in
+        # config as claude_code.servers.<name>.extends: phoebus — see build_extended_server().
+        default_enabled=False,
+        env={
+            "OSPREY_CONFIG": "{project_root}/config.yml",
+            "CONFIG_FILE": "{project_root}/config.yml",
+            # Full-URL override of the in-JVM bridge (default 127.0.0.1:7979).
+            "PHOEBUS_BRIDGE_URL": "${PHOEBUS_BRIDGE_URL:-http://127.0.0.1:7979}",
+            # Instance identity — tools tag UI signals with it (open_panel →
+            # panel_focus targets the matching web-terminal tab). extends
+            # clones get this auto-rewritten to their own name.
+            "OSPREY_SERVER_NAME": "phoebus",
+        },
+        permissions_allow=[
+            "phoebus_list_displays",
+            "phoebus_perceive",
+            "phoebus_perceive_region",
+            "phoebus_snapshot",
+            # Opening a display or a Data Browser plot touches no PVs and
+            # actuates nothing — allow.
+            "phoebus_open_panel",
+            "phoebus_open_databrowser",
+        ],
+        # Driving a live panel actuates hardware-facing controls — gate on approval.
+        permissions_ask=["phoebus_drive"],
+        hooks_pre=[
+            HookRule(
+                matcher="mcp__phoebus__phoebus_drive",
+                hooks=[_APPROVAL],
+            ),
+        ],
+        hooks_post=[_post_error("mcp__phoebus__.*")],
+    ),
     "python": ServerDefinition(
         name="python",
         module="osprey.mcp_server.python_executor",
         env={
             "OSPREY_CONFIG": "{project_root}/config.yml",
             "CONFIG_FILE": "{project_root}/config.yml",
-            "ANTHROPIC_API_KEY": "${ANTHROPIC_API_KEY:-}",
         },
         permissions_allow=[],
         permissions_ask=["execute"],
@@ -244,6 +284,41 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             ),
         ],
         hooks_post=[_post_error("mcp__osprey_facility_knowledge__.*")],
+    ),
+    "scan": ServerDefinition(
+        name="scan",
+        module="osprey.mcp_server.scan",
+        # Off by default: only profiles that opt in (claude_code.servers.scan.enabled
+        # = true) get the Bluesky bridge client tools — running them requires a live
+        # facility-side Bluesky bridge process (mirrors phoebus's opt-in reasoning).
+        default_enabled=False,
+        env={
+            "OSPREY_CONFIG": "{project_root}/config.yml",
+            "CONFIG_FILE": "{project_root}/config.yml",
+            "BLUESKY_BRIDGE_URL": "${BLUESKY_BRIDGE_URL:-http://127.0.0.1:8090}",
+            "BLUESKY_PROMOTE_TOKEN": "${BLUESKY_PROMOTE_TOKEN:-}",
+        },
+        permissions_allow=[
+            "create_scan_intent",
+            "scan_status",
+            "list_scan_plans",
+            "list_runs",
+            "read_scan_data",
+        ],
+        # launch_scan starts a real scan (promote); stop_scan is the safe direction
+        # and must never be kill-switch-blocked, so it carries approval only.
+        permissions_ask=["launch_scan", "stop_scan"],
+        hooks_pre=[
+            HookRule(
+                matcher="mcp__scan__launch_scan",
+                hooks=[_WRITES_CHECK, _APPROVAL],
+            ),
+            HookRule(
+                matcher="mcp__scan__stop_scan",
+                hooks=[_APPROVAL],
+            ),
+        ],
+        hooks_post=[_post_error("mcp__scan__.*")],
     ),
     "channel-finder": ServerDefinition(
         name="channel-finder",
@@ -377,22 +452,200 @@ def resolve_servers(claude_code_config: dict, ctx: dict) -> list[dict]:
     # ── New-format overrides: claude_code.servers ──────────────
     server_overrides = claude_code_config.get("servers", {})
     for name, spec in server_overrides.items():
+        if not isinstance(spec, dict):
+            continue
         if name in servers:
-            # Override existing framework server
-            if isinstance(spec, dict) and spec.get("enabled") is False:
+            # Override existing framework server. Note: only 'enabled' applies
+            # here — an 'extends' key on a framework name would silently shadow
+            # a safety-configured definition, so it is rejected loudly instead.
+            if "extends" in spec:
+                logger.warning(
+                    "Server %r is a framework server — its 'extends' key is ignored "
+                    "(framework definitions cannot be shadowed); only 'enabled' applies",
+                    name,
+                )
+            if spec.get("enabled") is False:
                 servers[name].default_enabled = False
-            elif isinstance(spec, dict) and spec.get("enabled") is True:
+            elif spec.get("enabled") is True:
                 servers[name].default_enabled = True
-        else:
+        elif "extends" in spec:
+            # Second instance of a framework server (e.g. phoebus2 → phoebus).
+            # Declared ⇒ enabled unless the spec says enabled: false (matches
+            # the declared-custom-server convention below).
+            if spec.get("enabled") is False:
+                continue
+            clone = build_extended_server(name, spec)
+            if clone is not None:
+                servers[name] = clone
+        elif spec.get("enabled") is not False:
             # Custom server
-            if isinstance(spec, dict) and spec.get("enabled") is not False:
-                servers[name] = _custom_server_from_spec(name, spec)
+            if not spec.get("command") and not spec.get("url"):
+                # Never emit a broken {"command": ""} entry into .mcp.json —
+                # e.g. a legacy 'phoebus2: {enabled: true}' spec left over from
+                # when phoebus2 was a framework server.
+                logger.warning(
+                    "Server %r has none of 'extends'/'command'/'url' — skipping "
+                    "(a second framework-server instance is declared via "
+                    "'extends: <framework-server>')",
+                    name,
+                )
+                continue
+            servers[name] = _custom_server_from_spec(name, spec)
 
     # ── Build output dicts ────────────────────────────────────
     result = []
     for sdef in servers.values():
         result.append(_server_to_dict(sdef, ctx))
     return result
+
+
+# Extends-clone names are spliced into regex hook matchers, exact permission
+# strings, and the startswith-matched prefixes of hook_config.json — restrict
+# them to characters that are inert in all three contexts. '__' is additionally
+# forbidden: it would corrupt osprey_approval's short-name extraction. A
+# trailing '_' is also forbidden: 'controls_' yields the prefix
+# 'mcp__controls___', which startswith-collides with 'mcp__controls__' and
+# corrupts approval short-name extraction the same way.
+_SERVER_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*(?<!_)$")
+
+
+def build_extended_server(name: str, spec: dict) -> ServerDefinition | None:
+    """Clone a framework ServerDefinition per an ``extends`` config spec.
+
+    Supports second instances of framework servers without copy-pasting the
+    registry entry::
+
+        claude_code:
+          servers:
+            phoebus2:
+              extends: phoebus
+              env:
+                PHOEBUS_BRIDGE_URL: "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}"
+
+    Semantics:
+
+    * Deep-copies the pristine ``FRAMEWORK_SERVERS[template]`` (never a mutated
+      per-call copy — clones are independent of declaration order and of the
+      template's own ``enabled`` override).
+    * Enablement comes ONLY from the spec: declared ⇒ enabled unless
+      ``enabled: false`` (the template's ``default_enabled`` must not leak
+      through the copy — phoebus ships ``default_enabled=False``).
+    * Rewrites every hook matcher that starts with the anchored prefix
+      ``mcp__<template>__`` to ``mcp__<name>__`` (prefix splice only — a bare
+      name replace would corrupt tool names like ``phoebus_drive``). Bare tool
+      names in permission lists are left untouched.
+    * Merges spec ``env`` over the template env (spec keys win; ``${...}``
+      values pass through for runtime expansion, as everywhere else).
+    * ``permissions.allow`` / ``permissions.ask`` replace the inherited lists
+      when given, EXCEPT that the template's ``permissions_ask`` members can
+      only be added to, never removed: the ask set doubles as the headless
+      side-effect classifier (agent_runner.write_tools), so an override that
+      promoted e.g. ``phoebus_drive`` into ``allow`` would silently ungate it
+      under ``bypassPermissions``.
+
+    Since ``is_external`` stays False, the clone renders exactly like the
+    template (``python -m <module>``) and ``is_custom`` is False — it is listed
+    as a regular (not "extra") server in the regen summary; accepted cosmetic
+    gap.
+
+    Returns:
+        The cloned ServerDefinition, or ``None`` (after a logged warning) for
+        invalid specs: bad clone name, unknown/non-framework extends target
+        (chaining is not supported), a name shadowing a framework server, or a
+        conditioned/dynamic template (e.g. channel-finder, whose module and
+        permissions are resolved per-pipeline and cannot be cloned).
+    """
+    target = spec.get("extends")
+    if not isinstance(name, str) or not _SERVER_NAME_RE.match(name) or "__" in name:
+        logger.warning(
+            "Invalid extends server name %r — must match [A-Za-z0-9][A-Za-z0-9_-]* "
+            "without '__' and not ending in '_'; skipping",
+            name,
+        )
+        return None
+    if name in FRAMEWORK_SERVERS:
+        logger.warning(
+            "Extends server %r shadows a framework server of the same name — skipping",
+            name,
+        )
+        return None
+    # isinstance BEFORE the membership test: a non-string target (e.g.
+    # ``extends: [phoebus]``) would TypeError on the unhashable dict lookup.
+    if not isinstance(target, str) or target not in FRAMEWORK_SERVERS:
+        logger.warning(
+            "Unknown extends target %r for server %r — must name a framework server "
+            "(chaining extends/custom servers is not supported); skipping",
+            target,
+            name,
+        )
+        return None
+    template = FRAMEWORK_SERVERS[target]
+    if template.condition:
+        logger.warning(
+            "Extends target %r is a conditioned/dynamic server — cloning is not "
+            "supported; skipping server %r",
+            target,
+            name,
+        )
+        return None
+
+    # Deep copy so the clone never shares HookRule/env objects with the template.
+    clone = copy.deepcopy(template)
+    clone.name = name
+    clone.extends_of = target
+    clone.default_enabled = spec.get("enabled") is not False
+
+    # Anchored matcher rewrite: mcp__<template>__… → mcp__<name>__…
+    old_prefix = f"mcp__{target}__"
+    new_prefix = f"mcp__{name}__"
+    for rule in (*clone.hooks_pre, *clone.hooks_post):
+        if rule.matcher.startswith(old_prefix):
+            rule.matcher = new_prefix + rule.matcher[len(old_prefix) :]
+
+    # fixed_allow/fixed_ask hold fully-qualified mcp__<server>__ strings —
+    # apply the same anchored prefix rewrite so they follow the clone.
+    clone.fixed_allow = [
+        new_prefix + entry[len(old_prefix) :] if entry.startswith(old_prefix) else entry
+        for entry in clone.fixed_allow
+    ]
+    clone.fixed_ask = [
+        new_prefix + entry[len(old_prefix) :] if entry.startswith(old_prefix) else entry
+        for entry in clone.fixed_ask
+    ]
+
+    # Spec env merges over template env (spec keys win).
+    merged_env = dict(clone.env)
+    merged_env.update(spec.get("env") or {})
+    # Instance identity follows the clone, like the matcher rewrite: unless the
+    # spec pins OSPREY_SERVER_NAME explicitly, the clone advertises its OWN
+    # name (inheriting the template's would make every instance signal the
+    # template's web-terminal panel, e.g. phoebus2 focusing the phoebus tab).
+    if "OSPREY_SERVER_NAME" not in (spec.get("env") or {}):
+        merged_env["OSPREY_SERVER_NAME"] = name
+    clone.env = merged_env
+
+    # Optional permission overrides (add-only for the template's ask set).
+    # Dedupe (order-preserving) so a duplicated entry cannot defeat the
+    # single .remove() in the ask-union guard below.
+    perms = spec.get("permissions") or {}
+    if "allow" in perms:
+        clone.permissions_allow = list(dict.fromkeys(perms.get("allow") or []))
+    if "ask" in perms:
+        clone.permissions_ask = list(dict.fromkeys(perms.get("ask") or []))
+    for tool in template.permissions_ask:
+        if tool not in clone.permissions_ask:
+            logger.warning(
+                "Server %r: override may not remove approval-gated tool %r inherited "
+                "from %r — re-adding it to permissions.ask",
+                name,
+                tool,
+                target,
+            )
+            clone.permissions_ask.append(tool)
+        if tool in clone.permissions_allow:
+            clone.permissions_allow.remove(tool)
+
+    return clone
 
 
 def _custom_server_from_spec(name: str, spec: dict) -> ServerDefinition:
@@ -472,6 +725,7 @@ def _server_to_dict(sdef: ServerDefinition, ctx: dict) -> dict:
         "hooks_pre": hooks_pre,
         "hooks_post": hooks_post,
         "is_custom": sdef.is_external and sdef.name not in FRAMEWORK_SERVERS,
+        "extends_of": sdef.extends_of,
     }
 
 

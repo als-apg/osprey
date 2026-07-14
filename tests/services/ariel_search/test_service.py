@@ -349,14 +349,28 @@ class TestServiceRouting:
             await service.search("test query", mode=SearchMode.KEYWORD)
 
     @pytest.mark.asyncio
-    async def test_semantic_mode_raises_when_disabled(self):
-        """SEMANTIC mode raises ConfigurationError when module disabled."""
-        from osprey.services.ariel_search.exceptions import ConfigurationError
+    async def test_semantic_mode_degrades_gracefully_when_disabled(self):
+        """SEMANTIC mode degrades gracefully (no error) when module disabled.
+
+        Per the ARIEL contract, semantic search "degrades gracefully to
+        keyword-only" when pgvector/Ollama embeddings are unavailable. The
+        service must return a non-error result that points the caller to
+        keyword search, not raise (which surfaces as a hard MCP tool error).
+        Regression test for #276.
+        """
+        from osprey.services.ariel_search.models import DiagnosticLevel
 
         service = self._create_mock_service(search_modules={"semantic": {"enabled": False}})
 
-        with pytest.raises(ConfigurationError):
-            await service.search("test query", mode=SearchMode.SEMANTIC)
+        result = await service.search("test query", mode=SearchMode.SEMANTIC)
+
+        # No exception, no entries, and the caller is steered to keyword search.
+        assert result.entries == ()
+        assert result.search_modes_used == ()
+        assert "keyword" in result.reasoning.lower()
+        # Surfaced as an informational (non-error) diagnostic.
+        assert result.diagnostics
+        assert all(d.level is DiagnosticLevel.INFO for d in result.diagnostics)
 
 
 class TestCreateArielService:

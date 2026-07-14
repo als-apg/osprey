@@ -220,6 +220,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             output_path=".claude/hooks/osprey_config_drift.py",
             description="SessionStart hook that warns when config.yml drifted from generated artifacts",
         ),
+        BuildArtifact(
+            canonical_name="hooks/panels-context",
+            template_path="claude/hooks/osprey_panels_context.py",
+            output_path=".claude/hooks/osprey_panels_context.py",
+            description="SessionStart hook that injects the web terminal panel inventory into agent context",
+        ),
         # ── Skills ──────────────────────────────────────────────────
         BuildArtifact(
             canonical_name="skills/session-report",

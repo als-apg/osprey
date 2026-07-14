@@ -37,6 +37,8 @@ from __future__ import annotations
 import pytest
 
 from tests.e2e.sdk_helpers import (
+    ariel_db_skip_reason,
+    e2e_budget_scale,
     init_project,
     run_sdk_query,
 )
@@ -47,26 +49,16 @@ from tests.e2e.sdk_helpers import (
 
 
 def _is_ariel_db_available() -> bool:
-    """Check if ARIEL PostgreSQL is reachable with data."""
-    try:
-        import psycopg
+    """Check if ARIEL PostgreSQL is reachable with data.
 
-        conn = psycopg.connect(
-            host="localhost",
-            port=5432,
-            dbname="ariel",
-            user="ariel",
-            password="ariel",
-            connect_timeout=3,
-        )
-        cur = conn.cursor()
-        cur.execute("SELECT count(*) FROM enhanced_entries")
-        count = cur.fetchone()[0]
-        cur.close()
-        conn.close()
-        return count > 0
-    except Exception:
-        return False
+    Delegates to :func:`ariel_db_skip_reason`, which honors the
+    ``OSPREY_ARIEL_DB_URI`` override. The matrix runner provisions a
+    per-cell database and exports that override, so concurrent cells never
+    share one logbook DB — a scenario test in another cell can no longer drop
+    this cell's ``text_embeddings_*`` tables mid-test. Hardcoding
+    ``dbname="ariel"`` here would check the wrong (shared) database.
+    """
+    return ariel_db_skip_reason() is None
 
 
 # ---------------------------------------------------------------------------
@@ -225,8 +217,9 @@ class TestAgentDelegation:
 
         # Cost under budget (always asserted).
         if result.cost_usd is not None:
-            assert result.cost_usd < 1.0, (
-                f"Test cost ${result.cost_usd:.4f} — exceeded $1.00 budget"
+            budget = 1.0 * e2e_budget_scale()
+            assert result.cost_usd < budget, (
+                f"Test cost ${result.cost_usd:.4f} — exceeded ${budget:.2f} budget"
             )
 
     # -------------------------------------------------------------------
@@ -298,8 +291,9 @@ class TestAgentDelegation:
 
         # Cost under budget.
         if result.cost_usd is not None:
-            assert result.cost_usd < 1.0, (
-                f"Test cost ${result.cost_usd:.4f} — exceeded $1.00 budget"
+            budget = 1.0 * e2e_budget_scale()
+            assert result.cost_usd < budget, (
+                f"Test cost ${result.cost_usd:.4f} — exceeded ${budget:.2f} budget"
             )
 
     # -------------------------------------------------------------------
@@ -381,6 +375,7 @@ class TestAgentDelegation:
 
         # Cost under budget
         if result.cost_usd is not None:
-            assert result.cost_usd < 1.0, (
-                f"Test cost ${result.cost_usd:.4f} — exceeded $1.00 budget"
+            budget = 1.0 * e2e_budget_scale()
+            assert result.cost_usd < budget, (
+                f"Test cost ${result.cost_usd:.4f} — exceeded ${budget:.2f} budget"
             )

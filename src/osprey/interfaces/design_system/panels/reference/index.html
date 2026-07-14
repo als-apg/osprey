@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!--
+  Pre-paint theme boot FIRST: a plain (non-module) script that resolves and
+  applies data-theme before first paint, so the panel never flashes the
+  wrong theme. Everything below styles against the token stylesheet that
+  follows it -- no raw color literals anywhere in this file.
+-->
+<script src="/design-system/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/design-system/css/tokens.css">
+<link rel="stylesheet" href="/design-system/css/base.css">
+<!-- Self-hosted brand fonts (Outfit / JetBrains Mono). Root-absolute so it
+     resolves against the serving host in every embedding context; without it
+     the canonical copy-source panel — and everything copied from it — falls
+     back to system fonts. -->
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reference Panel</title>
+<script type="module">
+  // Follower role: this standalone surface is never the theme hub (the web
+  // terminal is). It applies its own `?theme=` query param when the host
+  // appends one, otherwise it trusts whatever theme-boot.js already set
+  // pre-paint, and thereafter obeys the hub's broadcasts. applyEmbedded()
+  // reads `?embedded=true` and hides the standalone chrome so the panel
+  // sits flush inside its host frame.
+  import { initTheme } from '/design-system/js/theme-manager.js';
+  import { applyEmbedded } from '/design-system/js/frame-params.js';
+  initTheme({ role: 'follower' });
+  applyEmbedded();
+</script>
+<style>
+  /*
+    Every color, surface, border, and font below resolves through a
+    var() design token from tokens.css. This is the exemplar every new
+    panel is copied from: keep it token-only so it themes correctly under
+    every family, in light and dark, for free.
+  */
+  body {
+    margin: 0;
+    padding: 24px;
+    font-family: var(--font-display);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.6;
+  }
+
+  .panel {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+
+  /*
+    Standalone chrome: the header only makes sense when the panel is opened
+    on its own. When embedded in a host frame (`?embedded=true` →
+    body.embedded), it is hidden so the panel content sits flush.
+  */
+  .panel-chrome {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 20px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--border-default);
+  }
+  body.embedded .panel-chrome { display: none; }
+
+  .panel-chrome h1 {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .panel-chrome .panel-kicker {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  .lead {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin: 0 0 24px;
+  }
+
+  .card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: 8px;
+    padding: 16px 18px;
+    margin-bottom: 16px;
+    box-shadow: var(--shadow-panel);
+  }
+  .card h2 {
+    margin: 0 0 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .card p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+
+  .metric {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  .metric .value {
+    font-family: var(--font-mono);
+    font-size: 24px;
+    color: var(--color-accent-light);
+  }
+  .metric .unit {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 4px;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid transparent;
+  }
+  .badge.ok {
+    color: var(--color-success);
+    background: var(--success-tint-08);
+    border-color: var(--color-success);
+  }
+  .badge.warn {
+    color: var(--color-amber);
+    background: var(--amber-tint-08);
+    border-color: var(--color-amber);
+  }
+  .badge.err {
+    color: var(--color-error);
+    background: var(--error-tint-08);
+    border-color: var(--color-error);
+  }
+  .badge.info {
+    color: var(--color-accent-light);
+    background: var(--accent-tint-06);
+    border-color: var(--border-accent);
+  }
+
+  code {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    background: var(--neutral-tint-08);
+    border-radius: 3px;
+    padding: 1px 5px;
+  }
+
+  .footnote {
+    margin-top: 24px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .footnote a {
+    color: var(--color-accent-light);
+    text-decoration: none;
+  }
+  .footnote a:hover,
+  .footnote a:focus-visible {
+    text-decoration: underline;
+  }
+</style>
+</head>
+<body>
+<div class="panel">
+  <header class="panel-chrome">
+    <h1>Reference Panel</h1>
+    <span class="panel-kicker">OSPREY Design System</span>
+  </header>
+
+  <p class="lead">
+    A themed, token-only standalone surface — the canonical example every
+    new panel is copied from. It boots the shared theme pre-paint, honors
+    <code>?theme=</code> and <code>?embedded=</code>, and styles entirely
+    through <code>var()</code> design tokens, so it renders correctly under
+    every family in both light and dark.
+  </p>
+
+  <section class="card">
+    <h2>Beam status</h2>
+    <p>Representative content on an elevated surface with a tokened border.</p>
+    <div class="metric">
+      <span class="value">1.902</span>
+      <span class="unit">GeV</span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Signal states</h2>
+    <p>Semantic status colors, each drawn from success / amber / error / accent tokens.</p>
+    <div class="badges">
+      <span class="badge ok">nominal</span>
+      <span class="badge warn">degraded</span>
+      <span class="badge err">fault</span>
+      <span class="badge info">standby</span>
+    </div>
+  </section>
+
+  <p class="footnote">
+    Authoring a panel of your own? Start from this file and keep it
+    token-only — see the OSPREY design-system panel authoring guide.
+  </p>
+</div>
+</body>
+</html>

@@ -9,16 +9,14 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple
 
 import httpx
 import yaml
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from osprey.interfaces.common_middleware import ExceptionLoggingMiddleware, NoCacheStaticMiddleware
+from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.vendor import vendor_url
 from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster, WorkspaceWatcher
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry
@@ -27,7 +25,9 @@ from osprey.interfaces.web_terminal.routes import router
 from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Sequence
+
+    from osprey.interfaces.design_system.generator.emit_js import ThemeManifestEntry
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -77,25 +77,6 @@ def _launch_ariel_server(app: FastAPI) -> None:
         app.state.ariel_server_url = None
 
 
-def _launch_tuning_server(app: FastAPI) -> None:
-    """Auto-launch the tuning panel server if configured."""
-    try:
-        from osprey.infrastructure.server_launcher import ensure_tuning_server
-        from osprey.utils.workspace import load_osprey_config
-
-        config = load_osprey_config()
-        tuning_web = config.get("tuning", {}).get("web", {})
-        host = tuning_web.get("host", "127.0.0.1")
-        port = int(os.environ.get("OSPREY_TUNING_PORT", tuning_web.get("port", 8090)))
-
-        app.state.tuning_server_url = f"http://{host}:{port}"
-        ensure_tuning_server()
-        logger.info("Tuning server available at %s", app.state.tuning_server_url)
-    except Exception:
-        logger.warning("Could not auto-launch tuning server", exc_info=True)
-        app.state.tuning_server_url = None
-
-
 def _launch_channel_finder_server(app: FastAPI) -> None:
     """Auto-launch the Channel Finder web server if configured."""
     try:
@@ -139,6 +120,127 @@ def _launch_lattice_dashboard_server(app: FastAPI) -> None:
         app.state.lattice_dashboard_server_url = None
 
 
+def _launch_okf_server(app: FastAPI) -> None:
+    """Auto-launch the OKF knowledge panel server if configured.
+
+    The (host, port) computed here MUST match what ``ServerLauncher`` resolves
+    for the ``okf`` definition (``registry/web.py``): host/port read directly
+    from the ``facility_knowledge`` section (no ``web`` subkey), with the
+    ``OSPREY_FACILITY_KNOWLEDGE_PORT`` env override. Otherwise the proxied URL
+    stored here would point at a different port than the one uvicorn binds.
+    """
+    try:
+        from osprey.infrastructure.server_launcher import ensure_okf_server
+        from osprey.utils.workspace import load_osprey_config
+
+        config = load_osprey_config()
+        fk = config.get("facility_knowledge", {})
+        if not fk:
+            return
+        host = fk.get("host", "127.0.0.1")
+        # Guard a set-but-empty env override (e.g. compose `OSPREY_FACILITY_KNOWLEDGE_PORT=`):
+        # int("") would raise and kill this launch (silent dead tab). This mirrors
+        # server_launcher._make_config_reader's `if env_val:` guard so both sides
+        # resolve the SAME port — the launcher would otherwise bind 8093 while we'd die.
+        env_port = os.environ.get("OSPREY_FACILITY_KNOWLEDGE_PORT")
+        port = int(env_port) if env_port else int(fk.get("port", 8093))
+
+        app.state.okf_server_url = f"http://{host}:{port}"
+        ensure_okf_server()
+        logger.info("OKF knowledge panel available at %s", app.state.okf_server_url)
+    except Exception:
+        logger.warning("Could not auto-launch OKF knowledge panel", exc_info=True)
+        app.state.okf_server_url = None
+
+
+def _load_theme_registry() -> tuple[list[ThemeManifestEntry], dict[str, dict[str, str]]]:
+    """Load the baked theme manifest + per-family defaults for SSR resolution.
+
+    Reads the same ``tokens/`` source tree the design-system generator
+    builds from (``generator/build.py::DEFAULT_TOKENS_DIR``) rather than
+    parsing the generated ``tokens.js`` — one source, no risk of drifting
+    from a stale generated artifact. This intentionally skips
+    ``validate.assert_valid``: the checked-in tree is validated by
+    ``build --check`` in CI, and full WCAG/completeness validation isn't
+    needed just to read theme identity for SSR.
+
+    Returns:
+        ``(entries, defaults)`` as produced by
+        :func:`~osprey.interfaces.design_system.generator.emit_js.build_theme_manifest`
+        and :func:`~osprey.interfaces.design_system.generator.emit_js.build_theme_defaults`.
+    """
+    from osprey.interfaces.design_system.generator.build import DEFAULT_TOKENS_DIR
+    from osprey.interfaces.design_system.generator.emit_js import (
+        build_theme_defaults,
+        build_theme_manifest,
+    )
+    from osprey.interfaces.design_system.generator.model import load_token_tree
+
+    tree = load_token_tree(DEFAULT_TOKENS_DIR)
+    entries = build_theme_manifest(tree)
+    defaults = build_theme_defaults(entries)
+    return entries, defaults
+
+
+def resolve_web_theme_id(
+    configured: str,
+    entries: Sequence[ThemeManifestEntry],
+    defaults: dict[str, dict[str, str]],
+) -> str:
+    """Resolve the ``web.theme`` config value into a concrete baked theme id.
+
+    ``configured`` may be:
+
+    - A concrete theme id (e.g. ``"high-contrast-light"``) — used as-is.
+      This is how an operator pins a specific mode instead of the
+      family's dark default.
+    - A theme *family* name (e.g. ``"osprey"``, ``"high-contrast"``) —
+      resolved to that family's **dark** id, the canonical SSR default.
+    - Anything else (unknown/misspelled) — logged as a warning and
+      resolved to the ``osprey`` family's dark id.
+
+    Mirrors the warn+fallback shape of
+    :func:`osprey.cli.styles.load_theme_from_config`: never raises.
+
+    Args:
+        configured: The raw ``web.theme`` config value.
+        entries: The theme manifest (see
+            :func:`~osprey.interfaces.design_system.generator.emit_js.build_theme_manifest`).
+        defaults: The per-family ``{family: {mode: id}}`` map (see
+            :func:`~osprey.interfaces.design_system.generator.emit_js.build_theme_defaults`).
+
+    Returns:
+        A concrete theme id present in ``entries`` — the pre-paint
+        ``theme-boot.js`` rung (Task 1.8) only honors a server-rendered
+        ``data-theme`` that is a real baked id, never a family name or
+        ``"auto"``.
+    """
+    valid_ids = {entry.id for entry in entries}
+    if configured in valid_ids:
+        return configured
+    if configured in defaults:
+        return defaults[configured]["dark"]
+
+    logger.warning(
+        "Unknown web.theme %r (not a theme id or family); falling back to "
+        "osprey's dark theme. Valid ids: %s; valid families: %s",
+        configured,
+        sorted(valid_ids),
+        sorted(defaults),
+    )
+    osprey_dark = defaults.get("osprey", {}).get("dark")
+    if osprey_dark is not None:
+        return osprey_dark
+    # Degenerate case (no built-in ``osprey`` family): still return a real
+    # baked dark id — ``build_theme_defaults`` guarantees each family has a
+    # dark member — rather than an unverified literal, so Task 1.8's boot
+    # rung honors it instead of silently dropping to auto (FOUC).
+    for family_modes in defaults.values():
+        if "dark" in family_modes:
+            return family_modes["dark"]
+    return next(iter(sorted(valid_ids)), "dark")
+
+
 def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
     """Read web.panels and web.default_panel from config.yml.
 
@@ -176,10 +278,74 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
                     "url": spec.get("url", ""),
                     "healthEndpoint": spec.get("health_endpoint"),
                     "path": spec.get("path", "/"),
+                    # Path suffixes whose JSON responses get the proxy's
+                    # root-absolute-literal rewrite (see routes/proxy.py) —
+                    # for backends whose SPA bootstraps its API base from a
+                    # JSON config endpoint.
+                    "rewriteJsonPaths": spec.get("rewrite_json_paths") or [],
                 }
             )
 
     return enabled, custom, default_panel
+
+
+class _PanelRuntimeConfig(NamedTuple):
+    """Runtime-panel settings derived from config, plus the computed visible list."""
+
+    allow_runtime_panels: bool
+    runtime_panel_allowlist: list[str] | None
+    visible_panels: list[str]
+
+
+def _load_panel_runtime_config(
+    enabled_panels: set[str], custom_panels: list[dict]
+) -> _PanelRuntimeConfig:
+    """Read runtime-panel settings and compute the visible-panel list.
+
+    Honors per-panel ``hidden: true`` flags and the ``web.allow_runtime_panels`` /
+    ``web.runtime_panel_allowlist`` knobs.  The raw config is re-read here rather
+    than threaded through ``_load_panel_config``'s 3-tuple contract (which is
+    relied on elsewhere, including tests).  Built-in panel specs are not retained
+    by ``_load_panel_config`` — only the id lands in ``enabled`` — so hidden
+    built-ins are tracked in a parallel set.
+
+    ``visible_panels`` is the flat list of ids shown in the UI: enabled built-ins
+    (minus hidden ones) followed by custom panels (minus hidden ones).  With no
+    ``hidden`` flags it equals all enabled panels — backward compatible.
+
+    Fails open: any config-read error yields the permissive defaults (nothing
+    hidden, runtime registration off).
+    """
+    hidden_builtins: set[str] = set()
+    hidden_custom_ids: set[str] = set()
+    allow_runtime_panels = False
+    runtime_panel_allowlist: list[str] | None = None
+    try:
+        from osprey.utils.workspace import load_osprey_config
+
+        web_cfg = load_osprey_config().get("web", {})
+        allow_runtime_panels = bool(web_cfg.get("allow_runtime_panels", False))
+        allowlist_raw = web_cfg.get("runtime_panel_allowlist")
+        if isinstance(allowlist_raw, list):
+            # Lowercase at parse time so matching in _validate_panel_url is case-insensitive.
+            runtime_panel_allowlist = [str(e).lower() for e in allowlist_raw]
+        for pid, spec in web_cfg.get("panels", {}).items():
+            if isinstance(spec, dict) and spec.get("hidden", False):
+                if pid in BUILTIN_PANELS:
+                    hidden_builtins.add(pid)
+                else:
+                    hidden_custom_ids.add(pid)
+    except Exception:
+        pass
+
+    visible_panels = [p for p in enabled_panels if p not in hidden_builtins] + [
+        cp["id"] for cp in custom_panels if cp["id"] not in hidden_custom_ids
+    ]
+    return _PanelRuntimeConfig(
+        allow_runtime_panels=allow_runtime_panels,
+        runtime_panel_allowlist=runtime_panel_allowlist,
+        visible_panels=visible_panels,
+    )
 
 
 def _load_web_config(config_path: str | Path | None = None) -> dict:
@@ -259,6 +425,16 @@ def _create_lifespan(
         )
         app.state.broadcaster = FileEventBroadcaster()
         app.state.active_panel = None
+        # Optional human-readable deployment name shown in the header so
+        # otherwise-identical web terminals are distinguishable. The
+        # ``OSPREY_WEB_APP_NAME`` environment variable takes precedence over
+        # ``web.app_name`` in config.yml, so several containers that share one
+        # baked config image can each be named individually via the environment.
+        # Empty/absent ⇒ no label is rendered.
+        app.state.app_name = (
+            os.environ.get("OSPREY_WEB_APP_NAME", "").strip()
+            or str((config.get("web") or {}).get("app_name") or "").strip()
+        )
 
         # Ensure OSPREY_CONFIG is set before any load_osprey_config() call
         if "OSPREY_CONFIG" not in os.environ:
@@ -284,6 +460,27 @@ def _create_lifespan(
                 break
         app.state.config_path = resolved_config_path
 
+        # ── Web theme (SSR no-FOUC attribute, Task 1.10) ──
+        # Resolved once at startup and server-rendered onto <html data-theme>
+        # so the generated theme-boot.js first-paints with no flash (Task
+        # 1.8). Fails open on any load error — a missing/broken theme
+        # registry must never block server startup.
+        try:
+            from osprey.utils.config import get_config_value
+
+            configured_web_theme = get_config_value("web.theme", "osprey")
+            theme_entries, theme_defaults = _load_theme_registry()
+            app.state.web_theme_id = resolve_web_theme_id(
+                configured_web_theme, theme_entries, theme_defaults
+            )
+        except Exception:  # noqa: BLE001 — never let config/theme-registry load block startup
+            logger.warning(
+                "Could not resolve web.theme (config or theme-registry load failed); "
+                "server-rendering fallback theme 'dark'",
+                exc_info=True,
+            )
+            app.state.web_theme_id = "dark"
+
         # ── Regenerate stale Claude Code artifacts on launch ──
         # config.yml is a build-time input: safety-critical fields (e.g. the
         # writes_enabled kill-switch baked into settings.json's permissions.deny)
@@ -305,15 +502,29 @@ def _create_lifespan(
             logger.warning("Claude Code artifact regen on launch failed", exc_info=True)
 
         # ── Provider env injection ──
-        from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver, inject_provider_env
+        from osprey.cli.claude_code_resolver import (
+            detect_managed_policy_conflicts,
+            format_managed_policy_conflicts,
+            inject_provider_env,
+            load_provider_spec,
+        )
+
+        # Managed (enterprise) policy settings outrank the process environment
+        # and --setting-sources project alike, so a policy `env` block setting a
+        # provider variable would silently redirect the operator-facing terminal
+        # to a backend the project did not configure. Refuse to start.
+        _policy_conflicts = detect_managed_policy_conflicts()
+        if _policy_conflicts:
+            raise RuntimeError(
+                "Refusing to start the Web Terminal.\n"
+                + format_managed_policy_conflicts(_policy_conflicts)
+            )
 
         if app.state.config_path:
-            _cfg = yaml.safe_load(Path(app.state.config_path).read_text()) or {}
-            _cc = _cfg.get("claude_code", {})
-            _api = _cfg.get("api", {}).get("providers", {})
-            _spec = ClaudeCodeModelResolver.resolve(_cc, _api)
+            _project_dir = Path(app.state.config_path).parent
+            # load_provider_spec expands ${VAR} in provider config before resolving.
+            _spec = load_provider_spec(_project_dir)
             if _spec:
-                _project_dir = Path(app.state.config_path).parent
                 inject_provider_env(os.environ, _spec, project_dir=_project_dir)
 
                 # Start translation proxy for OpenAI-compatible providers
@@ -343,18 +554,45 @@ def _create_lifespan(
         app.state.custom_panels = custom_panels
         app.state.default_panel = default_panel
 
+        # Runtime-panel settings + visibility (honors hidden: true,
+        # allow_runtime_panels, runtime_panel_allowlist).
+        panel_runtime = _load_panel_runtime_config(enabled_panels, custom_panels)
+        app.state.allow_runtime_panels = panel_runtime.allow_runtime_panels
+        app.state.runtime_panel_allowlist = panel_runtime.runtime_panel_allowlist
+        app.state.visible_panels = panel_runtime.visible_panels
+        if panel_runtime.allow_runtime_panels and not panel_runtime.runtime_panel_allowlist:
+            logger.warning(
+                "web.allow_runtime_panels is enabled without a runtime_panel_allowlist — "
+                "any http/https host on the internal network can be registered as a panel proxy."
+            )
+
+        # Discover local static panel bundles under <project>/panels/ and wire
+        # them into the hub. Gated on web.allow_runtime_panels (the human opt-in);
+        # fail-closed on any malformed/non-compliant bundle. See panel_discovery.
+        # Wrapped so panel discovery can never block server startup (matching the
+        # other config loaders in this lifespan).
+        app.state.discovered_panel_dirs = {}
+        try:
+            from osprey.interfaces.web_terminal.panel_discovery import (
+                apply_discovered_panels,
+            )
+
+            apply_discovered_panels(app)
+        except Exception:
+            logger.warning("Local panel discovery failed; continuing.", exc_info=True)
+
         # Universal servers — always launched
         _launch_artifact_server(app)
 
         # Domain servers — template-controlled
         if "ariel" in enabled_panels:
             _launch_ariel_server(app)
-        if "tuning" in enabled_panels:
-            _launch_tuning_server(app)
         if "channel-finder" in enabled_panels:
             _launch_channel_finder_server(app)
         if "lattice" in enabled_panels:
             _launch_lattice_dashboard_server(app)
+        if "okf" in enabled_panels:
+            _launch_okf_server(app)
 
         # Hook env placeholder — hooks read config.yml directly for
         # hot-reloadable settings (no env var propagation needed).
@@ -409,29 +647,17 @@ def create_app(
         lifespan=_create_lifespan(config_path, shell_command, project_dir),
     )
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    app.add_middleware(NoCacheStaticMiddleware)
-    app.add_middleware(ExceptionLoggingMiddleware)
-
     app.include_router(router)
 
     @app.get("/")
     async def root(request: Request):
-        return templates.TemplateResponse(request, "index.html", {})
+        app_name = getattr(request.app.state, "app_name", "")
+        web_theme_id = getattr(request.app.state, "web_theme_id", "dark")
+        return templates.TemplateResponse(
+            request, "index.html", {"app_name": app_name, "web_theme_id": web_theme_id}
+        )
 
-    # Mount shared fonts before /static (Starlette matches in declaration order)
-    SHARED_FONTS_DIR = Path(__file__).parent.parent / "shared_fonts"
-    if SHARED_FONTS_DIR.exists():
-        app.mount("/static/fonts", StaticFiles(directory=SHARED_FONTS_DIR), name="shared-fonts")
-    if STATIC_DIR.exists():
-        app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    configure_interface_app(app, static_dir=STATIC_DIR)
 
     return app
 

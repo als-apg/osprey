@@ -14,6 +14,7 @@ from collections.abc import Sequence
 from datetime import datetime, timedelta
 from datetime import time as dtime
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import numpy as np
 
@@ -56,7 +57,11 @@ def epoch_seconds_array(timestamps: "Sequence[Any]") -> "np.ndarray | None":
 
 
 def event_positions(
-    event: dict[str, Any], t_frac: "np.ndarray", t_abs: "np.ndarray | None", anchor: float
+    event: dict[str, Any],
+    t_frac: "np.ndarray",
+    t_abs: "np.ndarray | None",
+    anchor: float,
+    tz: ZoneInfo | None = None,
 ) -> "list[tuple[np.ndarray, float]]":
     """Coordinate axis and event position(s) for one event.
 
@@ -64,9 +69,9 @@ def event_positions(
     yield one position, on the normalized window axis and the epoch-seconds
     axis respectively. Daily ``at_time`` events yield one epoch-seconds
     position per calendar date whose time-of-day occurrence falls inside the
-    window. Returns an empty list when an anchored or time-of-day event
-    cannot be placed because the timestamps were not convertible to epoch
-    seconds.
+    window, placed in the facility timezone (``tz``). Returns an empty list
+    when an anchored or time-of-day event cannot be placed because the
+    timestamps were not convertible to epoch seconds.
     """
     if "at_offset" in event:
         if t_abs is None:
@@ -79,21 +84,26 @@ def event_positions(
         if t_abs is None:
             logger.debug("Skipping time-of-day event: timestamps not convertible to epoch seconds")
             return []
-        return [(t_abs, at) for at in daily_occurrences(str(event["at_time"]), t_abs)]
+        return [(t_abs, at) for at in daily_occurrences(str(event["at_time"]), t_abs, tz)]
     return [(t_frac, float(event["at"]))]
 
 
-def daily_occurrences(at_time: str, t_abs: "np.ndarray") -> list[float]:
+def daily_occurrences(at_time: str, t_abs: "np.ndarray", tz: ZoneInfo | None = None) -> list[float]:
     """Epoch-second positions of a daily time-of-day within ``[t_abs[0], t_abs[-1]]``.
 
-    Walks calendar dates (local time) from the window start to its end and
-    keeps every occurrence of ``at_time`` that falls inside the window.
+    Walks calendar dates from the window start to its end (in timezone ``tz``)
+    and keeps every occurrence of ``at_time`` that falls inside the window.
+    Placing the time-of-day in an explicit zone — rather than the deploy host's
+    local zone — makes the result independent of the box ``$TZ``. ``tz`` defaults
+    to UTC; the engine resolves and threads the facility zone (so this module
+    stays free of config), so production callers always supply it explicitly.
     Assumes ascending timestamps (the same contract ``apply_events`` relies
     on via ``np.searchsorted``).
     """
+    zone = tz if tz is not None else ZoneInfo("UTC")
     tod = dtime.fromisoformat(at_time)
-    start = datetime.fromtimestamp(float(t_abs[0]))
-    end = datetime.fromtimestamp(float(t_abs[-1]))
+    start = datetime.fromtimestamp(float(t_abs[0]), zone)
+    end = datetime.fromtimestamp(float(t_abs[-1]), zone)
     cursor = start.replace(hour=0, minute=0, second=0, microsecond=0)
     positions: list[float] = []
     while cursor <= end:
@@ -112,6 +122,7 @@ def string_series(
     n: int,
     t_abs: "np.ndarray | None",
     anchor: float,
+    tz: ZoneInfo | None = None,
 ) -> list[str]:
     """Constant string series; only 'step' events are meaningful for strings."""
     t_frac = np.linspace(0.0, 1.0, n)
@@ -119,7 +130,7 @@ def string_series(
     for event in events:
         if event["shape"] != "step":
             continue
-        for x, at in event_positions(event, t_frac, t_abs, anchor):
+        for x, at in event_positions(event, t_frac, t_abs, anchor, tz):
             for i in range(n):
                 if x[i] >= at:
                     series[i] = str(event["to"])
@@ -132,6 +143,7 @@ def apply_events(
     n: int,
     t_abs: "np.ndarray | None",
     anchor: float,
+    tz: ZoneInfo | None = None,
 ) -> "np.ndarray":
     """Apply step/ramp/spike events in order (window-fraction or wall-clock)."""
     if not events:
@@ -141,7 +153,7 @@ def apply_events(
     for event in events:
         shape = event["shape"]
         offset_anchored = "at_offset" in event
-        for x, at in event_positions(event, t_frac, t_abs, anchor):
+        for x, at in event_positions(event, t_frac, t_abs, anchor, tz):
             if shape == "step":
                 series[x >= at] = float(event["to"])
             elif shape == "ramp":

@@ -25,6 +25,13 @@ services:
       retries: 5
 
 volumes:
+  # F2: this bind works only because pgvector/pgvector:pg16 already owns
+  # /var/lib/postgresql/data as uid 999 in its base image — the container's
+  # postgres process runs as that uid and needs write access to the mount.
+  # Changing PGDATA (moving the data directory elsewhere) or swapping the
+  # base image for one that owns the path under a different uid breaks this
+  # silently: the volume mounts fine, but postgres fails to start (or starts
+  # against an unwritable directory) with no error surfaced here.
   ariel_postgres_data:
 
 networks:

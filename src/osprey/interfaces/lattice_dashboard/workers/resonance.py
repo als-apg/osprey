@@ -123,14 +123,20 @@ def build_figure(
             )
         )
 
-    # Current working point
+    # Current working point. The marker color is intentionally left unset and
+    # tagged for the client themer (``meta="themed-fg-marker"``): render.js
+    # paints it the theme's foreground color on first render and on every theme
+    # switch, so the most important readout stays visible on both the near-black
+    # (dark) and near-white (light) themed plot backgrounds \u2014 a baked "black"
+    # here was invisible on the dark background.
     fig.add_trace(
         go.Scatter(
             x=[nux],
             y=[nuy],
             mode="markers",
-            marker={"size": 14, "color": "black", "symbol": "star"},
+            marker={"size": 14, "symbol": "star"},
             name="Working point",
+            meta="themed-fg-marker",
             hovertemplate=(
                 f"\u03bd<sub>x</sub> = {nux:.4f}<br>\u03bd<sub>y</sub> = {nuy:.4f}<extra></extra>"
             ),

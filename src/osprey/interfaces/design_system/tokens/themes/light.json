@@ -1,0 +1,152 @@
+{
+  "$description": "Light theme ('Lab Instrument Panel') — canonical values taken verbatim from web-terminal's theme-light.css. Same key set as dark.json (contract-enforced). WCAG contract gates computed against these values and ALL PASS: light text-primary 17.59:1, text-secondary 9.71:1, text-muted 4.51:1, accent 3.74:1 (gate thresholds: 4.5/4.5/3/3). Zero nudges applied to this theme. Note the accent gate margin is the tightest of the eight (dark+light) pairs at 3.74 vs a 3.0 floor — worth flagging for anyone tempted to darken bg.primary further in a future skin.",
+  "$extensions": { "mode": "light", "id": "light", "label": "Light", "family": "osprey" },
+  "bg": {
+    "terminal": { "$value": "{color.slate.50}", "$type": "color" },
+    "primary": { "$value": "{color.slate.150}", "$type": "color" },
+    "secondary": { "$value": "{color.slate.300}", "$type": "color" },
+    "panel": { "$value": "{color.slate.200}", "$type": "color" },
+    "elevated": { "$value": "{color.slate.350}", "$type": "color" }
+  },
+  "text": {
+    "primary": { "$value": "{color.slate.950}", "$type": "color" },
+    "secondary": { "$value": "{color.slate.700}", "$type": "color" },
+    "muted": { "$value": "{color.slate.650}", "$type": "color" }
+  },
+  "accent": {
+    "base": { "$value": "{color.teal.400}", "$type": "color" },
+    "light": { "$value": "{color.teal.500}", "$type": "color" },
+    "on": { "$value": "{color.slate.1000}", "$type": "color", "$description": "Foreground for text/icons on accent.base fills (e.g. primary buttons). 4.85:1 on teal.400 (white would be 3.95:1, sub-AA)." }
+  },
+  "amber": {
+    "base": { "$value": "{color.amber.800}", "$type": "color" },
+    "light": { "$value": "{color.amber.900}", "$type": "color" },
+    "hover": { "$value": "{color.amber.700}", "$type": "color" }
+  },
+  "status": {
+    "success": { "$value": "{color.green.700}", "$type": "color" },
+    "warning": { "$value": "{color.amber.600}", "$type": "color" },
+    "error": { "$value": "{color.red.500}", "$type": "color" },
+    "error-hover": { "$value": "{color.red.700}", "$type": "color" }
+  },
+  "border": {
+    "default": { "$value": "{color.slate.450}", "$type": "color", "$description": "Unlike dark's border.default (an alpha composite), light's is a solid hex in source — kept as a one-hop alias." },
+    "accent": { "$value": "rgba(13, 115, 119, 0.25)", "$type": "color", "$description": "Alpha composite of accent.light (#0d7377)." }
+  },
+  "tint": {
+    "accent": {
+      "04": { "$value": "rgba(13, 115, 119, 0.04)", "$type": "color" },
+      "06": { "$value": "rgba(13, 115, 119, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(13, 115, 119, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(13, 115, 119, 0.10)", "$type": "color" },
+      "12": { "$value": "rgba(13, 115, 119, 0.12)", "$type": "color" },
+      "20": { "$value": "rgba(13, 115, 119, 0.20)", "$type": "color" },
+      "25": { "$value": "rgba(13, 115, 119, 0.25)", "$type": "color" },
+      "30": { "$value": "rgba(13, 115, 119, 0.30)", "$type": "color" }
+    },
+    "amber": {
+      "04": { "$value": "rgba(160, 112, 64, 0.04)", "$type": "color" },
+      "06": { "$value": "rgba(160, 112, 64, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(160, 112, 64, 0.08)", "$type": "color" },
+      "12": { "$value": "rgba(160, 112, 64, 0.12)", "$type": "color" },
+      "15": { "$value": "rgba(160, 112, 64, 0.15)", "$type": "color" },
+      "25": { "$value": "rgba(160, 112, 64, 0.25)", "$type": "color" }
+    },
+    "error": {
+      "04": { "$value": "rgba(220, 38, 38, 0.04)", "$type": "color" },
+      "08": { "$value": "rgba(220, 38, 38, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(220, 38, 38, 0.10)", "$type": "color" },
+      "15": { "$value": "rgba(220, 38, 38, 0.15)", "$type": "color" },
+      "25": { "$value": "rgba(220, 38, 38, 0.25)", "$type": "color" },
+      "30": { "$value": "rgba(220, 38, 38, 0.30)", "$type": "color" },
+      "40": { "$value": "rgba(220, 38, 38, 0.40)", "$type": "color" }
+    },
+    "success": {
+      "08": { "$value": "rgba(22, 163, 74, 0.08)", "$type": "color" },
+      "40": { "$value": "rgba(22, 163, 74, 0.40)", "$type": "color" },
+      "50": { "$value": "rgba(22, 163, 74, 0.50)", "$type": "color" }
+    },
+    "neutral": {
+      "$description": "Base rgb(100,116,139) = color.slate.650 = text.muted's exact color, unlike dark's tint.neutral (a lighter, distinct slate step). Preserved asymmetry from source.",
+      "03": { "$value": "rgba(100, 116, 139, 0.03)", "$type": "color" },
+      "06": { "$value": "rgba(100, 116, 139, 0.06)", "$type": "color" },
+      "08": { "$value": "rgba(100, 116, 139, 0.08)", "$type": "color" },
+      "10": { "$value": "rgba(100, 116, 139, 0.10)", "$type": "color" },
+      "12": { "$value": "rgba(100, 116, 139, 0.12)", "$type": "color" },
+      "20": { "$value": "rgba(100, 116, 139, 0.20)", "$type": "color" },
+      "35": { "$value": "rgba(100, 116, 139, 0.35)", "$type": "color" }
+    }
+  },
+  "overlay": {
+    "$description": "Non-monotonic alphas (black-30 < black-20; black-60 < black-50) are preserved exactly as hand-tuned in theme-light.css, not 'corrected'.",
+    "black-20": { "$value": "rgba(0, 0, 0, 0.06)", "$type": "color" },
+    "black-30": { "$value": "rgba(0, 0, 0, 0.05)", "$type": "color" },
+    "black-40": { "$value": "rgba(0, 0, 0, 0.08)", "$type": "color" },
+    "black-50": { "$value": "rgba(0, 0, 0, 0.15)", "$type": "color" },
+    "black-60": { "$value": "rgba(0, 0, 0, 0.10)", "$type": "color" },
+    "black-70": { "$value": "rgba(0, 0, 0, 0.25)", "$type": "color" },
+    "white-03": { "$value": "rgba(255, 255, 255, 0.5)", "$type": "color", "$description": "Same token name as dark's white-03 but a very different alpha (0.5 vs 0.03) in source — light theme repurposes this slot; preserved as-is." }
+  },
+  "shadow": {
+    "panel": { "$value": "-2px 0 8px rgba(0, 0, 0, 0.08)", "$type": "shadow" },
+    "dropdown": { "$value": "0 4px 12px rgba(0, 0, 0, 0.1)", "$type": "shadow" },
+    "dialog": { "$value": "0 4px 16px rgba(0, 0, 0, 0.12)", "$type": "shadow" },
+    "error-dialog": { "$value": "0 4px 16px rgba(220, 38, 38, 0.1), 0 4px 16px rgba(0, 0, 0, 0.1)", "$type": "shadow" }
+  },
+  "diff": {
+    "add-bg": { "$value": "rgba(22, 163, 74, 0.1)", "$type": "color" },
+    "add-text": { "$value": "{color.green.700}", "$type": "color" },
+    "del-bg": { "$value": "rgba(220, 38, 38, 0.1)", "$type": "color" },
+    "del-text": { "$value": "{color.red.500}", "$type": "color" },
+    "word-del-bg": { "$value": "rgba(220, 38, 38, 0.20)", "$type": "color" },
+    "word-del-text": { "$value": "{color.red.700}", "$type": "color" },
+    "word-add-bg": { "$value": "rgba(22, 163, 74, 0.20)", "$type": "color" },
+    "word-add-text": { "$value": "{color.green.800}", "$type": "color" }
+  },
+  "terminal": {
+    "cursor": { "$value": "{color.teal.400}", "$type": "color" },
+    "text": { "$value": "{color.slate.750}", "$type": "color" },
+    "selection": { "$value": "rgba(13, 115, 119, 0.2)", "$type": "color" },
+    "ansi": {
+      "background": { "$value": "{color.slate.50}", "$type": "color" },
+      "foreground": { "$value": "{color.slate.950}", "$type": "color" },
+      "cursor": { "$value": "{color.teal.400}", "$type": "color" },
+      "cursor-accent": { "$value": "{color.slate.50}", "$type": "color" },
+      "selection": { "$value": "rgba(13, 115, 119, 0.2)", "$type": "color" },
+      "black": { "$value": "{color.slate.350}", "$type": "color" },
+      "red": { "$value": "{color.red.500}", "$type": "color" },
+      "green": { "$value": "{color.green.700}", "$type": "color" },
+      "yellow": { "$value": "{color.amber.600}", "$type": "color" },
+      "blue": { "$value": "{color.blue.500}", "$type": "color" },
+      "magenta": { "$value": "{color.violet.500}", "$type": "color" },
+      "cyan": { "$value": "{color.teal.500}", "$type": "color" },
+      "white": { "$value": "{color.slate.750}", "$type": "color" },
+      "bright-black": { "$value": "{color.slate.550}", "$type": "color" },
+      "bright-red": { "$value": "{color.red.300}", "$type": "color" },
+      "bright-green": { "$value": "{color.green.400}", "$type": "color" },
+      "bright-yellow": { "$value": "{color.amber.400}", "$type": "color" },
+      "bright-blue": { "$value": "{color.blue.300}", "$type": "color" },
+      "bright-magenta": { "$value": "{color.violet.300}", "$type": "color" },
+      "bright-cyan": { "$value": "{color.teal.400}", "$type": "color" },
+      "bright-white": { "$value": "{color.slate.950}", "$type": "color" }
+    }
+  },
+  "chart": {
+    "$description": "See dark.json chart.$description for the full harmonization rationale. Light-mode values are new (tuning had NO light-mode plot layout at all — that omission is the dark-locked-plots bug this feature fixes; artifacts' light layout used text.primary for axis-text where dark used text.secondary, an inconsistency not carried forward). Canonical choice here mirrors the dark theme's logic: paper/plot = bg.primary, grid/axis-text = text.secondary family, keeping dark and light internally consistent with each other.",
+    "paper-bg": { "$value": "{color.slate.150}", "$type": "color" },
+    "plot-bg": { "$value": "{color.slate.150}", "$type": "color" },
+    "grid": { "$value": "rgba(55, 65, 85, 0.1)", "$type": "color", "$description": "text.secondary (light) base (#374155) at 10% alpha, mirroring dark's grid formula (text.secondary base at 10%). Not present in any current source file — constructed for consistency, disagreement noted in task report." },
+    "axis-text": { "$value": "{color.slate.700}", "$type": "color" },
+    "series": {
+      "1": { "$value": "{color.teal.400}", "$type": "color" },
+      "2": { "$value": "{color.amber.600}", "$type": "color" },
+      "3": { "$value": "{color.green.700}", "$type": "color" },
+      "4": { "$value": "{color.red.500}", "$type": "color" },
+      "5": { "$value": "{color.violet.500}", "$type": "color" },
+      "6": { "$value": "{color.blue.500}", "$type": "color" }
+    }
+  },
+  "code": {
+    "theme": { "$value": "highlight.js atom-one-light theme", "$type": "string", "$description": "Must exactly match an asset 'name' in src/osprey/interfaces/vendor_manifest.json (contract-tested)." }
+  }
+}

@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * Settings module
  *
@@ -6,6 +7,8 @@
  */
 
 import { configApi } from './api.js';
+import { escapeHtml } from '/design-system/js/dom.js';
+import { messageOf } from './utils.js';
 
 let configDirty = false;
 let originalRaw = '';
@@ -15,8 +18,13 @@ let originalRaw = '';
  */
 export function initSettings() {
   // Mode bar (Form / Raw)
-  document.querySelectorAll('.settings-mode-btn').forEach(btn => {
-    btn.addEventListener('click', () => switchMode(btn.dataset.mode));
+  const modeBtns = /** @type {NodeListOf<HTMLElement>} */ (
+    document.querySelectorAll('.settings-mode-btn')
+  );
+  modeBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.mode) switchMode(btn.dataset.mode);
+    });
   });
 
   // Apply button
@@ -30,7 +38,9 @@ export function initSettings() {
   if (confirmNo) confirmNo.addEventListener('click', hideConfirm);
 
   // Raw YAML editor change tracking
-  const rawEditor = document.getElementById('config-raw-editor');
+  const rawEditor = /** @type {HTMLTextAreaElement | null} */ (
+    document.getElementById('config-raw-editor')
+  );
   if (rawEditor) {
     rawEditor.addEventListener('input', () => {
       configDirty = rawEditor.value !== originalRaw;
@@ -38,15 +48,14 @@ export function initSettings() {
     });
   }
 
-  // Observe drawer open to load config on first show
+  // Load config whenever the drawer opens, via the component's public
+  // drawer:open event (fired on the host) rather than a MutationObserver on
+  // its `open` attribute — attribute reflection is the component's internal
+  // state mechanics, and the event only fires for real transitions (a vetoed
+  // or echoed attribute mutation never dispatches it).
   const drawer = document.getElementById('settings-drawer');
   if (drawer) {
-    const observer = new MutationObserver(() => {
-      if (drawer.classList.contains('open')) {
-        loadConfig();
-      }
-    });
-    observer.observe(drawer, { attributes: true, attributeFilter: ['class'] });
+    drawer.addEventListener('drawer:open', () => loadConfig());
   }
 }
 
@@ -55,7 +64,10 @@ export function initSettings() {
  * @param {string} mode - 'form' or 'raw'
  */
 function switchMode(mode) {
-  document.querySelectorAll('.settings-mode-btn').forEach(b => {
+  const modeBtns = /** @type {NodeListOf<HTMLElement>} */ (
+    document.querySelectorAll('.settings-mode-btn')
+  );
+  modeBtns.forEach(b => {
     b.classList.toggle('active', b.dataset.mode === mode);
   });
   const formView = document.getElementById('config-form-view');
@@ -75,7 +87,9 @@ export async function loadConfig() {
     configDirty = false;
 
     // Populate raw editor
-    const rawEditor = document.getElementById('config-raw-editor');
+    const rawEditor = /** @type {HTMLTextAreaElement | null} */ (
+      document.getElementById('config-raw-editor')
+    );
     if (rawEditor) rawEditor.value = data.raw;
 
     // Populate form view
@@ -84,7 +98,7 @@ export async function loadConfig() {
     updateConfigStatus();
   } catch (e) {
     if (statusEl) {
-      statusEl.textContent = `Error: ${e.message}`;
+      statusEl.textContent = `Error: ${messageOf(e)}`;
       statusEl.className = 'settings-status error';
     }
   }
@@ -125,8 +139,12 @@ function renderConfigForm(parsed) {
 
 /**
  * Recursively render fields for a config object.
+ * @param {Element | null} container
+ * @param {Object} obj
+ * @param {string[]} path
  */
 function renderFields(container, obj, path) {
+  if (!container) return;
   for (const [key, value] of Object.entries(obj)) {
     const fullPath = [...path, key];
     if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
@@ -146,6 +164,10 @@ function renderFields(container, obj, path) {
 
 /**
  * Create a form field element.
+ * @param {string} label
+ * @param {any} value
+ * @param {string[]} path
+ * @returns {HTMLDivElement}
  */
 function createField(label, value, path) {
   const field = document.createElement('div');
@@ -166,11 +188,16 @@ function createField(label, value, path) {
       <input type="checkbox" ${value ? 'checked' : ''} data-path="${path.join('.')}">
       <span class="toggle-slider"></span>
     `;
-    toggle.querySelector('input').addEventListener('change', () => {
-      configDirty = true;
-      updateConfigStatus();
-      syncFormToRaw();
-    });
+    const toggleInput = /** @type {HTMLInputElement | null} */ (
+      toggle.querySelector('input')
+    );
+    if (toggleInput) {
+      toggleInput.addEventListener('change', () => {
+        configDirty = true;
+        updateConfigStatus();
+        syncFormToRaw();
+      });
+    }
     inputWrap.appendChild(toggle);
   } else if (Array.isArray(value)) {
     const input = document.createElement('input');
@@ -224,7 +251,9 @@ function syncFormToRaw() {
  */
 function updateConfigStatus() {
   const statusEl = document.getElementById('config-status');
-  const applyBtn = document.getElementById('config-apply-btn');
+  const applyBtn = /** @type {HTMLButtonElement | null} */ (
+    document.getElementById('config-apply-btn')
+  );
   if (!statusEl) return;
 
   if (configDirty) {
@@ -240,27 +269,31 @@ function updateConfigStatus() {
 
 // --- Confirmation dialog ---
 
+/** @type {string | null} */
 let pendingAction = null;
 
+/**
+ * @param {string} action
+ */
 function showConfirm(action) {
   pendingAction = action;
   const overlay = document.getElementById('settings-confirm-overlay');
   const titleEl = document.getElementById('settings-confirm-title');
   const textEl = document.getElementById('settings-confirm-text');
 
-  if (action === 'config') {
+  if (action === 'config' && titleEl && textEl) {
     titleEl.textContent = 'Apply Configuration?';
     textEl.textContent =
       'This will overwrite config.yml and may require a service restart to take effect.';
   }
 
-  overlay.classList.add('visible');
+  if (overlay) overlay.classList.add('visible');
 }
 
 function hideConfirm() {
   pendingAction = null;
   const overlay = document.getElementById('settings-confirm-overlay');
-  overlay.classList.remove('visible');
+  if (overlay) overlay.classList.remove('visible');
 }
 
 async function handleConfirmYes() {
@@ -276,26 +309,28 @@ async function handleConfirmYes() {
  * Save config.yml via API.
  */
 async function saveConfig() {
-  const rawEditor = document.getElementById('config-raw-editor');
+  const rawEditor = /** @type {HTMLTextAreaElement | null} */ (
+    document.getElementById('config-raw-editor')
+  );
   const statusEl = document.getElementById('config-status');
   if (!rawEditor) return;
 
   try {
-    statusEl.textContent = 'Saving...';
-    statusEl.className = 'settings-status';
+    if (statusEl) {
+      statusEl.textContent = 'Saving...';
+      statusEl.className = 'settings-status';
+    }
     await configApi.update(rawEditor.value);
     originalRaw = rawEditor.value;
     configDirty = false;
-    statusEl.textContent = 'Saved successfully';
-    statusEl.className = 'settings-status saved';
+    if (statusEl) {
+      statusEl.textContent = 'Saved successfully';
+      statusEl.className = 'settings-status saved';
+    }
   } catch (e) {
-    statusEl.textContent = `Save failed: ${e.message}`;
-    statusEl.className = 'settings-status error';
+    if (statusEl) {
+      statusEl.textContent = `Save failed: ${messageOf(e)}`;
+      statusEl.className = 'settings-status error';
+    }
   }
-}
-
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str;
-  return div.innerHTML;
 }

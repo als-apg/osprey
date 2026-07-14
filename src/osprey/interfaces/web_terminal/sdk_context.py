@@ -20,6 +20,8 @@ from datetime import datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from osprey.utils.tool_rules import matches_denylist
+
 try:
     from claude_agent_sdk import (
         PermissionResultAllow,
@@ -79,17 +81,8 @@ def make_tool_allowlist(
     allowed_set = frozenset(allowed)
     denied_tuple = tuple(denied)
 
-    def _denied(tool_name: str) -> bool:
-        for entry in denied_tuple:
-            if entry.endswith("*"):
-                if tool_name.startswith(entry[:-1]):
-                    return True
-            elif tool_name == entry:
-                return True
-        return False
-
     async def can_use_tool(tool_name, tool_input, context):  # type: ignore[no-untyped-def]
-        if _denied(tool_name):
+        if matches_denylist(tool_name, denied_tuple):
             return PermissionResultDeny(
                 message=f"Tool {tool_name!r} is blocked by the dispatch server denylist",
             )

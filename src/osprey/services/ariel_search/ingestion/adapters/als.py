@@ -18,7 +18,10 @@ from typing import TYPE_CHECKING, Any, Literal
 import aiohttp
 
 from osprey.services.ariel_search.attachments import guess_mime_type
-from osprey.services.ariel_search.exceptions import IngestionError
+from osprey.services.ariel_search.exceptions import (
+    AuthenticationRequiredError,
+    IngestionError,
+)
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
 from osprey.utils.logger import get_logger
@@ -197,6 +200,7 @@ class ALSLogbookAdapter(FacilityAdapter):
 
         Raises:
             NotImplementedError: If write config is not enabled.
+            AuthenticationRequiredError: If credentials are required but absent.
             IngestionError: If the write fails.
         """
         if not self.supports_write:
@@ -210,8 +214,8 @@ class ALSLogbookAdapter(FacilityAdapter):
         auth_user = request.auth_user or write_cfg.auth_user
         auth_password = request.auth_password or write_cfg.auth_password
 
-        if not auth_user or not auth_password:
-            raise IngestionError(
+        if self.requires_write_auth and (not auth_user or not auth_password):
+            raise AuthenticationRequiredError(
                 "OLOG publishing requires credentials. "
                 "Provide username and password in the submit form, "
                 "or configure ARIEL_WRITE_USER/ARIEL_WRITE_PASSWORD environment variables.",

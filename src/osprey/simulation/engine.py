@@ -28,6 +28,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar
+from zoneinfo import ZoneInfo
 
 import numpy as np
 
@@ -46,6 +47,7 @@ from osprey.simulation.series import (
     ref_value,
     string_series,
 )
+from osprey.utils.config import get_facility_timezone
 from osprey.utils.logger import get_logger
 
 logger = get_logger("simulation_engine")
@@ -333,8 +335,8 @@ class SimulationEngine:
         ``until_offset`` for ramps) anchors it in wall-clock time, in seconds
         relative to the apply-time anchor T0 (the ``anchor=`` line in the state
         file, falling back to its mtime; negative = past). ``at_time``
-        (``"HH:MM:SS"``, local
-        time; step/spike only) recurs daily: the event fires at that time of
+        (``"HH:MM:SS"`` in the facility timezone; step/spike only) recurs daily:
+        the event fires at that time of
         day on every calendar date inside the requested window. Anchored and
         time-of-day events honor the actual timestamp values, so an event
         outside the requested window does not appear in it. For anchored and
@@ -359,8 +361,14 @@ class SimulationEngine:
             return []
         t_abs = epoch_seconds_array(timestamps)
         anchor = self._scenario_anchor()
+        # Resolve the facility timezone once per synthesis pass (cheap: config and
+        # ZoneInfo are both cached singletons) and thread it down, so daily
+        # ``at_time`` events are placed in facility-local time regardless of the
+        # deploy host's ``$TZ``. Resolved here, not at engine construction, so it
+        # reflects config loaded after connector init.
+        tz = get_facility_timezone()
         cache: dict[str, np.ndarray | list[str]] = {}
-        series = self._synthesize(pv, n, cache, t_abs, anchor)
+        series = self._synthesize(pv, n, cache, t_abs, anchor, tz)
         if isinstance(series, np.ndarray):
             return [float(v) for v in series]
         return list(series)
@@ -456,7 +464,13 @@ class SimulationEngine:
                 key, _, value = stripped.partition("=")
                 if key.strip() == "anchor":
                     try:
-                        anchor_epoch = datetime.fromisoformat(value.strip()).timestamp()
+                        parsed = datetime.fromisoformat(value.strip())
+                        # Anchors written by apply.py are UTC-aware; attach the
+                        # facility zone to a naive (hand-edited/legacy) anchor so
+                        # ``.timestamp()`` does not silently fall back to box-local.
+                        if parsed.tzinfo is None:
+                            parsed = parsed.replace(tzinfo=get_facility_timezone())
+                        anchor_epoch = parsed.timestamp()
                     except ValueError:
                         logger.warning(f"Ignoring malformed anchor in state file: {stripped!r}")
                 continue
@@ -519,6 +533,7 @@ class SimulationEngine:
         cache: dict[str, "np.ndarray | list[str]"],
         t_abs: "np.ndarray | None",
         anchor: float,
+        tz: ZoneInfo,
     ) -> "np.ndarray | list[str]":
         """Build one channel's series, memoized per synthesis pass."""
         cached = cache.get(pv)
@@ -528,13 +543,13 @@ class SimulationEngine:
         events = self._composed_archiver.get(pv, [])
 
         if channel.expr is None and isinstance(channel.value, str):
-            series_str = string_series(channel.value, events, n, t_abs, anchor)
+            series_str = string_series(channel.value, events, n, t_abs, anchor, tz)
             cache[pv] = series_str
             return series_str
 
         if channel.expr is not None:
             ref_series = {
-                ref: self._synthesize(ref, n, cache, t_abs, anchor) for ref in channel.refs
+                ref: self._synthesize(ref, n, cache, t_abs, anchor, tz) for ref in channel.refs
             }
             values: list[float] = []
             for i in range(n):
@@ -548,7 +563,7 @@ class SimulationEngine:
             assert channel.value is not None  # guaranteed by parse_machine
             series = np.full(n, float(channel.value))
 
-        series = apply_events(series, events, n, t_abs, anchor)
+        series = apply_events(series, events, n, t_abs, anchor, tz)
         if channel.noise > 0.0:
             series = series * (1.0 + self._rng.normal(0.0, channel.noise, n))
         if channel.min_value is not None or channel.max_value is not None:

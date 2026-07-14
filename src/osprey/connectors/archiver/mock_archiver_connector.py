@@ -15,6 +15,7 @@ import pandas as pd
 from osprey.connectors.archiver.base import ArchiverConnector, ArchiverMetadata
 from osprey.connectors.pv_taxonomy import classify_pv
 from osprey.simulation import engine_serves
+from osprey.utils.config import get_facility_timezone
 from osprey.utils.logger import get_logger
 
 if TYPE_CHECKING:
@@ -142,8 +143,10 @@ class MockArchiverConnector(ArchiverConnector):
         return ArchiverMetadata(
             pv_name=pv_name,
             is_archived=True,
-            archival_start=datetime(2000, 1, 1),  # Arbitrary old date
-            archival_end=datetime.now(),
+            # Both bounds tz-aware (facility zone) so a consumer can subtract or
+            # compare them without a naive/aware TypeError.
+            archival_start=datetime(2000, 1, 1, tzinfo=get_facility_timezone()),
+            archival_end=datetime.now(get_facility_timezone()),
             sampling_period=1.0 / self._sample_rate_hz,
             description=f"Mock archived PV: {pv_name}",
         )

@@ -32,7 +32,7 @@ if sys.platform == "win32":
 try:
     from osprey import __version__
 except ImportError:
-    __version__ = "2026.6.0"
+    __version__ = "2026.6.2"
 
 
 class LazyGroup(click.Group):
@@ -58,6 +58,7 @@ class LazyGroup(click.Group):
             "skills": "osprey.cli.skills_cmd",  # Bundled skill management
             "vendor": "osprey.cli.vendor_cmd",  # Vendor asset management
             "knowledge": "osprey.cli.knowledge_cmd",  # OKF facility knowledge
+            "query": "osprey.cli.query_cmd",  # Headless agent query
         }
 
         if cmd_name not in commands:
@@ -105,6 +106,7 @@ class LazyGroup(click.Group):
             "skills",
             "vendor",
             "knowledge",
+            "query",
         ]
 
 

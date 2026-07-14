@@ -7,6 +7,7 @@ Tool docstring is the static prompt visible to Claude Code.
 import json
 import logging
 
+from osprey.errors import ChannelWriteBlockedError
 from osprey.mcp_server.control_system.error_handling import connector_error_handler
 from osprey.mcp_server.control_system.server import mcp
 from osprey.mcp_server.errors import make_error
@@ -139,6 +140,8 @@ async def channel_write(
                 "value_written": wr.value_written,
                 "success": wr.success,
                 "error_message": wr.error_message,
+                "blocked": wr.blocked,
+                "refusal_reason": wr.refusal_reason,
             }
             if wr.verification:
                 result_entry["verification"] = {
@@ -154,16 +157,20 @@ async def channel_write(
 
         # Build compact summary inline
         successful = sum(1 for r in results_serialised if r["success"])
+        refused = sum(1 for r in results_serialised if r.get("blocked"))
         summary = {
             "total_writes": len(results_serialised),
             "successful": successful,
             "failed": len(results_serialised) - successful,
+            "refused": refused,
             "results": [
                 {
                     "channel": r["channel"],
                     "value": r["value_written"],
                     "success": r["success"],
                     "error": r.get("error_message"),
+                    "blocked": r.get("blocked"),
+                    "refusal_reason": r.get("refusal_reason"),
                     "verification": r.get("verification"),
                 }
                 for r in results_serialised
@@ -172,6 +179,22 @@ async def channel_write(
         access_details = {"verification_level": verification_level}
 
         if results_serialised and successful == 0:
+            failures = [wr for wr in connector_results if not wr.success]
+            if failures and all(wr.blocked for wr in failures):
+                # Every failed op was a policy refusal (never sent to the control
+                # system): surface a typed write-refusal envelope, not internal_error.
+                refused_channels = [wr.channel_address for wr in failures]
+                first = failures[0]
+                raise ChannelWriteBlockedError(
+                    first.channel_address,
+                    first.refusal_reason or "WRITES_DISABLED",
+                    message=(
+                        f"All {len(failures)} write(s) refused by the reference monitor: "
+                        f"{', '.join(refused_channels)}"
+                    ),
+                )
+            # At least one failure was an attempted caput that failed (I/O failure,
+            # not a policy refusal): preserve the internal_error classification.
             errors = sorted(
                 {r["error_message"] for r in results_serialised if r.get("error_message")}
             )

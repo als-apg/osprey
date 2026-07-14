@@ -1,21 +1,12 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- Theme sync: set initial theme + listen for live changes from parent Web Terminal.
-       This MUST be inline (not in a module) so it runs before CSS loads and has zero
-       import dependencies that could prevent the listener from registering. -->
-  <script>
-    (function() {
-      var p = new URLSearchParams(window.location.search);
-      var t = p.get('theme') || localStorage.getItem('osprey-theme');
-      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
-      window.addEventListener('message', function(e) {
-        if (e.data && e.data.type === 'osprey-theme-change' && e.data.theme) {
-          document.documentElement.setAttribute('data-theme', e.data.theme);
-        }
-      });
-    })();
-  </script>
+  <!-- Theme boot: applies data-theme pre-paint; zero import deps, must load
+       before any stylesheet. Live theme changes are handled by the
+       theme-manager FOLLOWER role in app.js. -->
+  <script src="/design-system/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/design-system/css/tokens.css">
+  <link rel="stylesheet" href="/design-system/css/base.css">
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ARIEL - Logbook Search Interface</title>
@@ -25,7 +16,6 @@
   <link rel="stylesheet" href="/static/fonts/fonts.css">
 
   <!-- Stylesheets -->
-  <link rel="stylesheet" href="/static/css/variables.css">
   <link rel="stylesheet" href="/static/css/base.css">
   <link rel="stylesheet" href="/static/css/components.css">
   <link rel="stylesheet" href="/static/css/layout.css">
@@ -66,6 +56,7 @@
             <span class="status-dot healthy"></span>
             <span class="text-sm">Connected</span>
           </span>
+          <osprey-theme-switcher></osprey-theme-switcher>
           <button class="header-icon-btn" data-drawer="settings-drawer" title="Settings">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="3"/>
@@ -254,28 +245,30 @@
 
           <div class="form-section">
             <div class="form-section-title">Logbook Publishing</div>
-            <div class="text-xs text-muted" style="margin-bottom: 8px;">Leave blank to save locally without publishing to external logbook.</div>
-            <div class="input-group">
-              <label for="entry-auth-user">Logbook Username</label>
-              <input
-                type="text"
-                id="entry-auth-user"
-                name="olog_user"
-                class="input"
-                placeholder="Username (required to publish)"
-                autocomplete="username"
-              >
-            </div>
-            <div class="input-group">
-              <label for="entry-auth-password">Logbook Password</label>
-              <input
-                type="password"
-                id="entry-auth-password"
-                name="olog_password"
-                class="input"
-                placeholder="Password"
-                autocomplete="current-password"
-              >
+            <div id="publish-helper" class="text-xs text-muted" style="margin-bottom: 8px;">Credentials may be required to publish, depending on the configured logbook.</div>
+            <div id="publish-credentials">
+              <div class="input-group">
+                <label for="entry-auth-user">Logbook Username</label>
+                <input
+                  type="text"
+                  id="entry-auth-user"
+                  name="olog_user"
+                  class="input"
+                  placeholder="Username (required to publish)"
+                  autocomplete="username"
+                >
+              </div>
+              <div class="input-group">
+                <label for="entry-auth-password">Logbook Password</label>
+                <input
+                  type="password"
+                  id="entry-auth-password"
+                  name="olog_password"
+                  class="input"
+                  placeholder="Password"
+                  autocomplete="current-password"
+                >
+              </div>
             </div>
           </div>
 
@@ -331,7 +324,7 @@
   <div class="drawer-backdrop" id="drawer-backdrop"></div>
 
   <!-- Unified Settings Drawer -->
-  <div class="drawer" id="settings-drawer">
+  <osprey-drawer class="drawer" id="settings-drawer">
     <div class="drawer-header">
       <span class="drawer-title">Settings</span>
       <button class="drawer-close-btn">&times;</button>
@@ -378,7 +371,7 @@
         </div>
       </div>
     </div>
-  </div>
+  </osprey-drawer>
 
   <!-- Entry Detail Modal -->
   <div id="entry-modal" class="modal-overlay hidden">

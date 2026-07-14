@@ -1,6 +1,6 @@
 """Reverse proxy for companion panel servers running inside the container.
 
-Companion servers (artifact gallery, ARIEL, tuning, channel-finder, lattice)
+Companion servers (artifact gallery, ARIEL, channel-finder, lattice, OKF)
 bind to 127.0.0.1 inside the Docker container.  The browser cannot reach them
 directly, so this proxy forwards ``/panel/{panel_id}/{path}`` to the internal
 server and rewrites root-absolute paths in HTML/JS/CSS responses.
@@ -26,6 +26,7 @@ router = APIRouter()
 # false positives on arbitrary ``/`` characters.
 _REWRITE_PREFIXES = (
     "/static/",
+    "/design-system/",
     "/api/",
     "/files/",
     "/health",
@@ -33,6 +34,9 @@ _REWRITE_PREFIXES = (
     "/ws/",
     "/assets/",
     "/dashboard/",
+    # Tiled's built-in web UI (served under /ui/) references root-absolute
+    # /ui/assets/... bundle paths.
+    "/ui/",
     # Event dispatcher endpoints. Without these, the dashboard served through
     # /panel/events/* would call `/webhook/...` at the browser origin (the web
     # terminal) instead of going through this proxy — the dispatcher never
@@ -70,9 +74,9 @@ _HOP_BY_HOP = frozenset(
 _PANEL_STATE_MAP = {
     "artifacts": "artifact_server_url",
     "ariel": "ariel_server_url",
-    "tuning": "tuning_server_url",
     "channel-finder": "channel_finder_server_url",
     "lattice": "lattice_dashboard_server_url",
+    "okf": "okf_server_url",
 }
 
 
@@ -89,6 +93,17 @@ def _resolve_panel_url(request: Request, panel_id: str) -> str | None:
             return url if url else None
 
     return None
+
+
+def _panel_json_rewrite_paths(request: Request, panel_id: str) -> tuple[str, ...]:
+    """The panel's configured ``rewrite_json_paths`` suffixes (usually empty)."""
+    for cp in getattr(request.app.state, "custom_panels", []):
+        if cp.get("id") == panel_id:
+            paths = cp.get("rewriteJsonPaths") or ()
+            if isinstance(paths, (list, tuple)):
+                return tuple(str(p).rstrip("/") for p in paths if p)
+            return (str(paths).rstrip("/"),)
+    return ()
 
 
 def _rewrite_content(body: str, panel_id: str) -> str:
@@ -140,11 +155,17 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
 
     client: httpx.AsyncClient = request.app.state.proxy_client
 
-    # Forward headers, dropping host (httpx sets it) and hop-by-hop.
+    # Forward headers, dropping host (httpx sets it), hop-by-hop, and
+    # accept-encoding. httpx must negotiate content-codings it can itself
+    # decode (it transparently decompresses gzip/br); forwarding the
+    # browser's Accept-Encoding list (which includes zstd) lets upstreams
+    # pick zstd, which httpx cannot decode — it passes the compressed bytes
+    # through unchanged while the proxy strips the content-encoding header
+    # below, so the browser renders raw compressed garbage.
     fwd_headers = {
         k: v
         for k, v in request.headers.items()
-        if k.lower() not in _HOP_BY_HOP and k.lower() != "host"
+        if k.lower() not in _HOP_BY_HOP and k.lower() not in ("host", "accept-encoding")
     }
     fwd_headers["x-forwarded-prefix"] = f"/panel/{panel_id}"
 
@@ -224,6 +245,24 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
             media_type=content_type,
         )
 
+    # JSON is normally passed through untouched (rewriting arbitrary API
+    # payloads would corrupt data). But some backends bootstrap their web UI
+    # from a JSON config endpoint that carries root-absolute paths (e.g. an
+    # ``api_url`` the SPA uses as its API base) — served through this proxy,
+    # the UI would then call the *browser* origin and silently break. Panels
+    # opt specific endpoints in via ``web.panels.<id>.rewrite_json_paths``
+    # (a list of path suffixes); only those responses get the same
+    # known-prefix literal rewrite HTML/JS/CSS receive.
+    if base_type == "application/json":
+        stripped = path.rstrip("/")
+        if any(stripped.endswith(sfx) for sfx in _panel_json_rewrite_paths(request, panel_id)):
+            return Response(
+                content=_rewrite_content(resp.text, panel_id),
+                status_code=resp.status_code,
+                headers=resp_headers,
+                media_type=content_type,
+            )
+
     # JSON, images, binary — pass through unchanged.
     return Response(
         content=resp.content,
@@ -267,10 +306,19 @@ async def proxy_panel_ws(panel_id: str, path: str, websocket: WebSocket):
         async with websockets.connect(target) as upstream:
 
             async def client_to_upstream():
+                # receive() (not receive_text()) — binary-protocol panels
+                # (e.g. the noVNC/RFB phoebus stream) send bytes frames,
+                # which receive_text() rejects, killing the relay.
                 try:
                     while True:
-                        data = await websocket.receive_text()
-                        await upstream.send(data)
+                        msg = await websocket.receive()
+                        if msg.get("type") == "websocket.disconnect":
+                            break
+                        data = msg.get("bytes")
+                        if data is None:
+                            data = msg.get("text")
+                        if data is not None:
+                            await upstream.send(data)
                 except WebSocketDisconnect:
                     pass
 

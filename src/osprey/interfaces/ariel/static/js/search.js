@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * ARIEL Search Module
  *
@@ -11,20 +12,61 @@ import {
   renderDiagnosticsBar,
   renderLoading,
   renderEmptyState,
+  renderErrorState,
   escapeHtml,
 } from './components.js';
 import { getCurrentMode, getAdvancedParams, closeAdvancedPanel } from './advanced-options.js';
+import { showEntry } from './entries-detail.js';
+
+/**
+ * @typedef {Object} SearchResults
+ * @property {string} [answer]
+ * @property {string[]} [sources]
+ * @property {string[]} [search_modes_used]
+ * @property {number} [execution_time_ms]
+ * @property {number} total_results
+ * @property {import('./components.js').Entry[]} [entries]
+ * @property {import('./components.js').Diagnostic[]} [diagnostics]
+ */
 
 // Search state
 let currentQuery = '';
 let isSearching = false;
+/** @type {SearchResults|null} */
 let lastResults = null;
+
+/**
+ * Wire up delegated click handling for entry cards and cited-source links.
+ *
+ * #search-results' innerHTML is replaced wholesale on every search, so the
+ * listener is delegated on the stable results container (attached once, at
+ * init) instead of bound to child elements that get discarded on the next
+ * render.
+ */
+export function initSearchResultsDelegation() {
+  const resultsContainer = document.getElementById('search-results');
+  resultsContainer?.addEventListener('click', (e) => {
+    const target = /** @type {HTMLElement} */ (e.target);
+    const sourceLink = target.closest('a[data-entry-id]');
+    if (sourceLink) {
+      e.preventDefault();
+      const entryId = /** @type {HTMLElement} */ (sourceLink).dataset.entryId;
+      if (entryId) showEntry(entryId);
+      return;
+    }
+    const card = target.closest('[data-entry-id]');
+    if (card) {
+      const entryId = /** @type {HTMLElement} */ (card).dataset.entryId;
+      if (entryId) showEntry(entryId);
+    }
+  });
+}
 
 /**
  * Initialize search module.
  */
 export function initSearch() {
-  const searchInput = document.getElementById('search-input');
+  const searchInput = /** @type {HTMLInputElement|null} */ (document.getElementById('search-input'));
   const searchBtn = document.getElementById('search-btn');
 
   // Search input enter key
@@ -50,19 +92,21 @@ export function initSearch() {
       searchInput?.focus();
     }
     // Escape to clear search
-    if (e.key === 'Escape' && document.activeElement === searchInput) {
+    if (e.key === 'Escape' && document.activeElement === searchInput && searchInput) {
       searchInput.value = '';
       searchInput.blur();
     }
   });
+
+  initSearchResultsDelegation();
 }
 
 /**
  * Perform a search.
- * @param {string} query - Optional query override
+ * @param {string|null} [query] - Optional query override
  */
 export async function performSearch(query = null) {
-  const searchInput = document.getElementById('search-input');
+  const searchInput = /** @type {HTMLInputElement|null} */ (document.getElementById('search-input'));
   const resultsContainer = document.getElementById('search-results');
 
   query = query || searchInput?.value?.trim();
@@ -81,6 +125,7 @@ export async function performSearch(query = null) {
 
   // Get mode and advanced params from the unified capabilities-driven UI
   const mode = getCurrentMode();
+  /** @type {Object<string, *>} */
   const advancedParams = getAdvancedParams();
 
   try {
@@ -96,12 +141,7 @@ export async function performSearch(query = null) {
   } catch (error) {
     console.error('Search failed:', error);
     if (resultsContainer) {
-      resultsContainer.innerHTML = `
-        <div class="empty-state">
-          <h3 class="empty-state-title text-error">Search Failed</h3>
-          <p class="empty-state-text">${escapeHtml(error.message)}</p>
-        </div>
-      `;
+      resultsContainer.innerHTML = renderErrorState('Search Failed', error);
     }
   } finally {
     isSearching = false;
@@ -110,7 +150,7 @@ export async function performSearch(query = null) {
 
 /**
  * Render search results.
- * @param {Object} results - Search results from API
+ * @param {SearchResults} results - Search results from API
  * @param {string} mode - The search mode selected by the user (e.g. 'keyword', 'semantic')
  */
 function renderSearchResults(results, mode = 'keyword') {
@@ -130,8 +170,8 @@ function renderSearchResults(results, mode = 'keyword') {
   }
 
   // Diagnostics bar if issues detected
-  if (results.diagnostics?.length > 0) {
-    html += renderDiagnosticsBar(results.diagnostics);
+  if ((results.diagnostics?.length ?? 0) > 0) {
+    html += renderDiagnosticsBar(results.diagnostics ?? []);
   }
 
   // Results header
@@ -148,10 +188,10 @@ function renderSearchResults(results, mode = 'keyword') {
   `;
 
   // Results list
-  if (results.entries?.length > 0) {
+  if ((results.entries?.length ?? 0) > 0) {
     const sourcesSet = results.sources?.length ? new Set(results.sources) : null;
     html += '<div class="results-list">';
-    results.entries.forEach(entry => {
+    (results.entries ?? []).forEach(entry => {
       const isCited = sourcesSet ? sourcesSet.has(entry.entry_id) : false;
       html += renderEntryCard(entry, isCited);
     });
@@ -170,7 +210,7 @@ function renderSearchResults(results, mode = 'keyword') {
  * Clear search results.
  */
 export function clearSearch() {
-  const searchInput = document.getElementById('search-input');
+  const searchInput = /** @type {HTMLInputElement|null} */ (document.getElementById('search-input'));
   const resultsContainer = document.getElementById('search-results');
 
   if (searchInput) searchInput.value = '';

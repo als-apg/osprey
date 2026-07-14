@@ -23,7 +23,7 @@ Signatures pinned (target value -> asserted threshold, with margin):
   downward during the excursions.
 """
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 import pytest
@@ -42,8 +42,10 @@ def _window(center: datetime, minutes: int = 10, step_s: int = 1) -> list[dateti
 
 
 def _yesterday_event() -> datetime:
-    """Yesterday at 14:32:08 — the daily ``at_time`` anchor fires on any past date."""
-    day = datetime.now() - timedelta(days=1)
+    """Yesterday 14:32:08 in the facility zone (UTC in tests) — the daily ``at_time``
+    anchor fires on any past date. Building the window tz-aware in the facility zone
+    keeps the contract independent of the deploy host's ``$TZ``."""
+    day = datetime.now(UTC) - timedelta(days=1)
     return day.replace(hour=14, minute=32, second=8, microsecond=0)
 
 

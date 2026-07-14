@@ -1,0 +1,66 @@
+# Full Virtual Accelerator image: PyAT + pythonSoftIOC + osprey (the VA
+# service now ships as osprey.services.virtual_accelerator, part of the
+# osprey package itself), assembled by entrypoint.py as
+# manifest -> records -> physics bridge -> engine source, served over CA.
+#
+# Build context MUST be a staging directory containing exactly:
+#   pyproject.toml, README.md, src/, docker/virtual-accelerator/Containerfile
+# (see scripts/va/run_va.sh / build_and_boot_check.sh, which stage it) --
+# NOT the repo root, which also contains .venv/.git/worktrees and would
+# make every build re-tar gigabytes of unrelated content.
+#
+# Why python:3.11-slim, not python:3.10-slim (the Phase-1 probe's base):
+# osprey's own pyproject.toml requires Python >=3.11, but the originally
+# investigated softioc==4.5.0 publishes wheels no newer than cp310 -- these
+# two constraints are mutually exclusive in one interpreter. softioc first
+# publishes a cp311 wheel at 4.6.1; accelerator-toolbox is bumped to 0.7.1
+# to match what this repo's uv.lock already resolves (and what
+# lattice/response.py and ioc/physics_bridge.py were actually built and
+# tested against) rather than the stale 0.6.1 probe-era pin.
+#
+# Native architecture: no `--platform` pin, so the image resolves to the host
+# arch. accelerator-toolbox/softioc (and softioc's epicscorelibs/pvxslibs deps)
+# publish no manylinux_aarch64 wheels at any version, so on arm64 they compile from
+# sdist at build time using the toolchain installed below (purged in the same
+# RUN layer); on x86_64 the prebuilt wheels install as before -- no emulation.
+FROM python:3.11-slim
+
+# osprey itself -- manifest/lattice/ioc/entrypoint now live under
+# src/osprey/services/virtual_accelerator/ and install as part of the
+# package, so no separate COPY of a docker/virtual-accelerator source tree
+# is needed. Built from the source copied in below -- never from PyPI -- so
+# the image always matches whatever checkout produced it (this feature may
+# not be released yet). manifest/paths.py locates the channel-finder DB JSON
+# files via the installed ``osprey.templates`` package location, so this
+# works with this plain (non-editable) install.
+WORKDIR /opt/osprey
+COPY pyproject.toml README.md /opt/osprey/
+COPY src/ /opt/osprey/src/
+
+# A C toolchain is needed at install time to compile the native deps from sdist
+# on arm64; it is installed and purged in this single RUN layer so it never
+# bloats the final image. build-essential pulls in the perl it needs
+# transitively -- no explicit perl package is required. Both pip installs (the
+# pinned native deps and osprey itself) run while the toolchain is present.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential python3-dev \
+    && pip install --no-cache-dir accelerator-toolbox==0.7.1 softioc==4.7.0 \
+    && pip install --no-cache-dir . \
+    && apt-get purge -y build-essential python3-dev \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
+
+# Channel Access server port. TCP only is required -- CA name-server mode
+# (EPICS_CA_NAME_SERVERS=<host>:5064, EPICS_CA_AUTO_ADDR_LIST=NO on the
+# client side) is the one host<->container configuration proven to work
+# across container runtimes (see
+# src/osprey/services/virtual_accelerator/probe/README.md); UDP broadcast
+# discovery is not published because it is not relied upon. 5064 matches the
+# "Local Simulation" gateway preset
+# (src/osprey/templates/data/facility_gateways.py) exactly, so a preset
+# project needs no config changes beyond selecting control_system.type:
+# virtual_accelerator.
+EXPOSE 5064/tcp
+ENV EPICS_CA_SERVER_PORT=5064
+
+CMD ["python", "-u", "-m", "osprey.services.virtual_accelerator.entrypoint"]

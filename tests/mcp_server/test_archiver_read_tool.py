@@ -108,6 +108,29 @@ async def test_archiver_read_relative_time(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
+def test_parse_time_interprets_naive_input_as_facility_local(monkeypatch):
+    """A naive operator time string is localized to the facility zone, not UTC.
+
+    Guards the contract the agent timezone rule promises (archiver_read times are
+    facility-local). A regression to ``tzinfo=UTC`` would query a shifted window.
+    """
+    from zoneinfo import ZoneInfo
+
+    from osprey.mcp_server.control_system.tools import archiver_read as mod
+
+    tokyo = ZoneInfo("Asia/Tokyo")  # UTC+9, fixed offset (no DST)
+    monkeypatch.setattr(mod, "get_facility_timezone", lambda: tokyo)
+
+    parsed = mod._parse_time("2026-06-01 12:00:00")  # naive, no offset
+    assert parsed.tzinfo is not None
+    assert parsed.utcoffset().total_seconds() == 9 * 3600  # facility-local, not UTC
+
+    # An explicit offset in the input is respected, not overridden.
+    aware = mod._parse_time("2026-06-01T12:00:00+00:00")
+    assert aware.utcoffset().total_seconds() == 0
+
+
+@pytest.mark.unit
 async def test_archiver_read_file_persistence(tmp_path, monkeypatch):
     """Archiver read saves data to _agent_data/artifacts/ via ArtifactStore."""
     monkeypatch.chdir(tmp_path)

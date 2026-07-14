@@ -6,7 +6,10 @@ module's standalone contract so the extracted primitives can be refactored
 without going through the full engine each time.
 """
 
+import os
+import time
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import numpy as np
 import pytest
@@ -95,21 +98,72 @@ class TestEventPositions:
 
 
 class TestDailyOccurrences:
+    """``at_time`` occurrences are placed in the facility timezone, not the box's
+    local zone. The tests pass an explicit ``tz`` and build expected positions in
+    that same zone, then assert the result is independent of the host ``$TZ``."""
+
     def test_one_per_calendar_date_in_window(self):
-        start = datetime(2026, 1, 1, 0, 0, 0)
-        end = datetime(2026, 1, 2, 23, 0, 0)
+        tz = ZoneInfo("UTC")
+        start = datetime(2026, 1, 1, 0, 0, 0, tzinfo=tz)
+        end = datetime(2026, 1, 2, 23, 0, 0, tzinfo=tz)
         t_abs = np.array([start.timestamp(), end.timestamp()])
-        occ = daily_occurrences("12:00:00", t_abs)
+        occ = daily_occurrences("12:00:00", t_abs, tz=tz)
         assert len(occ) == 2
-        assert occ[0] == datetime(2026, 1, 1, 12, 0, 0).timestamp()
-        assert occ[1] == datetime(2026, 1, 2, 12, 0, 0).timestamp()
+        assert occ[0] == datetime(2026, 1, 1, 12, 0, 0, tzinfo=tz).timestamp()
+        assert occ[1] == datetime(2026, 1, 2, 12, 0, 0, tzinfo=tz).timestamp()
 
     def test_occurrence_outside_window_excluded(self):
         # Window ends before noon on the only date → no occurrence.
-        start = datetime(2026, 1, 1, 0, 0, 0)
-        end = datetime(2026, 1, 1, 6, 0, 0)
+        tz = ZoneInfo("UTC")
+        start = datetime(2026, 1, 1, 0, 0, 0, tzinfo=tz)
+        end = datetime(2026, 1, 1, 6, 0, 0, tzinfo=tz)
         t_abs = np.array([start.timestamp(), end.timestamp()])
-        assert daily_occurrences("12:00:00", t_abs) == []
+        assert daily_occurrences("12:00:00", t_abs, tz=tz) == []
+
+    def test_positions_are_box_tz_independent(self):
+        """A UTC ``tz`` yields UTC-noon epochs even when the host ``$TZ`` is a
+        wildly different zone — this is the regression that broke the archiver
+        ``at_time`` benchmark on non-UTC deploy boxes."""
+        tz = ZoneInfo("UTC")
+        start = datetime(2026, 1, 1, 0, 0, 0, tzinfo=tz)
+        end = datetime(2026, 1, 1, 23, 0, 0, tzinfo=tz)
+        t_abs = np.array([start.timestamp(), end.timestamp()])
+        expected = datetime(2026, 1, 1, 12, 0, 0, tzinfo=tz).timestamp()
+
+        old_tz = os.environ.get("TZ")
+        try:
+            os.environ["TZ"] = "Pacific/Kiritimati"  # UTC+14, maximally far from UTC
+            time.tzset()
+            occ = daily_occurrences("12:00:00", t_abs, tz=tz)
+        finally:
+            if old_tz is None:
+                os.environ.pop("TZ", None)
+            else:
+                os.environ["TZ"] = old_tz
+            time.tzset()
+
+        assert occ == [expected]
+
+    def test_dst_boundary_one_occurrence_per_date(self):
+        """Characterization: across a spring-forward DST boundary the daily walk
+        still yields exactly one (local-noon) occurrence per calendar date — no
+        skipped or duplicated date. Noon is unambiguous (well clear of the 02:00
+        gap), so this pins the current contract and would catch a future cursor
+        refactor that miscounts dates across the transition."""
+        ny = ZoneInfo("America/New_York")
+        # 2026-03-08 is the US spring-forward date (02:00 -> 03:00 EST->EDT).
+        start = datetime(2026, 3, 7, 0, 0, tzinfo=ny)
+        end = datetime(2026, 3, 10, 23, 0, tzinfo=ny)
+        t_abs = np.array([start.timestamp(), end.timestamp()])
+
+        occ = daily_occurrences("12:00:00", t_abs, tz=ny)
+
+        assert len(occ) == 4  # Mar 7, 8, 9, 10
+        dates = {datetime.fromtimestamp(e, ny).date() for e in occ}
+        assert len(dates) == 4  # one per distinct calendar date
+        for epoch in occ:
+            local = datetime.fromtimestamp(epoch, ny)
+            assert (local.hour, local.minute) == (12, 0)
 
 
 class TestStringSeries:

@@ -218,7 +218,12 @@ cli:
 # SYSTEM
 # ============================================================
 system:
-  timezone: ${TZ:-UTC}
+  # Facility timezone: governs how the agent interprets operator-provided times
+  # (parsed as facility-local) and renders all timestamps (with an explicit
+  # offset). Set your real facility zone (e.g. America/Los_Angeles); use UTC for
+  # reproducible demos. Avoid ${TZ:-...}: inheriting the host $TZ makes archiver
+  # queries and simulated events non-deterministic.
+  timezone: UTC
 
 file_paths:
   agent_data_dir: _agent_data
@@ -318,7 +323,7 @@ web:
       enabled: false
     channel-finder:
       enabled: false
-    tuning:
+    lattice:
       enabled: false
 ```
 
@@ -488,6 +493,24 @@ The custom panel service would be a lightweight FastAPI app that:
 | `label` | string | No | Tab display label; defaults to panel ID in uppercase |
 | `url` | string | Yes | Full URL to panel service |
 | `health_endpoint` | string | No | Relative path polled for health status |
+| `hidden` | bool | No | Launch the panel but keep its tab hidden until the agent shows it (default `false`) |
+
+### Runtime panel visibility & registration
+
+The agent can change which panels are visible at runtime and register ad-hoc URL
+panels, mirroring the artifact-focus pattern:
+
+- `web.panels.<id>.hidden: true` — launch the panel's backend but keep its tab
+  hidden until the agent calls `show_panel`.
+- `web.allow_runtime_panels` (default `false`) — allow the agent's `register_panel`
+  tool to add ad-hoc URL tabs at runtime. **Off by default.**
+- `web.runtime_panel_allowlist: [host[:port], ...]` — restrict registration targets
+  to specific hosts.
+
+**Security:** runtime registration is off by default. When enabled, candidate URLs
+are rejected if they resolve to loopback / link-local / cloud-metadata addresses,
+but a proxied panel renders same-origin (like every custom panel) — so only enable
+it together with an allowlist of hosts you trust.
 
 ### Enabling built-in panels alongside custom ones
 
@@ -499,7 +522,7 @@ web:
       enabled: false
     channel-finder:
       enabled: false
-    tuning:
+    lattice:
       enabled: false
     # Custom panel
     detector-monitor:

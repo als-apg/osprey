@@ -1,0 +1,10 @@
+{
+  "$description": "Channel-finder-only extension token: PV-name monospace font (cf-font-pv, Syne Mono). Source: channel_finder/static/css/channel-finder.css line 52. Font-family has no color, so the dark/light values are identical — still declared under both groups to satisfy theme completeness. Not color-bearing at all, so the high-contrast family opts out via $extensions.inherits.",
+  "$extensions": { "inherits": { "high-contrast-dark": "dark", "high-contrast-light": "light", "apex-dark": "dark", "apex-light": "light" } },
+  "dark": {
+    "cf-font-pv": { "$value": "'Syne Mono', 'JetBrains Mono', monospace", "$type": "fontFamily" }
+  },
+  "light": {
+    "cf-font-pv": { "$value": "'Syne Mono', 'JetBrains Mono', monospace", "$type": "fontFamily" }
+  }
+}

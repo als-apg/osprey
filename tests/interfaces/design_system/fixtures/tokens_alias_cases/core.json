@@ -1,0 +1,10 @@
+{
+  "color": {
+    "teal": {
+      "500": { "$value": "#14b8a6", "$type": "color" }
+    }
+  },
+  "chained": {
+    "one": { "$value": "{color.teal.500}", "$type": "color" }
+  }
+}

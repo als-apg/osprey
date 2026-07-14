@@ -1,20 +1,21 @@
-# Osprey Framework - Latest Release (v2026.6.0)
+# Osprey Framework - Latest Release (v2026.6.2)
 
-**Containerization & local inference: a per-project reference Dockerfile, the `ds4` local-inference provider, and a data-driven simulation engine**
+**Open & self-hosted model support: run the OSPREY agent on any OpenAI-protocol model — open-weight or self-hosted, remote or local — as a configuration change, with a new model-capability benchmark; plus facility-timezone unification, ARIEL logbook publishing fixes, and hardening.**
 
 ## Highlights
 
-- **Per-project reference Dockerfile.** `osprey build` now renders a self-documenting `Dockerfile` + `.dockerignore` into every project — install Claude Code + OSPREY, copy the project, serve the web terminal on 8087 as a non-root user. User-owned (never touched by `regen`); site extension via three build ARGs. New how-to: `docs/source/how-to/containerize-project.rst`.
-- **`ds4` local-inference provider.** Keyless, OpenAI-compatible local DwarfStar/DeepSeek-V4 server (default `http://127.0.0.1:8000/v1`). Introduces a per-provider `supports_native_structured_output` flag replacing the hardcoded structured-output whitelist.
-- **Data-driven simulation engine** (`osprey.simulation`). A `machine.json` defines channels, fault scenarios, and archiver event scripts so corrective writes propagate through physics couplings and archived history correlates with live values. Ships with a generic `sim-scenarios` skill.
-- **`osprey claude regen --runtime-root PATH`.** Re-anchors `project_root` and re-renders Claude Code artifacts for a relocated checkout (e.g. inside a container); a stale `python_env_path` falls back to the current interpreter.
+- **Open & self-hosted models.** Run the OSPREY agent on any OpenAI-protocol model — open-weight or self-hosted, remote or local — as a configuration change, not a code change. The agent speaks the Anthropic Messages API and a local translation proxy that OSPREY starts automatically reaches OpenAI-compatible endpoints; `provider=ds4` (local DeepSeek) now resolves in the `control_assistant` and `hello_world` presets. New how-to guide: *Run Open & Local Models* (#296, #297).
+- **Model-capability benchmark.** A declarative `scripts/benchmark/` toolchain runs the model-driving subset of the e2e suite across a model × provider matrix and renders a per-test pass-rate dashboard. The whole run is one config — each row names a provider and a model `id`, and the launcher resolves credentials, derives the route (proxy for OpenAI-protocol, direct for Anthropic), and runs one isolated worker per cell. Adding a model or provider is a config edit (#259).
+- **Facility-timezone unification.** All agent-facing timestamps — archiver queries, live channel reads, simulated events, ARIEL logbook entries, executed-script run times — now share one configurable `system.timezone`, rendered with explicit UTC offsets; operator-provided times ("today", "14:32") are read as facility-local. Shipped presets pin `system.timezone: UTC` for reproducible runs (#286).
+- **ARIEL logbook publishing.** Web entries (including those with attachments) now publish through the facility adapter with proper credential handling — a logbook that needs credentials returns HTTP 401 and the form prompts instead of silently saving local-only — and ARIEL-only attachments are no longer erased by a later re-ingestion poll (#291).
+- **Headless CI runs.** `osprey query "<prompt>"` performs a read-only agent run for CI pipelines: it boots the full MCP + tools stack, exits 0 on pass / 1 on verdict fail / 2 on infra error, and supports `--json` for machine-readable output (#298).
 
 ## Notable changes
 
-- `claude-agent-sdk` upgraded to 0.2.93 (bundles CLI 2.1.167); als-apg routing re-verified.
-- `data-visualizer` subagent defaults to `create_interactive_plot` for unspecified plot requests.
-- Config edits now auto-regenerate Claude Code artifacts so changes (e.g. `writes_enabled`) take effect without a stale-settings gap (#244).
-- Archiver `None`-gap values no longer crash `lttb_downsample()`; gaps render as true gaps in charts (#247).
+- `claude-agent-sdk` upgraded to 0.2.106 (bundles CLI 2.1.185) (#278).
+- The EPICS connector now routes Channel Access writes through the configured `gateways.write_access` gateway when `control_system.writes_enabled` is true, falling back to `gateways.read_only` otherwise — reinforcing the writes-enabled master switch at the network layer (#304).
+- The channel-limits `defaults` block is now actually inherited, so a `defaults: {writable: false}` lockdown takes effect; the non-functional `on_violation` knob was removed (limit enforcement is unconditional and fail-closed).
+- `osprey skills install osprey-design-philosophy` bundles OSPREY's design principles as an installable skill for contributors (#284).
 
 ## Installation
 

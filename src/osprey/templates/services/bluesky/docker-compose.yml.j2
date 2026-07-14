@@ -1,0 +1,202 @@
+# The bluesky-bridge service owns the Bluesky RunEngine + ophyd-async devices
+# behind a FastAPI HTTP boundary (see src/osprey/services/bluesky_bridge/).
+# `osprey deploy up` builds its image locally on first run; subsequent runs
+# reuse the local tag. To use a prebuilt/published image instead, set
+# OSPREY_BLUESKY_BRIDGE_IMAGE (e.g. OSPREY_BLUESKY_BRIDGE_IMAGE=my-registry/osprey-bluesky-bridge:dev).
+# Use `osprey deploy up --dev` to bake in your local osprey checkout (incl.
+# unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
+
+services:
+  bluesky-bridge:
+    image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-{{ services.bluesky.image | default('osprey-bluesky-bridge:local') }}}
+    build:
+      # With multiple `-f` compose files, ALL relative paths (build contexts and
+      # bind mounts alike) resolve against the FIRST file's dir — the compose
+      # project directory, build/services/ — not this file's own subdir. So the
+      # context is ./bluesky, matching the volume-path convention below.
+      context: ./bluesky
+      dockerfile: Dockerfile
+      args:
+        OSPREY_VERSION: "{{ osprey_version | default('') }}"
+{% if 'virtual_accelerator' in deployed_services %}
+    # Only when the Virtual Accelerator (Task 4.1) is co-deployed: order the
+    # bridge's startup after the VA's CA-readiness healthcheck, so the
+    # substrate scanner's ophyd-async connect (Task 2.3) doesn't race the
+    # IOC's iocInit. A bridge-only deploy (no VA in deployed_services) must
+    # NOT get this — compose errors on depends_on naming an undefined service.
+    depends_on:
+      virtual-accelerator:
+        condition: service_healthy
+{% endif %}
+    container_name: osprey-bluesky-bridge
+    command:
+      [
+        "uvicorn",
+        "osprey.services.bluesky_bridge.app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "{{ services.bluesky.port | default(8090) }}",
+      ]
+    labels:
+      osprey.project.name: "{{ osprey_labels.project_name }}"
+      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+    restart: unless-stopped
+    ports:
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky.port | default(8090) }}:{{ services.bluesky.port | default(8090) }}"
+    environment:
+      # No :-default — an unset token must stay EMPTY so the bridge's
+      # POST /runs/{id}/promote route fails closed (HTTP 503) rather than
+      # booting with a guessable secret. `osprey deploy up` auto-generates a
+      # strong random token into the project .env when unset (see
+      # container_lifecycle.py's per-service token-mint map).
+      BLUESKY_PROMOTE_TOKEN: ${BLUESKY_PROMOTE_TOKEN}
+      # The connector-backed bridge reads control_system.type/writes_enabled
+      # and control_system.limits_checking.database_path from config.yml at
+      # runtime (Task 3.2). CWD is the image WORKDIR (/app), not the project
+      # dir, so without CONFIG_FILE this falls back to /app/config.yml and
+      # every connector lookup errors "No config.yml found" — mirrors
+      # dispatch_worker's identical CONFIG_FILE convention.
+      CONFIG_FILE: /app/project/config.yml
+      TZ: {{ system.timezone }}
+{% if 'virtual_accelerator' in deployed_services %}
+      # Reach the co-deployed Virtual Accelerator (Task 4.1) over Channel
+      # Access. Name-server TCP transport is the one host<->container CA
+      # config proven to work — UDP broadcast discovery doesn't cross the
+      # VM boundary. Port matches services.virtual_accelerator.port so an
+      # operator override stays consistent between the two services.
+      EPICS_CA_NAME_SERVERS: "virtual-accelerator:{{ (services.virtual_accelerator | default({})).port | default(5064) }}"
+      EPICS_CA_AUTO_ADDR_LIST: "NO"
+      # Substrate scanner wiring (Task 2.3, locked contract in app.py).
+      # Passthrough only — the operator/deploy env chooses the actual PVs
+      # (Task 5.1's e2e sets these), never hardcoded here. The :- empty
+      # default makes an unset BLUESKY_EPICS_SUBSTRATE harmless: the bridge
+      # falls back to its default (non-substrate) scanner.
+      BLUESKY_EPICS_SUBSTRATE: "${BLUESKY_EPICS_SUBSTRATE:-}"
+      BLUESKY_EPICS_MOTORS: "${BLUESKY_EPICS_MOTORS:-}"
+      BLUESKY_EPICS_DETECTORS: "${BLUESKY_EPICS_DETECTORS:-}"
+{% endif %}
+{% if services.bluesky.demo_scanner | default(false) %}
+      # Deploy-smoke-demo / tutorial only: tells app.py's guarded startup hook
+      # (task 2.14a) to wire a real bluesky RunEngine against MOCK ophyd-async
+      # devices (devices/mock.py) instead of the Phase 1 no-op FakeScanner.
+      # NEVER set services.bluesky.demo_scanner for a facility wiring real
+      # EPICS hardware — it would silently override real device/plan wiring
+      # with an in-memory mock scanner.
+      BLUESKY_DEMO_SCANNER: "true"
+{% endif %}
+{% if services.bluesky.tiled_enabled | default(false) %}
+      # Tiled persistence (Task 2.7): the bridge's TiledWriter connects to the
+      # co-deployed Tiled server over osprey-network at its container port
+      # (never the host-published tiled_port). No :- default on the API key —
+      # an unset key must fail closed rather than let the writer connect
+      # unauthenticated.
+      BLUESKY_TILED_URI: "http://tiled:8000"
+      BLUESKY_TILED_API_KEY: ${BLUESKY_TILED_API_KEY}
+{% endif %}
+    volumes:
+      # Bind-mount source is relative to the compose project directory
+      # (build/services/), not this file's own subdir — hence the bluesky/
+      # prefix (mirrors dispatch_worker's config.yml:ro mount convention).
+      # Always present, unlike the VA/tiled blocks above: the bridge needs
+      # config.yml to resolve control_system settings regardless of which
+      # optional services are co-deployed (Task 3.2).
+      - ./bluesky/config.yml:/app/project/config.yml:ro
+{% if (control_system | default({})).writes_enabled | default(false) %}
+      # Channel limits DB (Task 3.2, CC-2): only meaningful once writes are
+      # enabled — a read-only deploy never opens it. Mounted under the SAME
+      # /app/project root as config.yml above so a relative
+      # control_system.limits_checking.database_path (e.g.
+      # "data/channel_limits.json") resolves against the CONFIG_FILE
+      # directory (/app/project, set above) exactly as the connector/startup
+      # guard expect (limits_validator.py, app.py's
+      # _assert_limits_readable_if_writable) — the mounted config.yml lives
+      # there, not at the host build's project_root. Source path mirrors the
+      # Virtual Accelerator's data mount convention (../../ reaches the
+      # project root's data/ dir from build/services/).
+      - ../../data/channel_limits.json:/app/project/data/channel_limits.json:ro
+{% endif %}
+    networks:
+      - osprey-network
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:{{ services.bluesky.port | default(8090) }}/health').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # Grace period before failed probes count — uvicorn/FastAPI startup and
+      # the first image build (which bakes in the bluesky-bridge extra's
+      # dependencies at build time, not at container start) take a few seconds.
+      start_period: 15s
+{% if services.bluesky.tiled_enabled | default(false) %}
+
+  # OPTIONAL: a local Tiled server for the bridge's TiledWriter subscription
+  # (Task 2.7) to persist run documents to. Enabled by setting
+  # `services.bluesky.tiled_enabled: true` in config.yml; loopback/osprey-network
+  # only, same as the bridge itself. Not required for Phase 2's FakeScanner path.
+  tiled:
+    image: ${OSPREY_TILED_IMAGE:-ghcr.io/bluesky/tiled:0.2.12}
+    container_name: osprey-bluesky-tiled
+    restart: unless-stopped
+    # `serve catalog` aborts without a catalog DB argument and defaults to
+    # 127.0.0.1 (unreachable from the bridge container) without --host. The
+    # duckdb:// writable target is required alongside the filesystem one:
+    # bluesky's TiledWriter appends event tables via create_appendable_table
+    # + append_partition, which need SQL-family storage.
+    #
+    # Mounted at /storage: the image ships that path pre-owned by uid=999
+    # (app), the user the container runs as, so a fresh named volume
+    # inherits that ownership from the image on first mount. Any mount
+    # point absent from the image gets created root-owned by Docker
+    # instead, and the uid=999 process can't open a catalog DB under a
+    # root-owned directory (fails closed with "unable to open database
+    # file") — so this path must stay pinned to one the image ships.
+    #
+    # The duckdb:// target below uses FOUR slashes, NOT a typo: this is
+    # the standard SQLAlchemy DBAPI URI convention (driver://[host]/path),
+    # where an empty host segment leaves the path either RELATIVE (three
+    # slashes: driver:///relative/path, resolved against the container's
+    # CWD) or ABSOLUTE (four slashes: driver:////absolute/path). Three
+    # slashes here resolves to a relative "storage/data.duckdb" against
+    # /app and fails server-side with "The directory storage does not
+    # exist." — a failure that surfaces to the client only as an opaque
+    # 409 on the run's metadata POST, not as a storage-URI error. Tiled's
+    # own catalog DB argument above (the sqlite backend under the covers)
+    # follows the identical four-slash-for-absolute convention. Do not
+    # "fix" this back to three slashes.
+    #
+    # --api-key is quoted with a `:?` guard, not the bare `${BLUESKY_TILED_API_KEY}`
+    # used elsewhere in this file: compose splits this string `command:` form
+    # shlex-style, so an unset-or-empty value contributes NO argument at all —
+    # not an empty one. `--api-key` then silently swallows the next token
+    # (`-w`) as its operand and a writable target vanishes, with the resulting
+    # error pointing at `-w`, never at the empty key. `:?` aborts `deploy up`
+    # with an explicit message instead. The quotes are belt-and-braces: if the
+    # `:?` is ever relaxed, an empty value becomes an explicit empty argument
+    # rather than a vanished one.
+    command: tiled serve catalog /storage/catalog.db --init --host 0.0.0.0 --port 8000 --api-key "${BLUESKY_TILED_API_KEY:?must be a non-empty alphanumeric key}" -w /storage/files -w duckdb:////storage/data.duckdb
+    ports:
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky.tiled_port | default(8091) }}:8000"
+    environment:
+      TZ: {{ system.timezone }}
+    volumes:
+      - bluesky_tiled_catalog:/storage
+    networks:
+      - osprey-network
+    healthcheck:
+      # /healthz is unauthenticated and always 200 — curl isn't in the image,
+      # so probe in-image with python, matching the bridge's own healthcheck.
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/healthz').status==200 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+{% endif %}
+
+networks:
+  osprey-network:
+{% if services.bluesky.tiled_enabled | default(false) %}
+
+volumes:
+  bluesky_tiled_catalog:
+{% endif %}

@@ -1,19 +1,25 @@
+// @ts-check
 /**
  * ARIEL Web Application
  *
  * Main application entry point and routing.
  */
 
+import { initTheme } from '/design-system/js/theme-manager.js';
+import { applyEmbedded } from '/design-system/js/frame-params.js';
 import { capabilitiesApi } from './api.js';
 import { initSearch, performSearch, clearSearch } from './search.js';
 import { initEntries, loadEntries, showEntry, closeEntryModal, loadDraft, showImageLightbox } from './entries.js';
 import { initDashboard, loadStatus, startAutoRefresh, stopAutoRefresh } from './dashboard.js';
 import { initAdvancedOptions } from './advanced-options.js';
-import { initDrawers } from './drawer.js';
-import { initSettings, loadConfig } from './settings.js';
+import '/design-system/js/components/osprey-drawer.js';
+import '/design-system/js/components/osprey-theme-switcher.js';
+import { initSettings } from './settings.js';
 
-// Theme sync is handled by the inline <script> in <head> (index.html),
-// NOT here — so it has zero import dependencies and always registers.
+// Panel embedded in the Web Terminal hub: apply the hub's broadcast theme
+// and follow live changes. theme-boot.js already applied data-theme
+// pre-paint; this call attaches the follower's postMessage listener.
+initTheme({ role: 'follower' });
 
 // Current view
 let currentView = 'search';
@@ -23,10 +29,7 @@ let currentView = 'search';
  */
 async function init() {
   // Embedded mode — hide logo when loaded inside web terminal iframe
-  const params = new URLSearchParams(window.location.search);
-  if (params.get('embedded') === 'true') {
-    document.body.classList.add('embedded');
-  }
+  applyEmbedded();
 
   // Initialize modules — wrapped in try/catch so navigation always works
   // even if the backend is unavailable (degraded mode).
@@ -42,7 +45,6 @@ async function init() {
     initEntries();
     initDashboard();
     initAdvancedOptions(capabilities);
-    initDrawers();
     initSettings();
   } catch (e) {
     console.error('Module initialization failed (non-fatal):', e);
@@ -56,14 +58,14 @@ async function init() {
   navigateTo(hash);
 
   // Expose app API to window for onclick handlers
-  window.app = {
+  /** @type {any} */ (window).app = {
     navigateTo,
     performSearch,
     clearSearch,
     showEntry,
     closeEntryModal,
     showImageLightbox,
-    loadEntriesPage: (page) => loadEntries({ page }),
+    loadEntriesPage: (/** @type {number} */ page) => loadEntries({ page }),
     loadStatus,
   };
 
@@ -78,8 +80,8 @@ function setupNavigation() {
   document.querySelectorAll('.nav-link[data-view]').forEach(link => {
     link.addEventListener('click', (e) => {
       e.preventDefault();
-      const view = link.dataset.view;
-      navigateTo(view);
+      const view = /** @type {HTMLElement} */ (link).dataset.view;
+      if (view) navigateTo(view);
     });
   });
 
@@ -146,7 +148,7 @@ function navigateTo(hash) {
 
   // Update nav links (match on view name only, not query params)
   document.querySelectorAll('.nav-link').forEach(link => {
-    link.classList.toggle('active', link.dataset.view === viewName);
+    link.classList.toggle('active', /** @type {HTMLElement} */ (link).dataset.view === viewName);
   });
 
   // Hide all views

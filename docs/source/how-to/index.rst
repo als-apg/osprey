@@ -17,6 +17,13 @@ Framework & Infrastructure
       Set up and switch between supported LLM providers — Anthropic, OpenAI, Google,
       CBORG, AMSC i2, Ollama, and others — via ``config.yml``.
 
+   .. grid-item-card:: Run Open & Local Models
+      :link: run-open-models
+      :link-type: doc
+
+      Drive the Osprey agent with open-weight or self-hosted models via the
+      translation proxy, and benchmark their capability with ``scripts/benchmark/``.
+
    .. grid-item-card:: Deploy a Project
       :link: deploy-project
       :link-type: doc
@@ -45,12 +52,12 @@ Framework & Infrastructure
       Build and register a new FastMCP server to expose domain-specific tools that
       the Osprey agent can discover and call.
 
-   .. grid-item-card:: Use the Web Terminal
-      :link: use-web-terminal
+   .. grid-item-card:: Web Terminal
+      :link: web-terminal/index
       :link-type: doc
 
-      Launch and operate the Web Terminal interface for interactive Osprey agent
-      sessions with your control system.
+      The browser cockpit for the Osprey agent — launching it, theming every
+      OSPREY interface at once, and adding your own themed side panels.
 
    .. grid-item-card:: Use the CLI Chat Interface
       :link: use-cli-chat
@@ -58,6 +65,13 @@ Framework & Infrastructure
 
       Run the Osprey agent in your native terminal with companion services accessible
       in a browser.
+
+   .. grid-item-card:: Non-Interactive Agent Queries
+      :link: non_interactive_query
+      :link-type: doc
+
+      Run the OSPREY agent headlessly from CI pipelines and automated workflows
+      with ``osprey query`` — read-only, structured JSON output, and clear exit codes.
 
    .. grid-item-card:: Use the Python Executor
       :link: use-python-executor
@@ -100,35 +114,47 @@ Services & Connectors
       Search, filter, and explore control system channels using the Channel Finder
       service and its web interface.
 
+   .. grid-item-card:: Use the Virtual Accelerator
+      :link: use-virtual-accelerator
+      :link-type: doc
+
+      Run the Control Assistant tutorial against a containerized PyAT soft-IOC that
+      serves real EPICS Channel Access with live storage-ring physics.
+
    .. grid-item-card:: ARIEL Logbook Search
       :link: ariel/index
       :link-type: doc
 
-      Intelligent search over facility electronic logbooks with keyword, semantic,
-      RAG, and agentic retrieval modes.
+      Search over facility electronic logbooks with keyword and
+      semantic retrieval modes, plus multi-step reasoning delegated to the
+      Osprey agent.
 
    .. grid-item-card:: Facility Knowledge
       :link: use-facility-knowledge
       :link-type: doc
 
-      Author and serve structured facility knowledge (subsystems, devices, procedures)
-      to the OSPREY agent via an on-demand markdown bundle.
+      What the Open Knowledge Format is and why OSPREY stores facility knowledge
+      as cross-linked markdown, plus how to structure, author, and serve a
+      bundle to the agent on demand.
 
 
 .. toctree::
    :hidden:
 
    configure-providers
+   run-open-models
    deploy-project
    containerize-project
    build-profiles
    add-mcp-server
-   use-web-terminal
+   web-terminal/index
    use-cli-chat
+   non_interactive_query
    use-python-executor
    event-dispatch
    add-connector
    use-channel-finder
+   use-virtual-accelerator
    ariel/index
    use-facility-knowledge
    /cli-reference/index

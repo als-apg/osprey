@@ -35,6 +35,20 @@ This application demonstrates production-validated patterns for building AI assi
 - Method: Functional hierarchy navigation via the channel-finder MCP server
 {% endif %}
 
+### Control-System Backends
+
+`control_system.type` selects the backend, without changing anything else:
+
+- **`mock`** (default) — in-process simulation; no hardware, no container.
+- **`virtual_accelerator`** — a containerized PyAT soft-IOC serving real EPICS
+  Channel Access with live storage-ring physics (corrector setpoints move BPM
+  readbacks). **Requires the container** in `docker/virtual-accelerator/` —
+  start it with `scripts/va/run_va.sh`, then
+  `osprey config set-control-system virtual_accelerator`. See the
+  "Use the Virtual Accelerator" how-to guide for scenarios, limits, and the
+  archiver live-vs-history note.
+- **`epics`** — production EPICS via the facility gateway.
+
 ---
 
 ## 🚀 Quick Start

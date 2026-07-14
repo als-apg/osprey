@@ -33,27 +33,46 @@ class _RecordingCallback:
 
 @pytest.mark.asyncio
 async def test_loop_fires_at_interval_then_stops(monkeypatch):
-    """Deterministic: fake sleep fires once, then cancels the loop."""
-    callback = _RecordingCallback()
+    """The loop fires the trigger each interval and stops cleanly when cancelled.
+
+    Deterministic and pollution-proof: the interval wait is replaced with an
+    immediate yield (loop body runs without real time), the test waits on an
+    ``Event`` for the first fire — never racing the spawned task — then
+    ``stop()`` cancels the loop. Earlier this test stopped the loop by counting
+    ``asyncio.sleep`` calls and raising ``CancelledError`` on the second; because
+    the patch lands on the *global* ``asyncio.sleep`` and the counter is shared,
+    any other coroutine's ``sleep`` in the same loop could push the count so the
+    loop's *first* sleep raised before the callback ever fired — an intermittent
+    ``0 == 1`` under full-suite load. Termination now keys off the callback, not
+    the sleep count, so a stray ``sleep`` can no longer skew it.
+    """
     source = CronSource()
     trigger = _make_trigger("nightly", interval_sec=300)
 
-    sleep_calls = {"n": 0}
+    calls: list[tuple[TriggerConfig, dict]] = []
+    fired = asyncio.Event()
 
-    async def fake_sleep(_secs):
-        sleep_calls["n"] += 1
-        if sleep_calls["n"] >= 2:
-            raise asyncio.CancelledError
-        return None
+    async def callback(trig: TriggerConfig, payload: dict) -> str | None:
+        calls.append((trig, payload))
+        fired.set()
+        return "d-1"
 
-    monkeypatch.setattr("osprey.dispatch.sources.cron.asyncio.sleep", fake_sleep)
+    # Capture the genuine sleep before patching so the no-op interval still
+    # yields control to the event loop (without any real delay).
+    real_sleep = asyncio.sleep
+
+    async def instant_interval(_seconds):
+        await real_sleep(0)
+
+    monkeypatch.setattr("osprey.dispatch.sources.cron.asyncio.sleep", instant_interval)
 
     await source.start([trigger], callback)
-    # Let the spawned task run until it cancels itself on the 2nd sleep.
-    await asyncio.gather(*source._tasks, return_exceptions=True)
+    await asyncio.wait_for(fired.wait(), timeout=5)
+    await source.stop()
 
-    assert len(callback.calls) == 1
-    fired_trigger, payload = callback.calls[0]
+    assert source._tasks == []  # stop() cancelled the loop
+    assert len(calls) >= 1  # fired at least once at the interval
+    fired_trigger, payload = calls[0]
     assert fired_trigger is trigger
     assert payload["source"] == "cron"
     assert payload["trigger"] == "nightly"

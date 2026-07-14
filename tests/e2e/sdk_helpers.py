@@ -8,6 +8,7 @@ Extracted from test_claude_code_sdk_e2e.py to avoid circular imports.
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -31,7 +32,6 @@ try:
         ToolResultBlock,
         ToolUseBlock,
         UserMessage,
-        query,
     )
 
     HAS_SDK = True
@@ -50,6 +50,30 @@ try:
 except ImportError:
     HAS_SUBAGENT_READERS = False
 
+
+# ---------------------------------------------------------------------------
+# Shared primitives — imported from the production package so there is a
+# single source of truth; sdk_helpers re-exports them so test modules that
+# import from here continue to work unchanged.
+# ---------------------------------------------------------------------------
+from osprey.agent_runner import (
+    SDKWorkflowResult,
+    ToolTrace,
+    _await_mcp_ready,
+    _expected_mcp_servers,
+    resolve_default_model,
+    sdk_env,
+)
+from osprey.agent_runner import (
+    combined_text as combined_text,  # re-exported for other e2e test modules
+)
+from osprey.agent_runner.primitives import (
+    _ingest_tool_result,
+    _resolve_project_spec,
+)
+from osprey.agent_runner.primitives import (
+    provider_env_for_project as provider_env_for_project,  # re-exported for e2e tests
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -88,6 +112,76 @@ def has_als_apg_api_key() -> bool:
     return bool(os.environ.get("ALS_APG_API_KEY"))
 
 
+_DEFAULT_ARIEL_DB_URI = "postgresql://ariel:ariel@localhost:5432/ariel"
+
+
+def ariel_db_skip_reason(uri: str | None = None) -> str | None:
+    """Return an actionable skip reason if the ARIEL Postgres is not ready.
+
+    The scenario E2E tests (rf_cavity correlation, sector-7 vacuum burst,
+    corrector honest-refusal) drive the logbook-search sub-agent, which needs a
+    live, *seeded* ARIEL Postgres. When it is absent, every ARIEL search fails
+    with a 5-second pool-open timeout buried inside the sub-agent; the test then
+    fails on a downstream tool-trace assertion that *looks like* a model
+    capability miss ("the agent couldn't find the cavity"). That false signal
+    cost hours once. This guard converts the silent prerequisite into an
+    explicit, actionable skip.
+
+    Returns ``None`` when the DB is reachable and has at least one entry,
+    otherwise a human-readable reason string suitable for ``pytest.skip``.
+    Override the URI with ``OSPREY_ARIEL_DB_URI``.
+    """
+    uri = uri or os.environ.get("OSPREY_ARIEL_DB_URI", _DEFAULT_ARIEL_DB_URI)
+    try:
+        import psycopg
+    except ImportError:
+        return "psycopg not installed — cannot verify the ARIEL DB prerequisite"
+    try:
+        with psycopg.connect(uri, connect_timeout=3) as conn:
+            row = conn.execute("SELECT count(*) FROM enhanced_entries").fetchone()
+    except Exception as exc:  # noqa: BLE001 — any failure means "not ready"
+        return (
+            f"ARIEL Postgres not reachable ({exc.__class__.__name__}) — scenario "
+            "tests need a live, seeded ARIEL logbook DB. Bring it up with "
+            "`osprey deploy up && osprey ariel migrate && osprey ariel quickstart`."
+        )
+    count = row[0] if row else 0
+    if count == 0:
+        return "ARIEL Postgres is reachable but empty — seed it with `osprey ariel quickstart`."
+    return None
+
+
+def _override_ariel_db_uri(project_dir: Path) -> None:
+    """Point a freshly built project at the per-cell ARIEL database.
+
+    When ``OSPREY_ARIEL_DB_URI`` is set (the matrix runner provisions one
+    database per (model, seed) cell), rewrite the rendered ``config.yml`` so the
+    agent's ARIEL MCP server *and* ``apply_scenarios`` both talk to the per-cell
+    DB instead of the shared default. This is what makes concurrent cells
+    isolated: a scenario test in one cell purges only its own DB and can no
+    longer drop another cell's ``text_embeddings_*`` tables mid-test.
+
+    The default URI is a hardcoded literal in the template (not a profile
+    variable), so ``--set ariel.database.uri`` would not reach the rendered
+    config — a post-build text substitution is the reliable hook.
+
+    Projects that do not use a real ARIEL Postgres DB (e.g. the ``hello_world``
+    preset renders ``ariel: {enabled: false}`` and no DB URI) have nothing to
+    redirect, so the default URI is simply absent and this is a no-op. Template
+    *drift* for ARIEL-using presets is caught loudly elsewhere: the matrix
+    runner's per-cell provisioning patches a freshly built control-assistant
+    config and asserts the default URI is present before it can seed the DB.
+    """
+    override = os.environ.get("OSPREY_ARIEL_DB_URI")
+    if not override or override == _DEFAULT_ARIEL_DB_URI:
+        return
+    config_path = project_dir / "config.yml"
+    text = config_path.read_text(encoding="utf-8")
+    if _DEFAULT_ARIEL_DB_URI not in text:
+        return
+    config_path.write_text(text.replace(_DEFAULT_ARIEL_DB_URI, override), encoding="utf-8")
+
+
 def init_project(
     tmp_path: Path,
     name: str,
@@ -116,7 +210,15 @@ def init_project(
     raising ``ValueError: I/O operation on closed file`` at fixture
     setup. ``CliRunner`` is also a unit-test harness; an e2e fixture
     should exercise the same entry point real users invoke.
+
+    Suite-wide override (CBORG model-matrix, issue #259): when
+    ``OSPREY_E2E_FORCE_PROVIDER`` is set it replaces the per-callsite
+    ``provider`` so the *entire* tests/e2e/ suite can be pointed at one
+    provider without editing each fixture. Paired with
+    ``OSPREY_E2E_FORCE_MODEL`` (honored in ``_resolve_project_spec``), which
+    collapses all tiers onto a single model id.
     """
+    provider = os.environ.get("OSPREY_E2E_FORCE_PROVIDER", provider)
     args = [
         name,
         "--preset",
@@ -147,6 +249,7 @@ def init_project(
     )
     project_dir = tmp_path / name
     assert project_dir.exists(), f"Project directory not created: {project_dir}"
+    _override_ariel_db_uri(project_dir)
     return project_dir
 
 
@@ -220,65 +323,6 @@ def activate_scenarios(project_dir: Path, *names: str, now=None):
     return apply_scenarios(project_dir, list(names), seed_logbook=True, now=now)
 
 
-def _resolve_project_spec(project_dir: Path):
-    """Return the project's ``ClaudeCodeModelSpec`` or ``None`` when the
-    project's ``config.yml`` has no ``claude_code`` block.
-
-    Reads ``config.yml`` and runs the same resolver ``osprey claude chat``
-    uses, so test routing matches production exactly. Unlike the earlier
-    bare-``except`` version, this surfaces any unexpected error (missing
-    ``config.yml``, YAML parse failure, resolver import failure) rather
-    than masking it as ``None``.
-    """
-    import yaml
-
-    from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
-
-    cfg = yaml.safe_load((project_dir / "config.yml").read_text()) or {}
-    return ClaudeCodeModelResolver.resolve(
-        cfg.get("claude_code", {}),
-        cfg.get("api", {}).get("providers", {}),
-    )
-
-
-def provider_env_for_project(project_dir: Path) -> dict[str, str]:
-    """Resolve provider env vars so the SDK routes to the project's provider.
-
-    Without this, the bundled Claude CLI defaults to ``api.anthropic.com``
-    using whatever ambient ``ANTHROPIC_API_KEY`` happens to be set — which
-    is the wrong endpoint for cborg/als-apg projects and 404s on model
-    aliases like ``anthropic/claude-haiku``.
-
-    Returns the spec's ``env_block`` (``ANTHROPIC_BASE_URL``,
-    ``ANTHROPIC_DEFAULT_*_MODEL``, ...) plus the auth var populated from
-    the configured shell secret. Raises ``RuntimeError`` if the project
-    has no resolvable provider — silently falling back to ``{}`` would
-    let the test subprocess inherit ambient env, which is the exact
-    local-vs-CI divergence we are trying to eliminate.
-    """
-    spec = _resolve_project_spec(project_dir)
-    if spec is None:
-        raise RuntimeError(
-            f"Project at {project_dir} has no resolvable provider in "
-            "config.yml — pass provider=<als-apg|cborg|anthropic|amsc-i2|argo> "
-            "to init_project()."
-        )
-    env: dict[str, str] = dict(spec.env_block)
-    if spec.auth_secret_env and spec.auth_env_var:
-        secret = os.environ.get(spec.auth_secret_env)
-        if secret:
-            env[spec.auth_env_var] = secret
-    return env
-
-
-def _default_haiku_model(project_dir: Path) -> str:
-    """Resolve the project's haiku-tier model name."""
-    spec = _resolve_project_spec(project_dir)
-    if spec is not None:
-        return spec.tier_to_model.get("haiku", "claude-haiku-4-5-20251001")
-    return "claude-haiku-4-5-20251001"
-
-
 def _default_opus_model(project_dir: Path) -> str:
     """Resolve the project's opus-tier model name.
 
@@ -290,30 +334,6 @@ def _default_opus_model(project_dir: Path) -> str:
     if spec is not None:
         return spec.tier_to_model.get("opus", "claude-opus-4-7")
     return "claude-opus-4-7"
-
-
-def sdk_env(project_dir: Path | None = None) -> dict[str, str]:
-    """Return env overrides for the SDK subprocess.
-
-    Always sets ``CLAUDECODE=""`` to bypass the nested-session guard
-    (JavaScript treats "" as falsy). When ``project_dir`` is provided,
-    also injects the project's resolved provider env block so the bundled
-    CLI talks to the configured provider (cborg, als-apg, anthropic-direct)
-    instead of falling through to ``api.anthropic.com``.
-    """
-    env = {"CLAUDECODE": ""}
-    if project_dir is not None:
-        env.update(provider_env_for_project(project_dir))
-    return env
-
-
-def combined_text(result: SDKWorkflowResult) -> str:
-    """Combine all text blocks and tool results into a single searchable string."""
-    parts = list(result.text_blocks)
-    for trace in result.tool_traces:
-        if trace.result:
-            parts.append(trace.result)
-    return " ".join(parts).lower()
 
 
 def find_png_files(root: Path) -> list[Path]:
@@ -342,75 +362,32 @@ def read_audit_events(project_dir: Path) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Tool trace dataclass
+# MCP sidecar + core runner support helpers
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class ToolTrace:
-    """Lightweight record of a single tool call for observability."""
-
-    name: str
-    input: dict
-    result: str | None = None
-    is_error: bool = False
-    tool_use_id: str | None = None
-    parent_tool_use_id: str | None = None
-
-
-@dataclass
-class SDKWorkflowResult:
-    """Aggregated result from an SDK query run."""
-
-    tool_traces: list[ToolTrace] = field(default_factory=list)
-    text_blocks: list[str] = field(default_factory=list)
-    system_messages: list[SystemMessage] = field(default_factory=list)
-    result: ResultMessage | None = None
-
-    @property
-    def tool_names(self) -> list[str]:
-        """Ordered list of tool names that were called."""
-        return [t.name for t in self.tool_traces]
-
-    @property
-    def cost_usd(self) -> float | None:
-        """Total cost from the ResultMessage."""
-        return self.result.total_cost_usd if self.result else None
-
-    @property
-    def num_turns(self) -> int | None:
-        """Number of agentic turns from the ResultMessage."""
-        return self.result.num_turns if self.result else None
-
-    def tools_matching(self, substring: str) -> list[ToolTrace]:
-        """Return all tool traces whose name contains *substring*."""
-        return [t for t in self.tool_traces if substring in t.name]
-
-
-# ---------------------------------------------------------------------------
-# Core SDK runner
-# ---------------------------------------------------------------------------
-
-
-def _ingest_tool_result(block: ToolResultBlock, pending_tools: dict[str, ToolTrace]) -> None:
-    """Match a ToolResultBlock to its pending ToolTrace and populate result/is_error.
-
-    ToolResultBlocks arrive in ``UserMessage.content`` (per Anthropic API contract:
-    tool_use is assistant output, tool_result is user input back to the model).
-    They may also appear in ``AssistantMessage`` when the SDK forwards them.
-    """
-    matched = pending_tools.get(block.tool_use_id)
-    if matched is None:
+def _persist_mcp_sidecar(workflow: SDKWorkflowResult, project_dir: Path) -> None:
+    """Write the MCP-status snapshot to a per-test sidecar when
+    ``OSPREY_E2E_INIT_SIDECAR`` is set. Off by default, so ordinary CI/local runs
+    are byte-for-byte unchanged. The sidecar turns the infra-vs-model question
+    into a recorded fact for post-hoc benchmark forensics."""
+    if not os.environ.get("OSPREY_E2E_INIT_SIDECAR"):
         return
-    if isinstance(block.content, str):
-        matched.result = block.content
-    elif isinstance(block.content, list):
-        texts = []
-        for item in block.content:
-            if isinstance(item, dict) and item.get("type") == "text":
-                texts.append(item.get("text", ""))
-        matched.result = "\n".join(texts) if texts else str(block.content)
-    matched.is_error = bool(block.is_error)
+    try:
+        out_dir = project_dir / ".osprey_e2e"
+        out_dir.mkdir(exist_ok=True)
+        payload = {
+            "mcp_server_status": workflow.mcp_server_status,
+            "registered_tools": workflow.registered_tools,
+            "tools_called": workflow.tool_names,
+            "num_turns": workflow.num_turns,
+            "cost_usd": workflow.cost_usd,
+            "repeated_tool_calls": workflow.repeated_tool_calls,
+            "has_redelegation_loop": workflow.has_redelegation_loop,
+        }
+        (out_dir / "mcp_status.json").write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    except OSError:
+        pass  # instrumentation must never fail a test
 
 
 def _result_text(content: Any) -> str:
@@ -494,6 +471,31 @@ def _harvest_subagent_traces(
                         matched.is_error = bool(block.get("is_error"))
 
 
+def e2e_budget_scale() -> float:
+    """Per-query budget multiplier for the model under test.
+
+    The base ``max_budget_usd`` caps across the e2e suite are tuned for the
+    haiku-tier default model. Pricier reference models (Sonnet, Opus) cost
+    several times more per token, so the same multi-step task blows the cap and
+    hard-errors mid-query (``Reached maximum budget``) — a cost artifact that
+    deflates their benchmark score for reasons unrelated to capability. The
+    model matrix runner (``scripts/run_e2e_for_model.sh``) sets
+    ``OSPREY_E2E_BUDGET_SCALE`` per model so the cap **and** the cost-ceiling
+    assertions scale together. Defaults to 1.0, so CI and ordinary local runs
+    are byte-for-byte unchanged.
+    """
+    try:
+        scale = float(os.environ.get("OSPREY_E2E_BUDGET_SCALE", "1.0"))
+    except ValueError:
+        return 1.0
+    return scale if scale > 0 else 1.0
+
+
+# ---------------------------------------------------------------------------
+# Core SDK runner
+# ---------------------------------------------------------------------------
+
+
 async def run_sdk_query(
     project_dir: Path,
     prompt: str,
@@ -527,11 +529,11 @@ async def run_sdk_query(
     stderr_lines: list[str] = []
 
     options = ClaudeAgentOptions(
-        model=model if model is not None else _default_haiku_model(project_dir),
+        model=model if model is not None else resolve_default_model(project_dir),
         cwd=str(project_dir),
         permission_mode="bypassPermissions",
         max_turns=max_turns,
-        max_budget_usd=max_budget_usd,
+        max_budget_usd=max_budget_usd * e2e_budget_scale(),
         env=sdk_env(project_dir),
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
@@ -544,35 +546,44 @@ async def run_sdk_query(
     pending_tools: dict[str, ToolTrace] = {}
 
     try:
-        async for message in query(prompt=prompt, options=options):
-            if isinstance(message, AssistantMessage):
-                for block in message.content:
-                    if isinstance(block, TextBlock):
-                        workflow.text_blocks.append(block.text)
-                    elif isinstance(block, ToolUseBlock):
-                        trace = ToolTrace(
-                            name=block.name,
-                            input=block.input,
-                            tool_use_id=block.id,
-                            parent_tool_use_id=message.parent_tool_use_id,
-                        )
-                        workflow.tool_traces.append(trace)
-                        pending_tools[block.id] = trace
-                    elif isinstance(block, ToolResultBlock):
-                        _ingest_tool_result(block, pending_tools)
-
-            elif isinstance(message, UserMessage):
-                # Tool results land here per the Anthropic API contract.
-                if isinstance(message.content, list):
+        # ClaudeSDKClient (streaming) rather than the one-shot ``query()`` so we can
+        # poll ``get_mcp_status()`` and wait out async MCP registration before the
+        # first turn — eliminating the controls cold-start race (see _await_mcp_ready).
+        # Message handling is identical to the query() iterator.
+        async with ClaudeSDKClient(options=options) as client:
+            workflow.mcp_servers = await _await_mcp_ready(
+                client, _expected_mcp_servers(project_dir)
+            )
+            await client.query(prompt)
+            async for message in client.receive_response():
+                if isinstance(message, AssistantMessage):
                     for block in message.content:
-                        if isinstance(block, ToolResultBlock):
+                        if isinstance(block, TextBlock):
+                            workflow.text_blocks.append(block.text)
+                        elif isinstance(block, ToolUseBlock):
+                            trace = ToolTrace(
+                                name=block.name,
+                                input=block.input,
+                                tool_use_id=block.id,
+                                parent_tool_use_id=message.parent_tool_use_id,
+                            )
+                            workflow.tool_traces.append(trace)
+                            pending_tools[block.id] = trace
+                        elif isinstance(block, ToolResultBlock):
                             _ingest_tool_result(block, pending_tools)
 
-            elif isinstance(message, SystemMessage):
-                workflow.system_messages.append(message)
+                elif isinstance(message, UserMessage):
+                    # Tool results land here per the Anthropic API contract.
+                    if isinstance(message.content, list):
+                        for block in message.content:
+                            if isinstance(block, ToolResultBlock):
+                                _ingest_tool_result(block, pending_tools)
 
-            elif isinstance(message, ResultMessage):
-                workflow.result = message
+                elif isinstance(message, SystemMessage):
+                    workflow.system_messages.append(message)
+
+                elif isinstance(message, ResultMessage):
+                    workflow.result = message
     except Exception as exc:
         stderr_output = "\n".join(stderr_lines) if stderr_lines else "(no stderr captured)"
         raise RuntimeError(f"SDK query failed: {exc}\n\nCLI stderr:\n{stderr_output}") from exc
@@ -581,6 +592,7 @@ async def run_sdk_query(
     # them from the on-disk transcripts so delegation tests can observe them.
     _harvest_subagent_traces(workflow, pending_tools, project_dir)
 
+    _persist_mcp_sidecar(workflow, project_dir)
     return workflow
 
 
@@ -676,11 +688,11 @@ async def run_sdk_query_with_hooks(
             return PermissionResultDeny(message="Denied by test approval policy")
 
     options = ClaudeAgentOptions(
-        model=model if model is not None else _default_haiku_model(project_dir),
+        model=model if model is not None else resolve_default_model(project_dir),
         cwd=str(project_dir),
         permission_mode="default",
         max_turns=max_turns,
-        max_budget_usd=max_budget_usd,
+        max_budget_usd=max_budget_usd * e2e_budget_scale(),
         env=sdk_env(project_dir),
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
@@ -696,6 +708,12 @@ async def run_sdk_query_with_hooks(
         # ClaudeSDKClient is required for can_use_tool (streaming mode).
         # The simple query() function does not support permission callbacks.
         async with ClaudeSDKClient(options=options) as client:
+            # Wait out async MCP registration (controls cold-starts ~1.5s) so the
+            # agent never races a half-built toolset. Snapshot is the authoritative
+            # infra-vs-model record.
+            workflow.mcp_servers = await _await_mcp_ready(
+                client, _expected_mcp_servers(project_dir)
+            )
             await client.query(prompt)
             async for message in client.receive_response():
                 if isinstance(message, AssistantMessage):
@@ -733,4 +751,5 @@ async def run_sdk_query_with_hooks(
     _harvest_subagent_traces(workflow, pending_tools, project_dir)
 
     workflow.hook_events = hook_events
+    _persist_mcp_sidecar(workflow, project_dir)
     return workflow

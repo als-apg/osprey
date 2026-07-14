@@ -417,9 +417,8 @@ class TestClaudeExecutesArchiverAndPlots:
             "Use the archiver_read tool to retrieve data for channels "
             "'DIAG:BPM01:POSITION:X', 'DIAG:BPM02:POSITION:X', "
             "'DIAG:BPM03:POSITION:X' over the last 24 hours. "
-            "Then create a timeseries plot of the data and save it as a PNG "
-            "file. All permissions are pre-approved; do not ask for "
-            "confirmation."
+            "Then create a timeseries plot of the data. All permissions are "
+            "pre-approved; do not ask for confirmation."
         )
 
         result = run_claude(project_dir, prompt, timeout=300)
@@ -452,16 +451,20 @@ class TestClaudeExecutesArchiverAndPlots:
             f"Workspace contents: {list(workspace_dir.rglob('*')) if workspace_dir.exists() else 'N/A'}"
         )
 
-        # A plot PNG was created somewhere in the project tree. The agent
-        # may produce it via either the execute tool (raw python) or the
-        # data-visualizer subagent's create_static_plot — both are valid
-        # routes; we only assert the artifact landed.
+        # A plot artifact was created. The agent may produce a static PNG
+        # (execute tool / create_static_plot) or — the default for an
+        # unspecified plot request — an interactive HTML plot via the
+        # data-visualizer's create_interactive_plot. Both are valid; we only
+        # assert that a plot artifact landed in the artifact store.
         png_files = find_png_files(project_dir)
+        artifacts_dir = project_dir / "_agent_data" / "artifacts"
+        interactive_plots = sorted(artifacts_dir.glob("*.html")) if artifacts_dir.exists() else []
+        plot_files = png_files + interactive_plots
         exec_diag = diagnose_python_execute(project_dir)
         workspace_tree = diagnose_workspace(project_dir)
-        assert len(png_files) > 0, (
-            "No PNG files found anywhere in the project — the agent did "
-            "not produce a plot.\n"
+        assert len(plot_files) > 0, (
+            "No plot artifact (PNG or interactive HTML) found — the agent "
+            "did not produce a plot.\n"
             f"--- Execution diagnostics ---\n{exec_diag}\n"
             f"--- Workspace tree ---\n{workspace_tree}\n"
             f"--- stderr (first 1000) ---\n{result.stderr[:1000]}\n"
@@ -480,11 +483,12 @@ class TestClaudeExecutesArchiverAndPlots:
         # vocabulary. That message is free-form and model-dependent (Haiku
         # sometimes ends with "what would you like me to do next?" even after
         # completing the task), so the scan flaked while the workflow had
-        # actually succeeded. The data-file and PNG assertions above are the
-        # authoritative proof that archiver_read ran and a plot was persisted.
+        # actually succeeded. The data-file and plot-artifact assertions above
+        # are the authoritative proof that archiver_read ran and a plot was
+        # persisted.
 
         print(f"  data files: {len(data_files)}")
-        print(f"  PNG files: {[p.name for p in png_files]}")
+        print(f"  plot files: {[p.name for p in plot_files]}")
 
 
 # ===========================================================================

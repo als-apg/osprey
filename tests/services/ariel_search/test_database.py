@@ -469,6 +469,35 @@ class TestMigrationRunnerLogic:
         assert migration.name == "core_schema"
         assert migration.depends_on == []
 
+    def test_get_enabled_migrations_passes_configured_models(self) -> None:
+        """`osprey ariel migrate` must build the embedding migration with the
+        configured (model, dimension) pairs, so a table is created per configured
+        model rather than only the hardcoded default.
+
+        Regression: MigrationRunner instantiated TextEmbeddingMigration() with no
+        args, so configured models were dropped and only nomic-embed-text/768 was
+        ever created.
+        """
+        from osprey.services.ariel_search.database.migrations import MigrationRunner
+
+        config = ARIELConfig.from_dict(
+            {
+                "database": {"uri": "postgresql://localhost:5432/test"},
+                "enhancement_modules": {
+                    "text_embedding": {
+                        "enabled": True,
+                        "models": [{"name": "mxbai-embed-large", "dimension": 1024}],
+                    },
+                },
+            }
+        )
+
+        runner = MigrationRunner(pool=None, config=config)  # type: ignore[arg-type]
+        migrations = runner._get_enabled_migrations()
+
+        text_emb = next(m for m in migrations if m.name == "text_embedding")
+        assert text_emb._get_models() == [("mxbai-embed-large", 1024)]
+
 
 class TestRepositoryInitialization:
     """Tests for ARIELRepository initialization."""

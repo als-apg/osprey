@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * ARIEL Advanced Options
  *
@@ -5,11 +6,58 @@
  * based on capabilities discovered from the backend API.
  */
 
+import { escapeHtml } from '/design-system/js/dom.js';
+
+/**
+ * @typedef {Object} AdvancedParamOption
+ * @property {string} value
+ * @property {string} label
+ */
+
+/**
+ * @typedef {Object} AdvancedParam
+ * @property {string} name
+ * @property {string} label
+ * @property {string} [description]
+ * @property {string} type - "float"|"int"|"bool"|"select"|"date"|"text"|"dynamic_select"
+ * @property {*} [default]
+ * @property {number} [min]
+ * @property {number} [max]
+ * @property {number} [step]
+ * @property {string} [section]
+ * @property {string} [placeholder]
+ * @property {string} [options_endpoint]
+ * @property {AdvancedParamOption[]} [options]
+ */
+
+/**
+ * @typedef {Object} AdvancedMode
+ * @property {string} name
+ * @property {string} label
+ * @property {string} [description]
+ * @property {AdvancedParam[]} [parameters]
+ */
+
+/**
+ * @typedef {Object} AdvancedCategory
+ * @property {string} label
+ * @property {AdvancedMode[]} [modes]
+ */
+
+/**
+ * @typedef {Object} Capabilities
+ * @property {Object<string, AdvancedCategory>} categories
+ * @property {AdvancedParam[]} [shared_parameters]
+ */
+
 // --- State ---
+/** @type {Capabilities|null} */
 let capabilities = null;
 let currentMode = 'keyword';
 let isPanelOpen = false;
+/** @type {Object<string, *>} */
 let paramValues = {};
+/** @type {Object<string, AdvancedParamOption[]>} */
 const dynamicOptionsCache = {};
 
 // --- Fallback ---
@@ -29,7 +77,7 @@ const FALLBACK_CAPABILITIES = {
 
 /**
  * Initialize the advanced options system.
- * @param {Object|null} caps - Capabilities from /api/capabilities (or null for fallback)
+ * @param {Capabilities|null} caps - Capabilities from /api/capabilities (or null for fallback)
  */
 export function initAdvancedOptions(caps) {
   capabilities = caps || FALLBACK_CAPABILITIES;
@@ -95,6 +143,7 @@ export function getAdvancedParams() {
     ...sharedParams.map(p => p.name),
   ]);
 
+  /** @type {Object<string, *>} */
   const result = {};
   for (const name of allParamNames) {
     if (name in paramValues && paramValues[name] !== undefined && paramValues[name] !== null) {
@@ -106,10 +155,9 @@ export function getAdvancedParams() {
 
 /**
  * Legacy export for backwards compatibility with search.js.
- * @param {string} mode - Search mode (ignored, uses currentMode)
  * @returns {Object} Advanced options
  */
-export function getAdvancedOptions(mode) {
+export function getAdvancedOptions() {
   return getAdvancedParams();
 }
 
@@ -164,9 +212,10 @@ function renderModeTabs() {
   container.innerHTML = html;
 
   // Attach click handlers
-  container.querySelectorAll('.mode-tab').forEach(btn => {
+  const tabs = /** @type {NodeListOf<HTMLElement>} */ (container.querySelectorAll('.mode-tab'));
+  tabs.forEach(btn => {
     btn.addEventListener('click', () => {
-      selectMode(btn.dataset.mode);
+      if (btn.dataset.mode) selectMode(btn.dataset.mode);
     });
   });
 }
@@ -179,7 +228,8 @@ function selectMode(mode) {
   currentMode = mode;
 
   // Update active class on tabs
-  document.querySelectorAll('.mode-tab').forEach(btn => {
+  const tabs = /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.mode-tab'));
+  tabs.forEach(btn => {
     btn.classList.toggle('active', btn.dataset.mode === mode);
   });
 
@@ -192,7 +242,7 @@ function selectMode(mode) {
 /**
  * Get parameter descriptors for a mode.
  * @param {string} modeName - Mode name
- * @returns {Array} Parameter descriptors
+ * @returns {AdvancedParam[]} Parameter descriptors
  */
 function getModeParameters(modeName) {
   const categories = capabilities?.categories || {};
@@ -229,7 +279,9 @@ function renderAdvancedPanel() {
   }
 
   // Group by section, separate "Filters" from the rest
+  /** @type {AdvancedParam[]} */
   const filterParams = [];
+  /** @type {Object<string, AdvancedParam[]>} */
   const otherSections = {};
   for (const param of allParams) {
     const section = param.section || 'General';
@@ -286,7 +338,7 @@ function renderAdvancedPanel() {
 
 /**
  * Render a single parameter control.
- * @param {Object} param - Parameter descriptor
+ * @param {AdvancedParam} param - Parameter descriptor
  * @returns {string} HTML string
  */
 function renderParameter(param) {
@@ -305,7 +357,7 @@ function renderParameter(param) {
     case 'text':
       return renderTextInput(param, value);
     case 'dynamic_select':
-      return renderDynamicSelect(param, value);
+      return renderDynamicSelect(param);
     default:
       return '';
   }
@@ -313,6 +365,9 @@ function renderParameter(param) {
 
 /**
  * Render a slider control for float/int params.
+ * @param {AdvancedParam} param - Parameter descriptor
+ * @param {*} value - Current value
+ * @returns {string} HTML string
  */
 function renderSlider(param, value) {
   const displayValue = param.type === 'float' ? Number(value).toFixed(2) : value;
@@ -332,6 +387,9 @@ function renderSlider(param, value) {
 
 /**
  * Render a toggle switch for bool params.
+ * @param {AdvancedParam} param - Parameter descriptor
+ * @param {*} value - Current value
+ * @returns {string} HTML string
  */
 function renderToggle(param, value) {
   const checked = value ? 'checked' : '';
@@ -349,6 +407,9 @@ function renderToggle(param, value) {
 
 /**
  * Render a select dropdown for select params.
+ * @param {AdvancedParam} param - Parameter descriptor
+ * @param {*} value - Current value
+ * @returns {string} HTML string
  */
 function renderSelect(param, value) {
   let optionsHtml = '';
@@ -370,6 +431,9 @@ function renderSelect(param, value) {
 
 /**
  * Render a date input control.
+ * @param {AdvancedParam} param - Parameter descriptor
+ * @param {*} value - Current value
+ * @returns {string} HTML string
  */
 function renderDateInput(param, value) {
   const val = value || '';
@@ -384,6 +448,9 @@ function renderDateInput(param, value) {
 
 /**
  * Render a text input control.
+ * @param {AdvancedParam} param - Parameter descriptor
+ * @param {*} value - Current value
+ * @returns {string} HTML string
  */
 function renderTextInput(param, value) {
   const val = value || '';
@@ -400,8 +467,10 @@ function renderTextInput(param, value) {
 
 /**
  * Render a dynamic select that fetches options from an endpoint.
+ * @param {AdvancedParam} param - Parameter descriptor
+ * @returns {string} HTML string
  */
-function renderDynamicSelect(param, value) {
+function renderDynamicSelect(param) {
   return `
     <div class="input-group">
       <label class="input-label" for="param-${param.name}" title="${escapeHtml(param.description)}">${escapeHtml(param.label)}</label>
@@ -416,16 +485,20 @@ function renderDynamicSelect(param, value) {
 
 /**
  * Fetch and populate options for dynamic_select elements.
+ * @param {HTMLElement} container - Container to search for dynamic_select elements
  */
 async function loadDynamicSelectOptions(container) {
-  const selects = container.querySelectorAll('select[data-type="dynamic_select"]');
+  const selects = /** @type {NodeListOf<HTMLSelectElement>} */ (
+    container.querySelectorAll('select[data-type="dynamic_select"]')
+  );
   for (const select of selects) {
     const endpoint = select.dataset.endpoint;
     if (!endpoint) continue;
 
-    const currentValue = paramValues[select.dataset.param] || '';
+    const currentValue = paramValues[select.dataset.param || ''] || '';
 
     try {
+      /** @type {AdvancedParamOption[]} */
       let options;
       if (dynamicOptionsCache[endpoint]) {
         options = dynamicOptionsCache[endpoint];
@@ -452,12 +525,17 @@ async function loadDynamicSelectOptions(container) {
 
 /**
  * Attach change listeners to parameter controls.
+ * @param {HTMLElement} container - Container holding the rendered parameter controls
  */
 function attachParamListeners(container) {
   // Sliders
-  container.querySelectorAll('input[type="range"][data-param]').forEach(slider => {
+  const sliders = /** @type {NodeListOf<HTMLInputElement>} */ (
+    container.querySelectorAll('input[type="range"][data-param]')
+  );
+  sliders.forEach(slider => {
     slider.addEventListener('input', () => {
       const name = slider.dataset.param;
+      if (!name) return;
       const type = slider.dataset.type;
       const val = type === 'float' ? parseFloat(slider.value) : parseInt(slider.value, 10);
       paramValues[name] = val;
@@ -465,36 +543,56 @@ function attachParamListeners(container) {
       // Update displayed value
       const display = document.getElementById(`param-${name}-value`);
       if (display) {
-        display.textContent = type === 'float' ? val.toFixed(2) : val;
+        display.textContent = type === 'float' ? val.toFixed(2) : String(val);
       }
     });
   });
 
   // Toggles
-  container.querySelectorAll('input[type="checkbox"][data-param]').forEach(toggle => {
+  const toggles = /** @type {NodeListOf<HTMLInputElement>} */ (
+    container.querySelectorAll('input[type="checkbox"][data-param]')
+  );
+  toggles.forEach(toggle => {
     toggle.addEventListener('change', () => {
-      paramValues[toggle.dataset.param] = toggle.checked;
+      const name = toggle.dataset.param;
+      if (!name) return;
+      paramValues[name] = toggle.checked;
     });
   });
 
   // Selects (including dynamic_select)
-  container.querySelectorAll('select[data-param]').forEach(select => {
+  const selects = /** @type {NodeListOf<HTMLSelectElement>} */ (
+    container.querySelectorAll('select[data-param]')
+  );
+  selects.forEach(select => {
     select.addEventListener('change', () => {
-      paramValues[select.dataset.param] = select.value || null;
+      const name = select.dataset.param;
+      if (!name) return;
+      paramValues[name] = select.value || null;
     });
   });
 
   // Date inputs
-  container.querySelectorAll('input[type="date"][data-param]').forEach(input => {
+  const dateInputs = /** @type {NodeListOf<HTMLInputElement>} */ (
+    container.querySelectorAll('input[type="date"][data-param]')
+  );
+  dateInputs.forEach(input => {
     input.addEventListener('change', () => {
-      paramValues[input.dataset.param] = input.value || null;
+      const name = input.dataset.param;
+      if (!name) return;
+      paramValues[name] = input.value || null;
     });
   });
 
   // Text inputs
-  container.querySelectorAll('input[type="text"][data-param]').forEach(input => {
+  const textInputs = /** @type {NodeListOf<HTMLInputElement>} */ (
+    container.querySelectorAll('input[type="text"][data-param]')
+  );
+  textInputs.forEach(input => {
     input.addEventListener('input', () => {
-      paramValues[input.dataset.param] = input.value.trim() || null;
+      const name = input.dataset.param;
+      if (!name) return;
+      paramValues[name] = input.value.trim() || null;
     });
   });
 }
@@ -523,16 +621,6 @@ function resetToDefaults() {
       paramValues[param.name] = param.default;
     }
   }
-}
-
-/**
- * Escape HTML special characters.
- */
-function escapeHtml(str) {
-  if (!str) return '';
-  const div = document.createElement('div');
-  div.textContent = String(str);
-  return div.innerHTML;
 }
 
 export default {

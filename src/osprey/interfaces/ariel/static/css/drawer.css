@@ -22,21 +22,21 @@
   transition: transform var(--transition-slow);
 }
 
-.drawer.open {
+.drawer[open] {
   transform: translateX(0);
 }
 
 .drawer-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: color-mix(in srgb, var(--bg-terminal) 50%, transparent);
   z-index: calc(var(--z-modal) - 1);
   opacity: 0;
   visibility: hidden;
   transition: opacity var(--transition-slow), visibility var(--transition-slow);
 }
 
-.drawer-backdrop.visible {
+.drawer-backdrop[open] {
   opacity: 1;
   visibility: visible;
 }
@@ -46,7 +46,7 @@
   align-items: center;
   justify-content: space-between;
   padding: var(--space-4) var(--space-5);
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--neutral-tint-10);
   flex-shrink: 0;
 }
 

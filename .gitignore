@@ -80,6 +80,10 @@ Thumbs.db
 !models/.gitkeep
 results/
 !results/.gitkeep
+# Benchmark model-matrix run exhaust (#259) — regenerable from scripts/benchmark/.
+# All generated artifacts (dashboard.html, results_box/, live_updater.log) live
+# under one output dir co-located with the tooling, keeping the repo root clean.
+scripts/benchmark/_out/
 *.h5
 *.pkl
 *.pt
@@ -155,3 +159,6 @@ tests/e2e/claude_code/benchmark_results/
 
 # Playwright MCP browser-session cache (page snapshots, console logs)
 .playwright-mcp/
+
+# Node.js (dev-only JS toolchain; not part of the Python wheel)
+node_modules/

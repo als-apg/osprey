@@ -58,6 +58,16 @@ def anthropic_to_openai_request(body: dict) -> dict:
     return openai_body
 
 
+def _system_text(content: str | list | None) -> str:
+    """Flatten an Anthropic system value (str or content-block list) to text."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        text_parts = [b["text"] for b in content if isinstance(b, dict) and b.get("type") == "text"]
+        return "\n".join(text_parts)
+    return ""
+
+
 def _convert_messages(
     anthropic_messages: list[dict],
     system: str | list | None,
@@ -65,17 +75,11 @@ def _convert_messages(
     """Convert Anthropic message array to OpenAI message array."""
     openai_messages: list[dict] = []
 
-    # System prompt
+    # Top-level system prompt
     if system:
-        if isinstance(system, str):
-            openai_messages.append({"role": "system", "content": system})
-        elif isinstance(system, list):
-            # Anthropic system can be list of content blocks
-            text_parts = [
-                b["text"] for b in system if isinstance(b, dict) and b.get("type") == "text"
-            ]
-            if text_parts:
-                openai_messages.append({"role": "system", "content": "\n".join(text_parts)})
+        text = _system_text(system)
+        if text:
+            openai_messages.append({"role": "system", "content": text})
 
     for msg in anthropic_messages:
         role = msg.get("role", "user")
@@ -85,6 +89,14 @@ def _convert_messages(
             openai_messages.extend(_convert_user_message(content))
         elif role == "assistant":
             openai_messages.extend(_convert_assistant_message(content))
+        elif role == "system":
+            # The Anthropic API carries the system prompt in the top-level
+            # ``system`` field, but some clients put a ``role: system`` entry in
+            # the array. Hoist it into an OpenAI system message rather than
+            # dropping it on the floor and silently losing the instruction (#285).
+            text = _system_text(content)
+            if text:
+                openai_messages.append({"role": "system", "content": text})
 
     return openai_messages
 

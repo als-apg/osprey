@@ -97,8 +97,49 @@ class DispatchConfig:
     dispatcher_port: int = 8020
     worker_port_base: int = 9190
     timeout_sec: int = 300
+    inactivity_sec: int = 120
     facility_name: str = ""
     pv_strip_prefix: str = ""
+
+
+@dataclass
+class BlueskyConfig:
+    """Bluesky scan-bridge configuration for a build profile (opt-in via the ``bluesky:`` key).
+
+    Consumed by the build pipeline's bluesky-injection step to deploy the
+    single ``bluesky_bridge`` service (see NAMING-ADDENDUM.md: deploy key
+    ``bluesky``, env var ``BLUESKY_PROMOTE_TOKEN``, MCP server name ``scan``).
+    Ports are validated by :meth:`BuildProfile.validate`.
+    """
+
+    port: int = 8090
+    tiled_enabled: bool = False
+    tiled_port: int = 8091
+    demo_scanner: bool = False
+    """Opt-in only for the deploy-smoke-demo / tutorial case: wires the
+    container's bridge process to a real bluesky RunEngine against mock
+    ophyd-async devices (``devices/mock.py``) via app.py's guarded startup
+    hook (task 2.14a), instead of the Phase 1 no-op ``FakeScanner`` default.
+    MUST stay False for any facility wiring real EPICS hardware — turning
+    this on would silently override real device/plan wiring with an
+    in-memory mock scanner.
+    """
+
+
+@dataclass
+class VAConfig:
+    """Virtual Accelerator soft-IOC configuration for a build profile (opt-in
+    via the ``virtual_accelerator:`` key).
+
+    Consumed by the build pipeline's VA-injection step to deploy the single
+    ``virtual_accelerator`` service (compose service ``virtual-accelerator``,
+    container ``osprey-virtual-accelerator``). Port is validated by
+    :meth:`BuildProfile.validate`.
+    """
+
+    port: int = 5064
+    """Channel Access TCP port the soft-IOC serves PVs on (see
+    src/osprey/services/virtual_accelerator/entrypoint.py's run contract)."""
 
 
 _ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
@@ -255,6 +296,8 @@ class BuildProfile:
     """
     categories: dict[str, dict[str, str]] = field(default_factory=dict)
     dispatch: DispatchConfig | None = None
+    bluesky: BlueskyConfig | None = None
+    virtual_accelerator: VAConfig | None = None
 
     def resolved_tier(self) -> int:
         """Resolve the build-time tier, applying a paradigm-aware default.
@@ -377,11 +420,18 @@ class BuildProfile:
             if panel in BUILTIN_PANELS:
                 continue
             url_key = f"web.panels.{panel}.url"
-            if url_key not in self.config:
-                errors.append(
-                    f"Unknown web_panel {panel!r}: not in BUILTIN_PANELS "
-                    f"({sorted(BUILTIN_PANELS)}) and no '{url_key}' config override"
-                )
+            if url_key in self.config:
+                continue
+            # The ``events`` panel URL is derived post-build from the dispatch
+            # block (``_inject_dispatch`` in build_cmd.py), which runs after this
+            # validator. So a dispatch-backed events panel is legitimately
+            # url-less here — accept it rather than aborting the build.
+            if panel == "events" and self.dispatch is not None:
+                continue
+            errors.append(
+                f"Unknown web_panel {panel!r}: not in BUILTIN_PANELS "
+                f"({sorted(BUILTIN_PANELS)}) and no '{url_key}' config override"
+            )
 
         # Validate default_panel: must be a built-in, a declared web_panels
         # entry, or a custom panel backed by a `web.panels.<id>.url` override.
@@ -448,6 +498,8 @@ class BuildProfile:
                 errors.append(f"dispatch.max_queue_depth must be >= 1 (got {d.max_queue_depth})")
             if d.timeout_sec <= 0:
                 errors.append(f"dispatch.timeout_sec must be > 0 (got {d.timeout_sec})")
+            if d.inactivity_sec <= 0:
+                errors.append(f"dispatch.inactivity_sec must be > 0 (got {d.inactivity_sec})")
             # triggers must be a non-empty, resolvable file
             # (profile-relative OR bundled preset name)
             if not d.triggers:
@@ -470,6 +522,25 @@ class BuildProfile:
                     UserWarning,
                     stacklevel=2,
                 )
+
+        # Validate bluesky configuration
+        if self.bluesky is not None:
+            b = self.bluesky
+            if not (1 <= b.port <= 65535):
+                errors.append(f"bluesky.port must be in 1..65535 (got {b.port})")
+            if b.tiled_enabled:
+                if not (1 <= b.tiled_port <= 65535):
+                    errors.append(f"bluesky.tiled_port must be in 1..65535 (got {b.tiled_port})")
+                elif b.tiled_port == b.port:
+                    errors.append(
+                        f"bluesky.tiled_port must differ from bluesky.port (both {b.port})"
+                    )
+
+        # Validate virtual_accelerator configuration
+        if self.virtual_accelerator is not None:
+            va = self.virtual_accelerator
+            if not (1 <= va.port <= 65535):
+                errors.append(f"virtual_accelerator.port must be in 1..65535 (got {va.port})")
 
         if errors:
             raise BuildProfileError(
@@ -540,6 +611,8 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "claude_md_template",
         "categories",
         "dispatch",
+        "bluesky",
+        "virtual_accelerator",
     }
 )
 
@@ -644,8 +717,30 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             dispatcher_port=dispatch_raw.get("dispatcher_port", 8020),
             worker_port_base=dispatch_raw.get("worker_port_base", 9190),
             timeout_sec=dispatch_raw.get("timeout_sec", 300),
+            inactivity_sec=dispatch_raw.get("inactivity_sec", 120),
             facility_name=dispatch_raw.get("facility_name", ""),
             pv_strip_prefix=dispatch_raw.get("pv_strip_prefix", ""),
+        )
+
+    bluesky_raw = raw.get("bluesky")
+    bluesky = None
+    if bluesky_raw is not None:
+        if not isinstance(bluesky_raw, dict):
+            raise BuildProfileError("Profile 'bluesky' must be a mapping")
+        bluesky = BlueskyConfig(
+            port=bluesky_raw.get("port", 8090),
+            tiled_enabled=bluesky_raw.get("tiled_enabled", False),
+            tiled_port=bluesky_raw.get("tiled_port", 8091),
+            demo_scanner=bluesky_raw.get("demo_scanner", False),
+        )
+
+    va_raw = raw.get("virtual_accelerator")
+    virtual_accelerator = None
+    if va_raw is not None:
+        if not isinstance(va_raw, dict):
+            raise BuildProfileError("Profile 'virtual_accelerator' must be a mapping")
+        virtual_accelerator = VAConfig(
+            port=va_raw.get("port", 5064),
         )
 
     return BuildProfile(
@@ -675,6 +770,8 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         claude_md_template=raw.get("claude_md_template"),
         categories=raw.get("categories", {}),
         dispatch=dispatch,
+        bluesky=bluesky,
+        virtual_accelerator=virtual_accelerator,
     )
 
 

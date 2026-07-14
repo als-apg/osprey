@@ -1,6 +1,8 @@
-# The dispatch-worker shares the event-dispatcher's locally-built image
-# (../event_dispatcher/Dockerfile). `osprey deploy up` builds it on first run.
-# Override with OSPREY_WORKER_IMAGE to use a prebuilt/published image instead.
+# The dispatch-worker runs the full PROJECT image (<project>:local) that
+# `osprey deploy up` builds from the project root — the same image the web
+# terminal runs, baking the facility overlays and data/ into /app/<project>.
+# It overrides only `command:` to launch the dispatch-worker MCP server instead
+# of the web UI. OSPREY_WORKER_IMAGE overrides with a prebuilt/published image.
 #
 # NOTE: Multi-worker load distribution is NOT yet implemented.
 # The dispatcher routes to dispatch-worker-1 only (hardcoded in tutorial_triggers.yml dispatch_target).
@@ -12,15 +14,13 @@ services:
 {% for i in range(1, wc + 1) %}
   dispatch-worker-{{ i }}:
     image: ${OSPREY_WORKER_IMAGE:-{{ services.dispatch_worker.image | default('osprey-dispatch:local') }}}
-    # NO build: block here on purpose. The worker shares the event-dispatcher's
-    # image (osprey-dispatch:local). If BOTH services declared `build:` for the
-    # same tag, `docker compose up` builds them concurrently and the two exports
-    # race to tag the image — one fails with
-    #   ERROR: image "osprey-dispatch:local": already exists
-    # (deterministic once base layers are cached). So event-dispatcher is the sole
-    # builder; the worker just references the image it produces (and `depends_on`
-    # it so the build is done first). A prebuilt OSPREY_WORKER_IMAGE override is
-    # pulled normally instead.
+    # NO build: block here on purpose. The project image (<project>:local) is
+    # built once by `osprey deploy up` (deployment/container_lifecycle.py) from
+    # the project root before `docker compose up` runs; the worker just
+    # references that prebuilt tag. Declaring a second `build:` for it would race
+    # the sole builder to tag the same image. `depends_on` keeps the worker
+    # ordered after the event-dispatcher. A prebuilt OSPREY_WORKER_IMAGE override
+    # is pulled normally instead.
     depends_on:
       - event-dispatcher
     container_name: osprey-dispatch-worker-{{ i }}
@@ -30,37 +30,47 @@ services:
       osprey.project.root: "{{ osprey_labels.project_root }}"
       osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
     restart: unless-stopped
+{% if osprey_env_present | default(false) %}
+    # Provider auth: the worker's startup hook (inject_provider_env) resolves
+    # the LLM provider key (e.g. ALS_APG_API_KEY -> ANTHROPIC_AUTH_TOKEN) from
+    # the process environment. `env_file:` is read by the compose CLI on the
+    # HOST (as the file's owner), so it works even though the project .env is
+    # deliberately 0600 and the worker itself runs as non-root `osprey` and
+    # cannot open it. Path is relative to the compose project directory
+    # (build/services/, same resolution rule as `volumes:` bind sources) — see
+    # the `../../.env` volume path elsewhere in this repo for the same prefix.
+    env_file:
+      - ../../.env
+{% endif %}
     environment:
       # No :-default (see event_dispatcher compose): fail closed on an unset token.
       DISPATCH_WORKER_TOKEN: ${DISPATCH_WORKER_TOKEN}
       DISPATCH_WORKER_PORT: "{{ services.dispatch_worker.worker_port_base | default(9190) }}"
       DISPATCH_TIMEOUT_SEC: "{{ services.dispatch_worker.timeout_sec | default(300) }}"
-      OSPREY_PROJECT_DIR: /app/project
+      DISPATCH_INACTIVITY_SEC: "{{ services.dispatch_worker.inactivity_sec | default(120) }}"
+      OSPREY_PROJECT_DIR: /app/{{ osprey_labels.project_name }}
       # The worker process reads OSPREY config directly (e.g. get_facility_timezone
-      # while building the agent's system prompt). Its CWD is the image WORKDIR
-      # (/app), not the project dir, so without CONFIG_FILE osprey.utils.config
-      # falls back to /app/config.yml and every dispatch errors with "No config.yml
-      # found in current directory: /app". Setting it here also flows to the CLI
-      # subprocess and its MCP servers via env inheritance.
-      CONFIG_FILE: /app/project/config.yml
+      # while building the agent's system prompt), and spawns a CLI subprocess with
+      # its own MCP servers. Set CONFIG_FILE explicitly so the worker AND every
+      # subprocess resolve config from the mounted project (via env inheritance),
+      # independent of CWD. It points at the STAGED config.yml bind-mounted below
+      # (python_env_path stripped), not the copy baked into the image.
+      CONFIG_FILE: /app/{{ osprey_labels.project_name }}/config.yml
       TZ: {{ system.timezone }}
     # Bind-mount source is relative to the compose project directory
     # (build/services/), not this service's subdir — hence the dispatch_worker/ prefix.
     volumes:
-      - ./dispatch_worker/config.yml:/app/project/config.yml:ro
-{% if osprey_env_present | default(false) %}
-      # Provider auth: the worker's startup hook (inject_provider_env) reads
-      # $OSPREY_PROJECT_DIR/.env to resolve the LLM provider key (e.g.
-      # ALS_APG_API_KEY -> ANTHROPIC_AUTH_TOKEN). Without this, dispatched agent
-      # runs cannot authenticate. The project .env lives two levels up from the
-      # compose project directory (build/services/); mounted read-only so the
-      # secret is never copied into the build dir.
-      - ../../.env:/app/project/.env:ro
-{% endif %}
+      # Staged runtime config (python_env_path stripped) overlays the config.yml
+      # baked into the image, so the worker reads the deploy-time config.
+      - ./dispatch_worker/config.yml:/app/{{ osprey_labels.project_name }}/config.yml:ro
+      # The image creates /app/<project>/_agent_data (and its subdirs) and
+      # `chown -R osprey:osprey /app/<project>` before switching to USER osprey,
+      # so a fresh named volume initialized from that path inherits osprey
+      # ownership — the non-root worker can write it without any user: override.
 {% if mode == 'shared' %}
-      - dispatch_workspace:/app/project/_agent_data
+      - dispatch_workspace:/app/{{ osprey_labels.project_name }}/_agent_data
 {% else %}
-      - dispatch_workspace_{{ i }}:/app/project/_agent_data
+      - dispatch_workspace_{{ i }}:/app/{{ osprey_labels.project_name }}/_agent_data
 {% endif %}
     networks:
       - osprey-network

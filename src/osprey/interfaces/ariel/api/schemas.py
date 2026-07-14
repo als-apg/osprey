@@ -32,13 +32,19 @@ class EntryResponse(BaseModel):
 
     entry_id: str
     source_system: str
-    timestamp: datetime
+    # Pre-rendered facility-local ISO-8601 strings (with explicit offset) via
+    # to_facility_iso in _entry_to_response — kept as ``str`` (not ``datetime``) so
+    # Pydantic does not re-parse and re-emit them in the DB's stored UTC offset,
+    # which would silently undo the localization and reintroduce the web/MCP drift
+    # this fixes. Nullable because the shared helper is None-safe (a missing value
+    # renders as null rather than 500-ing); in practice the DB columns are present.
+    timestamp: str | None
     author: str
     raw_text: str
     attachments: list[AttachmentResponse] = []
     metadata: dict = {}
-    created_at: datetime
-    updated_at: datetime
+    created_at: str | None
+    updated_at: str | None
     summary: str | None = None
     keywords: list[str] = []
     score: float | None = None

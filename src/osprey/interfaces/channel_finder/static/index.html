@@ -5,20 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OSPREY Channel Finder</title>
 
-  <!-- Theme sync: runs before CSS to prevent flash -->
-  <script>
-    (function() {
-      var p = new URLSearchParams(window.location.search);
-      var t = p.get('theme') || localStorage.getItem('osprey-theme');
-      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
-      if (p.get('embedded') === 'true') document.body.classList.add('embedded');
-      window.addEventListener('message', function(e) {
-        if (e.data && e.data.type === 'osprey-theme-change' && e.data.theme) {
-          document.documentElement.setAttribute('data-theme', e.data.theme);
-        }
-      });
-    })();
-  </script>
+  <!-- Theme boot: applies data-theme pre-paint; zero import deps, must load
+       before any stylesheet. Live theme changes and the embedded-mode flag
+       are handled by the theme-manager FOLLOWER role in app.js. -->
+  <script src="/design-system/js/theme-boot.js"></script>
+  <link rel="stylesheet" href="/design-system/css/tokens.css">
+  <link rel="stylesheet" href="/design-system/css/base.css">
 
   <!-- Fonts (self-hosted, no external CDN) -->
   <link rel="stylesheet" href="/static/fonts/fonts.css">
@@ -45,10 +37,13 @@
       </div>
       <span class="stats-badges" id="stats-badges"></span>
     </div>
-    <nav class="header-nav" id="header-nav">
-      <a href="#explore" class="nav-link active" data-view="explore">Explore</a>
-      <a href="#feedback" class="nav-link" data-view="feedback">Feedback</a>
-    </nav>
+    <div class="header-right">
+      <nav class="header-nav" id="header-nav">
+        <a href="#explore" class="nav-link active" data-view="explore">Explore</a>
+        <a href="#feedback" class="nav-link" data-view="feedback">Feedback</a>
+      </nav>
+      <osprey-theme-switcher></osprey-theme-switcher>
+    </div>
   </header>
 
   <main class="app-main" id="app-main">

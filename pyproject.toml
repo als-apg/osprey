@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "osprey-framework"
 dynamic = ["version"]
-description = "An open-source, domain-agnostic, capability-based architecture for building intelligent agents"
+description = "An agentic interface and safety harness for safety-critical control systems"
 readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "BSD-3-Clause"}
@@ -18,7 +18,7 @@ maintainers = [
 keywords = [
     "ai", "agents", "framework", "scientific-computing",
     "epics", "accelerator-physics", "als", "berkeley", "agent-framework",
-    "capability-based", "human-in-the-loop", "container-orchestration"
+    "control-systems", "mcp", "human-in-the-loop", "container-orchestration"
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -62,11 +62,11 @@ dependencies = [
     "google-generativeai",
     "ollama>=0.5.1",
     # Advanced code generation
-    # Claude Code SDK - pinned. Bundles CLI 2.1.167 (verified to work with
+    # Claude Code SDK - pinned. Bundles CLI 2.1.191 (verified to work with
     # als-apg routing). >=0.1.46 needed for list_subagents/
     # get_subagent_messages, which the e2e trace collector uses to read sub-agent
     # transcripts (CLI >=2.1.x no longer streams them through query()).
-    "claude-agent-sdk==0.2.101",
+    "claude-agent-sdk==0.2.110",
     # Data processing - required for archiver connectors and data handling
     # Archiver connectors return pandas DataFrames for time-series data
     "pandas>=2.2.3",
@@ -109,7 +109,7 @@ dependencies = [
     "aiohttp-socks>=0.8.0",
     # File system monitoring for web terminal
     "watchdog>=3.0.0",
-    # Async HTTP client for tuning panel reverse proxy
+    # Async HTTP client for the web-terminal panel reverse proxy
     "httpx>=0.27.0",
     # Lattice physics (Accelerator Toolbox for lattice dashboard)
     "accelerator-toolbox[plot]",
@@ -140,6 +140,7 @@ dev = [
     "pytest-cov",  # Code coverage reporting
     "pytest-order",  # Run flaky/in-debug e2e tests first via @pytest.mark.order
     "pytest-rerunfailures",  # Absorb rare LLM nondeterminism in agentic e2e via @pytest.mark.flaky
+    "pytest-timeout",  # Deadlock-breaker for the model-matrix benchmark runner (--timeout)
     "mypy",
     "pre-commit",
     "ruff",
@@ -149,6 +150,7 @@ dev = [
     "docker>=7.0.0",  # Docker SDK for testcontainers availability check
     "psycopg[binary,pool]>=3.1.0,<4.0.0",  # ARIEL search integration tests
     "psycopg-pool>=3.1.0,<4.0.0",  # ARIEL search integration tests
+    "pillow>=10.0.0",  # Perceptual diffing for the design-system visual regression suite
 ]
 
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
@@ -185,6 +187,32 @@ screen-capture-linux = [
     "python-xlib>=0.33",
 ]
 
+# Bluesky bridge (osprey.services.bluesky_bridge): the RunEngine, ophyd-async
+# devices, and Tiled writer/reader the bridge's Phase 2 submodules (plans.py,
+# scanner_bluesky.py, devices/*.py) import behind this extra. The bridge's
+# lifecycle core (app.py, runs.py, security.py, scanner.py) stays import-clean
+# of all of these — installed only in the bridge process's own container venv,
+# never required in OSPREY's main venv. fastapi/uvicorn/httpx are already core
+# dependencies, so they're not repeated here.
+bluesky-bridge = [
+    "bluesky>=1.12",
+    # [ca]: the aioca Channel Access backend. Required for the real EPICS-on-VA
+    # substrate scanner (EpicsMotor/EpicsDetector over epics_signal_*); without
+    # it ophyd-async's CA transport is unavailable and device construction
+    # raises "Protocol ca not available". The mock-device demo scanner doesn't
+    # need it, which is why it went unnoticed until the substrate keystone.
+    "ophyd-async[ca]>=0.16,<1.0",
+    "tiled[client]>=0.1",
+]
+
+# Virtual Accelerator (osprey.services.virtual_accelerator): the in-process
+# EPICS soft-IOC the record factory (ioc/records.py) and its live-CA tests
+# build against. accelerator-toolbox (the PyAT lattice model) is already a
+# core dependency, so only the IOC toolkit itself is added here.
+virtual-accelerator = [
+    "softioc",
+]
+
 # All optional dependencies for complete installation
 all = [
     "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,archiver-mongodb,knowledge]"
@@ -208,6 +236,7 @@ osprey = "osprey.cli.main:cli"
 [project.entry-points."osprey.trigger_sources"]
 webhook = "osprey.dispatch.sources.webhook:WebhookSource"
 cron = "osprey.dispatch.sources.cron:CronSource"
+epics_ca = "osprey.dispatch.sources.epics_ca:EpicsCaSource"
 
 # Hatchling build configuration
 [tool.hatch.version]
@@ -245,6 +274,20 @@ module = [
     "pyepics.*",
     "podman.*",
     "pymongo.*",
+    "doocs4py.*",
+]
+ignore_missing_imports = true
+
+# Bluesky bridge (osprey.services.bluesky_bridge): the lifecycle core (runs.py,
+# app.py, security.py, scanner.py) stays import-clean of these, but Phase 2's
+# submodules (scanner_bluesky.py, devices/epics.py, plans.py, ...) will import
+# them behind the optional `osprey-framework[bluesky-bridge]` extra.
+[[tool.mypy.overrides]]
+module = [
+    "bluesky.*",
+    "ophyd.*",
+    "ophyd_async.*",
+    "tiled.*",
 ]
 ignore_missing_imports = true
 
@@ -272,6 +315,7 @@ markers = [
     "e2e_benchmark: Channel finder benchmark validation tests",
     "e2e_tutorial: Tutorial workflow validation tests",
     "slow: Tests that take significant time",
+    "browser: Real-browser Playwright tests (requires chromium; skips if absent)",
     "requires_api: Tests that require API credentials",
     "requires_openai: Tests that require OpenAI API key",
     "requires_anthropic: Tests that require Anthropic API key",

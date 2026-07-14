@@ -22,6 +22,7 @@ import ast
 import asyncio
 import json
 import logging
+import os
 import sys
 import time
 import uuid
@@ -29,7 +30,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from osprey.mcp_server.sandbox_env import scrub_sensitive_env
+
 logger = logging.getLogger("osprey.mcp_server.workspace.execution.sandbox_executor")
+
+# scrub_sensitive_env's deny-list lives in osprey.mcp_server.sandbox_env
+# (imported above), shared with python_executor/executor.py's identical
+# local-subprocess seam so the two sandboxes cannot drift.
 
 
 # ---------------------------------------------------------------------------
@@ -636,6 +643,7 @@ async def execute_sandbox_code(
     script_path.write_text(wrapped_code, encoding="utf-8")
 
     start_time = time.time()
+    sandbox_env = scrub_sensitive_env(os.environ.copy())
 
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -644,6 +652,7 @@ async def execute_sandbox_code(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=str(project_root),
+            env=sandbox_env,
         )
         stdout_bytes, stderr_bytes = await asyncio.wait_for(proc.communicate(), timeout=timeout)
         stdout_text = stdout_bytes.decode("utf-8", errors="replace")

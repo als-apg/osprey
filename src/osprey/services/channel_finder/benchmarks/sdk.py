@@ -2,13 +2,15 @@
 
 Extracted from ``tests/e2e/sdk_helpers.py`` so that production code
 (``BenchmarkRunner``) can use them without importing from the test tree.
+
+``ToolTrace``, ``SDKWorkflowResult``, ``sdk_env``, and ``combined_text`` are
+re-exported from :mod:`osprey.agent_runner` — that module is the single source
+of truth for these primitives.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 # SDK imports — skip if not installed
 try:
@@ -27,161 +29,9 @@ try:
 except ImportError:
     HAS_SDK = False
 
-
-# ---------------------------------------------------------------------------
-# Tool trace dataclass
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class ToolTrace:
-    """Lightweight record of a single tool call for observability."""
-
-    name: str
-    input: dict
-    result: str | None = None
-    is_error: bool = False
-    tool_use_id: str | None = None
-    parent_tool_use_id: str | None = None
-
-
-@dataclass
-class SDKWorkflowResult:
-    """Aggregated result from an SDK query run."""
-
-    tool_traces: list[ToolTrace] = field(default_factory=list)
-    text_blocks: list[str] = field(default_factory=list)
-    system_messages: list[Any] = field(default_factory=list)
-    result: Any = None
-
-    @property
-    def tool_names(self) -> list[str]:
-        """Ordered list of tool names that were called."""
-        return [t.name for t in self.tool_traces]
-
-    @property
-    def cost_usd(self) -> float | None:
-        """Total cost from the ResultMessage."""
-        return self.result.total_cost_usd if self.result else None
-
-    @property
-    def num_turns(self) -> int | None:
-        """Number of agentic turns from the ResultMessage."""
-        return self.result.num_turns if self.result else None
-
-    @property
-    def input_tokens(self) -> int:
-        """Total input tokens (raw + cache creation + cache read)."""
-        if not self.result or not getattr(self.result, "usage", None):
-            return 0
-        u = self.result.usage
-        return (
-            u.get("input_tokens", 0)
-            + u.get("cache_creation_input_tokens", 0)
-            + u.get("cache_read_input_tokens", 0)
-        )
-
-    @property
-    def output_tokens(self) -> int:
-        """Total output tokens."""
-        if not self.result or not getattr(self.result, "usage", None):
-            return 0
-        return self.result.usage.get("output_tokens", 0)
-
-    @property
-    def cache_read_tokens(self) -> int:
-        """Cache-read input tokens (charged at reduced rate)."""
-        if not self.result or not getattr(self.result, "usage", None):
-            return 0
-        return self.result.usage.get("cache_read_input_tokens", 0)
-
-    @property
-    def cache_creation_tokens(self) -> int:
-        """Cache-creation input tokens."""
-        if not self.result or not getattr(self.result, "usage", None):
-            return 0
-        return self.result.usage.get("cache_creation_input_tokens", 0)
-
-    def tools_matching(self, substring: str) -> list[ToolTrace]:
-        """Return all tool traces whose name contains *substring*."""
-        return [t for t in self.tool_traces if substring in t.name]
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def sdk_env(
-    project_dir: Path | None = None,
-    *,
-    provider: str | None = None,
-) -> dict[str, str]:
-    """Return env overrides for SDK subprocess.
-
-    Bypasses nested-session guard (CLAUDECODE="") and injects provider
-    auth from the project's config.yml so the CLI authenticates correctly
-    against Anthropic, CBORG, or other configured providers.
-
-    When ``provider`` is given it overrides the project's ``claude_code.provider``
-    so callers sweeping models across providers (e.g. anthropic for one cell,
-    ollama for another) inject env for the model they're actually running, not
-    whatever the project's claude_code section happens to be configured for.
-
-    Two grammars are propagated, because the project has two LLM call paths:
-
-    * The outer Claude Code CLI authenticates via the gateway bearer
-      (``ANTHROPIC_AUTH_TOKEN`` etc.) — that's what ``inject_provider_env``
-      sets up.
-    * The inner ``aget_chat_completion`` path (used by the in-context MCP
-      server's ``query_channels`` tool) reads
-      ``api.providers[name].api_key: ${SECRET}`` from config.yml and expands
-      it against the subprocess environment. MCP's ``stdio_client`` inherits
-      only a tiny safe-list (HOME, LOGNAME, PATH, SHELL, TERM, USER), so the
-      raw secret env var must be carried through explicitly or the literal
-      ``${SECRET}`` reaches litellm and fails authentication.
-    """
-    import os
-
-    env: dict[str, str] = {"CLAUDECODE": ""}
-
-    if project_dir is not None:
-        try:
-            import yaml
-
-            from osprey.cli.claude_code_resolver import (
-                ClaudeCodeModelResolver,
-                inject_provider_env,
-            )
-
-            config_path = project_dir / "config.yml"
-            if config_path.exists():
-                config = yaml.safe_load(config_path.read_text()) or {}
-                cc_config = config.get("claude_code", {})
-                if provider is not None:
-                    cc_config = {**cc_config, "provider": provider}
-                api_providers = config.get("api", {}).get("providers", {})
-                spec = ClaudeCodeModelResolver.resolve(cc_config, api_providers)
-                if spec:
-                    # Build a copy of environ, inject provider auth, then
-                    # extract only the vars that changed.
-                    scratch = dict(os.environ)
-                    inject_provider_env(scratch, spec, project_dir=project_dir)
-                    for key in list(scratch):
-                        if scratch[key] != os.environ.get(key):
-                            env[key] = scratch[key]
-
-                    # Also propagate the raw upstream secret so config.yml's
-                    # ${SECRET} placeholders in api.providers[name].api_key
-                    # expand correctly inside the MCP subprocess (see docstring).
-                    if spec.auth_secret_env:
-                        secret_value = os.environ.get(spec.auth_secret_env)
-                        if secret_value:
-                            env[spec.auth_secret_env] = secret_value
-        except Exception:
-            pass  # Fall back to bare env if resolver unavailable
-
-    return env
+from osprey.agent_runner import SDKWorkflowResult, ToolTrace, sdk_env
+from osprey.agent_runner import combined_text as combined_text  # re-exported for backends
+from osprey.agent_runner.primitives import _ingest_tool_result
 
 
 def _resolve_default_sdk_model(project_dir: Path) -> str:
@@ -192,7 +42,7 @@ def _resolve_default_sdk_model(project_dir: Path) -> str:
     provider is configured so callers fail loudly instead of silently sending
     a bogus default to the upstream API.
     """
-    import yaml
+    import yaml  # type: ignore[import-untyped]
 
     from osprey.cli.claude_code_resolver import ClaudeCodeModelResolver
 
@@ -211,15 +61,6 @@ def _resolve_default_sdk_model(project_dir: Path) -> str:
             "pass model= explicitly to run_sdk_query"
         )
     return spec.tier_to_model[spec.default_model_tier]
-
-
-def combined_text(result: SDKWorkflowResult) -> str:
-    """Combine all text blocks and tool results into a single searchable string."""
-    parts = list(result.text_blocks)
-    for trace in result.tool_traces:
-        if trace.result:
-            parts.append(trace.result)
-    return " ".join(parts).lower()
 
 
 def init_project(
@@ -402,19 +243,7 @@ async def run_sdk_query(
                         workflow.tool_traces.append(trace)
                         pending_tools[block.id] = trace
                     elif isinstance(block, ToolResultBlock):
-                        # Match result to its tool call
-                        matched = pending_tools.get(block.tool_use_id)
-                        if matched:
-                            if isinstance(block.content, str):
-                                matched.result = block.content
-                            elif isinstance(block.content, list):
-                                # Extract text from content list
-                                texts = []
-                                for item in block.content:
-                                    if isinstance(item, dict) and item.get("type") == "text":
-                                        texts.append(item.get("text", ""))
-                                matched.result = "\n".join(texts) if texts else str(block.content)
-                            matched.is_error = bool(block.is_error)
+                        _ingest_tool_result(block, pending_tools)
 
             elif isinstance(message, SystemMessage):
                 workflow.system_messages.append(message)

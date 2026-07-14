@@ -1,0 +1,414 @@
+/**
+ * Unit tests for the Artifact Gallery type-registry/formatting/color-pass
+ * layer (types.js).
+ *
+ * Pure-logic/DOM guard, happy-dom environment (configured globally), `fetch`
+ * mocked via vi.stubGlobal where needed:
+ *   npx vitest run tests/interfaces/artifacts/types.test.mjs
+ *
+ * Covers typeColor/typeBadge/typeIcon for known + unknown types,
+ * escapeHtml's null-guard contract, formatSize/formatTime/formatFullTime/
+ * formatDate boundary values, openUrl's per-type routing, thumbnailHtml,
+ * isNewThisSession (with the session-start now an explicit parameter),
+ * initTypeRegistry/getTypeRegistry, and the color-pass DOM helper.
+ *
+ * NOTE: imported by RELATIVE path — this module lives under artifacts, not
+ * design-system, so no alias applies.
+ */
+
+import { test, expect, vi, describe, afterEach } from 'vitest';
+
+import {
+  getTypeRegistry,
+  initTypeRegistry,
+  typeBadge,
+  typeIcon,
+  typeColor,
+  thumbnailHtml,
+  escapeHtml,
+  formatSize,
+  formatTime,
+  formatFullTime,
+  formatDate,
+  openUrl,
+  isoToDate,
+  isTimeseries,
+  hasTimeseriesData,
+  isNewThisSession,
+  sendToTerminal,
+  requestColorPass,
+} from '../../../src/osprey/interfaces/artifacts/static/js/types.js';
+import { qs } from '../_support/dom.mjs';
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe('typeColor', () => {
+  test('an unknown type falls back to the theme-invariant default', () => {
+    expect(typeColor('totally_unknown_type')).toBe('#64748b');
+  });
+
+  test('a registered artifact_type returns its registry color', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ artifact_types: { plot_html: { label: 'Plot', color: '#ff0000' } } }),
+    }));
+    await initTypeRegistry();
+    expect(typeColor('plot_html')).toBe('#ff0000');
+  });
+
+  test('categories take precedence over artifact_types when both are present', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({
+        categories: { visualization: { label: 'Viz', color: '#00ff00' } },
+        artifact_types: { visualization: { label: 'Viz (type)', color: '#0000ff' } },
+      }),
+    }));
+    await initTypeRegistry();
+    expect(typeColor('visualization')).toBe('#00ff00');
+    expect(typeBadge('visualization')).toBe('Viz');
+  });
+});
+
+describe('typeBadge', () => {
+  test('an unknown type falls back to a humanized version of the raw type string', () => {
+    expect(typeBadge('some_custom_type')).toBe('some custom type');
+  });
+
+  test('a registered type returns its registry label', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ artifact_types: { json: { label: 'JSON Data' } } }),
+    }));
+    await initTypeRegistry();
+    expect(typeBadge('json')).toBe('JSON Data');
+  });
+
+  test('Task 1.3 — a hostile registry label (agent-fed /api/type-registry) is escaped to inert text', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ artifact_types: { evil: { label: '<img src=x onerror=alert(1)>' } } }),
+    }));
+    await initTypeRegistry();
+    const result = typeBadge('evil');
+    expect(result).not.toContain('<img');
+    expect(result).toContain('&lt;img');
+  });
+
+  test('Task 1.3 — a hostile unregistered type falls back to escaped humanized text (agent-supplied category/artifact_type)', () => {
+    const result = typeBadge('<script>alert(1)</script>');
+    expect(result).not.toContain('<script>');
+    expect(result).toContain('&lt;script&gt;');
+  });
+});
+
+describe('typeIcon', () => {
+  test('a known type returns its own SVG icon', () => {
+    expect(typeIcon('markdown')).toContain('<svg');
+    expect(typeIcon('markdown')).not.toBe(typeIcon('plot_html'));
+  });
+
+  test('an unknown type falls back to the generic text icon', () => {
+    expect(typeIcon('some_unregistered_type')).toBe(typeIcon('text'));
+  });
+});
+
+describe('initTypeRegistry / getTypeRegistry', () => {
+  test('populates the registry from /api/type-registry on success', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      json: () => Promise.resolve({ artifact_types: { html: { label: 'HTML' } } }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await initTypeRegistry();
+    expect(fetchMock).toHaveBeenCalledWith('/api/type-registry');
+    expect(getTypeRegistry()).toEqual({ artifact_types: { html: { label: 'HTML' } } });
+  });
+
+  test('is silent (does not throw) on a network failure', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network down')));
+    await expect(initTypeRegistry()).resolves.toBeUndefined();
+  });
+});
+
+describe('escapeHtml', () => {
+  test('null and undefined both yield the empty string (null-guard contract)', () => {
+    expect(escapeHtml(null)).toBe('');
+    expect(escapeHtml(undefined)).toBe('');
+  });
+
+  test('escapes angle brackets and ampersands', () => {
+    expect(escapeHtml('<b>&')).toBe('&lt;b&gt;&amp;');
+  });
+
+  test('escapes a <script> tag', () => {
+    expect(escapeHtml('<script>alert(1)</script>')).toBe('&lt;script&gt;alert(1)&lt;/script&gt;');
+  });
+
+  test('an empty string stays empty', () => {
+    expect(escapeHtml('')).toBe('');
+  });
+
+  test('post-consolidation contract: only null/undefined collapse to "" — 0 and false stringify', () => {
+    // types.js now re-exports design-system/js/dom.js's escapeHtml, which
+    // uses `String(value ?? "")`: only null/undefined become "", so
+    // falsy-but-defined values like 0/false stringify instead of collapsing.
+    // This was a deliberate, reviewed consolidation (previously this module
+    // had its own `str || ""` copy that collapsed ALL falsy values).
+    expect(escapeHtml(0)).toBe('0');
+    expect(escapeHtml(false)).toBe('false');
+  });
+
+  test('escapes double- and single-quotes (quote-safe, attribute-context contract)', () => {
+    expect(escapeHtml(`"quoted" & 'single'`)).toBe('&quot;quoted&quot; &amp; &#39;single&#39;');
+  });
+});
+
+describe('formatSize', () => {
+  test('0 or falsy bytes renders as "0 B"', () => {
+    expect(formatSize(0)).toBe('0 B');
+    expect(formatSize(/** @type {number} */ (/** @type {unknown} */ (null)))).toBe('0 B');
+    expect(formatSize(/** @type {number} */ (/** @type {unknown} */ (undefined)))).toBe('0 B');
+  });
+
+  test('sub-1024 bytes stay in B, whole numbers', () => {
+    expect(formatSize(1)).toBe('1 B');
+    expect(formatSize(1023)).toBe('1023 B');
+  });
+
+  test('boundary: exactly 1024 bytes rolls over to 1.0 KB', () => {
+    expect(formatSize(1024)).toBe('1.0 KB');
+  });
+
+  test('boundary: exactly 1024*1024 bytes rolls over to 1.0 MB', () => {
+    expect(formatSize(1024 * 1024)).toBe('1.0 MB');
+  });
+
+  test('caps at GB (does not roll over past the largest unit)', () => {
+    expect(formatSize(1024 * 1024 * 1024 * 5)).toBe('5.0 GB');
+  });
+});
+
+describe('isoToDate (shared timestamp guard)', () => {
+  test('parses a valid ISO string to a Date', () => {
+    const d = isoToDate('2026-07-03T15:45:00Z');
+    expect(d).toBeInstanceOf(Date);
+    if (d === null) throw new Error('unreachable: valid ISO parsed to null');
+    expect(d.getUTCFullYear()).toBe(2026);
+  });
+
+  test('accepts the backend microsecond + numeric-offset shape', () => {
+    expect(isoToDate('2026-07-07T15:45:00.123456+00:00')).toBeInstanceOf(Date);
+  });
+
+  test('returns null for nullish input', () => {
+    expect(isoToDate(null)).toBeNull();
+    expect(isoToDate(undefined)).toBeNull();
+  });
+
+  test('returns null for non-string / numeric / non-ISO-shaped input (no fabricated date)', () => {
+    for (const junk of ['0', '1751000000000', 'not-a-date', 0, 42, {}, []]) {
+      expect(isoToDate(junk)).toBeNull();
+    }
+  });
+
+  test('returns null for an ISO-shaped-but-impossible date (NaN branch)', () => {
+    expect(isoToDate('2026-99-99T00:00:00Z')).toBeNull();
+  });
+});
+
+describe('formatTime / formatFullTime / formatDate', () => {
+  test('formatTime and formatFullTime return "" for falsy input', () => {
+    expect(formatTime(/** @type {string} */ (/** @type {unknown} */ (null)))).toBe('');
+    expect(formatTime(undefined)).toBe('');
+    expect(formatFullTime(/** @type {string} */ (/** @type {unknown} */ (null)))).toBe('');
+    expect(formatFullTime(undefined)).toBe('');
+  });
+
+  test('formatDate returns "Unknown" for falsy input', () => {
+    expect(formatDate(/** @type {string} */ (/** @type {unknown} */ (null)))).toBe('Unknown');
+    expect(formatDate(undefined)).toBe('Unknown');
+  });
+
+  test('formatDate returns "Today" for the current date', () => {
+    expect(formatDate(new Date().toISOString())).toBe('Today');
+  });
+
+  test('formatDate returns "Yesterday" for the prior calendar day', () => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    expect(formatDate(yesterday.toISOString())).toBe('Yesterday');
+  });
+
+  test('formatTime and formatFullTime produce non-empty output for a valid ISO string', () => {
+    const iso = '2026-07-03T15:45:00Z';
+    expect(formatTime(iso).length).toBeGreaterThan(0);
+    expect(formatFullTime(iso)).toContain('2026');
+  });
+
+  test('accepts the exact backend timestamp shape (microseconds + numeric offset)', () => {
+    // artifact_store.py emits datetime.now(UTC).isoformat(), e.g. this form —
+    // the guard's ISO-shape regex must pass it through, not reject it.
+    const iso = '2026-07-07T15:45:00.123456+00:00';
+    expect(formatTime(iso).length).toBeGreaterThan(0);
+    expect(formatFullTime(iso)).toContain('2026');
+    expect(formatDate(iso)).not.toBe('Unknown');
+  });
+
+  test('non-ISO / fabricating input yields the empty/"Unknown" fallback, never an invented date', () => {
+    // Bare `new Date("0")`/`new Date(0)` would fabricate a year-2000/epoch
+    // date; the guard must reject these rather than render a made-up time.
+    for (const junk of ['0', '1751000000000', 'not-a-date', 42, {}, []]) {
+      const bad = /** @type {string} */ (/** @type {unknown} */ (junk));
+      expect(formatTime(bad)).toBe('');
+      expect(formatFullTime(bad)).toBe('');
+      expect(formatDate(bad)).toBe('Unknown');
+    }
+  });
+
+  test('an ISO string that parses to an invalid date falls back rather than throwing', () => {
+    // ISO-shaped but impossible (month 99): Date coercion yields NaN.
+    expect(formatFullTime('2026-99-99T00:00:00Z')).toBe('');
+    expect(formatDate('2026-99-99T00:00:00Z')).toBe('Unknown');
+  });
+});
+
+describe('openUrl', () => {
+  test('markdown routes to the rendered-markdown API endpoint', () => {
+    expect(openUrl({ id: 'a1', artifact_type: 'markdown', filename: 'x.md' })).toBe('/api/markdown/a1/rendered');
+  });
+
+  test('notebook routes to the rendered-notebook API endpoint', () => {
+    expect(openUrl({ id: 'a2', artifact_type: 'notebook', filename: 'x.ipynb' })).toBe('/api/notebooks/a2/rendered');
+  });
+
+  test('any other type falls back to the raw file URL', () => {
+    expect(openUrl({ id: 'a3', artifact_type: 'plot_png', filename: 'plot.png' })).toBe('/files/a3/plot.png');
+  });
+
+  test('markdown branch percent-encodes a hostile id, so no raw path-breakout/query/quote characters survive', () => {
+    const url = openUrl({ id: 'a/../b?x="y"', artifact_type: 'markdown', filename: 'x.md' });
+    const idSegment = url.split('/')[3];
+    expect(idSegment).not.toMatch(/[/?"]/);
+    expect(url).toBe('/api/markdown/a%2F..%2Fb%3Fx%3D%22y%22/rendered');
+  });
+
+  test('markdown branch is byte-identical for a real 12-hex artifact id', () => {
+    expect(openUrl({ id: '0123456789ab', artifact_type: 'markdown', filename: 'x.md' })).toBe('/api/markdown/0123456789ab/rendered');
+  });
+
+  test('notebook branch percent-encodes a hostile id, so no raw path-breakout/query/quote characters survive', () => {
+    const url = openUrl({ id: 'a/../b?x="y"', artifact_type: 'notebook', filename: 'x.ipynb' });
+    const idSegment = url.split('/')[3];
+    expect(idSegment).not.toMatch(/[/?"]/);
+    expect(url).toBe('/api/notebooks/a%2F..%2Fb%3Fx%3D%22y%22/rendered');
+  });
+
+  test('notebook branch is byte-identical for a real 12-hex artifact id', () => {
+    expect(openUrl({ id: '0123456789ab', artifact_type: 'notebook', filename: 'x.ipynb' })).toBe('/api/notebooks/0123456789ab/rendered');
+  });
+});
+
+describe('isTimeseries', () => {
+  test('true when metadata.data_type is "timeseries"', () => {
+    expect(isTimeseries({ metadata: { data_type: 'timeseries' }, artifact_type: 'json' })).toBe(true);
+  });
+
+  test('true when category is "archiver_data"', () => {
+    expect(isTimeseries({ category: 'archiver_data', artifact_type: 'json' })).toBe(true);
+  });
+
+  test('false for an ordinary artifact with no timeseries markers', () => {
+    expect(isTimeseries({ artifact_type: 'json', metadata: { data_type: 'table' } })).toBe(false);
+  });
+
+  test('does not require a data file (print strategy captures the on-screen chart)', () => {
+    expect(isTimeseries({ category: 'archiver_data' })).toBe(true);
+  });
+
+  test('tolerates a missing metadata object without throwing', () => {
+    expect(isTimeseries({ artifact_type: 'json' })).toBe(false);
+  });
+});
+
+describe('hasTimeseriesData', () => {
+  test('true when a timeseries artifact carries a top-level data_file', () => {
+    expect(hasTimeseriesData({ category: 'archiver_data', data_file: 'y.parquet' })).toBe(true);
+  });
+
+  test('true when the data_file lives under metadata', () => {
+    expect(hasTimeseriesData({ metadata: { data_type: 'timeseries', data_file: 'x.parquet' } })).toBe(true);
+  });
+
+  test('false for a timeseries artifact with no data file (nothing to fetch/render)', () => {
+    expect(hasTimeseriesData({ category: 'archiver_data' })).toBe(false);
+  });
+
+  test('false for a non-timeseries artifact even when it happens to have a data_file', () => {
+    expect(hasTimeseriesData({ artifact_type: 'json', data_file: 'z.parquet' })).toBe(false);
+  });
+});
+
+describe('thumbnailHtml', () => {
+  test('an image type renders an <img> tag pointing at the file URL', () => {
+    const html = thumbnailHtml({ id: 'i1', artifact_type: 'image', filename: 'photo.png' });
+    expect(html).toContain('<img');
+    expect(html).toContain('/files/i1/photo.png');
+  });
+
+  test('an html-family type renders an <iframe>', () => {
+    const html = thumbnailHtml({ id: 'i2', artifact_type: 'plot_html', filename: 'p.html' });
+    expect(html).toContain('<iframe');
+  });
+
+  test('the notebook iframe src percent-encodes a hostile id, so no raw path-breakout/query/quote characters survive', () => {
+    const html = thumbnailHtml({ id: 'a/../b?x="y"', artifact_type: 'notebook', filename: 'n.ipynb' });
+    expect(html).toContain('/api/notebooks/a%2F..%2Fb%3Fx%3D%22y%22/rendered');
+    expect(html).not.toContain('/api/notebooks/a/../b');
+  });
+
+  test('the notebook iframe src is byte-identical for a real 12-hex artifact id', () => {
+    const html = thumbnailHtml({ id: '0123456789ab', artifact_type: 'notebook', filename: 'n.ipynb' });
+    expect(html).toContain('/api/notebooks/0123456789ab/rendered');
+  });
+
+  test('a type with a non-empty summary renders the summary fields, escaped', () => {
+    const html = thumbnailHtml({ id: 'i3', artifact_type: 'json', filename: 'd.json', summary: { rows: 10 } });
+    expect(html).toContain('thumb-summary');
+    expect(html).toContain('rows: 10');
+  });
+
+  test('a type with no summary falls back to the generic type icon + badge', () => {
+    const html = thumbnailHtml({ id: 'i4', artifact_type: 'unknown_type', filename: 'f.bin' });
+    expect(html).toContain('thumb-placeholder');
+  });
+});
+
+describe('isNewThisSession', () => {
+  test('an artifact timestamped at/after session start is new', () => {
+    expect(isNewThisSession({ timestamp: '2026-07-03T12:00:00Z' }, '2026-07-03T12:00:00Z')).toBe(true);
+    expect(isNewThisSession({ timestamp: '2026-07-03T13:00:00Z' }, '2026-07-03T12:00:00Z')).toBe(true);
+  });
+
+  test('an artifact timestamped before session start is not new', () => {
+    expect(isNewThisSession({ timestamp: '2026-07-03T11:00:00Z' }, '2026-07-03T12:00:00Z')).toBe(false);
+  });
+
+  test('an artifact with no timestamp is not new', () => {
+    expect(isNewThisSession({}, '2026-07-03T12:00:00Z')).toBe(false);
+  });
+});
+
+describe('sendToTerminal', () => {
+  test('is a no-op outside an embedded/iframed context (window.parent === window)', () => {
+    expect(() => sendToTerminal('hello')).not.toThrow();
+  });
+});
+
+describe('requestColorPass', () => {
+  test('recolors a badge-* element on the next animation frame, without throwing', async () => {
+    document.body.innerHTML = '<span class="badge-plot_html"></span>';
+    requestColorPass();
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+    const el = qs(document, '.badge-plot_html');
+    expect(el.style.color).not.toBe('');
+  });
+});

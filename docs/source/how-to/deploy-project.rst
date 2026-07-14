@@ -57,9 +57,11 @@ deployment via ``deployed_services:``. A minimal example (this is what the
 Each service entry must point ``path:`` at a directory containing a
 ``docker-compose.yml.j2`` template. Everything else under the service key is
 project-specific configuration exposed to the template as
-``{{services.<name>.<key>}}``. For the canonical schema (including
-``copy_src``, ``additional_dirs``, ``render_kernel_templates``, and
-``containers`` for multi-container services), see :ref:`profile-services`.
+``{{services.<name>.<key>}}``. Beyond ``path``, a service entry may also
+declare ``copy_src``, ``additional_dirs``, and ``render_kernel_templates``
+(a multi-container service is expressed by the ``docker-compose.yml.j2``
+template defining more than one compose service). For how facility services
+are declared inside a build profile, see :ref:`profile-services`.
 
 Service lookup namespaces
 -------------------------

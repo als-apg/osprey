@@ -1,31 +1,31 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <!-- Theme sync: set initial theme + listen for live changes from parent Web Terminal.
-       This MUST be inline (not in a module) so it runs before CSS loads and has zero
-       import dependencies that could prevent the listener from registering. -->
-  <script>
-    (function() {
-      var p = new URLSearchParams(window.location.search);
-      var t = p.get('theme') || localStorage.getItem('osprey-theme');
-      if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
-      window.addEventListener('message', function(e) {
-        if (e.data && e.data.type === 'osprey-theme-change' && e.data.theme) {
-          document.documentElement.setAttribute('data-theme', e.data.theme);
-        }
-      });
-    })();
-  </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OSPREY Workspace</title>
   <meta name="description" content="Artifact Gallery for OSPREY Control System Agent">
 
+  <!-- FOUC prevention: applies data-theme before any CSS loads. Replaces the
+       old inline ?theme=/localStorage script + message listener -- both are
+       now theme-manager.js's job (follower role, wired in gallery.js), and
+       theme-boot.js validates ids against the baked-in manifest instead of
+       trusting any 'light'/'dark' string handed to it. -->
+  <script src="/design-system/js/theme-boot.js"></script>
+
+  <!-- Design system tokens -->
+  <link rel="stylesheet" href="/design-system/css/tokens.css">
+  <link rel="stylesheet" href="/design-system/css/base.css">
+
   <!-- Fonts (self-hosted, no external CDN) -->
   <link rel="stylesheet" href="/static/fonts/fonts.css">
 
-  <!-- highlight.js (syntax highlighting for code blocks) -->
-  <link id="hljs-theme" rel="stylesheet" href="{{ vendor_url('highlight.js atom-one-dark theme', '/static/css/vendor/atom-one-dark.min.css') }}">
+  <!-- highlight.js: data-href-dark/light let theme-manager.js swap the stylesheet at runtime -->
+  <link id="hljs-theme" rel="stylesheet"
+        href="{{ vendor_url('highlight.js atom-one-dark theme', '/static/css/vendor/atom-one-dark.min.css') }}"
+        data-href-dark="{{ vendor_url('highlight.js atom-one-dark theme', '/static/css/vendor/atom-one-dark.min.css') }}"
+        data-href-light="{{ vendor_url('highlight.js atom-one-light theme', '/static/css/vendor/atom-one-light.min.css') }}">
+  <link rel="prefetch" href="{{ vendor_url('highlight.js atom-one-light theme', '/static/css/vendor/atom-one-light.min.css') }}">
   <script src="{{ vendor_url('highlight.js', '/static/js/vendor/highlight.min.js') }}"></script>
 
   <!-- marked.js (markdown rendering) -->
@@ -74,6 +74,7 @@
               <path d="M20.49 15a9 9 0 01-14.85 3.36L1 14"/>
             </svg>
           </button>
+          <osprey-theme-switcher></osprey-theme-switcher>
           <span class="status-indicator" id="health-indicator">
             <span class="status-dot healthy"></span>
             <span class="status-label">Connected</span>
@@ -187,8 +188,8 @@
     </main>
   </div>
 
-  <script src="/static/js/gallery.js"></script>
-  <script src="/static/js/logbook.js"></script>
-  <script src="/static/js/print.js"></script>
+  <!-- logbook.js/print.js load via the import graph (preview.js imports
+       both directly); no separate script tags needed. -->
+  <script type="module" src="/static/js/gallery.js"></script>
 </body>
 </html>

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>OKF Knowledge Panel</title>
+  <!-- Empty data-URI icon: suppresses a /favicon.ico 404 in standalone/dev
+       (the panel renders inside the web-terminal iframe in production). -->
+  <link rel="icon" href="data:," />
+  <!-- Theme boot: applies data-theme pre-paint; zero import deps, must load
+       before any stylesheet. Live theme changes and the embedded-mode flag
+       are handled by the theme-manager FOLLOWER role in app.js. -->
+  <script src="/design-system/js/theme-boot.js"></script>
+
+  <!-- Design system tokens (shared across every OSPREY interface) -->
+  <link rel="stylesheet" href="/design-system/css/tokens.css" />
+  <link rel="stylesheet" href="/design-system/css/base.css" />
+
+  <!-- Fonts (self-hosted, no external CDN) -->
+  <link rel="stylesheet" href="/static/fonts/fonts.css" />
+
+  <!-- Root-absolute asset refs: osprey's panel proxy rewrites these under
+       /panel/okf/ in production; served verbatim at / in local/dev. Loaded
+       after tokens.css/base.css so its local scale/layout tokens win. -->
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <osprey-theme-switcher></osprey-theme-switcher>
+      <div id="search-box">
+        <form id="search-form" autocomplete="off">
+          <input
+            id="search-input"
+            type="search"
+            name="q"
+            placeholder="Search concepts…"
+            aria-label="Search concepts"
+          />
+        </form>
+      </div>
+      <div id="structure-nav">
+        <a id="structure-link" class="structure-link" href="#__structure">
+          Knowledge Base
+          <span class="structure-sub">structure overview</span>
+        </a>
+      </div>
+      <nav id="tree" aria-label="Concept tree"></nav>
+      <div id="search-results" hidden aria-label="Search results"></div>
+      <!-- Bundle-health status line (osprey addition): reflects /api/bundle_health
+           — broken cross-links / frontmatter issues for the served bundle. -->
+      <footer id="bundle-health" class="bundle-health" hidden aria-live="polite"></footer>
+    </aside>
+    <main id="reader">
+      <div id="reader-content">
+        <p class="muted">Loading knowledge base…</p>
+      </div>
+    </main>
+  </div>
+  <!-- marked must load before app.js (app.js calls marked.parse).
+       Provenance: marked v12.0.2 (MIT), https://github.com/markedjs/marked —
+       vendored verbatim; the pinned file carries its own license header. -->
+  <script src="/static/vendor/marked.min.js"></script>
+  <!-- ES module: imports the theme-manager follower + shared dom helpers.
+       Deferred by nature, so it runs after the non-module marked script above
+       (marked stays a global). -->
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

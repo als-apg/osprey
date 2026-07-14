@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * OSPREY Channel Finder — REST + WebSocket Client
  */
@@ -6,9 +7,12 @@ const BASE = '';  // Same-origin
 
 /**
  * Fetch JSON from the API.
+ *
+ * Responses are dynamically shaped JSON, so the resolved value is `any`: callers
+ * read fields off the parsed body directly (the API boundary is untyped by design).
  * @param {string} path - API path (e.g., '/api/info')
- * @param {object} [opts] - Extra fetch options
- * @returns {Promise<object>}
+ * @param {RequestInit} [opts] - Extra fetch options
+ * @returns {Promise<any>}
  */
 export async function fetchJSON(path, opts = {}) {
   const resp = await fetch(`${BASE}${path}`, {
@@ -24,6 +28,9 @@ export async function fetchJSON(path, opts = {}) {
 
 /**
  * POST JSON to the API.
+ * @param {string} path - API path.
+ * @param {unknown} [data] - Request body (JSON-serialized).
+ * @returns {Promise<any>}
  */
 export async function postJSON(path, data) {
   return fetchJSON(path, {
@@ -34,6 +41,9 @@ export async function postJSON(path, data) {
 
 /**
  * PUT JSON to the API.
+ * @param {string} path - API path.
+ * @param {unknown} [data] - Request body (JSON-serialized).
+ * @returns {Promise<any>}
  */
 export async function putJSON(path, data) {
   return fetchJSON(path, {
@@ -45,9 +55,11 @@ export async function putJSON(path, data) {
 /**
  * DELETE to the API.
  * @param {string} path - API path.
- * @param {object} [data] - Optional request body.
+ * @param {unknown} [data] - Optional request body.
+ * @returns {Promise<any>}
  */
 export async function deleteJSON(path, data) {
+  /** @type {RequestInit} */
   const opts = { method: 'DELETE' };
   if (data !== undefined) {
     opts.body = JSON.stringify(data);
@@ -66,11 +78,16 @@ export function openWS(path) {
 }
 
 /**
- * Structured API error.
+ * Structured API error carrying the HTTP status code.
  */
 export class ApiError extends Error {
+  /**
+   * @param {number} status - HTTP status code.
+   * @param {string} message - Error detail message.
+   */
   constructor(status, message) {
     super(message);
+    /** @type {number} */
     this.status = status;
     this.name = 'ApiError';
   }

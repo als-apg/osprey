@@ -7,7 +7,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--welcome-bg);
+  background: var(--wt-welcome-bg);
   opacity: 1;
   transition: opacity 0.5s ease;
 }
@@ -22,25 +22,20 @@
   content: '';
   position: absolute;
   inset: 0;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent 0px,
-    rgba(0, 0, 0, 0.08) 2px,
-    transparent 4px
-  );
+  background: var(--wt-welcome-scanline-bg);
   pointer-events: none;
   z-index: 1;
-  opacity: var(--crt-scanline-opacity);
+  opacity: var(--wt-crt-scanline-opacity);
 }
 
 .welcome-overlay::after {
   content: '';
   position: absolute;
   inset: 0;
-  background: radial-gradient(ellipse at center, transparent 50%, rgba(0, 0, 0, 0.6) 100%);
+  background: radial-gradient(ellipse at center, transparent 50%, var(--overlay-black-60) 100%);
   pointer-events: none;
   z-index: 1;
-  opacity: var(--crt-vignette-opacity);
+  opacity: var(--wt-crt-vignette-opacity);
 }
 
 .welcome-terminal {
@@ -55,10 +50,10 @@
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.45;
-  color: var(--welcome-text);
+  color: var(--wt-welcome-text);
   white-space: pre;
   margin: 0;
-  text-shadow: var(--welcome-text-glow);
+  text-shadow: var(--wt-welcome-text-glow);
   display: inline-block; /* shrink to widest line (the ═ borders) */
 }
 
@@ -86,9 +81,9 @@
   padding-left: 8ch;
   font-family: var(--font-mono);
   font-size: 13px;
-  color: var(--welcome-link);
+  color: var(--wt-welcome-link);
   text-decoration: none;
-  text-shadow: var(--welcome-text-glow);
+  text-shadow: var(--wt-welcome-text-glow);
   transition: color 0.15s ease;
 }
 
@@ -97,7 +92,7 @@
 }
 
 .welcome-safety-link:hover {
-  color: var(--welcome-link-hover);
+  color: var(--wt-welcome-link-hover);
 }
 
 /* Prompt button */
@@ -109,26 +104,26 @@
   border: none;
   font-family: var(--font-mono);
   font-size: 13px;
-  color: var(--welcome-prompt);
+  color: var(--wt-welcome-prompt);
   cursor: pointer;
-  text-shadow: var(--welcome-text-glow);
+  text-shadow: var(--wt-welcome-text-glow);
   transition: color 0.15s ease;
   letter-spacing: 0;
 }
 
 .welcome-prompt:hover {
-  color: var(--welcome-link-hover);
+  color: var(--wt-welcome-link-hover);
 }
 
 .welcome-prompt:hover .welcome-cursor {
-  background: var(--welcome-link-hover);
+  background: var(--wt-welcome-link-hover);
 }
 
 .welcome-cursor {
   display: inline-block;
   width: 7px;
   height: 14px;
-  background: var(--welcome-cursor);
+  background: var(--wt-welcome-cursor);
   vertical-align: text-bottom;
   animation: cursorBlink 1s step-end infinite;
 }
@@ -143,7 +138,7 @@
 /* ---- Header ---- */
 
 .header {
-  height: var(--header-height);
+  height: var(--wt-header-height);
   display: flex;
   align-items: stretch;
   background: var(--bg-secondary);
@@ -178,6 +173,39 @@
   color: var(--color-accent-light);
 }
 
+/* apex theme: reserve the brand serif (Instrument Serif) for the brand
+   wordmark alone. Scoped to the apex themes and to .header-logo only so the
+   serif never leaks to body text, headings, buttons, or tabs (those keep the
+   apex --font-display = IBM Plex Sans set in the design-system base.css).
+   Instrument Serif ships a single 400 weight; a serif display face reads
+   larger and does not want the sans' negative tracking, so reset both. */
+[data-theme="apex-dark"] .header-logo,
+[data-theme="apex-light"] .header-logo {
+  font-family: 'Instrument Serif', serif;
+  font-weight: 400;
+  font-size: 20px;
+  letter-spacing: 0;
+}
+
+/* Optional per-deployment name badge (web.app_name), pinned to the header's
+   right so otherwise-identical terminals are distinguishable. */
+.header-app-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.04em;
+  padding: 3px 10px;
+  margin-right: 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 5px;
+  background: var(--bg-elevated);
+  white-space: nowrap;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .header-title {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -194,7 +222,19 @@
   align-items: center;
   gap: 2px;
   height: 100%;
+  flex: 1 1 auto;
+  /* Allow the flex item to shrink below content width so overflow can scroll
+     instead of pushing tabs off-viewport / under .header-actions. */
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* Scroll without a visible scrollbar (Firefox, legacy Edge). */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
+
+/* Scroll without a visible scrollbar (Chrome, Safari, WebKit). */
+.header-tabs::-webkit-scrollbar { display: none; }
 
 .header-tab {
   display: flex;
@@ -202,6 +242,8 @@
   gap: 6px;
   padding: 0 14px;
   height: 100%;
+  flex: 0 0 auto;
+  white-space: nowrap;
   cursor: pointer;
   border: none;
   background: transparent;
@@ -211,7 +253,7 @@
   font-weight: 500;
   color: var(--text-muted);
   letter-spacing: 0.02em;
-  transition: color var(--transition-fast), border-color var(--transition-fast);
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast);
 }
 
 .header-tab:hover { color: var(--text-secondary); }
@@ -226,12 +268,17 @@
   pointer-events: none;
 }
 
+/* Tab hidden by server visibility config; toggled by SSE show/hide events */
+.header-tab.tab-hidden {
+  display: none;
+}
+
 .header-tab .tab-led {
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: var(--text-muted);
-  transition: background var(--transition-normal);
+  transition: background var(--wt-transition-normal);
 }
 
 .header-tab .tab-led.healthy { background: var(--color-success); }
@@ -241,7 +288,7 @@
 
 .main-container {
   display: flex;
-  height: calc(100vh - var(--header-height) - var(--status-bar-height));
+  height: calc(100vh - var(--wt-header-height) - var(--wt-status-bar-height));
   overflow: hidden;
 }
 
@@ -300,7 +347,7 @@
   border-radius: 3px;
   padding: 2px 8px;
   cursor: pointer;
-  transition: all var(--transition-fast);
+  transition: all var(--wt-transition-fast);
   margin-left: auto;
 }
 
@@ -332,18 +379,14 @@
   right: 0;
   bottom: 0;
   pointer-events: none;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent 2px,
-    rgba(0, 0, 0, 0.03) 4px
-  );
+  background: var(--wt-crt-scanline-bg);
   z-index: 1;
-  opacity: var(--crt-scanline-opacity);
+  opacity: var(--wt-crt-scanline-opacity);
 }
 
 /* Inner glow on active terminal */
 .terminal-body.active {
-  box-shadow: inset 0 0 60px rgba(79, 209, 197, 0.03);
+  box-shadow: inset 0 0 60px var(--accent-tint-04);
 }
 
 /* Terminal bezel */
@@ -353,7 +396,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  box-shadow: var(--crt-bezel-shadow);
+  box-shadow: var(--wt-crt-bezel-shadow);
   pointer-events: none;
   z-index: 2;
 }

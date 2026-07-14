@@ -1,16 +1,21 @@
 /* OSPREY Web Terminal — Terminal Module */
 
-import { createWebSocket } from './api.js';
-import { getXtermPalette, setTerminalRef } from './theme.js';
+import { createWebSocket, wsUrl } from './api.js';
+import { subscribe, xtermPalette } from '/design-system/js/theme-manager.js';
 
+/** @type {any} */
 let term = null;
+/** @type {any} */
 let fitAddon = null;
+/** @type {ReturnType<typeof createWebSocket>|null} */
 let wsConnection = null;
 let hasConnectedBefore = false;
+/** @type {string|null} */
 let currentSessionId = null;
 
 /**
  * Initialize xterm.js terminal in the given container.
+ * @param {string} containerId
  */
 export function initTerminal(containerId) {
   const container = document.getElementById(containerId);
@@ -22,11 +27,15 @@ export function initTerminal(containerId) {
     fontFamily: "'JetBrains Mono', monospace",
     fontSize: 14,
     lineHeight: 1.2,
-    theme: getXtermPalette(),
+    theme: xtermPalette(),
   });
 
-  // Register terminal reference for live theme switching
-  setTerminalRef(term);
+  // Live theme switching: re-read the palette from computed style on every
+  // apply (see theme-manager.js's hidden-iframe protocol for why this is
+  // never deduped on an unchanged theme id).
+  subscribe(() => {
+    if (term) term.options.theme = xtermPalette();
+  });
 
   fitAddon = new FitAddon.FitAddon();
   const webLinksAddon = new WebLinksAddon.WebLinksAddon();
@@ -42,12 +51,12 @@ export function initTerminal(containerId) {
   document.fonts.ready.then(() => fitAddon.fit());
 
   // Forward keystrokes to WebSocket
-  term.onData((data) => {
+  term.onData((/** @type {string} */ data) => {
     if (wsConnection) wsConnection.send(data);
   });
 
   // Forward resize events to the PTY via WebSocket
-  term.onResize(({ cols, rows }) => {
+  term.onResize((/** @type {{ cols: number, rows: number }} */ { cols, rows }) => {
     if (wsConnection) {
       wsConnection.send(JSON.stringify({ type: 'resize', cols, rows }));
     }
@@ -75,7 +84,7 @@ export function initTerminal(containerId) {
     lastObsH = height;
     requestAnimationFrame(() => doFit());
   });
-  resizeObserver.observe(container.parentElement);
+  resizeObserver.observe(/** @type {Element} */ (container.parentElement));
 
   // Start the PTY WebSocket connection
   startTerminal();
@@ -91,13 +100,13 @@ export function startTerminal(sessionId = null, mode = 'new') {
   if (wsConnection) return;
   if (!term) return;
 
-  let wsUrl = `ws://${location.host}/ws/terminal`;
+  let url = wsUrl('/ws/terminal');
   if (mode === 'resume' && sessionId) {
-    wsUrl += `?session_id=${encodeURIComponent(sessionId)}&mode=resume`;
+    url += `?session_id=${encodeURIComponent(sessionId)}&mode=resume`;
     currentSessionId = sessionId;
   }
 
-  wsConnection = createWebSocket(wsUrl, {
+  wsConnection = createWebSocket(url, {
     onOpen() {
       // On reconnection (server restart), reset terminal to avoid
       // garbled output from old session mixed with new.
@@ -117,7 +126,7 @@ export function startTerminal(sessionId = null, mode = 'new') {
       // Send initial size FIRST — the server waits for this before
       // spawning the PTY, so the shell starts with correct dimensions.
       fitAddon.fit();
-      wsConnection.send(JSON.stringify({
+      /** @type {NonNullable<typeof wsConnection>} */ (wsConnection).send(JSON.stringify({
         type: 'resize',
         cols: term.cols,
         rows: term.rows,
@@ -146,7 +155,7 @@ export function startTerminal(sessionId = null, mode = 'new') {
             // Update reconnect URL so auto-reconnect targets the correct session
             if (wsConnection) {
               wsConnection.setUrl(
-                `ws://${location.host}/ws/terminal?session_id=${encodeURIComponent(msg.session_id)}&mode=resume`
+                wsUrl(`/ws/terminal?session_id=${encodeURIComponent(msg.session_id)}&mode=resume`)
               );
             }
           } else if (msg.type === 'error') {
@@ -246,7 +255,7 @@ export function focusTerminal() {
  * Paste text into the terminal (sends to PTY via WebSocket).
  * Used by the postMessage bridge to receive text from embedded iframes.
  */
-export function pasteToTerminal(text) {
+export function pasteToTerminal(/** @type {string} */ text) {
   if (wsConnection && text) {
     wsConnection.send(text);
   }
@@ -259,9 +268,9 @@ export function pasteToTerminal(text) {
 export function notifySessionChange(sessionId) {
   document.querySelectorAll('.panel-iframe').forEach(iframe => {
     try {
-      iframe.contentWindow.postMessage(
+      /** @type {Window} */ (/** @type {HTMLIFrameElement} */ (iframe).contentWindow).postMessage(
         { type: 'osprey-session-change', session_id: sessionId },
-        '*'
+        window.location.origin
       );
     } catch { /* cross-origin — ignore */ }
   });

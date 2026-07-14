@@ -1,0 +1,64 @@
+/* OSPREY Design System — Base
+   Hand-maintained. Shared reset + primitive element defaults for every
+   interface. Interface-specific rules do NOT belong here — this file must
+   never grow a selector scoped to one app. Colors come exclusively from
+   design tokens (tokens.css); this file contains zero color literals. */
+
+/* Theme transition (applied briefly by theme-manager.js during a theme switch) */
+html.theme-transitioning,
+html.theme-transitioning *,
+html.theme-transitioning *::before,
+html.theme-transitioning *::after {
+  transition: background-color 200ms ease, color 200ms ease,
+              border-color 200ms ease, box-shadow 200ms ease !important;
+}
+
+/* Reset */
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--neutral-tint-20);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--neutral-tint-35);
+}
+
+/* apex theme typography (theme-scoped, not app-scoped).
+   --font-display is the body/UI workhorse bound to html/body above, so it must
+   stay sans-serif — pointing it at a serif would render the whole app serif.
+   The apex brand serif (Instrument Serif) is applied to the single brand
+   wordmark only, in web_terminal/terminal.css. @font-face lives in
+   shared_fonts/fonts.css. The osprey (dark/light) and high-contrast themes are
+   untouched — they keep the tokens.css --font-display value. */
+[data-theme="apex-dark"],
+[data-theme="apex-light"] {
+  --font-display: 'IBM Plex Sans', system-ui, sans-serif;
+}

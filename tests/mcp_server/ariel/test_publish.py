@@ -101,3 +101,30 @@ async def test_entry_publish_writes_not_supported(tmp_path, monkeypatch):
             await fn(entry_id="e1")
 
     _exc_ctx["envelope"]
+
+
+@pytest.mark.unit
+async def test_entry_publish_auth_required(tmp_path, monkeypatch):
+    """Missing logbook credentials return a distinct auth_required error.
+
+    Without a dedicated clause this would fall through to internal_error, hiding
+    the fact that the publish only needs credentials to be configured.
+    """
+    _setup_registry(tmp_path, monkeypatch)
+
+    from osprey.services.ariel_search.exceptions import AuthenticationRequiredError
+
+    mock_service = AsyncMock()
+    mock_service.publish_entry.side_effect = AuthenticationRequiredError(
+        "OLOG publishing requires credentials.", source_system="ALS eLog"
+    )
+
+    with patch(
+        "osprey.mcp_server.ariel.server_context.ARIELContext.service",
+        new=AsyncMock(return_value=mock_service),
+    ):
+        fn = _get_entry_publish()
+        with assert_raises_error(error_type="auth_required") as _exc_ctx:
+            await fn(entry_id="e1")
+
+    _exc_ctx["envelope"]

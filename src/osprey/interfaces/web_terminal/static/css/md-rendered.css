@@ -70,7 +70,7 @@
   color: var(--color-accent-light);
   text-decoration: none;
   border-bottom: 1px solid var(--accent-tint-30);
-  transition: border-color var(--transition-fast);
+  transition: border-color var(--wt-transition-fast);
 }
 
 .osprey-md-rendered a:hover {

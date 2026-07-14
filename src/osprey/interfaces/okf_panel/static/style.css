@@ -1,0 +1,481 @@
+/*
+ * OKF Knowledge Panel — stylesheet layered on the shared design system.
+ *
+ * Color/font tokens come from /design-system/css/tokens.css (+ base.css),
+ * linked in index.html's <head> before this file, so the panel reads as the
+ * same "Precision Instrumentation" design system as every other OSPREY
+ * interface and honours the hub's dark/light theme automatically:
+ *   --bg-primary/secondary/panel/elevated, --text-primary/secondary/muted,
+ *   --color-accent[-light], --color-amber-light, --color-success/warning,
+ *   --border-default/accent, --font-display, --font-mono, and the
+ *   --accent-tint-*/--neutral-tint-* ramps.
+ * Only panel-local scale/layout tokens with no fleet-wide equivalent
+ * (typography steps, spacing, radius, transitions, translucent surfaces) stay
+ * in the reduced :root below, mirroring the artifact gallery's post-migration
+ * layout. The .osprey-md-rendered markdown block is unchanged in behaviour —
+ * it just references the shared tokens now.
+ */
+
+/* ================================================================
+   Local Design Tokens (no fleet-wide equivalent)
+   ================================================================ */
+
+:root {
+  /* === Local-only surfaces ===
+     Translucent card/hover tints composited from canonical bg tokens so they
+     track the active theme without a per-theme override block. */
+  --surface-card: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+  --surface-hover: color-mix(in srgb, var(--bg-elevated) 60%, transparent);
+
+  /* === Typography (panel-local scale) === */
+  --text-xs: 0.7rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-2xl: 1.5rem;
+
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+
+  --tracking-wide: 0.05em;
+  --tracking-wider: 0.1em;
+
+  /* === Spacing === */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+
+  /* === Border radius === */
+  --radius-md: 5px;
+  --radius-full: 9999px;
+
+  /* === Transitions === */
+  --transition-fast: 120ms ease;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+}
+
+#app {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* -- Sidebar -------------------------------------------------------------- */
+
+#sidebar {
+  flex: 0 0 300px;
+  max-width: 300px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border-right: 1px solid var(--border-default);
+  overflow: hidden;
+}
+
+#search-box {
+  flex: 0 0 auto;
+  padding: var(--space-3);
+  border-bottom: 1px solid var(--border-default);
+}
+
+#search-form {
+  margin: 0;
+}
+
+#search-input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-display);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  outline: none;
+  transition: border-color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+#search-input::placeholder {
+  color: var(--text-muted);
+}
+
+#search-input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--accent-tint-08);
+}
+
+/* Home / structure-overview entry, pinned at the top of the sidebar. */
+#structure-nav {
+  flex: 0 0 auto;
+  padding: var(--space-2) var(--space-2) 0;
+}
+
+.structure-link {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  text-decoration: none;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-card);
+  transition: background var(--transition-fast),
+    border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.structure-link:hover {
+  background: var(--surface-hover);
+  color: var(--color-accent-light);
+  border-color: var(--border-accent);
+}
+
+.structure-link.active {
+  border-color: var(--color-accent);
+  color: var(--color-accent-light);
+}
+
+.structure-link .structure-sub {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--text-xs);
+  font-weight: 400;
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+#tree,
+#search-results {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-1) var(--space-6);
+}
+
+#search-results {
+  border-top: 1px solid var(--border-default);
+}
+
+.group {
+  margin-bottom: var(--space-3);
+}
+
+.group-label {
+  margin: var(--space-3) var(--space-2) var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.concept-list,
+.result-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.concept-link {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+  text-decoration: none;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.concept-link:hover {
+  background: var(--surface-hover);
+  color: var(--color-accent-light);
+}
+
+.concept-link.active {
+  background: var(--accent-tint-08);
+  color: var(--color-accent-light);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.empty-group {
+  padding: 2px var(--space-3) var(--space-2);
+  font-style: italic;
+}
+
+/* -- Search results ------------------------------------------------------- */
+
+.result-item {
+  margin: var(--space-2) var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+.result-link {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-accent-light);
+  text-decoration: none;
+}
+
+.result-link:hover {
+  text-decoration: underline;
+}
+
+.result-snippet {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: var(--leading-normal);
+}
+
+/* -- Reading pane --------------------------------------------------------- */
+
+#reader {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  background: var(--bg-primary);
+}
+
+#reader-content {
+  max-width: 860px;
+  margin: 0 auto;
+  padding: var(--space-4) var(--space-6) var(--space-12);
+}
+
+.concept-title {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+  color: var(--color-accent-light);
+  word-break: break-word;
+}
+
+.concept-description {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+}
+
+.concept-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-6);
+}
+
+.tag {
+  padding: 2px var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-accent-light);
+  background: var(--accent-tint-10);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+/* -- Scrollbars (subtle, instrument-panel feel) --------------------------- */
+
+#tree::-webkit-scrollbar,
+#search-results::-webkit-scrollbar,
+#reader::-webkit-scrollbar {
+  width: 10px;
+}
+
+#tree::-webkit-scrollbar-thumb,
+#search-results::-webkit-scrollbar-thumb,
+#reader::-webkit-scrollbar-thumb {
+  background: var(--neutral-tint-35);
+  border-radius: var(--radius-full);
+}
+
+#tree::-webkit-scrollbar-track,
+#search-results::-webkit-scrollbar-track,
+#reader::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ================================================================
+   Markdown body (ported verbatim from gallery.css .osprey-md-rendered)
+   ================================================================ */
+
+.osprey-md-rendered {
+  color: var(--text-primary);
+  line-height: 1.7;
+  white-space: normal;
+  max-width: 800px;
+}
+
+.osprey-md-rendered h1,
+.osprey-md-rendered h2,
+.osprey-md-rendered h3,
+.osprey-md-rendered h4,
+.osprey-md-rendered h5,
+.osprey-md-rendered h6 {
+  font-family: var(--font-display);
+  color: var(--color-accent-light);
+  margin: 1.2em 0 0.4em;
+  line-height: 1.3;
+}
+
+.osprey-md-rendered h1 { font-size: 18px; font-weight: 700; border-bottom: 1px solid var(--border-accent); padding-bottom: 6px; }
+.osprey-md-rendered h2 { font-size: 15px; font-weight: 600; border-bottom: 1px solid var(--border-default); padding-bottom: 4px; }
+.osprey-md-rendered h3 { font-size: 13px; font-weight: 600; }
+.osprey-md-rendered h4,
+.osprey-md-rendered h5,
+.osprey-md-rendered h6 { font-size: 12px; font-weight: 500; color: var(--text-secondary); }
+
+.osprey-md-rendered p { margin: 0.6em 0; font-size: 12px; }
+
+.osprey-md-rendered ul,
+.osprey-md-rendered ol { margin: 0.5em 0; padding-left: 1.6em; font-size: 12px; }
+.osprey-md-rendered li { margin: 0.2em 0; }
+.osprey-md-rendered li::marker { color: var(--text-muted); }
+
+.osprey-md-rendered a { color: var(--color-accent-light); text-decoration: none; border-bottom: 1px solid var(--accent-tint-30); }
+.osprey-md-rendered a:hover { border-bottom-color: var(--color-accent-light); }
+
+.osprey-md-rendered code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  padding: 1px 4px;
+  color: var(--color-amber-light);
+}
+
+.osprey-md-rendered pre {
+  margin: 0.8em 0;
+  padding: 10px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.osprey-md-rendered pre code {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--text-primary);
+  font-size: inherit;
+}
+
+.osprey-md-rendered blockquote {
+  margin: 0.8em 0;
+  padding: 6px 12px;
+  border-left: 3px solid var(--color-accent);
+  background: var(--accent-tint-04);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.osprey-md-rendered hr { border: none; border-top: 1px solid var(--border-default); margin: 1em 0; }
+
+.osprey-md-rendered table { width: 100%; border-collapse: collapse; margin: 0.8em 0; font-size: 11px; }
+.osprey-md-rendered th,
+.osprey-md-rendered td { border: 1px solid var(--border-default); padding: 4px 8px; text-align: left; }
+.osprey-md-rendered th { background: var(--bg-secondary); color: var(--color-accent-light); font-weight: 500; }
+
+.osprey-md-rendered strong { color: var(--text-primary); font-weight: 600; }
+.osprey-md-rendered em { color: var(--text-secondary); font-style: italic; }
+.osprey-md-rendered img { max-width: 100%; border-radius: var(--radius-md); margin: 0.5em 0; }
+
+/* -- Responsive ----------------------------------------------------------- */
+
+@media (max-width: 720px) {
+  #app {
+    flex-direction: column;
+    height: auto;
+    min-height: 100vh;
+  }
+  #sidebar {
+    flex: 0 0 auto;
+    max-width: none;
+    width: 100%;
+    max-height: 45vh;
+    border-right: none;
+    border-bottom: 1px solid var(--border-default);
+  }
+  #reader {
+    flex: 1 1 auto;
+  }
+  #reader-content {
+    padding: var(--space-4) var(--space-4) var(--space-8);
+  }
+}
+
+/* ================================================================
+   Bundle-health status line (osprey addition)
+   Sidebar footer reflecting /api/bundle_health. Uses the shared
+   design tokens above so it reads as the same instrument system.
+   ================================================================ */
+
+.bundle-health {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: auto;
+  padding: 0.6rem 0.85rem;
+  border-top: 1px solid var(--neutral-tint-10);
+  font-size: 0.75rem;
+  line-height: 1.3;
+  color: var(--text-secondary);
+}
+
+.bundle-health .health-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+
+.bundle-health .health-dot.ok {
+  background: var(--color-success);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-success) 50%, transparent);
+}
+
+.bundle-health .health-dot.warn {
+  background: var(--color-warning);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--color-warning) 50%, transparent);
+}
+
+.bundle-health.has-warnings .health-text {
+  color: var(--color-amber-light);
+}

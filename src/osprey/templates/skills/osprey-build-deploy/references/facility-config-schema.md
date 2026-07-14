@@ -34,14 +34,14 @@ facility:
   name: "Advanced Light Source"          # full human-readable name
   prefix: "als"                           # short slug; used in profile filenames (als-prod.yml, als-client.yml)
                                           # and container names (als-mcp-matlab, als-web-thellert)
-  timezone: "America/Los_Angeles"         # IANA timezone for log timestamps and schedules
+  timezone: "America/Los_Angeles"         # facility timezone — drives container TZ and the agent's system.timezone
 ```
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
 | `name` | string | yes | Free text, shown in dashboards and Claude context |
 | `prefix` | string (lowercase, alnum + hyphens, 2–6 chars) | yes | Drives generated filenames and container names; choose carefully — changing later requires renaming many files |
-| `timezone` | IANA TZ | no | Default: `UTC` if omitted |
+| `timezone` | IANA TZ | no | The facility timezone. Drives container `TZ`; mirror it into the profile's `system.timezone`. Default: `UTC` if omitted |
 
 ---
 
@@ -335,6 +335,36 @@ modules:
 ```
 
 The skill renders compose entries and CI build jobs from this list. Each server gets its own Dockerfile path that the user owns.
+
+> **Agent-facing MCP declaration (`claude_code.servers`)** — the block above builds/serves the containers; what the *agent* sees is declared in the built project's `config.yml` under `claude_code.servers.<name>` (rendered into `.mcp.json` / `settings.json` at build/regen). A custom server needs `command`+`args` or `url`, plus optional `permissions.allow/ask` and `hooks.pre_tool_use` presets. A **second instance of a framework server** is declared with `extends` instead:
+>
+> ```yaml
+> claude_code:
+>   servers:
+>     phoebus2:
+>       extends: phoebus     # clone the framework server under a new name
+>       env:
+>         PHOEBUS_BRIDGE_URL: "${PHOEBUS2_BRIDGE_URL:-http://127.0.0.1:7980}"
+> ```
+>
+> The clone inherits the template's permissions and per-tool hooks with `mcp__<template>__` matchers rewritten to `mcp__<name>__`; spec `env` keys override the template's; `permissions.allow/ask` overrides may add but never remove the template's approval-gated (`ask`) tools. `extends` is only expressible via `config:` dotted overrides in a build profile (e.g. `claude_code.servers.phoebus2.extends: phoebus`) or directly in `config.yml` — the build-profile `mcp_servers:` block requires `command` or `url` and cannot express it. Note: approval policies key on the bare tool name, so they apply to every instance of a template (no per-instance gating).
+
+> **The `phoebus` framework server** — native interaction with a running [Phoebus](https://control-system-studio.readthedocs.io/) control panel (perceive the widget tree, snapshot widgets, drive controls via the in-JVM agent bridge). Off by default; a facility enables and configures it entirely through `config.yml` — no code changes:
+>
+> ```yaml
+> claude_code:
+>   servers:
+>     phoebus: { enabled: true }         # expose mcp__phoebus__* (drive is approval-gated)
+> phoebus:
+>   host: "127.0.0.1"                    # agent-bridge host (or set PHOEBUS_BRIDGE_URL)
+>   port: 7979                           # agent-bridge port
+>   require_handle: true                 # on a shared backend, reject the implicit "active" display
+>   archiver_url: "pbraw://arch.example.org/retrieve"  # optional; backs phoebus_open_databrowser
+>   panels:
+>     site_overview: /path/to/site.bob   # register a logical panel name → .bob file
+> ```
+>
+> The bridge itself lives in the Phoebus product (a facility build), not in OSPREY. Every value resolves from config or env with `127.0.0.1` defaults — nothing facility-specific is baked into the framework.
 
 ### `modules.benchmarks` — e2e agent benchmark suite
 

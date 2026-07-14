@@ -1,21 +1,23 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="{{ web_theme_id }}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OSPREY Web Terminal</title>
 
-  <!-- FOUC prevention: set data-theme before any CSS loads -->
-  <script>
-    (function() {
-      var t = localStorage.getItem('osprey-theme');
-      if (t !== 'dark' && t !== 'light') t = 'dark';
-      document.documentElement.setAttribute('data-theme', t);
-    })();
-  </script>
+  <!-- FOUC prevention: applies data-theme before any CSS loads -->
+  <script src="/design-system/js/theme-boot.js"></script>
+
+  <!-- Design system tokens -->
+  <link rel="stylesheet" href="/design-system/css/tokens.css">
+  <link rel="stylesheet" href="/design-system/css/base.css">
+
+  <!-- Family-picker theme switcher: self-registering Custom Element -->
+  <script type="module" src="/design-system/js/components/osprey-theme-switcher.js"></script>
 
   <!-- Fonts (self-hosted, no external CDN) -->
   <link rel="stylesheet" href="/static/fonts/fonts.css">
+  <link rel="stylesheet" href="/static/fonts/apex-fonts.css">
 
   <!-- xterm.js (CDN by default; local in OSPREY_OFFLINE mode) -->
   <link rel="stylesheet" href="{{ vendor_url('xterm.css', '/static/vendor/xterm.min.css') }}">
@@ -23,8 +25,11 @@
   <script src="{{ vendor_url('xterm addon-fit', '/static/vendor/addon-fit.min.js') }}"></script>
   <script src="{{ vendor_url('xterm addon-web-links', '/static/vendor/addon-web-links.min.js') }}"></script>
 
-  <!-- highlight.js -->
-  <link id="hljs-theme" rel="stylesheet" href="{{ vendor_url('highlight.js atom-one-dark theme', '/static/vendor/atom-one-dark.min.css') }}">
+  <!-- highlight.js: data-href-dark/light let theme-manager.js swap the stylesheet at runtime -->
+  <link id="hljs-theme" rel="stylesheet"
+        href="{{ vendor_url('highlight.js atom-one-dark theme', '/static/vendor/atom-one-dark.min.css') }}"
+        data-href-dark="{{ vendor_url('highlight.js atom-one-dark theme', '/static/vendor/atom-one-dark.min.css') }}"
+        data-href-light="{{ vendor_url('highlight.js atom-one-light theme', '/static/vendor/atom-one-light.min.css') }}">
   <link rel="prefetch" href="{{ vendor_url('highlight.js atom-one-light theme', '/static/vendor/atom-one-light.min.css') }}">
   <script src="{{ vendor_url('highlight.js', '/static/vendor/highlight.min.js') }}"></script>
 
@@ -32,7 +37,6 @@
   <script src="{{ vendor_url('marked', '/static/vendor/marked.min.js') }}"></script>
 
   <!-- OSPREY styles -->
-  <link rel="stylesheet" href="/static/css/variables.css">
   <link rel="stylesheet" href="/static/css/terminal.css">
   <link rel="stylesheet" href="/static/css/files.css">
   <link rel="stylesheet" href="/static/css/operator.css">
@@ -41,7 +45,6 @@
   <link rel="stylesheet" href="/static/css/sessions.css">
   <link rel="stylesheet" href="/static/css/settings.css">
   <link rel="stylesheet" href="/static/css/scaffold.css">
-  <link rel="stylesheet" href="/static/css/theme-light.css">
 </head>
 <body>
 
@@ -56,12 +59,10 @@
         <!-- Populated by panel-manager.js -->
       </div>
       <div class="header-actions">
+        {% if app_name %}<span class="header-app-name" title="{{ app_name }}">{{ app_name }}</span>{% endif %}
         <a class="header-icon-btn" id="docs-link" href="https://als-apg.github.io/osprey/" title="Documentation" target="_blank" rel="noopener">&#128214;</a>
-        <button class="header-icon-btn" id="theme-toggle" title="Toggle theme" aria-label="Switch to light theme">
-          <svg id="theme-icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-          <svg id="theme-icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-        </button>
-        <button class="header-icon-btn" data-drawer="settings-drawer" title="Settings">&#9881;</button>
+        <osprey-theme-switcher></osprey-theme-switcher>
+        <button class="header-icon-btn" data-drawer-trigger="settings-drawer" title="Settings">&#9881;</button>
       </div>
     </div>
   </header>
@@ -111,9 +112,6 @@
       <div class="status-item" id="ariel-status" style="display: none;">
         <span class="status-dot" id="ariel-dot"></span><span>ARIEL</span>
       </div>
-      <div class="status-item" id="tuning-status" style="display: none;">
-        <span class="status-dot"></span><span>TUNING</span>
-      </div>
       <div class="status-item" id="term-dims">--x--</div>
     </div>
     <div class="status-right">
@@ -125,7 +123,7 @@
   <div class="drawer-backdrop" id="drawer-backdrop"></div>
 
   <!-- Unified Settings Drawer -->
-  <div class="drawer" id="settings-drawer">
+  <osprey-drawer resizable class="drawer" id="settings-drawer">
     <div class="drawer-resize-handle"></div>
     <div class="drawer-header">
       <div class="drawer-header-left">
@@ -191,7 +189,7 @@
         </div>
       </div>
     </div>
-  </div>
+  </osprey-drawer>
 
   <!-- Welcome Modal (first visit only) -->
   <div class="welcome-overlay" id="welcome-overlay">

@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, cast
 from osprey.services.ariel_search.exceptions import IngestionError
 from osprey.services.ariel_search.ingestion.base import FacilityAdapter
 from osprey.services.ariel_search.models import AttachmentInfo, EnhancedLogbookEntry
+from osprey.utils.config import get_facility_timezone
 from osprey.utils.logger import get_logger
 from osprey.utils.relative_time import RelativeTimestamp, resolve_relative_timestamp
 
@@ -54,6 +55,11 @@ class GenericJSONAdapter(FacilityAdapter):
     def supports_write(self) -> bool:
         """Write is supported only for local file sources, not HTTP."""
         return not self.source_url.startswith(("http://", "https://"))
+
+    @property
+    def requires_write_auth(self) -> bool:
+        """No-auth logbook: a local JSON file publishes without credentials."""
+        return False
 
     async def fetch_entries(
         self,
@@ -212,7 +218,11 @@ class GenericJSONAdapter(FacilityAdapter):
 
     def _convert_entry(self, data: dict[str, Any]) -> EnhancedLogbookEntry:
         """Convert generic JSON entry to EnhancedLogbookEntry."""
-        now = datetime.now(UTC)
+        # Facility zone, not UTC: a relative ``{days_ago, time}`` spec resolves its
+        # time-of-day in this anchor's zone, so seeded demo narrative lands at the
+        # documented facility-local clock time (matching the telemetry it
+        # accompanies). Absolute timestamps ignore ``now`` (see _resolve_timestamp).
+        now = datetime.now(get_facility_timezone())
 
         timestamp = self._resolve_timestamp(data, now)
 

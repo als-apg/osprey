@@ -15,12 +15,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Query, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response, StreamingResponse
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.vendor import vendor_url
 from osprey.utils.timeseries import extract_timeseries_frame, lttb_downsample
 
@@ -202,9 +201,25 @@ _MARKDOWN_PAGE_TEMPLATE = """\
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<script src="/design-system/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/design-system/css/tokens.css">
+<script type="module">
+// Follower role: this standalone page is never the theme hub (web-terminal
+// is) -- it just applies whatever theme-boot.js already resolved pre-paint
+// and whatever the hub broadcasts when this page is embedded as a gallery
+// preview iframe. No base.css here (unlike the gallery shell): this page is
+// a plain scrolling document, not a fixed-viewport SPA, and base.css's
+// `overflow: hidden` would clip it -- tokens.css carries no layout rules,
+// so it's safe on its own.
+import {{ initTheme }} from '/design-system/js/theme-manager.js';
+initTheme({{ role: 'follower' }});
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{title}</title>
-<link rel="stylesheet" href="/static/css/vendor/atom-one-light.min.css">
+<link id="hljs-theme" rel="stylesheet"
+      href="{hljs_dark_href}"
+      data-href-dark="{hljs_dark_href}"
+      data-href-light="{hljs_light_href}">
 <script src="/static/js/vendor/highlight.min.js"></script>
 <script src="/static/js/vendor/marked.min.js"></script>
 <link rel="stylesheet" href="/static/css/vendor/katex.min.css">
@@ -212,8 +227,8 @@ _MARKDOWN_PAGE_TEMPLATE = """\
 <style>
 body {{
   margin: 0; padding: 24px 32px;
-  font-family: system-ui, -apple-system, sans-serif;
-  background: #fff; color: #111;
+  font-family: var(--font-display);
+  background: var(--bg-primary); color: var(--text-primary);
 }}
 .osprey-md-rendered {{
   font-size: 14px; line-height: 1.7; max-width: 860px; margin: 0 auto;
@@ -222,21 +237,30 @@ body {{
   margin-top: 1.2em;
 }}
 .osprey-md-rendered pre,.osprey-md-rendered code {{
-  background: #f5f5f5; border-radius: 3px; padding: 2px 4px; font-size: 12px;
+  background: var(--neutral-tint-08); border-radius: 3px; padding: 2px 4px; font-size: 12px;
 }}
 .osprey-md-rendered pre {{ padding: 12px; overflow-x: auto; }}
 .osprey-md-rendered pre code {{ padding: 0; background: transparent; }}
 .osprey-md-rendered table {{ border-collapse: collapse; width: 100%; }}
 .osprey-md-rendered th,.osprey-md-rendered td {{
-  border: 1px solid #ddd; padding: 6px 10px;
+  border: 1px solid var(--border-default); padding: 6px 10px;
 }}
 .osprey-md-rendered blockquote {{
-  border-left: 3px solid #ddd; margin: 1em 0; padding: 0.5em 1em; color: #555;
+  border-left: 3px solid var(--border-default); margin: 1em 0; padding: 0.5em 1em;
+  color: var(--text-secondary);
 }}
 .osprey-md-rendered img {{ max-width: 100%; height: auto; }}
+/* Printed output stays light-on-white regardless of the active theme,
+   matching the fleet-wide "@media print never goes dark" rule -- these
+   hardcoded literals are intentional, not migration debt.
+   hygiene-allow-color-start */
 @media print {{
-  body {{ padding: 12px; }}
+  body {{ padding: 12px; background: #fff; color: #111; }}
+  .osprey-md-rendered pre,.osprey-md-rendered code {{ background: #f5f5f5; }}
+  .osprey-md-rendered th,.osprey-md-rendered td {{ border-color: #ddd; }}
+  .osprey-md-rendered blockquote {{ border-left-color: #ddd; color: #555; }}
 }}
+/* hygiene-allow-color-end */
 </style>
 </head>
 <body>
@@ -317,6 +341,12 @@ def _build_markdown_page(md_source: str, title: str) -> str:
     return _MARKDOWN_PAGE_TEMPLATE.format(
         title=title.replace("&", "&amp;").replace("<", "&lt;"),
         md_json=md_json,
+        hljs_dark_href=vendor_url(
+            "highlight.js atom-one-dark theme", "/static/css/vendor/atom-one-dark.min.css"
+        ),
+        hljs_light_href=vendor_url(
+            "highlight.js atom-one-light theme", "/static/css/vendor/atom-one-light.min.css"
+        ),
     )
 
 
@@ -466,13 +496,6 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
         description="Interactive gallery for analysis artifacts",
         version="2.0.0",
         lifespan=lifespan,
-    )
-
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
     )
 
     app.state.artifact_store = store
@@ -814,20 +837,7 @@ def create_app(workspace_root: Path | None = None) -> FastAPI:
 
     app.include_router(logbook_router)
 
-    from osprey.interfaces.common_middleware import (
-        ExceptionLoggingMiddleware,
-        NoCacheStaticMiddleware,
-    )
-
-    app.add_middleware(NoCacheStaticMiddleware)
-    app.add_middleware(ExceptionLoggingMiddleware)
-
-    # Mount shared fonts before /static (Starlette matches in declaration order)
-    SHARED_FONTS_DIR = Path(__file__).parent.parent / "shared_fonts"
-    if SHARED_FONTS_DIR.exists():
-        app.mount("/static/fonts", StaticFiles(directory=SHARED_FONTS_DIR), name="shared-fonts")
-    if STATIC_DIR.exists():
-        app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    configure_interface_app(app, static_dir=STATIC_DIR)
 
     return app
 

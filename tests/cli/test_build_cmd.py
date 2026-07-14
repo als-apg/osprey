@@ -1554,12 +1554,12 @@ class TestWebPanelsRendering:
 
     def test_builtin_panels_rendered_from_web_panels(self, tmp_path: Path):
         """Only builtin panels listed in web_panels appear with enabled: true."""
-        config_path = _build_for_web_panels(tmp_path, web_panels=["ariel", "tuning"])
+        config_path = _build_for_web_panels(tmp_path, web_panels=["ariel", "lattice"])
         config = yaml.safe_load(config_path.read_text())
 
         panels = config["web"]["panels"]
         assert panels.get("ariel", {}).get("enabled") is True
-        assert panels.get("tuning", {}).get("enabled") is True
+        assert panels.get("lattice", {}).get("enabled") is True
         assert "channel-finder" not in panels
 
     def test_custom_panels_filtered_from_template_but_configurable(self, tmp_path: Path):
@@ -1599,14 +1599,14 @@ class TestWebPanelsRendering:
         override web.panels.<id>.label merges into the same dict."""
         config_path = _build_for_web_panels(
             tmp_path,
-            web_panels=["tuning"],
-            overrides={"web.panels.tuning.label": "TUNING"},
+            web_panels=["lattice"],
+            overrides={"web.panels.lattice.label": "LATTICE"},
         )
         config = yaml.safe_load(config_path.read_text())
 
-        tuning = config["web"]["panels"]["tuning"]
-        assert tuning["enabled"] is True
-        assert tuning["label"] == "TUNING"
+        lattice = config["web"]["panels"]["lattice"]
+        assert lattice["enabled"] is True
+        assert lattice["label"] == "LATTICE"
 
     def test_default_panel_rendered_when_set(self, tmp_path: Path):
         """Profile default_panel: ariel ends up as web.default_panel in config.yml.
@@ -1839,6 +1839,141 @@ def test_build_profile_only_tier(tmp_path: Path, paradigm: str) -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Events-panel URL derivation (Task 1.4)
+# ---------------------------------------------------------------------------
+
+
+class TestEventsPanelUrlDerivation:
+    """_inject_dispatch derives web.panels.events.url from dispatcher_port."""
+
+    def _write_minimal_config(self, project_path: Path) -> None:
+        """Write the smallest config.yml that _inject_dispatch needs."""
+        from ruamel.yaml import YAML
+
+        yaml = YAML()
+        with open(project_path / "config.yml", "w") as fh:
+            yaml.dump({"deployed_services": [], "services": {}}, fh)
+
+    def _dispatch(self, dispatcher_port: int = 8020, **overrides: object):
+        from osprey.cli.build_profile import DispatchConfig
+
+        base: dict = {
+            "triggers": "tutorial_triggers.yml",
+            "worker_count": 1,
+            "workspace_mode": "isolated",
+            "max_concurrent_runs": 2,
+            "max_queue_depth": 50,
+            "dispatcher_port": dispatcher_port,
+            "worker_port_base": 9190,
+            "timeout_sec": 300,
+            "facility_name": "generic-facility",
+            "pv_strip_prefix": "",
+        }
+        base.update(overrides)
+        return DispatchConfig(**base)  # type: ignore[arg-type]
+
+    def _inject(self, dispatch, project_path: Path, profile_dir: Path) -> None:
+        from osprey.cli.build_cmd import _inject_dispatch
+
+        _inject_dispatch(dispatch, profile_dir=profile_dir, project_path=project_path)
+
+    def _read_config(self, project_path: Path) -> dict:
+        import yaml
+
+        return yaml.safe_load((project_path / "config.yml").read_text()) or {}
+
+    def test_events_panel_url_derived_from_dispatcher_port(self, tmp_path: Path) -> None:
+        """events.url is a bare host and events.path carries the /dashboard route."""
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        profile_dir = tmp_path / "profile"
+        profile_dir.mkdir()
+        self._write_minimal_config(project_path)
+
+        self._inject(self._dispatch(dispatcher_port=8888), project_path, profile_dir)
+
+        config = self._read_config(project_path)
+        events = config["web"]["panels"]["events"]
+        # Bare host in url + /dashboard in path matches the custom-panel proxy
+        # convention (url.rstrip('/') + '/' + path); /dashboard must NOT be baked
+        # into url or sub-routes would double-prefix.
+        assert events["url"] == "http://localhost:8888"
+        assert events["path"] == "/dashboard"
+
+    def test_events_panel_url_reflects_custom_port(self, tmp_path: Path) -> None:
+        """Different dispatcher_port values produce different derived bare-host URLs."""
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        profile_dir = tmp_path / "profile"
+        profile_dir.mkdir()
+        self._write_minimal_config(project_path)
+
+        self._inject(self._dispatch(dispatcher_port=9999), project_path, profile_dir)
+
+        config = self._read_config(project_path)
+        events = config["web"]["panels"]["events"]
+        assert events["url"] == "http://localhost:9999"
+        assert events["path"] == "/dashboard"
+
+    def test_events_panel_path_pinned_by_profile_preserved(self, tmp_path: Path) -> None:
+        """A facility-pinned web.panels.events.path is left untouched (setdefault)."""
+        from ruamel.yaml import YAML
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        profile_dir = tmp_path / "profile"
+        profile_dir.mkdir()
+
+        yaml = YAML()
+        config_pre = {
+            "deployed_services": [],
+            "services": {},
+            "web": {"panels": {"events": {"path": "/custom-route"}}},
+        }
+        with open(project_path / "config.yml", "w") as fh:
+            yaml.dump(config_pre, fh)
+
+        self._inject(self._dispatch(dispatcher_port=8020), project_path, profile_dir)
+
+        config = self._read_config(project_path)
+        events = config["web"]["panels"]["events"]
+        # url is still derived (no explicit url was set), but the pinned path wins.
+        assert events["url"] == "http://localhost:8020"
+        assert events["path"] == "/custom-route"
+
+    def test_explicit_events_url_not_overwritten(self, tmp_path: Path) -> None:
+        """An explicit web.panels.events.url already in config.yml is not replaced,
+        and the derivation does not force-inject a path alongside it."""
+        from ruamel.yaml import YAML
+
+        project_path = tmp_path / "project"
+        project_path.mkdir()
+        profile_dir = tmp_path / "profile"
+        profile_dir.mkdir()
+
+        # Pre-set an explicit URL via a profile config override (simulated here by
+        # writing it directly into config.yml before _inject_dispatch runs).
+        yaml = YAML()
+        config_pre = {
+            "deployed_services": [],
+            "services": {},
+            "web": {"panels": {"events": {"url": "http://custom-host:7777/dashboard"}}},
+        }
+        with open(project_path / "config.yml", "w") as fh:
+            yaml.dump(config_pre, fh)
+
+        self._inject(self._dispatch(dispatcher_port=8020), project_path, profile_dir)
+
+        config = self._read_config(project_path)
+        events = config["web"]["panels"]["events"]
+        # Explicit URL must survive — derivation must not overwrite it.
+        assert events["url"] == "http://custom-host:7777/dashboard"
+        # Derivation is fully skipped when an explicit url exists; it must not
+        # inject a path that would compose a double route against the explicit url.
+        assert "path" not in events
+
+
 def test_build_channel_finder_agent_requires_mode(tmp_path: Path) -> None:
     """A profile that selects the channel-finder agent but omits
     channel_finder_mode must fail with a clear BuildProfileError."""
@@ -1876,3 +2011,79 @@ def test_build_channel_finder_agent_requires_mode(tmp_path: Path) -> None:
     combined = result.output + (str(result.exception) if result.exception else "")
     assert "channel_finder_mode" in combined
     assert "required" in combined.lower()
+
+
+# ---------------------------------------------------------------------------
+# Approval-overlap guard (extends clones share bare-name approval policies)
+# ---------------------------------------------------------------------------
+
+
+def test_build_context_warns_when_remove_ask_overrides_gated_tool(tmp_path: Path, caplog) -> None:
+    """A facility permissions.remove_ask (or allow) entry naming an enabled
+    server's approval-gated tool — e.g. an extends clone's phoebus_drive —
+    must emit a build-time warning: it auto-approves the tool at the
+    permission layer, and approval policies apply to every instance of a
+    template (no per-instance gating)."""
+    import logging
+
+    from osprey.cli.templates import claude_code
+    from osprey.cli.templates.manager import TemplateManager
+
+    manager = TemplateManager()
+    project = manager.create_project(
+        project_name="remove-ask-warn",
+        output_dir=tmp_path,
+        data_bundle="hello_world",
+    )
+
+    config = yaml.safe_load((project / "config.yml").read_text())
+    cc = config.setdefault("claude_code", {})
+    cc.setdefault("servers", {})["phoebus2"] = {"extends": "phoebus"}
+    cc["permissions"] = {"remove_ask": ["mcp__phoebus2__phoebus_drive"]}
+
+    with caplog.at_level(logging.WARNING):
+        claude_code.build_claude_code_context(
+            manager.template_root, manager.jinja_env, project, config
+        )
+
+    assert any(
+        "mcp__phoebus2__phoebus_drive" in r.message and "approval-gated" in r.message
+        for r in caplog.records
+    ), f"expected approval-overlap warning; got: {[r.message for r in caplog.records]}"
+
+
+def test_writes_disabled_hard_block_covers_extends_clones(tmp_path: Path) -> None:
+    """With control_system.writes_enabled false, the kill-switch hard-block must
+    cover extends clones of the controls/python templates, not just the literal
+    template names: the clone's rewritten channel_write lands in the rendered
+    settings.json permissions.deny, and the clone's execute is pulled out of
+    permissions.ask exactly like mcp__python__execute."""
+    from osprey.cli.templates.manager import TemplateManager
+    from osprey.utils.config_writer import config_update_fields
+
+    manager = TemplateManager()
+    project = manager.create_project(
+        project_name="writes-block-clone",
+        output_dir=tmp_path,
+        data_bundle="hello_world",
+    )
+
+    config_update_fields(
+        project / "config.yml",
+        {
+            "control_system.writes_enabled": False,
+            "claude_code.servers.controls2.extends": "controls",
+            "claude_code.servers.python2.extends": "python",
+        },
+    )
+    manager.regenerate_claude_code(project)
+
+    settings = json.loads((project / ".claude" / "settings.json").read_text())
+    deny = settings["permissions"]["deny"]
+    ask = settings["permissions"]["ask"]
+    # Template and clone both hard-blocked.
+    assert "mcp__controls__channel_write" in deny
+    assert "mcp__controls2__channel_write" in deny
+    # Template and clone execute both pulled out of ask (remove_ask leg).
+    assert "mcp__python__execute" not in ask
+    assert "mcp__python2__execute" not in ask

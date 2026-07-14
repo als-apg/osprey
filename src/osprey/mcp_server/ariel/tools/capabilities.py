@@ -18,7 +18,11 @@ async def capabilities() -> str:
 
     Returns enabled search modules, search modes,
     default settings, and reasoning configuration.
-    Does NOT require database connectivity.
+
+    Does NOT require database connectivity, so this is *not* a health check: a
+    successful response says nothing about whether the database is reachable.
+    For live database/health status (connectivity, entry counts) call the
+    ``status`` tool, or run ``osprey ariel status``.
 
     Returns:
         JSON with capabilities information.

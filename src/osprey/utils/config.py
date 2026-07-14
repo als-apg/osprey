@@ -10,16 +10,20 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+    from zoneinfo import ZoneInfo
 
 # Use standard logging (not get_logger) to avoid circular imports with logger.py
 # The short name 'CONFIG' enables easy filtering: quiet_logger(['registry', 'CONFIG'])
 logger = logging.getLogger("CONFIG")
 
 
-def resolve_env_vars(data: Any) -> Any:
+def resolve_env_vars(data: Any, *, environ: "Mapping[str, str] | None" = None) -> Any:
     """Recursively resolve environment variables in configuration data.
 
     Supports both simple and bash-style default value syntax:
@@ -36,7 +40,15 @@ def resolve_env_vars(data: Any) -> Any:
     This is the public, standalone version of ConfigBuilder._resolve_env_vars.
     Use it when you need env-var resolution without a full ConfigBuilder
     instance (e.g., after a raw ``yaml.safe_load``).
+
+    Args:
+        data: The config data (dict/list/str/scalar) to resolve.
+        environ: Optional mapping to resolve ``${VAR}`` against instead of the
+            process environment. Lets callers expand against an
+            ``os.environ`` + ``.env`` overlay without mutating global state
+            (e.g. the Claude Code provider loader). Defaults to ``os.environ``.
     """
+    lookup = os.environ if environ is None else environ
     raw_server_envs: dict[str, dict] = {}
     if isinstance(data, dict):
         cc = data.get("claude_code")
@@ -47,9 +59,11 @@ def resolve_env_vars(data: Any) -> Any:
                     raw_server_envs[name] = copy.deepcopy(spec["env"])
 
     if isinstance(data, dict):
-        resolved: Any = {key: resolve_env_vars(value) for key, value in data.items()}
+        resolved: Any = {
+            key: resolve_env_vars(value, environ=lookup) for key, value in data.items()
+        }
     elif isinstance(data, list):
-        return [resolve_env_vars(item) for item in data]
+        return [resolve_env_vars(item, environ=lookup) for item in data]
     elif isinstance(data, str):
 
         def replace_env_var(match):
@@ -60,7 +74,7 @@ def resolve_env_vars(data: Any) -> Any:
                 var_name = match.group(3)
                 default_value = None
 
-            env_value = os.environ.get(var_name)
+            env_value = lookup.get(var_name)
             # Match bash :- semantics: empty string triggers default too
             if env_value is None or (not env_value and default_value is not None):
                 if default_value is not None:
@@ -143,6 +157,12 @@ class ConfigBuilder:
                 logger.debug(f"No .env file found at {dotenv_path}")
         except ImportError:
             logger.warning("python-dotenv not available, skipping .env file loading")
+        except OSError as e:
+            # e.g. a 0600 .env owned by another uid mounted into a non-root
+            # container (dispatch worker on a uid-mismatched host). Provider
+            # env should already be in os.environ by the time config is built,
+            # so degrade gracefully instead of crash-looping the process.
+            logger.warning(f"Could not read .env file at {dotenv_path}: {e}")
 
         if config_path is None:
             cwd_config = Path.cwd() / "config.yml"
@@ -157,6 +177,30 @@ class ConfigBuilder:
                 )
 
         self.config_path = Path(config_path)
+
+        # Fail fast with an actionable message when the config path is not a
+        # regular file. A common cause: a container bind-mount whose host source
+        # did not exist at container-create time, which the runtime silently
+        # materializes as an empty directory on both ends — so config_path
+        # resolves to a directory and the YAML loader would otherwise surface a
+        # bare "[Errno 21] Is a directory". Treat a missing explicit path the
+        # same way rather than failing later in open().
+        if self.config_path.is_dir():
+            raise IsADirectoryError(
+                f"Config path is a directory, not a file: {self.config_path}\n\n"
+                f"config.yml is expected to be a file here. This usually means it "
+                f"was meant to be provided at runtime (e.g. a bind-mount whose "
+                f"source was missing, so the container runtime created an empty "
+                f"directory) or was not baked into the image. Ensure config.yml "
+                f"exists as a file at this path."
+            )
+        if not self.config_path.exists():
+            raise FileNotFoundError(
+                f"Config file not found: {self.config_path}\n\n"
+                f"Set the CONFIG_FILE environment variable to a valid config.yml, "
+                f"or run from a project directory that contains one."
+            )
+
         self.raw_config, self._unexpanded_config = self._load_config()
 
         # Pre-compute nested structures for efficient runtime access
@@ -651,16 +695,85 @@ def get_config_value(path: str, default: Any = None, config_path: str | None = N
     return value
 
 
-def get_facility_timezone():
+_tz_drift_warned = False
+
+
+def get_facility_timezone() -> "ZoneInfo":
     """Get the facility timezone from config as a ZoneInfo object.
+
+    This is the safe default resolver for every simulation synthesis primitive
+    and timestamp render site, so it must never raise: an unloaded config (no
+    ``config.yml`` and no ``CONFIG_FILE``) or a misconfigured/typo'd zone name
+    degrades to UTC with a logged warning rather than propagating to callers.
 
     Returns:
         ZoneInfo for the configured facility timezone, defaulting to UTC.
     """
     from zoneinfo import ZoneInfo
 
-    tz_name = get_config_value("facility_timezone", "UTC")
-    return ZoneInfo(tz_name)
+    try:
+        tz_name = get_config_value("facility_timezone", "UTC")
+        zone = ZoneInfo(tz_name)
+    except Exception as exc:  # noqa: BLE001 - any failure must degrade to UTC, not raise
+        logger.warning(f"Falling back to UTC facility timezone ({type(exc).__name__}: {exc})")
+        return ZoneInfo("UTC")
+
+    _warn_on_tz_drift(tz_name)
+    return zone
+
+
+def _warn_on_tz_drift(tz_name: str) -> None:
+    """Warn once if the container ``$TZ`` disagrees with an explicit system.timezone.
+
+    Agent-facing timestamps key off ``system.timezone``, not ``$TZ``, so a
+    divergence only mis-stamps OS-level container logs — but it signals a
+    misconfigured deploy (container clock != agent zone). We surface it as a
+    one-time warning rather than enforcing equality: ``system.timezone`` stays the
+    single source of truth, and this check never changes the returned value or
+    raises. Skips the implicit-UTC default (config absent) so CI/tests with
+    ``$TZ`` set but no configured ``system.timezone`` stay quiet.
+    """
+    global _tz_drift_warned
+    if _tz_drift_warned:
+        return
+    host_tz = os.environ.get("TZ")
+    if not host_tz or host_tz == tz_name:
+        return
+    # Only meaningful when system.timezone was explicitly configured (the alias
+    # default would otherwise make every $TZ-set environment look divergent).
+    if get_config_value("system.timezone", None) is None:
+        return
+    _tz_drift_warned = True
+    logger.warning(
+        f"Container $TZ={host_tz!r} differs from the facility system.timezone={tz_name!r}; "
+        f"OS-level log timestamps will differ from agent-reported times. Set both to "
+        f"the same zone (system.timezone is authoritative for what the agent reports)."
+    )
+
+
+def to_facility_iso(value: Any) -> "str | None":
+    """Render a value as a facility-local ISO-8601 string with explicit offset.
+
+    The single shared timestamp-egress transform for agent- and operator-facing
+    output (the ARIEL MCP ``serialize_entry``/``entry_get`` and the ARIEL web
+    responses). Centralizing it here is deliberate: the input side was already
+    mirrored (``parse_date_filters`` / ``_localize_facility``), and the original
+    web/MCP output drift came from a copy-pasted localizer, so both paths now call
+    one function. An aware datetime is converted to the facility zone; a naive
+    datetime is assumed to already be facility-local wall-clock and is stamped with
+    the facility zone (mirroring the parse-side ``_localize_facility`` contract —
+    never the box ``$TZ``, which ``astimezone`` would otherwise impose); ``None``
+    passes through; anything else degrades to ``str(value)`` so callers never crash
+    on an unexpected shape (e.g. a value already serialized upstream).
+    """
+    if value is None:
+        return None
+    if hasattr(value, "astimezone"):  # a datetime
+        tz = get_facility_timezone()
+        if value.tzinfo is None:
+            return str(value.replace(tzinfo=tz).isoformat())
+        return str(value.astimezone(tz).isoformat())
+    return str(value)
 
 
 def get_full_configuration(config_path: str | None = None) -> dict[str, Any]:

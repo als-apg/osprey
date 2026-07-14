@@ -1,3 +1,4 @@
+// @ts-check
 /**
  * OSPREY Channel Finder — Explore View (dispatcher)
  *
@@ -11,6 +12,7 @@ import { mountHierarchical, unmountHierarchical, setShowDescriptions as setHierD
 import { mountInContext, unmountInContext } from './explore-in-context.js';
 import { mountMiddleLayer, unmountMiddleLayer, setShowDescriptions as setMLDescriptions } from './explore-middle-layer.js';
 
+/** @type {string|null} */
 let currentRenderer = null;
 
 function _dbSourceBadge() {
@@ -23,6 +25,9 @@ function _dbSourceBadge() {
           </div>`;
 }
 
+/**
+ * @param {HTMLElement} container
+ */
 export function mountExplore(container) {
   const pt = state.pipelineType;
 
@@ -57,11 +62,13 @@ export function mountExplore(container) {
 
   // Wire description toggle
   container.querySelector('#show-desc-toggle')?.addEventListener('change', (e) => {
-    if (pt === 'hierarchical') setHierDescriptions(e.target.checked);
-    else if (pt === 'middle_layer') setMLDescriptions(e.target.checked);
+    const checked = /** @type {HTMLInputElement} */ (e.target).checked;
+    if (pt === 'hierarchical') setHierDescriptions(checked);
+    else if (pt === 'middle_layer') setMLDescriptions(checked);
   });
 
   const content = document.getElementById('explore-content');
+  if (!content) return;
 
   if (pt === 'hierarchical') {
     currentRenderer = 'hierarchical';

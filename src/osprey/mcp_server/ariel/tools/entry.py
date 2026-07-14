@@ -43,7 +43,7 @@ async def _resolve_artifacts(artifact_ids: list[str]) -> list[str]:
     """
     import tempfile
 
-    from osprey.mcp_server.ariel.converters import get_converter
+    from osprey.interfaces.artifacts.resolve import resolve_artifact_path
     from osprey.stores.artifact_store import get_artifact_store
 
     store = get_artifact_store()
@@ -51,17 +51,7 @@ async def _resolve_artifacts(artifact_ids: list[str]) -> list[str]:
     output_dir = Path(tempfile.mkdtemp(prefix="ariel_convert_"))
 
     for aid in artifact_ids:
-        entry = store.get_entry(aid)
-        if entry is None:
-            raise ValueError(f"Artifact '{aid}' not found.")
-
-        file_path = store.get_file_path(aid)
-        if file_path is None or not file_path.exists():
-            raise ValueError(f"Artifact file not found on disk for '{aid}'.")
-
-        converter = get_converter(entry.mime_type)
-        result_path = await converter(file_path, output_dir)
-        resolved.append(str(result_path))
+        resolved.append(await resolve_artifact_path(store, aid, output_dir))
 
     return resolved
 
@@ -100,20 +90,24 @@ async def entry_get(
                 ],
             )
 
-        # TypedDict -- dict access, not attribute access
+        # TypedDict -- dict access, not attribute access. Localize the three
+        # timestamp fields through the shared egress helper so single-entry get
+        # matches search/browse (serialize_entry) instead of emitting raw UTC.
+        from osprey.utils.config import to_facility_iso
+
         return json.dumps(
             {
                 "entry_id": entry["entry_id"],
                 "source_system": entry["source_system"],
-                "timestamp": entry["timestamp"],
+                "timestamp": to_facility_iso(entry["timestamp"]),
                 "author": entry.get("author", ""),
                 "raw_text": entry["raw_text"],
                 "attachments": entry.get("attachments", []),
                 "metadata": entry.get("metadata", {}),
                 "summary": entry.get("summary"),
                 "keywords": entry.get("keywords", []),
-                "created_at": entry["created_at"],
-                "updated_at": entry["updated_at"],
+                "created_at": to_facility_iso(entry["created_at"]),
+                "updated_at": to_facility_iso(entry["updated_at"]),
             },
             default=str,
         )
@@ -308,7 +302,15 @@ async def entry_create(
             filepath = drafts_dir / f"{draft_id}.json"
             filepath.write_text(json.dumps(draft_data, indent=2))
 
-            base_url = os.environ.get("ARIEL_WEB_URL", "http://127.0.0.1:8085")
+            # Default to the web terminal's origin-relative proxy path for the
+            # ARIEL panel. The web terminal embeds the panel at /panel/ariel and
+            # resolves this URL with `new URL(url, origin)`, so a relative path
+            # loads through the proxy in both the clickable link and the
+            # auto-focus iframe. An absolute container-internal address (e.g.
+            # 127.0.0.1:8085) is unreachable from the user's browser. Set
+            # ARIEL_WEB_URL to an absolute base only for standalone (non-proxied)
+            # ARIEL deployments.
+            base_url = os.environ.get("ARIEL_WEB_URL", "/panel/ariel")
             url = f"{base_url}/#create?draft={draft_id}"
 
             logger.info("Draft %s created at %s", draft_id, filepath)

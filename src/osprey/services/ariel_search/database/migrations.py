@@ -230,12 +230,31 @@ class MigrationRunner:
                 try:
                     module = importlib.import_module(module_path)
                     migration_class = getattr(module, class_name)
-                    migrations.append(migration_class())
+                    # The text_embedding migration needs the configured
+                    # (model, dimension) pairs so `osprey ariel migrate` creates a
+                    # table per configured model, not just the hardcoded default.
+                    if name == "text_embedding":
+                        models = self._configured_embedding_models()
+                        migration = migration_class(models) if models else migration_class()
+                    else:
+                        migration = migration_class()
+                    migrations.append(migration)
                     logger.debug(f"Loaded migration: {name}")
                 except (ImportError, AttributeError) as e:
                     logger.warning(f"Failed to load migration {name}: {e}")
 
         return migrations
+
+    def _configured_embedding_models(self) -> list[tuple[str, int]] | None:
+        """Read the configured text_embedding (model, dimension) pairs.
+
+        Returns None when no models are configured, so the migration falls back
+        to its own default.
+        """
+        module_config = self.config.enhancement_modules.get("text_embedding")
+        if module_config and module_config.models:
+            return [(m.name, m.dimension) for m in module_config.models]
+        return None
 
     def _topological_sort(self, migrations: list[BaseMigration]) -> list[BaseMigration]:
         """Sort migrations by dependencies using topological sort.

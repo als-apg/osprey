@@ -218,3 +218,41 @@ class TestStaticServing:
         resp = client.get("/")
         assert resp.status_code == 200
         assert "text/html" in resp.headers["content-type"]
+
+
+class TestHeaderAppName:
+    """web.app_name surfaces as an optional header badge for deployment ID."""
+
+    def test_app_name_renders_when_set(self, workspace_dir):
+        cfg = {"watch_dir": str(workspace_dir), "web": {"app_name": "Control Room A"}}
+        with patch(
+            "osprey.interfaces.web_terminal.app._load_web_config",
+            return_value=cfg,
+        ):
+            app = create_app(shell_command="echo")
+            with TestClient(app) as c:
+                assert app.state.app_name == "Control Room A"
+                body = c.get("/").text
+                assert "header-app-name" in body
+                assert "Control Room A" in body
+
+    def test_app_name_absent_when_unset(self, client):
+        # The shared `client` fixture supplies no `web` section.
+        body = client.get("/").text
+        assert "header-app-name" not in body
+
+    def test_env_var_overrides_config(self, workspace_dir):
+        # OSPREY_WEB_APP_NAME wins over web.app_name so containers sharing one
+        # baked config image can still be named individually.
+        cfg = {"watch_dir": str(workspace_dir), "web": {"app_name": "From Config"}}
+        with (
+            patch(
+                "osprey.interfaces.web_terminal.app._load_web_config",
+                return_value=cfg,
+            ),
+            patch.dict("os.environ", {"OSPREY_WEB_APP_NAME": "From Env"}),
+        ):
+            app = create_app(shell_command="echo")
+            with TestClient(app) as c:
+                assert app.state.app_name == "From Env"
+                assert "From Env" in c.get("/").text

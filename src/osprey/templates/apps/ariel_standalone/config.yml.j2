@@ -78,6 +78,17 @@ api:
 container_runtime: auto
 
 # ============================================================
+# SYSTEM CONFIGURATION
+# ============================================================
+system:
+  # Facility timezone: ARIEL parses operator-provided times as facility-local
+  # and renders all logbook timestamps in this zone (with an explicit offset).
+  # Pinned to UTC for reproducibility — set your real facility zone
+  # (e.g. America/Los_Angeles) in production. Avoid ${TZ:-...}: inheriting the
+  # host $TZ makes logbook queries and rendered timestamps non-deterministic.
+  timezone: UTC
+
+# ============================================================
 # SERVICE CONFIGURATION
 # ============================================================
 # Only PostgreSQL is needed for ARIEL logbook search
@@ -223,7 +234,7 @@ claude_code:
 # Universal panels (Workspace, Activity, Session Analytics) are always shown.
 
 web:
-{%- set _BUILTIN_PANELS = ["ariel", "channel-finder", "tuning"] %}
+{%- set _BUILTIN_PANELS = builtin_panels | default(["ariel", "channel-finder"]) %}
 {%- set _enabled_builtin_panels = selected_web_panels | select("in", _BUILTIN_PANELS) | list %}
 {%- if default_panel is defined and default_panel %}
   # Tab focused on cold load. Falls back to "artifacts" (Workspace) when unset.
@@ -238,6 +249,10 @@ web:
 {%- else %}
   panels: {}
 {%- endif %}
+  # Optional panel controls (off by default; uncomment to use):
+  #   web.panels.<id>.hidden: true                          # launch the panel but keep its tab hidden until shown
+  #   web.allow_runtime_panels: true                        # let the agent register ad-hoc URL panels at runtime
+  #   web.runtime_panel_allowlist: ["dashboard.local:3000"] # restrict registration targets to these host[:port]
 
 # ──────────────────────────────────────────────────────────────────────
 # User-Owned Prompt Artifacts

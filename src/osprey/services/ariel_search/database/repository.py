@@ -162,7 +162,19 @@ class ARIELRepository:
                         timestamp = EXCLUDED.timestamp,
                         author = EXCLUDED.author,
                         raw_text = EXCLUDED.raw_text,
-                        attachments = EXCLUDED.attachments,
+                        -- Preserve existing attachments when the incoming upsert
+                        -- carries none. A background re-ingestion poll re-fetches an
+                        -- already-published entry from the upstream logbook, which has
+                        -- no attachments (the OLOG write API cannot accept file
+                        -- uploads), so a blind overwrite would erase ARIEL-native
+                        -- web-uploaded attachments and orphan their stored blobs. A
+                        -- non-empty incoming list still replaces (upstream wins when it
+                        -- actually has data).
+                        attachments = CASE
+                            WHEN EXCLUDED.attachments = '[]'::jsonb
+                            THEN enhanced_entries.attachments
+                            ELSE EXCLUDED.attachments
+                        END,
                         metadata = EXCLUDED.metadata
                     """,
                     [
@@ -187,13 +199,19 @@ class ARIELRepository:
         start: datetime | None = None,
         end: datetime | None = None,
         limit: int = 100,
+        offset: int = 0,
+        author: str | None = None,
+        source_system: str | None = None,
     ) -> list[EnhancedLogbookEntry]:
-        """Get entries within a time range.
+        """Get entries within a time range, optionally filtered and paginated.
 
         Args:
             start: Start of time range (inclusive)
             end: End of time range (inclusive)
             limit: Maximum entries to return
+            offset: Number of entries to skip (for pagination)
+            author: Restrict to a single author (exact match)
+            source_system: Restrict to a single source system (exact match)
 
         Returns:
             List of EnhancedLogbookEntry sorted by timestamp descending
@@ -212,16 +230,23 @@ class ARIELRepository:
                     if end is not None:
                         conditions.append("timestamp <= %s")
                         params.append(end)
+                    if author is not None:
+                        conditions.append("author = %s")
+                        params.append(author)
+                    if source_system is not None:
+                        conditions.append("source_system = %s")
+                        params.append(source_system)
 
                     where_clause = " AND ".join(conditions) if conditions else "TRUE"
                     params.append(limit)
+                    params.append(offset)
 
                     await cur.execute(
                         f"""
                         SELECT * FROM enhanced_entries
                         WHERE {where_clause}
                         ORDER BY timestamp DESC
-                        LIMIT %s
+                        LIMIT %s OFFSET %s
                         """,
                         params,
                     )
@@ -233,15 +258,52 @@ class ARIELRepository:
                 query=f"SELECT time_range=({start}, {end})",
             ) from e
 
-    async def count_entries(self) -> int:
-        """Count total entries in the database.
+    async def count_entries(
+        self,
+        start: datetime | None = None,
+        end: datetime | None = None,
+        author: str | None = None,
+        source_system: str | None = None,
+    ) -> int:
+        """Count entries, applying the same optional filters as ``search_by_time_range``.
+
+        Passing no filters counts every entry. The filters mirror
+        :meth:`search_by_time_range` so a paginated listing's ``total`` (and the
+        ``total_pages`` derived from it) matches the rows the filtered query
+        actually returns.
+
+        Args:
+            start: Start of time range (inclusive)
+            end: End of time range (inclusive)
+            author: Restrict to a single author (exact match)
+            source_system: Restrict to a single source system (exact match)
 
         Returns:
-            Total number of entries
+            Number of entries matching the filters
         """
         try:
+            conditions: list[str] = []
+            params: list[object] = []
+            if start is not None:
+                conditions.append("timestamp >= %s")
+                params.append(start)
+            if end is not None:
+                conditions.append("timestamp <= %s")
+                params.append(end)
+            if author is not None:
+                conditions.append("author = %s")
+                params.append(author)
+            if source_system is not None:
+                conditions.append("source_system = %s")
+                params.append(source_system)
+
+            where_clause = " AND ".join(conditions) if conditions else "TRUE"
+
             async with self.pool.connection() as conn:
-                result = await conn.execute("SELECT COUNT(*) FROM enhanced_entries")
+                result = await conn.execute(
+                    f"SELECT COUNT(*) FROM enhanced_entries WHERE {where_clause}",
+                    params,
+                )
                 row = await result.fetchone()
                 return int(row[0]) if row else 0
         except Exception as e:

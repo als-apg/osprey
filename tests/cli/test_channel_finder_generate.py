@@ -47,14 +47,14 @@ class TestGenerateSubcommand:
         assert len(data["channels"]) == 1228
 
     def test_in_context_channel_count_tier1(self, runner, tmp_path):
-        """--tier 1 in_context.json should have 205 channels."""
+        """--tier 1 in_context.json should have 217 channels."""
         runner.invoke(
             channel_finder,
             ["generate", "--output-dir", str(tmp_path), "--tier", "1"],
         )
 
         data = json.loads((tmp_path / "in_context.json").read_text())
-        assert len(data["channels"]) == 205
+        assert len(data["channels"]) == 217
 
     def test_hierarchical_channel_count(self, runner, tmp_path):
         """hierarchical.json should have 1228 channels (default, no tier filter)."""
@@ -115,19 +115,19 @@ class TestGenerateSubcommand:
         )
         assert result.exit_code == 0
 
-        # in_context: 205 channels at tier 1
+        # in_context: 217 channels at tier 1
         ic_data = json.loads((tmp_path / "in_context.json").read_text())
-        assert len(ic_data["channels"]) == 205
+        assert len(ic_data["channels"]) == 217
 
         # hierarchical: tier 1 produces fewer channels
         h_data = json.loads((tmp_path / "hierarchical.json").read_text())
         h_channels = expand_hierarchy(h_data)
-        assert len(h_channels) == 205
+        assert len(h_channels) == 217
 
         # middle_layer: tier 1 produces fewer channels
         ml_data = json.loads((tmp_path / "middle_layer.json").read_text())
         ml_pvs = collect_middle_layer_pvs(ml_data)
-        assert len(ml_pvs) == 205
+        assert len(ml_pvs) == 217
 
     def test_generate_custom_source(self, runner, tmp_path):
         """--source custom.json loads from a custom hierarchical template."""

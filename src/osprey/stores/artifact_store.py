@@ -71,6 +71,14 @@ class ArtifactEntry:
     data_file: str = ""
     source_agent: str = ""
     session_id: str = ""
+    run_id: str = ""
+    """Dispatch run that produced this artifact (``OSPREY_DISPATCH_RUN_ID``),
+    empty for artifacts made outside a dispatch run.
+
+    Deliberately separate from ``session_id``: ``OSPREY_SESSION_ID`` also
+    relocates the whole store into ``_agent_data/sessions/<id>/`` (see
+    ``resolve_agent_data_root``), so it cannot be reused to tag a dispatch run
+    without moving its artifacts off the shared root the gallery reads."""
 
     def to_dict(self) -> dict[str, Any]:
         return _sanitize_for_json(asdict(self))
@@ -214,6 +222,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         d.setdefault("data_file", "")
         d.setdefault("source_agent", "")
         d.setdefault("session_id", "")
+        d.setdefault("run_id", "")
         return ArtifactEntry(**d)
 
     def _entry_to_dict(self, entry: ArtifactEntry) -> dict:
@@ -267,6 +276,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 metadata=metadata or {},
                 category=category,
                 session_id=os.environ.get("OSPREY_SESSION_ID", ""),
+                run_id=os.environ.get("OSPREY_DISPATCH_RUN_ID", ""),
             )
             self._entries.append(entry)
             self._save_index()
@@ -401,6 +411,7 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
                 data_file=agent_path,
                 source_agent=source_agent,
                 session_id=os.environ.get("OSPREY_SESSION_ID", ""),
+                run_id=os.environ.get("OSPREY_DISPATCH_RUN_ID", ""),
             )
             self._entries.append(entry)
             self._save_index()
@@ -425,9 +436,15 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         tool_filter: str | None = None,
         source_agent_filter: str | None = None,
         session_filter: str | None = None,
+        run_filter: str | None = None,
         last_n: int | None = None,
     ) -> list[ArtifactEntry]:
-        """Return artifact entries, optionally filtered."""
+        """Return artifact entries, optionally filtered.
+
+        ``run_filter`` is the strict dispatch-run isolation boundary — see the
+        note on its clause below. ``session_filter`` is deliberately NOT such a
+        boundary (it also matches untagged artifacts).
+        """
         self._refresh_if_stale()
         entries = list(self._entries)
         if type_filter:
@@ -439,7 +456,19 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
         if source_agent_filter:
             entries = [e for e in entries if e.source_agent == source_agent_filter]
         if session_filter:
+            # NOT an isolation boundary: this OR-empty clause also matches
+            # untagged (empty session_id) artifacts. Dispatch callers needing
+            # strict per-run isolation must use ``run_filter`` / ``get_run_entry``
+            # instead, which never match empty tags.
             entries = [e for e in entries if e.session_id == session_filter or not e.session_id]
+        if run_filter is not None:
+            # Strict created-by isolation: an artifact belongs to a run only if
+            # it was tagged with that run's id at WRITE time. Deliberately does
+            # NOT match empty run_ids, so untagged/legacy artifacts are never
+            # attributed to any dispatch run. An empty filter matches nothing.
+            if run_filter == "":
+                return []
+            entries = [e for e in entries if e.run_id == run_filter]
         if pinned is not None:
             entries = [e for e in entries if e.pinned == pinned]
         if search:
@@ -465,6 +494,20 @@ class ArtifactStore(BaseStore[ArtifactEntry]):
             if e.id == artifact_id:
                 return e
         return None
+
+    def get_run_entry(self, run_id: str, artifact_id: str) -> ArtifactEntry | None:
+        """Return the artifact only if the run created it — the cross-run gate.
+
+        The single authoritative isolation predicate: an entry resolves only
+        when its write-time ``run_id`` tag is non-empty and exactly equals
+        ``run_id``. An empty ``run_id`` argument, an untagged entry, or a tag
+        mismatch all return ``None`` — indistinguishable from an unknown id, so
+        callers cannot use this as a cross-run existence oracle.
+        """
+        entry = self.get_entry(artifact_id)
+        if entry is None or not entry.run_id or entry.run_id != run_id:
+            return None
+        return entry
 
     def delete_entry(self, artifact_id: str) -> bool:
         """Delete an artifact by ID, removing both the index entry and physical file.

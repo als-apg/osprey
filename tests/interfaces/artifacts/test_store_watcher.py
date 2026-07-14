@@ -51,6 +51,12 @@ def _wait_for_broadcast(broadcaster, expected_calls=1, timeout=10.0):
 class TestStoreWatcher:
     """Tests for StoreIndexWatcher."""
 
+    # Filesystem-watcher tests depend on the OS delivering an inotify/FSEvents
+    # change event after observer startup. On loaded CI runners that event is
+    # occasionally missed entirely (not merely late — the poll wait below is
+    # already condition-based with a 10s ceiling), so re-run to re-initialize
+    # the observer rather than flake the whole suite.
+    @pytest.mark.flaky(reruns=2, reruns_delay=1)
     def test_detects_new_artifact_entry(self, tmp_path):
         """External write to artifacts.json triggers SSE broadcast."""
         watcher, broadcaster, artifact_store = _make_watcher(tmp_path)
@@ -77,6 +83,9 @@ class TestStoreWatcher:
         finally:
             watcher.stop()
 
+    @pytest.mark.flaky(
+        reruns=2, reruns_delay=1
+    )  # same inotify-miss risk as test_detects_new_artifact_entry
     def test_detects_deleted_entry(self, tmp_path):
         """Removing an entry from the index externally triggers delete broadcast."""
         # Pre-populate with an artifact

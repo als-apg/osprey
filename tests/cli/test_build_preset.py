@@ -917,6 +917,16 @@ def test_each_bundled_preset_builds_clean(preset: str, runner: CliRunner, tmp_pa
     manifest = json.loads((project_dir / ".osprey-manifest.json").read_text())
     assert manifest["schema_version"] == "1.2.0"
     assert manifest["creation"]["template"] == preset
+    # 3. Every preset must explicitly pin the facility timezone — agent timestamp
+    #    interpretation/rendering keys off system.timezone, and a preset that omits
+    #    it falls back to a silent default (the ariel_standalone blind spot). Binding
+    #    to list_presets() auto-forces any new preset to declare it too.
+    config = _config_yaml(project_dir)
+    tz = config.get("system", {}).get("timezone")
+    assert isinstance(tz, str) and tz.strip(), (
+        f"preset {preset!r} does not pin system.timezone — agent timestamps would "
+        f"fall back to a silent default; add an explicit `system.timezone`"
+    )
 
 
 def test_control_assistant_preset_ships_simulation_model(runner: CliRunner, tmp_path: Path) -> None:

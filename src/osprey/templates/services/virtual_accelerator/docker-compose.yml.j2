@@ -1,0 +1,86 @@
+# The virtual-accelerator service owns the PyAT-backed EPICS soft-IOC (see
+# src/osprey/services/virtual_accelerator/). `osprey deploy up` builds its
+# image locally on first run; subsequent runs reuse the local tag. To use a
+# prebuilt/published image instead, set OSPREY_VA_IMAGE (e.g.
+# OSPREY_VA_IMAGE=my-registry/osprey-va:dev).
+# Use `osprey deploy up --dev` to bake in your local osprey checkout (incl.
+# unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
+#
+# Native architecture: the service resolves to the host's arch (no platform
+# pin). On arm64 hosts the four native deps (accelerator-toolbox, softioc,
+# epicscorelibs, pvxslibs) have no manylinux_aarch64 wheels, so they compile
+# from sdist during the image build — a one-time cost of a couple of minutes,
+# no x86 emulation involved — see
+# src/osprey/services/virtual_accelerator/probe/README.md.
+
+services:
+  virtual-accelerator:
+    # OSPREY_VA_IMAGE now inherits host-arch resolution too: a single-arch amd64
+    # published image on an arm64 host must supply its own `platform` override (VA-8).
+    image: ${OSPREY_VA_IMAGE:-{{ services.virtual_accelerator.image | default('osprey-va:local') }}}
+    build:
+      # With multiple `-f` compose files, ALL relative paths (build contexts and
+      # bind mounts alike) resolve against the FIRST file's dir — the compose
+      # project directory, build/services/ — not this file's own subdir. So the
+      # context is ./virtual_accelerator, matching the volume-path convention below.
+      context: ./virtual_accelerator
+      dockerfile: Dockerfile
+      args:
+        OSPREY_VERSION: "{{ osprey_version | default('') }}"
+    container_name: osprey-virtual-accelerator
+    labels:
+      osprey.project.name: "{{ osprey_labels.project_name }}"
+      osprey.project.root: "{{ osprey_labels.project_root }}"
+      osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
+    restart: unless-stopped
+    ports:
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ (services.virtual_accelerator | default({})).port | default(5064) }}:{{ (services.virtual_accelerator | default({})).port | default(5064) }}/tcp"
+    environment:
+      # EPICS_CA_SERVER_PORT is the standard EPICS server-side CA port
+      # override, read directly by the CA library at iocInit — no
+      # entrypoint.py change needed to make services.virtual_accelerator.port
+      # actually control what the IOC binds to.
+      EPICS_CA_SERVER_PORT: "{{ (services.virtual_accelerator | default({})).port | default(5064) }}"
+      # Build-time stuck-readback apply fault (entrypoint.py reads it): a
+      # comma-separated list of :SP addresses whose readback is frozen (SP still
+      # latches, RB never follows). Passthrough from the project .env; unset →
+      # no fault. Quoted so a value is never YAML-coerced.
+      VA_STUCK_SETPOINTS: "${VA_STUCK_SETPOINTS:-}"
+      # FR4 physics-fault apply faults (entrypoint.py parses and bounds each):
+      # a seeded quad misalignment, per-BPM readout error, and per-corrector
+      # calibration gain. Passthrough from the project .env; unset -> no fault.
+      VA_QUAD_MISALIGN: "${VA_QUAD_MISALIGN:-}"
+      VA_BPM_ERRORS: "${VA_BPM_ERRORS:-}"
+      VA_CORR_GAIN: "${VA_CORR_GAIN:-}"
+      TZ: {{ system.timezone }}
+    # Bind-mount source is relative to the compose project directory
+    # (build/services/), not this file's own subdir — hence the ../../ prefix
+    # to reach the project root's data/simulation/ (see entrypoint.py's run
+    # contract: the IOC SystemExits without a machine.json here). Read-only —
+    # the IOC only ever reads the simulation model, never writes it.
+    volumes:
+      - ../../data/simulation:/data/simulation:ro
+    networks:
+      - osprey-network
+    healthcheck:
+      # The IOC serves Channel Access on the configured port, not HTTP, so this
+      # can't be an HTTP /health probe like the other services. A real `caget`
+      # isn't available either: softioc's base install pulls in epicscorelibs/
+      # pvxslibs (C libraries only), not a Python CA *client* — cothread/aioca
+      # are gated behind softioc's own "useful"/"dev" extras, and adding one
+      # just for this probe would be exactly the kind of extra-package drift
+      # the `[virtual-accelerator]` extra is meant to avoid. So: a raw TCP
+      # connect to the CA port — enough to prove the IOC's listener is up and
+      # accepting connections, short of an actual PV read.
+      test: ["CMD-SHELL", "python -c \"import socket,sys; s=socket.socket(); s.settimeout(3); r=s.connect_ex(('localhost', {{ (services.virtual_accelerator | default({})).port | default(5064) }})); sys.exit(0 if r == 0 else 1)\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      # Grace period before failed probes count — generous because a first-time
+      # native-arch image build (source-compiling the native deps) plus boot
+      # (PyAT lattice load + softioc iocInit) takes a few seconds longer than
+      # the framework's other native-arch services.
+      start_period: 20s
+
+networks:
+  osprey-network:
