@@ -166,15 +166,26 @@ automatically per network context:
 
 .. important::
 
-   For ``backend: openobserve`` the OTLP endpoint is **auto-derived per network
-   context** and you should not hardcode it. The derived form is
-   ``http://<host>:5080/api/<org>``: ``http://localhost:5080/api/default`` when
-   the agent runs on the host, and ``http://openobserve:5080/api/default`` (the
-   compose service DNS name) when the emitter runs *inside* the deploy network —
-   for example the containerized dispatch worker. Hardcoding
-   ``endpoint: http://localhost:5080/...`` would make that in-container worker
-   emit to its own loopback and silently drop every record. Leaving ``endpoint``
-   unset is what lets each context reach the store correctly.
+   For ``backend: openobserve`` the OTLP endpoint is **auto-derived** and you
+   should not hardcode it. The derived form is ``http://<host>:5080/api/<org>``,
+   where ``<host>`` is chosen for the running context:
+
+   - **On the host** (``osprey web`` / ``osprey query`` on your machine) the host
+     is ``localhost`` — the store's published port.
+   - **Inside a bridge-networked container** (for example the containerized
+     dispatch worker) the store is reachable only by its compose service DNS
+     name, ``openobserve``. The framework's dispatch-worker service declares this
+     by setting ``OSPREY_OTEL_OPENOBSERVE_HOST=openobserve`` in its compose
+     environment. That explicit declaration — rather than sniffing the container
+     runtime — is what makes emit work identically under Docker and Podman.
+
+   If you run your own containerized emitter, set
+   ``OSPREY_OTEL_OPENOBSERVE_HOST`` to whatever host reaches OpenObserve from
+   inside that container: the compose service name on a bridge network, or
+   ``localhost`` when the container uses host networking (``network_mode: host``),
+   where the compose DNS name would not resolve. Leave it unset on a plain host
+   run. Hardcoding ``endpoint:`` instead would point every context at the same
+   host and silently drop records from the ones it doesn't fit.
 
 On its next run the agent emits to OpenObserve, and its logs and metrics appear
 in the UI.
@@ -211,9 +222,17 @@ Caveats
   ``ZO_ROOT_USER_EMAIL`` / ``ZO_ROOT_USER_PASSWORD``. It is intended for a
   single operator or a small trusted team on the deploy host, not for
   multi-tenant access control.
-- **Data volume.** Ingested telemetry persists in a named container volume.
-  Removing that volume discards the history; back it up if you need retention
-  across redeploys.
+- **Data volume growth is bounded by retention, not a size cap.** Ingested
+  telemetry persists in a named container volume, which has no portable hard
+  size limit — so the store is bounded by *age*: ``services.openobserve.retention_days``
+  (default 14) sets ``ZO_COMPACT_DATA_RETENTION_DAYS`` in the container, dropping
+  telemetry older than N days (OpenObserve's floor is 3 days). Raise it for
+  longer history, but watch disk. Removing the volume still discards all history;
+  back it up if you need retention across redeploys.
+- **Health.** ``osprey health`` reports the store's ``/healthz`` readiness (a
+  running container is not necessarily ready), the effective retention (warning
+  if below OpenObserve's floor of 3 days), and the percentage-full of the disk
+  the volume grows into.
 - **Local by design.** The service binds to localhost by default. Do not expose
   port 5080 beyond the host without putting authentication and transport
   security in front of it.
