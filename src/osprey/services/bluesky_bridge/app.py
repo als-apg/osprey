@@ -15,8 +15,10 @@ built-in deploy smoke demo (``BLUESKY_DEMO_SCANNER``) — see below.
 
 from __future__ import annotations
 
+import ast
 import logging
 import os
+import re
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
@@ -25,9 +27,13 @@ from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
 
 from . import live_rows
-from .runs import do_promote, registry
+from .plan_types import Provenance
+from .plan_validation import hash_plan_body, validate_bluesky_plan
+from .runs import Run, do_promote, registry
 from .scanner import FakeScanner, Scanner
 from .security import verify_promote_token
+from .session_dir import resolve_session_plan_dir
+from .validation_record import validation_records
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -283,7 +289,6 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
         try:
             from .devices import connector as connector_devices
             from .devices._specs_from_env import specs_from_env
-            from .plans import BUILTIN_PLANS
             from .scanner_bluesky import BlueskyScanner
         except ImportError as exc:
             root_name = (getattr(exc, "name", None) or "").split(".")[0]
@@ -346,9 +351,20 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 # result. Every read and write these devices perform is
                 # connector-mediated (`read_channel`/`write_channel_checked`) —
                 # there is no raw Channel Access anywhere in this path.
+                #
+                # `plans` is left unset (`None`) rather than pinned to
+                # `BUILTIN_PLANS`, so `BlueskyScanner.reinitialize` resolves
+                # plan names through `_default_plan_registry()` — built-ins
+                # merged with `get_facility_plans().plans` (task 2.4), which
+                # re-scans and re-gates the session/facility layers on every
+                # call. A validated session or facility plan is therefore
+                # launchable on this connector-mediated path exactly like the
+                # demo scanner factory below; an unvalidated (or
+                # validated-then-edited) one is simply absent from the
+                # registry the next time this factory's scanner resolves it —
+                # fail-closed, with no separate gate needed here.
                 return BlueskyScanner(
                     devices=lambda: connector_devices.build_devices(motors, detectors, connector),
-                    plans=BUILTIN_PLANS,
                     tiled_writer_factory=_build_tiled_writer_factory(),
                 )
 
@@ -444,7 +460,93 @@ def list_runs(limit: int = 20) -> list[dict]:
 
 @app.get("/runs/{run_id}")
 def get_run_status(run_id: str) -> dict:
-    return registry.get(run_id).to_dict()
+    """Run status, plus (when present) the intent's ``plan_name``/``plan_args``.
+
+    ``Run.to_dict()`` itself carries neither field — the lifecycle core
+    (``runs.py``) treats ``request`` as opaque (see its own docstring). Both
+    are read straight off the stored intent here, the same
+    dict-or-attribute extraction ``_promote_validation_gate`` already uses,
+    so callers that need to know *what* is being launched (e.g. task 2.6's
+    launch-approval hook, resolving a bare ``run_id`` into a plan to render)
+    don't need a second route.
+    """
+    run = registry.get(run_id)
+    out = run.to_dict()
+    request = run.request
+    plan_name = (
+        request.get("plan_name") if isinstance(request, dict) else getattr(request, "plan_name", None)
+    )
+    if plan_name is not None:
+        out["plan_name"] = plan_name
+        out["plan_args"] = (
+            request.get("plan_args", {})
+            if isinstance(request, dict)
+            else getattr(request, "plan_args", {})
+        )
+    return out
+
+
+def _promote_validation_gate(run: Run) -> None:
+    """Refuse to promote a session/unreviewed plan with no CURRENT passing validation record.
+
+    Defense-in-depth alongside task 2.4's session-layer LOAD gate
+    (`plan_loader.py`'s `_load_plan_file`): that gate already keeps an
+    unvalidated session/unreviewed file out of `get_facility_plans().plans`
+    entirely, so in the common case this validator finds nothing to reject.
+    It exists for the narrow race the load gate can't close on its own — the
+    `PlanSpec` `get_facility_plans()` returned to resolve this run's
+    `plan_name` moments earlier could be stale by the time promote runs (e.g.
+    the session file was edited in between) — so this independently re-reads
+    the file straight from `resolve_session_plan_dir()` and re-hashes its
+    CURRENT content with `hash_plan_body`, the same normalization the record
+    was keyed on, rather than trusting the earlier snapshot.
+
+    Raises `HTTPException(409, ...)` for any plan name backed by a file in
+    `resolve_session_plan_dir()` whose current content has no passing
+    record — whether or not `get_facility_plans()` currently registers it.
+    A name the load gate is quarantining *right now* for lacking a record
+    resolves to no `PlanSpec` at all, but its file still exists under the
+    session directory; treating that as `session` provenance too (rather than
+    "not found") is what turns an already-quarantined plan's promote attempt
+    into this clear 409 instead of a confusing "unknown plan" failure further
+    downstream. A non-session provenance (`shipped`/`preset`/`facility`), or a
+    name with neither a `PlanSpec` nor a session-dir file at all, is left
+    alone — `Scanner.reinitialize`'s own "unknown plan" handling is the right
+    place for the latter.
+    """
+    request = run.request
+    plan_name = (
+        request.get("plan_name")
+        if isinstance(request, dict)
+        else getattr(request, "plan_name", None)
+    )
+    if not plan_name:
+        return
+
+    from .plan_loader import get_facility_plans
+
+    spec = get_facility_plans().plans.get(plan_name)
+    plan_path = resolve_session_plan_dir() / f"{plan_name}.py"
+    if spec is not None:
+        is_session = spec.provenance in ("session", "unreviewed")
+    else:
+        is_session = plan_path.is_file()
+
+    if not is_session or not plan_path.is_file():
+        # Not a session-tier plan at all, or its file has since vanished —
+        # either way there is nothing here to re-hash; `Scanner.reinitialize`
+        # will hit its own "unknown plan" path if the name doesn't resolve.
+        return
+
+    content = plan_path.read_text(encoding="utf-8")
+    if not validation_records.has_passing_record(hash_plan_body(content)):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"session plan {plan_name!r} has no passing validation record; "
+                "validate it before launching"
+            ),
+        )
 
 
 @app.post("/runs/{run_id}/promote")
@@ -454,10 +556,14 @@ def promote_run(run_id: str, x_promote_token: str = Header(default="")) -> dict:
     Callable only by holders of `BLUESKY_PROMOTE_TOKEN` — in practice, the
     `launch_scan` MCP tool, whose own invocation already required a human
     approval prompt (PreToolUse) plus an in-tool `writes_enabled` re-check.
+    `_promote_validation_gate` runs inside `do_promote`'s own lock, before any
+    scanner is built (task 2.5) — a session/unreviewed plan with no current
+    passing validation record 409s here rather than surfacing downstream as a
+    confusing "unknown plan" resolution failure.
     """
     verify_promote_token(x_promote_token)
     run = registry.get(run_id)
-    promoted_run = do_promote(run, _scanner_factory)
+    promoted_run = do_promote(run, _scanner_factory, validator=_promote_validation_gate)
     # Only recorded once do_promote actually succeeds (it raises 409/500
     # otherwise) — a rejected promote attempt must not mark the run as
     # launched by anything.
@@ -520,6 +626,258 @@ def list_plans() -> list:
     merged.update(get_facility_plans().plans)
 
     return [spec.to_dict() for spec in merged.values()]
+
+
+# ---------------------------------------------------------------------------
+# Session-plan authoring + validation (task 2.3)
+# ---------------------------------------------------------------------------
+# A valid Python identifier: the sanitized name doubles as the on-disk file
+# stem (`<name>.py`) and the `PLAN_METADATA["name"]` value, so this also rules
+# out path traversal (`../`, absolute paths, path separators) in one check.
+# Anchored with `\Z`, NOT `$` — `$` matches at end-of-string OR just before a
+# single trailing "\n", so `"foo\n"` would otherwise pass this check while
+# still not being a valid identifier.
+_PLAN_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\Z")
+
+# A generous bound well above any real plan name — exists only so an
+# absurdly long name fails closed here (400) rather than surfacing as an
+# unhandled OSError from `Path.write_text` (some filesystems reject a
+# filename this long outright, which would otherwise 500).
+_MAX_PLAN_NAME_LENGTH = 100
+
+# Neither `/plans/session` nor `/plans/validate` is gated on
+# `BLUESKY_PROMOTE_TOKEN` (`security.py`) — that token is deliberately
+# unminted whenever writes are unsafe to arm (see
+# `container_lifecycle._local_exec_arming_unsafe`), and both these routes
+# MUST keep working with writes disabled: authoring and validating a plan
+# body never touches a device (the validator's stage-3 dry run drives mock
+# devices only, in a subprocess with `EPICS_CA_*` neutralized — see
+# `plan_validation.py`). Their protection is the bridge's loopback-only bind
+# (see the compose template) plus the MCP-side approval hook
+# (`registry/mcp.py`'s `write_bluesky_plan`/`validate_bluesky_plan` tiers) —
+# not a token gate.
+
+
+def _sanitize_plan_name(name: str) -> str:
+    """Validate ``name`` as a safe plan name, or raise 400.
+
+    Enforced as a Python identifier (not merely "no path separators") because
+    the same string is written into the generated ``PLAN_METADATA["name"]``
+    block as a plain literal and used verbatim as the on-disk file stem.
+    Length-checked FIRST, before the regex echoes ``name`` back in the error
+    detail — an oversized name fails closed on its length alone rather than
+    being quoted in full into an HTTPException detail.
+    """
+    if len(name) > _MAX_PLAN_NAME_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"invalid plan name: exceeds the {_MAX_PLAN_NAME_LENGTH}-character limit",
+        )
+    if not _PLAN_NAME_RE.match(name):
+        raise HTTPException(
+            status_code=400,
+            detail=f"invalid plan name {name!r}: must be a valid Python identifier",
+        )
+    return name
+
+
+class PlanSessionWriteRequest(BaseModel):
+    """Request body for `POST /plans/session`: author a session-tier plan file.
+
+    ``body`` is the author's own source (``PARAMS`` + ``build_plan``, per the
+    layered directory catalog's file contract) — it is never exec'd by this
+    route. The remaining fields become the generated `PLAN_METADATA` block
+    prepended to it; together they must satisfy `plan_metadata.PlanMetadata`'s
+    contract once the session-tier load gate (task 2.4) parses the file.
+    """
+
+    name: str
+    description: str = ""
+    category: str
+    required_devices: list[str] = Field(default_factory=list)
+    writes: bool
+    body: str
+
+
+@app.post("/plans/session")
+def write_session_plan(request: PlanSessionWriteRequest) -> dict:
+    """Author a session-tier plan file. NEVER imports or execs it.
+
+    Assembles the final file content as ONE string — a generated
+    `PLAN_METADATA = {...}` block followed by the author's own ``body`` — and
+    writes exactly that string to ``resolve_session_plan_dir()/<name>.py``,
+    overwriting any existing file of the same name (a name reused for
+    different content is a re-authoring: its hash changes, so any prior
+    validation record no longer matches — the file becomes unvalidated again
+    until `POST /plans/validate` is called on it, which is the correct
+    fail-closed behavior).
+
+    Returns the plan name and `hash_plan_body` of the EXACT bytes written —
+    the same bytes `POST /plans/validate` re-reads and hashes, and the same
+    bytes task 2.4/2.5's gates re-hash from disk when checking for a passing
+    validation record.
+    """
+    name = _sanitize_plan_name(request.name)
+    metadata = {
+        "name": name,
+        "description": request.description,
+        "category": request.category,
+        "required_devices": list(request.required_devices),
+        "writes": request.writes,
+    }
+    final_content = f"PLAN_METADATA = {metadata!r}\n\n{request.body}"
+
+    plan_path = resolve_session_plan_dir() / f"{name}.py"
+    plan_path.write_text(final_content, encoding="utf-8")
+
+    return {"name": name, "content_hash": hash_plan_body(final_content)}
+
+
+class PlanValidateRequest(BaseModel):
+    """Request body for `POST /plans/validate`: validate a session plan by name.
+
+    ``sample_args`` supplies the stage-3 dry run's `PARAMS` field values
+    directly (the simpler of the two options `plan_validation.py`'s docstring
+    calls out — deriving minimal samples from the `PARAMS` schema would need
+    per-type generation logic this bridge does not otherwise have); omit it
+    for a `PARAMS` with no required fields.
+    """
+
+    name: str
+    sample_args: dict[str, Any] | None = None
+    dry_run_timeout: float = 30.0
+
+
+@app.post("/plans/validate")
+async def validate_session_plan(request: PlanValidateRequest) -> dict:
+    """Validate the CURRENT on-disk content of a session plan file.
+
+    Reads the file `POST /plans/session` wrote (never a separately-passed
+    body) so "validated bytes == file bytes" is structural, not a caller
+    convention. Runs `validate_bluesky_plan`'s three ordered stages; on a
+    pass, records the content hash in `validation_records` so task 2.4's load
+    gate and task 2.5's promote gate will admit this exact file content.
+
+    Raises 404 if no session plan named ``request.name`` has been written.
+    """
+    name = _sanitize_plan_name(request.name)
+    plan_path = resolve_session_plan_dir() / f"{name}.py"
+    if not plan_path.is_file():
+        raise HTTPException(status_code=404, detail=f"unknown session plan {name!r}")
+
+    content = plan_path.read_text(encoding="utf-8")
+    result = await validate_bluesky_plan(
+        content,
+        plan_name=name,
+        sample_args=request.sample_args,
+        dry_run_timeout=request.dry_run_timeout,
+    )
+    if result.passed:
+        validation_records.record(result.content_hash)
+
+    return {
+        "passed": result.passed,
+        "reasons": result.reasons,
+        "content_hash": result.content_hash,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Plan source rendering (task 2.6): backs the launch-approval hook's
+# human-legible plan excerpt — the human backstop for the plan validator's
+# documented, accepted obfuscation residual (see `plan_validation.py`'s
+# module docstring). Read-only: never execs anything, only reads file text
+# already sitting on disk.
+# ---------------------------------------------------------------------------
+
+_SOURCE_TRUNCATE_CHARS = 4000  # a few KB: enough for a human skim, bounded
+
+
+def _find_layer_source_path(name: str) -> tuple[Any, Provenance] | None:
+    """Best-effort locate the on-disk file behind a shipped/preset/facility plan.
+
+    Directory-layer files are keyed by their declared ``PLAN_METADATA["name"]``,
+    not necessarily their filename (``plans_core/grid_scan.py`` declares
+    ``"grid_scan_nd"``) — so this parses each candidate file's source with
+    ``ast`` (never execs it) purely to read the literal ``name`` off its
+    ``PLAN_METADATA`` dict. Returns `None` for a built-in with no backing
+    file at all, or a name this scan can't locate; the route degrades to a
+    404 either way.
+    """
+    from .plan_loader import _iter_plan_files, _resolve_plan_dir_layers
+
+    for directory, provenance in _resolve_plan_dir_layers():
+        if provenance == "session":
+            continue
+        for path in _iter_plan_files(directory):
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+            except (OSError, SyntaxError, UnicodeDecodeError):
+                continue
+            for node in tree.body:
+                if not isinstance(node, ast.Assign):
+                    continue
+                if not any(
+                    isinstance(target, ast.Name) and target.id == "PLAN_METADATA"
+                    for target in node.targets
+                ):
+                    continue
+                if not isinstance(node.value, ast.Dict):
+                    continue
+                for key, value in zip(node.value.keys, node.value.values, strict=True):
+                    if (
+                        isinstance(key, ast.Constant)
+                        and key.value == "name"
+                        and isinstance(value, ast.Constant)
+                        and value.value == name
+                    ):
+                        return path, provenance
+    return None
+
+
+@app.get("/plans/{name}/source")
+def get_plan_source(name: str) -> dict:
+    """Truncated source text for one plan — the launch-approval hook's data
+    source for rendering what a `launch_scan` call would actually run.
+
+    A session-tier file is looked up directly: its filename IS its name (see
+    `write_session_plan`). Its ``validated`` flag reflects the SAME
+    `hash_plan_body`/`validation_records` check the load/promote gates use,
+    computed fresh from the file's CURRENT content — never cached — so a
+    re-authored file that invalidates a prior pass is reported honestly, even
+    if that leaves it quarantined out of `GET /plans` entirely.
+
+    A shipped/preset/facility file is located by `_find_layer_source_path`
+    (best-effort) and reported ``validated=True`` unconditionally — those
+    tiers carry no validation-record gate; they are operator-trusted by
+    construction, not by a passing record.
+
+    Raises 404 if no file can be located for ``name`` in any tier (including
+    a built-in with no backing file at all).
+    """
+    name = _sanitize_plan_name(name)
+    session_path = resolve_session_plan_dir() / f"{name}.py"
+    provenance: Provenance
+    if session_path.is_file():
+        content = session_path.read_text(encoding="utf-8")
+        validated = validation_records.has_passing_record(hash_plan_body(content))
+        provenance = "session"
+    else:
+        found = _find_layer_source_path(name)
+        if found is None:
+            raise HTTPException(status_code=404, detail=f"no source file found for plan {name!r}")
+        path, provenance = found
+        content = path.read_text(encoding="utf-8")
+        validated = True
+
+    truncated_content = content[:_SOURCE_TRUNCATE_CHARS]
+    return {
+        "name": name,
+        "provenance": provenance,
+        "validated": validated,
+        "truncated": len(truncated_content) < len(content),
+        "source": truncated_content,
+    }
 
 
 def _window(
