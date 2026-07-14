@@ -141,7 +141,9 @@ def test_gate_reblocks_after_the_session_file_is_edited(tmp_path: Path) -> None:
 
     # Edit the file (still a well-formed plan, just different content) without
     # re-validating it.
-    edited = original.replace('"description": "A session-tier test plan."', '"description": "edited"')
+    edited = original.replace(
+        '"description": "A session-tier test plan."', '"description": "edited"'
+    )
     assert edited != original
     path.write_text(edited)
 
@@ -223,14 +225,14 @@ def test_promote_succeeds_once_the_session_plan_is_validated(
     assert resp.json()["status"] == "running"
 
 
-def test_promote_reblocks_after_a_post_validation_edit(
-    tmp_path: Path, client: TestClient
-) -> None:
+def test_promote_reblocks_after_a_post_validation_edit(tmp_path: Path, client: TestClient) -> None:
     original = _session_plan_source("http_edited")
     path = _write_session_plan(tmp_path, "http_edited", original)
     validation_records.record(hash_plan_body(original))
 
-    edited = original.replace('"description": "A session-tier test plan."', '"description": "edited"')
+    edited = original.replace(
+        '"description": "A session-tier test plan."', '"description": "edited"'
+    )
     path.write_text(edited)
 
     run_id = _create_run(client, "http_edited")

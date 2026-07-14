@@ -48,7 +48,7 @@ from osprey.services.bluesky_bridge.plan_validation import (  # noqa: E402
 # accept-path and dry-run tests below.
 # ---------------------------------------------------------------------------
 BENIGN_PLAN_BODY = textwrap.dedent(
-    '''\
+    """\
     import numpy as np
     from bluesky import plan_stubs as bps
     from bluesky import preprocessors as bpp
@@ -87,7 +87,7 @@ BENIGN_PLAN_BODY = textwrap.dedent(
                 yield from bps.trigger_and_read([corrector, detector])
 
         return _sweep()
-    '''
+    """
 )
 
 BENIGN_SAMPLE_ARGS = {"correctors": ["c1"], "detectors": ["d1"], "num": 3}
@@ -102,7 +102,7 @@ BENIGN_SAMPLE_ARGS = {"correctors": ["c1"], "detectors": ["d1"], "num": 3}
 # task 2.12 bug rather than a synthetic approximation of it.
 # ---------------------------------------------------------------------------
 _SESSION_BODY = textwrap.dedent(
-    '''\
+    """\
     from bluesky import plan_stubs as bps
     from bluesky import preprocessors as bpp
     from pydantic import BaseModel, Field
@@ -126,7 +126,7 @@ _SESSION_BODY = textwrap.dedent(
                 yield from bps.trigger_and_read([corrector, detector])
 
         return _sweep()
-    '''
+    """
 )
 
 

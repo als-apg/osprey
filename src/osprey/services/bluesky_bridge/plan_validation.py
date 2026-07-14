@@ -255,11 +255,7 @@ def _static_allowlist_check(code: str) -> list[str]:
         # A syntax error short-circuits here — `_check_import_allowlist`
         # would only re-raise the same `SyntaxError` on its own `ast.parse`.
         return violations
-    return (
-        violations
-        + _check_future_import_position(code)
-        + _check_import_allowlist(code)
-    )
+    return violations + _check_future_import_position(code) + _check_import_allowlist(code)
 
 
 # ---------------------------------------------------------------------------
@@ -289,7 +285,9 @@ _CA_ONLY_PATTERNS: dict[str, list[str]] = {
 
 def _ca_pattern_scan(code: str) -> list[str]:
     """Stage 2: reject a body that reaches for CA/connector constructs directly."""
-    result = detect_control_system_operations(code, patterns=_CA_ONLY_PATTERNS, pattern_mode="override")
+    result = detect_control_system_operations(
+        code, patterns=_CA_ONLY_PATTERNS, pattern_mode="override"
+    )
     matched = result["detected_patterns"]["writes"] + result["detected_patterns"]["reads"]
     return [f"Control-system operation pattern matched: {pattern}" for pattern in matched]
 

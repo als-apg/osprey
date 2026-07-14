@@ -159,12 +159,13 @@ async def test_write_bluesky_plan_rejected_maps_to_error_envelope(tmp_path, monk
 
     with patch(
         f"{_MOD}._http_post_json",
-        return_value=(400, {"detail": "invalid plan name '1bad': must be a valid Python identifier"}),
+        return_value=(
+            400,
+            {"detail": "invalid plan name '1bad': must be a valid Python identifier"},
+        ),
     ):
         with assert_raises_error(error_type="plan_write_rejected") as ctx:
-            await _write_fn()(
-                name="1bad", category="x", required_devices=[], writes=False, body=""
-            )
+            await _write_fn()(name="1bad", category="x", required_devices=[], writes=False, body="")
     assert "invalid plan name" in ctx["envelope"]["error_message"]
 
 
@@ -329,9 +330,7 @@ def test_write_session_plan_rejects_an_overlong_name(client: TestClient):
     assert resp.status_code == 400
 
 
-def test_write_session_plan_never_imports_or_execs_the_body(
-    client: TestClient, tmp_path: Path
-):
+def test_write_session_plan_never_imports_or_execs_the_body(client: TestClient, tmp_path: Path):
     """A sentinel top-level side effect in the authored body must NEVER fire —
     proving the write route only writes bytes, never imports/execs them."""
     sentinel_path = tmp_path / "sentinel.txt"
