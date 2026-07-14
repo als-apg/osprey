@@ -58,9 +58,11 @@ BRIDGE_PORT = 18102
 
 BRIDGE_IMAGE = "osprey-bluesky-bridge:local"
 VA_IMAGE = "osprey-va:local"
-BRIDGE_CONTAINER = "osprey-bluesky-bridge"
-VA_CONTAINER = "osprey-virtual-accelerator"
-TILED_CONTAINER = "osprey-bluesky-tiled"
+# Container names are intentionally NOT module constants here: a deployed
+# service's container_name is ``<project>-<service>``
+# (services/*/docker-compose.yml.j2), so it depends on the caller's
+# project_name. Derive it at the call site (e.g. ``f"{project_name}-bluesky-bridge"``)
+# rather than hardcode a host-global name that is wrong for any non-default project.
 
 BUILD_TIMEOUT_SEC = 300
 

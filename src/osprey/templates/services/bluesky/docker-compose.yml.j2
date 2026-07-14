@@ -28,7 +28,11 @@ services:
       virtual-accelerator:
         condition: service_healthy
 {% endif %}
-    container_name: osprey-bluesky-bridge
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy the bridge on one host without colliding
+    # on one name. In-network consumers reach this service by its compose service
+    # key `bluesky-bridge` — unchanged here — so this rename needs no network alias.
+    container_name: {{ osprey_labels.project_name }}-bluesky-bridge
     command:
       [
         "uvicorn",
@@ -136,7 +140,12 @@ services:
   # only, same as the bridge itself. Not required for Phase 2's FakeScanner path.
   tiled:
     image: ${OSPREY_TILED_IMAGE:-ghcr.io/bluesky/tiled:0.2.12}
-    container_name: osprey-bluesky-tiled
+    # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
+    # so two OSPREY projects can deploy Tiled on one host without colliding on one
+    # name. The bridge reaches this service by its compose service key `tiled`
+    # (BLUESKY_TILED_URI: http://tiled:8000) — unchanged here — so this rename
+    # needs no network alias.
+    container_name: {{ osprey_labels.project_name }}-bluesky-tiled
     restart: unless-stopped
     # `serve catalog` aborts without a catalog DB argument and defaults to
     # 127.0.0.1 (unreachable from the bridge container) without --host. The

@@ -48,6 +48,14 @@ DEPLOY_UP_TIMEOUT_SEC = 900
 HEALTH_TIMEOUT_SEC = 180.0
 RUN_TIMEOUT_SEC = 300.0
 
+# The fixture builds/deploys under this project name; compose renders each
+# container_name as ``<project>-<service>`` (services/*/docker-compose.yml.j2),
+# so derive the docker targets below rather than hardcode host-global names that
+# break the moment the templates are namespaced per-project.
+PROJECT_NAME = "proj"
+DISPATCHER_CONTAINER = f"{PROJECT_NAME}-event-dispatcher"
+WORKER_CONTAINER = f"{PROJECT_NAME}-dispatch-worker-1"
+
 # hello-dispatch / triage-event / save-report should complete; denied-tool-demo
 # must be rejected by the server-side denylist.
 _COMPLETING_TRIGGERS = ("hello-dispatch", "triage-event", "save-report")
@@ -98,13 +106,13 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
 
     osprey_bin = _find_osprey_console_script()
     base = tmp_path_factory.mktemp("dispatch_deploy_build")
-    project_dir = base / "proj"
+    project_dir = base / PROJECT_NAME
 
     build = _run(
         [
             str(osprey_bin),
             "build",
-            "proj",
+            PROJECT_NAME,
             "--preset",
             "control-assistant",
             "--set",
@@ -198,13 +206,21 @@ def _dump_stack_diagnostics(context: str) -> str:
     """
     lines = [f"=== stack diagnostics ({context}) ==="]
     ps = subprocess.run(
-        ["docker", "ps", "-a", "--filter", "name=osprey-", "--format", "{{.Names}}\t{{.Status}}"],
+        [
+            "docker",
+            "ps",
+            "-a",
+            "--filter",
+            f"name={PROJECT_NAME}-",
+            "--format",
+            "{{.Names}}\t{{.Status}}",
+        ],
         capture_output=True,
         text=True,
         timeout=30,
     )
     lines.append("containers:\n" + (ps.stdout.strip() or ps.stderr.strip() or "(none)"))
-    for name in ("osprey-dispatch-worker-1", "osprey-event-dispatcher"):
+    for name in (WORKER_CONTAINER, DISPATCHER_CONTAINER):
         logs = subprocess.run(
             ["docker", "logs", "--tail", "40", name],
             capture_output=True,
@@ -275,7 +291,7 @@ def _worker_artifact_files() -> list[str]:
     only claimed success — see the assertion in ``test_full_stack_dispatch``.
     """
     proc = subprocess.run(
-        ["docker", "exec", "osprey-dispatch-worker-1", "ls", "/app/proj/_agent_data/artifacts"],
+        ["docker", "exec", WORKER_CONTAINER, "ls", f"/app/{PROJECT_NAME}/_agent_data/artifacts"],
         capture_output=True,
         text=True,
         timeout=30,

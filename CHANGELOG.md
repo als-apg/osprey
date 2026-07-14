@@ -67,6 +67,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Toggling the theme (in the Web Terminal hub or any standalone interface) no longer leaves a stale `?theme=` in the URL; reloading after a toggle now falls back to your saved preference (or the OS setting in `auto` mode) instead of being pinned to whatever value was in the URL at toggle time.
 - Creating a new artifact from the Web Terminal's Scaffold gallery no longer fails with an HTTP 405 — the create-artifact request now uses `POST` directly instead of being routed through a GET-only fetch helper.
 - Artifacts gallery: filter chips no longer accumulate click listeners across live-refresh cycles, and a failed Plotly script load is retried on the next chart render instead of failing for the rest of the page's lifetime.
+- Deployed service containers are now named `<project>-<service>` (e.g. `<project>-ariel-postgres`, `<project>-virtual-accelerator`, `<project>-bluesky-bridge`) instead of host-global names, so two OSPREY projects can deploy the same services on one host concurrently without colliding on a container name. In-network service discovery is unaffected (it uses the compose service key, not the container name); the `ariel-postgres` DSN hostname is preserved via a network alias.
 
 ### Security
 

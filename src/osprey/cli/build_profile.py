@@ -133,7 +133,7 @@ class VAConfig:
 
     Consumed by the build pipeline's VA-injection step to deploy the single
     ``virtual_accelerator`` service (compose service ``virtual-accelerator``,
-    container ``osprey-virtual-accelerator``). Port is validated by
+    container ``<project>-virtual-accelerator``). Port is validated by
     :meth:`BuildProfile.validate`.
     """
 
