@@ -16,6 +16,7 @@ Related to Issue #18 - Control System Abstraction (Layer 1)
 """
 
 import re
+from typing import Any
 
 from osprey.utils.logger import get_logger
 
@@ -129,7 +130,7 @@ def detect_control_system_operations(
     patterns: dict[str, list[str]] | None = None,
     control_system_type: str | None = None,
     pattern_mode: str | None = None,
-) -> dict[str, any]:
+) -> dict[str, Any]:
     """
     Detect control system operations using framework-standard or custom patterns.
 
