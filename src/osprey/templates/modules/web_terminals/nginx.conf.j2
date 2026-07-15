@@ -1,0 +1,86 @@
+{#
+  nginx.conf.j2 — landing page + per-user redirect front door.
+
+  Rendered by render_web_terminals() (Task 1.4, src/osprey/deployment/web_terminals/
+  render.py) with a Jinja2 Environment that has autoescape=False — this emits nginx
+  conf syntax, not HTML.
+
+  ----------------------------------------------------------------------------
+  TEMPLATE CONTRACT (variables render.py MUST supply — same object shapes as
+  docker-compose.web.yml.j2; see that template's header for the full spec)
+  ----------------------------------------------------------------------------
+
+    nginx_port: int, required
+    services: list[dict], required (may be empty)
+      Same list docker-compose.web.yml.j2 consumes. Only `user` and `web` are
+      used here — the artifact/ariel/lattice ports don't need a nginx route in
+      Phase 1: the terminal UI is the only browser entry point reached from the
+      landing page; the other three families are reached from links WITHIN the
+      terminal UI once a user is on their own origin.
+
+  Render output: this file is expected at `nginx/nginx.conf` (relative to the
+  rendered docker-compose.web.yml.j2), matching the
+  `./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro` mount in that
+  template. The landing page itself (landing.html.j2's output) is expected
+  alongside it at `nginx/landing.html`, matching that template's
+  `./nginx/landing.html:ro` mount.
+
+  THIS FILE IS A `server{}` FRAGMENT, NOT A COMPLETE MAIN CONFIG — no
+  `events{}`/`http{}` wrapper, because `server`/`listen`/`location` are only
+  valid nginx directives INSIDE an `http{}` block. It is deliberately mounted
+  at `/etc/nginx/conf.d/default.conf`, not `/etc/nginx/nginx.conf`: the base
+  nginx image's own (untouched) main config already ships `events{}` and
+  already `include`s `/etc/nginx/conf.d/*.conf` from inside its `http{}`
+  block. Mounting this fragment at the main-config path instead would fail
+  nginx's parse at startup ("server" directive is not allowed there) and the
+  whole stack would never come up — validate any change to this file by
+  running `nginx -t` with it mounted at the EXACT container path above
+  (against the real base image, not wrapped in a hand-written http{} block),
+  not just as a syntactically-standalone fragment.
+
+  ----------------------------------------------------------------------------
+  WHY REDIRECTS, NOT REVERSE-PROXYING
+
+  Every per-user app is host-networked (network_mode: host — see
+  docker-compose.web.yml.j2's networking note) and binds its `web` port
+  directly on the host (0.0.0.0); nginx cannot ALSO bind that same port —
+  that's not a config choice, two processes can't share one host port. Real
+  content-proxying under one shared path prefix at `nginx_port` would also be
+  exactly the single-origin `/u/<user>/` scheme this module is told not to do
+  in Phase 1 (that's reserved for a later, actual reverse-proxy design). So
+  each per-user `location` below is a 302 REDIRECT to that user's own distinct
+  origin (`http://<host>:<web_port>/`) — nginx never makes an outbound
+  connection to the per-user app, it only tells the browser where to go next.
+  `$host` (the Host header the browser sent nginx) is reused as the redirect
+  target's host, so the same rendered config works unmodified behind whatever
+  hostname or IP the deploy is actually reached at.
+
+  0-user case: the loop below emits zero `location` blocks — the landing page
+  (served at `/`) is the whole config, and it renders itself with an empty
+  "users" group (see landing.html.j2's own emptiness handling). No
+  `upstream {}` block is used in either case — redirects need none — so
+  there's nothing that depends on `services` being non-empty to stay valid.
+#}
+server {
+    listen {{ nginx_port }};
+    listen [::]:{{ nginx_port }};
+    server_name _;
+
+    root /usr/share/nginx/html;
+
+    location / {
+        try_files /landing.html =404;
+    }
+{% for svc in services %}
+{% if svc.user == "nginx" %}
+  {# HARD FAIL: mirrors the same guard in docker-compose.web.yml.j2 — a user
+     literally named "nginx" is reserved (see that template's header for why),
+     and this template loops over the identical `services` list. #}
+  {{ 1 / 0 }}
+{% endif %}
+    # Stable bookmark for {{ svc.user }} — redirects to their own origin.
+    location = /{{ svc.user }} {
+        return 302 http://$host:{{ svc.web }}/;
+    }
+{% endfor %}
+}

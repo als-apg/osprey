@@ -140,8 +140,9 @@ ports:
   beam_viewer: 8007
   # Optional services
   event_dispatcher: 8010
-  # Web terminal range — base + offset per user
-  web_terminal_base: 9091
+  # Web terminal nginx is a single port and is mirrored here. The four per-user
+  # port ranges are not single values, so they are not mirrored here; they live
+  # authoritatively in modules.web_terminals.*_base_port below.
   web_terminal_nginx: 9080
 
 # =============================================================================
@@ -167,17 +168,31 @@ modules:
 
   # ---------------------------------------------------------------------------
   # Multi-user web terminal stack with nginx reverse proxy.
-  # Three users → three containers on ports 9091, 9092, 9093.
+  # Each user gets four independent ports (one per service family) so their
+  # terminal/artifact-gallery/ARIEL/lattice-dashboard never collide, and the
+  # ranges below stay clear of event_dispatcher's sidecar range (9190-9192):
+  #   alice → 9091/9291/9391/9491   bob → 9092/9292/9392/9492
   # ---------------------------------------------------------------------------
   web_terminals:
     enabled: true
     nginx_port: 9080                     # mirrors ports.web_terminal_nginx
-    base_port: 9091                      # mirrors ports.web_terminal_base
+    web_base_port: 9091                  # → OSPREY_WEB_PORT (range start; not mirrored in ports.* — see rule 11)
+    artifact_base_port: 9291             # → OSPREY_ARTIFACT_SERVER_PORT
+    ariel_base_port: 9391                # → OSPREY_ARIEL_PORT
+    lattice_base_port: 9491              # → OSPREY_LATTICE_DASHBOARD_PORT
     users:
       - alice
       - bob
-      - carol
-    landing_page_template: "default"     # default | custom
+    landing:                             # grouped landing page served at nginx_port
+      groups:
+        - type: "users"                  # auto-populated: one card per user above
+        - type: "links"
+          label: "Facility Tools"
+          links:
+            - label: "Elog"
+              url: "https://elog.dls.example.org"
+            - label: "Status Page"
+              url: "https://status.dls.example.org"
 
   # ---------------------------------------------------------------------------
   # Electronic logbook integration.

@@ -200,8 +200,9 @@ ports:
   # Optional services — only present if the corresponding module is enabled
   event_dispatcher: 8010
   beam_viewer: 8007
-  # Web terminals (port range start; one port per user)
-  web_terminal_base: 9091
+  # Web terminals — nginx is a single port and is mirrored here. The four
+  # per-user port RANGES are not single values, so they are not mirrored here;
+  # they live authoritatively in modules.web_terminals.*_base_port (see below).
   web_terminal_nginx: 9080
 ```
 
@@ -232,18 +233,68 @@ modules:
 
 ### `modules.web_terminals` — multi-user web terminal stack
 
+Each user gets **four** independent per-user ports — one per service family — so a
+single user's terminal, artifact gallery, ARIEL search, and lattice dashboard never
+collide with each other or with any other user's. For a user at position `i`
+(0-indexed, per `users[]` order), the per-family host port is `<family>_base_port +
+i`. This arithmetic is implemented once in `deployment/web_terminals/ports.py`
+(`allocate_ports`) and consumed by the renderer and the lint — do not reimplement it.
+
 ```yaml
 modules:
   web_terminals:
     enabled: true
-    nginx_port: 9080                       # public-facing reverse proxy
-    base_port: 9091                        # first per-user terminal port
+    nginx_port: 9080                       # public-facing reverse proxy / landing page
+    web_base_port: 9091                    # first per-user web-terminal port      → OSPREY_WEB_PORT
+    artifact_base_port: 9291               # first per-user artifact-gallery port  → OSPREY_ARTIFACT_SERVER_PORT
+    ariel_base_port: 9391                  # first per-user ARIEL search port      → OSPREY_ARIEL_PORT
+    lattice_base_port: 9491                # first per-user lattice-dashboard port → OSPREY_LATTICE_DASHBOARD_PORT
     users:                                 # one container per user, named ${facility.prefix}-web-${user}
       - thellert
       - gmartino
       - scleemann
-    landing_page_template: "default"       # default | custom (custom requires nginx/landing.html)
+    landing:                               # grouped landing page served at nginx_port
+      groups:                              # ordered list; rendered top to bottom
+        - type: "users"                    # auto-populated: one card per entry in `users` above
+        - type: "links"                    # a static group of operator-supplied links
+          label: "Facility Tools"
+          links:
+            - label: "Elog"
+              url: "https://elog.example.org"
+            - label: "Status Page"
+              url: "https://status.example.org"
 ```
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `enabled` | bool | yes | Off by default |
+| `nginx_port` | int | yes | Reverse proxy + landing page port; must be unique across `ports.*` |
+| `web_base_port` | int | yes | First per-user web-terminal port; binds `OSPREY_WEB_PORT` in the per-user container |
+| `artifact_base_port` | int | yes | First per-user artifact-gallery port; binds `OSPREY_ARTIFACT_SERVER_PORT` |
+| `ariel_base_port` | int | yes | First per-user ARIEL search port; binds `OSPREY_ARIEL_PORT` |
+| `lattice_base_port` | int | yes | First per-user lattice-dashboard port; binds `OSPREY_LATTICE_DASHBOARD_PORT` |
+| `users` | list of strings | yes | May be empty when `enabled: true` (see validation rule below) |
+| `landing.groups` | list of group objects | no | Defaults to a single `type: "users"` group if omitted. `type: "users"` groups take no other fields and auto-populate from `users[]`; `type: "links"` groups require `label` and a `links` list of `{label, url}` objects |
+
+Every port-valued field in the table above must be free of collisions with every
+other port allocation in the config: `nginx_port` against `ports.*` (its mirror is
+`ports.web_terminal_nginx`), and each `*_base_port` against every other port
+allocation for its whole per-family range `[base, base+len(users)-1]`, not just the
+base value itself. The four `*_base_port` fields are deliberately **not** mirrored
+into `ports.*` (see the `ports` section above) — they are ranges, not single ports.
+See validation rule 11 for the full closed set of checks.
+
+The field names above (`web_base_port`, `artifact_base_port`, `ariel_base_port`,
+`lattice_base_port`) are backend-neutral — they name the four service families, not
+any specific container runtime, so a future non-container backend can reuse them
+unchanged.
+
+The `web` family's internal container port — the port the `osprey web` process
+itself listens on inside the per-user container, before any per-user remapping —
+is a **fixed constant, 8087** (the `osprey web` default; see `cli/web_cmd.py`) and
+is **not configurable** via this schema; only the externally-published,
+per-user `web_base_port + i` host port varies. Templates and docs must never
+reintroduce the old `9087` value.
 
 ### `modules.olog` — electronic logbook integration
 
@@ -411,8 +462,17 @@ When the interview writes or updates this file, validate:
 8. **`modules.test_ioc.cas_server_port` is outside 5064–5076** if test_ioc is enabled.
 9. **`modules.benchmarks` requires `modules.web_terminals.enabled`**.
 10. **`modules.event_dispatcher.epics_ca.enabled` requires `control_system.type == "epics"`**.
-11. **Port range overlap** — with `web_terminals` base `B_w` and N users binding `[B_w, B_w+N-1]`, and `event_dispatcher` base `B_d` and M sidecars binding `[B_d, B_d+M-1]`, the two ranges MUST NOT overlap. Reject configs where either range contains a value in the other.
-12. **Custom MCP server names must not collide with reserved service keys** — `ariel-postgres`, `typesense`, `event-dispatcher`, `integration-tests`, `dispatch-sidecar-*`, `ariel-sync`, `nginx`. Custom names are rendered as `${prefix}-mcp-${name}` so they don't collide at the compose level, but bare references to reserved names in `depends_on` or `services_to_mount` are reserved for the built-ins.
+11. **Port range overlap** — a closed rule over four named sets; reject a config if any value appears in more than one of them, or if any two ranges in `S1 ∪ S2` overlap:
+    - **S1 (web_terminals families)** — for N = `len(users)`, one range per family: `[base_f, base_f+N-1]` for each `base_f` in `{web_base_port, artifact_base_port, ariel_base_port, lattice_base_port}`.
+    - **S2 (event_dispatcher sidecars)** — `[sidecar_port_base, sidecar_port_base+sidecar_count-1]`.
+    - **S3 (`ports.*` literals)** — every value in the top-level `ports.*` map. `modules.web_terminals.nginx_port` and `modules.event_dispatcher.port` are each required to equal their `ports.*` mirror (`ports.web_terminal_nginx` / `ports.event_dispatcher`), so checking `ports.*` once already covers both — do not check the module field a second time, or every valid config would (correctly) show the same value twice and falsely look like a collision.
+    - **S4 (module ports with no `ports.*` mirror)** — `modules.test_ioc.cas_server_port` and `modules.test_ioc.cas_beacon_port`. (`modules.custom_mcp_servers.servers[].port` values are required to already equal an existing `ports.*` entry — see the per-server comment convention — so they're already covered by S3 and need no separate check. The four `web_terminals` family base ports are likewise NOT mirrored into `ports.*` — see the `ports` section above — precisely so they don't need de-duplicating against S1.)
+
+    Concretely: take `S1 ∪ S2 ∪ S3 ∪ S4` as a value multiset (ranges expanded to their member ports) and flag any value with multiplicity > 1. This set is closed and enumerable — these four sets are the complete input, nothing further needs discovering from the config.
+12. **Reserved service names** — no entry in `modules.web_terminals.users`, and no `custom_mcp_servers` server name, may collide with a reserved service key: `nginx`, `ariel-postgres`, `typesense`, `event-dispatcher`, `integration-tests`, `dispatch-sidecar-*`, `ariel-sync`. A username becomes part of a compose service name (`${facility.prefix}-web-${user}`), and the web-terminals reverse proxy is always named `nginx` — a user literally named `nginx` (or any other reserved key) would collide with a built-in service. Custom MCP server names are rendered as `${prefix}-mcp-${name}` so they don't collide at the compose level, but bare references to reserved names in `depends_on` or `services_to_mount` are reserved for the built-ins.
+13. **`modules.web_terminals` with an empty `users[]`** — if `enabled: true` and `users` is `[]`:
+    - If `modules.benchmarks.enabled` is `false` (or `modules.benchmarks` is absent), this is a **warning, not a failure**: the module still renders nginx + the landing page (with the `users` landing group rendering empty), just with zero per-user terminal services. Warn and continue; do not reject the config.
+    - If `modules.benchmarks.enabled` is `true`, this **is a failure**: rule 9 requires `web_terminals.enabled` for benchmarks, but `modules.benchmarks.runs_in_container` resolves to a specific user's container (e.g. `${facility.prefix}-web-${first_user}`) and there is no user to resolve `first_user` to. Reject the config in this combination.
 
 If validation fails, do not silently overwrite — surface the error and ask the user to confirm the fix.
 
