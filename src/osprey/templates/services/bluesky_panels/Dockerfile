@@ -1,4 +1,4 @@
-# Image for the Scan Panels sidecar service (osprey.services.scan_panels): a
+# Image for the Bluesky Panels sidecar service (osprey.services.bluesky_panels): a
 # FastAPI process serving the operator web panels, same-origin read-proxying
 # the bluesky bridge, and exposing /health/full, reached by the web-terminal
 # reverse proxy at /panel/{id}.
@@ -8,10 +8,10 @@
 #     build context; if a *.whl is present we install that (so unreleased code
 #     is included).
 #   * prod builds — no wheel present, so install the pinned release from PyPI.
-# Both paths install the `scan-panels` extra on top of the framework's core
+# Both paths install the `bluesky-panels` extra on top of the framework's core
 # FastAPI/uvicorn/httpx deps.
 # This image is built locally by `osprey deploy up`; override with
-# OSPREY_SCAN_PANELS_IMAGE to use a prebuilt/published image.
+# OSPREY_BLUESKY_PANELS_IMAGE to use a prebuilt/published image.
 
 FROM python:3.11-slim
 
@@ -27,13 +27,13 @@ RUN apt-get update \
     && if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
         echo "Installing osprey from local wheel (dev build)" \
         && whl="$(ls /tmp/ctx/*.whl | head -n1)" \
-        && pip install --no-cache-dir "${whl}[scan-panels]" ; \
+        && pip install --no-cache-dir "${whl}[bluesky-panels]" ; \
     elif [ -n "$OSPREY_VERSION" ]; then \
-        echo "Installing osprey-framework[scan-panels]==$OSPREY_VERSION from PyPI" \
-        && pip install --no-cache-dir "osprey-framework[scan-panels]==$OSPREY_VERSION" ; \
+        echo "Installing osprey-framework[bluesky-panels]==$OSPREY_VERSION from PyPI" \
+        && pip install --no-cache-dir "osprey-framework[bluesky-panels]==$OSPREY_VERSION" ; \
     else \
-        echo "Installing osprey-framework[scan-panels] (latest) from PyPI" \
-        && pip install --no-cache-dir "osprey-framework[scan-panels]" ; \
+        echo "Installing osprey-framework[bluesky-panels] (latest) from PyPI" \
+        && pip install --no-cache-dir "osprey-framework[bluesky-panels]" ; \
     fi \
     && apt-get purge -y build-essential python3-dev \
     && apt-get autoremove -y \

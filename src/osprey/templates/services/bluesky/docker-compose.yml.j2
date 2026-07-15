@@ -21,7 +21,7 @@ services:
 {% if 'virtual_accelerator' in deployed_services %}
     # Only when the Virtual Accelerator (Task 4.1) is co-deployed: order the
     # bridge's startup after the VA's CA-readiness healthcheck, so the
-    # substrate scanner's ophyd-async connect (Task 2.3) doesn't race the
+    # substrate runner's ophyd-async connect (Task 2.3) doesn't race the
     # IOC's iocInit. A bridge-only deploy (no VA in deployed_services) must
     # NOT get this — compose errors on depends_on naming an undefined service.
     depends_on:
@@ -65,7 +65,7 @@ services:
       CONFIG_FILE: /app/project/config.yml
       TZ: {{ system.timezone }}
 {% if services.bluesky.plan_dir %}
-      # Facility scan-plan directory (Task 1.4): the plan loader
+      # Facility plan directory (Task 1.4): the plan loader
       # (plan_loader.py) reads BLUESKY_PLAN_DIRS as an os.pathsep-separated
       # list of IN-CONTAINER paths and scans each as a "facility"-tier
       # layer. This MUST be the mount target below, never the host path
@@ -81,7 +81,7 @@ services:
       # operator override stays consistent between the two services.
       EPICS_CA_NAME_SERVERS: "virtual-accelerator:{{ (services.virtual_accelerator | default({})).port | default(5064) }}"
       EPICS_CA_AUTO_ADDR_LIST: "NO"
-      # Substrate scanner wiring (Task 2.3, locked contract in app.py).
+      # Substrate runner wiring (Task 2.3, locked contract in app.py).
       # Passthrough only — the operator/deploy env chooses the actual PVs
       # (Task 5.1's e2e sets these), never hardcoded here. The :- empty
       # default makes an unset BLUESKY_EPICS_SUBSTRATE harmless: the bridge
@@ -90,14 +90,14 @@ services:
       BLUESKY_EPICS_MOTORS: "${BLUESKY_EPICS_MOTORS:-}"
       BLUESKY_EPICS_DETECTORS: "${BLUESKY_EPICS_DETECTORS:-}"
 {% endif %}
-{% if services.bluesky.demo_scanner | default(false) %}
+{% if services.bluesky.demo_runner | default(false) %}
       # Deploy-smoke-demo / tutorial only: tells app.py's guarded startup hook
       # (task 2.14a) to wire a real bluesky RunEngine against MOCK ophyd-async
-      # devices (devices/mock.py) instead of the Phase 1 no-op FakeScanner.
-      # NEVER set services.bluesky.demo_scanner for a facility wiring real
+      # devices (devices/mock.py) instead of the Phase 1 no-op FakePlanRunner.
+      # NEVER set services.bluesky.demo_runner for a facility wiring real
       # EPICS hardware — it would silently override real device/plan wiring
-      # with an in-memory mock scanner.
-      BLUESKY_DEMO_SCANNER: "true"
+      # with an in-memory mock runner.
+      BLUESKY_DEMO_RUNNER: "true"
 {% endif %}
 {% if services.bluesky.tiled_enabled | default(false) %}
       # Tiled persistence (Task 2.7): the bridge's TiledWriter connects to the
@@ -157,7 +157,7 @@ services:
   # OPTIONAL: a local Tiled server for the bridge's TiledWriter subscription
   # (Task 2.7) to persist run documents to. Enabled by setting
   # `services.bluesky.tiled_enabled: true` in config.yml; loopback/osprey-network
-  # only, same as the bridge itself. Not required for Phase 2's FakeScanner path.
+  # only, same as the bridge itself. Not required for Phase 2's FakePlanRunner path.
   tiled:
     image: ${OSPREY_TILED_IMAGE:-ghcr.io/bluesky/tiled:0.2.12}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project

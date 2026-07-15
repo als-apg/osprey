@@ -1,21 +1,21 @@
-# The scan-panels service owns the browser-facing FastAPI sidecar (see
-# src/osprey/services/scan_panels/) that serves the three operator web panels,
+# The bluesky-panels service owns the browser-facing FastAPI sidecar (see
+# src/osprey/services/bluesky_panels/) that serves the three operator web panels,
 # same-origin read-proxies the bluesky bridge, and exposes /health/full.
 # `osprey deploy up` builds its image locally on first run; subsequent runs
 # reuse the local tag. To use a prebuilt/published image instead, set
-# OSPREY_SCAN_PANELS_IMAGE (e.g. OSPREY_SCAN_PANELS_IMAGE=my-registry/osprey-scan-panels:dev).
+# OSPREY_BLUESKY_PANELS_IMAGE (e.g. OSPREY_BLUESKY_PANELS_IMAGE=my-registry/osprey-bluesky-panels:dev).
 # Use `osprey deploy up --dev` to bake in your local osprey checkout (incl.
 # unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
 
 services:
-  scan-panels:
-    image: ${OSPREY_SCAN_PANELS_IMAGE:-{{ services.scan_panels.image | default('osprey-scan-panels:local') }}}
+  bluesky-panels:
+    image: ${OSPREY_BLUESKY_PANELS_IMAGE:-{{ services.bluesky_panels.image | default('osprey-bluesky-panels:local') }}}
     build:
       # With multiple `-f` compose files, ALL relative paths (build contexts and
       # bind mounts alike) resolve against the FIRST file's dir — the compose
       # project directory, build/services/ — not this file's own subdir. So the
-      # context is ./scan_panels, matching the volume-path convention below.
-      context: ./scan_panels
+      # context is ./bluesky_panels, matching the volume-path convention below.
+      context: ./bluesky_panels
       dockerfile: Dockerfile
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
@@ -32,16 +32,16 @@ services:
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy the sidecar on one host without colliding
     # on one name. In-network consumers reach this service by its compose service
-    # key `scan-panels` — unchanged here — so this rename needs no network alias.
-    container_name: {{ osprey_labels.project_name }}-scan-panels
+    # key `bluesky-panels` — unchanged here — so this rename needs no network alias.
+    container_name: {{ osprey_labels.project_name }}-bluesky-panels
     command:
       [
         "uvicorn",
-        "osprey.services.scan_panels.app:app",
+        "osprey.services.bluesky_panels.app:app",
         "--host",
         "0.0.0.0",
         "--port",
-        "{{ services.scan_panels.port | default(8095) }}",
+        "{{ services.bluesky_panels.port | default(8095) }}",
       ]
     labels:
       osprey.project.name: "{{ osprey_labels.project_name }}"
@@ -49,7 +49,7 @@ services:
       osprey.deployed.at: "{{ osprey_labels.deployed_at }}"
     restart: unless-stopped
     ports:
-      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.scan_panels.port | default(8095) }}:{{ services.scan_panels.port | default(8095) }}"
+      - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky_panels.port | default(8095) }}:{{ services.bluesky_panels.port | default(8095) }}"
     environment:
       # The connector-backed sidecar reads config.yml at runtime. CWD is the
       # image WORKDIR (/app), not the project dir, so without CONFIG_FILE this
@@ -70,26 +70,26 @@ services:
       # Tiled's IN-NETWORK port is 8000, not the host-published tiled_port
       # (services.bluesky.tiled_port, default 8091) — same distinction as the
       # bridge's own BLUESKY_TILED_URI.
-      SCAN_PANELS_TILED_URL: http://tiled:8000
+      BLUESKY_PANELS_TILED_URL: http://tiled:8000
       # The Virtual Accelerator IOC's Channel-Access endpoint; /health/full
       # TCP-probes this (not HTTP).
-      SCAN_PANELS_VA_ADDR: virtual-accelerator:5064
+      BLUESKY_PANELS_VA_ADDR: virtual-accelerator:5064
     volumes:
       # Bind-mount source is relative to the compose project directory
       # (build/services/), not this file's own subdir — hence the
-      # scan-panels/ prefix (mirrors the bridge's config.yml:ro convention).
-      - ./scan_panels/config.yml:/app/project/config.yml:ro
+      # bluesky-panels/ prefix (mirrors the bridge's config.yml:ro convention).
+      - ./bluesky_panels/config.yml:/app/project/config.yml:ro
     networks:
       - osprey-network
     healthcheck:
       # curl isn't in the python:3.11-slim image — probe in-image with
       # python, matching the bridge's own healthcheck idiom.
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:{{ services.scan_panels.port | default(8095) }}/health').status==200 else 1)\""]
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:{{ services.bluesky_panels.port | default(8095) }}/health').status==200 else 1)\""]
       interval: 10s
       timeout: 5s
       retries: 5
       # Grace period before failed probes count — uvicorn/FastAPI startup and
-      # the first image build (which bakes in the scan-panels extra's
+      # the first image build (which bakes in the bluesky-panels extra's
       # dependencies at build time, not at container start) take a few seconds.
       start_period: 15s
 
