@@ -131,6 +131,20 @@ config:
   web.panels.events.url: "${EVENT_DISPATCHER_URL:-http://localhost:8020}"
   web.panels.events.path: /dashboard
   web.panels.events.health_endpoint: /health
+  # SCAN panels — the operator UI for the mediated scan stack (plan selection &
+  # execute, live results, service health), served by the scan-panels sidecar.
+  # URL defaults to the host-published sidecar port; override SCAN_PANELS_URL for
+  # a containerized/remote web terminal (same pattern as the EVENTS panel above).
+  web.panels.scan-plan.label: SCAN PLAN
+  web.panels.scan-plan.url: "${SCAN_PANELS_URL:-http://localhost:8095}"
+  web.panels.scan-plan.path: /plan/
+  web.panels.scan-results.label: SCAN RESULTS
+  web.panels.scan-results.url: "${SCAN_PANELS_URL:-http://localhost:8095}"
+  web.panels.scan-results.path: /results/
+  web.panels.scan-health.label: SCAN HEALTH
+  web.panels.scan-health.url: "${SCAN_PANELS_URL:-http://localhost:8095}"
+  web.panels.scan-health.path: /health-panel/
+  web.panels.scan-health.health_endpoint: /health
 
 # ── Event dispatch (optional) ────────────────────────────────────────────────
 # Turns external events (webhooks) into headless agent runs. This ships a set of
