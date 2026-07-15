@@ -26,6 +26,14 @@ via ``build_project_subprocess`` + ``select_correctors``/``select_bpms``/
 Building this config never touches Docker by itself -- only a subsequent
 ``osprey deploy up`` does (left to each caller, since only the real
 e2e/agentic tests need a live stack).
+
+``select_correctors``/``select_bpms``/``write_scan_env`` delegate to the
+canonical derivation in
+``osprey.services.bluesky_bridge.substrate_devices`` (the single source of
+this logic, also used by ``osprey deploy up`` to auto-configure a VA-backed
+scan stack's ``.env`` -- see ``container_lifecycle._ensure_scan_substrate_env``).
+This module keeps its own public API/signatures/defaults unchanged so every
+existing e2e importer is unaffected.
 """
 
 from __future__ import annotations
@@ -259,13 +267,6 @@ def _channel_limits(project_dir: Path) -> dict[str, Any]:
     return json.loads((project_dir / "data" / "channel_limits.json").read_text(encoding="utf-8"))
 
 
-def _split_address(address: str) -> tuple[str, str, str, str, str, str] | None:
-    parts = address.split(":")
-    if len(parts) != 6:
-        return None
-    return parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]
-
-
 def select_correctors(
     limits: dict[str, Any], count: int | None = DEFAULT_CORRECTOR_COUNT
 ) -> dict[str, tuple[str, str]]:
@@ -284,45 +285,18 @@ def select_correctors(
 
     Returns a dict of synthetic motor name -> ``(sp_address, rb_address)``,
     ready for ``write_scan_env``'s ``BLUESKY_EPICS_MOTORS`` wiring.
+
+    Thin wrapper: delegates to the canonical
+    ``osprey.services.bluesky_bridge.substrate_devices.select_correctors``
+    (same logic; this module keeps the ``DEFAULT_CORRECTOR_COUNT`` default
+    the e2e suite has always used, versus the product module's ``None``/
+    full-set default).
     """
-    from osprey.services.virtual_accelerator.manifest import (
-        PARTITION_PYAT_COUPLED,
-        classify_partition,
+    from osprey.services.bluesky_bridge.substrate_devices import (
+        select_correctors as _select_correctors,
     )
 
-    keys = {k for k in limits if not k.startswith("_") and k != "defaults"}
-
-    pairs: list[tuple[str, str]] = []
-    for sp in sorted(k for k in keys if k.endswith(":SP")):
-        split = _split_address(sp)
-        if split is None:
-            continue
-        ring, system, family, device, field, subfield = split
-        if ring != "SR" or system != "MAG" or family not in ("HCM", "VCM"):
-            continue
-        path = {
-            "ring": ring,
-            "system": system,
-            "family": family,
-            "device": device,
-            "field": field,
-            "subfield": subfield,
-        }
-        if classify_partition(path) != PARTITION_PYAT_COUPLED:
-            continue
-        rb = sp[:-3] + ":RB"
-        if rb in keys:
-            pairs.append((sp, rb))
-
-    if count is None:
-        return {f"corrector_{i + 1:02d}": pairs[i] for i in range(len(pairs))}
-
-    if len(pairs) < count:
-        raise AssertionError(
-            f"deployed project's channel_limits.json only yields {len(pairs)} SR "
-            f"corrector (HCM/VCM) pairs, need {count}"
-        )
-    return {f"corrector_{i + 1:02d}": pairs[i] for i in range(count)}
+    return _select_correctors(limits, count)
 
 
 def select_bpms(limits: dict[str, Any], count: int | None = DEFAULT_BPM_COUNT) -> dict[str, str]:
@@ -335,43 +309,15 @@ def select_bpms(limits: dict[str, Any], count: int | None = DEFAULT_BPM_COUNT) -
 
     Returns a dict of synthetic detector name -> readback address, ready for
     ``write_scan_env``'s ``BLUESKY_EPICS_DETECTORS`` wiring.
+
+    Thin wrapper: delegates to the canonical
+    ``osprey.services.bluesky_bridge.substrate_devices.select_bpms`` (same
+    logic; this module keeps the ``DEFAULT_BPM_COUNT`` default the e2e suite
+    has always used, versus the product module's ``None``/full-set default).
     """
-    from osprey.services.virtual_accelerator.manifest import (
-        PARTITION_PYAT_COUPLED,
-        classify_partition,
-    )
+    from osprey.services.bluesky_bridge.substrate_devices import select_bpms as _select_bpms
 
-    keys = {k for k in limits if not k.startswith("_") and k != "defaults"}
-
-    addresses: list[str] = []
-    for addr in sorted(keys):
-        split = _split_address(addr)
-        if split is None:
-            continue
-        ring, system, family, device, field, subfield = split
-        if ring != "SR" or system != "DIAG" or family != "BPM":
-            continue
-        path = {
-            "ring": ring,
-            "system": system,
-            "family": family,
-            "device": device,
-            "field": field,
-            "subfield": subfield,
-        }
-        if classify_partition(path) != PARTITION_PYAT_COUPLED:
-            continue
-        addresses.append(addr)
-
-    if count is None:
-        return {f"bpm_{i + 1:02d}": addresses[i] for i in range(len(addresses))}
-
-    if len(addresses) < count:
-        raise AssertionError(
-            f"deployed project's channel_limits.json only yields {len(addresses)} SR "
-            f"BPM readbacks, need {count}"
-        )
-    return {f"bpm_{i + 1:02d}": addresses[i] for i in range(count)}
+    return _select_bpms(limits, count)
 
 
 def write_scan_env(
@@ -391,14 +337,21 @@ def write_scan_env(
     normally auto-mints one on ``deploy up``; callers that need a
     deterministic value for a scripted promote call supply their own (the
     same operator-provides-a-token path used elsewhere in this e2e suite).
+
+    Formatting delegates to the canonical
+    ``osprey.services.bluesky_bridge.substrate_devices`` formatters (same
+    ``name=SP|RB`` / ``name=RB`` syntax the product deploy-time producer
+    uses -- one source of the wire format).
     """
-    motors = ",".join(f"{name}={sp}|{rb}" for name, (sp, rb) in correctors.items())
-    detectors = ",".join(f"{name}={rb}" for name, rb in bpms.items())
+    from osprey.services.bluesky_bridge.substrate_devices import (
+        format_detectors_env,
+        format_motors_env,
+    )
 
     values = {
         "BLUESKY_EPICS_SUBSTRATE": "1",
-        "BLUESKY_EPICS_MOTORS": motors,
-        "BLUESKY_EPICS_DETECTORS": detectors,
+        "BLUESKY_EPICS_MOTORS": format_motors_env(correctors),
+        "BLUESKY_EPICS_DETECTORS": format_detectors_env(bpms),
     }
     if promote_token:
         values["BLUESKY_PROMOTE_TOKEN"] = promote_token
