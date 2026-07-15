@@ -85,7 +85,7 @@ dependencies = [
     # MCP server development (for building MCP servers)
     "fastmcp>=3.0.0",
     # Scientific computing stack - for Python execution capability
-    "scipy>=1.15.3",
+    "scipy>=1.17.1",
     "seaborn",
     "scikit-learn",
     "plotly>=5.0.0",
