@@ -10,7 +10,7 @@ That makes this module suitable ONLY for:
   where the point is to exercise the bridge's own plumbing (``do_promote``,
   the live-row buffer, plan resolution) against *some* bluesky-shaped device,
   not to validate real device behavior; and
-- the ``osprey deploy`` smoke demo, where the goal is "does a scan run at
+- the ``osprey deploy`` smoke demo, where the goal is "does a run at
   all" rather than "does it read a real instrument".
 
 It must NEVER be the substrate for the Phase 3 scenario benchmark — that
@@ -31,7 +31,7 @@ a plain motor + detector.
 Imports ophyd-async, so this module (like the rest of ``devices/``) lives
 behind the optional ``osprey-framework[bluesky-bridge]`` extra — keep it out
 of the bridge lifecycle core's import path (``app.py``, ``runs.py``,
-``scanner.py``, ``security.py``).
+``plan_runner.py``, ``security.py``).
 """
 
 from __future__ import annotations

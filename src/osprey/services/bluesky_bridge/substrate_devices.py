@@ -12,8 +12,8 @@ data.
 
 Two consumers share this module (DRY, one derivation):
 
-- ``osprey.deployment.container_lifecycle`` (``_ensure_scan_substrate_env``),
-  which auto-configures a VA-backed scan stack's ``.env`` on ``osprey deploy
+- ``osprey.deployment.container_lifecycle`` (``_ensure_bluesky_substrate_env``),
+  which auto-configures a VA-backed Bluesky stack's ``.env`` on ``osprey deploy
   up`` so the bridge starts in substrate mode with real channel names,
   turn-key.
 - ``tests/e2e/_orm_stack.py``, whose ``select_correctors``/``select_bpms``/
@@ -46,7 +46,7 @@ from typing import Any
 from osprey.services.bluesky_bridge.devices._specs_from_env import DETECTORS_ENV, MOTORS_ENV
 
 SUBSTRATE_ENV = "BLUESKY_EPICS_SUBSTRATE"
-"""Env var that switches the bridge from its demo scanner to the EPICS substrate."""
+"""Env var that switches the bridge from its demo runner to the EPICS substrate."""
 
 
 def _address_path(address: str) -> dict[str, str] | None:

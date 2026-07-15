@@ -1,10 +1,10 @@
-"""The real bluesky-backed ``Scanner``: a RunEngine in a daemon thread.
+"""The real bluesky-backed ``PlanRunner``: a RunEngine in a daemon thread.
 
-Implements the injected ``Scanner`` seam (``scanner.py``) that ``do_promote``
+Implements the injected ``PlanRunner`` seam (``plan_runner.py``) that ``do_promote``
 builds per promoted run. Imports bluesky, so this module lives behind the
 optional ``osprey-framework[bluesky-bridge]`` extra — it must never be
 imported from the lifecycle core's import path (``app.py``, ``runs.py``,
-``scanner.py``, ``security.py`` stay import-clean); only a deploy wiring or a
+``plan_runner.py``, ``security.py`` stay import-clean); only a deploy wiring or a
 bluesky-capable test imports this module directly.
 
 Plan resolution happens entirely inside ``reinitialize()``: ``exec_config``
@@ -13,20 +13,20 @@ mapping) is resolved against a plan registry (by default the same built-ins +
 facility-injected merge ``app.py``'s ``GET /plans`` route serves), its
 ``plan_args`` validated against that plan's pydantic schema, and the
 resulting bluesky plan generator built and stored — all *before*
-``start_scan_thread()`` ever touches a thread. That is what makes
-``start_scan_thread()`` effectively all-or-nothing: the only way it can fail
+``start_run_thread()`` ever touches a thread. That is what makes
+``start_run_thread()`` effectively all-or-nothing: the only way it can fail
 is daemon-thread creation itself, not plan/device resolution (see
-``runs.py``'s ``do_promote``, which also stops a partially-started scanner
+``runs.py``'s ``do_promote``, which also stops a partially-started runner
 defensively on any exception, as a second line of defense).
 
-Live data: this scanner subscribes its own ``live_rows.LiveRowRecorder`` to
-the RunEngine, so ``read_scan_data`` returns real buffered rows for a real
-scan with no Tiled server needed. A ``TiledWriter`` subscription is optional
-(best-effort — its absence, or failure to connect, never blocks a scan).
+Live data: this runner subscribes its own ``live_rows.LiveRowRecorder`` to
+the RunEngine, so ``read_run_data`` returns real buffered rows for a real
+run with no Tiled server needed. A ``TiledWriter`` subscription is optional
+(best-effort — its absence, or failure to connect, never blocks a run).
 
-``error_message`` is the Scanner protocol's explicit terminal-error signal
-(see ``scanner.py``): set on a plan-resolution failure in ``reinitialize()``
-or on an uncaught exception from the RunEngine thread in ``start_scan_thread()``.
+``error_message`` is the PlanRunner protocol's explicit terminal-error signal
+(see ``plan_runner.py``): set on a plan-resolution failure in ``reinitialize()``
+or on an uncaught exception from the RunEngine thread in ``start_run_thread()``.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ from bluesky import RunEngine
 from .live_rows import LiveRowRecorder
 from .plan_types import PlanSpec
 
-logger = logging.getLogger("osprey.services.bluesky_bridge.scanner_bluesky")
+logger = logging.getLogger("osprey.services.bluesky_bridge.plan_runner_bluesky")
 
 # A device mapping, or a zero-arg callable producing one (sync) or an
 # awaitable of one (async) — mirrors `plan_loader.py`'s `get_devices() ->
@@ -98,7 +98,7 @@ def _plan_name_and_args(exec_config: Any) -> tuple[str | None, dict[str, Any]]:
 
 
 class _FaultIsolatedTiledWriter:
-    """Wraps a `(name, doc)` callback so a Tiled outage degrades persistence, never a scan.
+    """Wraps a `(name, doc)` callback so a Tiled outage degrades persistence, never a run.
 
     `TiledWriter` is a synchronous RunEngine callback, and bluesky's
     `RunEngine` does not swallow callback exceptions by default — an
@@ -107,7 +107,7 @@ class _FaultIsolatedTiledWriter:
     logs once with `exc_info`, and never re-raises. Once latched, subsequent
     documents short-circuit without touching the inner writer again.
 
-    Latch semantics are per-instance: `BlueskyScanner` builds a fresh writer
+    Latch semantics are per-instance: `BlueskyPlanRunner` builds a fresh writer
     (and fresh wrapper) per promotion, so there is no cross-run state to reset.
     """
 
@@ -123,16 +123,16 @@ class _FaultIsolatedTiledWriter:
         except Exception:
             self.degraded = True
             logger.error(
-                "BlueskyScanner: TiledWriter failed on %r document; persistence degraded",
+                "BlueskyPlanRunner: TiledWriter failed on %r document; persistence degraded",
                 name,
                 exc_info=True,
             )
 
 
-class BlueskyScanner:
+class BlueskyPlanRunner:
     """One promoted run's real bluesky RunEngine handle.
 
-    A fresh instance is built per promotion (`do_promote`'s `scanner_factory`).
+    A fresh instance is built per promotion (`do_promote`'s `runner_factory`).
     ``devices``/``plans`` are injected rather than resolved from global state
     by default, so contract tests can supply mock devices (`devices/mock.py`)
     and the real built-in plan set without any facility injection wiring.
@@ -173,14 +173,14 @@ class BlueskyScanner:
                 # Tiled server down at promote time can fail either call, and
                 # either failure must degrade persistence, never abort the
                 # promotion (FR4) — a raising `subscribe()` outside the guard
-                # would propagate out of `__init__` -> `scanner_factory()` ->
+                # would propagate out of `__init__` -> `runner_factory()` ->
                 # `do_promote`, turning a Tiled outage into a failed promote.
                 inner_writer = tiled_writer_factory()
                 self._tiled_writer = _FaultIsolatedTiledWriter(inner_writer)
                 self.RE.subscribe(self._tiled_writer)
             except Exception:
                 logger.warning(
-                    "BlueskyScanner: TiledWriter construction/subscription failed;"
+                    "BlueskyPlanRunner: TiledWriter construction/subscription failed;"
                     " persistence degraded",
                     exc_info=True,
                 )
@@ -213,7 +213,7 @@ class BlueskyScanner:
 
         Never raises: `dict.get` is safe, and `LiveRowRecorder.__call__` is
         already fully exception-wrapped (see `live_rows.py`) — a recorder bug
-        must never reach the RunEngine thread running the actual scan.
+        must never reach the RunEngine thread running the actual run.
         """
         if name == "start":
             self.last_run_uid = doc.get("uid")
@@ -227,12 +227,12 @@ class BlueskyScanner:
         `devices/connector.py`'s connector-mediated equivalent) are `async def`
         — connecting a device is an async operation, and the resulting devices'
         async `set()`/`read()` methods run on whichever event loop is *running*
-        when they're awaited. bluesky drives all signal I/O for a scan on
+        when they're awaited. bluesky drives all signal I/O for a run on
         `self.RE.loop` (running in the RunEngine's own daemon thread, started
         at `RunEngine.__init__` time — already alive here, well before
-        `start_scan_thread()`). So an async factory must be awaited *on that
+        `start_run_thread()`). So an async factory must be awaited *on that
         loop*, not a throwaway one, or the devices it builds end up bound to a
-        loop the scan itself never touches.
+        loop the run itself never touches.
         `asyncio.run_coroutine_threadsafe` schedules the await onto `self.RE.loop`
         from whichever thread calls `reinitialize()` (the promote HTTP request
         thread) and blocks that thread for the result — the sync-`Mapping`
@@ -256,7 +256,7 @@ class BlueskyScanner:
         Every failure mode here — unknown plan, invalid plan_args, a plan
         callable that raises while resolving devices — returns False (and
         sets `error_message`) rather than raising, so a bad launch request
-        never reaches `start_scan_thread()` at all.
+        never reaches `start_run_thread()` at all.
         """
         plan_name, plan_args = _plan_name_and_args(exec_config)
         if not plan_name:
@@ -286,24 +286,24 @@ class BlueskyScanner:
         self._completion = 0.0
         return True
 
-    def start_scan_thread(self) -> None:
+    def start_run_thread(self) -> None:
         """Run the plan built by `reinitialize()` in a daemon thread. Non-blocking.
 
         Deliberately minimal: all plan resolution/validation already happened
         in `reinitialize()`, so the only way this raises is thread creation
-        itself failing — not a partially-built scan.
+        itself failing — not a partially-built run.
         """
         if self._plan_gen is None:
-            raise RuntimeError("start_scan_thread() called before a successful reinitialize()")
+            raise RuntimeError("start_run_thread() called before a successful reinitialize()")
 
         self.current_state = "running"
-        self._thread = threading.Thread(target=self._run, name="bluesky-scanner", daemon=True)
+        self._thread = threading.Thread(target=self._run, name="bluesky-runner", daemon=True)
         self._thread.start()
 
     def _run(self) -> None:
         """The daemon thread body: drive the RunEngine, classify how it ended.
 
-        `RE.abort()` called from another thread (see `stop_scanning_thread`)
+        `RE.abort()` called from another thread (see `stop_run_thread`)
         interrupts `RE(...)` here — depending on bluesky version/timing this
         surfaces either as `RE(...)` returning normally (an "abort" exit
         status recorded in the stop doc) or as an exception out of `RE(...)`
@@ -313,9 +313,9 @@ class BlueskyScanner:
         not the exception's presence.
 
         `osprey_run_id` (set by `do_promote`, `runs.py`, after `reinitialize`
-        and before `start_scan_thread`) is not part of the `Scanner` Protocol,
+        and before `start_run_thread`) is not part of the `PlanRunner` Protocol,
         so it is read defensively via `getattr` — absent for any caller that
-        doesn't set it (contract tests constructing a `BlueskyScanner`
+        doesn't set it (contract tests constructing a `BlueskyPlanRunner`
         directly). When present it is passed as a `RunEngine.__call__`
         metadata kwarg — `RE(plan, osprey_run_id=...)` — which bluesky records
         onto the start doc. A literal `md={...}` would nest it under an `md`
@@ -330,15 +330,15 @@ class BlueskyScanner:
                 self.current_state = "stopped"
                 self._completion = 1.0
             else:
-                logger.warning("BlueskyScanner: RunEngine plan failed", exc_info=True)
+                logger.warning("BlueskyPlanRunner: RunEngine plan failed", exc_info=True)
                 self.error_message = str(exc)
                 self.current_state = "error"
         else:
             self.current_state = "stopped" if self._stop_requested else "completed"
             self._completion = 1.0
 
-    def stop_scanning_thread(self) -> None:
-        """Abort the running scan. Safe to call even if not active.
+    def stop_run_thread(self) -> None:
+        """Abort the running plan. Safe to call even if not active.
 
         `RunEngine.abort()`/`.pause()`/`.resume()` are bluesky's documented
         cross-thread control primitives — calling `abort()` from a thread
@@ -347,13 +347,13 @@ class BlueskyScanner:
         """
         self._stop_requested = True
         try:
-            self.RE.abort(reason="stop_scanning_thread called")
+            self.RE.abort(reason="stop_run_thread called")
         except Exception:
-            logger.debug("BlueskyScanner: RE.abort() raised (may not be running)", exc_info=True)
+            logger.debug("BlueskyPlanRunner: RE.abort() raised (may not be running)", exc_info=True)
         if self._thread is not None:
             self._thread.join(timeout=10)
 
-    def is_scanning_active(self) -> bool:
+    def is_run_active(self) -> bool:
         return bool(self._thread is not None and self._thread.is_alive())
 
     def estimate_current_completion(self) -> float:

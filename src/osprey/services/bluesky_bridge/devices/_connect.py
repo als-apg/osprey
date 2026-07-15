@@ -7,7 +7,7 @@ is centralized here so its non-obvious rationale lives in exactly one place.
 Imports ophyd-async, so (like the rest of ``devices/``) this module lives
 behind the optional ``osprey-framework[bluesky-bridge]`` extra — keep it out of
 the bridge lifecycle core's import path (``app.py``, ``runs.py``,
-``scanner.py``, ``security.py``).
+``plan_runner.py``, ``security.py``).
 """
 
 from __future__ import annotations

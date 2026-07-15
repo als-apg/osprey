@@ -40,7 +40,7 @@ self-declared in a plan's own ``PLAN_METADATA``.
 
 @dataclass
 class PlanSpec(Generic[SchemaT]):
-    """One registered scan plan: its name, parameter schema, and implementation.
+    """One registered plan: its name, parameter schema, and implementation.
 
     Generic over its own ``schema`` type so each concrete plan's ``plan``
     callable can be typed against its own pydantic model (e.g. ``CountParams``)

@@ -3,7 +3,7 @@
 The bridge is otherwise stateless (see ``runs.py``'s module docstring for the
 run registry's own rationale) — this module is a bounded, explicit exception:
 a session-tier plan file must be validated (``plan_validation.py``'s
-:func:`~osprey.services.bluesky_bridge.plan_validation.validate_bluesky_plan`)
+:func:`~osprey.services.bluesky_bridge.plan_validation.validate_plan`)
 before anything downstream will treat it as real, and re-validating on every
 load/promote check would mean re-running the stage-3 dry-run subprocess on
 every request. Instead, task 2.3's validate route calls
