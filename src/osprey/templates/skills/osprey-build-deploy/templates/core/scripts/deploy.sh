@@ -19,11 +19,35 @@
 set -euo pipefail
 
 # IF MODULE web_terminals.enabled
-# ── Per-user CLAUDE.md seed (helper function so `local` is legal) ─────
+# ── Per-user context seed (helper function so `local` is legal) ───────
 # claude-config is a named volume; on first mount it's empty and owned by
 # root. chown it to the dispatch user (so osprey web can write session
-# state) and stream the per-user CLAUDE.md in via podman exec. Idempotent
-# across redeploys — this replaces the file every time.
+# state) and stream the per-user CLAUDE.md in via podman exec. CLAUDE.md
+# lands in $CLAUDE_CONFIG_DIR (user scope) because CLAUDE.md auto-discovery
+# is NOT gated by --setting-sources and works fine there.
+#
+# skills/ is a different story: the launcher runs the CLI with
+# `--setting-sources project` (claude_launcher.py), which makes
+# $CLAUDE_CONFIG_DIR/skills/ (user scope) INERT — confirmed empirically by
+# the skills-discovery smoke check. The only scope Claude Code will actually
+# discover skills from is PROJECT scope: <project_cwd>/.claude/skills/,
+# i.e. /app/${config.facility.prefix}-assistant/.claude/skills (the
+# terminal launches with cwd=project_cwd — see routes/websocket.py). So the
+# skills overlay is seeded there instead, via the same tar-pipe technique
+# (exec has no native recursive-copy; a tar stream is the portable
+# equivalent of `podman cp -a`). That path is in the container's writable
+# layer, not a named volume — deploys recreate the container, which
+# re-seeds it every time, so content persists across deploys by re-seeding
+# rather than by a mount.
+#
+# Idempotent + non-destructive: CLAUDE.md is replaced every run. skills/
+# must never blanket-replace the target dir, because a user can add project-
+# scope skills live in the running session (e.g. `osprey skills install`),
+# and those must survive a redeploy. Every skill dir this overlay writes
+# gets a `.deploy-managed` sentinel; only sentinel-bearing dirs are ever
+# touched, and only when this overlay no longer ships them (including when
+# the overlay's skills/ is removed outright). Anything without the sentinel
+# is left alone.
 seed_web_terminal() {
   local user="$1"
   local container="${config.facility.prefix}-web-${user}"
@@ -31,13 +55,75 @@ seed_web_terminal() {
     echo "  (skipped ${user}: container not ready)"
     return
   fi
-  cat docker/web-terminal-context/base.md \
-      docker/web-terminal-context/"${user}".md 2>/dev/null \
+
+  if [[ ! -f docker/web-terminal-context/base.md ]]; then
+    echo "ERROR: docker/web-terminal-context/base.md not found — cannot seed CLAUDE.md"
+    exit 1
+  fi
+
+  # Per-user overlay lives at docker/web-terminal-context/<user>/{extra.md,skills/}.
+  # Fall back to the legacy flat docker/web-terminal-context/<user>.md for
+  # facilities that haven't migrated to the directory layout yet.
+  local overlay_dir="docker/web-terminal-context/${user}"
+  local extra_md="${overlay_dir}/extra.md"
+  local legacy_md="docker/web-terminal-context/${user}.md"
+  if [[ ! -f "$extra_md" && -f "$legacy_md" ]]; then
+    extra_md="$legacy_md"
+  fi
+
+  cat docker/web-terminal-context/base.md "$extra_md" 2>/dev/null \
     | ${config.runtime.engine} exec -u 0 -i "$container" sh -c '
+        set -e
         chown dispatch:dispatch /data/claude-config
         cat > /data/claude-config/CLAUDE.md
         chown dispatch:dispatch /data/claude-config/CLAUDE.md
       '
+
+  # Tar an empty scratch dir when there is no skills/ overlay, so the
+  # container-side reconciliation below always runs and cleans up any
+  # previously-managed skill dirs even after the overlay disappears.
+  local skills_src="${overlay_dir}/skills"
+  local tmp_empty=""
+  if [[ ! -d "$skills_src" ]]; then
+    tmp_empty="$(mktemp -d)"
+    skills_src="$tmp_empty"
+  fi
+  trap '[[ -n "$tmp_empty" ]] && rm -rf "$tmp_empty"' RETURN
+
+  local skill_names
+  skill_names="$(cd "$skills_src" && find . -mindepth 1 -maxdepth 1 -type d | sed 's|^\./||' | sort)"
+
+  # Project scope, not $CLAUDE_CONFIG_DIR — see the header comment above.
+  local project_skills_dir="/app/${config.facility.prefix}-assistant/.claude/skills"
+
+  tar -C "$skills_src" -cf - --exclude=.DS_Store . \
+    | ${config.runtime.engine} exec -u 0 -i "$container" sh -c '
+        set -e
+        target="$2"
+        mkdir -p "$target"
+        cd "$target"
+        names="$1"
+        # Drop deploy-managed skills this overlay no longer ships.
+        for d in */; do
+          d="${d%/}"
+          [ -f "$d/.deploy-managed" ] || continue
+          keep=0
+          for name in $names; do
+            [ "$name" = "$d" ] && keep=1 && break
+          done
+          [ "$keep" -eq 0 ] && rm -rf -- "$d"
+        done
+        # Refresh every skill this overlay currently ships (drop + re-extract
+        # so edits/removed files inside an already-managed skill land too).
+        for name in $names; do
+          rm -rf -- "$name"
+        done
+        tar -xf -
+        for name in $names; do
+          [ -d "$name" ] && touch "$name/.deploy-managed"
+        done
+        chown -R dispatch:dispatch "$target"
+      ' sh "$skill_names" "$project_skills_dir"
 }
 # END IF
 
@@ -178,9 +264,9 @@ main() {
   ${config.runtime.compose_command} "${COMPOSE_FILES[@]}" up -d
 
   # IF MODULE web_terminals.enabled
-  # ── Step 5b: Seed per-user CLAUDE.md into each web-terminal volume ───
+  # ── Step 5b: Seed per-user CLAUDE.md + skills into each web-terminal volume ───
   echo
-  echo "Seeding per-user CLAUDE.md into claude-config volumes..."
+  echo "Seeding per-user CLAUDE.md and skills into claude-config volumes..."
   # FOR user in modules.web_terminals.users
   seed_web_terminal "${user}"
   # END FOR
