@@ -111,8 +111,10 @@ dependencies = [
     "watchdog>=3.0.0",
     # Async HTTP client for the web-terminal panel reverse proxy
     "httpx>=0.27.0",
-    # Lattice physics (Accelerator Toolbox for lattice dashboard)
-    "accelerator-toolbox[plot]",
+    # Lattice physics (Accelerator Toolbox for lattice dashboard + shared ring).
+    # Floor-pinned for the save_mat/load_mat(use='RING'), disable_6d, and
+    # get_optics(get_chrom=) surface the shared ALS-U AR ring relies on.
+    "accelerator-toolbox[plot]>=0.7.1",
     # Virtual Accelerator soft-IOC (osprey.services.virtual_accelerator): the
     # in-process EPICS soft-IOC the record factory builds against. Core, not
     # optional — the VA is exercised in almost all deployments, and PyAT
