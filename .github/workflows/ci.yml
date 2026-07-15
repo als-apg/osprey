@@ -509,7 +509,8 @@ jobs:
             --ignore=tests/e2e/test_tiled_roundtrip.py \
             --ignore=tests/e2e/test_va_substrate_equivalence.py \
             --ignore=tests/e2e/test_scan_catalog_e2e.py \
-            --ignore=tests/e2e/test_scan_sandbox_escape_e2e.py
+            --ignore=tests/e2e/test_scan_sandbox_escape_e2e.py \
+            --ignore=tests/e2e/test_scan_panels_deploy.py
         fi
 
   deploy-e2e:
@@ -656,6 +657,44 @@ jobs:
     - name: Run scan deploy E2E
       run: |
         uv run pytest tests/e2e/test_scan_deploy.py -v --tb=short
+
+  scan-panels-deploy-e2e:
+    name: Scan Panels Deploy E2E (VA + bluesky bridge + scan-panels sidecar, full Docker stack)
+    runs-on: ubuntu-latest
+    # Only run on PRs from same repo (mirrors scan-deploy-e2e/va-substrate-
+    # equivalence-e2e gating). This job needs no secrets — neither the
+    # bridge nor the scan-panels sidecar shells out to an LLM.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Co-deploys the VA (native PyAT/softioc build, same cold-cache cost as
+    # va-substrate-equivalence-e2e) alongside the bridge, Tiled, and the
+    # scan-panels sidecar, then drives a real scan end to end through the
+    # sidecar's execute route — comparable weight to va-substrate-
+    # equivalence-e2e, not scan-deploy-e2e.
+    timeout-minutes: 45
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Run scan panels deploy E2E
+      run: |
+        uv run pytest tests/e2e/test_scan_panels_deploy.py -v --tb=short
 
   va-substrate-equivalence-e2e:
     name: VA Substrate Equivalence E2E (virtual accelerator + bluesky bridge, full Docker stack)
@@ -849,7 +888,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, scan-deploy-e2e, va-substrate-equivalence-e2e, tiled-roundtrip-e2e, dockerfile-e2e, agentic-per-preset]
+    needs: [test, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, scan-deploy-e2e, scan-panels-deploy-e2e, va-substrate-equivalence-e2e, tiled-roundtrip-e2e, dockerfile-e2e, agentic-per-preset]
     runs-on: ubuntu-latest
     if: always()
 
@@ -927,6 +966,14 @@ jobs:
           echo "⏭️  Scan deploy E2E skipped (only run on PRs)"
         else
           echo "✅ Scan deploy E2E passed"
+        fi
+        # Scan Panels Deploy E2E: advisory (Docker-dependent, no LLM involved)
+        if [[ "${{ needs.scan-panels-deploy-e2e.result }}" == "failure" ]]; then
+          echo "⚠️  Scan panels deploy E2E failed (non-blocking, Docker-dependent)"
+        elif [[ "${{ needs.scan-panels-deploy-e2e.result }}" == "skipped" ]]; then
+          echo "⏭️  Scan panels deploy E2E skipped (only run on PRs)"
+        else
+          echo "✅ Scan panels deploy E2E passed"
         fi
         # VA Substrate Equivalence E2E: advisory (Docker-dependent, no LLM involved)
         if [[ "${{ needs.va-substrate-equivalence-e2e.result }}" == "failure" ]]; then
