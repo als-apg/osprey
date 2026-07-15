@@ -230,9 +230,7 @@ class TestControlAssistantTurnkeyScanControlSystem:
     by tests/cli/test_va_default_config.py).
     """
 
-    def test_control_assistant_control_system_type_is_mock(
-        self, turnkey_scan_config: dict
-    ) -> None:
+    def test_control_assistant_control_system_type_is_mock(self, turnkey_scan_config: dict) -> None:
         assert turnkey_scan_config["control_system"]["type"] == "mock"
 
     def test_control_assistant_execution_method_is_container(
@@ -240,9 +238,7 @@ class TestControlAssistantTurnkeyScanControlSystem:
     ) -> None:
         assert turnkey_scan_config["execution"]["execution_method"] == "container"
 
-    def test_control_assistant_scan_mcp_server_enabled(
-        self, turnkey_scan_config: dict
-    ) -> None:
+    def test_control_assistant_scan_mcp_server_enabled(self, turnkey_scan_config: dict) -> None:
         assert turnkey_scan_config["claude_code"]["servers"]["scan"]["enabled"] is True
 
 

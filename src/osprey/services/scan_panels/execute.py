@@ -127,9 +127,7 @@ async def execute_run(payload: ExecuteRequest, request: Request) -> JSONResponse
     run_body = _safe_json(create_response)
     run_id = run_body.get("id") if isinstance(run_body, dict) else None
     if not run_id:
-        return JSONResponse(
-            {"detail": "bluesky bridge returned no run id"}, status_code=502
-        )
+        return JSONResponse({"detail": "bluesky bridge returned no run id"}, status_code=502)
 
     try:
         promote_response = await client.post(

@@ -29,9 +29,7 @@ class _FakeWriter:
         pass
 
 
-async def _fake_open_connection_ok(
-    _host: str, _port: int
-) -> tuple[object, _FakeWriter]:
+async def _fake_open_connection_ok(_host: str, _port: int) -> tuple[object, _FakeWriter]:
     return object(), _FakeWriter()
 
 

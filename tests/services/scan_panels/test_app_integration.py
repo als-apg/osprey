@@ -122,7 +122,13 @@ def test_read_run_data_round_trips_through_composed_app() -> None:
         assert request.url.path == "/runs/abc123/data"
         return httpx.Response(
             200,
-            json={"run_uid": "uid-1", "columns": ["x"], "rows": [[1]], "row_count": 1, "truncated": False},
+            json={
+                "run_uid": "uid-1",
+                "columns": ["x"],
+                "rows": [[1]],
+                "row_count": 1,
+                "truncated": False,
+            },
         )
 
     with TestClient(app) as client:

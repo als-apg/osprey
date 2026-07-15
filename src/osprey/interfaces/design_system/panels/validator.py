@@ -418,8 +418,7 @@ def _main(argv: Sequence[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     if len(args) != 1:
         print(
-            "usage: python -m osprey.interfaces.design_system.panels.validator"
-            " <panel_dir>",
+            "usage: python -m osprey.interfaces.design_system.panels.validator <panel_dir>",
             file=sys.stderr,
         )
         return 2
