@@ -98,8 +98,8 @@ pytestmark = [
 ]
 
 # Distinct from every sibling e2e module's pinned bridge port (_orm_stack.py's
-# 18102, test_scan_deploy.py's 18090, test_va_substrate_equivalence.py's
-# 18099, test_tiled_roundtrip.py's 18101, test_scan_catalog_e2e.py's 18103).
+# 18102, test_bluesky_deploy.py's 18090, test_va_substrate_equivalence.py's
+# 18099, test_tiled_roundtrip.py's 18101, test_bluesky_catalog_e2e.py's 18103).
 BRIDGE_PORT = 18105
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 
@@ -146,7 +146,7 @@ def _escape_plan_body(target_sp: str, poison_current: float) -> str:
     import) -- caught at stage 1, long before any exec is even attempted.
     """
     return f'''"""MUST-CATCH plan body for the sandbox-escape e2e
-(tests/e2e/test_scan_sandbox_escape_e2e.py). Never meant to run -- see this
+(tests/e2e/test_bluesky_sandbox_escape_e2e.py). Never meant to run -- see this
 test module's docstring."""
 
 from __future__ import annotations
@@ -186,7 +186,7 @@ def _obfuscated_residual_plan_body(target_sp: str, poison_current: float) -> str
     module -- see ``test_obfuscated_residual_is_a_documented_known_uncaught_case``.
     """
     return f'''"""KNOWN-UNCAUGHT residual plan body for the sandbox-escape e2e
-(tests/e2e/test_scan_sandbox_escape_e2e.py). Documented, accepted residual --
+(tests/e2e/test_bluesky_sandbox_escape_e2e.py). Documented, accepted residual --
 see this test module's docstring. Never promoted/launched by this test."""
 
 from __future__ import annotations
@@ -235,7 +235,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 # omits the future import; `typing`/`logging` have no such positional rule
 # and are used exactly as the shipped exemplar does.
 _POSITIVE_PLAN_BODY = '''"""Session-authored positive plan body for the sandbox-escape e2e
-(tests/e2e/test_scan_sandbox_escape_e2e.py) -- mirrors plans_core/
+(tests/e2e/test_bluesky_sandbox_escape_e2e.py) -- mirrors plans_core/
 response_matrix.py's PARAMS/build_plan, proving the author -> validate ->
 launch -> promote -> read path works end to end for a legitimately-authored
 session plan, in the same deployed stack the negative case runs against.
@@ -292,7 +292,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# HTTP helpers (mirrors test_orm_roundtrip.py / test_scan_catalog_e2e.py)
+# HTTP helpers (mirrors test_orm_roundtrip.py / test_bluesky_catalog_e2e.py)
 # ---------------------------------------------------------------------------
 def _get(path: str) -> tuple[int, Any]:
     req = urllib.request.Request(f"{BRIDGE_URL}{path}", method="GET")  # noqa: S310

@@ -30,7 +30,7 @@ what P3-P5 need).
 Container safety: every docker invocation below names an exact container/image
 — never a wildcard, never ``system prune``/``--volumes``. The one forced
 ``docker rmi -f <image>`` (below) names an exact image, matching
-``test_scan_deploy.py``'s precedent for forcing a fresh ``--dev`` build.
+``test_bluesky_deploy.py``'s precedent for forcing a fresh ``--dev`` build.
 Teardown goes through ``osprey deploy down``, never a raw ``docker rm`` sweep.
 
 Gating: needs Docker; the VA image builds natively for the host arch, so on
@@ -40,7 +40,7 @@ collected by the fast lane, see ``ci_check.sh``/ci.yml).
 
 Markers: ``pytest.mark.flaky(reruns=1, only_rerun=[AssertionError])`` is
 applied PER-FUNCTION to P1-P4 only, never at module level — P5 is the safety
-proof and must stay strict (mirrors ``test_scan_write_refused_e2e``'s
+proof and must stay strict (mirrors ``test_bluesky_write_refused_e2e``'s
 strictness). A module-level ``flaky`` would silently sweep P5 into lenient
 reruns, which is exactly the bug this convention exists to prevent.
 """
@@ -87,7 +87,7 @@ VA_IMAGE = "osprey-va:local"
 PROJECT_NAME = "proj"
 VA_CONTAINER = f"{PROJECT_NAME}-virtual-accelerator"
 
-# Deliberately non-default (avoids colliding with test_scan_deploy.py's 18090
+# Deliberately non-default (avoids colliding with test_bluesky_deploy.py's 18090
 # on a shared dev machine — see that module's docstring).
 BRIDGE_PORT = 18099
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
@@ -147,7 +147,7 @@ pytestmark = [
 
 
 # ---------------------------------------------------------------------------
-# Build/deploy scaffold (mirrors tests/e2e/test_scan_deploy.py's shape)
+# Build/deploy scaffold (mirrors tests/e2e/test_bluesky_deploy.py's shape)
 # ---------------------------------------------------------------------------
 
 

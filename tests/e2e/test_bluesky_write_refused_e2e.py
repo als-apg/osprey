@@ -85,7 +85,7 @@ def _run_query(project: Path, prompt: str) -> list[str]:
     return [t["name"] for t in payload["tool_traces"]]
 
 
-def test_scan_write_tools_structurally_disallowed(tmp_path: Path) -> None:
+def test_bluesky_write_tools_structurally_disallowed(tmp_path: Path) -> None:
     """Guard 1 (structural): launch_run/stop_run are disallowed; read tools are not.
 
     Passes even before any live run — the registry walk that produces

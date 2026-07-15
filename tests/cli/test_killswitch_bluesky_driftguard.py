@@ -114,21 +114,21 @@ def test_every_write_gated_tool_is_covered_when_writes_off(tmp_path):
             )
 
 
-def test_scan_launch_run_specifically_hard_denied_when_writes_off(tmp_path):
+def test_bluesky_launch_run_specifically_hard_denied_when_writes_off(tmp_path):
     """The concrete case this drift guard exists for: scan's launch_run."""
     project_dir = _build_project(tmp_path, writes_enabled=False)
     perms = _rendered_permissions(project_dir)
     assert "mcp__bluesky__launch_run" in perms["deny"]
 
 
-def test_scan_launch_run_not_denied_when_writes_on(tmp_path):
+def test_bluesky_launch_run_not_denied_when_writes_on(tmp_path):
     project_dir = _build_project(tmp_path, writes_enabled=True)
     perms = _rendered_permissions(project_dir)
     assert "mcp__bluesky__launch_run" not in perms["deny"]
     assert "mcp__bluesky__launch_run" not in perms.get("remove_ask", [])
 
 
-def test_scan_stop_run_never_denied_regardless_of_writes_enabled(tmp_path):
+def test_bluesky_stop_run_never_denied_regardless_of_writes_enabled(tmp_path):
     """stop_run carries approval only (no _WRITES_CHECK) -- the kill switch
     must never block stopping a scan, in either direction."""
     for writes_enabled in (True, False):

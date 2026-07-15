@@ -6,7 +6,7 @@ Unlike `test_plan_injection.py` (task 2.4's own contract test, which mostly
 drives `plan_loader.py` directly and via the `BLUESKY_PLAN_MODULE` env var),
 this test goes through the full `bluesky.plan_module` config.yml path — the
 "local/dev convenience" resolution tier — mirroring how
-`tests/mcp_server/test_scan_context.py` verifies `bluesky.bridge_url`/
+`tests/mcp_server/test_bridge_context.py` verifies `bluesky.bridge_url`/
 `bluesky.promote_token` config fallback. A custom plan module living in a temp
 dir (PLANS + get_devices, no bluesky import) is loaded purely from config,
 its plans show up over real HTTP via `GET /plans`, and its devices construct.

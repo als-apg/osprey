@@ -17,7 +17,7 @@ Uses the ``hello-world`` preset with ``services.bluesky.demo_runner=true``
 EPICS/Virtual Accelerator at all) rather than the VA-backed stack
 ``tests/e2e/_orm_stack.py`` builds -- this test's point is the plan catalog,
 not accelerator physics, so it skips the VA image's amd64-emulated build
-entirely (mirrors ``test_scan_deploy.py``'s identical rationale). The one
+entirely (mirrors ``test_bluesky_deploy.py``'s identical rationale). The one
 facility plan (``facility_probe``, below) is authored against the demo
 scanner's fixed mock device names (``motor1``/``det1``) so it can actually
 run against this stack.
@@ -28,7 +28,7 @@ Teardown goes through ``osprey deploy down``, matching every other e2e in
 this directory.
 
 Gating: needs Docker. Much lighter than the VA-backed e2e (no amd64
-emulation) -- comparable to ``test_scan_deploy.py``'s build+deploy time.
+emulation) -- comparable to ``test_bluesky_deploy.py``'s build+deploy time.
 Advisory CI lane (see ci.yml's ``bluesky-catalog-e2e`` job); run locally with
 ``E2E_REUSE_IMAGES=1`` set for fast iteration once the image cache is warm.
 """
@@ -57,7 +57,7 @@ pytestmark = [
 ]
 
 # Distinct from the sibling e2e modules' pinned ports (_orm_stack.py's 18102,
-# test_scan_deploy.py's 18090, test_va_substrate_equivalence.py's 18099,
+# test_bluesky_deploy.py's 18090, test_va_substrate_equivalence.py's 18099,
 # test_tiled_roundtrip.py's 18101) so all five can run concurrently on a
 # shared dev machine without a port collision.
 BRIDGE_PORT = 18103
@@ -73,7 +73,7 @@ SCAN_TIMEOUT_SEC = 60.0
 # actually run against the deployed stack (no BLUESKY_EPICS_MOTORS/_DETECTORS
 # wiring applies to the demo-scanner branch; see app.py's `_lifespan`).
 _FACILITY_PLAN_SOURCE = '''"""Test-authored facility-tier plan for the layered plan catalog e2e
-(tests/e2e/test_scan_catalog_e2e.py).
+(tests/e2e/test_bluesky_catalog_e2e.py).
 
 Not part of the shipped OSPREY package: this file is written to a throwaway
 host directory and injected via `services.bluesky.plan_dir`
@@ -185,7 +185,7 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
     project with one facility-injected plan file; tear down after.
 
     ``hello-world`` + ``bluesky.demo_runner=true`` (mirrors
-    ``test_scan_deploy.py``): no VA co-deploy, no LLM secret needed, no
+    ``test_bluesky_deploy.py``): no VA co-deploy, no LLM secret needed, no
     amd64-emulated image build. ``bluesky.plan_dir`` points at a throwaway
     host directory containing ``_FACILITY_PLAN_SOURCE`` -- the deploy wiring
     (Task 1.4) bind-mounts it read-only and sets ``BLUESKY_PLAN_DIRS``, so

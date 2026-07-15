@@ -240,7 +240,7 @@ def test_every_declared_var_is_classified():
 def test_authoring_tools_declare_no_new_bluesky_arming_token():
     """The task-2.3 authoring MCP tools (write_plan, validate_plan)
     reach no hardware and gate on ``_APPROVAL`` only in the registry (see
-    ``tests/registry/test_scan_server_definition.py``) — they need no arming
+    ``tests/registry/test_bluesky_server_definition.py``) — they need no arming
     token of their own. Pin that ``bluesky``'s declared token vars are still
     exactly the pre-2.3 pair, so this guard's promote-token-withheld
     invariant (asserted above) still covers the whole deployed surface and

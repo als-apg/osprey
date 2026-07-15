@@ -1,6 +1,6 @@
 """Unit tests for the scan MCP client tools' request/response mapping.
 
-Complements ``test_scan_read_tools.py`` (which covers per-tool bridge-status
+Complements ``test_read_run_tools.py`` (which covers per-tool bridge-status
 translation in depth) by focusing on two things across every read/allow-listed
 client tool: that each tool builds the right bridge request and maps a normal
 response straight through, and that a genuinely unreachable bridge surfaces

@@ -54,7 +54,7 @@ jobs:
       #
       # bluesky-bridge: tests/services/bluesky_bridge/* import bluesky,
       # ophyd_async and tiled. Most guard with `pytest.importorskip`, so without
-      # this extra they do not error — they SKIP, and the bridge's scanner,
+      # this extra they do not error — they SKIP, and the bridge's runner,
       # RunEngine integration and Tiled fault-isolation guards silently never
       # run. test_ci_workflow_wiring.py pins this extra for that reason.
       run: uv sync --extra dev --extra virtual-accelerator --extra bluesky-bridge
@@ -504,12 +504,12 @@ jobs:
           uv run pytest tests/e2e/ -v --tb=short \
             --ignore=tests/e2e/test_preset_agentic.py \
             --ignore=tests/e2e/test_dispatch_deploy.py \
-            --ignore=tests/e2e/test_scan_deploy.py \
+            --ignore=tests/e2e/test_bluesky_deploy.py \
             --ignore=tests/e2e/test_dockerfile_e2e.py \
             --ignore=tests/e2e/test_tiled_roundtrip.py \
             --ignore=tests/e2e/test_va_substrate_equivalence.py \
-            --ignore=tests/e2e/test_scan_catalog_e2e.py \
-            --ignore=tests/e2e/test_scan_sandbox_escape_e2e.py \
+            --ignore=tests/e2e/test_bluesky_catalog_e2e.py \
+            --ignore=tests/e2e/test_bluesky_sandbox_escape_e2e.py \
             --ignore=tests/e2e/test_bluesky_panels_deploy.py
         fi
 
@@ -626,7 +626,7 @@ jobs:
         uv run pytest tests/e2e/test_dispatch_deploy.py -v --tb=short
 
   bluesky-deploy-e2e:
-    name: Scan Deploy E2E (bluesky bridge, full Docker stack)
+    name: Bluesky Deploy E2E (bluesky bridge, full Docker stack)
     runs-on: ubuntu-latest
     # Only run on PRs from same repo (mirrors dispatch-deploy-e2e/deploy-e2e
     # gating). This job needs no secrets — the bluesky bridge never shells out
@@ -654,12 +654,12 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
-    - name: Run scan deploy E2E
+    - name: Run bluesky deploy E2E
       run: |
-        uv run pytest tests/e2e/test_scan_deploy.py -v --tb=short
+        uv run pytest tests/e2e/test_bluesky_deploy.py -v --tb=short
 
   bluesky-panels-deploy-e2e:
-    name: Scan Panels Deploy E2E (VA + bluesky bridge + bluesky-panels sidecar, full Docker stack)
+    name: Bluesky Panels Deploy E2E (VA + bluesky bridge + bluesky-panels sidecar, full Docker stack)
     runs-on: ubuntu-latest
     # Only run on PRs from same repo (mirrors bluesky-deploy-e2e/va-substrate-
     # equivalence-e2e gating). This job needs no secrets — neither the
@@ -667,7 +667,7 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     # Co-deploys the VA (native PyAT/softioc build, same cold-cache cost as
     # va-substrate-equivalence-e2e) alongside the bridge, Tiled, and the
-    # bluesky-panels sidecar, then drives a real scan end to end through the
+    # bluesky-panels sidecar, then drives a real plan end to end through the
     # sidecar's execute route — comparable weight to va-substrate-
     # equivalence-e2e, not bluesky-deploy-e2e.
     timeout-minutes: 45
@@ -692,7 +692,7 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
-    - name: Run scan panels deploy E2E
+    - name: Run bluesky panels deploy E2E
       run: |
         uv run pytest tests/e2e/test_bluesky_panels_deploy.py -v --tb=short
 
@@ -777,7 +777,7 @@ jobs:
         uv run pytest tests/e2e/test_tiled_roundtrip.py -v --tb=short
 
   bluesky-catalog-e2e:
-    name: Scan Catalog E2E (layered plan catalog, full Docker stack)
+    name: Bluesky Catalog E2E (layered plan catalog, full Docker stack)
     runs-on: ubuntu-latest
     # ADVISORY LANE: deliberately NOT in all-checks-passed's `needs:` list —
     # read this job's own log to see whether it passed. Only run on PRs from
@@ -808,12 +808,12 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
-    - name: Run scan catalog E2E
+    - name: Run bluesky catalog E2E
       run: |
-        uv run pytest tests/e2e/test_scan_catalog_e2e.py -v --tb=short
+        uv run pytest tests/e2e/test_bluesky_catalog_e2e.py -v --tb=short
 
   bluesky-sandbox-escape-e2e:
-    name: Scan Sandbox Escape E2E (session-plan authoring gates, full Docker stack)
+    name: Bluesky Sandbox Escape E2E (session-plan authoring gates, full Docker stack)
     runs-on: ubuntu-latest
     # ADVISORY LANE: deliberately NOT in all-checks-passed's `needs:` list —
     # read this job's own log to see whether it passed (mirrors
@@ -847,9 +847,9 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
-    - name: Run scan sandbox escape E2E
+    - name: Run bluesky sandbox escape E2E
       run: |
-        uv run pytest tests/e2e/test_scan_sandbox_escape_e2e.py -v --tb=short
+        uv run pytest tests/e2e/test_bluesky_sandbox_escape_e2e.py -v --tb=short
 
   dockerfile-e2e:
     name: Dockerfile E2E (generated container image)
@@ -959,21 +959,21 @@ jobs:
         else
           echo "✅ Dispatch deploy E2E passed"
         fi
-        # Scan Deploy E2E: advisory (Docker-dependent, no LLM involved)
+        # Bluesky Deploy E2E: advisory (Docker-dependent, no LLM involved)
         if [[ "${{ needs.bluesky-deploy-e2e.result }}" == "failure" ]]; then
-          echo "⚠️  Scan deploy E2E failed (non-blocking, Docker-dependent)"
+          echo "⚠️  Bluesky deploy E2E failed (non-blocking, Docker-dependent)"
         elif [[ "${{ needs.bluesky-deploy-e2e.result }}" == "skipped" ]]; then
-          echo "⏭️  Scan deploy E2E skipped (only run on PRs)"
+          echo "⏭️  Bluesky deploy E2E skipped (only run on PRs)"
         else
-          echo "✅ Scan deploy E2E passed"
+          echo "✅ Bluesky deploy E2E passed"
         fi
-        # Scan Panels Deploy E2E: advisory (Docker-dependent, no LLM involved)
+        # Bluesky Panels Deploy E2E: advisory (Docker-dependent, no LLM involved)
         if [[ "${{ needs.bluesky-panels-deploy-e2e.result }}" == "failure" ]]; then
-          echo "⚠️  Scan panels deploy E2E failed (non-blocking, Docker-dependent)"
+          echo "⚠️  Bluesky panels deploy E2E failed (non-blocking, Docker-dependent)"
         elif [[ "${{ needs.bluesky-panels-deploy-e2e.result }}" == "skipped" ]]; then
-          echo "⏭️  Scan panels deploy E2E skipped (only run on PRs)"
+          echo "⏭️  Bluesky panels deploy E2E skipped (only run on PRs)"
         else
-          echo "✅ Scan panels deploy E2E passed"
+          echo "✅ Bluesky panels deploy E2E passed"
         fi
         # VA Substrate Equivalence E2E: advisory (Docker-dependent, no LLM involved)
         if [[ "${{ needs.va-substrate-equivalence-e2e.result }}" == "failure" ]]; then

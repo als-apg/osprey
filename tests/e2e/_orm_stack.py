@@ -59,7 +59,7 @@ if TYPE_CHECKING:
 VA_CA_PORT = 5064
 
 # Bluesky bridge HTTP port. Distinct from the other e2e modules' pinned
-# ports (test_scan_deploy.py's 18090, test_va_substrate_equivalence.py's
+# ports (test_bluesky_deploy.py's 18090, test_va_substrate_equivalence.py's
 # 18099, test_tiled_roundtrip.py's 18101) so all four can run concurrently on
 # a shared dev machine without a port collision.
 BRIDGE_PORT = 18102
@@ -198,7 +198,7 @@ def find_osprey_console_script() -> Path:
     Centralized here since every real-container e2e that builds this stack
     (task 5.2, and the agentic e2e in 5.3/5.4) needs it, mirroring the
     identical helper duplicated in test_va_substrate_equivalence.py /
-    test_tiled_roundtrip.py / test_scan_deploy.py.
+    test_tiled_roundtrip.py / test_bluesky_deploy.py.
     """
     candidate = Path(sys.executable).parent / "osprey"
     if candidate.exists():

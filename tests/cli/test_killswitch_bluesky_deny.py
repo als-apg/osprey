@@ -57,7 +57,7 @@ def _build_ctx(tmp_path, *, writes_enabled: bool, claude_code_overrides: dict | 
 # ---------------------------------------------------------------------------
 
 
-def test_scan_launch_denied_when_writes_off(tmp_path):
+def test_bluesky_launch_denied_when_writes_off(tmp_path):
     ctx = _build_ctx(
         tmp_path,
         writes_enabled=False,
@@ -67,7 +67,7 @@ def test_scan_launch_denied_when_writes_off(tmp_path):
     assert "mcp__bluesky__launch_run" in perms["deny"]
 
 
-def test_scan_launch_not_denied_when_writes_on(tmp_path):
+def test_bluesky_launch_not_denied_when_writes_on(tmp_path):
     ctx = _build_ctx(
         tmp_path,
         writes_enabled=True,
@@ -78,7 +78,7 @@ def test_scan_launch_not_denied_when_writes_on(tmp_path):
     assert "mcp__bluesky__launch_run" not in perms.get("remove_ask", [])
 
 
-def test_scan_disabled_server_contributes_nothing(tmp_path):
+def test_bluesky_disabled_server_contributes_nothing(tmp_path):
     """scan is opt-in (default_enabled=False) — an un-enabled scan server must
     not contribute a deny entry even when writes are off."""
     ctx = _build_ctx(tmp_path, writes_enabled=False)
@@ -92,7 +92,7 @@ def test_scan_disabled_server_contributes_nothing(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_scan_stop_never_denied_or_removed(tmp_path):
+def test_bluesky_stop_never_denied_or_removed(tmp_path):
     """stop_run carries approval only (no _WRITES_CHECK) — the kill switch
     must never block stopping a scan, regardless of writes_enabled."""
     for writes_enabled in (True, False):
@@ -112,7 +112,7 @@ def test_scan_stop_never_denied_or_removed(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_scan_authoring_tools_never_denied_or_removed(tmp_path):
+def test_bluesky_authoring_tools_never_denied_or_removed(tmp_path):
     """write_plan/validate_plan carry approval only (no
     _WRITES_CHECK) — like stop_run, the kill switch must never block them,
     regardless of writes_enabled, since neither reaches hardware."""

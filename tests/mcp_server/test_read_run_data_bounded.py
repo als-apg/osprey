@@ -1,6 +1,6 @@
 """Unit tests for the `read_run_data` MCP tool's bounded-read semantics (task 2.12).
 
-Complements `test_scan_read_tools.py`'s basic success/error-envelope coverage
+Complements `test_read_run_tools.py`'s basic success/error-envelope coverage
 by focusing specifically on the bounded-read shape the bridge's
 `GET /runs/{id}/data` route (task 2.2, backed by `live_rows.py`) produces:
 `max_rows` caps, `row_count` as the true total, `truncated` flipping

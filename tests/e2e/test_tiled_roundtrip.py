@@ -50,7 +50,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Deliberately distinct from test_scan_deploy.py's 18090 and
+# Deliberately distinct from test_bluesky_deploy.py's 18090 and
 # test_va_substrate_equivalence.py's 18099 so all three can run concurrently
 # on a shared dev machine without a port collision.
 BRIDGE_PORT = 18101

@@ -85,9 +85,9 @@ import pytest
 from tests.e2e import _orm_stack
 
 # Distinct from every sibling e2e module's pinned bridge port (_orm_stack.py's
-# 18102, test_scan_deploy.py's 18090, test_va_substrate_equivalence.py's
-# 18099, test_tiled_roundtrip.py's 18101, test_scan_catalog_e2e.py's 18103,
-# test_scan_sandbox_escape_e2e.py's 18105) so all these can run concurrently
+# 18102, test_bluesky_deploy.py's 18090, test_va_substrate_equivalence.py's
+# 18099, test_tiled_roundtrip.py's 18101, test_bluesky_catalog_e2e.py's 18103,
+# test_bluesky_sandbox_escape_e2e.py's 18105) so all these can run concurrently
 # on a shared dev machine without a port collision.
 BRIDGE_PORT = 18106
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
@@ -547,7 +547,7 @@ def test_health_full_rollup_healthy(deployed_stack: DeployedStack) -> None:
 
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
-def test_scan_via_sidecar_execute_completes(deployed_stack: DeployedStack) -> None:
+def test_plan_via_sidecar_execute_completes(deployed_stack: DeployedStack) -> None:
     token = _minted_token(deployed_stack.project_dir)
 
     status, body = _sidecar_post(
@@ -592,7 +592,7 @@ def test_scan_via_sidecar_execute_completes(deployed_stack: DeployedStack) -> No
 
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
-def test_scan_direct_via_bridge(deployed_stack: DeployedStack) -> None:
+def test_plan_direct_via_bridge(deployed_stack: DeployedStack) -> None:
     token = _minted_token(deployed_stack.project_dir)
 
     status, body = _bridge_post(
