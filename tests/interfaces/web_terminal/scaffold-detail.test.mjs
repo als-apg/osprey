@@ -90,6 +90,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  delete window.__OSPREY_PREFIX__;
 });
 
 // ---------------------------------------------------------------------------
@@ -250,6 +251,30 @@ describe('openDetail', () => {
     expect(gallery.detailView.style.display).toBe('');
     expect(onDetailOpen).toHaveBeenCalledOnce();
     expect(qs(gallery.detailHeaderEl, '.prompts-detail-name').textContent).toBe('my-artifact');
+  });
+});
+
+describe('showCreateDialog', () => {
+  test('POSTs the new artifact, prefix-aware via window.__OSPREY_PREFIX__ (multi-user deployments)', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    vi.stubGlobal('prompt', vi.fn(() => 'my new agent'));
+    const load = vi.fn(() => Promise.resolve());
+    const fetchMock = vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ canonical_name: 'my-new-agent' }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const gallery = makeGallery({ load });
+    const detail = createScaffoldGalleryDetail(gallery);
+    detail.showCreateDialog('agents');
+    // showCreateDialog's fetch chain is .then-based, not awaited internally.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchMock).toHaveBeenCalledWith('/u/alice/api/scaffold/create', expect.objectContaining({
+      method: 'POST',
+    }));
   });
 });
 

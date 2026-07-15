@@ -106,6 +106,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  delete window.__OSPREY_PREFIX__;
 });
 
 // ---------------------------------------------------------------------------
@@ -344,6 +345,31 @@ describe('saveOverride', () => {
     expect(gallery.openDetail).toHaveBeenCalledOnce();
   });
 
+  test('prepends window.__OSPREY_PREFIX__ to the override PUT (multi-user deployments)', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    /** @type {{url: string, init: RequestInit}[]} */
+    const putCalls = [];
+    vi.stubGlobal('fetch', vi.fn((/** @type {string} */ url, /** @type {RequestInit} */ init) => {
+      putCalls.push({ url, init });
+      return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ artifacts: [{ name: 'a', status: 'user-owned' }] }),
+      });
+    }));
+
+    const gallery = makeEditGallery({ selectedArtifact: { name: 'a', status: 'user-owned' } });
+    const textarea = document.createElement('textarea');
+    textarea.className = 'prompts-edit-textarea';
+    textarea.value = 'new content';
+    gallery.detailContentEl.appendChild(textarea);
+
+    const edit = createScaffoldGalleryEdit(gallery);
+    await edit.saveOverride();
+
+    const putCall = putCalls.find((c) => c.init.method === 'PUT');
+    expect(putCall?.url).toBe('/u/alice/api/scaffold/a/override');
+  });
+
   test('reads from the front-matter form fields + body textarea, assembling YAML front matter', async () => {
     let savedBody = null;
     vi.stubGlobal('fetch', vi.fn((url, init) => {
@@ -480,6 +506,21 @@ describe('takeOwnership / releaseToFramework / handleEditFramework', () => {
     expect(gallery.openDetail).toHaveBeenCalledOnce();
   });
 
+  test('prepends window.__OSPREY_PREFIX__ to the claim POST (multi-user deployments)', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    const fetchMock = vi.fn(() => Promise.resolve({
+      ok: true,
+      json: () => Promise.resolve({ artifacts: [{ name: 'a', category: 'agents', status: 'user-owned' }] }),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const gallery = makeEditGallery({ selectedArtifact: { name: 'a', status: 'framework' } });
+    const edit = createScaffoldGalleryEdit(gallery);
+    await edit.takeOwnership();
+
+    expect(fetchMock).toHaveBeenCalledWith('/u/alice/api/scaffold/a/claim', { method: 'POST' });
+  });
+
   test('releaseToFramework delegates to unoverrideArtifact (DELETE the override)', async () => {
     /** @type {{url: string, method: string|undefined}[]} */
     const calls = [];
@@ -493,6 +534,21 @@ describe('takeOwnership / releaseToFramework / handleEditFramework', () => {
     await edit.releaseToFramework();
 
     expect(calls.some((c) => c.url.includes('/override?delete_file=true') && c.method === 'DELETE')).toBe(true);
+  });
+
+  test('prepends window.__OSPREY_PREFIX__ to the reset DELETE (multi-user deployments)', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    const fetchMock = vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ artifacts: [] }) }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const gallery = makeEditGallery({ selectedArtifact: { name: 'a', status: 'user-owned' } });
+    const edit = createScaffoldGalleryEdit(gallery);
+    await edit.releaseToFramework();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/u/alice/api/scaffold/a/override?delete_file=true',
+      { method: 'DELETE' }
+    );
   });
 
   test('handleEditFramework claims the file, refetches artifacts, and switches to edit mode', async () => {

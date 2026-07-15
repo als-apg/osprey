@@ -1,6 +1,6 @@
 /* OSPREY Web Terminal — Agent Settings Panel */
 
-import { fetchJSON } from './api.js';
+import { fetchJSON, withPrefix } from './api.js';
 import { restartTerminal, startTerminal } from './terminal.js';
 
 /**
@@ -256,7 +256,7 @@ async function loadConfig() {
   if (formContainer) formContainer.innerHTML = '';
 
   try {
-    currentConfig = /** @type {ConfigPayload} */ (await fetchJSON('/api/config'));
+    currentConfig = /** @type {ConfigPayload} */ (await fetchJSON('/api/config')); // fetchJSON prefixes internally
     if (loading) loading.style.display = 'none';
 
     // Populate form view
@@ -552,7 +552,7 @@ async function applySettings() {
       // Raw mode: send the full YAML text as-is (user is responsible for content)
       const textarea = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('settings-raw-editor'));
       const yamlContent = textarea ? textarea.value : '';
-      const saveResp = await fetch('/api/config', {
+      const saveResp = await fetch(withPrefix('/api/config'), { // prefix-aware
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ raw: yamlContent }),
@@ -570,7 +570,7 @@ async function applySettings() {
         if (applyBtn) applyBtn.disabled = false;
         return;
       }
-      const patchResp = await fetch('/api/config', {
+      const patchResp = await fetch(withPrefix('/api/config'), { // prefix-aware
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ updates }),

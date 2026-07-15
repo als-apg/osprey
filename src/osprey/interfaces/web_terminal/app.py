@@ -15,6 +15,7 @@ import httpx
 import yaml
 from fastapi import FastAPI, Request
 from fastapi.templating import Jinja2Templates
+from jinja2 import pass_context
 
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.interfaces.vendor import vendor_url
@@ -27,12 +28,36 @@ from osprey.profiles.web_panels import BUILTIN_PANELS, UNIVERSAL_PANELS
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Sequence
 
+    from jinja2.runtime import Context
+
     from osprey.interfaces.design_system.generator.emit_js import ThemeManifestEntry
 
 STATIC_DIR = Path(__file__).parent / "static"
 
+
+@pass_context
+def _prefixed(ctx: Context, path: str) -> str:
+    """Jinja global: apply THE prefix contract to an HTML-parser-resolved URL.
+
+    Import maps (see the ``importmap`` block injected into every served HTML
+    document) only retarget module *specifiers* resolved inside already-
+    loaded module code — they do NOT touch ``<link href>``, a classic
+    ``<script src>``, or a module entrypoint's own ``src`` attribute. Those
+    are ordinary browser URL resolutions, so the per-user prefix must be
+    baked in explicitly at render time instead. Reads ``url_prefix`` off the
+    template context (see ``compute_url_prefix()``); absolute URLs (e.g. a
+    CDN URL from ``vendor_url()`` when not in offline mode) pass through
+    unchanged, and an empty prefix is a byte-identical no-op.
+    """
+    prefix = ctx.get("url_prefix", "")
+    if not prefix or path.startswith(("http://", "https://", "//")):
+        return path
+    return f"{prefix}{path}"
+
+
 templates = Jinja2Templates(directory=str(STATIC_DIR))
 templates.env.globals["vendor_url"] = vendor_url
+templates.env.globals["prefixed"] = _prefixed
 
 logger = __import__("logging").getLogger(__name__)
 
@@ -631,6 +656,27 @@ def _create_lifespan(
     return lifespan
 
 
+def compute_url_prefix() -> str:
+    """Compute the per-container URL path prefix for multi-user deployments.
+
+    Multi-user deployments run one Web Terminal container per user behind a
+    shared nginx front door, each mounted at ``/u/<user>/``. This is the
+    single source of truth for that prefix — shared by ``create_app()``
+    (the ``window.__OSPREY_PREFIX__``/import-map injection into every served
+    HTML document) and downstream server-side prefixing (``routes/panels.py``,
+    ``routes/proxy.py``). It is deliberately NOT fed to
+    ``FastAPI(root_path=…)`` — nginx strips the prefix before proxying, so the
+    app serves bare paths and a non-empty ``root_path`` would 404 every static
+    Mount (see the note in ``create_app()``).
+
+    Returns:
+        ``"/u/<user>"`` when ``OSPREY_TERMINAL_USER`` is set and non-empty;
+        otherwise ``""``, preserving single-origin/dev behavior unchanged.
+    """
+    user = os.environ.get("OSPREY_TERMINAL_USER", "").strip()
+    return f"/u/{user}" if user else ""
+
+
 def create_app(
     config_path: str | Path | None = None,
     shell_command: list[str] | None = None,
@@ -647,12 +693,28 @@ def create_app(
     Returns:
         Configured FastAPI application.
     """
+    url_prefix = compute_url_prefix()
+
+    # root_path is deliberately NOT set to url_prefix. nginx strips the
+    # /u/<user> prefix before proxying (see nginx.conf.j2 / docker-compose.web),
+    # so this app always receives BARE paths (/static/…, /design-system/…,
+    # /api/…, /ws/…). A non-empty FastAPI(root_path=…) forces
+    # scope["root_path"] on every request, which makes Starlette's StaticFiles
+    # Mounts recompute their child scope as root_path + mount_path and expect
+    # the prefix to be present in the path — so every asset 404s on the bare
+    # path nginx actually forwards, silently loading the multi-user UI with no
+    # CSS/JS/fonts. The prefix is plumbed where it is genuinely needed instead:
+    # the window global + import map injected into each HTML document below,
+    # and routes/panels.py + routes/proxy.py (which read compute_url_prefix()
+    # directly). Guarded by test_prefix_injection.py's bare-path static assert
+    # and the tests/e2e/web_terminals/test_prefix_routing.py master e2e.
     app = FastAPI(
         title="OSPREY Web Terminal",
         description="Browser-based terminal with live workspace viewer",
         version="1.0.0",
         lifespan=_create_lifespan(config_path, shell_command, project_dir),
     )
+    app.state.url_prefix = url_prefix
 
     app.include_router(router)
 
@@ -670,8 +732,23 @@ def create_app(
                 "web_theme_id": web_theme_id,
                 "terminal_user": terminal_user,
                 "landing_url": landing_url,
+                "url_prefix": url_prefix,
             },
         )
+
+    # session.html/safety.html are otherwise plain static files under
+    # STATIC_DIR (served verbatim by the /static mount below); these two
+    # routes shadow that mount for exactly those two paths so they, too, get
+    # the Jinja-rendered prefix injection. Must be registered before
+    # configure_interface_app() mounts /static (Starlette matches routes in
+    # registration order, so an explicit route ahead of a Mount wins).
+    @app.get("/static/session.html")
+    async def session_page(request: Request):
+        return templates.TemplateResponse(request, "session.html", {"url_prefix": url_prefix})
+
+    @app.get("/static/safety.html")
+    async def safety_page(request: Request):
+        return templates.TemplateResponse(request, "safety.html", {"url_prefix": url_prefix})
 
     configure_interface_app(app, static_dir=STATIC_DIR)
 

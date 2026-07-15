@@ -27,6 +27,7 @@ import {
   registerUntrackedFile,
   deleteUntrackedFile,
   createScaffoldDataActions,
+  withPrefix,
 } from '../../../src/osprey/interfaces/web_terminal/static/js/scaffold/data.js';
 
 /**
@@ -71,6 +72,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  delete window.__OSPREY_PREFIX__;
 });
 
 describe('fetchArtifactsShared / resetFetchCache', () => {
@@ -243,6 +245,25 @@ describe('loadArtifacts', () => {
   });
 });
 
+describe('withPrefix (multi-user URL prefix contract)', () => {
+  test('prepends window.__OSPREY_PREFIX__ to a root-absolute path', () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    expect(withPrefix('/api/scaffold')).toBe('/u/alice/api/scaffold');
+  });
+
+  test('is byte-identical to the unprefixed path when the prefix is empty/absent', () => {
+    window.__OSPREY_PREFIX__ = '';
+    expect(withPrefix('/api/scaffold')).toBe('/api/scaffold');
+    delete window.__OSPREY_PREFIX__;
+    expect(withPrefix('/api/scaffold')).toBe('/api/scaffold');
+  });
+
+  test('does not double-prefix a path that already carries the prefix', () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    expect(withPrefix('/u/alice/api/scaffold')).toBe('/u/alice/api/scaffold');
+  });
+});
+
 describe('registerUntrackedFile', () => {
   test('resolves without throwing on a 200 response, POSTing the canonical name', async () => {
     const fetchMock = vi.fn().mockResolvedValue({ ok: true });
@@ -254,6 +275,19 @@ describe('registerUntrackedFile', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'my-hook' }),
     }));
+  });
+
+  test('prepends window.__OSPREY_PREFIX__ to the register POST (multi-user deployments)', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await registerUntrackedFile('my-hook');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/u/alice/api/scaffold/untracked/register',
+      expect.objectContaining({ method: 'POST' })
+    );
   });
 
   test('throws with the API-provided detail message on a non-OK response (action error path)', async () => {
@@ -308,6 +342,20 @@ describe('deleteUntrackedFile', () => {
     }));
 
     await expect(deleteUntrackedFile('gone')).rejects.toThrow('file not found');
+  });
+
+  test('prepends window.__OSPREY_PREFIX__ to the delete request (multi-user deployments)', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    vi.stubGlobal('confirm', vi.fn(() => true));
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await deleteUntrackedFile('my file');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `/u/alice/api/scaffold/untracked/${encodeURIComponent('my file')}`,
+      expect.objectContaining({ method: 'DELETE' })
+    );
   });
 });
 

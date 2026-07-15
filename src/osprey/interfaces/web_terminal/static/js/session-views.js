@@ -53,7 +53,7 @@ export async function renderAgents({ apiFetch, showToast, cache }) {
   if (!el) return;
   let data;
   try {
-    data = await apiFetch('/api/session-agents');
+    data = await apiFetch('/api/session-agents'); // apiFetch (session.js) prefixes this internally
   } catch {
     showToast('Failed to load agents');
     if (!cache.agents) el.innerHTML = emptyState('ERROR', 'Could not load agent data');
@@ -159,7 +159,7 @@ export async function renderAgents({ apiFetch, showToast, cache }) {
 async function loadAgentTimeline(tlEl, agentId, apiFetch) {
   tlEl.dataset.loaded = '1';
   try {
-    const data = await apiFetch(`/api/session-agent-timeline?agent_id=${encodeURIComponent(agentId)}`);
+    const data = await apiFetch(`/api/session-agent-timeline?agent_id=${encodeURIComponent(agentId)}`); // apiFetch prefixes internally
     if (!data || !data.timeline || !data.timeline.length) {
       tlEl.innerHTML = '<div class="tl-loading">NO INTERNAL STATE AVAILABLE</div>';
       return;
@@ -231,7 +231,7 @@ export async function renderToolLog({ apiFetch, showToast, cache }) {
     if (logFilters.tool) qp.set('tool', logFilters.tool);
     if (logFilters.errorsOnly) qp.set('errors_only', 'true');
     qp.set('last_n', '500');
-    data = await apiFetch('/api/session-log?' + qp.toString());
+    data = await apiFetch('/api/session-log?' + qp.toString()); // apiFetch (session.js) prefixes this internally
   } catch {
     showToast('Failed to load tool log');
     if (!cache.toollog) el.innerHTML = emptyState('ERROR', 'Could not load tool log');
@@ -337,7 +337,7 @@ export async function renderArtifacts({ apiFetch, showToast, cache }) {
   if (!el) return;
   let data;
   try {
-    data = await apiFetch('/api/session-summary');
+    data = await apiFetch('/api/session-summary'); // apiFetch (session.js) prefixes this internally
   } catch {
     showToast('Failed to load artifacts');
     if (!cache.artifacts) el.innerHTML = emptyState('ERROR', 'Could not load artifact data');
@@ -404,7 +404,7 @@ export async function renderConversation({ apiFetch, showToast, cache }) {
   if (!el) return;
   let data;
   try {
-    data = await apiFetch('/api/session-chat');
+    data = await apiFetch('/api/session-chat'); // apiFetch (session.js) prefixes this internally
   } catch {
     showToast('Failed to load conversation');
     if (!cache.conversation) el.innerHTML = emptyState('ERROR', 'Could not load conversation');

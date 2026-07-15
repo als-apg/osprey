@@ -40,6 +40,26 @@ export function getConnectionState() {
 }
 
 /**
+ * Prepend the per-user URL prefix (`window.__OSPREY_PREFIX__`, e.g.
+ * '/u/alice') to a root-absolute path. Multi-user deployments serve each
+ * user's container behind such a prefix; this is the single chokepoint that
+ * retargets app-relative paths onto it. A no-op when the prefix is
+ * empty/absent (single-origin/dev behavior is unchanged), when `path` isn't
+ * root-absolute (already-absolute URLs — http://, https://, //, ws://,
+ * wss:// — pass through untouched), or when `path` already carries the
+ * prefix (avoids double-prefixing).
+ * @param {string} path
+ * @returns {string}
+ */
+export function withPrefix(path) {
+  const prefix = window.__OSPREY_PREFIX__ || '';
+  if (!prefix || !path.startsWith('/') || path.startsWith('//') || path.startsWith(prefix)) {
+    return path;
+  }
+  return `${prefix}${path}`;
+}
+
+/**
  * Build a same-origin WebSocket URL with the scheme that matches the current
  * page: wss:// when served over HTTPS, ws:// otherwise. Pass a root-absolute
  * path such as '/ws/terminal'. Avoids mixed-content failures under TLS.
@@ -48,7 +68,7 @@ export function getConnectionState() {
  */
 export function wsUrl(path) {
   const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${scheme}//${location.host}${path}`;
+  return `${scheme}//${location.host}${withPrefix(path)}`;
 }
 
 /**
@@ -137,7 +157,7 @@ export function createEventSource(url, { onMessage, onError } = {}) {
     sseState = 'connecting';
     notifyStateChange();
 
-    es = new EventSource(url);
+    es = new EventSource(withPrefix(url));
 
     es.onopen = () => {
       sseState = 'connected';
@@ -180,7 +200,7 @@ export function createEventSource(url, { onMessage, onError } = {}) {
  * @returns {Promise<any>}
  */
 export async function fetchJSON(url) {
-  const res = await fetch(url, { cache: 'no-store' });
+  const res = await fetch(withPrefix(url), { cache: 'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
   return res.json();
 }

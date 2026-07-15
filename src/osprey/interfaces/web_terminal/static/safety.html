@@ -4,20 +4,38 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OSPREY — Safety Guidelines</title>
-  <script src="/design-system/js/theme-boot.js"></script>
-  <link rel="stylesheet" href="/design-system/css/tokens.css">
-  <link rel="stylesheet" href="/design-system/css/base.css">
+
+  <!-- Per-user URL prefix contract (multi-user deployments): the JS source
+       of truth, and the import map retargeting root-absolute /design-system/
+       and /static/ ES-module specifiers under it. Must land before any
+       module script loads. Empty prefix (single-origin/dev) is a no-op
+       identity map. See app.py's compute_url_prefix(). -->
+  <script>window.__OSPREY_PREFIX__ = "{{ url_prefix }}";</script>
+  <script type="importmap">
+  {
+    "imports": {
+      "/design-system/": "{{ url_prefix }}/design-system/",
+      "/static/": "{{ url_prefix }}/static/"
+    }
+  }
+  </script>
+
+  <script src="{{ prefixed('/design-system/js/theme-boot.js') }}"></script>
+  <link rel="stylesheet" href="{{ prefixed('/design-system/css/tokens.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/design-system/css/base.css') }}">
   <script type="module">
     // Follower role: safety.html is opened directly (new tab) or embedded
     // read-only; it never persists a preference or broadcasts — it only
     // applies whatever theme-boot.js already resolved pre-paint, a validated
     // ?theme= query param, and whatever the hub broadcasts if this page is
     // ever embedded.
+    // NOTE: this bare specifier is resolved via the import map above (its
+    // "/design-system/" prefix entry), not by server-side templating.
     import { initTheme } from '/design-system/js/theme-manager.js';
     initTheme({ role: 'follower' });
   </script>
-  <link rel="stylesheet" href="/static/fonts/apex-fonts.css">
-  <link rel="stylesheet" href="/static/css/safety.css">
+  <link rel="stylesheet" href="{{ prefixed('/static/fonts/apex-fonts.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/safety.css') }}">
 </head>
 <body>
 
@@ -145,7 +163,7 @@
   </div>
 
   <div class="footer">
-    <a class="back-link" href="/static/index.html">← Back to terminal</a>
+    <a class="back-link" href="{{ prefixed('/static/index.html') }}">← Back to terminal</a>
     <span class="version">OSPREY Web Terminal</span>
   </div>
 

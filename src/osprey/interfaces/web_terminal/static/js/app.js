@@ -1,6 +1,6 @@
 /* OSPREY Web Terminal — Application Entry Point */
 
-import { initTerminal, fitTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal } from './terminal.js';
+import { initTerminal, fitTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal, clearStoredSessionId } from './terminal.js';
 import { onConnectionStateChange, fetchJSON } from './api.js';
 import { initPanelManager } from './panel-manager.js';
 import '/design-system/js/components/osprey-drawer.js';
@@ -57,19 +57,41 @@ function initNewSessionButton() {
  * Only present in the DOM when the server rendered a non-empty `landing_url`
  * (multi-user deployments). Plain `osprey web` never emits the button, so
  * this is a no-op there.
+ *
+ * Real logout, in order: (1) POST the server logout route — prefix-aware via
+ * `window.__OSPREY_PREFIX__` so it reaches this container under `/u/<user>/`
+ * — which empties the PTY + operator registries (routes/websocket.py's
+ * `logout_terminal`); (2) clear the client's own stored PTY session id
+ * (`clearStoredSessionId`, terminal.js) so a fresh page load's
+ * `initTerminal()` finds nothing to auto-resume; (3) only then navigate to
+ * the landing page. A failed logout request still clears the local pointer
+ * and navigates — the client's own record of "my session" is what matters
+ * for this browser, and getting stuck on the page helps no one.
+ *
+ * Exported for testability (see app-logout.test.mjs) — the module's
+ * DOMContentLoaded bootstrap never fires the button wiring on its own once
+ * that event has already passed, e.g. in a test environment.
  */
-function initLogoutButton() {
+export function initLogoutButton() {
   const btn = /** @type {HTMLButtonElement} */ (document.getElementById('logout-btn'));
   if (!btn) return;
 
   const landingUrl = btn.dataset.landingUrl;
   if (!landingUrl) return;
 
-  btn.addEventListener('click', () => {
+  btn.addEventListener('click', async () => {
     if (!isSafeLandingUrl(landingUrl)) {
       console.error('Refusing to navigate to unsafe landing_url:', landingUrl);
       return;
     }
+    btn.disabled = true;
+    try {
+      const prefix = window.__OSPREY_PREFIX__ || '';
+      await fetch(`${prefix}/api/terminal/logout`, { method: 'POST' });
+    } catch (err) {
+      console.error('Logout request failed:', err);
+    }
+    clearStoredSessionId();
     window.location.assign(landingUrl);
   });
 }

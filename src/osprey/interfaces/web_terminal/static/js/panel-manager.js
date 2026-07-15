@@ -7,7 +7,7 @@
  * switching between tabs is instant.
  */
 
-import { fetchJSON } from './api.js';
+import { fetchJSON, createEventSource } from './api.js';
 import { getTheme } from '/design-system/js/theme-manager.js';
 import { getCurrentSessionId } from './terminal.js';
 
@@ -64,32 +64,32 @@ const PANELS = [
   {
     id: 'artifacts',
     label: 'WORKSPACE',
-    configEndpoint: '/api/artifact-server',
+    configEndpoint: '/api/artifact-server', // data string; fetchJSON prefixes it in initPanel()
     healthEndpoint: null,    // embedded same-origin — skip health polling
     statusBarId: null,       // no dedicated status-bar item
   },
   {
     id: 'ariel',
     label: 'ARIEL',
-    configEndpoint: '/api/ariel-server',
+    configEndpoint: '/api/ariel-server', // data string; fetchJSON prefixes it in initPanel()
     statusBarId: 'ariel-status',
   },
   {
     id: 'channel-finder',
     label: 'CHANNELS',
-    configEndpoint: '/api/channel-finder-server',
+    configEndpoint: '/api/channel-finder-server', // data string; fetchJSON prefixes it in initPanel()
     statusBarId: 'channel-finder-status',
   },
   {
     id: 'lattice',
     label: 'LATTICE',
-    configEndpoint: '/api/lattice-server',
+    configEndpoint: '/api/lattice-server', // data string; fetchJSON prefixes it in initPanel()
     statusBarId: null,
   },
   {
     id: 'okf',
     label: 'KNOWLEDGE',
-    configEndpoint: '/api/okf-server',
+    configEndpoint: '/api/okf-server', // data string; fetchJSON prefixes it in initPanel()
     statusBarId: null,
   },
 ];
@@ -137,7 +137,7 @@ export async function initPanelManager(panelId) {
   // Fetch panel config and filter PANELS before rendering
   let panelConfig = null;
   try {
-    panelConfig = await fetchJSON('/api/panels');
+    panelConfig = await fetchJSON('/api/panels'); // fetchJSON prefixes this internally
     const enabledSet = new Set(panelConfig.enabled || []);
 
     // Filter built-in panels to only enabled ones
@@ -226,8 +226,12 @@ export async function initPanelManager(panelId) {
     }
   }
 
-  // Listen for SSE events (uses raw EventSource to avoid conflicts with the
-  // module-level sseState in api.js). Three event types are handled:
+  // Listen for SSE events via createEventSource (api.js) so the URL picks up
+  // window.__OSPREY_PREFIX__ under multi-user deployments (empty prefix ⇒
+  // unchanged behavior). createEventSource also drives the module-level
+  // sseState in api.js, but nothing currently reads getConnectionState().sse
+  // (only .ws is consumed, by app.js's status dot), so that side effect is
+  // harmless. Three event types are handled:
   //
   //   panel_focus      {type, panel, url?}      — explicit switch_panel MCP call;
   //                                               always honor (user asked for it).
@@ -237,57 +241,58 @@ export async function initPanelManager(panelId) {
   //   panel_register   {type, id, label, url, healthEndpoint, path}
   //                                             — add a runtime panel; do NOT
   //                                               auto-activate (URL may not be ready).
-  const es = new EventSource('/api/files/events');
-  es.onmessage = (e) => {
-    try {
-      const data = /** @type {PanelSSEEvent} */ (JSON.parse(e.data));
+  createEventSource('/api/files/events', { // prefixed via createEventSource (api.js)
+    onMessage: (raw) => {
+      try {
+        const data = /** @type {PanelSSEEvent} */ (raw);
 
-      if (data.type === 'panel_focus' && data.panel) {
-        // Agent asked the panel to switch — honor unconditionally
-        if (data.url) navigatePanel(data.panel, data.url);
-        activateTab(data.panel);
+        if (data.type === 'panel_focus' && data.panel) {
+          // Agent asked the panel to switch — honor unconditionally
+          if (data.url) navigatePanel(data.panel, data.url);
+          activateTab(data.panel);
 
-      } else if (data.type === 'panel_visibility' && data.panel) {
-        const { panel, visible } = data;
-        // Update the visibility set and flip .tab-hidden on the button
-        if (visible) {
-          visiblePanels.add(panel);
-        } else {
-          visiblePanels.delete(panel);
-        }
-        const btn = tabsEl.querySelector(`[data-panel-id="${panel}"]`);
-        if (btn) btn.classList.toggle('tab-hidden', !visible);
-
-        // CC-1: if we just hid the currently active tab, switch away from it
-        if (!visible && panel === activeTabId) {
-          // Conceal the outgoing iframe immediately so it doesn't bleed through
-          panelState[panel]?.iframe?.classList.add('hidden');
-          // Find the first panel that is visible, healthy, and not the one being hidden
-          const fallback = PANELS.find(
-            p => p.id !== panel && visiblePanels.has(p.id) && panelState[p.id]?.healthy
-          );
-          if (fallback) {
-            activateTab(fallback.id);
+        } else if (data.type === 'panel_visibility' && data.panel) {
+          const { panel, visible } = data;
+          // Update the visibility set and flip .tab-hidden on the button
+          if (visible) {
+            visiblePanels.add(panel);
           } else {
-            // No usable panel remains — strand-proof: clear active state and show empty pane
-            activeTabId = null;
-            renderEmptyState('No panels visible');
+            visiblePanels.delete(panel);
           }
+          const btn = tabsEl.querySelector(`[data-panel-id="${panel}"]`);
+          if (btn) btn.classList.toggle('tab-hidden', !visible);
+
+          // CC-1: if we just hid the currently active tab, switch away from it
+          if (!visible && panel === activeTabId) {
+            // Conceal the outgoing iframe immediately so it doesn't bleed through
+            panelState[panel]?.iframe?.classList.add('hidden');
+            // Find the first panel that is visible, healthy, and not the one being hidden
+            const fallback = PANELS.find(
+              p => p.id !== panel && visiblePanels.has(p.id) && panelState[p.id]?.healthy
+            );
+            if (fallback) {
+              activateTab(fallback.id);
+            } else {
+              // No usable panel remains — strand-proof: clear active state and show empty pane
+              activeTabId = null;
+              renderEmptyState('No panels visible');
+            }
+          }
+
+        } else if (data.type === 'panel_register' && data.id) {
+          // Seed visibility before addPanel so buildTabButton produces a visible tab
+          visiblePanels.add(data.id);
+          addPanel(data);
+          // Guarantee no .tab-hidden in case the set was already populated (re-register path)
+          const btn = tabsEl.querySelector(`[data-panel-id="${data.id}"]`);
+          if (btn) btn.classList.remove('tab-hidden');
+          // CC-3: do NOT call activateTab — the new panel's URL may not be ready yet;
+          // the user activates when they want it.
         }
 
-      } else if (data.type === 'panel_register' && data.id) {
-        // Seed visibility before addPanel so buildTabButton produces a visible tab
-        visiblePanels.add(data.id);
-        addPanel(data);
-        // Guarantee no .tab-hidden in case the set was already populated (re-register path)
-        const btn = tabsEl.querySelector(`[data-panel-id="${data.id}"]`);
-        if (btn) btn.classList.remove('tab-hidden');
-        // CC-3: do NOT call activateTab — the new panel's URL may not be ready yet;
-        // the user activates when they want it.
-      }
-
-    } catch { /* ignore parse errors */ }
-  };
+      } catch { /* ignore malformed events */ }
+    },
+  });
 }
 
 // ---- Tab Rendering ----
@@ -452,6 +457,10 @@ async function pollHealth(panel) {
   try {
     // Use the panel's configured health endpoint — hardcoding /health only
     // worked while every panel happened to use it (tiled's is /api/v1/).
+    // state.url is already the server-prefixed `<prefix>/panel/<id>` (routes/
+    // panels.py's _url_prefix()) — a root-relative path — so this string
+    // concat is safe: fetch() resolves it against the current origin,
+    // preserving the prefix as-is. Do not re-derive or re-prefix it here.
     const resp = await fetch(`${state.url}${panel.healthEndpoint || '/health'}`, {
       signal: AbortSignal.timeout(2000),
     });
@@ -604,9 +613,13 @@ function activateTab(panelId, { userInitiated = false } = {}) {
   sendThemeToIframe(state.iframe);
   sendSessionToIframe(state.iframe);
 
-  // Report user-initiated tab switches to the server (avoids SSE feedback loop)
+  // Report user-initiated tab switches to the server (avoids SSE feedback loop).
+  // fetchJSON doesn't support a POST body, so prefix inline here (same pattern
+  // as app.js's initLogoutButton) rather than reaching into api.js's private
+  // withPrefix().
   if (userInitiated) {
-    fetch('/api/panel-focus', {
+    const prefix = window.__OSPREY_PREFIX__ || '';
+    fetch(`${prefix}/api/panel-focus`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ panel: panelId }),
@@ -631,6 +644,11 @@ function navigatePanel(panelId, url) {
 
   if (!state.iframe) return;
 
+  // `url` (from the panel_focus SSE payload) is root-relative. `new URL(path,
+  // origin)` for a leading-slash path keeps the full path verbatim — it does
+  // not resolve against the origin's own path — so an already-prefixed path
+  // stays prefixed and an unprefixed one stays unprefixed. Do not strip or
+  // re-add window.__OSPREY_PREFIX__ here.
   const embedUrl = new URL(url, window.location.origin);
   embedUrl.searchParams.set('embedded', 'true');
   embedUrl.searchParams.set('theme', /** @type {string} */ (getTheme()));
@@ -656,6 +674,10 @@ function createIframe(panelId) {
   const baseUrl = state.pendingUrl || (state.url + panelPath);
   const targetUrl = baseUrl;
   state.pendingUrl = null;
+  // state.url is already the server-prefixed `<prefix>/panel/<id>` (2.2), so
+  // targetUrl is root-relative and already carries the prefix. `new URL(path,
+  // origin)` for a leading-slash path preserves the full path verbatim —
+  // see the matching comment in navigatePanel() above.
   const embedUrl = new URL(targetUrl, window.location.origin);
   embedUrl.searchParams.set('embedded', 'true');
   embedUrl.searchParams.set('theme', /** @type {string} */ (getTheme()));
