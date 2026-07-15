@@ -68,12 +68,60 @@ web_panels:
   - ariel           # ARIEL search interface (past experiments, papers)
   - channel-finder  # Interactive channel-finder web UI
   - events          # EVENTS dashboard tab (event dispatcher)
+  - scan-plan       # Bluesky scan plan selection & execute
+  - scan-results    # Live scan results viewer
+  - scan-health     # Scan-stack health dashboard
+
+# ── Scan stack (turn-key, VA-backed) ─────────────────────────────────────────
+# The tutorial ships the FULL Bluesky-mediated scan stack out of the box:
+# a Bluesky scan-bridge (+ co-deployed Tiled catalog), a PyAT Virtual
+# Accelerator soft-IOC standing in for real EPICS hardware, and the
+# scan-panels sidecar that serves the three web_panels above. Each top-level
+# block below is an injector trigger (`_inject_bluesky`/`_inject_va`/
+# `_inject_scan_panels` in build_cmd.py) — it renders the corresponding
+# `services.<name>` compose service, appends to `deployed_services`, and (for
+# scan_panels) registers the `web.panels.<id>` URLs. Remove this section
+# (and the three scan-panel ids above) to ship a scan-free tutorial.
+bluesky:
+  port: 8090
+  tiled_enabled: true      # co-deploys the Tiled catalog sidecar alongside the bridge
+  tiled_port: 8091
+  # demo_scanner intentionally omitted: the tutorial drives the bridge against
+  # the real VA soft-IOC over BLUESKY_EPICS_SUBSTRATE, not the mock demo scanner.
+
+virtual_accelerator:
+  # MUST stay 5064 — config.yml.j2 hardcodes the VA gateway port at 5064
+  # (control_system.connector.virtual_accelerator.gateways.*.port is not
+  # templated from services.virtual_accelerator.port); changing this here
+  # would desync the connector from the deployed container.
+  port: 5064
+
+scan_panels:
+  port: 8095
 
 # ── Config overrides ─────────────────────────────────────────────────────────
 # These key.path entries are written into config.yml after the template renders.
 # Uncomment and set values appropriate for your facility.
 config:
-  control_system.type: mock   # Change to "epics" for live hardware
+  # The VA soft-IOC ships and is deployed as part of the turn-key scan stack
+  # above, but control_system.type defaults to "mock" so a fresh tutorial
+  # project stays safe out of the box: the panels, plan catalog, and health
+  # dashboard all work, and no live/simulated hardware is touched. Note the
+  # mock connector does NOT track setpoints (its readbacks are a non-tracking
+  # simulation), so a settle-verified scan will not COMPLETE on mock — mock is
+  # for browsing/UI. Flip this one line to "virtual_accelerator" to drive the
+  # deployed VA end-to-end (correctors move, BPMs read); use "epics" for live
+  # hardware.
+  control_system.type: mock
+  # Required for arming: a local-exec posture withholds the auto-minted
+  # BLUESKY_PROMOTE_TOKEN (see container_lifecycle.py's
+  # _local_exec_arming_unsafe) — container execution is what lets `osprey
+  # deploy up` mint the token safely.
+  execution.execution_method: container
+  # The scan MCP server is off-by-default in the framework registry
+  # (default_enabled=False); opt in here so the tutorial's agent can author
+  # and launch scan plans out of the box.
+  claude_code.servers.scan.enabled: true
   # system.timezone: America/Los_Angeles
   # system.facility_name: My Facility
   # EVENTS panel — surfaces the event-dispatcher dashboard as an in-terminal tab.
