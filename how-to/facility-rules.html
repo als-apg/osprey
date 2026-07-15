@@ -65,7 +65,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   <meta name="docsearch:version" content="" />
-    <meta name="docbuild:last-update" content="Jul 14, 2026"/>
+    <meta name="docbuild:last-update" content="Jul 15, 2026"/>
   </head>
   
   
@@ -547,6 +547,28 @@ becomes user-owned:</p>
 files in the browser: edit a rule in the setup editor, or use the scaffold
 gallery to override a framework-generated rule (which claims it for you). See
 <a class="reference internal" href="web-terminal/operate.html"><span class="doc">Run the Web Terminal</span></a>.</p>
+</section>
+<section id="answer-provenance-verify-first">
+<h2>Answer provenance (verify-first)<a class="headerlink" href="#answer-provenance-verify-first" title="Link to this heading">#</a></h2>
+<p>Beyond the <code class="docutils literal notranslate"><span class="pre">.claude/rules/</span></code> files, the agent’s <em>answer posture</em> is set by two
+framework-generated artifacts — the <code class="docutils literal notranslate"><span class="pre">control-operator</span></code> output-style and the
+generated <code class="docutils literal notranslate"><span class="pre">CLAUDE.md</span></code>. Both instruct the agent to answer <strong>verify-first</strong>: for
+a factual question it queries the appropriate tool or source first and leads with
+that result, naming the source; anything it cannot back with a tool is flagged
+plainly and up front — never a confident lead with a buried caveat, and never an
+answer followed by an optional offer to verify. A multi-tool or research answer
+closes with an explicit provenance summary — the sources it used and a brief
+confidence/scope note — while single reads stay terse.</p>
+<p>Because it ships in framework-generated artifacts, the claimed-artifact caveat
+from <a class="reference internal" href="#changing-a-rule">Changing a rule</a> applies. A deployment that has <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span>
+<span class="pre">claim``ed</span> <span class="pre">``CLAUDE.md</span></code> (<code class="docutils literal notranslate"><span class="pre">claude-md</span></code>) or the <code class="docutils literal notranslate"><span class="pre">control-operator</span></code> output-style
+keeps its own copy and will <strong>not</strong> pick up this behavior on <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span>
+<span class="pre">regen</span></code>. To adopt it, review the framework version and either merge it by hand or
+unclaim and regen:</p>
+<div class="highlight-console notranslate"><div class="highlight"><pre><span></span><span class="gp">$ </span>osprey<span class="w"> </span>scaffold<span class="w"> </span>diff<span class="w"> </span>output-styles/control-operator<span class="w">     </span><span class="c1"># framework vs. yours</span>
+<span class="gp">$ </span>osprey<span class="w"> </span>scaffold<span class="w"> </span>unclaim<span class="w"> </span>output-styles/control-operator<span class="w">  </span><span class="c1"># then: osprey claude regen</span>
+</pre></div>
+</div>
 <div class="admonition seealso">
 <p class="admonition-title">See also</p>
 <dl class="simple">
@@ -608,6 +630,7 @@ gallery to override a framework-generated rule (which claims it for you). See
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#what-the-control-assistant-preset-ships">What the <code class="docutils literal notranslate"><span class="pre">control_assistant</span></code> preset ships</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#changing-a-rule">Changing a rule</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#answer-provenance-verify-first">Answer provenance (verify-first)</a></li>
 </ul>
   </nav></div>
 
