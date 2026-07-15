@@ -518,6 +518,23 @@ def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) ->
     if "bluesky" not in services or "virtual_accelerator" not in services:
         return
 
+    # The substrate runner drives real Channel Access devices, which only
+    # exist behind a real or virtual IOC. A ``mock`` control system speaks no
+    # CA, so a mock deploy must stay on the bridge's demo runner -- the
+    # documented "mock = safe browse/demo, virtual_accelerator = real run"
+    # contract. Arming substrate here would win over an explicit demo_runner
+    # (see ``bluesky_bridge.app``'s substrate-vs-demo precedence) and leave the
+    # bridge trying to resolve scan devices that only the mock demo provides.
+    # Only auto-configure substrate for a control system that actually speaks CA.
+    control_system_type = str(config.get("control_system", {}).get("type", "mock")).strip().lower()
+    if control_system_type == "mock":
+        logger.info(
+            "control_system.type is 'mock'; leaving the bluesky bridge on its demo "
+            "runner and skipping BLUESKY_EPICS_SUBSTRATE auto-configuration "
+            "(substrate mode needs a real or virtual IOC to speak CA to)."
+        )
+        return
+
     if env_path is None:
         env_path = Path(".env")
     project_dir = env_path.resolve().parent

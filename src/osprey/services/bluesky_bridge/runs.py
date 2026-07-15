@@ -234,7 +234,8 @@ def do_promote(
     try:
         runner = runner_factory()
         if not runner.reinitialize(run.request):
-            raise RuntimeError("runner.reinitialize() returned False")
+            reason = getattr(runner, "error_message", None) or "no error_message set"
+            raise RuntimeError(f"runner.reinitialize() returned False: {reason}")
         # Threads the registry's durable run id into the RunEngine start doc
         # (see `BlueskyPlanRunner._run`), so a Tiled-persisted run can still be
         # found after the in-memory registry — and `run_uid` with it — is

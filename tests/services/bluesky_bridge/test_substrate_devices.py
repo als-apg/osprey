@@ -210,7 +210,10 @@ class TestEnsureScanSubstrateEnv:
         from osprey.deployment.container_lifecycle import _ensure_bluesky_substrate_env
 
         self._write_channel_limits(tmp_path)
-        config = {"deployed_services": ["bluesky", "virtual_accelerator"]}
+        config = {
+            "deployed_services": ["bluesky", "virtual_accelerator"],
+            "control_system": {"type": "virtual_accelerator"},
+        }
         env_path = tmp_path / ".env"
 
         _ensure_bluesky_substrate_env(config, env_path=env_path)
@@ -228,7 +231,10 @@ class TestEnsureScanSubstrateEnv:
         self._write_channel_limits(tmp_path)
         env_path = tmp_path / ".env"
         env_path.write_text(f"{MOTORS_ENV}=operator_corrector=OP:SP|OP:RB\n", encoding="utf-8")
-        config = {"deployed_services": ["bluesky", "virtual_accelerator"]}
+        config = {
+            "deployed_services": ["bluesky", "virtual_accelerator"],
+            "control_system": {"type": "virtual_accelerator"},
+        }
 
         _ensure_bluesky_substrate_env(config, env_path=env_path)
 
@@ -246,7 +252,10 @@ class TestEnsureScanSubstrateEnv:
 
         self._write_channel_limits(tmp_path)
         monkeypatch.setenv(SUBSTRATE_ENV, "0")
-        config = {"deployed_services": ["bluesky", "virtual_accelerator"]}
+        config = {
+            "deployed_services": ["bluesky", "virtual_accelerator"],
+            "control_system": {"type": "virtual_accelerator"},
+        }
         env_path = tmp_path / ".env"
 
         _ensure_bluesky_substrate_env(config, env_path=env_path)
@@ -259,6 +268,29 @@ class TestEnsureScanSubstrateEnv:
         # The other, unset vars are still written.
         assert env[MOTORS_ENV]
         assert env[DETECTORS_ENV]
+
+    def test_mock_control_system_stays_on_demo_runner(self, tmp_path) -> None:
+        """A ``control_system.type: mock`` deploy must NOT arm the EPICS
+        substrate, even when a VA container is co-deployed alongside bluesky
+        (control-assistant always bundles VA). Arming substrate here would win
+        over the bridge's demo runner and leave it resolving scan devices that
+        only the mock demo provides -- the regression that broke the demo-runner
+        Tiled roundtrip. See ``container_lifecycle._ensure_bluesky_substrate_env``.
+        """
+        from osprey.deployment.container_lifecycle import _ensure_bluesky_substrate_env
+
+        self._write_channel_limits(tmp_path)
+        config = {
+            "deployed_services": ["bluesky", "virtual_accelerator"],
+            "control_system": {"type": "mock"},
+        }
+        env_path = tmp_path / ".env"
+
+        _ensure_bluesky_substrate_env(config, env_path=env_path)
+
+        # No .env written at all -- the substrate stays disarmed and the bridge
+        # falls through to its demo runner.
+        assert not env_path.exists()
 
     def test_no_write_without_virtual_accelerator_deployed(self, tmp_path) -> None:
         from osprey.deployment.container_lifecycle import _ensure_bluesky_substrate_env
@@ -285,7 +317,10 @@ class TestEnsureScanSubstrateEnv:
     def test_missing_channel_limits_skips_without_raising(self, tmp_path) -> None:
         from osprey.deployment.container_lifecycle import _ensure_bluesky_substrate_env
 
-        config = {"deployed_services": ["bluesky", "virtual_accelerator"]}
+        config = {
+            "deployed_services": ["bluesky", "virtual_accelerator"],
+            "control_system": {"type": "virtual_accelerator"},
+        }
         env_path = tmp_path / ".env"
 
         _ensure_bluesky_substrate_env(config, env_path=env_path)  # must not raise
@@ -296,7 +331,10 @@ class TestEnsureScanSubstrateEnv:
         from osprey.deployment.container_lifecycle import _ensure_bluesky_substrate_env
 
         self._write_channel_limits(tmp_path)
-        config = {"deployed_services": ["bluesky", "virtual_accelerator"]}
+        config = {
+            "deployed_services": ["bluesky", "virtual_accelerator"],
+            "control_system": {"type": "virtual_accelerator"},
+        }
         env_path = tmp_path / ".env"
 
         _ensure_bluesky_substrate_env(config, env_path=env_path)
