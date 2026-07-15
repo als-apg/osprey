@@ -4,11 +4,27 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OSPREY — Activity</title>
-  <script src="/design-system/js/theme-boot.js"></script>
-  <link rel="stylesheet" href="/design-system/css/tokens.css">
-  <link rel="stylesheet" href="/design-system/css/base.css">
-  <link rel="stylesheet" href="/static/fonts/apex-fonts.css">
-  <link rel="stylesheet" href="/static/css/session.css">
+
+  <!-- Per-user URL prefix contract (multi-user deployments): the JS source
+       of truth, and the import map retargeting root-absolute /design-system/
+       and /static/ ES-module specifiers under it. Must land before any
+       module script loads. Empty prefix (single-origin/dev) is a no-op
+       identity map. See app.py's compute_url_prefix(). -->
+  <script>window.__OSPREY_PREFIX__ = "{{ url_prefix }}";</script>
+  <script type="importmap">
+  {
+    "imports": {
+      "/design-system/": "{{ url_prefix }}/design-system/",
+      "/static/": "{{ url_prefix }}/static/"
+    }
+  }
+  </script>
+
+  <script src="{{ prefixed('/design-system/js/theme-boot.js') }}"></script>
+  <link rel="stylesheet" href="{{ prefixed('/design-system/css/tokens.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/design-system/css/base.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/fonts/apex-fonts.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/session.css') }}">
 </head>
 <body>
 
@@ -34,7 +50,7 @@
 
 <div class="toast" id="toast"></div>
 
-<script type="module" src="/static/js/session.js"></script>
+<script type="module" src="{{ prefixed('/static/js/session.js') }}"></script>
 
 </body>
 </html>

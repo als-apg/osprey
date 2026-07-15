@@ -1,4 +1,4 @@
-"""Browser test: multi-user logout -> landing -> return resumes the SAME PTY.
+"""Browser test: multi-user logout -> landing -> return starts a FRESH station.
 
 Exercises the client-side half of the multi-user round trip in a real Chromium
 page — the part a FastAPI TestClient can't see because it neither runs the
@@ -7,22 +7,27 @@ frontend JS nor persists ``localStorage`` across navigations:
   * the header user display (``#header-user-name``) and the logout control
     (``#logout-btn`` carrying ``data-landing-url``) render only when the server
     emitted a non-empty ``terminal_user`` / ``landing_url`` (multi-user);
-  * clicking logout navigates the page to the configured landing origin;
-  * returning to the terminal origin auto-resumes the *stored* PTY session —
-    ``localStorage['osprey-pty-session']`` is unchanged AND the client opens its
-    WebSocket with ``?session_id=<id>&mode=resume`` rather than a fresh session;
+  * clicking logout POSTs the real server logout route (``logout_terminal``,
+    routes/websocket.py — empties the PTY and operator registries), clears the
+    client's stored PTY session id, THEN navigates to the configured landing
+    origin;
+  * returning to the terminal origin does NOT resume the prior warm PTY —
+    ``localStorage['osprey-pty-session']`` stays empty across the round trip and
+    the client opens a brand-new WebSocket (no ``mode=resume``, no stale
+    ``session_id``) rather than reconnecting to the old session. This is M2:
+    logout is a real station reset, not just a client-side navigation.
   * plain ``osprey web`` (no landing_url) omits the logout control entirely.
 
 Scope note — no live model turn. A genuinely live PTY session id is minted by
 Claude (``SessionDiscovery`` watching for the CLI's ``.jsonl`` file), which needs
 the ``claude`` binary + a provider and is infeasible in a headless CI browser.
-So this asserts the reconnect *mechanism* deterministically: the shell command
-is a long-lived ``sleep`` (which tolerates the appended ``--resume <id>`` without
-exiting, so the resume connection stays open and the one-shot failover never
-clears the stored id), and the established session is represented by seeding
-``localStorage`` directly. What's proven is the client contract — persistence
-across the logout round trip and the exact resume WebSocket URL — not a real
-Claude conversation resuming.
+So this asserts the reset *mechanism* deterministically: the shell command is a
+long-lived ``sleep`` (so a supposed resume connection would stay open rather
+than exiting, which would otherwise mask a resume-vs-fresh distinction), and a
+warm session is represented by seeding ``localStorage`` directly before logout.
+What's proven is the client contract — the stored pointer is gone and the
+post-logout WebSocket asks for a fresh session — not a real Claude conversation
+being torn down.
 
 Skips cleanly when the chromium headless binary is not installed.
 """
@@ -126,14 +131,17 @@ def _launch_landing() -> Iterator[str]:
 
 
 @pytest.mark.skipif(not _PLAYWRIGHT_AVAILABLE, reason="playwright not installed")
-def test_logout_and_return_resumes_same_session(tmp_path, monkeypatch, chromium_browser):
-    """Full multi-user loop: header + logout render, logout navigates, return resumes.
+def test_logout_and_return_starts_fresh_session(tmp_path, monkeypatch, chromium_browser):
+    """Full multi-user loop: header + logout render, logout resets the station.
 
-    Asserts the client-side reconnect contract end to end: a stored PTY session id
-    survives the logout->landing->return round trip unchanged, and on return the
-    client reconnects to that SAME id via ``mode=resume`` rather than minting a
-    fresh session. (See the module docstring on why the session id is seeded
-    rather than produced by a live Claude turn.)
+    Closes M2: a warm PTY (represented here by a seeded ``localStorage`` id, see
+    the module docstring) does NOT survive the logout -> landing -> return round
+    trip. Logout clears the client's stored session id before navigating away
+    (task 4.2's ``initLogoutButton``, backed server-side by task 4.1's real
+    ``logout_terminal`` registry cleanup), so the return visit opens a brand-new
+    terminal — no ``mode=resume``, no ``session_id`` carried over from the prior
+    visit, and no re-adopted stored id — rather than reconnecting to the old
+    warm PTY the earlier (Phase-1) version of this test exercised.
     """
     user = "operator-alpha"
     stored_id = "11111111-2222-3333-4444-555555555555"
@@ -161,7 +169,7 @@ def test_logout_and_return_resumes_same_session(tmp_path, monkeypatch, chromium_
         expect(logout).to_have_count(1)
         assert logout.get_attribute("data-landing-url") == landing_url
 
-        # --- Represent an established PTY session (see module docstring) ---
+        # --- Represent an established (warm) PTY session (see module docstring) ---
         page.evaluate("(id) => localStorage.setItem('osprey-pty-session', id)", stored_id)
         captured = page.evaluate("() => localStorage.getItem('osprey-pty-session')")
         assert captured == stored_id
@@ -172,23 +180,29 @@ def test_logout_and_return_resumes_same_session(tmp_path, monkeypatch, chromium_
             "() => { const o = document.getElementById('welcome-overlay'); if (o) o.remove(); }"
         )
 
-        # --- Logout navigates the page to the landing origin ---
+        # --- Logout: clears the stored pointer, THEN navigates to landing ---
         page.click("#logout-btn")
         page.wait_for_url(lambda u: u.startswith(landing_url))
         assert page.url.startswith(landing_url)
         expect(page.locator("#landing-marker")).to_be_visible()
 
-        # --- Return to the terminal origin: same stored id, mode=resume WS ---
+        # NOTE: we can't read the terminal origin's localStorage from here —
+        # the page has navigated to the landing origin (a different
+        # scheme+host+port), and localStorage is origin-scoped. Whether
+        # clearStoredSessionId() actually ran is only observable once we're
+        # back on the terminal origin below.
+
+        # --- Return to the terminal origin: a FRESH station, not a resume ---
         with page.expect_websocket() as return_ws:
             page.goto(base_url, wait_until="load")
-        resume_url = return_ws.value.url
-        assert f"session_id={stored_id}" in resume_url, (
-            f"return visit should resume the stored session, got {resume_url}"
+        fresh_url = return_ws.value.url
+        assert "mode=resume" not in fresh_url, (
+            f"return visit after logout must start a fresh session, got {fresh_url}"
         )
-        assert "mode=resume" in resume_url
+        assert f"session_id={stored_id}" not in fresh_url
 
-        # localStorage id must survive the round trip unchanged (no fresh session).
-        assert page.evaluate("() => localStorage.getItem('osprey-pty-session')") == stored_id
+        # No re-adoption of the old id: the prior warm PTY is not inherited.
+        assert page.evaluate("() => localStorage.getItem('osprey-pty-session')") != stored_id
 
         page.close()
 

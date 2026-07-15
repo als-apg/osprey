@@ -356,3 +356,91 @@ describe('session.js refresh-loop view dispatch', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 });
+
+// ---------------------------------------------------------------------------
+// session.js apiFetch -- per-user URL prefix contract
+// ---------------------------------------------------------------------------
+
+describe('session.js apiFetch: per-user URL prefix', () => {
+  /** @type {import('vitest').Mock} */
+  let fetchMock;
+
+  function stubFetch() {
+    fetchMock = vi.fn(() =>
+      Promise.resolve({
+        status: 200,
+        ok: true,
+        json: () => Promise.resolve({ total_events: 0, agents: [], tool_calls_by_agent: {} }),
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+  }
+
+  beforeEach(() => {
+    document.body.innerHTML = `
+      <header>
+        <h1>Activity</h1>
+        <osprey-theme-switcher></osprey-theme-switcher>
+        <div class="refresh-dot" id="refresh-dot"></div>
+      </header>
+      <nav id="nav">
+        <button class="pill active" data-view="agents">Agents</button>
+        <button class="pill" data-view="toollog">Tool Log</button>
+        <button class="pill" data-view="artifacts">Artifacts</button>
+        <button class="pill" data-view="conversation">Conversation</button>
+      </nav>
+      <main>
+        <section class="view active" id="view-agents"></section>
+        <section class="view" id="view-toollog"></section>
+        <section class="view" id="view-artifacts"></section>
+        <section class="view" id="view-conversation"></section>
+      </main>
+      <div class="toast" id="toast"></div>
+    `;
+    stubFetch();
+    vi.resetModules();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    delete /** @type {any} */ (window).__OSPREY_PREFIX__;
+  });
+
+  async function flush() {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  /**
+   * Drives a session-change so apiFetch appends `session_id`, then returns the last fetch path.
+   * @param {string} sessionId
+   */
+  async function lastFetchedPathAfter(sessionId) {
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        origin: window.location.origin,
+        data: { type: 'osprey-session-change', session_id: sessionId },
+      })
+    );
+    await flush();
+    const lastCallArgs = fetchMock.mock.calls.at(-1);
+    if (lastCallArgs === undefined) throw new Error('fetch was not called');
+    return lastCallArgs[0];
+  }
+
+  test('a set window.__OSPREY_PREFIX__ is prepended ahead of the unchanged session_id param', async () => {
+    /** @type {any} */ (window).__OSPREY_PREFIX__ = '/u/alice';
+    await import(ENTRY_PATH);
+    await flush();
+
+    expect(await lastFetchedPathAfter('sess-1')).toBe('/u/alice/api/session-agents?session_id=sess-1');
+  });
+
+  test('an empty/absent prefix leaves the fetch path byte-identical to current behavior', async () => {
+    await import(ENTRY_PATH);
+    await flush();
+
+    expect(await lastFetchedPathAfter('sess-2')).toBe('/api/session-agents?session_id=sess-2');
+  });
+});

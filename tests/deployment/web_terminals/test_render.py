@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import copy
+import re
 
 import pytest
 import yaml
 
 from osprey.deployment.web_terminals.ports import allocate_ports
-from osprey.deployment.web_terminals.render import render_web_terminals
+from osprey.deployment.web_terminals.render import _auth_tls_context, render_web_terminals
 
 _BASE_PORTS = {"web": 9091, "artifact": 9291, "ariel": 9391, "lattice": 9491}
 
@@ -138,8 +139,31 @@ def test_compose_ports_are_four_non_colliding_families_matching_allocate_ports()
             seen_ports.add(port)
 
 
+def test_per_user_services_bind_loopback_not_0_0_0_0() -> None:
+    """C3: each per-user service's four app processes bind 127.0.0.1 (loopback),
+    never 0.0.0.0 — nginx (bind-nginx-reverse-proxy) becomes the only off-host
+    path. `network_mode: host` is retained (EPICS CA UDP broadcast)."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    users = config["modules"]["web_terminals"]["users"]
+
+    # Act
+    artifacts = render_web_terminals(config)
+    compose_text = artifacts["docker-compose.web.yml"]
+    compose = yaml.safe_load(compose_text)
+
+    # Assert
+    assert "0.0.0.0" not in compose_text
+    assert compose["services"]["nginx"]["network_mode"] == "host"
+    for user in users:
+        service = compose["services"][f"web-{user}"]
+        assert service["network_mode"] == "host"
+        env = dict(item.split("=", 1) for item in service["environment"] if "=" in item)
+        assert env["OSPREY_TERMINAL_BIND_HOST"] == "127.0.0.1"
+
+
 def test_nginx_fragment_has_one_routing_location_per_user() -> None:
-    """nginx.conf.j2 emits one `location = /<user>` redirect block per configured user."""
+    """nginx.conf.j2 emits one `location /u/<user>/` proxy block per configured user."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     users = config["modules"]["web_terminals"]["users"]
@@ -152,7 +176,94 @@ def test_nginx_fragment_has_one_routing_location_per_user() -> None:
     assert "server {" in nginx_conf
     assert f"listen {config['modules']['web_terminals']['nginx_port']};" in nginx_conf
     for user in users:
-        assert f"location = /{user} {{" in nginx_conf
+        assert f"location /u/{user}/ {{" in nginx_conf
+
+
+def test_nginx_fragment_has_proxy_pass_to_each_users_loopback_web_upstream() -> None:
+    """Each `location /u/<user>/` block proxy_passes to that user's own loopback
+    `web` port (bind-per-user-apps-loopback) — not a redirect to a distinct origin."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    users = config["modules"]["web_terminals"]["users"]
+
+    # Act
+    artifacts = render_web_terminals(config)
+    nginx_conf = artifacts["nginx/nginx.conf"]
+
+    # Assert
+    assert "return 302" not in nginx_conf  # Phase-1 redirect scheme is gone
+    for index in range(len(users)):
+        expected_port = allocate_ports(_BASE_PORTS, index)["web"]
+        assert f"proxy_pass http://127.0.0.1:{expected_port}/;" in nginx_conf
+
+
+def test_nginx_fragment_has_websocket_upgrade_machinery() -> None:
+    """The `/ws/terminal` and panel WebSocket handshakes need proxy_http_version 1.1
+    plus the Upgrade/Connection headers, backed by a `map $http_upgrade
+    $connection_upgrade` directive declared ONCE at http/top-level (NOT nested
+    inside `server{}` — a `map` directive there would fail `nginx -t`)."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+
+    # Act
+    artifacts = render_web_terminals(config)
+    nginx_conf = artifacts["nginx/nginx.conf"]
+
+    # Assert
+    assert nginx_conf.count("map $http_upgrade $connection_upgrade") == 1
+    map_index = nginx_conf.index("map $http_upgrade $connection_upgrade")
+    server_index = nginx_conf.index("server {")
+    assert map_index < server_index, "map{} must sit at http/top-level, before server{}"
+
+    assert "proxy_http_version 1.1;" in nginx_conf
+    assert "proxy_set_header Upgrade $http_upgrade;" in nginx_conf
+    assert "proxy_set_header Connection $connection_upgrade;" in nginx_conf
+
+
+def test_nginx_fragment_proxy_disables_buffering_and_raises_read_timeout_for_sse() -> None:
+    """Now that every request under `/u/<user>/` genuinely flows through nginx
+    (unlike Phase-1's redirect, which never put nginx in the data path), nginx's
+    DEFAULT proxy buffering and 60s read timeout would apply to the app's
+    heartbeat-less Server-Sent-Events streams (`/api/files/events`, chat SSE) too
+    — batching/delaying `data:` lines behind nginx's buffer and tearing down an
+    idle SSE connection every 60s. Each proxied `/u/<user>/` location must
+    disable buffering and raise the read timeout well above that default.
+    WebSocket traffic is unaffected (it bypasses proxy buffering once the
+    Upgrade handshake completes), so this doesn't undo the map/upgrade-header
+    machinery covered by the sibling test above."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    users = config["modules"]["web_terminals"]["users"]
+
+    # Act
+    artifacts = render_web_terminals(config)
+    nginx_conf = artifacts["nginx/nginx.conf"]
+
+    # Assert — one occurrence per proxied user location (not a stray global
+    # setting), and the timeout is meaningfully raised, not left at nginx's
+    # 60s default.
+    assert nginx_conf.count("proxy_buffering off;") == len(users)
+    timeout_matches = re.findall(r"proxy_read_timeout (\d+)s;", nginx_conf)
+    assert len(timeout_matches) == len(users)
+    for value in timeout_matches:
+        assert int(value) > 60, "proxy_read_timeout must be raised above nginx's 60s default"
+
+
+def test_nginx_fragment_has_trailing_slash_redirect_per_user() -> None:
+    """A no-trailing-slash `/u/<user>` bookmark 301-redirects into `/u/<user>/`
+    rather than silently falling through to the landing page at `/`."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    users = config["modules"]["web_terminals"]["users"]
+
+    # Act
+    artifacts = render_web_terminals(config)
+    nginx_conf = artifacts["nginx/nginx.conf"]
+
+    # Assert
+    for user in users:
+        assert f"location = /u/{user} {{" in nginx_conf
+        assert f"return 301 /u/{user}/;" in nginx_conf
 
 
 def test_landing_renders_one_card_per_user_in_users_group() -> None:
@@ -169,7 +280,7 @@ def test_landing_renders_one_card_per_user_in_users_group() -> None:
     assert landing_html.count('class="landing-card-label"') == len(users)
     for user in users:
         assert f">{user}<" in landing_html
-        assert f'href="/{user}"' in landing_html
+        assert f'href="/u/{user}/"' in landing_html
 
 
 def test_landing_zero_users_suppresses_users_group_and_shows_empty_state() -> None:
@@ -325,3 +436,214 @@ def test_removing_user_regenerates_without_their_service_route_and_volumes() -> 
         assert "down -v" not in content
         assert "volume rm" not in content
         assert "volume prune" not in content
+
+
+def test_auth_default_none() -> None:
+    """No `web_terminals.auth` stanza -> auth_method defaults to 'none' (v1 has no auth)."""
+    # Arrange
+    web_terminals = copy.deepcopy(_MULTI_USER_CONFIG)["modules"]["web_terminals"]
+
+    # Act
+    context = _auth_tls_context(web_terminals)
+
+    # Assert
+    assert context["auth_method"] == "none"
+
+
+def test_auth_default_none_reads_configured_method() -> None:
+    """A configured `web_terminals.auth.method` is read through, not clobbered by the default."""
+    # Arrange
+    web_terminals = copy.deepcopy(_MULTI_USER_CONFIG)["modules"]["web_terminals"]
+    web_terminals["auth"] = {"method": "oauth2_proxy"}
+
+    # Act
+    context = _auth_tls_context(web_terminals)
+
+    # Assert
+    assert context["auth_method"] == "oauth2_proxy"
+
+
+def test_auth_method_non_string_falls_back_to_none() -> None:
+    """A malformed (non-str) `auth.method` (well-formedness is lint's job, not this
+    function's) must not leak into the rendered seam as-is — it falls back to the
+    same inert "none" default as an absent/empty method."""
+    # Arrange
+    web_terminals = copy.deepcopy(_MULTI_USER_CONFIG)["modules"]["web_terminals"]
+    web_terminals["auth"] = {"method": {"nested": "not-a-string"}}
+
+    # Act
+    context = _auth_tls_context(web_terminals)
+
+    # Assert
+    assert context["auth_method"] == "none"
+
+
+def test_tls_default_off() -> None:
+    """No `web_terminals.tls` stanza -> tls_enabled defaults to False (v1 stays http)."""
+    # Arrange
+    web_terminals = copy.deepcopy(_MULTI_USER_CONFIG)["modules"]["web_terminals"]
+
+    # Act
+    context = _auth_tls_context(web_terminals)
+
+    # Assert
+    assert context["tls_enabled"] is False
+    assert context["tls_cert"] is None
+    assert context["tls_key"] is None
+
+
+def test_tls_default_off_reads_configured_stanza() -> None:
+    """A configured `web_terminals.tls` stanza is read through untouched."""
+    # Arrange
+    web_terminals = copy.deepcopy(_MULTI_USER_CONFIG)["modules"]["web_terminals"]
+    web_terminals["tls"] = {
+        "enabled": True,
+        "cert": "/etc/nginx/certs/dls.crt",
+        "key": "/etc/nginx/certs/dls.key",
+    }
+
+    # Act
+    context = _auth_tls_context(web_terminals)
+
+    # Assert
+    assert context["tls_enabled"] is True
+    assert context["tls_cert"] == "/etc/nginx/certs/dls.crt"
+    assert context["tls_key"] == "/etc/nginx/certs/dls.key"
+
+
+def test_render_succeeds_with_auth_default_none_and_tls_default_off() -> None:
+    """A config with no auth/tls stanzas at all still renders the full artifact set — 1.4 only
+    establishes the config contract, it must not change Phase-1 render behavior."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    assert "auth" not in config["modules"]["web_terminals"]
+    assert "tls" not in config["modules"]["web_terminals"]
+
+    # Act
+    artifacts = render_web_terminals(config)
+
+    # Assert — round-trips exactly as before (defaults are inert; no seam rendering here)
+    assert set(artifacts.keys()) == {
+        "docker-compose.web.yml",
+        "nginx/nginx.conf",
+        "nginx/landing.html",
+    }
+    yaml.safe_load(artifacts["docker-compose.web.yml"])
+
+
+def test_render_tolerates_non_dict_auth_and_tls_stanzas() -> None:
+    """`_as_dict`-style defensive reads: a malformed (non-dict) auth/tls value must not raise —
+    it falls back to the same defaults as an absent stanza. Well-formedness is lint's job."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["modules"]["web_terminals"]["auth"] = "not-a-dict"
+    config["modules"]["web_terminals"]["tls"] = ["also", "not", "a", "dict"]
+
+    # Act
+    artifacts = render_web_terminals(config)
+    context = _auth_tls_context(config["modules"]["web_terminals"])
+
+    # Assert
+    assert context["auth_method"] == "none"
+    assert context["tls_enabled"] is False
+    assert "docker-compose.web.yml" in artifacts
+
+
+def test_nginx_seam_default_gated_off_emits_no_ssl_listen_or_auth_request() -> None:
+    """C1: with no `auth`/`tls` stanzas (the v1 default posture), the rendered nginx
+    fragment must carry NEITHER a `listen 443 ssl` block NOR an `auth_request`
+    directive — the seam is fully inert until a facility config opts in."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    assert "auth" not in config["modules"]["web_terminals"]
+    assert "tls" not in config["modules"]["web_terminals"]
+
+    # Act
+    artifacts = render_web_terminals(config)
+    nginx_conf = artifacts["nginx/nginx.conf"]
+
+    # Assert
+    assert "listen 443 ssl" not in nginx_conf
+    assert "ssl_certificate" not in nginx_conf
+    assert "auth_request" not in nginx_conf
+
+
+def test_nginx_seam_tls_enabled_emits_ssl_listen_and_configured_cert_paths() -> None:
+    """C2 (render half): `tls.enabled: true` emits `listen 443 ssl` plus
+    `ssl_certificate`/`ssl_certificate_key` referencing the configured paths,
+    inside the `server{}` block (not at http/top-level)."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["modules"]["web_terminals"]["tls"] = {
+        "enabled": True,
+        "cert": "/etc/nginx/certs/dls.crt",
+        "key": "/etc/nginx/certs/dls.key",
+    }
+
+    # Act
+    artifacts = render_web_terminals(config)
+    nginx_conf = artifacts["nginx/nginx.conf"]
+
+    # Assert
+    assert "listen 443 ssl;" in nginx_conf
+    assert "ssl_certificate /etc/nginx/certs/dls.crt;" in nginx_conf
+    assert "ssl_certificate_key /etc/nginx/certs/dls.key;" in nginx_conf
+    server_index = nginx_conf.index("server {")
+    ssl_index = nginx_conf.index("listen 443 ssl;")
+    assert server_index < ssl_index, "the ssl listener must sit inside server{}, not above it"
+
+
+def test_nginx_seam_tls_enabled_without_cert_or_key_raises_value_error() -> None:
+    """`tls.enabled: true` without both `cert` and `key` can't render a coherent
+    `ssl_certificate`/`ssl_certificate_key` pair — fail loudly at render time rather
+    than emit a directive pointing at a missing path (which `nginx -t` would reject
+    anyway, but with a far less actionable error)."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["modules"]["web_terminals"]["tls"] = {"enabled": True}
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="tls"):
+        render_web_terminals(config)
+
+
+def test_nginx_seam_auth_method_set_emits_auth_request_per_user_location() -> None:
+    """C2 (render half): a configured `auth.method` (anything but the "none" default)
+    emits an `auth_request` directive inside every proxied `/u/<user>/` location, plus
+    the single internal target location it subrequests."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    users = config["modules"]["web_terminals"]["users"]
+    config["modules"]["web_terminals"]["auth"] = {"method": "oauth2_proxy"}
+
+    # Act
+    artifacts = render_web_terminals(config)
+    nginx_conf = artifacts["nginx/nginx.conf"]
+
+    # Assert
+    assert nginx_conf.count("auth_request /_osprey_auth;") == len(users)
+    assert nginx_conf.count("internal;") == 1
+    # Fail-closed: the stub target denies (403), never silently authorizes (200) —
+    # setting auth.method without wiring a real backend must lock users out.
+    assert "return 403;" in nginx_conf
+    assert "return 200;" not in nginx_conf
+
+
+def test_nginx_seam_auth_none_omits_auth_request_even_with_tls_enabled() -> None:
+    """The two seams are independently gated: TLS on with `auth.method` left at its
+    "none" default must still omit `auth_request` entirely."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["modules"]["web_terminals"]["tls"] = {
+        "enabled": True,
+        "cert": "/etc/nginx/certs/dls.crt",
+        "key": "/etc/nginx/certs/dls.key",
+    }
+
+    # Act
+    artifacts = render_web_terminals(config)
+    nginx_conf = artifacts["nginx/nginx.conf"]
+
+    # Assert
+    assert "listen 443 ssl;" in nginx_conf
+    assert "auth_request" not in nginx_conf

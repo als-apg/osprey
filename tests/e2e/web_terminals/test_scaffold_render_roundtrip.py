@@ -153,9 +153,13 @@ def test_scaffold_render_consistency_across_all_generated_artifacts() -> None:
         vol for u in users for vol in (f"{u}-claude-config", f"{u}-agent-data")
     }
 
-    # One nginx route per user — no more, no less (no drift between the number
-    # of compose services and the number of routes).
-    assert nginx_conf.count("location = /") == len(users)
+    # One reverse-proxy route + one trailing-slash-redirect bookmark per user —
+    # no more, no less (no drift between the number of compose services and the
+    # number of routes). bind-nginx-reverse-proxy (task 1.2) replaced the
+    # Phase-1 `location = /<user>` redirect-to-distinct-origin menu with a
+    # single-origin `/u/<user>/` reverse proxy.
+    assert nginx_conf.count("location /u/") == len(users)
+    assert nginx_conf.count("location = /u/") == len(users)
     # One landing card per user PLUS the two extra "Facility Tools" links
     # (this sample config's landing.groups; the als-profiles round-trip below
     # has no extra groups, so its check compares 1:1 against users).
@@ -167,14 +171,6 @@ def test_scaffold_render_consistency_across_all_generated_artifacts() -> None:
         service = compose["services"][f"web-{user}"]
         env = _env_map(service["environment"])
 
-        assert f"location = /{user} {{" in nginx_conf
-        assert f">{user}<" in landing_html
-        assert f'href="/{user}"' in landing_html
-
-        # Fixed per-service env var (Phase-1 contract, replaces the old
-        # `${prefix|upper}_TERMINAL_USER` convention for every facility).
-        assert env["OSPREY_TERMINAL_USER"] == user
-
         # All four port families allocated, matching allocate_ports() exactly,
         # and never colliding across users or families.
         expected = allocate_ports(base_ports, index)
@@ -183,6 +179,19 @@ def test_scaffold_render_consistency_across_all_generated_artifacts() -> None:
         for port in actual.values():
             assert port not in seen_ports, f"port {port} collides across users/families"
             seen_ports.add(port)
+
+        # nginx reverse-proxies /u/<user>/ to that user's own loopback `web`
+        # upstream, and 301-redirects the no-trailing-slash bookmark into it.
+        assert f"location /u/{user}/ {{" in nginx_conf
+        assert f"proxy_pass http://127.0.0.1:{expected['web']}/;" in nginx_conf
+        assert f"location = /u/{user} {{" in nginx_conf
+        assert f"return 301 /u/{user}/;" in nginx_conf
+        assert f">{user}<" in landing_html
+        assert f'href="/u/{user}/"' in landing_html
+
+        # Fixed per-service env var (Phase-1 contract, replaces the old
+        # `${prefix|upper}_TERMINAL_USER` convention for every facility).
+        assert env["OSPREY_TERMINAL_USER"] == user
 
     assert len(seen_ports) == len(users) * len(_PORT_FAMILIES)
 
@@ -332,7 +341,11 @@ def test_generator_reproduces_als_profiles_topology_shape() -> None:
     assert set(compose["volumes"]) == {
         vol for u in users for vol in (f"{u}-claude-config", f"{u}-agent-data")
     }
-    assert nginx_conf.count("location = /") == len(users)
+    # bind-nginx-reverse-proxy (task 1.2): one reverse-proxy route + one
+    # trailing-slash-redirect bookmark per user under the single-origin
+    # `/u/<user>/` scheme, replacing the Phase-1 `location = /<user>` redirect.
+    assert nginx_conf.count("location /u/") == len(users)
+    assert nginx_conf.count("location = /u/") == len(users)
     assert landing_html.count('class="landing-card-label"') == len(users)
 
     seen_ports: set[int] = set()
@@ -343,7 +356,6 @@ def test_generator_reproduces_als_profiles_topology_shape() -> None:
         # als-profiles' ACTUAL container names are `als-web-<user>` — this is a
         # literal, not just shape-level, match against the production topology.
         assert service["container_name"] == f"als-web-{user}"
-        assert f"location = /{user} {{" in nginx_conf
         assert f">{user}<" in landing_html
 
         # Phase-1 reconciliation: fixed OSPREY_TERMINAL_USER=<user>, replacing
@@ -358,6 +370,14 @@ def test_generator_reproduces_als_profiles_topology_shape() -> None:
         for port in actual.values():
             assert port not in seen_ports
             seen_ports.add(port)
+
+        # nginx reverse-proxies /u/<user>/ to that user's own loopback `web`
+        # upstream (als-profiles' real host port), and 301-redirects the
+        # no-trailing-slash bookmark into it.
+        assert f"location /u/{user}/ {{" in nginx_conf
+        assert f"proxy_pass http://127.0.0.1:{expected['web']}/;" in nginx_conf
+        assert f"location = /u/{user} {{" in nginx_conf
+        assert f"return 301 /u/{user}/;" in nginx_conf
 
         # Phase-1 reconciliation: internal container port is 8087 (never the
         # pre-Phase-1 9087 seen in als-profiles' real `0.0.0.0:<port>:9087` map).

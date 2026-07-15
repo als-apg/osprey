@@ -263,6 +263,12 @@ modules:
               url: "https://elog.example.org"
             - label: "Status Page"
               url: "https://status.example.org"
+    auth:                                 # OPTIONAL — forward-looking, config-gated seam; INERT (see note below)
+      method: "none"                      # none (default); no other value is exercised in this schema revision
+    tls:                                  # OPTIONAL — forward-looking, config-gated seam; INERT (see note below)
+      enabled: false                      # default; v1 ships plain HTTP only
+      cert: "/etc/osprey/tls/facility.crt"  # only read when enabled: true
+      key: "/etc/osprey/tls/facility.key"   # only read when enabled: true
 ```
 
 | Field | Type | Required | Notes |
@@ -275,6 +281,10 @@ modules:
 | `lattice_base_port` | int | yes | First per-user lattice-dashboard port; binds `OSPREY_LATTICE_DASHBOARD_PORT` |
 | `users` | list of strings | yes | May be empty when `enabled: true` (see validation rule below) |
 | `landing.groups` | list of group objects | no | Defaults to a single `type: "users"` group if omitted. `type: "users"` groups take no other fields and auto-populate from `users[]`; `type: "links"` groups require `label` and a `links` list of `{label, url}` objects |
+| `auth.method` | string | no | Defaults to `"none"` (no authentication). Forward-looking seam only — see note below |
+| `tls.enabled` | bool | no | Defaults to `false` (plain HTTP). Forward-looking seam only — see note below |
+| `tls.cert` | string | required if `tls.enabled: true` | Path to the TLS certificate file, mounted into the nginx container |
+| `tls.key` | string | required if `tls.enabled: true` | Path to the TLS private key file, mounted into the nginx container |
 
 Every port-valued field in the table above must be free of collisions with every
 other port allocation in the config: `nginx_port` against `ports.*` (its mirror is
@@ -295,6 +305,19 @@ is a **fixed constant, 8087** (the `osprey web` default; see `cli/web_cmd.py`) a
 is **not configurable** via this schema; only the externally-published,
 per-user `web_base_port + i` host port varies. Templates and docs must never
 reintroduce the old `9087` value.
+
+> **`auth`/`tls` are forward-looking, config-gated seams — not an implemented
+> security feature.** With the defaults shown (`auth.method: none`,
+> `tls.enabled: false`), the rendered stack is functionally equivalent to Phase 1
+> (minus the port→path relocation): perimeter-trust, plain HTTP, open to anyone who
+> reaches the deploy host. OSPREY does not ship an auth backend or provision
+> certificates for you — these stanzas only exist so that a future phase can wire
+> a real `auth_request` backend and TLS termination as a config flip instead of a
+> template rewrite. The multi-user-support epic's two CRITICAL findings, **C1 (no
+> authentication)** and **C2 (all traffic is cleartext HTTP)**, remain **OPEN and
+> explicitly deferred** — defining this schema does not close them, and no
+> deployment should be treated as authenticated or encrypted on the strength of
+> these fields existing.
 
 ### `modules.olog` — electronic logbook integration
 

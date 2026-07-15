@@ -28,7 +28,7 @@
  */
 
 import { escapeHtml } from '/design-system/js/dom.js';
-import { resetFetchCache } from './data.js';
+import { resetFetchCache, withPrefix } from './data.js';
 import { createScaffoldGalleryDetailContent } from './detail-content.js';
 
 /**
@@ -102,7 +102,7 @@ export function createScaffoldGalleryDetail(gallery) {
       return;
     }
 
-    fetch('/api/scaffold/create', {
+    fetch(withPrefix('/api/scaffold/create'), { // prefix-aware
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ category, name: sanitized }),

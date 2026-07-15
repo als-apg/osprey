@@ -10,3 +10,11 @@ declare const katex: any;
 declare const Terminal: any;
 declare const FitAddon: any;
 declare const WebLinksAddon: any;
+
+// The per-user URL prefix injected into every served HTML document by the
+// web-terminal app (`window.__OSPREY_PREFIX__ = "/u/<user>"` or "" for the
+// single-origin/dev case). Read by the prefix-aware fetch/ws helpers. Optional
+// because it is absent until the injecting <script> runs.
+interface Window {
+  __OSPREY_PREFIX__?: string;
+}

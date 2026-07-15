@@ -158,3 +158,81 @@ def test_lint_missing_port_family_is_an_error() -> None:
     # Assert
     errors = _errors(findings)
     assert any(f.code == "web_terminals.incomplete_port_families" for f in errors)
+
+
+def test_lint_username_bad_charset_is_an_error() -> None:
+    """Usernames become nginx `location` keys and URL path segments — must be
+    ``^[a-z0-9][a-z0-9_-]*$``."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = ["Bad_User", "gmartino"]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.invalid_username_charset" for f in errors)
+
+
+def test_lint_username_charset_rejects_leading_dash_underscore_space_and_uppercase() -> None:
+    """Each of these must be rejected: leading `-`, leading `_`, an embedded space,
+    and an uppercase-only name."""
+    # Arrange / Act / Assert
+    for bad_name in ("-x", "_x", "a b", "A"):
+        config = copy.deepcopy(_CLEAN_CONFIG)
+        config["modules"]["web_terminals"]["users"] = [bad_name]
+
+        findings = lint_web_terminals(config)
+
+        errors = _errors(findings)
+        assert any(f.code == "web_terminals.invalid_username_charset" for f in errors), (
+            f"expected {bad_name!r} to be rejected"
+        )
+
+
+def test_lint_username_charset_accepts_leading_digit() -> None:
+    """A leading digit is fine — only the character class matters, not digit-first."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = ["1abc"]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.invalid_username_charset" for f in _errors(findings))
+
+
+def test_lint_tls_enabled_adds_443_to_port_overlap_set() -> None:
+    """When the TLS seam is enabled, port 443 (the `listen 443 ssl` port) joins the
+    S1-S4 collision set and collides with an existing ports.* literal of 443."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["ports"]["conflicting"] = 443
+    config["modules"]["web_terminals"]["tls"] = {"enabled": True}
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    overlap_findings = [f for f in errors if f.code == "web_terminals.port_overlap"]
+    assert any("443" in f.message for f in overlap_findings)
+
+
+def test_lint_tls_disabled_does_not_add_443_to_port_overlap_set() -> None:
+    """With the TLS seam left at its default (off), port 443 is just an ordinary
+    ports.* value and must not be treated as a second, colliding source."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["ports"]["conflicting"] = 443
+    # tls.enabled defaults to False; no web_terminals.tls stanza at all here.
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    overlap_findings = [f for f in errors if f.code == "web_terminals.port_overlap"]
+    assert not any("443" in f.message for f in overlap_findings)

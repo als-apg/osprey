@@ -106,15 +106,23 @@ def _panel_json_rewrite_paths(request: Request, panel_id: str) -> tuple[str, ...
     return ()
 
 
-def _rewrite_content(body: str, panel_id: str) -> str:
+def _rewrite_content(body: str, panel_id: str, outer_prefix: str = "") -> str:
     """Rewrite root-absolute paths inside string delimiters for proxied content.
 
     Only touches known prefixes inside ``"``, ``'``, or backtick delimiters.
     CDN URLs (``https://…``), protocol-relative (``//…``), and data URIs
     are unaffected because the pattern requires a delimiter immediately
     before the ``/``.
+
+    Args:
+        body: The response body to rewrite.
+        panel_id: The panel ID this content was proxied from.
+        outer_prefix: The per-user mount prefix (``/u/<user>`` or ``""``, see
+            ``compute_url_prefix()``). Prepended so a panel's internal
+            assets/APIs resolve under the outer prefix too, not just
+            ``/panel/<id>``. Empty prefix ⇒ unchanged (pre-refactor) output.
     """
-    prefix = f"/panel/{panel_id}"
+    prefix = f"{outer_prefix}/panel/{panel_id}"
 
     for path in _REWRITE_PREFIXES:
         # Match path inside string delimiters: "/static/..." → "/panel/id/static/..."
@@ -148,6 +156,12 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
             status_code=404,
         )
 
+    # Deferred import: ``app`` imports this module's router at package-init
+    # time, so a top-level import here would be circular.
+    from osprey.interfaces.web_terminal.app import compute_url_prefix
+
+    outer_prefix = compute_url_prefix()
+
     # Build the target URL.
     target = f"{backend_url.rstrip('/')}/{path}"
     if request.url.query:
@@ -167,7 +181,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
         for k, v in request.headers.items()
         if k.lower() not in _HOP_BY_HOP and k.lower() not in ("host", "accept-encoding")
     }
-    fwd_headers["x-forwarded-prefix"] = f"/panel/{panel_id}"
+    fwd_headers["x-forwarded-prefix"] = f"{outer_prefix}/panel/{panel_id}"
 
     # The event-dispatcher dashboard endpoints are bearer-gated. Inject the
     # dispatcher token server-side for the EVENTS panel only, so the browser
@@ -237,7 +251,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
     # (large, immutable, no OSPREY paths to rewrite).
     if base_type in _REWRITABLE_TYPES and "/vendor/" not in path:
         text = resp.text
-        text = _rewrite_content(text, panel_id)
+        text = _rewrite_content(text, panel_id, outer_prefix)
         return Response(
             content=text,
             status_code=resp.status_code,
@@ -257,7 +271,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
         stripped = path.rstrip("/")
         if any(stripped.endswith(sfx) for sfx in _panel_json_rewrite_paths(request, panel_id)):
             return Response(
-                content=_rewrite_content(resp.text, panel_id),
+                content=_rewrite_content(resp.text, panel_id, outer_prefix),
                 status_code=resp.status_code,
                 headers=resp_headers,
                 media_type=content_type,

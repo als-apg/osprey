@@ -10,6 +10,7 @@ port set via :func:`allocate_ports`.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any, Literal
 
@@ -32,6 +33,15 @@ _RESERVED_SERVICE_NAMES = frozenset(
     }
 )
 _RESERVED_SERVICE_PREFIX = "dispatch-sidecar-"
+
+# Usernames become nginx `location` keys and URL path segments (`/<user>/...`), so
+# they're held to a stricter charset than a bare "no reserved collision" check.
+_USERNAME_CHARSET_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
+
+# The TLS seam's listener port (`listen 443 ssl` in the gated nginx block, see
+# Task 1.3). `auth.method` has no other value than "none" in this schema revision
+# (Task 1.4), so there's no dedicated auth-service port to reserve yet.
+_TLS_LISTEN_PORT = 443
 
 
 @dataclass(frozen=True)
@@ -68,6 +78,7 @@ def lint_web_terminals(config: Any) -> list[Finding]:
     findings.extend(_check_empty_users(web_terminals, modules, users))
     findings.extend(_check_duplicate_users(users))
     findings.extend(_check_reserved_names(users))
+    findings.extend(_check_username_charset(users))
     findings.extend(_check_port_families_allocatable(web_terminals, users))
     findings.extend(_check_port_overlap(root, web_terminals, users))
     return findings
@@ -143,6 +154,26 @@ def _check_reserved_names(users: list[Any]) -> list[Finding]:
     return findings
 
 
+def _check_username_charset(users: list[Any]) -> list[Finding]:
+    """A user name becomes an nginx `location` key and a URL path segment
+    (``/<user>/...``); it must match ``^[a-z0-9][a-z0-9_-]*$``."""
+    findings: list[Finding] = []
+    for user in users:
+        if isinstance(user, str) and not _USERNAME_CHARSET_RE.match(user):
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.invalid_username_charset",
+                    message=(
+                        f"modules.web_terminals.users entry {user!r} does not match "
+                        f"{_USERNAME_CHARSET_RE.pattern!r} (usernames become nginx "
+                        "location keys and URL path segments)"
+                    ),
+                )
+            )
+    return findings
+
+
 def _check_port_families_allocatable(
     web_terminals: dict[str, Any], users: list[Any]
 ) -> list[Finding]:
@@ -212,6 +243,15 @@ def _check_port_overlap(
             value = test_ioc.get(field)
             if isinstance(value, int):
                 entries.append((value, f"test_ioc.{field}"))
+
+    # S5: the gated auth/TLS seam's port(s) (Task 1.3/1.4) — only join the
+    # collision set when the seam is actually enabled by config; the default
+    # (tls disabled, auth "none") must not reserve 443 against ordinary configs.
+    tls = _as_dict(web_terminals.get("tls"))
+    if bool(tls.get("enabled", False)):
+        entries.append((_TLS_LISTEN_PORT, "web_terminals.tls (listen 443 ssl)"))
+    # `auth.method` has no value other than "none" in this schema revision, so
+    # there's no dedicated auth-service port to add yet (see Task 1.4's schema).
 
     by_port: dict[int, list[str]] = {}
     for port, source in entries:

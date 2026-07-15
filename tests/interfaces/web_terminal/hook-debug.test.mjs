@@ -93,6 +93,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  delete window.__OSPREY_PREFIX__;
 });
 
 describe('populated activity log', () => {
@@ -195,6 +196,27 @@ describe('hostile payload inertness', () => {
     // ...and it is genuinely stored as escaped text, not parsed children.
     expect(detailCell?.children.length).toBe(0);
     expect(body.innerHTML).toContain('&lt;img');
+  });
+});
+
+describe('debug toggle: prefix-aware PATCH', () => {
+  test('prepends window.__OSPREY_PREFIX__ to the /api/config PATCH (multi-user deployments)', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    stubFetch({ entries: [] });
+    initHookDebug();
+
+    const toggle = /** @type {HTMLInputElement} */ (
+      document.getElementById('hook-debug-toggle')
+    );
+    toggle.checked = true;
+    toggle.dispatchEvent(new Event('change'));
+    await flush();
+
+    const fetchMock = /** @type {import('vitest').Mock} */ (fetch);
+    const patchCall = fetchMock.mock.calls.find(
+      ([url]) => typeof url === 'string' && url.includes('/api/config')
+    );
+    expect(patchCall?.[0]).toBe('/u/alice/api/config');
   });
 });
 

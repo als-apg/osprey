@@ -14,6 +14,7 @@ import { initTheme } from '/design-system/js/theme-manager.js';
 import { applyEmbedded } from '/design-system/js/frame-params.js';
 import '/design-system/js/components/osprey-theme-switcher.js';
 import { renderAgents, renderToolLog, renderArtifacts, renderConversation } from './session-views.js';
+import { withPrefix } from './api.js';
 
 /** @typedef {'agents'|'toollog'|'artifacts'|'conversation'} ViewName */
 /**
@@ -64,6 +65,7 @@ const FETCH_TIMEOUT = 4000;
  * @returns {Promise<any>}
  */
 async function apiFetch(path) {
+  path = withPrefix(path);
   if (currentSessionId) {
     const sep = path.includes('?') ? '&' : '?';
     path = path + sep + 'session_id=' + encodeURIComponent(currentSessionId);

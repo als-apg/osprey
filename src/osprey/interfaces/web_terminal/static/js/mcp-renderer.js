@@ -188,7 +188,10 @@ function _clearChildren(el) {
  * @param {Record<string, HTMLElement>} cardMap
  */
 function _fetchAndEnrichCards(cardMap) {
-  fetch('/api/mcp-servers')
+  // Prefix-aware so this reaches the container under /u/<user>/ in
+  // multi-user deployments (see api.js's withPrefix).
+  const prefix = window.__OSPREY_PREFIX__ || '';
+  fetch(`${prefix}/api/mcp-servers`)
     .then(r => r.ok ? r.json() : Promise.reject(r.status))
     .then(servers => {
       for (const server of servers) {

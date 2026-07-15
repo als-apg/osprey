@@ -8,6 +8,10 @@
  *   - fetchJSON(url): 2xx -> parsed JSON; non-2xx -> throws `HTTP <s>: <t>`
  *   - onConnectionStateChange / getConnectionState: initial shape and that a
  *     registered listener is stored and fires on the next state transition
+ *   - per-user URL prefix: wsUrl/fetchJSON/createEventSource read
+ *     `window.__OSPREY_PREFIX__` (the multi-user prefix contract) and
+ *     prepend it to root-absolute paths only, are a no-op when the prefix is
+ *     empty/absent, and never double-prefix or touch already-absolute URLs
  *
  * Module isolation: api.js keeps `wsState`/`sseState`/`stateListeners` as
  * module-private state that no init() resets. `vi.resetModules()` plus a fresh
@@ -27,6 +31,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  delete window.__OSPREY_PREFIX__;
 });
 
 describe('wsUrl: scheme derivation from location.protocol', () => {
@@ -72,6 +77,114 @@ describe('fetchJSON: success and error paths', () => {
     await expect(api.fetchJSON('/api/state')).rejects.toThrow(
       'HTTP 503: Service Unavailable'
     );
+  });
+});
+
+describe('URL prefix: window.__OSPREY_PREFIX__ (multi-user prefix contract)', () => {
+  /** A stand-in for `fetch` that always resolves 2xx with an empty body. */
+  function stubFetchOk() {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      json: async () => ({}),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  test('wsUrl prepends the prefix to the path before scheme+host assembly', () => {
+    vi.stubGlobal('location', { protocol: 'https:', host: 'example.org:8443' });
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    expect(api.wsUrl('/ws/terminal')).toBe('wss://example.org:8443/u/alice/ws/terminal');
+  });
+
+  test('wsUrl is byte-identical to the unprefixed result when the prefix is empty', () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:5000' });
+    window.__OSPREY_PREFIX__ = '';
+    expect(api.wsUrl('/ws/terminal')).toBe('ws://localhost:5000/ws/terminal');
+  });
+
+  test('wsUrl is byte-identical to the unprefixed result when the prefix is absent', () => {
+    vi.stubGlobal('location', { protocol: 'http:', host: 'localhost:5000' });
+    expect(api.wsUrl('/ws/terminal')).toBe('ws://localhost:5000/ws/terminal');
+  });
+
+  test('fetchJSON prepends the prefix to a root-absolute URL', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    const fetchMock = stubFetchOk();
+    await api.fetchJSON('/api/state');
+    expect(fetchMock).toHaveBeenCalledWith('/u/alice/api/state', { cache: 'no-store' });
+  });
+
+  test('fetchJSON is a no-op when the prefix is empty', async () => {
+    window.__OSPREY_PREFIX__ = '';
+    const fetchMock = stubFetchOk();
+    await api.fetchJSON('/api/state');
+    expect(fetchMock).toHaveBeenCalledWith('/api/state', { cache: 'no-store' });
+  });
+
+  test.each([
+    'https://other.example/api',
+    'http://other.example/api',
+    '//cdn.example/api',
+  ])('fetchJSON leaves the already-absolute URL %s untouched', async (url) => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    const fetchMock = stubFetchOk();
+    await api.fetchJSON(url);
+    expect(fetchMock).toHaveBeenCalledWith(url, { cache: 'no-store' });
+  });
+
+  test('fetchJSON does not double-prefix a path that already carries the prefix', async () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    const fetchMock = stubFetchOk();
+    await api.fetchJSON('/u/alice/api/state');
+    expect(fetchMock).toHaveBeenCalledWith('/u/alice/api/state', { cache: 'no-store' });
+  });
+
+  test('createEventSource prepends the prefix to a root-absolute path', () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    /** @type {string[]} */
+    const constructedUrls = [];
+    vi.stubGlobal(
+      'EventSource',
+      class {
+        /** @param {string} url */
+        constructor(url) {
+          constructedUrls.push(url);
+        }
+        close() {}
+      }
+    );
+
+    const source = api.createEventSource('/events');
+    try {
+      expect(constructedUrls).toEqual(['/u/alice/events']);
+    } finally {
+      source.stop();
+    }
+  });
+
+  test('createEventSource is a no-op when the prefix is absent', () => {
+    /** @type {string[]} */
+    const constructedUrls = [];
+    vi.stubGlobal(
+      'EventSource',
+      class {
+        /** @param {string} url */
+        constructor(url) {
+          constructedUrls.push(url);
+        }
+        close() {}
+      }
+    );
+
+    const source = api.createEventSource('/events');
+    try {
+      expect(constructedUrls).toEqual(['/events']);
+    } finally {
+      source.stop();
+    }
   });
 });
 

@@ -18,7 +18,7 @@
  * @module scaffold/data
  */
 
-import { fetchJSON } from '../api.js';
+import { fetchJSON, withPrefix } from '../api.js';
 
 // ---- Shared Fetch Cache ---- //
 
@@ -31,7 +31,7 @@ let _fetchPromise = null;
  * @returns {Promise<any>}
  */
 export async function fetchArtifactsShared() {
-  if (!_fetchPromise) _fetchPromise = fetchJSON('/api/scaffold');
+  if (!_fetchPromise) _fetchPromise = fetchJSON('/api/scaffold'); // fetchJSON prefixes this internally
   return _fetchPromise;
 }
 
@@ -39,6 +39,10 @@ export async function fetchArtifactsShared() {
 export function resetFetchCache() {
   _fetchPromise = null;
 }
+
+// Re-exported so the sibling scaffold write-action modules (edit.js,
+// detail.js) share api.js's one copy instead of each keeping their own.
+export { withPrefix };
 
 // ---- Data Actions ---- //
 
@@ -73,7 +77,7 @@ export async function loadArtifacts(state, opts = {}) {
 
   const [data, untrackedData] = await Promise.all([
     fetchArtifactsShared(),
-    fetchJSON('/api/scaffold/untracked').catch(() => ({ untracked: [] })),
+    fetchJSON('/api/scaffold/untracked').catch(() => ({ untracked: [] })), // fetchJSON prefixes internally
   ]);
 
   const allArtifacts = data.artifacts || [];
@@ -107,7 +111,7 @@ export async function loadArtifacts(state, opts = {}) {
  * @returns {Promise<void>}
  */
 export async function registerUntrackedFile(canonicalName) {
-  const resp = await fetch('/api/scaffold/untracked/register', {
+  const resp = await fetch(withPrefix('/api/scaffold/untracked/register'), { // prefix-aware
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: canonicalName }),
@@ -128,7 +132,7 @@ export async function deleteUntrackedFile(canonicalName) {
   if (!confirm(`Delete "${canonicalName}"? This file will be removed from disk.`)) return false;
 
   const resp = await fetch(
-    `/api/scaffold/untracked/${encodeURIComponent(canonicalName)}`,
+    withPrefix(`/api/scaffold/untracked/${encodeURIComponent(canonicalName)}`), // prefix-aware
     { method: 'DELETE' }
   );
   if (!resp.ok) {

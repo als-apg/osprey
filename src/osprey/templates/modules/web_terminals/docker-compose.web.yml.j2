@@ -59,24 +59,31 @@
     nginx_image: str, optional, default "nginx:1.27-alpine"
     facility_timezone: str, optional, default "UTC" -> TZ
 
+    bind_host: str, required (Task 1.1)
+      Loopback address (always "127.0.0.1") baked into every per-user
+      service's OSPREY_TERMINAL_BIND_HOST. Not sourced from facility-config
+      — see render.py's `_LOOPBACK_BIND_HOST` for why this is a constant,
+      not a knob.
+
   ----------------------------------------------------------------------------
   NETWORKING
 
   Every service (per-user AND nginx) runs `network_mode: host`. Per-user
   services need it for EPICS CA UDP broadcast discovery; under host
-  networking there is no internal->host port map, so each per-user app binds
-  OSPREY_WEB_PORT/etc. directly on the host. nginx does NOT reverse-proxy the
-  terminal UI itself — that would mean either (a) nginx binding the SAME host
-  port a per-user app already binds directly (a hard conflict, not a config
-  choice), or (b) real content-proxying under a shared nginx_port path
-  prefix, which is exactly the single-origin `/u/<user>/` scheme this module
-  is told not to do in Phase 1. Per-user "routing" in nginx.conf.j2 is
-  therefore a 302 redirect to each user's own distinct origin
-  (`http://<host>:<web_port>/`) — see that template's own header comment.
-  nginx runs on host networking too (so `nginx_port` sits in the same
-  reachability class as the per-user ports, with no bridge/NAT translation to
-  reason about); it does not need loopback access to the per-user apps
-  because a redirect never makes an outbound connection to them.
+  networking there is no internal->host port map, so each per-user app's
+  OSPREY_WEB_PORT/etc. is a host port. Unlike the port, the *bind address* is
+  NOT the host's routable interface: every per-user app binds `bind_host`
+  ("127.0.0.1", via OSPREY_TERMINAL_BIND_HOST) only, so a per-user port is
+  unreachable from off-host even though it shares the host network
+  namespace. nginx (bind-nginx-reverse-proxy) is therefore the only intended
+  off-host path to a per-user app — it reverse-proxies to these loopback
+  upstreams rather than the redirect-to-distinct-origin scheme this template
+  used prior to Task 1.1. nginx itself still runs on host networking (so
+  `nginx_port` sits in the same reachability class the per-user ports used
+  to) and binds every interface, unrestricted — it is the one service
+  required to be reachable off-host, and it can always reach the per-user
+  loopback upstreams because loopback is visible to every process sharing
+  the same host netns.
 
   MOUNT PATH: nginx.conf.j2's rendered output is a `server{}` FRAGMENT, not a
   complete main config (no `events{}`/`http{}` wrapper — `server`/`listen`/
@@ -129,6 +136,7 @@ services:
       - TZ={{ facility_timezone | default("UTC") }}
       - OSPREY_TERMINAL_USER={{ svc.user }}
       - OSPREY_TERMINAL_LANDING_URL={{ landing_url }}
+      - OSPREY_TERMINAL_BIND_HOST={{ bind_host }}
       - OSPREY_WEB_PORT={{ svc.web }}
       - OSPREY_ARTIFACT_SERVER_PORT={{ svc.artifact }}
       - OSPREY_ARIEL_PORT={{ svc.ariel }}
@@ -141,8 +149,10 @@ services:
       # (cli/web_cmd.py) — only relevant to a bare `osprey web` with no
       # OSPREY_WEB_PORT override. Every per-user container here sets
       # OSPREY_WEB_PORT above, so the probe targets the ACTUAL bound port,
-      # never the bare 8087 default.
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:{{ svc.web }}/health || exit 1"]
+      # never the bare 8087 default. Probed via bind_host itself (not a
+      # hardcoded "127.0.0.1" literal) since that's the same loopback
+      # address OSPREY_TERMINAL_BIND_HOST bakes into the app's own bind.
+      test: ["CMD-SHELL", "curl -fsS http://{{ bind_host }}:{{ svc.web }}/health || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 5

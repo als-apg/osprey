@@ -7,7 +7,12 @@ L2 (Contract): Fully mocked PtyRegistry.
 Tests that terminal_ws calls registry methods in the correct sequence.
 
 All tests connect in ``mode=resume`` with a pre-set UUID to avoid the
-5-second session-discovery poll that fires for new sessions.
+5-second session-discovery poll that fires for new sessions. The
+``sessions_dir`` fixture below additionally seeds an on-disk session file
+for the id used on each initial connect, so the resume confirmation added
+in ws-resume-confirmation takes its trusted synchronous path (the file
+already existed pre-spawn) instead of polling discovery — these tests
+exercise registry/pool behavior, not resume-discovery semantics.
 """
 
 from __future__ import annotations
@@ -23,6 +28,7 @@ from starlette.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import create_app
 from osprey.interfaces.web_terminal.pty_manager import PtyRegistry
+from osprey.interfaces.web_terminal.session_discovery import SessionDiscovery
 
 pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not available on Windows")
 
@@ -137,6 +143,26 @@ def app(tmp_path):
         yield create_app(shell_command="fake-not-used", project_dir=str(tmp_path))
 
 
+@pytest.fixture()
+def sessions_dir(tmp_path, monkeypatch):
+    """Point ``SessionDiscovery`` at a tmp dir and return it.
+
+    Seed a session id's file here (see ``_seed_session_file``) before an
+    initial resume connect so ``terminal_ws``'s resume confirmation takes
+    its trusted synchronous path — the id already exists on disk — instead
+    of polling discovery, which these tests have no interest in exercising.
+    """
+    d = tmp_path / "claude_sessions"
+    d.mkdir()
+    monkeypatch.setattr(SessionDiscovery, "_resolve_sessions_dir", lambda self: d)
+    return d
+
+
+def _seed_session_file(sessions_dir, session_id: str) -> None:
+    """Create an (empty) on-disk session file for *session_id*."""
+    (sessions_dir / f"{session_id}.jsonl").write_text("")
+
+
 # ---------------------------------------------------------------------------
 # L1: Integration — real PtyRegistry, fake PtySession
 # ---------------------------------------------------------------------------
@@ -165,9 +191,10 @@ class TestSessionSwitchingProtocol:
 
     # -- basic connectivity --
 
-    def test_connect_and_resize(self, app):
+    def test_connect_and_resize(self, app, sessions_dir):
         """Connecting + sending resize completes without error."""
         sid = _uuid()
+        _seed_session_file(sessions_dir, sid)
         with TestClient(app) as client:
             self._patch_spawn(app)
             with client.websocket_connect(_resume_url(sid)) as ws:
@@ -175,9 +202,10 @@ class TestSessionSwitchingProtocol:
 
     # -- switch_session happy path --
 
-    def test_switch_returns_session_switched(self, app):
+    def test_switch_returns_session_switched(self, app, sessions_dir):
         """Switching to a new UUID returns ``session_switched``."""
         initial, target = _uuid(), _uuid()
+        _seed_session_file(sessions_dir, initial)
         with TestClient(app) as client:
             self._patch_spawn(app)
             with client.websocket_connect(_resume_url(initial)) as ws:
@@ -186,9 +214,10 @@ class TestSessionSwitchingProtocol:
                 msg = _recv_json(ws, "session_switched")
                 assert msg["session_id"] == target
 
-    def test_switch_same_session_is_noop(self, app):
+    def test_switch_same_session_is_noop(self, app, sessions_dir):
         """Switching to the current session confirms without respawning."""
         sid = _uuid()
+        _seed_session_file(sessions_dir, sid)
         with TestClient(app) as client:
             _, spawned = self._patch_spawn(app)
             with client.websocket_connect(_resume_url(sid)) as ws:
@@ -200,9 +229,10 @@ class TestSessionSwitchingProtocol:
 
     # -- switch_session error paths --
 
-    def test_switch_invalid_uuid_returns_error(self, app):
+    def test_switch_invalid_uuid_returns_error(self, app, sessions_dir):
         """Non-UUID session_id returns an error message."""
         sid = _uuid()
+        _seed_session_file(sessions_dir, sid)
         with TestClient(app) as client:
             self._patch_spawn(app)
             with client.websocket_connect(_resume_url(sid)) as ws:
@@ -213,9 +243,10 @@ class TestSessionSwitchingProtocol:
 
     # -- warm session reuse --
 
-    def test_switch_back_reuses_warm_session(self, app):
+    def test_switch_back_reuses_warm_session(self, app, sessions_dir):
         """A → B → A reuses session A from the pool (no extra spawn)."""
         a, b = _uuid(), _uuid()
+        _seed_session_file(sessions_dir, a)
         with TestClient(app) as client:
             _, spawned = self._patch_spawn(app)
             with client.websocket_connect(_resume_url(a)) as ws:
@@ -231,9 +262,10 @@ class TestSessionSwitchingProtocol:
                 _recv_json(ws, "session_switched")
                 assert len(spawned) == 2  # still 2 — A was reused from pool
 
-    def test_pool_contains_both_after_switch(self, app):
+    def test_pool_contains_both_after_switch(self, app, sessions_dir):
         """After A → B, both sessions remain in the registry pool."""
         a, b = _uuid(), _uuid()
+        _seed_session_file(sessions_dir, a)
         with TestClient(app) as client:
             reg, _ = self._patch_spawn(app)
             with client.websocket_connect(_resume_url(a)) as ws:
@@ -244,9 +276,10 @@ class TestSessionSwitchingProtocol:
                 assert reg.get_session(a) is not None
                 assert reg.get_session(b) is not None
 
-    def test_triple_switch_spawns_three(self, app):
+    def test_triple_switch_spawns_three(self, app, sessions_dir):
         """A → B → C creates three sessions total."""
         a, b, c = _uuid(), _uuid(), _uuid()
+        _seed_session_file(sessions_dir, a)
         with TestClient(app) as client:
             _, spawned = self._patch_spawn(app)
             with client.websocket_connect(_resume_url(a)) as ws:
@@ -279,9 +312,10 @@ class TestSessionSwitchingContract:
 
     # -- initial connection contract --
 
-    def test_connect_calls_get_or_create_then_attach(self, app):
+    def test_connect_calls_get_or_create_then_attach(self, app, sessions_dir):
         """On connect: get_or_create_session(key, ...) then attach_session(key)."""
         sid = _uuid()
+        _seed_session_file(sessions_dir, sid)
         with TestClient(app) as client:
             mock_reg, _ = self._mock_registry(app)
             with client.websocket_connect(_resume_url(sid)) as ws:
@@ -298,9 +332,10 @@ class TestSessionSwitchingContract:
 
     # -- switch_session contract --
 
-    def test_switch_calls_detach_create_attach_in_order(self, app):
+    def test_switch_calls_detach_create_attach_in_order(self, app, sessions_dir):
         """Switch: detach(old) → get_or_create(new) → attach(new), in order."""
         initial, target = _uuid(), _uuid()
+        _seed_session_file(sessions_dir, initial)
         with TestClient(app) as client:
             mock_reg, _ = self._mock_registry(app)
             with client.websocket_connect(_resume_url(initial)) as ws:
@@ -337,9 +372,10 @@ class TestSessionSwitchingContract:
         create_call = mock_reg.method_calls[create_i]
         assert create_call[1][0] == target  # first positional arg = target UUID
 
-    def test_invalid_uuid_skips_registry(self, app):
+    def test_invalid_uuid_skips_registry(self, app, sessions_dir):
         """Invalid UUID is rejected before any switch-related registry call."""
         sid = _uuid()
+        _seed_session_file(sessions_dir, sid)
         with TestClient(app) as client:
             mock_reg, _ = self._mock_registry(app)
             with client.websocket_connect(_resume_url(sid)) as ws:
@@ -359,9 +395,10 @@ class TestSessionSwitchingContract:
 
     # -- disconnect contract --
 
-    def test_disconnect_detaches_live_session(self, app):
+    def test_disconnect_detaches_live_session(self, app, sessions_dir):
         """On WS close with live session: detach but do NOT terminate."""
         sid = _uuid()
+        _seed_session_file(sessions_dir, sid)
         with TestClient(app) as client:
             mock_reg, fake = self._mock_registry(app)
             with client.websocket_connect(_resume_url(sid)) as ws:
@@ -373,11 +410,12 @@ class TestSessionSwitchingContract:
         # Session is alive → terminate_session should NOT be called
         mock_reg.terminate_session.assert_not_called()
 
-    def test_disconnect_terminates_dead_session(self, app):
+    def test_disconnect_terminates_dead_session(self, app, sessions_dir):
         """On WS close with dead session: detach AND terminate."""
         sid = _uuid()
         import time
 
+        _seed_session_file(sessions_dir, sid)
         with TestClient(app) as client:
             dead = FakePtySession()
             mock_reg, _ = self._mock_registry(app, fake_session=dead)
