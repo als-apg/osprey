@@ -108,7 +108,7 @@ dependencies = [
     # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
     "aiohttp-socks>=0.8.0",
     # File system monitoring for web terminal
-    "watchdog>=3.0.0",
+    "watchdog>=6.0.0",
     # Async HTTP client for the web-terminal panel reverse proxy
     "httpx>=0.27.0",
     # Lattice physics (Accelerator Toolbox for lattice dashboard)
