@@ -193,6 +193,18 @@ modules:
               url: "https://elog.dls.example.org"
             - label: "Status Page"
               url: "https://status.dls.example.org"
+    # auth/tls below are OPTIONAL, forward-looking, config-gated seams — INERT with
+    # these (default) values. No auth backend or TLS is implemented in this phase;
+    # the stack is perimeter-trust plain HTTP, identical to Phase 1. C1
+    # (authentication) and C2 (cleartext HTTP) remain OPEN/deferred — see
+    # facility-config-schema.md for the full note. Uncomment/edit only once a
+    # later phase actually wires an auth_request backend + cert provisioning.
+    # auth:
+    #   method: "none"                   # none (default) — no other value is exercised yet
+    # tls:
+    #   enabled: false                   # default; v1 ships plain HTTP only
+    #   cert: "/etc/osprey/tls/dls.crt"  # only read when enabled: true
+    #   key: "/etc/osprey/tls/dls.key"   # only read when enabled: true
 
   # ---------------------------------------------------------------------------
   # Electronic logbook integration.

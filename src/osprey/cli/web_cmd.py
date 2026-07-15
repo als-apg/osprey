@@ -15,12 +15,38 @@ import socket
 import subprocess
 import sys
 import time
+from collections.abc import Mapping
 from pathlib import Path
 
 import click
 
 PID_FILE = ".osprey-web.pid"
 LOG_FILE = ".osprey-web.log"
+DECLARED_BIND_ENV = "OSPREY_TERMINAL_BIND_HOST"
+
+
+def resolve_bind_host(
+    cli_host: str | None, config_host: str | None, env: Mapping[str, str] = os.environ
+) -> str:
+    """Single source of the address ``osprey web`` binds to. Enforces criterion C3.
+
+    SECURITY INVARIANT: when a deployment DECLARES a bind host via
+    ``OSPREY_TERMINAL_BIND_HOST`` (the multi-user compose sets it on every
+    per-user container so nginx is the ONLY off-host path), that declaration is
+    AUTHORITATIVE over ``--host`` and config. A stale or hostile image CMD
+    passing ``--host 0.0.0.0`` must NOT punch through the reverse-proxy
+    chokepoint. Single-user ``osprey web`` sets no such env, so ``--host`` is
+    honored verbatim (``0.0.0.0`` stays supported).
+
+    Do NOT collapse this into ``@click.option("--host", envvar=...)``: Click env
+    defaults LOSE to an explicit flag, which would silently re-open the
+    container to the network. This inversion is load-bearing and is pinned red
+    by ``test_multiuser_env_pins_loopback_reaches_run_web``.
+    """
+    declared = env.get(DECLARED_BIND_ENV)
+    if declared:
+        return declared
+    return cli_host or config_host or "127.0.0.1"
 
 
 def get_config_value(key: str, default=None):
@@ -329,7 +355,12 @@ def _resolve_web_shell_command(
 
 @click.group("web", invoke_without_command=True)
 @click.option(
-    "--port", "-p", type=int, default=None, help="Port to run on (default: from config or 8087)"
+    "--port",
+    "-p",
+    type=int,
+    default=None,
+    envvar="OSPREY_WEB_PORT",
+    help="Port to run on (default: from config or 8087)",
 )
 @click.option("--host", default=None, help="Host to bind to (default: from config or 127.0.0.1)")
 @click.option("--reload", is_flag=True, help="Enable auto-reload for development")
@@ -380,7 +411,14 @@ def web(
 
     wt_config = get_config_value("web_terminal", {})
     cc_config = get_config_value("claude_code", {})
-    host = host or wt_config.get("host", "127.0.0.1")
+    _declared = os.environ.get(DECLARED_BIND_ENV)
+    if _declared and host is not None and host != _declared:
+        click.echo(
+            f"NOTICE: {DECLARED_BIND_ENV}={_declared} is authoritative for the "
+            f"multi-user reverse-proxy chokepoint; ignoring --host {host}.",
+            err=True,
+        )
+    host = resolve_bind_host(host, wt_config.get("host"))
     port = port or wt_config.get("port", 8087)
 
     user_shell_override = shell  # keep raw click value for the detached re-spawn

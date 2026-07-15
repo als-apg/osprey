@@ -31,6 +31,15 @@ _COMPOSE_OUTPUT = "docker-compose.web.yml"
 _NGINX_OUTPUT = "nginx/nginx.conf"
 _LANDING_OUTPUT = "nginx/landing.html"
 
+# Per-container constant (Task 1.1): every per-user app's four service families
+# (web/artifact/ariel/lattice) bind this host, never a routable interface —
+# nginx's reverse proxy (Task 1.2) becomes the only off-host path. Not
+# config-driven: unlike the per-family ports, there is no facility-config knob
+# for this, since a facility that wants a per-user port reachable directly
+# off-host would defeat the single-origin chokepoint this module exists to
+# provide.
+_LOOPBACK_BIND_HOST = "127.0.0.1"
+
 
 def render_web_terminals(config: Any) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
@@ -81,8 +90,22 @@ def render_web_terminals(config: Any) -> dict[str, str]:
         "nginx_port": nginx_port,
         "landing_url": landing_url,
         "facility_timezone": facility.get("timezone") or "UTC",
+        "bind_host": _LOOPBACK_BIND_HOST,
     }
-    nginx_ctx = {"nginx_port": nginx_port, "services": services}
+    auth_tls_ctx = _auth_tls_context(web_terminals)
+    if auth_tls_ctx["tls_enabled"] and not (auth_tls_ctx["tls_cert"] and auth_tls_ctx["tls_key"]):
+        raise ValueError(
+            "modules.web_terminals.tls.enabled is true but tls.cert/tls.key are not both "
+            "set — the gated `listen 443 ssl` seam (Task 1.3) needs both paths to emit a "
+            "coherent ssl_certificate/ssl_certificate_key pair"
+        )
+
+    nginx_ctx = {
+        "nginx_port": nginx_port,
+        "services": services,
+        "bind_host": _LOOPBACK_BIND_HOST,
+        **auth_tls_ctx,
+    }
     landing_ctx = {
         "facility_name": facility.get("name") or "",
         "groups": _build_groups(_as_dict(web_terminals.get("landing")), users),
@@ -135,12 +158,13 @@ def _build_groups(landing_cfg: dict[str, Any], users: list[str]) -> list[dict[st
     landing.html.j2 uses bracket subscript (``group["items"]``) throughout.
 
     ``{type: "users"}`` auto-populates one card per configured user, using the
-    relative ``/<user>`` bookmark that nginx.conf.j2 302-redirects to that user's
-    own origin — so, unlike ``landing_url``, no deploy-host needs baking into the
-    landing cards themselves. ``{type: "links", label, links}`` passes ``links``
-    straight through as ``items``. Unrecognized/malformed group entries are
-    dropped rather than raising: the lint (Task 1.5) is the authoritative gate on
-    schema well-formedness, this is just the render-time adapter.
+    relative ``/u/<user>/`` path that nginx.conf.j2 (bind-nginx-reverse-proxy)
+    reverse-proxies to that user's loopback upstream — so, unlike ``landing_url``,
+    no deploy-host needs baking into the landing cards themselves. ``{type:
+    "links", label, links}`` passes ``links`` straight through as ``items``.
+    Unrecognized/malformed group entries are dropped rather than raising: the
+    lint (Task 1.5) is the authoritative gate on schema well-formedness, this is
+    just the render-time adapter.
     """
     groups_raw = landing_cfg.get("groups")
     if not isinstance(groups_raw, list) or not groups_raw:
@@ -151,13 +175,46 @@ def _build_groups(landing_cfg: dict[str, Any], users: list[str]) -> list[dict[st
         entry = _as_dict(entry)
         group_type = entry.get("type")
         if group_type == "users":
-            items = [{"label": user, "url": f"/{user}"} for user in users]
+            items = [{"label": user, "url": f"/u/{user}/"} for user in users]
             groups.append({"label": "Terminals", "items": items})
         elif group_type == "links":
             links = entry.get("links")
             items = [_as_dict(link) for link in links] if isinstance(links, list) else []
             groups.append({"label": entry.get("label") or "", "items": items})
     return groups
+
+
+def _auth_tls_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
+    """Read the optional, forward-looking ``web_terminals.auth``/``web_terminals.tls``
+    stanzas (Task 1.4's config contract) into the context keys the gated nginx seam
+    render (Task 1.3) consumes.
+
+    Both stanzas are entirely optional and default to the inert v1 posture: no
+    authentication, no TLS — identical trust model to Phase 1, only the access
+    boundary moves from host-port to URL-path. **This function does not render any
+    nginx seam block itself** — it only derives the defensively-read values; Task
+    1.3 is responsible for turning ``tls_enabled``/``auth_method`` into actual
+    `listen 443 ssl` / `auth_request` directives.
+
+    Args:
+        web_terminals: The already-unwrapped ``modules.web_terminals`` dict (as
+            passed to :func:`render_web_terminals`'s Jinja contexts).
+
+    Returns:
+        A dict with exactly four keys: ``auth_method`` (str, defaults to
+        ``"none"``), ``tls_enabled`` (bool, defaults to ``False``), and
+        ``tls_cert``/``tls_key`` (str path or ``None``, present only to be read
+        when ``tls_enabled`` is true).
+    """
+    auth = _as_dict(web_terminals.get("auth"))
+    tls = _as_dict(web_terminals.get("tls"))
+    auth_method = auth.get("method")
+    return {
+        "auth_method": auth_method if isinstance(auth_method, str) and auth_method else "none",
+        "tls_enabled": bool(tls.get("enabled", False)),
+        "tls_cert": tls.get("cert"),
+        "tls_key": tls.get("key"),
+    }
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
