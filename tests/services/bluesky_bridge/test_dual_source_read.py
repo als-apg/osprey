@@ -39,10 +39,10 @@ from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import app as app_module
 from osprey.services.bluesky_bridge import live_rows
-from osprey.services.bluesky_bridge.app import app, set_scanner_factory
+from osprey.services.bluesky_bridge.app import app, set_runner_factory
 from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
+from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
 from osprey.services.bluesky_bridge.runs import Run, do_promote, registry
-from osprey.services.bluesky_bridge.scanner import FakeScanner
 
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
@@ -60,13 +60,13 @@ def _isolated_state(monkeypatch: pytest.MonkeyPatch):
     """
     registry._runs.clear()
     live_rows._clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
     monkeypatch.delenv(_TILED_URI_ENV, raising=False)
     monkeypatch.delenv(_TILED_API_KEY_ENV, raising=False)
     yield
     registry._runs.clear()
     live_rows._clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
 
 
 @pytest.fixture
@@ -75,9 +75,9 @@ def client() -> TestClient:
 
 
 def _promoted_run_with_uid(run_uid: str) -> Run:
-    """A run promoted with a FakeScanner pre-seeded with `run_uid`."""
+    """A run promoted with a FakePlanRunner pre-seeded with `run_uid`."""
     run = registry.add(request={"plan_name": "count"})
-    do_promote(run, lambda: FakeScanner(run_uid=run_uid))
+    do_promote(run, lambda: FakePlanRunner(run_uid=run_uid))
     return run
 
 

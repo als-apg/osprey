@@ -15,7 +15,7 @@ Two things are proven for each exemplar: (1) it registers through the real
 layered-directory loader (`plan_loader.get_facility_plans`) with valid
 metadata and `provenance == "shipped"` — i.e. the file satisfies the catalog
 contract, not a hand-built `PlanSpec`; and (2) its `build_plan` drives a real
-bluesky `RunEngine` (via `BlueskyScanner`, mirroring
+bluesky `RunEngine` (via `BlueskyPlanRunner`, mirroring
 `test_orm_plan_integration.py`/`test_runengine_integration.py`'s harness) to
 completion against mock devices, emitting documents.
 """
@@ -32,13 +32,13 @@ ophyd_async = pytest.importorskip("ophyd_async")
 
 from osprey.services.bluesky_bridge import live_rows, plan_loader  # noqa: E402
 from osprey.services.bluesky_bridge.devices.mock import build_devices  # noqa: E402
+from osprey.services.bluesky_bridge.plan_runner_bluesky import BlueskyPlanRunner  # noqa: E402
 from osprey.services.bluesky_bridge.plans_core import grid_scan, response_matrix  # noqa: E402
-from osprey.services.bluesky_bridge.scanner_bluesky import BlueskyScanner  # noqa: E402
 
 
-def _wait_until_idle(scanner: BlueskyScanner, timeout: float = 15.0) -> None:
+def _wait_until_idle(runner: BlueskyPlanRunner, timeout: float = 15.0) -> None:
     deadline = time.monotonic() + timeout
-    while scanner.is_scanning_active():
+    while runner.is_run_active():
         if time.monotonic() > deadline:
             raise AssertionError("scan did not finish within the timeout")
         time.sleep(0.05)
@@ -104,7 +104,7 @@ def rm_devices() -> dict:
 
 def test_response_matrix_plan_runs_to_completion_and_buffers_rows(rm_devices: dict) -> None:
     facility = plan_loader.get_facility_plans()
-    scanner = BlueskyScanner(devices=rm_devices, plans=facility.plans)
+    runner = BlueskyPlanRunner(devices=rm_devices, plans=facility.plans)
     exec_config = {
         "plan_name": "response_matrix",
         "plan_args": {
@@ -115,17 +115,17 @@ def test_response_matrix_plan_runs_to_completion_and_buffers_rows(rm_devices: di
         },
     }
 
-    assert scanner.reinitialize(exec_config) is True
-    assert scanner.current_state == "armed"
+    assert runner.reinitialize(exec_config) is True
+    assert runner.current_state == "armed"
 
-    scanner.start_scan_thread()
-    _wait_until_idle(scanner)
+    runner.start_run_thread()
+    _wait_until_idle(runner)
 
-    assert scanner.error_message is None
-    assert scanner.current_state == "completed"
-    assert scanner.last_run_uid is not None
+    assert runner.error_message is None
+    assert runner.current_state == "completed"
+    assert runner.last_run_uid is not None
 
-    buf = live_rows.get(scanner.last_run_uid)
+    buf = live_rows.get(runner.last_run_uid)
     assert buf is not None
     # 2 correctors x 3 points each = one event (row) per (corrector, current).
     assert buf["total_seen"] == 6
@@ -150,7 +150,7 @@ def gs_devices() -> dict:
 
 def test_grid_scan_nd_plan_runs_to_completion_and_buffers_rows(gs_devices: dict) -> None:
     facility = plan_loader.get_facility_plans()
-    scanner = BlueskyScanner(devices=gs_devices, plans=facility.plans)
+    runner = BlueskyPlanRunner(devices=gs_devices, plans=facility.plans)
     exec_config = {
         "plan_name": "grid_scan_nd",
         "plan_args": {
@@ -162,18 +162,18 @@ def test_grid_scan_nd_plan_runs_to_completion_and_buffers_rows(gs_devices: dict)
         },
     }
 
-    assert scanner.reinitialize(exec_config) is True
-    assert scanner.current_state == "armed"
+    assert runner.reinitialize(exec_config) is True
+    assert runner.current_state == "armed"
 
-    scanner.start_scan_thread()
-    _wait_until_idle(scanner)
+    runner.start_run_thread()
+    _wait_until_idle(runner)
 
-    assert scanner.error_message is None
-    assert scanner.current_state == "completed"
-    assert scanner.last_run_uid is not None
-    assert scanner.estimate_current_completion() == 1.0
+    assert runner.error_message is None
+    assert runner.current_state == "completed"
+    assert runner.last_run_uid is not None
+    assert runner.estimate_current_completion() == 1.0
 
-    buf = live_rows.get(scanner.last_run_uid)
+    buf = live_rows.get(runner.last_run_uid)
     assert buf is not None
     # 2 x 3 grid = 6 total points.
     assert buf["total_seen"] == 6

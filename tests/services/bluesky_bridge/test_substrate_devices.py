@@ -2,7 +2,7 @@
 
 Covers ``osprey.services.bluesky_bridge.substrate_devices`` -- the single
 source shared by ``osprey deploy up`` (``container_lifecycle.
-_ensure_scan_substrate_env``) and ``tests/e2e/_orm_stack.py`` -- plus, in
+_ensure_bluesky_substrate_env``) and ``tests/e2e/_orm_stack.py`` -- plus, in
 ``TestEnsureScanSubstrateEnv`` below, the ``container_lifecycle`` deploy-path
 wiring itself (called directly, Docker-free, per task 3.5's test plan).
 """
@@ -197,7 +197,7 @@ class TestDeriveSubstrateEnv:
 
 
 class TestEnsureScanSubstrateEnv:
-    """Deploy-path wiring: ``container_lifecycle._ensure_scan_substrate_env``,
+    """Deploy-path wiring: ``container_lifecycle._ensure_bluesky_substrate_env``,
     called directly (Docker-free) rather than through the full ``deploy_up``.
     """
 
@@ -207,13 +207,13 @@ class TestEnsureScanSubstrateEnv:
         (data_dir / "channel_limits.json").write_text(json.dumps(_LIMITS), encoding="utf-8")
 
     def test_writes_substrate_env_when_va_backed_scan_stack(self, tmp_path) -> None:
-        from osprey.deployment.container_lifecycle import _ensure_scan_substrate_env
+        from osprey.deployment.container_lifecycle import _ensure_bluesky_substrate_env
 
         self._write_channel_limits(tmp_path)
         config = {"deployed_services": ["bluesky", "virtual_accelerator"]}
         env_path = tmp_path / ".env"
 
-        _ensure_scan_substrate_env(config, env_path=env_path)
+        _ensure_bluesky_substrate_env(config, env_path=env_path)
 
         from osprey.utils.dotenv import parse_dotenv_file
 
@@ -223,14 +223,14 @@ class TestEnsureScanSubstrateEnv:
         assert env[DETECTORS_ENV]
 
     def test_already_set_dotenv_values_are_preserved(self, tmp_path) -> None:
-        from osprey.deployment.container_lifecycle import _ensure_scan_substrate_env
+        from osprey.deployment.container_lifecycle import _ensure_bluesky_substrate_env
 
         self._write_channel_limits(tmp_path)
         env_path = tmp_path / ".env"
         env_path.write_text(f"{MOTORS_ENV}=operator_corrector=OP:SP|OP:RB\n", encoding="utf-8")
         config = {"deployed_services": ["bluesky", "virtual_accelerator"]}
 
-        _ensure_scan_substrate_env(config, env_path=env_path)
+        _ensure_bluesky_substrate_env(config, env_path=env_path)
 
         from osprey.utils.dotenv import parse_dotenv_file
 
@@ -242,14 +242,14 @@ class TestEnsureScanSubstrateEnv:
         assert env[DETECTORS_ENV]
 
     def test_already_set_process_env_values_are_preserved(self, tmp_path, monkeypatch) -> None:
-        from osprey.deployment.container_lifecycle import _ensure_scan_substrate_env
+        from osprey.deployment.container_lifecycle import _ensure_bluesky_substrate_env
 
         self._write_channel_limits(tmp_path)
         monkeypatch.setenv(SUBSTRATE_ENV, "0")
         config = {"deployed_services": ["bluesky", "virtual_accelerator"]}
         env_path = tmp_path / ".env"
 
-        _ensure_scan_substrate_env(config, env_path=env_path)
+        _ensure_bluesky_substrate_env(config, env_path=env_path)
 
         from osprey.utils.dotenv import parse_dotenv_file
 
@@ -261,46 +261,46 @@ class TestEnsureScanSubstrateEnv:
         assert env[DETECTORS_ENV]
 
     def test_no_write_without_virtual_accelerator_deployed(self, tmp_path) -> None:
-        from osprey.deployment.container_lifecycle import _ensure_scan_substrate_env
+        from osprey.deployment.container_lifecycle import _ensure_bluesky_substrate_env
 
         self._write_channel_limits(tmp_path)
         config = {"deployed_services": ["bluesky"]}
         env_path = tmp_path / ".env"
 
-        _ensure_scan_substrate_env(config, env_path=env_path)
+        _ensure_bluesky_substrate_env(config, env_path=env_path)
 
         assert not env_path.exists()
 
     def test_no_write_without_bluesky_deployed(self, tmp_path) -> None:
-        from osprey.deployment.container_lifecycle import _ensure_scan_substrate_env
+        from osprey.deployment.container_lifecycle import _ensure_bluesky_substrate_env
 
         self._write_channel_limits(tmp_path)
         config = {"deployed_services": ["virtual_accelerator"]}
         env_path = tmp_path / ".env"
 
-        _ensure_scan_substrate_env(config, env_path=env_path)
+        _ensure_bluesky_substrate_env(config, env_path=env_path)
 
         assert not env_path.exists()
 
     def test_missing_channel_limits_skips_without_raising(self, tmp_path) -> None:
-        from osprey.deployment.container_lifecycle import _ensure_scan_substrate_env
+        from osprey.deployment.container_lifecycle import _ensure_bluesky_substrate_env
 
         config = {"deployed_services": ["bluesky", "virtual_accelerator"]}
         env_path = tmp_path / ".env"
 
-        _ensure_scan_substrate_env(config, env_path=env_path)  # must not raise
+        _ensure_bluesky_substrate_env(config, env_path=env_path)  # must not raise
 
         assert not env_path.exists()
 
     def test_idempotent_no_duplicate_keys_on_second_run(self, tmp_path) -> None:
-        from osprey.deployment.container_lifecycle import _ensure_scan_substrate_env
+        from osprey.deployment.container_lifecycle import _ensure_bluesky_substrate_env
 
         self._write_channel_limits(tmp_path)
         config = {"deployed_services": ["bluesky", "virtual_accelerator"]}
         env_path = tmp_path / ".env"
 
-        _ensure_scan_substrate_env(config, env_path=env_path)
-        _ensure_scan_substrate_env(config, env_path=env_path)
+        _ensure_bluesky_substrate_env(config, env_path=env_path)
+        _ensure_bluesky_substrate_env(config, env_path=env_path)
 
         text = env_path.read_text(encoding="utf-8")
         assert text.count(f"{SUBSTRATE_ENV}=") == 1

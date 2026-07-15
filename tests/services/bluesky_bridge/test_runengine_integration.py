@@ -1,4 +1,4 @@
-"""RunEngine integration test for `BlueskyScanner` (task 2.7).
+"""RunEngine integration test for `BlueskyPlanRunner` (task 2.7).
 
 Runs ONLY in a bluesky-capable environment — `bluesky`/`ophyd-async` are
 never installed in the main worktree venv, so every test here is skipped via
@@ -13,7 +13,7 @@ bluesky installed at all. To actually run this file:
 Proves the full chain end to end: a real bluesky `RunEngine` running the
 built-in `scan`/`count` plans against mock ophyd-async devices
 (`devices/mock.py`) produces documents, the run reaches `completed`, its
-`error_message` stays unset, and `read_scan_data` (via the real bridge route,
+`error_message` stays unset, and `read_run_data` (via the real bridge route,
 not a patched one) returns the buffered rows.
 """
 
@@ -29,17 +29,17 @@ bluesky = pytest.importorskip("bluesky")
 ophyd_async = pytest.importorskip("ophyd_async")
 
 from osprey.services.bluesky_bridge import live_rows  # noqa: E402
-from osprey.services.bluesky_bridge.app import app, set_scanner_factory  # noqa: E402
+from osprey.services.bluesky_bridge.app import app, set_runner_factory  # noqa: E402
 from osprey.services.bluesky_bridge.devices.mock import build_devices  # noqa: E402
+from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner  # noqa: E402
+from osprey.services.bluesky_bridge.plan_runner_bluesky import BlueskyPlanRunner  # noqa: E402
 from osprey.services.bluesky_bridge.plans import BUILTIN_PLANS  # noqa: E402
 from osprey.services.bluesky_bridge.runs import do_promote, registry  # noqa: E402
-from osprey.services.bluesky_bridge.scanner import FakeScanner  # noqa: E402
-from osprey.services.bluesky_bridge.scanner_bluesky import BlueskyScanner  # noqa: E402
 
 
-def _wait_until_idle(scanner: BlueskyScanner, timeout: float = 15.0) -> None:
+def _wait_until_idle(runner: BlueskyPlanRunner, timeout: float = 15.0) -> None:
     deadline = time.monotonic() + timeout
-    while scanner.is_scanning_active():
+    while runner.is_run_active():
         if time.monotonic() > deadline:
             raise AssertionError("scan did not finish within the timeout")
         time.sleep(0.05)
@@ -49,11 +49,11 @@ def _wait_until_idle(scanner: BlueskyScanner, timeout: float = 15.0) -> None:
 def _isolated_state():
     registry._runs.clear()
     live_rows._clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
     yield
     registry._runs.clear()
     live_rows._clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
 
 
 @pytest.fixture(scope="module")
@@ -63,12 +63,12 @@ def mock_devices() -> dict:
 
 
 # =========================================================================
-# Direct scanner-level: RunEngine actually runs a bp.scan against mock devices
+# Direct runner-level: RunEngine actually runs a bp.scan against mock devices
 # =========================================================================
 
 
 def test_scan_plan_runs_to_completion_and_buffers_rows(mock_devices: dict) -> None:
-    scanner = BlueskyScanner(devices=mock_devices, plans=BUILTIN_PLANS)
+    runner = BlueskyPlanRunner(devices=mock_devices, plans=BUILTIN_PLANS)
     exec_config = {
         "plan_name": "scan",
         "plan_args": {
@@ -78,18 +78,18 @@ def test_scan_plan_runs_to_completion_and_buffers_rows(mock_devices: dict) -> No
         },
     }
 
-    assert scanner.reinitialize(exec_config) is True
-    assert scanner.current_state == "armed"
+    assert runner.reinitialize(exec_config) is True
+    assert runner.current_state == "armed"
 
-    scanner.start_scan_thread()
-    _wait_until_idle(scanner)
+    runner.start_run_thread()
+    _wait_until_idle(runner)
 
-    assert scanner.error_message is None
-    assert scanner.current_state == "completed"
-    assert scanner.last_run_uid is not None
-    assert scanner.estimate_current_completion() == 1.0
+    assert runner.error_message is None
+    assert runner.current_state == "completed"
+    assert runner.last_run_uid is not None
+    assert runner.estimate_current_completion() == 1.0
 
-    buf = live_rows.get(scanner.last_run_uid)
+    buf = live_rows.get(runner.last_run_uid)
     assert buf is not None
     assert buf["partial"] is False
     assert buf["total_seen"] == 3  # 3 points along the scan axis
@@ -98,15 +98,15 @@ def test_scan_plan_runs_to_completion_and_buffers_rows(mock_devices: dict) -> No
 
 
 def test_count_plan_against_mock_devices(mock_devices: dict) -> None:
-    scanner = BlueskyScanner(devices=mock_devices, plans=BUILTIN_PLANS)
+    runner = BlueskyPlanRunner(devices=mock_devices, plans=BUILTIN_PLANS)
     exec_config = {"plan_name": "count", "plan_args": {"detectors": ["det1"], "num": 4}}
 
-    assert scanner.reinitialize(exec_config) is True
-    scanner.start_scan_thread()
-    _wait_until_idle(scanner)
+    assert runner.reinitialize(exec_config) is True
+    runner.start_run_thread()
+    _wait_until_idle(runner)
 
-    assert scanner.error_message is None
-    buf = live_rows.get(scanner.last_run_uid)
+    assert runner.error_message is None
+    buf = live_rows.get(runner.last_run_uid)
     assert buf is not None
     assert buf["total_seen"] == 4
 
@@ -116,42 +116,42 @@ def test_reinitialize_bridges_an_async_device_factory(monkeypatch: pytest.Monkey
     would pass it (or an equivalent facility factory) directly rather than a
     pre-resolved dict. `reinitialize()` must bridge that, not assume sync.
     """
-    scanner = BlueskyScanner(
+    runner = BlueskyPlanRunner(
         devices=lambda: build_devices(motor_names=["motor1"], detector_names=["det1"]),
         plans=BUILTIN_PLANS,
     )
     exec_config = {"plan_name": "count", "plan_args": {"detectors": ["det1"], "num": 2}}
 
-    assert scanner.reinitialize(exec_config) is True
+    assert runner.reinitialize(exec_config) is True
 
-    scanner.start_scan_thread()
-    _wait_until_idle(scanner)
+    runner.start_run_thread()
+    _wait_until_idle(runner)
 
-    assert scanner.error_message is None
-    assert scanner.current_state == "completed"
-    buf = live_rows.get(scanner.last_run_uid)
+    assert runner.error_message is None
+    assert runner.current_state == "completed"
+    buf = live_rows.get(runner.last_run_uid)
     assert buf is not None
     assert buf["total_seen"] == 2
 
 
-def test_stop_scanning_thread_aborts_a_running_scan(mock_devices: dict) -> None:
-    scanner = BlueskyScanner(devices=mock_devices, plans=BUILTIN_PLANS)
+def test_stop_run_thread_aborts_a_running_scan(mock_devices: dict) -> None:
+    runner = BlueskyPlanRunner(devices=mock_devices, plans=BUILTIN_PLANS)
     exec_config = {"plan_name": "count", "plan_args": {"detectors": ["det1"], "num": 1000}}
 
-    assert scanner.reinitialize(exec_config) is True
-    scanner.start_scan_thread()
+    assert runner.reinitialize(exec_config) is True
+    runner.start_run_thread()
     time.sleep(0.1)  # let the scan actually get going before aborting it
 
-    scanner.stop_scanning_thread()
+    runner.stop_run_thread()
 
-    assert scanner.is_scanning_active() is False
-    assert scanner.current_state == "stopped"  # terminal state distinguishes stop from completed
-    assert scanner.error_message is None  # an intentional stop is not an error
+    assert runner.is_run_active() is False
+    assert runner.current_state == "stopped"  # terminal state distinguishes stop from completed
+    assert runner.error_message is None  # an intentional stop is not an error
 
 
 def test_run_thread_sets_error_state_when_the_plan_raises_mid_run(mock_devices: dict) -> None:
     """A plan that fails only once the RunEngine drives it in the daemon thread
-    (not during `reinitialize()`) must land the scanner in the 'error' terminal
+    (not during `reinitialize()`) must land the runner in the 'error' terminal
     state with `error_message` set. This exercises `_run()`'s thread-level
     failure branch — distinct from `reinitialize()`'s pre-thread validation
     failures (unknown plan/device) covered above, where no thread ever starts.
@@ -169,21 +169,21 @@ def test_run_thread_sets_error_state_when_the_plan_raises_mid_run(mock_devices: 
         raise RuntimeError("boom mid-plan")
         yield  # pragma: no cover - unreachable; present only to make this a generator
 
-    scanner = BlueskyScanner(
+    runner = BlueskyPlanRunner(
         devices=mock_devices,
         plans={"boom": PlanSpec(name="boom", plan=_boom_plan, schema=_NoParams)},
     )
 
     # Resolution succeeds — the failure is deferred to the RunEngine thread.
-    assert scanner.reinitialize({"plan_name": "boom", "plan_args": {}}) is True
-    assert scanner.current_state == "armed"
+    assert runner.reinitialize({"plan_name": "boom", "plan_args": {}}) is True
+    assert runner.current_state == "armed"
 
-    scanner.start_scan_thread()
-    _wait_until_idle(scanner)
+    runner.start_run_thread()
+    _wait_until_idle(runner)
 
-    assert scanner.current_state == "error"
-    assert scanner.error_message is not None
-    assert scanner.estimate_current_completion() != 1.0  # a failed run never reports 100%
+    assert runner.current_state == "error"
+    assert runner.error_message is not None
+    assert runner.estimate_current_completion() != 1.0  # a failed run never reports 100%
 
 
 # =========================================================================
@@ -192,22 +192,22 @@ def test_run_thread_sets_error_state_when_the_plan_raises_mid_run(mock_devices: 
 
 
 def test_reinitialize_returns_false_for_unknown_plan_name(mock_devices: dict) -> None:
-    scanner = BlueskyScanner(devices=mock_devices, plans=BUILTIN_PLANS)
-    ok = scanner.reinitialize({"plan_name": "does_not_exist", "plan_args": {}})
+    runner = BlueskyPlanRunner(devices=mock_devices, plans=BUILTIN_PLANS)
+    ok = runner.reinitialize({"plan_name": "does_not_exist", "plan_args": {}})
 
     assert ok is False
-    assert scanner.error_message is not None
-    assert scanner.current_state == "error"
+    assert runner.error_message is not None
+    assert runner.current_state == "error"
 
 
 def test_reinitialize_returns_false_for_an_unknown_device_name(mock_devices: dict) -> None:
-    scanner = BlueskyScanner(devices=mock_devices, plans=BUILTIN_PLANS)
-    ok = scanner.reinitialize(
+    runner = BlueskyPlanRunner(devices=mock_devices, plans=BUILTIN_PLANS)
+    ok = runner.reinitialize(
         {"plan_name": "count", "plan_args": {"detectors": ["no_such_detector"], "num": 1}}
     )
 
     assert ok is False
-    assert scanner.error_message is not None
+    assert runner.error_message is not None
 
 
 # =========================================================================
@@ -215,12 +215,12 @@ def test_reinitialize_returns_false_for_an_unknown_device_name(mock_devices: dic
 # =========================================================================
 
 
-def test_promoted_run_read_scan_data_returns_the_buffered_rows(
+def test_promoted_run_read_run_data_returns_the_buffered_rows(
     mock_devices: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """End-to-end through the real bridge route, not a patched buffer."""
     monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", "s3cr3t")
-    set_scanner_factory(lambda: BlueskyScanner(devices=mock_devices, plans=BUILTIN_PLANS))
+    set_runner_factory(lambda: BlueskyPlanRunner(devices=mock_devices, plans=BUILTIN_PLANS))
 
     client = TestClient(app)
     create_resp = client.post(
@@ -255,27 +255,27 @@ def test_promoted_run_read_scan_data_returns_the_buffered_rows(
 
 
 def test_do_promote_stamps_osprey_run_id_onto_the_start_doc(mock_devices: dict) -> None:
-    """`do_promote` (runs.py) sets `scanner.osprey_run_id = run.id`, and `_run`
-    (scanner_bluesky.py) must thread it onto the RunEngine start doc as
+    """`do_promote` (runs.py) sets `runner.osprey_run_id = run.id`, and `_run`
+    (plan_runner_bluesky.py) must thread it onto the RunEngine start doc as
     metadata — not nested under an `md` key — so a Tiled-persisted run can be
     found again by `run.id` after the in-memory registry (and `run_uid` with
     it) is gone.
     """
     docs: list[tuple[str, dict]] = []
 
-    def scanner_factory() -> BlueskyScanner:
-        scanner = BlueskyScanner(devices=mock_devices, plans=BUILTIN_PLANS)
-        scanner.RE.subscribe(lambda name, doc: docs.append((name, dict(doc))))
-        return scanner
+    def runner_factory() -> BlueskyPlanRunner:
+        runner = BlueskyPlanRunner(devices=mock_devices, plans=BUILTIN_PLANS)
+        runner.RE.subscribe(lambda name, doc: docs.append((name, dict(doc))))
+        return runner
 
     run = registry.add(
         request={"plan_name": "count", "plan_args": {"detectors": ["det1"], "num": 2}}
     )
 
-    do_promote(run, scanner_factory)
-    _wait_until_idle(run.scanner)
+    do_promote(run, runner_factory)
+    _wait_until_idle(run.runner)
 
-    assert run.scanner.osprey_run_id == run.id  # type: ignore[union-attr]
+    assert run.runner.osprey_run_id == run.id  # type: ignore[union-attr]
 
     start_docs = [doc for name, doc in docs if name == "start"]
     assert len(start_docs) == 1

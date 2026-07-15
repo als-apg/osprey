@@ -1,34 +1,34 @@
-"""Tests for the opt-in EPICS-substrate scanner startup wiring (task 2.3).
+"""Tests for the opt-in EPICS-substrate runner startup wiring (task 2.3).
 
-`app.py`'s `_lifespan` hook wires a real bluesky-backed `BlueskyScanner`
+`app.py`'s `_lifespan` hook wires a real bluesky-backed `BlueskyPlanRunner`
 against connector-mediated devices (built by `devices/connector.py` from a
 PV list parsed by `devices/_specs_from_env.py`, delegating every read/write
 to the bridge's single long-lived OSPREY connector — see task 2.1/2.2) ONLY
 when `BLUESKY_EPICS_SUBSTRATE` is truthy (`_is_epics_substrate_enabled`) AND
-bluesky/ophyd-async are importable — mirroring the mock demo scanner's
-guarded/lazy-import pattern (see `test_demo_scanner_wiring.py`) so the
+bluesky/ophyd-async are importable — mirroring the mock demo runner's
+guarded/lazy-import pattern (see `test_demo_runner_wiring.py`) so the
 Phase-1 "app.py import-clean of bluesky" invariant holds whether the extra is
 absent or the flag is unset. Exercised here:
 
 - `_is_epics_substrate_enabled()` directly, across the truthy/non-truthy
   value matrix (already covered exhaustively for the shared parsing logic by
-  `test_demo_scanner_wiring.py`'s `_is_demo_scanner_enabled` matrix; this
+  `test_demo_runner_wiring.py`'s `_is_demo_runner_enabled` matrix; this
   file only spot-checks it for the substrate flag's own name).
-- Flag absent: app.py stays import-clean and keeps the `FakeScanner` default.
+- Flag absent: app.py stays import-clean and keeps the `FakePlanRunner` default.
 - Flag truthy AND bluesky/ophyd-async present: the app wires a
-  `BlueskyScanner` whose device source is
+  `BlueskyPlanRunner` whose device source is
   `connector_devices.build_devices(motors, detectors, connector)`, built
   from `BLUESKY_EPICS_MOTORS`/`BLUESKY_EPICS_DETECTORS` and the bridge's
   single long-lived connector.
 - Flag truthy but the bluesky-bridge extra absent: guarded fallback to
-  `FakeScanner`, simulated by forcing `ophyd_async` out of `sys.modules` (see
+  `FakePlanRunner`, simulated by forcing `ophyd_async` out of `sys.modules` (see
   `_ophyd_async_absent`) since this environment actually has the extra
   installed.
-- Both `BLUESKY_EPICS_SUBSTRATE` and `BLUESKY_DEMO_SCANNER` set: the EPICS
+- Both `BLUESKY_EPICS_SUBSTRATE` and `BLUESKY_DEMO_RUNNER` set: the EPICS
   substrate wins, with a warning logged.
 - Task 2.5: `BLUESKY_TILED_URI` wires a `TiledWriter` subscription onto the
-  EPICS-substrate scanner. This path has no e2e coverage (unlike the demo
-  scanner's real-scan round trip in `test_demo_scanner_wiring.py`), so its
+  EPICS-substrate runner. This path has no e2e coverage (unlike the demo
+  runner's real-scan round trip in `test_demo_runner_wiring.py`), so its
   wiring is asserted explicitly here rather than left to an integration test.
 """
 
@@ -40,12 +40,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import app as app_module
-from osprey.services.bluesky_bridge.app import app, set_scanner_factory
+from osprey.services.bluesky_bridge.app import app, set_runner_factory
+from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
 from osprey.services.bluesky_bridge.runs import registry
-from osprey.services.bluesky_bridge.scanner import FakeScanner
 
 _SUBSTRATE_ENV = "BLUESKY_EPICS_SUBSTRATE"
-_DEMO_ENV = "BLUESKY_DEMO_SCANNER"
+_DEMO_ENV = "BLUESKY_DEMO_RUNNER"
 _MOTORS_ENV = "BLUESKY_EPICS_MOTORS"
 _DETECTORS_ENV = "BLUESKY_EPICS_DETECTORS"
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
@@ -54,7 +54,7 @@ _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 
 @pytest.fixture(autouse=True)
 def _isolated_state(monkeypatch: pytest.MonkeyPatch):
-    """Every test gets a clean flag set, registry, and scanner factory."""
+    """Every test gets a clean flag set, registry, and runner factory."""
     for var in (
         _SUBSTRATE_ENV,
         _DEMO_ENV,
@@ -65,10 +65,10 @@ def _isolated_state(monkeypatch: pytest.MonkeyPatch):
     ):
         monkeypatch.delenv(var, raising=False)
     registry._runs.clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
     yield
     registry._runs.clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
 
 
 @pytest.fixture
@@ -107,7 +107,7 @@ def _ophyd_async_absent(monkeypatch: pytest.MonkeyPatch):
 
 # =========================================================================
 # _is_epics_substrate_enabled(): spot-check (shared truthy-parsing logic is
-# exhaustively covered by test_demo_scanner_wiring.py's parallel matrix)
+# exhaustively covered by test_demo_runner_wiring.py's parallel matrix)
 # =========================================================================
 
 
@@ -133,7 +133,7 @@ def test_is_epics_substrate_enabled_false_when_absent(monkeypatch: pytest.Monkey
 
 
 # =========================================================================
-# Flag unset: app stays import-clean, FakeScanner default unchanged
+# Flag unset: app stays import-clean, FakePlanRunner default unchanged
 # =========================================================================
 
 
@@ -142,7 +142,7 @@ def test_flag_unset_stays_import_clean_and_keeps_fake_scanner_default() -> None:
         resp = client.get("/health")
         assert resp.status_code == 200
 
-    assert app_module._scanner_factory is FakeScanner
+    assert app_module._runner_factory is FakePlanRunner
 
 
 # =========================================================================
@@ -163,8 +163,8 @@ def test_flag_set_but_extra_absent_falls_back_to_fake_scanner(
             resp = client.get("/health")
             assert resp.status_code == 200
 
-    assert app_module._scanner_factory is FakeScanner
-    assert any("falling back to FakeScanner" in rec.message for rec in caplog.records)
+    assert app_module._runner_factory is FakePlanRunner
+    assert any("falling back to FakePlanRunner" in rec.message for rec in caplog.records)
 
 
 # =========================================================================
@@ -207,23 +207,23 @@ async def test_flag_set_with_extra_present_wires_connector_backed_scanner(
         resp = client.get("/health")
         assert resp.status_code == 200
 
-    assert app_module._scanner_factory is not FakeScanner
+    assert app_module._runner_factory is not FakePlanRunner
 
     from osprey.services.bluesky_bridge.devices.connector import (
         ConnectorReadable,
         ConnectorSettable,
     )
-    from osprey.services.bluesky_bridge.scanner_bluesky import BlueskyScanner
+    from osprey.services.bluesky_bridge.plan_runner_bluesky import BlueskyPlanRunner
 
-    scanner = app_module._scanner_factory()
-    assert isinstance(scanner, BlueskyScanner)
+    runner = app_module._runner_factory()
+    assert isinstance(runner, BlueskyPlanRunner)
     # `devices` is the bare async factory (not its awaited result) — matches
-    # `scanner_bluesky.BlueskyScanner._resolve_devices`'s expected shape.
-    assert callable(scanner._devices_source)
+    # `plan_runner_bluesky.BlueskyPlanRunner._resolve_devices`'s expected shape.
+    assert callable(runner._devices_source)
 
     # The factory builds connector-backed devices, mediated by the exact
     # connector `_lifespan` constructed — never raw-CA `epics.py` devices.
-    devices = await scanner._devices_source()
+    devices = await runner._devices_source()
     assert isinstance(devices["mot1"], ConnectorSettable)
     assert devices["mot1"]._osprey_connector is spy_connector
     assert isinstance(devices["det1"], ConnectorReadable)
@@ -242,7 +242,7 @@ def test_flag_set_with_no_pv_env_wires_scanner_with_zero_devices(
     with TestClient(app):
         pass
 
-    assert app_module._scanner_factory is not FakeScanner
+    assert app_module._runner_factory is not FakePlanRunner
 
 
 # =========================================================================
@@ -265,19 +265,19 @@ def test_both_flags_set_epics_substrate_wins(
             resp = client.get("/health")
             assert resp.status_code == 200
 
-    assert app_module._scanner_factory is not FakeScanner
+    assert app_module._runner_factory is not FakePlanRunner
     assert any("takes precedence" in rec.message for rec in caplog.records)
 
-    from osprey.services.bluesky_bridge.scanner_bluesky import BlueskyScanner
+    from osprey.services.bluesky_bridge.plan_runner_bluesky import BlueskyPlanRunner
 
-    scanner = app_module._scanner_factory()
-    assert isinstance(scanner, BlueskyScanner)
-    # Substrate scanners are built with `plans=None` too (task 2.5), same as
+    runner = app_module._runner_factory()
+    assert isinstance(runner, BlueskyPlanRunner)
+    # Substrate runners are built with `plans=None` too (task 2.5), same as
     # the demo path — so `reinitialize()` resolves plan names through
     # `_default_plan_registry()` (built-ins merged with the gated
     # `get_facility_plans().plans`), letting a validated session/facility
     # plan launch on this connector-mediated path.
-    assert scanner._plans is None
+    assert runner._plans is None
 
 
 # =========================================================================
@@ -287,7 +287,7 @@ def test_both_flags_set_epics_substrate_wins(
 
 def test_tiled_uri_set_subscribes_a_tiled_writer(monkeypatch: pytest.MonkeyPatch) -> None:
     """`_build_tiled_writer_factory` reaches all the way through to a real
-    `TiledWriter.from_uri(uri, api_key=...)` call once `BlueskyScanner` is
+    `TiledWriter.from_uri(uri, api_key=...)` call once `BlueskyPlanRunner` is
     built — spying on `from_uri` (rather than actually connecting) keeps this
     a unit test while still exercising the real wiring path end to end.
     """
@@ -311,19 +311,19 @@ def test_tiled_uri_set_subscribes_a_tiled_writer(monkeypatch: pytest.MonkeyPatch
     with TestClient(app):
         pass
 
-    from osprey.services.bluesky_bridge.scanner_bluesky import BlueskyScanner
+    from osprey.services.bluesky_bridge.plan_runner_bluesky import BlueskyPlanRunner
 
-    scanner = app_module._scanner_factory()
-    assert isinstance(scanner, BlueskyScanner)
+    runner = app_module._runner_factory()
+    assert isinstance(runner, BlueskyPlanRunner)
     assert calls == [("http://tiled:8000", {"api_key": "test-api-key"})]
-    assert scanner.tiled_degraded is False
+    assert runner.tiled_degraded is False
 
 
 def test_tiled_uri_unset_builds_scanner_with_no_tiled_subscription(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Default (no Tiled configured) behaves exactly like Phase 1: `_build_tiled_writer_factory`
-    returns `None`, so `BlueskyScanner.__init__` never imports or calls `TiledWriter` at all.
+    returns `None`, so `BlueskyPlanRunner.__init__` never imports or calls `TiledWriter` at all.
     """
     pytest.importorskip("bluesky")
     pytest.importorskip("ophyd_async")
@@ -336,7 +336,7 @@ def test_tiled_uri_unset_builds_scanner_with_no_tiled_subscription(
 
     assert app_module._build_tiled_writer_factory() is None
 
-    from osprey.services.bluesky_bridge.scanner_bluesky import BlueskyScanner
+    from osprey.services.bluesky_bridge.plan_runner_bluesky import BlueskyPlanRunner
 
-    scanner = app_module._scanner_factory()
-    assert isinstance(scanner, BlueskyScanner)
+    runner = app_module._runner_factory()
+    assert isinstance(runner, BlueskyPlanRunner)

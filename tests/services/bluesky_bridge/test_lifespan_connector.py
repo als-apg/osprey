@@ -6,12 +6,12 @@
 EPICS substrate is enabled (`_is_epics_substrate_enabled()`) and the
 bluesky-bridge extra is importable, holds it as the module-level `_connector`
 singleton for the process's whole lifetime, and disconnects it exactly once
-on shutdown. The connector IS wired into the scanner factory
-(`_epics_scanner_factory` builds devices via `connector_devices.build_devices`,
+on shutdown. The connector IS wired into the runner factory
+(`_epics_runner_factory` builds devices via `connector_devices.build_devices`,
 connector-mediated) — device construction is exercised here only insofar as
 it touches connector construct/hold/disconnect; the mock connector's
 readbacks do not track setpoints, so a scan does not run to completion
-against it (mock mode is for browsing/UI, not for running scans).
+against it (mock mode is for browsing/UI, not for running plans).
 
 Exercised here:
 
@@ -41,12 +41,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import app as app_module
-from osprey.services.bluesky_bridge.app import app, set_scanner_factory
+from osprey.services.bluesky_bridge.app import app, set_runner_factory
+from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
 from osprey.services.bluesky_bridge.runs import registry
-from osprey.services.bluesky_bridge.scanner import FakeScanner
 
 _SUBSTRATE_ENV = "BLUESKY_EPICS_SUBSTRATE"
-_DEMO_ENV = "BLUESKY_DEMO_SCANNER"
+_DEMO_ENV = "BLUESKY_DEMO_RUNNER"
 _MOTORS_ENV = "BLUESKY_EPICS_MOTORS"
 _DETECTORS_ENV = "BLUESKY_EPICS_DETECTORS"
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
@@ -55,7 +55,7 @@ _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 
 @pytest.fixture(autouse=True)
 def _isolated_state(monkeypatch: pytest.MonkeyPatch):
-    """Every test gets a clean flag set, registry, scanner factory, and connector global."""
+    """Every test gets a clean flag set, registry, runner factory, and connector global."""
     for var in (
         _SUBSTRATE_ENV,
         _DEMO_ENV,
@@ -66,11 +66,11 @@ def _isolated_state(monkeypatch: pytest.MonkeyPatch):
     ):
         monkeypatch.delenv(var, raising=False)
     registry._runs.clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
     app_module._connector = None
     yield
     registry._runs.clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
     app_module._connector = None
 
 
@@ -172,7 +172,7 @@ def test_lifespan_builds_mock_connector_when_control_system_type_is_mock(
     connector using the real corrector/BPM channel names. This is
     construction-only: the mock connector's readbacks do not track
     setpoints, so a settle-verified scan would not complete against it
-    (mock mode is for browsing/UI, not for running scans).
+    (mock mode is for browsing/UI, not for running plans).
     """
     pytest.importorskip("bluesky")
     pytest.importorskip("ophyd_async")
@@ -247,7 +247,7 @@ def test_lifespan_defaults_to_mock_connector_when_control_system_type_unreadable
 
 
 def test_lifespan_does_not_construct_connector_when_flag_unset() -> None:
-    """No EPICS substrate, no connector — mirrors the existing FakeScanner-default test."""
+    """No EPICS substrate, no connector — mirrors the existing FakePlanRunner-default test."""
     with TestClient(app) as client:
         resp = client.get("/health")
         assert resp.status_code == 200
@@ -260,7 +260,7 @@ def test_lifespan_does_not_construct_connector_when_extra_absent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Substrate flag set but the bluesky-bridge extra missing: fall back to
-    `FakeScanner` with no connector constructed at all (mirrors the existing
+    `FakePlanRunner` with no connector constructed at all (mirrors the existing
     `test_flag_set_but_extra_absent_falls_back_to_fake_scanner` simulation).
     """
     purged = {
@@ -282,7 +282,7 @@ def test_lifespan_does_not_construct_connector_when_extra_absent(
             assert resp.status_code == 200
             assert app_module.get_connector() is None
 
-        assert app_module._scanner_factory is FakeScanner
+        assert app_module._runner_factory is FakePlanRunner
         assert app_module.get_connector() is None
     finally:
         for name, mod in purged.items():

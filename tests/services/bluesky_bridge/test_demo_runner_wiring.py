@@ -1,8 +1,8 @@
-"""Tests for the opt-in demo-scanner FastAPI startup wiring (task 2.14a).
+"""Tests for the opt-in demo-runner FastAPI startup wiring (task 2.14a).
 
-`app.py`'s `_lifespan` hook wires a real bluesky-backed `BlueskyScanner`
-(against mock ophyd-async devices) ONLY when `BLUESKY_DEMO_SCANNER` is truthy
-(`_is_demo_scanner_enabled`) AND bluesky is importable — mirroring the
+`app.py`'s `_lifespan` hook wires a real bluesky-backed `BlueskyPlanRunner`
+(against mock ophyd-async devices) ONLY when `BLUESKY_DEMO_RUNNER` is truthy
+(`_is_demo_runner_enabled`) AND bluesky is importable — mirroring the
 `/plans` route's guarded/lazy-import pattern so the Phase-1 "app.py
 import-clean of bluesky" invariant holds whether the extra is absent or the
 flag is unset. The truthy check deliberately accepts a few equivalent
@@ -13,18 +13,18 @@ own house convention is `"true"`, matching `container_lifecycle.py`'s
 `DEV_MODE="true"`, but this hook is not brittle to that one spelling).
 Exercised here:
 
-- `_is_demo_scanner_enabled()` directly, across the full truthy/non-truthy
+- `_is_demo_runner_enabled()` directly, across the full truthy/non-truthy
   value matrix (fast, no TestClient/lifespan needed).
 - Flag absent, or a non-truthy value, or set but bluesky absent: app.py
-  stays import-clean and falls back to `FakeScanner` — runs entirely in the
+  stays import-clean and falls back to `FakePlanRunner` — runs entirely in the
   main venv, no bluesky.
 - Flag truthy (both "1" and "true", the two production-relevant spellings)
-  AND bluesky present: the app wires `BlueskyScanner`, and a full
-  promote -> scan -> read_scan_data round trip returns real buffered rows.
+  AND bluesky present: the app wires `BlueskyPlanRunner`, and a full
+  promote -> scan -> read_run_data round trip returns real buffered rows.
   Guarded with `pytest.importorskip` so these are skipped (not failed) when
   bluesky isn't installed, keeping `ci_check` green.
 - Task 2.5: `BLUESKY_TILED_URI` wires a `TiledWriter` subscription onto the
-  demo scanner, without disturbing the mock-devices round trip above (the
+  demo runner, without disturbing the mock-devices round trip above (the
   real e2e coverage for this path).
 """
 
@@ -37,11 +37,11 @@ from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import app as app_module
 from osprey.services.bluesky_bridge import live_rows
-from osprey.services.bluesky_bridge.app import app, set_scanner_factory
+from osprey.services.bluesky_bridge.app import app, set_runner_factory
+from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
 from osprey.services.bluesky_bridge.runs import registry
-from osprey.services.bluesky_bridge.scanner import FakeScanner
 
-_ENV_VAR = "BLUESKY_DEMO_SCANNER"
+_ENV_VAR = "BLUESKY_DEMO_RUNNER"
 _TOKEN_VAR = "BLUESKY_PROMOTE_TOKEN"
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
@@ -49,46 +49,46 @@ _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 
 @pytest.fixture(autouse=True)
 def _isolated_state(monkeypatch: pytest.MonkeyPatch):
-    """Every test gets a clean flag, registry, live-row buffer, and scanner factory."""
+    """Every test gets a clean flag, registry, live-row buffer, and runner factory."""
     for var in (_ENV_VAR, _TILED_URI_ENV, _TILED_API_KEY_ENV):
         monkeypatch.delenv(var, raising=False)
     registry._runs.clear()
     live_rows._clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
     yield
     registry._runs.clear()
     live_rows._clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
 
 
 # =========================================================================
-# _is_demo_scanner_enabled(): the full truthy/non-truthy value matrix
+# _is_demo_runner_enabled(): the full truthy/non-truthy value matrix
 # =========================================================================
 
 
 @pytest.mark.parametrize("value", ["1", "true", "TRUE", " true ", "yes", "YES", "on", "On"])
-def test_is_demo_scanner_enabled_accepts_truthy_variants(
+def test_is_demo_runner_enabled_accepts_truthy_variants(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
     monkeypatch.setenv(_ENV_VAR, value)
-    assert app_module._is_demo_scanner_enabled() is True
+    assert app_module._is_demo_runner_enabled() is True
 
 
 @pytest.mark.parametrize("value", ["false", "0", "no", "off", "", "bogus"])
-def test_is_demo_scanner_enabled_rejects_non_truthy_variants(
+def test_is_demo_runner_enabled_rejects_non_truthy_variants(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
     monkeypatch.setenv(_ENV_VAR, value)
-    assert app_module._is_demo_scanner_enabled() is False
+    assert app_module._is_demo_runner_enabled() is False
 
 
-def test_is_demo_scanner_enabled_false_when_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_is_demo_runner_enabled_false_when_absent(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(_ENV_VAR, raising=False)
-    assert app_module._is_demo_scanner_enabled() is False
+    assert app_module._is_demo_runner_enabled() is False
 
 
 # =========================================================================
-# Flag unset/off: app stays import-clean, FakeScanner default unchanged
+# Flag unset/off: app stays import-clean, FakePlanRunner default unchanged
 # =========================================================================
 
 
@@ -97,7 +97,7 @@ def test_flag_unset_stays_import_clean_and_keeps_fake_scanner_default() -> None:
         resp = client.get("/health")
         assert resp.status_code == 200
 
-    assert app_module._scanner_factory is FakeScanner
+    assert app_module._runner_factory is FakePlanRunner
 
 
 def test_flag_false_is_treated_as_off_not_on(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -111,7 +111,7 @@ def test_flag_false_is_treated_as_off_not_on(monkeypatch: pytest.MonkeyPatch) ->
         resp = client.get("/health")
         assert resp.status_code == 200
 
-    assert app_module._scanner_factory is FakeScanner
+    assert app_module._runner_factory is FakePlanRunner
 
 
 # =========================================================================
@@ -137,8 +137,8 @@ def test_flag_set_but_bluesky_absent_falls_back_to_fake_scanner(
             resp = client.get("/health")
             assert resp.status_code == 200
 
-    assert app_module._scanner_factory is FakeScanner
-    assert any("falling back to FakeScanner" in rec.message for rec in caplog.records)
+    assert app_module._runner_factory is FakePlanRunner
+    assert any("falling back to FakePlanRunner" in rec.message for rec in caplog.records)
 
 
 # =========================================================================
@@ -157,7 +157,7 @@ def test_flag_set_with_bluesky_present_wires_and_completes_a_real_scan(
     monkeypatch.setenv(_TOKEN_VAR, "s3cr3t")
 
     with TestClient(app) as client:
-        assert app_module._scanner_factory is not FakeScanner
+        assert app_module._runner_factory is not FakePlanRunner
 
         create_resp = client.post(
             "/runs",
@@ -194,7 +194,7 @@ def test_flag_set_with_bluesky_present_wires_and_completes_a_real_scan(
 
 def test_tiled_uri_set_subscribes_a_tiled_writer(monkeypatch: pytest.MonkeyPatch) -> None:
     """Mirrors `test_epics_substrate_scanner_wiring.py`'s equivalent assertion
-    for the demo scanner factory — spying on `TiledWriter.from_uri` keeps this
+    for the demo runner factory — spying on `TiledWriter.from_uri` keeps this
     a fast unit test while still exercising the real wiring path end to end,
     independent of the mock-devices round trip above (the real e2e coverage
     for this path).
@@ -218,19 +218,19 @@ def test_tiled_uri_set_subscribes_a_tiled_writer(monkeypatch: pytest.MonkeyPatch
     with TestClient(app):
         pass
 
-    from osprey.services.bluesky_bridge.scanner_bluesky import BlueskyScanner
+    from osprey.services.bluesky_bridge.plan_runner_bluesky import BlueskyPlanRunner
 
-    scanner = app_module._scanner_factory()
-    assert isinstance(scanner, BlueskyScanner)
+    runner = app_module._runner_factory()
+    assert isinstance(runner, BlueskyPlanRunner)
     assert calls == [("http://tiled:8000", {"api_key": "test-api-key"})]
-    assert scanner.tiled_degraded is False
+    assert runner.tiled_degraded is False
 
 
 def test_tiled_uri_unset_builds_scanner_with_no_tiled_subscription(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Default (no Tiled configured) behaves exactly like Phase 1: `_build_tiled_writer_factory`
-    returns `None`, so `BlueskyScanner.__init__` never imports or calls `TiledWriter` at all.
+    returns `None`, so `BlueskyPlanRunner.__init__` never imports or calls `TiledWriter` at all.
     """
     pytest.importorskip("bluesky")
     pytest.importorskip("ophyd_async")
@@ -242,7 +242,7 @@ def test_tiled_uri_unset_builds_scanner_with_no_tiled_subscription(
 
     assert app_module._build_tiled_writer_factory() is None
 
-    from osprey.services.bluesky_bridge.scanner_bluesky import BlueskyScanner
+    from osprey.services.bluesky_bridge.plan_runner_bluesky import BlueskyPlanRunner
 
-    scanner = app_module._scanner_factory()
-    assert isinstance(scanner, BlueskyScanner)
+    runner = app_module._runner_factory()
+    assert isinstance(runner, BlueskyPlanRunner)
