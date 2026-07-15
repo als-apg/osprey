@@ -137,6 +137,40 @@ def _is_epics_substrate_enabled() -> bool:
     return os.environ.get(_EPICS_SUBSTRATE_ENV, "").strip().lower() in _TRUTHY_VALUES
 
 
+# Connector types the EPICS-substrate branch knows how to build a gateway-less
+# `type_config` for — real Channel Access, whether against a virtual
+# accelerator soft-IOC or live hardware.
+_EPICS_LIKE_CONNECTOR_TYPES = ("virtual_accelerator", "epics")
+
+
+def _resolve_control_system_type() -> str:
+    """Read `control_system.type` from the bridge's mounted project config.
+
+    Single source of truth (Connector = the single control-system interface):
+    one config line flips the whole scan stack between the mock connector and
+    real Channel Access (virtual accelerator or live hardware) — see the
+    `control-assistant` preset's `config.control_system.type` comment.
+
+    Fail-SAFE default: `"mock"` whenever the config can't be read at all (no
+    project config context — most unit-test environments — or a transient
+    lookup failure), never `"virtual_accelerator"`/`"epics"` — the mock
+    connector never touches Channel Access, so an unreadable config can never
+    silently connect to real hardware. Mirrors
+    `_assert_limits_readable_if_writable`'s "no project config context ->
+    treat as absent, don't block" handling of the same exception set.
+    """
+    from osprey.utils.config import get_config_value
+
+    try:
+        control_system_type = get_config_value("control_system.type", "mock")
+    except (FileNotFoundError, KeyError, RuntimeError):
+        return "mock"
+
+    if not control_system_type or not isinstance(control_system_type, str):
+        return "mock"
+    return control_system_type
+
+
 def _build_tiled_writer_factory() -> Callable[[], Any] | None:
     """Build the `tiled_writer_factory` `BlueskyScanner` accepts, or `None` if Tiled is unconfigured.
 
@@ -309,31 +343,70 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
             # combination starts normally.
             _assert_limits_readable_if_writable()
 
-            # Task 2.1: construct the single long-lived OSPREY connector this
-            # bridge holds for its whole process lifetime. `osprey.connectors.factory`
-            # and `epics_connector` are import-safe even in a base install (pyepics
-            # is imported lazily inside `EPICSConnector.connect()`), but the import
-            # stays inside this already-guarded branch regardless. A gateway-less
-            # `type_config` (no "gateways" key) makes `connect()` skip the block
-            # that sets process-wide `EPICS_CA_*` env, so the compose-inherited
-            # `EPICS_CA_NAME_SERVERS` (pointing at the virtual accelerator or real
-            # hardware) survives untouched (FR8/CF-1) — and it needs no running CA
-            # server, so this is safe to do unconditionally at startup.
+            # Task 3.4: construct the single long-lived OSPREY connector this
+            # bridge holds for its whole process lifetime, built from the
+            # project's `control_system.type` (Connector = the single
+            # control-system interface) rather than a hardcoded
+            # `virtual_accelerator` — one config line now flips the whole
+            # scan stack between the mock connector and real Channel Access.
+            # `osprey.connectors.factory` and `epics_connector` are
+            # import-safe even in a base install (pyepics is imported lazily
+            # inside `EPICSConnector.connect()`), but the import stays inside
+            # this already-guarded branch regardless.
+            #
+            # For the EPICS-like types (`virtual_accelerator`/`epics`), the
+            # `type_config` stays gateway-less (no "gateways" key) exactly as
+            # before — this makes `connect()` skip the block that sets
+            # process-wide `EPICS_CA_*` env, so the compose-inherited
+            # `EPICS_CA_NAME_SERVERS` (pointing at the virtual accelerator or
+            # real hardware) survives untouched (FR8/CF-1) — and it needs no
+            # running CA server, so this is safe to do unconditionally at
+            # startup. `control_system.type: virtual_accelerator` therefore
+            # yields the exact same `type_config` this branch always built.
+            #
+            # For `mock`, the connector-mediated devices below (built by
+            # `connector_devices.build_devices` from the real corrector/BPM
+            # channel names) construct fine against the mock connector, but a
+            # scan will NOT complete on it: the mock connector accepts writes,
+            # yet its readbacks simulate a non-tracking base value rather than
+            # tracking the setpoint, so a settle-verified corrector move
+            # (`ConnectorSettable.set`) never sees its target and times out.
+            # This is intentional — mock mode is for browsing/UI only; running
+            # an actual scan requires a setpoint-tracking control system
+            # (`virtual_accelerator` or `epics`), selected via
+            # `control_system.type`.
             from osprey.connectors.factory import (
                 ConnectorFactory,
                 register_builtin_connectors,
             )
 
+            control_system_type = _resolve_control_system_type()
+            if control_system_type in _EPICS_LIKE_CONNECTOR_TYPES:
+                connector_type_config: dict[str, Any] = {
+                    "type": control_system_type,
+                    "connector": {control_system_type: {"timeout": 5.0}},
+                }
+            else:
+                # "mock" (the fail-safe default), or any other resolved type
+                # the bridge doesn't special-case: forward the type name
+                # through with no type-specific config (mock needs none) so
+                # an unrecognized value surfaces as `ConnectorFactory`'s own
+                # clear "Unknown control system type" error rather than being
+                # silently mis-wired to a connector the operator didn't ask for.
+                connector_type_config = {
+                    "type": control_system_type,
+                    "connector": {control_system_type: {}},
+                }
+
             register_builtin_connectors()  # idempotent (CF-3); must run before create
             _connector = await ConnectorFactory.create_control_system_connector(
-                {
-                    "type": "virtual_accelerator",
-                    "connector": {"virtual_accelerator": {"timeout": 5.0}},
-                }
+                connector_type_config
             )
             logger.info(
-                "%s is enabled: connected the bridge's single long-lived OSPREY connector (%s)",
+                "%s is enabled: connected the bridge's single long-lived OSPREY connector "
+                "(control_system.type=%s, %s)",
                 _EPICS_SUBSTRATE_ENV,
+                control_system_type,
                 type(_connector).__name__,
             )
 
