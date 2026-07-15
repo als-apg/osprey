@@ -127,7 +127,7 @@ dependencies = [
 [project.optional-dependencies]
 # Documentation dependencies (for building docs only)
 docs = [
-    "sphinx>=8.0.0",
+    "sphinx>=9.0.4",
     "pydata-sphinx-theme",
     "myst-parser",
     "sphinx-copybutton",
