@@ -38,9 +38,9 @@ function renderContainer(jsonString) {
 
 const MCP_JSON = JSON.stringify({
   mcpServers: {
-    scan: {
+    bluesky: {
       command: 'python',
-      args: ['-m', 'osprey.mcp_server.scan'],
+      args: ['-m', 'osprey.mcp_server.bluesky'],
       env: { SCAN_TOKEN: '${SCAN_TOKEN}' },
     },
   },
@@ -141,7 +141,7 @@ describe('renderMcpJson', () => {
 
     const card = qs(container, '.config-mcp-card');
     expect(card).not.toBeNull();
-    expect(qs(card, '.config-mcp-card-name').textContent).toBe('scan');
+    expect(qs(card, '.config-mcp-card-name').textContent).toBe('bluesky');
     // Loading placeholder present before enrichment lands.
     expect(card.querySelector('.config-mcp-tools-loading')).not.toBeNull();
   });
@@ -152,11 +152,11 @@ describe('renderMcpJson', () => {
         ok: true,
         json: () => Promise.resolve([
           {
-            name: 'scan',
-            description: 'Bluesky scan control server.',
+            name: 'bluesky',
+            description: 'Bluesky plan/run control server.',
             tool_count: 1,
             tools: [
-              { name: 'start_scan', description: 'Args:\n    plan: The scan plan name.' },
+              { name: 'launch_run', description: 'Args:\n    plan: The plan name.' },
             ],
           },
         ]),
@@ -170,14 +170,14 @@ describe('renderMcpJson', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     await new Promise((resolve) => setTimeout(resolve, 0));
 
-    expect(qs(card, '.config-mcp-card-desc').textContent).toBe('Bluesky scan control server.');
+    expect(qs(card, '.config-mcp-card-desc').textContent).toBe('Bluesky plan/run control server.');
     const badge = qs(card, '.config-mcp-tool-count');
     expect(badge.textContent).toBe('1');
     expect(badge.style.display).not.toBe('none');
     expect(card.querySelector('.config-mcp-tools-loading')).toBeNull();
     const toolItem = qs(card, '.config-mcp-tool-item');
     expect(toolItem).not.toBeNull();
-    expect(qs(toolItem, '.config-mcp-tool-name').textContent).toBe('start_scan');
+    expect(qs(toolItem, '.config-mcp-tool-name').textContent).toBe('launch_run');
   });
 
   test('falls back to "tools not available" when the fetch rejects', async () => {

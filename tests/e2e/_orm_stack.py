@@ -6,7 +6,7 @@ Bluesky bridge + co-deployed Tiled catalog with
 container`` (so ``BLUESKY_PROMOTE_TOKEN`` mints safely and the agent can arm
 -- see ``container_lifecycle.py``'s ``_local_exec_arming_unsafe``), and the
 ``scan`` MCP server enabled (``default_enabled=False`` in the framework
-registry; opted in here via ``claude_code.servers.scan.enabled``). Corrector
+registry; opted in here via ``claude_code.servers.bluesky.enabled``). Corrector
 setpoints and BPM readbacks are wired into ``BLUESKY_EPICS_MOTORS``/
 ``_DETECTORS`` from the *built* project's own ``channel_limits.json`` --
 never a hardcoded preset channel (mirrors
@@ -31,7 +31,7 @@ e2e/agentic tests need a live stack).
 canonical derivation in
 ``osprey.services.bluesky_bridge.substrate_devices`` (the single source of
 this logic, also used by ``osprey deploy up`` to auto-configure a VA-backed
-scan stack's ``.env`` -- see ``container_lifecycle._ensure_scan_substrate_env``).
+scan stack's ``.env`` -- see ``container_lifecycle._ensure_bluesky_substrate_env``).
 This module keeps its own public API/signatures/defaults unchanged so every
 existing e2e importer is unaffected.
 """
@@ -100,7 +100,7 @@ def override_yaml() -> str:
         "config:\n"
         "  control_system.type: virtual_accelerator\n"
         "  execution.execution_method: container\n"
-        "  claude_code.servers.scan.enabled: true\n"
+        "  claude_code.servers.bluesky.enabled: true\n"
         "dispatch: null\n"
     )
 

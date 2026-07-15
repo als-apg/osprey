@@ -1,7 +1,7 @@
 """Full-stack Docker integration test for the Phase-6 "Operator Interfaces"
-scan panels (task 4.3, scan-panels-deploy-e2e) -- the gold-standard proof
+scan panels (task 4.3, bluesky-panels-deploy-e2e) -- the gold-standard proof
 that the turn-key tutorial stack (Virtual Accelerator + Bluesky bridge +
-co-deployed Tiled + the scan-panels sidecar + its three web panels) boots as
+co-deployed Tiled + the bluesky-panels sidecar + its three web panels) boots as
 real containers and drives a real scan end to end through the sidecar.
 
 Reuses ``tests/e2e/_orm_stack.py`` (the single source for FR11's VA-backed
@@ -15,10 +15,10 @@ build the real project; ``select_correctors``/``select_bpms``/
 ``write_scan_env`` wire the substrate device env from the *built* project's
 own ``data/channel_limits.json`` -- never a hardcoded preset channel. The one
 thing ``_orm_stack.build_args``/``build_project_subprocess`` don't parameterize
-is the scan-panels sidecar's port, so this module calls ``override_yaml``/
+is the bluesky-panels sidecar's port, so this module calls ``override_yaml``/
 ``build_args``/``find_osprey_console_script`` directly (mirroring what
 ``build_project_subprocess`` does internally) and appends one extra
-``--set scan_panels.port=...`` override.
+``--set bluesky_panels.port=...`` override.
 
 Plan discovery (test 4/5's headline): ``GET /plans`` through the sidecar's
 read-proxy is scanned for a plan whose ``metadata.writes`` is ``True`` (the
@@ -51,8 +51,8 @@ never leaves the stack degraded for a later run.
 
 CONTAINER SAFETY: every docker/compose invocation below names an EXACT
 resource (``<project>-bluesky-bridge``, ``<project>-virtual-accelerator``,
-``<project>-scan-panels``, images ``osprey-bluesky-bridge:local``/
-``osprey-va:local``/``osprey-scan-panels:local``) -- never ``system prune``,
+``<project>-bluesky-panels``, images ``osprey-bluesky-bridge:local``/
+``osprey-va:local``/``osprey-bluesky-panels:local``) -- never ``system prune``,
 never ``--volumes``, never a wildcard ``docker rm``/``rmi``. Teardown goes
 through ``osprey deploy down`` (the shipped compose path), and the one
 mid-test ``docker stop``/``docker start`` (test 6) names the VA container
@@ -62,7 +62,7 @@ Gating: needs Docker; the VA image builds natively for the host arch (PyAT/
 softioc compile from source on Apple Silicon -- slow on a cold image cache).
 Lives in ``tests/e2e/`` (never collected by the fast lane -- see ``ci_check.
 sh``/ci.yml's ``test`` job's ``--ignore=tests/e2e``); runs in its own
-advisory ``scan-panels-deploy-e2e`` CI job (mirrors ``scan-deploy-e2e``'s
+advisory ``bluesky-panels-deploy-e2e`` CI job (mirrors ``bluesky-deploy-e2e``'s
 gating: same-repo PRs only, no secrets -- neither the bridge nor the sidecar
 shells out to an LLM).
 """
@@ -92,17 +92,17 @@ from tests.e2e import _orm_stack
 BRIDGE_PORT = 18106
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 
-# The scan-panels sidecar's default host port (8095) is shared with the
+# The bluesky-panels sidecar's default host port (8095) is shared with the
 # tutorial's own default -- pin a distinct one so this e2e never collides
 # with a locally-running tutorial deploy on the same host.
-SCAN_PANELS_PORT = 18095
-SCAN_PANELS_URL = f"http://localhost:{SCAN_PANELS_PORT}"
+BLUESKY_PANELS_PORT = 18095
+BLUESKY_PANELS_URL = f"http://localhost:{BLUESKY_PANELS_PORT}"
 
 VA_CA_PORT = _orm_stack.VA_CA_PORT
 
 BRIDGE_IMAGE = _orm_stack.BRIDGE_IMAGE
 VA_IMAGE = _orm_stack.VA_IMAGE
-SCAN_PANELS_IMAGE = "osprey-scan-panels:local"
+BLUESKY_PANELS_IMAGE = "osprey-bluesky-panels:local"
 
 # The fixture builds/deploys under this project name; every compose template
 # renders its container_name as ``<project>-<service>``, so derive them
@@ -111,7 +111,7 @@ SCAN_PANELS_IMAGE = "osprey-scan-panels:local"
 PROJECT_NAME = "panels-proj"
 BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
 VA_CONTAINER = f"{PROJECT_NAME}-virtual-accelerator"
-SCAN_PANELS_CONTAINER = f"{PROJECT_NAME}-scan-panels"
+BLUESKY_PANELS_CONTAINER = f"{PROJECT_NAME}-bluesky-panels"
 
 BUILD_TIMEOUT_SEC = _orm_stack.BUILD_TIMEOUT_SEC
 # The first-time native VA source build is slow (minutes); the sidecar +
@@ -251,11 +251,11 @@ def _request(
 
 
 def _sidecar_get(path: str) -> tuple[int, Any]:
-    return _request(SCAN_PANELS_URL, path, "GET")
+    return _request(BLUESKY_PANELS_URL, path, "GET")
 
 
 def _sidecar_post(path: str, body: dict[str, Any]) -> tuple[int, Any]:
-    return _request(SCAN_PANELS_URL, path, "POST", body)
+    return _request(BLUESKY_PANELS_URL, path, "POST", body)
 
 
 def _bridge_get(path: str) -> tuple[int, Any]:
@@ -278,7 +278,7 @@ def _bridge_post(path: str, body: dict[str, Any], token: str | None = None) -> t
 
 
 def _get_html(path: str) -> tuple[int, str]:
-    req = urllib.request.Request(f"{SCAN_PANELS_URL}{path}", method="GET")  # noqa: S310
+    req = urllib.request.Request(f"{BLUESKY_PANELS_URL}{path}", method="GET")  # noqa: S310
     try:
         with urllib.request.urlopen(req, timeout=10.0) as resp:  # noqa: S310
             return resp.status, resp.read().decode("utf-8", errors="replace")
@@ -414,14 +414,14 @@ class DeployedStack:
 @pytest.fixture(scope="module")
 def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DeployedStack]:
     osprey_bin = _orm_stack.find_osprey_console_script()
-    base = tmp_path_factory.mktemp("scan_panels_build")
+    base = tmp_path_factory.mktemp("bluesky_panels_build")
     project_dir = base / PROJECT_NAME
 
     override_path = base / "override.yml"
     override_path.write_text(_orm_stack.override_yaml(), encoding="utf-8")
 
     # _orm_stack.build_args()/build_project_subprocess() don't parameterize
-    # the scan-panels sidecar's port, so build the arg list directly (mirrors
+    # the bluesky-panels sidecar's port, so build the arg list directly (mirrors
     # what build_project_subprocess does internally) and append one extra
     # --set for it.
     args = _orm_stack.build_args(
@@ -431,7 +431,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
         bridge_port=BRIDGE_PORT,
         va_port=VA_CA_PORT,
     )
-    args += ["--set", f"scan_panels.port={SCAN_PANELS_PORT}"]
+    args += ["--set", f"bluesky_panels.port={BLUESKY_PANELS_PORT}"]
 
     build = _run([str(osprey_bin), "build", *args], cwd=base, timeout=BUILD_TIMEOUT_SEC)
     if build.returncode != 0:
@@ -456,7 +456,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # E2E_REUSE_IMAGES=1 skips this (dev-only fast local iteration); never
     # set it in CI, where a source change must always rebuild.
     if not os.environ.get("E2E_REUSE_IMAGES"):
-        for image in (BRIDGE_IMAGE, VA_IMAGE, SCAN_PANELS_IMAGE):
+        for image in (BRIDGE_IMAGE, VA_IMAGE, BLUESKY_PANELS_IMAGE):
             subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
 
     try:
@@ -471,7 +471,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
                 f"--- stdout ---\n{up.stdout}\n--- stderr ---\n{up.stderr}"
             )
         _wait_for_health(f"{BRIDGE_URL}/health", HEALTH_TIMEOUT_SEC)
-        _wait_for_rollup(f"{SCAN_PANELS_URL}/health/full", "ok", ROLLUP_TIMEOUT_SEC)
+        _wait_for_rollup(f"{BLUESKY_PANELS_URL}/health/full", "ok", ROLLUP_TIMEOUT_SEC)
 
         plan_name, plan_args = _discover_writes_plan(correctors, bpms, limits)
 
@@ -497,7 +497,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
 def test_stack_boots_and_binds_loopback(deployed_stack: DeployedStack) -> None:
-    for container in (BRIDGE_CONTAINER, SCAN_PANELS_CONTAINER, VA_CONTAINER):
+    for container in (BRIDGE_CONTAINER, BLUESKY_PANELS_CONTAINER, VA_CONTAINER):
         ports = _docker_port(container)
         assert "127.0.0.1" in ports, f"{container}: expected a 127.0.0.1 bind, got: {ports!r}"
         assert "0.0.0.0" not in ports, f"{container}: must never bind 0.0.0.0: {ports!r}"
@@ -634,7 +634,7 @@ def test_sidecar_exposes_no_stop_or_unbounded_create_route(
 ) -> None:
     # No /runs/{id}/stop at all -- the path template isn't registered on the
     # sidecar for any method, so it 404s regardless of verb.
-    status, body = _request(SCAN_PANELS_URL, "/runs/not-a-real-run-id/stop", "GET")
+    status, body = _request(BLUESKY_PANELS_URL, "/runs/not-a-real-run-id/stop", "GET")
     assert status == 404, f"expected no GET /runs/{{id}}/stop route, got {status}: {body}"
     status, body = _sidecar_post("/runs/not-a-real-run-id/stop", {})
     assert status == 404, f"expected no POST /runs/{{id}}/stop route, got {status}: {body}"
@@ -660,7 +660,9 @@ def test_va_stopped_degrades_health(deployed_stack: DeployedStack) -> None:
         )
         assert stop.returncode == 0, f"docker stop {VA_CONTAINER} failed: {stop.stderr}"
 
-        body = _wait_for_rollup_not(f"{SCAN_PANELS_URL}/health/full", "ok", VA_DEGRADE_TIMEOUT_SEC)
+        body = _wait_for_rollup_not(
+            f"{BLUESKY_PANELS_URL}/health/full", "ok", VA_DEGRADE_TIMEOUT_SEC
+        )
         services = {s["name"]: s for s in body.get("services", [])}
         assert services["va_ioc"]["status"] == "unhealthy", f"va_ioc did not degrade: {body}"
         assert services["bridge"]["status"] == "ok", f"bridge unexpectedly degraded: {body}"
@@ -676,6 +678,6 @@ def test_va_stopped_degrades_health(deployed_stack: DeployedStack) -> None:
             )
         else:
             try:
-                _wait_for_rollup(f"{SCAN_PANELS_URL}/health/full", "ok", HEALTH_TIMEOUT_SEC)
+                _wait_for_rollup(f"{BLUESKY_PANELS_URL}/health/full", "ok", HEALTH_TIMEOUT_SEC)
             except AssertionError as exc:
                 print(f"VA restore health-wait did not observe an 'ok' rollup: {exc}")  # noqa: T201

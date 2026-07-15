@@ -15,12 +15,12 @@ only *adds* to ``deployed_services``, it doesn't replace what a preset already
 declares. ``hello-world`` declares no services of its own, so the bluesky
 bridge ends up as the ONLY deployed service, exactly what this test needs.
 
-Enables the bridge via ``--set bluesky.demo_scanner=true`` (a plain CLI
+Enables the bridge via ``--set bluesky.demo_runner=true`` (a plain CLI
 override — no bundled preset ships ``bluesky:`` by default, since task 2.9's
-generator is opt-in-via-profile, not default-on). ``demo_scanner`` additionally
+generator is opt-in-via-profile, not default-on). ``demo_runner`` additionally
 tells app.py's guarded startup hook (task 2.14a) to wire a real
-``BlueskyScanner`` against MOCK ophyd-async devices (``devices/mock.py``)
-instead of the Phase 1 no-op ``FakeScanner`` — see that task for the actual
+``BlueskyPlanRunner`` against MOCK ophyd-async devices (``devices/mock.py``)
+instead of the Phase 1 no-op ``FakePlanRunner`` — see that task for the actual
 wiring; this test only asserts the end-to-end behavior it enables. Also pins
 ``bluesky.port`` (BRIDGE_PORT below) rather than relying on the 8090 default,
 since this is a shared dev machine and 8090 collided with an unrelated
@@ -45,7 +45,7 @@ Gating: needs Docker. Skipped entirely if unavailable. Lives in ``tests/e2e/``
 (not ``tests/integration/``) so the fast lane (``pytest tests/ --ignore=tests/e2e``,
 see ``ci_check.sh``/``premerge_check.sh``/ci.yml's ``test`` job) never collects
 this ~6-minute real-container build+deploy; it runs instead in its own
-``scan-deploy-e2e`` CI job (mirrors ``dispatch-deploy-e2e``'s setup, minus the
+``bluesky-deploy-e2e`` CI job (mirrors ``dispatch-deploy-e2e``'s setup, minus the
 LLM secret/pre-flight probe this test doesn't need).
 """
 
@@ -86,7 +86,7 @@ SCAN_TIMEOUT_SEC = 60.0
 # --dev build actually baked in the local wheel, not a stale PyPI release
 # (task 2.8 reviewer's carry-forward: assert content, not just "it builds").
 _BLUESKY_BRIDGE_ONLY_MODULES = (
-    "osprey.services.bluesky_bridge.scanner_bluesky",
+    "osprey.services.bluesky_bridge.plan_runner_bluesky",
     "osprey.services.bluesky_bridge.devices.mock",
     "osprey.services.bluesky_bridge.plans",
 )
@@ -141,7 +141,7 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "--preset",
             "hello-world",
             "--set",
-            "bluesky.demo_scanner=true",
+            "bluesky.demo_runner=true",
             "--set",
             f"bluesky.port={BRIDGE_PORT}",
             "--skip-deps",
@@ -288,7 +288,7 @@ def test_image_contains_unreleased_bluesky_bridge_modules(deployed_bridge: Path)
 
 
 def test_demo_scan_against_mock_devices_completes(deployed_bridge: Path) -> None:
-    """End-to-end: launch -> promote -> poll -> read_scan_data, against the real container."""
+    """End-to-end: launch -> promote -> poll -> read_run_data, against the real container."""
     token = _minted_token(deployed_bridge)
 
     status, body = _post(

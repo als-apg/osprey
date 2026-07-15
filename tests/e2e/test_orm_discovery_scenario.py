@@ -56,8 +56,8 @@ the module below waits for the stack's own health check and then lets
 -- a Postgres-unreachable failure at that point converts to an honest skip
 rather than a misleading tool-trace failure downstream.
 
-The scan MCP server (``osprey.mcp_server.scan``, opted in via
-``claude_code.servers.scan.enabled: true`` -- see ``_orm_stack.override_yaml``)
+The scan MCP server (``osprey.mcp_server.bluesky``, opted in via
+``claude_code.servers.bluesky.enabled: true`` -- see ``_orm_stack.override_yaml``)
 resolves ``BLUESKY_BRIDGE_URL``/``BLUESKY_PROMOTE_TOKEN`` from its OWN process
 env (``${VAR:-default}`` substitution in the registry's ``ServerDefinition``,
 resolved by the Claude Code CLI at MCP-subprocess-spawn time), which is never
@@ -275,9 +275,9 @@ def _assert_orm_scan_ran(result, *, plan_hint: str = "orm") -> None:
     its data back. Runs unconditionally (never skip-gated) — only the final
     LLM-judge grade below is gated on judge-provider credentials.
     """
-    create_calls = [t for t in result.tool_traces if t.name == "mcp__scan__create_scan_intent"]
+    create_calls = [t for t in result.tool_traces if t.name == "mcp__bluesky__create_run_intent"]
     assert create_calls, (
-        f"agent never called create_scan_intent — it did not set up a scan. "
+        f"agent never called create_run_intent — it did not set up a scan. "
         f"Tools called: {result.tool_names}"
     )
     orm_intents = [
@@ -289,15 +289,15 @@ def _assert_orm_scan_ran(result, *, plan_hint: str = "orm") -> None:
         f"{[t.input for t in create_calls]}"
     )
 
-    launch_calls = [t for t in result.tool_traces if t.name == "mcp__scan__launch_scan"]
+    launch_calls = [t for t in result.tool_traces if t.name == "mcp__bluesky__launch_run"]
     assert launch_calls, (
-        f"agent never called launch_scan — it created a scan intent but never "
+        f"agent never called launch_run — it created a scan intent but never "
         f"actually ran it. Tools called: {result.tool_names}"
     )
 
-    read_calls = [t for t in result.tool_traces if t.name == "mcp__scan__read_scan_data"]
+    read_calls = [t for t in result.tool_traces if t.name == "mcp__bluesky__read_run_data"]
     assert read_calls, (
-        f"agent never called read_scan_data — it launched a scan but never "
+        f"agent never called read_run_data — it launched a scan but never "
         f"read the measurement back. Tools called: {result.tool_names}"
     )
 

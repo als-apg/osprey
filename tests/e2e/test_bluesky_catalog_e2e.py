@@ -1,4 +1,4 @@
-"""Real-container e2e for the layered scan-plan catalog (task 1.6, closing
+"""Real-container e2e for the layered plan catalog (task 1.6, closing
 Phase 1 of the plan-catalog epic).
 
 Mocked-client tests (``tests/services/bluesky_bridge/test_plan_loader_layered.py``,
@@ -12,7 +12,7 @@ facility plan + the built-ins) is discoverable via ``GET /plans`` with correct
 provenance/metadata, and that a facility-injected plan file is not just
 discoverable but actually executable end to end (launch -> promote -> read).
 
-Uses the ``hello-world`` preset with ``services.bluesky.demo_scanner=true``
+Uses the ``hello-world`` preset with ``services.bluesky.demo_runner=true``
 (real bluesky RunEngine, MOCK ophyd-async devices -- ``devices/mock.py``, no
 EPICS/Virtual Accelerator at all) rather than the VA-backed stack
 ``tests/e2e/_orm_stack.py`` builds -- this test's point is the plan catalog,
@@ -29,7 +29,7 @@ this directory.
 
 Gating: needs Docker. Much lighter than the VA-backed e2e (no amd64
 emulation) -- comparable to ``test_scan_deploy.py``'s build+deploy time.
-Advisory CI lane (see ci.yml's ``scan-catalog-e2e`` job); run locally with
+Advisory CI lane (see ci.yml's ``bluesky-catalog-e2e`` job); run locally with
 ``E2E_REUSE_IMAGES=1`` set for fast iteration once the image cache is warm.
 """
 
@@ -83,7 +83,7 @@ shipped/built-in plan name, so it never collides at the `GET /plans` merge.
 
 Authored against the demo scanner's mock device names (`devices/mock.py`'s
 `build_devices()` defaults: a single `motor1`/`det1` pair), since this e2e
-deploys with `services.bluesky.demo_scanner=true` (no EPICS/Virtual
+deploys with `services.bluesky.demo_runner=true` (no EPICS/Virtual
 Accelerator) -- the point is proving an externally-injected plan file is
 discoverable AND executable, not exercising accelerator physics.
 """
@@ -184,7 +184,7 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
     """Build + ``osprey deploy up --dev`` a demo-scanner bluesky-bridge
     project with one facility-injected plan file; tear down after.
 
-    ``hello-world`` + ``bluesky.demo_scanner=true`` (mirrors
+    ``hello-world`` + ``bluesky.demo_runner=true`` (mirrors
     ``test_scan_deploy.py``): no VA co-deploy, no LLM secret needed, no
     amd64-emulated image build. ``bluesky.plan_dir`` points at a throwaway
     host directory containing ``_FACILITY_PLAN_SOURCE`` -- the deploy wiring
@@ -205,7 +205,7 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
             "--preset",
             "hello-world",
             "--set",
-            "bluesky.demo_scanner=true",
+            "bluesky.demo_runner=true",
             "--set",
             f"bluesky.port={BRIDGE_PORT}",
             "--set",

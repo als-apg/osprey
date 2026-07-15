@@ -203,7 +203,7 @@ def _dispatch_dashboard_server(tmp_path: Path):
 # ---------------------------------------------------------------------------
 # Scan panels (Phase-6 operator interfaces): unlike every other target above,
 # the sidecar has no ``create_app()`` factory — it's a single module-level
-# FastAPI singleton (see ``osprey.services.scan_panels.app``) that mounts all
+# FastAPI singleton (see ``osprey.services.bluesky_panels.app``) that mounts all
 # three panel bundles (plan/results/health) plus the shared design-system
 # assets in one process. Import the app object directly and hand it to
 # ``_run_app_server`` the same way the other targets hand it a freshly
@@ -213,10 +213,10 @@ def _dispatch_dashboard_server(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def _scan_panels_server(tmp_path: Path):
-    from osprey.services.scan_panels.app import app as scan_panels_app
+def _bluesky_panels_server(tmp_path: Path):
+    from osprey.services.bluesky_panels.app import app as bluesky_panels_app
 
-    return _run_app_server(scan_panels_app)
+    return _run_app_server(bluesky_panels_app)
 
 
 @contextmanager
@@ -266,25 +266,25 @@ TARGETS: list[VisualTarget] = [
     # renders its genuine no-data empty state — a legitimate, stable baseline.
     VisualTarget("dispatch_dashboard", _dispatch_dashboard_server, path="/"),
     # Scan panels (Phase-6): mounted at /plan, /results, /health-panel by the
-    # sidecar (see ``_PANEL_MOUNTS`` in ``osprey.services.scan_panels.app``);
+    # sidecar (see ``_PANEL_MOUNTS`` in ``osprey.services.bluesky_panels.app``);
     # each wait_selector is a static top-level element present in the shell's
     # initial markup (not injected by JS), so it attaches even though no
     # bridge is running behind this sidecar and every panel's fetch fails.
     VisualTarget(
         "scan_panel_plan",
-        _scan_panels_server,
+        _bluesky_panels_server,
         path="/plan/",
         wait_selector="#plan-list",
     ),
     VisualTarget(
         "scan_panel_results",
-        _scan_panels_server,
+        _bluesky_panels_server,
         path="/results/",
         wait_selector="#run-picker",
     ),
     VisualTarget(
         "scan_panel_health",
-        _scan_panels_server,
+        _bluesky_panels_server,
         path="/health-panel/",
         wait_selector="#service-grid",
     ),

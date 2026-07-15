@@ -2,7 +2,7 @@
 the co-deployed Tiled catalog (PROPOSAL.md's success criterion 11).
 
 Deploys the bridge + Tiled with the mock-devices demo scanner
-(``bluesky.demo_scanner=true``, ``bluesky.tiled_enabled=true`` — no virtual
+(``bluesky.demo_runner=true``, ``bluesky.tiled_enabled=true`` — no virtual
 accelerator, no EPICS, no QEMU: the demo scanner runs a real bluesky
 RunEngine against in-process mock devices), runs a scan to completion,
 restarts ONLY the bridge container, and reads the same run back through the
@@ -160,7 +160,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         "dispatch: null\nconfig:\n  services.postgresql.port_host: 15432\n", encoding="utf-8"
     )
 
-    # bluesky.port/demo_scanner/tiled_enabled are all leaf scalars under the
+    # bluesky.port/demo_runner/tiled_enabled are all leaf scalars under the
     # top-level `bluesky:` profile key, so plain --set works (a dotted --set
     # only becomes unsafe for keys nested under an existing block you don't
     # want replaced wholesale, e.g. control_system.type -- not the case
@@ -179,7 +179,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "--set",
             f"bluesky.port={BRIDGE_PORT}",
             "--set",
-            "bluesky.demo_scanner=true",
+            "bluesky.demo_runner=true",
             "--set",
             "bluesky.tiled_enabled=true",
             "--skip-deps",

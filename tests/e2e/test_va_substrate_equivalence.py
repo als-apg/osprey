@@ -304,7 +304,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
             "--set",
             f"bluesky.port={BRIDGE_PORT}",
             "--set",
-            "bluesky.demo_scanner=false",
+            "bluesky.demo_runner=false",
             "--skip-deps",
             "--skip-lifecycle",
             "--output-dir",

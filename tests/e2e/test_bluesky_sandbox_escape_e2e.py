@@ -19,7 +19,7 @@ half: a real deployed bridge container, a real deployed IOC, and an
 independent CA read that never goes through the bridge at all.
 
 CRITICAL INTEGRATION CONTRACT (see ``plan_validation.py``'s module docstring
-and the P5 Phase 2 research digest): the bytes ``validate_bluesky_plan``
+and the P5 Phase 2 research digest): the bytes ``validate_plan``
 hashes for its validation record must be byte-identical to what the session
 directory's load gate (task 2.4) and the promote gate (task 2.5) re-hash from
 disk. ``POST /plans/session`` writes the body once; ``POST /plans/validate``
@@ -55,7 +55,7 @@ the next starts), not intended to run concurrently with them on one host.
 Gating: needs Docker; the VA image is amd64-only (PyAT/softioc have no
 aarch64 wheels), so it builds/boots under QEMU emulation on Apple Silicon --
 as heavy as ``test_va_substrate_equivalence.py``. Advisory CI lane (see
-ci.yml's ``scan-sandbox-escape-e2e`` job); run locally with
+ci.yml's ``bluesky-sandbox-escape-e2e`` job); run locally with
 ``E2E_REUSE_IMAGES=1`` set for fast iteration once the image cache is warm.
 
 GAP FOUND WHILE WRITING THIS E2E, NOW FIXED: ``plan_validation.py``'s stage-1
@@ -215,7 +215,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 # build_plan in spirit, and now also its typing/logging imports verbatim --
 # see the module docstring's "GAP FOUND ... NOW FIXED" note): device-agnostic,
 # resolves correctors/detectors by string name against whatever `devices`
-# dict the bridge passes in. Authored via write_bluesky_plan (which prepends
+# dict the bridge passes in. Authored via write_plan (which prepends
 # the generated PLAN_METADATA block), so only the author's own body -- no
 # PLAN_METADATA -- lives here.
 #
@@ -487,7 +487,7 @@ def test_sandbox_escape_is_caught_and_no_write_reaches_the_ioc(
     )
     assert status == 200, f"POST /plans/session failed: {status} {body}"
 
-    # --- gate (a): validate_bluesky_plan rejects it (stage 1: import epics) ---
+    # --- gate (a): validate_plan rejects it (stage 1: import epics) ---
     status, body = _post("/plans/validate", {"name": _ESCAPE_PLAN_NAME})
     assert status == 200, f"POST /plans/validate failed: {status} {body}"
     assert body["passed"] is False, f"escape plan validation unexpectedly passed: {body}"
