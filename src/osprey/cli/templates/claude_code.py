@@ -227,7 +227,7 @@ def build_claude_code_context(
     # Generalized over FRAMEWORK_SERVERS rather than hardcoded per server name:
     # any hooks_pre rule gated by _WRITES_CHECK is a hardware/state write and
     # defaults to a hard deny (covers controls' channel_write and scan's
-    # launch_scan automatically, plus any future write server with no code
+    # launch_run automatically, plus any future write server with no code
     # change here). python's execute is the one documented exception — it
     # accepts both read_only and write_access kernels, so it is pulled into
     # remove_ask instead (see docstring above); every other writes-check-gated

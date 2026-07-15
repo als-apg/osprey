@@ -11,7 +11,11 @@ export default [
 
   // (3) Interface + test JS: browser + vendor globals, house-style rules at error.
   {
-    files: ['src/osprey/interfaces/**/*.js', 'tests/**/*.{js,mjs}'],
+    files: [
+      'src/osprey/interfaces/**/*.js',
+      'src/osprey/services/bluesky_panels/panels/**/*.js',
+      'tests/**/*.{js,mjs}',
+    ],
     languageOptions: {
       globals: {
         ...globals.browser,
@@ -53,7 +57,11 @@ export default [
   //     opts a file out of tsc entirely; this rule keeps a new one from landing
   //     silently. See tools/eslint/no-ts-nocheck.js and CONTRIBUTING.md.
   {
-    files: ['src/osprey/interfaces/**/static/js/**/*.js', 'tests/**/*.{js,mjs}'],
+    files: [
+      'src/osprey/interfaces/**/static/js/**/*.js',
+      'src/osprey/services/bluesky_panels/panels/**/*.js',
+      'tests/**/*.{js,mjs}',
+    ],
     plugins: { local: { rules: { 'no-ts-nocheck': noTsNocheck } } },
     rules: { 'local/no-ts-nocheck': 'error' },
   },

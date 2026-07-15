@@ -32,12 +32,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import app as app_module
-from osprey.services.bluesky_bridge.app import app, set_scanner_factory
+from osprey.services.bluesky_bridge.app import app, set_runner_factory
+from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
 from osprey.services.bluesky_bridge.runs import registry
-from osprey.services.bluesky_bridge.scanner import FakeScanner
 
 _SUBSTRATE_ENV = "BLUESKY_EPICS_SUBSTRATE"
-_DEMO_ENV = "BLUESKY_DEMO_SCANNER"
+_DEMO_ENV = "BLUESKY_DEMO_RUNNER"
 _MOTORS_ENV = "BLUESKY_EPICS_MOTORS"
 _DETECTORS_ENV = "BLUESKY_EPICS_DETECTORS"
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
@@ -46,7 +46,7 @@ _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 
 @pytest.fixture(autouse=True)
 def _isolated_state(monkeypatch: pytest.MonkeyPatch):
-    """Every test gets a clean flag set, registry, scanner factory, and connector global.
+    """Every test gets a clean flag set, registry, runner factory, and connector global.
 
     The EPICS-substrate branch (where `_assert_limits_readable_if_writable`
     lives) only runs when `BLUESKY_EPICS_SUBSTRATE` is truthy, so this
@@ -63,11 +63,11 @@ def _isolated_state(monkeypatch: pytest.MonkeyPatch):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setenv(_SUBSTRATE_ENV, "true")
     registry._runs.clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
     app_module._connector = None
     yield
     registry._runs.clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
     app_module._connector = None
 
 

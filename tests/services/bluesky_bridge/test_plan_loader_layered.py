@@ -5,7 +5,7 @@ one-entry `facility`-tier layer.
 
 Directory layers are exercised by monkeypatching `plan_loader._SHIPPED_PLANS_DIR`
 (the in-image core dir doesn't exist in this checkout yet — task 1.5) and by
-setting `BLUESKY_PLAN_DIRS` (env, `facility` tier) / `scan.plan_dirs` in a
+setting `BLUESKY_PLAN_DIRS` (env, `facility` tier) / `bluesky.plan_dirs` in a
 temp config.yml (`preset` tier). All plan files here are pure pydantic/stdlib
 — no bluesky import — so this suite runs in the bluesky-less lane alongside
 `test_plan_injection.py`.
@@ -72,7 +72,7 @@ def _synthetic_module_name(path: Path) -> str:
 
 def _write_config(tmp_path: Path, plan_dirs: list[str]) -> Path:
     config_file = tmp_path / "config.yml"
-    config_file.write_text(yaml.dump({"scan": {"plan_dirs": plan_dirs}}))
+    config_file.write_text(yaml.dump({"bluesky": {"plan_dirs": plan_dirs}}))
     return config_file
 
 

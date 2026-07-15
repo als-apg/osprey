@@ -194,8 +194,8 @@ screen-capture-linux = [
 
 # Bluesky bridge (osprey.services.bluesky_bridge): the RunEngine, ophyd-async
 # devices, and Tiled writer/reader the bridge's Phase 2 submodules (plans.py,
-# scanner_bluesky.py, devices/*.py) import behind this extra. The bridge's
-# lifecycle core (app.py, runs.py, security.py, scanner.py) stays import-clean
+# plan_runner_bluesky.py, devices/*.py) import behind this extra. The bridge's
+# lifecycle core (app.py, runs.py, security.py, plan_runner.py) stays import-clean
 # of all of these — installed only in the bridge process's own container venv,
 # never required in OSPREY's main venv. fastapi/uvicorn/httpx are already core
 # dependencies, so they're not repeated here.
@@ -216,6 +216,10 @@ bluesky-bridge = [
 # (CI `uv sync --extra`, the VA image Dockerfile, and pinned older-version image
 # builds where softioc was still gated here) keep resolving.
 virtual-accelerator = []
+
+# bluesky_panels sidecar: fastapi/uvicorn[standard]/httpx are already core deps;
+# this extra exists so the service image can install osprey-framework[bluesky-panels].
+bluesky-panels = []
 
 # All optional dependencies for complete installation
 all = [
@@ -283,8 +287,8 @@ module = [
 ignore_missing_imports = true
 
 # Bluesky bridge (osprey.services.bluesky_bridge): the lifecycle core (runs.py,
-# app.py, security.py, scanner.py) stays import-clean of these, but Phase 2's
-# submodules (scanner_bluesky.py, devices/epics.py, plans.py, ...) will import
+# app.py, security.py, plan_runner.py) stays import-clean of these, but Phase 2's
+# submodules (plan_runner_bluesky.py, devices/epics.py, plans.py, ...) will import
 # them behind the optional `osprey-framework[bluesky-bridge]` extra.
 [[tool.mypy.overrides]]
 module = [

@@ -735,9 +735,9 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
 
     # -- scan MCP server enabled in the rendered .mcp.json -------------------
     mcp_config = json.loads((project_dir / ".mcp.json").read_text(encoding="utf-8"))
-    assert "scan" in mcp_config["mcpServers"], (
-        "the scan MCP server must be enabled (claude_code.servers.scan.enabled: "
-        f"true) so list_scan_plans/launch_scan are reachable: {mcp_config['mcpServers'].keys()}"
+    assert "bluesky" in mcp_config["mcpServers"], (
+        "the scan MCP server must be enabled (claude_code.servers.bluesky.enabled: "
+        f"true) so list_plans/launch_run are reachable: {mcp_config['mcpServers'].keys()}"
     )
 
     # -- VA + bridge + Tiled compose services --------------------------------

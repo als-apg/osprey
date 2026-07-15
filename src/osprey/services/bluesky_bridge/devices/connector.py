@@ -28,7 +28,7 @@ and the RunEngine actually consume.
 Imports ophyd-async, so this module (like the rest of ``devices/``) lives
 behind the optional ``osprey-framework[bluesky-bridge]`` extra — keep it
 out of the bridge lifecycle core's import path (``app.py``, ``runs.py``,
-``scanner.py``, ``security.py``).
+``plan_runner.py``, ``security.py``).
 """
 
 from __future__ import annotations

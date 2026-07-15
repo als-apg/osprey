@@ -203,7 +203,7 @@ def test_malformed_session_file_is_quarantined_and_siblings_still_register(
 def test_builtins_and_shipped_exemplars_are_not_gated() -> None:
     """Regression: built-ins (count/scan/grid_scan/orm) carry no validation
     record and are registered through a wholly separate path (`plans.py`'s
-    `BUILTIN_PLANS`, merged in `app.py`/`scanner_bluesky.py`, never through
+    `BUILTIN_PLANS`, merged in `app.py`/`plan_runner_bluesky.py`, never through
     this loader's registry) — the session gate must never touch them. The
     shipped exemplars in `plans_core/` are `provenance="shipped"`, not
     `session`/`unreviewed`, so they load unconditionally too."""

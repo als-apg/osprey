@@ -10,12 +10,12 @@ copy that plan's exact bytes into a checkout of the repo that owns the target
 
 **The promotion workflow this glue supports:**
 
-1. Author + validate a session plan (``write_bluesky_plan`` /
-   ``validate_bluesky_plan`` — task 2.3), then run it a few times via
-   ``launch_scan`` until it looks worth keeping.
+1. Author + validate a session plan (``write_plan`` /
+   ``validate_plan`` — task 2.3), then run it a few times via
+   ``launch_run`` until it looks worth keeping.
 2. Call :func:`prepare_promotion` with the plan's ``name`` and a filesystem
    path to a checkout of the repo that owns the target catalog directory —
-   one of the directories already listed in ``scan.plan_dirs`` (config.yml,
+   one of the directories already listed in ``bluesky.plan_dirs`` (config.yml,
    ``preset`` tier) or ``BLUESKY_PLAN_DIRS`` (env, ``facility`` tier); see
    ``plan_loader.py``'s module docstring for the tier mapping. This raises
    unless the plan has a passing validation record for its exact current
@@ -83,12 +83,12 @@ def prepare_promotion(name: str, catalog_dir: str | Path) -> PromotionRequest:
     directory (``session_dir.resolve_session_plan_dir()``) and refuses to
     proceed unless that exact content already has a passing validation
     record (``validation_record.validation_records``) — an edit made after
-    the last successful ``validate_bluesky_plan`` call changes the content
+    the last successful ``validate_plan`` call changes the content
     hash and drops the record, exactly as it does for the load gate (2.4)
     and promote gate (2.5). Never writes anywhere; purely a read + gate check.
 
     Args:
-        name: Session plan name (the file stem written by ``write_bluesky_plan``).
+        name: Session plan name (the file stem written by ``write_plan``).
         catalog_dir: Filesystem path of the target `preset`/`facility` plan
             directory, inside a local checkout of the repo that owns it.
 
@@ -100,13 +100,12 @@ def prepare_promotion(name: str, catalog_dir: str | Path) -> PromotionRequest:
     Raises:
         UnknownSessionPlanError: No such session plan file exists.
         UnvalidatedPlanError: The file's current content has no passing
-            validation record — call ``validate_bluesky_plan`` first.
+            validation record — call ``validate_plan`` first.
     """
     source_path = resolve_session_plan_dir() / f"{name}.py"
     if not source_path.is_file():
         raise UnknownSessionPlanError(
-            f"No session plan named {name!r} in {source_path.parent} "
-            "— call write_bluesky_plan first."
+            f"No session plan named {name!r} in {source_path.parent} — call write_plan first."
         )
 
     body = source_path.read_text(encoding="utf-8")
@@ -115,7 +114,7 @@ def prepare_promotion(name: str, catalog_dir: str | Path) -> PromotionRequest:
         raise UnvalidatedPlanError(
             f"Session plan {name!r} (content hash {content_hash[:12]}...) has no "
             "passing validation record for its CURRENT content — call "
-            "validate_bluesky_plan and confirm it passes before promoting. "
+            "validate_plan and confirm it passes before promoting. "
             "Editing the file after validation invalidates this check, by design."
         )
 

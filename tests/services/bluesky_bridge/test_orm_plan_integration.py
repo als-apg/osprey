@@ -10,7 +10,7 @@ bluesky installed at all. To actually run this file:
     /tmp/bluesky-orm-scratch/bin/python -m pytest \
         tests/services/bluesky_bridge/test_orm_plan_integration.py -q
 
-Mirrors `test_runengine_integration.py`'s idiom: drives a real `BlueskyScanner`
+Mirrors `test_runengine_integration.py`'s idiom: drives a real `BlueskyPlanRunner`
 (a real bluesky `RunEngine` in a daemon thread) through the real `orm` plan
 against mock ophyd-async devices (`devices/mock.py`) — no EPICS, no container.
 Proves the generator built in `plans.py` actually runs to completion and the
@@ -30,13 +30,13 @@ ophyd_async = pytest.importorskip("ophyd_async")
 
 from osprey.services.bluesky_bridge import live_rows  # noqa: E402
 from osprey.services.bluesky_bridge.devices.mock import build_devices  # noqa: E402
+from osprey.services.bluesky_bridge.plan_runner_bluesky import BlueskyPlanRunner  # noqa: E402
 from osprey.services.bluesky_bridge.plans import BUILTIN_PLANS  # noqa: E402
-from osprey.services.bluesky_bridge.scanner_bluesky import BlueskyScanner  # noqa: E402
 
 
-def _wait_until_idle(scanner: BlueskyScanner, timeout: float = 15.0) -> None:
+def _wait_until_idle(runner: BlueskyPlanRunner, timeout: float = 15.0) -> None:
     deadline = time.monotonic() + timeout
-    while scanner.is_scanning_active():
+    while runner.is_run_active():
         if time.monotonic() > deadline:
             raise AssertionError("scan did not finish within the timeout")
         time.sleep(0.05)
@@ -70,7 +70,7 @@ def orm_devices() -> dict:
 def test_orm_plan_runs_to_completion_and_buffers_one_row_per_point(
     orm_devices: dict,
 ) -> None:
-    scanner = BlueskyScanner(devices=orm_devices, plans=BUILTIN_PLANS)
+    runner = BlueskyPlanRunner(devices=orm_devices, plans=BUILTIN_PLANS)
     exec_config = {
         "plan_name": "orm",
         "plan_args": {
@@ -81,18 +81,18 @@ def test_orm_plan_runs_to_completion_and_buffers_one_row_per_point(
         },
     }
 
-    assert scanner.reinitialize(exec_config) is True
-    assert scanner.current_state == "armed"
+    assert runner.reinitialize(exec_config) is True
+    assert runner.current_state == "armed"
 
-    scanner.start_scan_thread()
-    _wait_until_idle(scanner)
+    runner.start_run_thread()
+    _wait_until_idle(runner)
 
-    assert scanner.error_message is None
-    assert scanner.current_state == "completed"
-    assert scanner.last_run_uid is not None
-    assert scanner.estimate_current_completion() == 1.0  # non-adaptive: binary 0/1
+    assert runner.error_message is None
+    assert runner.current_state == "completed"
+    assert runner.last_run_uid is not None
+    assert runner.estimate_current_completion() == 1.0  # non-adaptive: binary 0/1
 
-    buf = live_rows.get(scanner.last_run_uid)
+    buf = live_rows.get(runner.last_run_uid)
     assert buf is not None
     assert buf["partial"] is False
 
@@ -114,7 +114,7 @@ def test_orm_plan_runs_to_completion_and_buffers_one_row_per_point(
 def test_orm_plan_restores_each_corrector_to_zero_after_its_sweep(
     orm_devices: dict,
 ) -> None:
-    scanner = BlueskyScanner(devices=orm_devices, plans=BUILTIN_PLANS)
+    runner = BlueskyPlanRunner(devices=orm_devices, plans=BUILTIN_PLANS)
     exec_config = {
         "plan_name": "orm",
         "plan_args": {
@@ -125,12 +125,12 @@ def test_orm_plan_restores_each_corrector_to_zero_after_its_sweep(
         },
     }
 
-    assert scanner.reinitialize(exec_config) is True
-    scanner.start_scan_thread()
-    _wait_until_idle(scanner)
+    assert runner.reinitialize(exec_config) is True
+    runner.start_run_thread()
+    _wait_until_idle(runner)
 
-    assert scanner.error_message is None
-    assert scanner.current_state == "completed"
+    assert runner.error_message is None
+    assert runner.current_state == "completed"
 
     hcm1_readback = asyncio.run(orm_devices["hcm1"].readback.get_value())
     hcm2_readback = asyncio.run(orm_devices["hcm2"].readback.get_value())
@@ -139,7 +139,7 @@ def test_orm_plan_restores_each_corrector_to_zero_after_its_sweep(
 
 
 def test_orm_plan_single_corrector_produces_exactly_num_rows(orm_devices: dict) -> None:
-    scanner = BlueskyScanner(devices=orm_devices, plans=BUILTIN_PLANS)
+    runner = BlueskyPlanRunner(devices=orm_devices, plans=BUILTIN_PLANS)
     exec_config = {
         "plan_name": "orm",
         "plan_args": {
@@ -150,12 +150,12 @@ def test_orm_plan_single_corrector_produces_exactly_num_rows(orm_devices: dict) 
         },
     }
 
-    assert scanner.reinitialize(exec_config) is True
-    scanner.start_scan_thread()
-    _wait_until_idle(scanner)
+    assert runner.reinitialize(exec_config) is True
+    runner.start_run_thread()
+    _wait_until_idle(runner)
 
-    assert scanner.error_message is None
-    buf = live_rows.get(scanner.last_run_uid)
+    assert runner.error_message is None
+    buf = live_rows.get(runner.last_run_uid)
     assert buf is not None
     assert buf["total_seen"] == 4
     assert len(buf["rows"]) == 4

@@ -1,4 +1,4 @@
-"""Parse explicit EPICS PV lists for the substrate scanner out of env vars.
+"""Parse explicit EPICS PV lists for the substrate runner out of env vars.
 
 The EPICS substrate branch (``app.py``'s ``_lifespan``) must never import the
 virtual-accelerator manifest to discover PVs — the bridge runs in its own

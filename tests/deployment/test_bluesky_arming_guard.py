@@ -3,7 +3,7 @@
 The local python-executor path runs agent-authored code with cwd=project_root
 and no filesystem/network sandboxing, so it can read BLUESKY_PROMOTE_TOKEN
 straight out of .env/config.yml and POST the bridge's /runs/{id}/promote
-directly — bypassing launch_scan's in-tool writes_enabled re-check entirely.
+directly — bypassing launch_run's in-tool writes_enabled re-check entirely.
 The container execution_method is fs/network isolated and doesn't have this
 exposure. Per the user ruling (2026-07-06, "guard + document"),
 container_lifecycle._ensure_service_tokens must refuse to mint
@@ -238,9 +238,9 @@ def test_every_declared_var_is_classified():
 
 
 def test_authoring_tools_declare_no_new_bluesky_arming_token():
-    """The task-2.3 authoring MCP tools (write_bluesky_plan, validate_bluesky_plan)
+    """The task-2.3 authoring MCP tools (write_plan, validate_plan)
     reach no hardware and gate on ``_APPROVAL`` only in the registry (see
-    ``tests/registry/test_scan_server_definition.py``) — they need no arming
+    ``tests/registry/test_bluesky_server_definition.py``) — they need no arming
     token of their own. Pin that ``bluesky``'s declared token vars are still
     exactly the pre-2.3 pair, so this guard's promote-token-withheld
     invariant (asserted above) still covers the whole deployed surface and

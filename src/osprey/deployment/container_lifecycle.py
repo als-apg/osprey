@@ -476,6 +476,117 @@ def _ensure_service_tokens(
             _raise_invalid_var(name)
 
 
+def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) -> None:
+    """Auto-configure the bluesky bridge's EPICS-substrate scan devices for a
+    VA-backed Bluesky stack, making ``osprey deploy up`` turn-key.
+
+    Additive and non-breaking, mirroring ``_ensure_service_tokens``'s
+    "existing value wins, append what's missing" convention: when the
+    deployed project is a VA-backed Bluesky stack (BOTH ``"bluesky"`` and
+    ``"virtual_accelerator"`` present in ``deployed_services``), derive
+    ``BLUESKY_EPICS_SUBSTRATE``/``BLUESKY_EPICS_MOTORS``/``_DETECTORS`` from
+    the built project's own ``data/channel_limits.json`` (the canonical
+    derivation lives in
+    ``osprey.services.bluesky_bridge.substrate_devices.derive_substrate_env``,
+    shared with ``tests/e2e/_orm_stack.py``) and append any of those keys not
+    already present in the project ``.env``. Any value already set — in the
+    process env or an existing ``.env`` — is left untouched, so an
+    operator-configured or e2e-harness-configured substrate env is always
+    preserved.
+
+    A no-op for any deploy that is not both bluesky- and
+    virtual-accelerator-backed (e.g. a plain agent deploy, or bluesky without
+    the VA): nothing is read or written. This makes the bridge substrate-mode
+    with real channel names available regardless of
+    ``control_system.type`` -- the bridge's own connector backend follows
+    that setting separately.
+
+    Never raises into a deploy: a missing/unreadable ``channel_limits.json``
+    or a derivation that yields no correctors/BPMs logs a warning and is
+    skipped, leaving the bridge to fall back to its own demo-runner default
+    (or a manually-set substrate env) exactly as before this function
+    existed.
+
+    :param config: Raw deploy config (``deployed_services`` membership).
+    :param env_path: Project ``.env`` path; defaults to ``Path(".env")``
+        (matching ``_ensure_service_tokens``), i.e. resolved against the
+        current working directory -- ``osprey deploy`` always chdirs into
+        the project directory first. Overridable for tests.
+    """
+    deployed_services = config.get("deployed_services")
+    services = {str(s) for s in (deployed_services or [])}
+    if "bluesky" not in services or "virtual_accelerator" not in services:
+        return
+
+    # The substrate runner drives real Channel Access devices, which only
+    # exist behind a real or virtual IOC. A ``mock`` control system speaks no
+    # CA, so a mock deploy must stay on the bridge's demo runner -- the
+    # documented "mock = safe browse/demo, virtual_accelerator = real run"
+    # contract. Arming substrate here would win over an explicit demo_runner
+    # (see ``bluesky_bridge.app``'s substrate-vs-demo precedence) and leave the
+    # bridge trying to resolve scan devices that only the mock demo provides.
+    # Only auto-configure substrate for a control system that actually speaks CA.
+    control_system_type = str(config.get("control_system", {}).get("type", "mock")).strip().lower()
+    if control_system_type == "mock":
+        logger.info(
+            "control_system.type is 'mock'; leaving the bluesky bridge on its demo "
+            "runner and skipping BLUESKY_EPICS_SUBSTRATE auto-configuration "
+            "(substrate mode needs a real or virtual IOC to speak CA to)."
+        )
+        return
+
+    if env_path is None:
+        env_path = Path(".env")
+    project_dir = env_path.resolve().parent
+
+    from osprey.services.bluesky_bridge.substrate_devices import derive_substrate_env
+
+    try:
+        derived = derive_substrate_env(project_dir)
+    except Exception:
+        logger.warning(
+            "Could not auto-configure bluesky bridge scan devices from %s "
+            "(derivation raised unexpectedly). Skipping BLUESKY_EPICS_SUBSTRATE "
+            "auto-configuration -- set BLUESKY_EPICS_MOTORS/_DETECTORS manually "
+            "if you want the bridge to run in EPICS-substrate mode.",
+            project_dir / "data" / "channel_limits.json",
+            exc_info=True,
+        )
+        return
+    if not derived:
+        logger.warning(
+            "Could not auto-configure bluesky bridge scan devices from %s "
+            "(missing, unreadable, or yields no SR correctors/BPMs). Skipping "
+            "BLUESKY_EPICS_SUBSTRATE auto-configuration -- set "
+            "BLUESKY_EPICS_MOTORS/_DETECTORS manually if you want the bridge "
+            "to run in EPICS-substrate mode.",
+            project_dir / "data" / "channel_limits.json",
+        )
+        return
+
+    existing = parse_dotenv_file(env_path) if env_path.is_file() else {}
+    generated = {k: v for k, v in derived.items() if k not in os.environ and k not in existing}
+    if not generated:
+        return
+
+    prefix = ""
+    if env_path.is_file():
+        text = env_path.read_text(encoding="utf-8")
+        if text and not text.endswith("\n"):
+            prefix = "\n"
+    block = "".join(f"{k}={v}\n" for k, v in generated.items())
+    with env_path.open("a", encoding="utf-8") as fh:
+        fh.write(
+            f"{prefix}# Auto-configured bluesky bridge scan devices (osprey deploy up)\n{block}"
+        )
+    logger.key_info(
+        "Auto-configured bluesky bridge scan devices %s in %s from the project's "
+        "own channel_limits.json",
+        ", ".join(generated),
+        env_path.resolve(),
+    )
+
+
 def _resolve_claude_cli_version(config: dict) -> str:
     """The ``CLAUDE_CLI_VERSION`` build arg for the project image.
 
@@ -656,6 +767,11 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     # the appended tokens, and a tokens-only .env carries no provider secret to
     # mount in the first place.
     _ensure_service_tokens(config, expose_network)
+
+    # Auto-configure the bluesky bridge's EPICS-substrate scan devices for a
+    # VA-backed Bluesky stack (additive; no-op unless both bluesky and
+    # virtual_accelerator are deployed) -- see _ensure_bluesky_substrate_env.
+    _ensure_bluesky_substrate_env(config)
 
     # Set up environment for containers
     env = os.environ.copy()

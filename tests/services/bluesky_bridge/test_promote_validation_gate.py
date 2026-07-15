@@ -2,8 +2,8 @@
 
 Two parts, per the task split:
 
-- **Part A**: `app.py`'s `_epics_scanner_factory` now resolves plan names
-  through the gated registry (``plans=None`` -> `BlueskyScanner.reinitialize`
+- **Part A**: `app.py`'s `_epics_runner_factory` now resolves plan names
+  through the gated registry (``plans=None`` -> `BlueskyPlanRunner.reinitialize`
   falls back to `_default_plan_registry()`, which merges built-ins with the
   re-scanned, re-gated `get_facility_plans().plans`) instead of a fixed
   `BUILTIN_PLANS` snapshot — so a validated session/facility plan is
@@ -16,9 +16,9 @@ Two parts, per the task split:
   time rather than trusting an earlier snapshot.
 
 All Part B plan files here are pure pydantic/stdlib (no bluesky import),
-matching `test_session_load_gate.py`'s bluesky-less lane; `FakeScanner` is
+matching `test_session_load_gate.py`'s bluesky-less lane; `FakePlanRunner` is
 used throughout so these tests never need bluesky either — the gate runs
-entirely before any scanner is built.
+entirely before any runner is built.
 """
 
 from __future__ import annotations
@@ -31,10 +31,10 @@ from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import app as app_module
 from osprey.services.bluesky_bridge import plan_loader
-from osprey.services.bluesky_bridge.app import app, set_scanner_factory
+from osprey.services.bluesky_bridge.app import app, set_runner_factory
+from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
 from osprey.services.bluesky_bridge.runs import Run, do_promote, registry
-from osprey.services.bluesky_bridge.scanner import FakeScanner
 from osprey.services.bluesky_bridge.validation_record import validation_records
 
 _SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
@@ -47,7 +47,7 @@ _TOKEN = "s3cr3t"
 @pytest.fixture(autouse=True)
 def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """A fresh session-plan directory, loader cache, validation-record store,
-    run registry, and scanner factory for every test — every one of these is
+    run registry, and runner factory for every test — every one of these is
     a process-wide singleton in the real bridge, same as `test_session_load_gate.py`.
     """
     monkeypatch.delenv(_PLAN_DIRS_ENV, raising=False)
@@ -60,7 +60,7 @@ def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         validation_records._passing_hashes.clear()
 
     registry._runs.clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
 
     yield
 
@@ -69,7 +69,7 @@ def _isolated_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         validation_records._passing_hashes.clear()
         validation_records._passing_hashes.update(saved_hashes)
     registry._runs.clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
 
 
 def _session_plan_source(name: str) -> str:
@@ -167,7 +167,7 @@ def test_gate_ignores_a_non_session_plan(tmp_path: Path, monkeypatch: pytest.Mon
 
 
 def test_gate_ignores_a_plan_name_with_no_session_file_and_no_registration() -> None:
-    """A genuinely unknown plan name is left to `Scanner.reinitialize`'s own
+    """A genuinely unknown plan name is left to `PlanRunner.reinitialize`'s own
     "unknown plan" handling — the gate never 409s for it."""
     run = _run_for("nonexistent_plan")
     assert app_module._promote_validation_gate(run) is None
@@ -272,27 +272,27 @@ def test_do_promote_without_a_validator_is_unaffected_by_the_gate(tmp_path: Path
     _write_session_plan(tmp_path, "no_validator_plan", source)
 
     run = _run_for("no_validator_plan")
-    scanner = FakeScanner()
+    runner = FakePlanRunner()
 
-    result = do_promote(run, lambda: scanner)
+    result = do_promote(run, lambda: runner)
 
     assert result is run
     assert run.promoted is True
-    assert scanner.reinitialize_calls == 1
+    assert runner.reinitialize_calls == 1
 
 
 def test_do_promote_with_validator_none_explicit_matches_default() -> None:
     run = registry.add(request={})
-    scanner = FakeScanner()
+    runner = FakePlanRunner()
 
-    result = do_promote(run, lambda: scanner, validator=None)
+    result = do_promote(run, lambda: runner, validator=None)
 
     assert result is run
     assert run.promoted is True
 
 
 # =========================================================================
-# Part A: `_epics_scanner_factory` resolves plans through the gated registry
+# Part A: `_epics_runner_factory` resolves plans through the gated registry
 # =========================================================================
 
 
@@ -300,7 +300,7 @@ def test_do_promote_with_validator_none_explicit_matches_default() -> None:
 def _clean_epics_env(monkeypatch: pytest.MonkeyPatch):
     for var in (
         "BLUESKY_EPICS_SUBSTRATE",
-        "BLUESKY_DEMO_SCANNER",
+        "BLUESKY_DEMO_RUNNER",
         "BLUESKY_EPICS_MOTORS",
         "BLUESKY_EPICS_DETECTORS",
     ):
@@ -310,10 +310,10 @@ def _clean_epics_env(monkeypatch: pytest.MonkeyPatch):
     app_module._connector = None
 
 
-def test_epics_scanner_factory_resolves_a_validated_session_plan(
+def test_epics_runner_factory_resolves_a_validated_session_plan(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _clean_epics_env: None
 ) -> None:
-    """`_epics_scanner_factory` no longer pins `plans=BUILTIN_PLANS` — a
+    """`_epics_runner_factory` no longer pins `plans=BUILTIN_PLANS` — a
     validated session plan (re-gated by `_default_plan_registry()` on every
     `reinitialize()` call) is resolvable through the connector-mediated
     launch path, and an unvalidated one is not.
@@ -346,16 +346,16 @@ def test_epics_scanner_factory_resolves_a_validated_session_plan(
     with TestClient(app):
         pass
 
-    assert app_module._scanner_factory is not FakeScanner
-    scanner = app_module._scanner_factory()
+    assert app_module._runner_factory is not FakePlanRunner
+    runner = app_module._runner_factory()
     # `plans=None` — resolution happens lazily via `_default_plan_registry()`,
     # not a fixed built-in snapshot, on every `reinitialize()` call.
-    assert scanner._plans is None
+    assert runner._plans is None
 
-    ok = scanner.reinitialize({"plan_name": "gated_validated_plan", "plan_args": {}})
-    assert ok is True, scanner.error_message
+    ok = runner.reinitialize({"plan_name": "gated_validated_plan", "plan_args": {}})
+    assert ok is True, runner.error_message
 
-    other_scanner = app_module._scanner_factory()
+    other_scanner = app_module._runner_factory()
     not_ok = other_scanner.reinitialize({"plan_name": "gated_unvalidated_plan", "plan_args": {}})
     assert not_ok is False
     assert "unknown plan" in (other_scanner.error_message or "")

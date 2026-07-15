@@ -38,7 +38,7 @@ from osprey.services.bluesky_bridge.plan_validation import (  # noqa: E402
     _collect_device_names,
     _static_allowlist_check,
     hash_plan_body,
-    validate_bluesky_plan,
+    validate_plan,
 )
 
 # ---------------------------------------------------------------------------
@@ -315,20 +315,20 @@ class TestFutureImportPosition:
         )
         assert _static_allowlist_check(content) == [_FUTURE_IMPORT_REJECT_MESSAGE]
 
-    async def test_validate_bluesky_plan_rejects_with_clear_message_not_a_syntax_error(self):
+    async def test_validate_plan_rejects_with_clear_message_not_a_syntax_error(self):
         content = _assembled_session_content(
             "from __future__ import annotations\n\n" + _SESSION_BODY
         )
-        result = await validate_bluesky_plan(
+        result = await validate_plan(
             content, plan_name="tiny_sweep", sample_args=BENIGN_SAMPLE_ARGS
         )
         assert result.passed is False
         assert result.reasons == [_FUTURE_IMPORT_REJECT_MESSAGE]
         assert not any("SyntaxError" in r for r in result.reasons)
 
-    async def test_validate_bluesky_plan_accepts_the_same_body_without_future_import(self):
+    async def test_validate_plan_accepts_the_same_body_without_future_import(self):
         content = _assembled_session_content(_SESSION_BODY)
-        result = await validate_bluesky_plan(
+        result = await validate_plan(
             content, plan_name="tiny_sweep", sample_args=BENIGN_SAMPLE_ARGS
         )
         assert result.passed is True, result.reasons
@@ -530,13 +530,13 @@ class TestDryRunEnvScrub:
 
 
 # =========================================================================
-# Full pipeline: validate_bluesky_plan
+# Full pipeline: validate_plan
 # =========================================================================
 
 
 class TestValidateBlueskyPlanRejects:
     async def test_rejects_at_stage_1_for_a_disallowed_import(self):
-        result = await validate_bluesky_plan("import epics\nepics.caput('X', 1)\n")
+        result = await validate_plan("import epics\nepics.caput('X', 1)\n")
         assert result.passed is False
         assert any("epics" in r or "Import not allowed" in r for r in result.reasons)
         assert len(result.content_hash) == 64
@@ -547,7 +547,7 @@ class TestValidateBlueskyPlanRejects:
         # already catches via its reused dangerous-pattern scan) — so this
         # body only gets caught once stage 2 actually runs.
         code = "PLAN_METADATA = {}\nvalue = read_channel('BEAM:CURRENT')\n"
-        result = await validate_bluesky_plan(code)
+        result = await validate_plan(code)
         assert result.passed is False
         assert any("Control-system operation" in r for r in result.reasons)
 
@@ -555,14 +555,14 @@ class TestValidateBlueskyPlanRejects:
         """A body with BOTH a disallowed import AND a CA construct is
         rejected for the import (stage 1 never reaches stage 2)."""
         code = "import epics\nvalue = read_channel('BEAM:CURRENT')\n"
-        result = await validate_bluesky_plan(code)
+        result = await validate_plan(code)
         assert result.passed is False
         assert not any("Control-system operation" in r for r in result.reasons)
 
 
 class TestValidateBlueskyPlanAccepts:
     async def test_benign_plan_passes_all_stages_and_drives_to_completion(self):
-        result = await validate_bluesky_plan(
+        result = await validate_plan(
             BENIGN_PLAN_BODY,
             plan_name="tiny_sweep",
             sample_args=BENIGN_SAMPLE_ARGS,
@@ -599,7 +599,7 @@ class TestValidateBlueskyPlanAccepts:
                 yield  # pragma: no cover - unreachable; makes this a generator
             """
         )
-        result = await validate_bluesky_plan(code, plan_name="boom", sample_args={})
+        result = await validate_plan(code, plan_name="boom", sample_args={})
         assert result.passed is False
         assert any("Dry-run failed" in r for r in result.reasons)
 
@@ -630,7 +630,7 @@ class TestShippedExemplarsPassValidation:
 
     async def test_response_matrix_source_passes_full_validation_including_dry_run(self):
         source = (_PLANS_CORE_DIR / "response_matrix.py").read_text(encoding="utf-8")
-        result = await validate_bluesky_plan(
+        result = await validate_plan(
             source,
             plan_name="response_matrix",
             sample_args={
@@ -644,7 +644,7 @@ class TestShippedExemplarsPassValidation:
 
     async def test_grid_scan_source_passes_full_validation_including_dry_run(self):
         source = (_PLANS_CORE_DIR / "grid_scan.py").read_text(encoding="utf-8")
-        result = await validate_bluesky_plan(
+        result = await validate_plan(
             source,
             plan_name="grid_scan_nd",
             sample_args={

@@ -5,7 +5,7 @@ name: Human Approval Gate
 description: Requires human approval for dangerous operations based on per-tool policy
 summary: Requires human approval for dangerous operations
 event: PreToolUse
-tools: channel_write, execute, setup_patch, entry_create, launch_scan
+tools: channel_write, execute, setup_patch, entry_create, launch_run
 safety_layer: 2
 ---
 
@@ -182,7 +182,7 @@ def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
 
 
 # Default Bluesky bridge base URL — mirrors
-# osprey.mcp_server.scan.server_context.ScanContext._resolve_bridge_url's
+# osprey.mcp_server.bluesky.server_context.BridgeContext._resolve_bridge_url's
 # fallback (`_DEFAULT_BRIDGE_URL`) without importing that module: this hook
 # runs standalone, in a different process/venv from OSPREY's own package.
 _DEFAULT_BRIDGE_URL = "http://127.0.0.1:8090"
@@ -191,14 +191,14 @@ _DEFAULT_BRIDGE_URL = "http://127.0.0.1:8090"
 def _resolve_bridge_url(config: dict) -> str:
     """Resolve the Bluesky bridge base URL: env wins outright over config.yml.
 
-    Resolution order mirrors `ScanContext._resolve_bridge_url` exactly:
-    ``BLUESKY_BRIDGE_URL`` env var, then ``scan.bridge_url`` in config.yml,
+    Resolution order mirrors `BridgeContext._resolve_bridge_url` exactly:
+    ``BLUESKY_BRIDGE_URL`` env var, then ``bluesky.bridge_url`` in config.yml,
     then the loopback default above.
     """
     full = os.environ.get("BLUESKY_BRIDGE_URL")
     if full:
         return full.rstrip("/")
-    url = config.get("scan", {}).get("bridge_url", _DEFAULT_BRIDGE_URL)
+    url = config.get("bluesky", {}).get("bridge_url", _DEFAULT_BRIDGE_URL)
     return str(url).rstrip("/")
 
 
@@ -220,7 +220,7 @@ def _bridge_get_json(base_url: str, path: str, timeout: float = 3.0):
         return None
 
 
-def _describe_launch_scan(tool_input: dict, config: dict) -> list[str]:
+def _describe_launch_run(tool_input: dict, config: dict) -> list[str]:
     """Render the launch-approval prompt's plan detail lines.
 
     This is the human backstop for the plan-validator's documented, accepted
@@ -481,9 +481,9 @@ def main():
         channel_list = ", ".join(f"{op.get('channel')}={op.get('value')}" for op in channels)
         if channel_list:
             reason_parts.append(f"Channels: {channel_list}")
-    elif short_name == "launch_scan":
+    elif short_name == "launch_run":
         try:
-            reason_parts.extend(_describe_launch_scan(tool_input, config))
+            reason_parts.extend(_describe_launch_run(tool_input, config))
         except Exception:
             pass
 

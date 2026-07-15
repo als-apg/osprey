@@ -1,4 +1,4 @@
-"""Unit tests for the bridge lifecycle core end-to-end over HTTP (FakeScanner, no bluesky).
+"""Unit tests for the bridge lifecycle core end-to-end over HTTP (FakePlanRunner, no bluesky).
 
 Exercises the assembled FastAPI app (`bluesky_bridge/app.py`) rather than calling
 `runs.py`/`security.py` directly, so these tests also stand as a contract test
@@ -13,9 +13,9 @@ import threading
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.services.bluesky_bridge.app import app, promote_run, set_scanner_factory, stop_run
+from osprey.services.bluesky_bridge.app import app, promote_run, set_runner_factory, stop_run
+from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
 from osprey.services.bluesky_bridge.runs import registry
-from osprey.services.bluesky_bridge.scanner import FakeScanner
 
 _ENV_VAR = "BLUESKY_PROMOTE_TOKEN"
 _TOKEN = "s3cr3t"
@@ -23,17 +23,17 @@ _TOKEN = "s3cr3t"
 
 @pytest.fixture(autouse=True)
 def _isolated_bridge_state():
-    """Every test gets an empty run registry and a fresh default scanner factory.
+    """Every test gets an empty run registry and a fresh default runner factory.
 
-    Both `registry` and the app's `_scanner_factory` are process-wide
+    Both `registry` and the app's `_runner_factory` are process-wide
     singletons (as they are in a real bridge instance), so tests must clean
     up after themselves rather than relying on module reimport.
     """
     registry._runs.clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
     yield
     registry._runs.clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
 
 
 @pytest.fixture
@@ -58,15 +58,15 @@ def test_promote_without_token_returns_503_and_touches_no_scanner(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv(_ENV_VAR, raising=False)
-    scanner = FakeScanner()
-    set_scanner_factory(lambda: scanner)
+    runner = FakePlanRunner()
+    set_runner_factory(lambda: runner)
 
     run_id = _create_run(client)
     resp = client.post(f"/runs/{run_id}/promote")
 
     assert resp.status_code == 503
-    assert scanner.reinitialize_calls == 0
-    assert scanner.start_calls == 0
+    assert runner.reinitialize_calls == 0
+    assert runner.start_calls == 0
     assert client.get(f"/runs/{run_id}").json()["status"] == "intent"
 
 
@@ -74,15 +74,15 @@ def test_promote_with_invalid_token_returns_403_and_touches_no_scanner(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(_ENV_VAR, _TOKEN)
-    scanner = FakeScanner()
-    set_scanner_factory(lambda: scanner)
+    runner = FakePlanRunner()
+    set_runner_factory(lambda: runner)
 
     run_id = _create_run(client)
     resp = client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": "wrong"})
 
     assert resp.status_code == 403
-    assert scanner.reinitialize_calls == 0
-    assert scanner.start_calls == 0
+    assert runner.reinitialize_calls == 0
+    assert runner.start_calls == 0
     assert client.get(f"/runs/{run_id}").json()["status"] == "intent"
 
 
@@ -90,8 +90,8 @@ def test_promote_with_valid_token_starts_the_scan(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(_ENV_VAR, _TOKEN)
-    scanner = FakeScanner()
-    set_scanner_factory(lambda: scanner)
+    runner = FakePlanRunner()
+    set_runner_factory(lambda: runner)
 
     run_id = _create_run(client)
     resp = client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
@@ -101,8 +101,8 @@ def test_promote_with_valid_token_starts_the_scan(
     assert body["status"] == "running"
     assert body["launched_by"] == "agent"
     assert body["run_uid"]
-    assert scanner.reinitialize_calls == 1
-    assert scanner.start_calls == 1
+    assert runner.reinitialize_calls == 1
+    assert runner.start_calls == 1
 
 
 # =========================================================================
@@ -114,7 +114,7 @@ def test_concurrent_second_promote_returns_409_while_active(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(_ENV_VAR, _TOKEN)
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
 
     run_id = _create_run(client)
     first = client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
@@ -131,7 +131,7 @@ def test_promote_after_stop_returns_409(
     # Stopping an intent that was never promoted still permanently forecloses
     # promotion — do_promote's `stopped` guard fires regardless.
     monkeypatch.setenv(_ENV_VAR, _TOKEN)
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
 
     run_id = _create_run(client)
     stop_resp = client.post(f"/runs/{run_id}/stop")
@@ -147,7 +147,7 @@ def test_promote_after_stopping_an_already_promoted_run_returns_409(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(_ENV_VAR, _TOKEN)
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
 
     run_id = _create_run(client)
     first_promote = client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
@@ -175,7 +175,7 @@ def test_state_machine_running_after_promotion(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(_ENV_VAR, _TOKEN)
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
 
     run_id = _create_run(client)
     client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
@@ -186,12 +186,12 @@ def test_state_machine_completed_once_scan_finishes_cleanly(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(_ENV_VAR, _TOKEN)
-    scanner = FakeScanner()
-    set_scanner_factory(lambda: scanner)
+    runner = FakePlanRunner()
+    set_runner_factory(lambda: runner)
 
     run_id = _create_run(client)
     client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
-    scanner.simulate_completion()
+    runner.simulate_completion()
 
     body = client.get(f"/runs/{run_id}").json()
     assert body["status"] == "completed"
@@ -202,8 +202,8 @@ def test_state_machine_stopped_via_stop_route(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(_ENV_VAR, _TOKEN)
-    scanner = FakeScanner()
-    set_scanner_factory(lambda: scanner)
+    runner = FakePlanRunner()
+    set_runner_factory(lambda: runner)
 
     run_id = _create_run(client)
     client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
@@ -211,7 +211,7 @@ def test_state_machine_stopped_via_stop_route(
 
     assert stop_resp.status_code == 200
     assert stop_resp.json()["status"] == "stopped"
-    assert scanner.stop_calls == 1
+    assert runner.stop_calls == 1
     assert client.get(f"/runs/{run_id}").json()["status"] == "stopped"
 
 
@@ -219,12 +219,12 @@ def test_state_machine_error_when_scanner_ends_in_error_state(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(_ENV_VAR, _TOKEN)
-    scanner = FakeScanner()
-    set_scanner_factory(lambda: scanner)
+    runner = FakePlanRunner()
+    set_runner_factory(lambda: runner)
 
     run_id = _create_run(client)
     client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
-    scanner.simulate_error("device timeout")
+    runner.simulate_error("device timeout")
 
     body = client.get(f"/runs/{run_id}").json()
     assert body["status"] == "error"
@@ -235,7 +235,7 @@ def test_state_machine_error_when_reinitialize_fails_at_promote_time(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(_ENV_VAR, _TOKEN)
-    set_scanner_factory(lambda: FakeScanner(reinitialize_fails=True))
+    set_runner_factory(lambda: FakePlanRunner(reinitialize_fails=True))
 
     run_id = _create_run(client)
     resp = client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
@@ -281,7 +281,7 @@ def test_list_runs_returns_newest_first(client: TestClient) -> None:
 
 
 # =========================================================================
-# Race: stop() landing during do_promote's unlocked scanner-build window
+# Race: stop() landing during do_promote's unlocked runner-build window
 # =========================================================================
 
 
@@ -291,38 +291,38 @@ def test_stop_during_unlocked_build_window_never_leaves_a_live_untracked_scan(
     """Deterministically interleave promote and stop around the unlocked window.
 
     `do_promote` sets `promoting=True` under the lock, then builds/starts the
-    scanner OUTSIDE the lock (it may be slow) before re-acquiring the lock to
-    publish `scanner`/`promoted`. A `stop()` landing in that unlocked window
-    used to see `promoted=False`/`scanner=None`, skip stopping anything, and
-    just record `stopped=True` — after which the just-started scanner got
-    published anyway: a live scan running behind a run reporting "stopped".
+    runner OUTSIDE the lock (it may be slow) before re-acquiring the lock to
+    publish `runner`/`promoted`. A `stop()` landing in that unlocked window
+    used to see `promoted=False`/`runner=None`, skip stopping anything, and
+    just record `stopped=True` — after which the just-started runner got
+    published anyway: a live running behind a run reporting "stopped".
 
-    This test forces exactly that interleaving via a scanner whose
+    This test forces exactly that interleaving via a runner whose
     `reinitialize` blocks (simulating the slow build) until the stop call has
-    actually landed, and asserts the scanner is stopped exactly once and never
+    actually landed, and asserts the runner is stopped exactly once and never
     left running.
     """
     monkeypatch.setenv(_ENV_VAR, _TOKEN)
 
     reinitialize_started = threading.Event()
     stop_landed = threading.Event()
-    created: dict[str, FakeScanner] = {}
+    created: dict[str, FakePlanRunner] = {}
 
-    class BlockingBuildScanner(FakeScanner):
+    class BlockingBuildScanner(FakePlanRunner):
         def reinitialize(self, exec_config: object) -> bool:
             # Signal that do_promote has reached the unlocked build phase
             # (past the `promoting=True` lock section), then hold here —
-            # simulating a slow scanner build — until stop() has landed.
+            # simulating a slow runner build — until stop() has landed.
             reinitialize_started.set()
             assert stop_landed.wait(timeout=5), "stop() never landed during the build window"
             return super().reinitialize(exec_config)
 
     def factory() -> BlockingBuildScanner:
-        scanner = BlockingBuildScanner()
-        created["scanner"] = scanner
-        return scanner
+        runner = BlockingBuildScanner()
+        created["runner"] = runner
+        return runner
 
-    set_scanner_factory(factory)
+    set_runner_factory(factory)
     run_id = _create_run(client)
 
     promote_result: dict[str, object] = {}
@@ -336,7 +336,7 @@ def test_stop_during_unlocked_build_window_never_leaves_a_live_untracked_scan(
         assert reinitialize_started.wait(timeout=5), "promote never reached the build phase"
 
         # The promote thread is now blocked inside the unlocked build window
-        # (promoting=True, scanner/promoted not yet published). Stop lands here.
+        # (promoting=True, runner/promoted not yet published). Stop lands here.
         stop_run(run_id)
         stop_landed.set()
 
@@ -346,9 +346,9 @@ def test_stop_during_unlocked_build_window_never_leaves_a_live_untracked_scan(
         # Always unblock the background thread even if an assertion above failed.
         stop_landed.set()
 
-    scanner = created["scanner"]
-    assert scanner.stop_calls == 1, "scanner must be stopped exactly once, not left running"
-    assert scanner.is_scanning_active() is False
+    runner = created["runner"]
+    assert runner.stop_calls == 1, "runner must be stopped exactly once, not left running"
+    assert runner.is_run_active() is False
 
     run = registry.get(run_id)
     assert run.stopped is True

@@ -1,20 +1,20 @@
 ---
 name: writing-bluesky-plans
 description: >
-  Author a new Bluesky scan plan for the scan MCP server: the plan-file
+  Author a new Bluesky plan for the Bluesky MCP server: the plan-file
   format (PLAN_METADATA/PARAMS/build_plan), the allowlist the validator
   enforces, and the author -> validate -> run -> promote workflow. Use when
-  asked to write, draft, or author a new scan/bluesky plan, or when an
+  asked to write, draft, or author a new Bluesky plan, or when an
   existing plan needs editing before re-validation. NOT for operating an
-  already-registered plan (use list_scan_plans/create_scan_intent directly).
-summary: Author, validate, and launch a session-tier Bluesky scan plan
+  already-registered plan (use list_plans/create_run_intent directly).
+summary: Author, validate, and launch a session-tier Bluesky plan
 ---
 
 # Writing Bluesky Plans
 
-Author a new scan plan as a plain-text file, get it machine-validated in a
-sandbox with no hardware access, then launch it through the normal scan
-workflow. A plan you write is inert until `validate_bluesky_plan` records a
+Author a new plan as a plain-text file, get it machine-validated in a
+sandbox with no hardware access, then launch it through the normal
+author -> validate -> run -> promote workflow. A plan you write is inert until `validate_plan` records a
 pass for its exact content — nothing you author here is ever imported or
 executed directly.
 
@@ -64,7 +64,7 @@ explicitly out of scope.
 
 ## The allowlist the validator enforces
 
-`validate_bluesky_plan` runs your file's body through three ordered stages,
+`validate_plan` runs your file's body through three ordered stages,
 any of which can reject it outright before the next ever runs:
 
 1. **Static import allowlist** — only these imports are permitted:
@@ -99,26 +99,26 @@ never a substitute for `bps.sleep` inside a plan's own control flow.
 
 ## Workflow: author -> validate -> run -> promote
 
-1. **Author** — `write_bluesky_plan(name, category, required_devices,
+1. **Author** — `write_plan(name, category, required_devices,
    writes, body, description="")`. `body` is your `PARAMS` + `build_plan`
    source (no `PLAN_METADATA` block — the bridge assembles and prepends one
    from your other arguments). Writes a session-tier file; reaches no
    hardware. Re-authoring the same `name` overwrites the file and drops any
    prior passing validation (its content hash changes).
-2. **Validate** — `validate_bluesky_plan(name, sample_args=None,
+2. **Validate** — `validate_plan(name, sample_args=None,
    dry_run_timeout=30.0)`. Validates the file's CURRENT on-disk content
    (never a body you pass directly) through the three stages above.
    `sample_args` should supply realistic `PARAMS` field values so the dry
    run's mock devices match what your plan expects. A pass is what makes the
    plan loadable at all — an unvalidated session plan is never listed,
    loaded, or launchable.
-3. **Confirm it's live** — `list_scan_plans()` to see the plan appear with
+3. **Confirm it's live** — `list_plans()` to see the plan appear with
    `provenance: "session"` alongside its `metadata`.
-4. **Run** — `create_scan_intent(plan_name, plan_args)` records an intent
-   (motion-safe, no device touched yet), then `launch_scan(run_id)` is the
+4. **Run** — `create_run_intent(plan_name, plan_args)` records an intent
+   (motion-safe, no device touched yet), then `launch_run(run_id)` is the
    sole promote path: it re-checks the validation record against the file's
    current hash, requires `control_system.writes_enabled`, and needs human
-   approval. Use `scan_status(run_id)` / `read_scan_data(run_id, ...)` to
+   approval. Use `run_status(run_id)` / `read_run_data(run_id, ...)` to
    watch it run.
 5. **Promote to permanent** — a session plan stays session-tier (least
    trusted, most ephemeral) until a human reviews and merges it into a

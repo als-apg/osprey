@@ -115,17 +115,17 @@ class BlueskyConfig:
     port: int = 8090
     tiled_enabled: bool = False
     tiled_port: int = 8091
-    demo_scanner: bool = False
+    demo_runner: bool = False
     """Opt-in only for the deploy-smoke-demo / tutorial case: wires the
     container's bridge process to a real bluesky RunEngine against mock
     ophyd-async devices (``devices/mock.py``) via app.py's guarded startup
-    hook (task 2.14a), instead of the Phase 1 no-op ``FakeScanner`` default.
+    hook (task 2.14a), instead of the Phase 1 no-op ``FakePlanRunner`` default.
     MUST stay False for any facility wiring real EPICS hardware — turning
     this on would silently override real device/plan wiring with an
-    in-memory mock scanner.
+    in-memory mock runner.
     """
     plan_dir: str | None = None
-    """Optional host directory of facility scan-plan files (Task 1.4),
+    """Optional host directory of facility plan files (Task 1.4),
     bind-mounted read-only into the bridge container and surfaced to the
     plan loader as a ``BLUESKY_PLAN_DIRS`` (facility-tier) layer — see
     ``plan_loader.py``. ``None`` (default) deploys the bridge with no
@@ -147,6 +147,24 @@ class VAConfig:
     port: int = 5064
     """Channel Access TCP port the soft-IOC serves PVs on (see
     src/osprey/services/virtual_accelerator/entrypoint.py's run contract)."""
+
+
+@dataclass
+class BlueskyPanelsConfig:
+    """Scan-panels sidecar configuration for a build profile (opt-in via the
+    ``bluesky_panels:`` key).
+
+    Consumed by the build pipeline's bluesky-panels-injection step
+    (``_inject_bluesky_panels`` in ``build_cmd.py``) to deploy the single
+    ``bluesky_panels`` FastAPI sidecar (compose service ``bluesky-panels``) that
+    serves the three operator web panels (``plan``, ``results``,
+    ``health``) and read-proxies the bluesky bridge. Port is validated
+    by :meth:`BuildProfile.validate`.
+    """
+
+    port: int = 8095
+    """Host/container port the sidecar's uvicorn process binds and publishes
+    (see ``templates/services/bluesky_panels/docker-compose.yml.j2``)."""
 
 
 _ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
@@ -305,6 +323,7 @@ class BuildProfile:
     dispatch: DispatchConfig | None = None
     bluesky: BlueskyConfig | None = None
     virtual_accelerator: VAConfig | None = None
+    bluesky_panels: BlueskyPanelsConfig | None = None
 
     def resolved_tier(self) -> int:
         """Resolve the build-time tier, applying a paradigm-aware default.
@@ -435,6 +454,12 @@ class BuildProfile:
             # url-less here — accept it rather than aborting the build.
             if panel == "events" and self.dispatch is not None:
                 continue
+            # The three panel ids' URLs are likewise derived post-build
+            # (``_inject_bluesky_panels`` in build_cmd.py, which runs after this
+            # validator) from the bluesky_panels sidecar's port — so they are
+            # legitimately url-less here when a bluesky_panels block is present.
+            if panel in ("plan", "results", "health") and self.bluesky_panels is not None:
+                continue
             errors.append(
                 f"Unknown web_panel {panel!r}: not in BUILTIN_PANELS "
                 f"({sorted(BUILTIN_PANELS)}) and no '{url_key}' config override"
@@ -549,6 +574,12 @@ class BuildProfile:
             if not (1 <= va.port <= 65535):
                 errors.append(f"virtual_accelerator.port must be in 1..65535 (got {va.port})")
 
+        # Validate bluesky_panels configuration
+        if self.bluesky_panels is not None:
+            sp = self.bluesky_panels
+            if not (1 <= sp.port <= 65535):
+                errors.append(f"bluesky_panels.port must be in 1..65535 (got {sp.port})")
+
         if errors:
             raise BuildProfileError(
                 "Build profile validation failed:\n  - " + "\n  - ".join(errors)
@@ -620,6 +651,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "dispatch",
         "bluesky",
         "virtual_accelerator",
+        "bluesky_panels",
     }
 )
 
@@ -738,7 +770,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             port=bluesky_raw.get("port", 8090),
             tiled_enabled=bluesky_raw.get("tiled_enabled", False),
             tiled_port=bluesky_raw.get("tiled_port", 8091),
-            demo_scanner=bluesky_raw.get("demo_scanner", False),
+            demo_runner=bluesky_raw.get("demo_runner", False),
             plan_dir=bluesky_raw.get("plan_dir"),
         )
 
@@ -749,6 +781,15 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             raise BuildProfileError("Profile 'virtual_accelerator' must be a mapping")
         virtual_accelerator = VAConfig(
             port=va_raw.get("port", 5064),
+        )
+
+    bluesky_panels_raw = raw.get("bluesky_panels")
+    bluesky_panels = None
+    if bluesky_panels_raw is not None:
+        if not isinstance(bluesky_panels_raw, dict):
+            raise BuildProfileError("Profile 'bluesky_panels' must be a mapping")
+        bluesky_panels = BlueskyPanelsConfig(
+            port=bluesky_panels_raw.get("port", 8095),
         )
 
     return BuildProfile(
@@ -780,6 +821,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         dispatch=dispatch,
         bluesky=bluesky,
         virtual_accelerator=virtual_accelerator,
+        bluesky_panels=bluesky_panels,
     )
 
 
