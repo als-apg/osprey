@@ -125,11 +125,11 @@ class TestWritingBlueskyPlansSkillStructure:
     # --- author -> validate -> run -> promote workflow ---
 
     def test_documents_write_and_validate_tools(self, skill_text):
-        assert "write_bluesky_plan" in skill_text
-        assert "validate_bluesky_plan" in skill_text
+        assert "write_plan" in skill_text
+        assert "validate_plan" in skill_text
 
     def test_documents_run_tools(self, skill_text):
-        for tool in ("create_scan_intent", "launch_scan", "list_scan_plans"):
+        for tool in ("create_run_intent", "launch_run", "list_plans"):
             assert tool in skill_text, f"Missing tool reference: {tool}"
 
     def test_documents_promote_to_permanent_pointer(self, skill_text):

@@ -54,9 +54,9 @@ def test_inject_bluesky_default_config(tmp_path: Path) -> None:
     assert svc["port"] == 8090
     assert svc["tiled_enabled"] is False
     assert svc["tiled_port"] == 8091
-    # demo_scanner defaults OFF — a facility profile must opt in explicitly;
+    # demo_runner defaults OFF — a facility profile must opt in explicitly;
     # it must never silently override real device/plan wiring.
-    assert svc["demo_scanner"] is False
+    assert svc["demo_runner"] is False
     # No pinned image: the service builds the local image (compose template
     # defaults to osprey-bluesky-bridge:local + a build: section).
     assert "image" not in svc
@@ -81,18 +81,18 @@ def test_inject_bluesky_custom_ports_and_tiled(tmp_path: Path) -> None:
     assert svc["tiled_port"] == 9501
 
 
-def test_inject_bluesky_demo_scanner_opt_in(tmp_path: Path) -> None:
-    """demo_scanner=True is written through to config.yml (2.14a's app.py hook
-    reads BLUESKY_DEMO_SCANNER off the rendered compose env; this test only
+def test_inject_bluesky_demo_runner_opt_in(tmp_path: Path) -> None:
+    """demo_runner=True is written through to config.yml (2.14a's app.py hook
+    reads BLUESKY_DEMO_RUNNER off the rendered compose env; this test only
     covers this task's half — the config.yml/compose passthrough)."""
     project_path = tmp_path / "project"
     project_path.mkdir()
     _write_config(project_path)
 
-    _inject_bluesky(BlueskyConfig(demo_scanner=True), project_path)
+    _inject_bluesky(BlueskyConfig(demo_runner=True), project_path)
 
     config = _read_config(project_path)
-    assert config["services"]["bluesky"]["demo_scanner"] is True
+    assert config["services"]["bluesky"]["demo_runner"] is True
 
 
 def test_inject_bluesky_idempotent_rerun(tmp_path: Path) -> None:
@@ -164,21 +164,21 @@ def _render_copied_compose(project_path: Path, config: dict) -> dict:
     return pyyaml.safe_load(tmpl.render(ctx))
 
 
-def test_demo_scanner_env_passthrough_round_trips_through_compose(tmp_path: Path) -> None:
-    """The config.yml demo_scanner flag `_inject_bluesky` writes must actually
-    reach the container as BLUESKY_DEMO_SCANNER — the other half of 2.14a's
+def test_demo_runner_env_passthrough_round_trips_through_compose(tmp_path: Path) -> None:
+    """The config.yml demo_runner flag `_inject_bluesky` writes must actually
+    reach the container as BLUESKY_DEMO_RUNNER — the other half of 2.14a's
     contract (app.py reads the env var this template renders)."""
     project_path = tmp_path / "project"
     project_path.mkdir()
     _write_config(project_path)
 
-    _inject_bluesky(BlueskyConfig(demo_scanner=True), project_path)
+    _inject_bluesky(BlueskyConfig(demo_runner=True), project_path)
     config = _read_config(project_path)
     rendered = _render_copied_compose(project_path, config)
-    assert rendered["services"]["bluesky-bridge"]["environment"]["BLUESKY_DEMO_SCANNER"] == "true"
+    assert rendered["services"]["bluesky-bridge"]["environment"]["BLUESKY_DEMO_RUNNER"] == "true"
 
 
-def test_demo_scanner_off_by_default_omits_env_var(tmp_path: Path) -> None:
+def test_demo_runner_off_by_default_omits_env_var(tmp_path: Path) -> None:
     project_path = tmp_path / "project"
     project_path.mkdir()
     _write_config(project_path)
@@ -186,7 +186,7 @@ def test_demo_scanner_off_by_default_omits_env_var(tmp_path: Path) -> None:
     _inject_bluesky(BlueskyConfig(), project_path)
     config = _read_config(project_path)
     rendered = _render_copied_compose(project_path, config)
-    assert "BLUESKY_DEMO_SCANNER" not in rendered["services"]["bluesky-bridge"]["environment"]
+    assert "BLUESKY_DEMO_RUNNER" not in rendered["services"]["bluesky-bridge"]["environment"]
 
 
 # ---------------------------------------------------------------------------
@@ -292,7 +292,7 @@ def test_profile_bluesky_key_parses_overrides() -> None:
                 "port": 8123,
                 "tiled_enabled": True,
                 "tiled_port": 8124,
-                "demo_scanner": True,
+                "demo_runner": True,
                 "plan_dir": "/opt/facility/scan_plans",
             },
         }
@@ -301,7 +301,7 @@ def test_profile_bluesky_key_parses_overrides() -> None:
     assert profile.bluesky.port == 8123
     assert profile.bluesky.tiled_enabled is True
     assert profile.bluesky.tiled_port == 8124
-    assert profile.bluesky.demo_scanner is True
+    assert profile.bluesky.demo_runner is True
     assert profile.bluesky.plan_dir == "/opt/facility/scan_plans"
 
 
@@ -311,5 +311,5 @@ def test_profile_bluesky_key_defaults_when_empty_mapping() -> None:
     assert profile.bluesky.port == 8090
     assert profile.bluesky.tiled_enabled is False
     assert profile.bluesky.tiled_port == 8091
-    assert profile.bluesky.demo_scanner is False
+    assert profile.bluesky.demo_runner is False
     assert profile.bluesky.plan_dir is None

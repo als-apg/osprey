@@ -3,17 +3,17 @@
 ``build_claude_code_context``'s writes-off kill-switch block (previously
 hardcoded to ``controls``/``python`` by name) now walks ``FRAMEWORK_SERVERS``
 for any hooks_pre rule gated by ``_WRITES_CHECK``, so a new write server (e.g.
-``scan``'s ``launch_scan``) is covered automatically with no per-server code
-change. These tests pin: scan's launch_scan is hard-denied when writes are
-off, stop_scan (approval-only, no writes-check) is NEVER denied or
+``scan``'s ``launch_run``) is covered automatically with no per-server code
+change. These tests pin: scan's launch_run is hard-denied when writes are
+off, stop_run (approval-only, no writes-check) is NEVER denied or
 removed-from-ask (the kill switch must not block stopping a scan), the
 existing controls/python behavior is preserved, and an extends clone gets the
 rewritten-prefix matcher.
 
-Also pins the task-2.3 authoring tools (``write_bluesky_plan``,
-``validate_bluesky_plan``): both reach no hardware regardless of
+Also pins the task-2.3 authoring tools (``write_plan``,
+``validate_plan``): both reach no hardware regardless of
 ``writes_enabled`` (write only emits a file, validate only dry-runs mock
-devices), so they carry ``_APPROVAL`` only — same as ``stop_scan`` — and must
+devices), so they carry ``_APPROVAL`` only — same as ``stop_run`` — and must
 never be denied or removed-from-ask by the kill switch.
 """
 
@@ -53,7 +53,7 @@ def _build_ctx(tmp_path, *, writes_enabled: bool, claude_code_overrides: dict | 
 
 
 # ---------------------------------------------------------------------------
-# scan.launch_scan — hard deny when writes are off
+# scan.launch_run — hard deny when writes are off
 # ---------------------------------------------------------------------------
 
 
@@ -61,21 +61,21 @@ def test_scan_launch_denied_when_writes_off(tmp_path):
     ctx = _build_ctx(
         tmp_path,
         writes_enabled=False,
-        claude_code_overrides={"servers": {"scan": {"enabled": True}}},
+        claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
     )
     perms = ctx["facility_permissions"]
-    assert "mcp__scan__launch_scan" in perms["deny"]
+    assert "mcp__bluesky__launch_run" in perms["deny"]
 
 
 def test_scan_launch_not_denied_when_writes_on(tmp_path):
     ctx = _build_ctx(
         tmp_path,
         writes_enabled=True,
-        claude_code_overrides={"servers": {"scan": {"enabled": True}}},
+        claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
     )
     perms = ctx["facility_permissions"]
-    assert "mcp__scan__launch_scan" not in perms.get("deny", [])
-    assert "mcp__scan__launch_scan" not in perms.get("remove_ask", [])
+    assert "mcp__bluesky__launch_run" not in perms.get("deny", [])
+    assert "mcp__bluesky__launch_run" not in perms.get("remove_ask", [])
 
 
 def test_scan_disabled_server_contributes_nothing(tmp_path):
@@ -83,48 +83,48 @@ def test_scan_disabled_server_contributes_nothing(tmp_path):
     not contribute a deny entry even when writes are off."""
     ctx = _build_ctx(tmp_path, writes_enabled=False)
     perms = ctx["facility_permissions"]
-    assert "mcp__scan__launch_scan" not in perms.get("deny", [])
-    assert "mcp__scan__launch_scan" not in perms.get("remove_ask", [])
+    assert "mcp__bluesky__launch_run" not in perms.get("deny", [])
+    assert "mcp__bluesky__launch_run" not in perms.get("remove_ask", [])
 
 
 # ---------------------------------------------------------------------------
-# scan.stop_scan — never denied or removed-from-ask (safe direction)
+# scan.stop_run — never denied or removed-from-ask (safe direction)
 # ---------------------------------------------------------------------------
 
 
 def test_scan_stop_never_denied_or_removed(tmp_path):
-    """stop_scan carries approval only (no _WRITES_CHECK) — the kill switch
+    """stop_run carries approval only (no _WRITES_CHECK) — the kill switch
     must never block stopping a scan, regardless of writes_enabled."""
     for writes_enabled in (True, False):
         ctx = _build_ctx(
             tmp_path,
             writes_enabled=writes_enabled,
-            claude_code_overrides={"servers": {"scan": {"enabled": True}}},
+            claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
         )
         perms = ctx["facility_permissions"]
-        assert "mcp__scan__stop_scan" not in perms.get("deny", [])
-        assert "mcp__scan__stop_scan" not in perms.get("remove_ask", [])
+        assert "mcp__bluesky__stop_run" not in perms.get("deny", [])
+        assert "mcp__bluesky__stop_run" not in perms.get("remove_ask", [])
 
 
 # ---------------------------------------------------------------------------
-# scan.write_bluesky_plan / scan.validate_bluesky_plan — task 2.3 authoring
+# scan.write_plan / scan.validate_plan — task 2.3 authoring
 # tools; never denied or removed-from-ask (neither reaches hardware)
 # ---------------------------------------------------------------------------
 
 
 def test_scan_authoring_tools_never_denied_or_removed(tmp_path):
-    """write_bluesky_plan/validate_bluesky_plan carry approval only (no
-    _WRITES_CHECK) — like stop_scan, the kill switch must never block them,
+    """write_plan/validate_plan carry approval only (no
+    _WRITES_CHECK) — like stop_run, the kill switch must never block them,
     regardless of writes_enabled, since neither reaches hardware."""
     for writes_enabled in (True, False):
         ctx = _build_ctx(
             tmp_path,
             writes_enabled=writes_enabled,
-            claude_code_overrides={"servers": {"scan": {"enabled": True}}},
+            claude_code_overrides={"servers": {"bluesky": {"enabled": True}}},
         )
         perms = ctx["facility_permissions"]
-        for tool in ("write_bluesky_plan", "validate_bluesky_plan"):
-            matcher = f"mcp__scan__{tool}"
+        for tool in ("write_plan", "validate_plan"):
+            matcher = f"mcp__bluesky__{tool}"
             assert matcher not in perms.get("deny", [])
             assert matcher not in perms.get("remove_ask", [])
 
@@ -165,13 +165,13 @@ def test_extends_clone_of_scan_denied_with_rewritten_prefix(tmp_path):
     ctx = _build_ctx(
         tmp_path,
         writes_enabled=False,
-        claude_code_overrides={"servers": {"scan2": {"extends": "scan"}}},
+        claude_code_overrides={"servers": {"bluesky2": {"extends": "bluesky"}}},
     )
     perms = ctx["facility_permissions"]
-    assert "mcp__scan2__launch_scan" in perms["deny"]
+    assert "mcp__bluesky2__launch_run" in perms["deny"]
     # The template name itself must not leak into the clone's deny entry.
-    assert "mcp__scan__launch_scan" not in perms["deny"]
+    assert "mcp__bluesky__launch_run" not in perms["deny"]
     # The clone's authoring tools (approval-only, no _WRITES_CHECK) are never
     # denied under the rewritten prefix either.
-    assert "mcp__scan2__write_bluesky_plan" not in perms.get("deny", [])
-    assert "mcp__scan2__validate_bluesky_plan" not in perms.get("deny", [])
+    assert "mcp__bluesky2__write_plan" not in perms.get("deny", [])
+    assert "mcp__bluesky2__validate_plan" not in perms.get("deny", [])

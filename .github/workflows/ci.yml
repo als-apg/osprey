@@ -491,15 +491,15 @@ jobs:
         else
           # Tier 3 per-preset agentic flows live in their own matrix job
           # (agentic-per-preset). The full Docker-stack tests
-          # (dispatch-deploy-e2e, scan-deploy-e2e, tiled-roundtrip-e2e,
-          # va-substrate-equivalence-e2e, scan-catalog-e2e,
-          # scan-sandbox-escape-e2e) and the Dockerfile e2e
+          # (dispatch-deploy-e2e, bluesky-deploy-e2e, tiled-roundtrip-e2e,
+          # va-substrate-equivalence-e2e, bluesky-catalog-e2e,
+          # bluesky-sandbox-escape-e2e) and the Dockerfile e2e
           # (dockerfile-e2e) each have their own job because they build
           # container images. Exclude all eight here to avoid
           # double-execution. NOTE: "--ignore" means "not in this
           # secret-gated LLM lane," NOT "not tested" — every ignored file
           # below runs in its own secret-free job on every PR
-          # (scan-catalog-e2e and scan-sandbox-escape-e2e are advisory-only —
+          # (bluesky-catalog-e2e and bluesky-sandbox-escape-e2e are advisory-only —
           # see those jobs' comments).
           uv run pytest tests/e2e/ -v --tb=short \
             --ignore=tests/e2e/test_preset_agentic.py \
@@ -510,7 +510,7 @@ jobs:
             --ignore=tests/e2e/test_va_substrate_equivalence.py \
             --ignore=tests/e2e/test_scan_catalog_e2e.py \
             --ignore=tests/e2e/test_scan_sandbox_escape_e2e.py \
-            --ignore=tests/e2e/test_scan_panels_deploy.py
+            --ignore=tests/e2e/test_bluesky_panels_deploy.py
         fi
 
   deploy-e2e:
@@ -625,7 +625,7 @@ jobs:
       run: |
         uv run pytest tests/e2e/test_dispatch_deploy.py -v --tb=short
 
-  scan-deploy-e2e:
+  bluesky-deploy-e2e:
     name: Scan Deploy E2E (bluesky bridge, full Docker stack)
     runs-on: ubuntu-latest
     # Only run on PRs from same repo (mirrors dispatch-deploy-e2e/deploy-e2e
@@ -658,18 +658,18 @@ jobs:
       run: |
         uv run pytest tests/e2e/test_scan_deploy.py -v --tb=short
 
-  scan-panels-deploy-e2e:
-    name: Scan Panels Deploy E2E (VA + bluesky bridge + scan-panels sidecar, full Docker stack)
+  bluesky-panels-deploy-e2e:
+    name: Scan Panels Deploy E2E (VA + bluesky bridge + bluesky-panels sidecar, full Docker stack)
     runs-on: ubuntu-latest
-    # Only run on PRs from same repo (mirrors scan-deploy-e2e/va-substrate-
+    # Only run on PRs from same repo (mirrors bluesky-deploy-e2e/va-substrate-
     # equivalence-e2e gating). This job needs no secrets — neither the
-    # bridge nor the scan-panels sidecar shells out to an LLM.
+    # bridge nor the bluesky-panels sidecar shells out to an LLM.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     # Co-deploys the VA (native PyAT/softioc build, same cold-cache cost as
     # va-substrate-equivalence-e2e) alongside the bridge, Tiled, and the
-    # scan-panels sidecar, then drives a real scan end to end through the
+    # bluesky-panels sidecar, then drives a real scan end to end through the
     # sidecar's execute route — comparable weight to va-substrate-
-    # equivalence-e2e, not scan-deploy-e2e.
+    # equivalence-e2e, not bluesky-deploy-e2e.
     timeout-minutes: 45
 
     steps:
@@ -694,12 +694,12 @@ jobs:
 
     - name: Run scan panels deploy E2E
       run: |
-        uv run pytest tests/e2e/test_scan_panels_deploy.py -v --tb=short
+        uv run pytest tests/e2e/test_bluesky_panels_deploy.py -v --tb=short
 
   va-substrate-equivalence-e2e:
     name: VA Substrate Equivalence E2E (virtual accelerator + bluesky bridge, full Docker stack)
     runs-on: ubuntu-latest
-    # Only run on PRs from same repo (mirrors scan-deploy-e2e gating). This
+    # Only run on PRs from same repo (mirrors bluesky-deploy-e2e gating). This
     # job needs no secrets — neither the bridge nor the virtual accelerator
     # shells out to an LLM. Phase-1 bug fix: this test previously had no
     # dedicated job and was only ever swept into e2e-tests' glob (the
@@ -742,13 +742,13 @@ jobs:
   tiled-roundtrip-e2e:
     name: Tiled Roundtrip E2E (bluesky bridge + Tiled persistence, full Docker stack)
     runs-on: ubuntu-latest
-    # Only run on PRs from same repo (mirrors scan-deploy-e2e gating). This
+    # Only run on PRs from same repo (mirrors bluesky-deploy-e2e gating). This
     # job needs no secrets — the bridge never shells out to an LLM — but the
     # same-repo restriction is the house policy for any extra
     # Docker-build-and-deploy job, not just secret-gated ones.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     # Builds the bridge image and pulls ghcr.io/bluesky/tiled:0.2.12; ~6.5min
-    # with images cached, ~9-11min cold. scan-deploy-e2e has no explicit
+    # with images cached, ~9-11min cold. bluesky-deploy-e2e has no explicit
     # timeout-minutes; this job gets one for the extra image-pull headroom.
     timeout-minutes: 20
 
@@ -776,16 +776,16 @@ jobs:
       run: |
         uv run pytest tests/e2e/test_tiled_roundtrip.py -v --tb=short
 
-  scan-catalog-e2e:
+  bluesky-catalog-e2e:
     name: Scan Catalog E2E (layered plan catalog, full Docker stack)
     runs-on: ubuntu-latest
     # ADVISORY LANE: deliberately NOT in all-checks-passed's `needs:` list —
     # read this job's own log to see whether it passed. Only run on PRs from
-    # same repo (mirrors scan-deploy-e2e/tiled-roundtrip-e2e gating). This
+    # same repo (mirrors bluesky-deploy-e2e/tiled-roundtrip-e2e gating). This
     # job needs no secrets — the bridge never shells out to an LLM — and no
-    # amd64-emulated Virtual Accelerator image (demo_scanner mode: real
+    # amd64-emulated Virtual Accelerator image (demo_runner mode: real
     # RunEngine, mock devices, no EPICS), so it's comparable in weight to
-    # scan-deploy-e2e rather than va-substrate-equivalence-e2e.
+    # bluesky-deploy-e2e rather than va-substrate-equivalence-e2e.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
@@ -812,18 +812,18 @@ jobs:
       run: |
         uv run pytest tests/e2e/test_scan_catalog_e2e.py -v --tb=short
 
-  scan-sandbox-escape-e2e:
+  bluesky-sandbox-escape-e2e:
     name: Scan Sandbox Escape E2E (session-plan authoring gates, full Docker stack)
     runs-on: ubuntu-latest
     # ADVISORY LANE: deliberately NOT in all-checks-passed's `needs:` list —
     # read this job's own log to see whether it passed (mirrors
-    # scan-catalog-e2e's advisory precedent). Only run on PRs from same repo
-    # (mirrors scan-deploy-e2e/va-substrate-equivalence-e2e gating). This job
+    # bluesky-catalog-e2e's advisory precedent). Only run on PRs from same repo
+    # (mirrors bluesky-deploy-e2e/va-substrate-equivalence-e2e gating). This job
     # needs no secrets — neither the bridge nor the virtual accelerator
     # shells out to an LLM — but DOES need the amd64-emulated Virtual
     # Accelerator image (the negative case's IOC no-write proof reads a real
     # corrector setpoint over Channel Access, independent of the bridge), so
-    # it's as heavy as va-substrate-equivalence-e2e, not scan-catalog-e2e.
+    # it's as heavy as va-substrate-equivalence-e2e, not bluesky-catalog-e2e.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     timeout-minutes: 45
 
@@ -888,7 +888,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, scan-deploy-e2e, scan-panels-deploy-e2e, va-substrate-equivalence-e2e, tiled-roundtrip-e2e, dockerfile-e2e, agentic-per-preset]
+    needs: [test, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, tiled-roundtrip-e2e, dockerfile-e2e, agentic-per-preset]
     runs-on: ubuntu-latest
     if: always()
 
@@ -960,17 +960,17 @@ jobs:
           echo "✅ Dispatch deploy E2E passed"
         fi
         # Scan Deploy E2E: advisory (Docker-dependent, no LLM involved)
-        if [[ "${{ needs.scan-deploy-e2e.result }}" == "failure" ]]; then
+        if [[ "${{ needs.bluesky-deploy-e2e.result }}" == "failure" ]]; then
           echo "⚠️  Scan deploy E2E failed (non-blocking, Docker-dependent)"
-        elif [[ "${{ needs.scan-deploy-e2e.result }}" == "skipped" ]]; then
+        elif [[ "${{ needs.bluesky-deploy-e2e.result }}" == "skipped" ]]; then
           echo "⏭️  Scan deploy E2E skipped (only run on PRs)"
         else
           echo "✅ Scan deploy E2E passed"
         fi
         # Scan Panels Deploy E2E: advisory (Docker-dependent, no LLM involved)
-        if [[ "${{ needs.scan-panels-deploy-e2e.result }}" == "failure" ]]; then
+        if [[ "${{ needs.bluesky-panels-deploy-e2e.result }}" == "failure" ]]; then
           echo "⚠️  Scan panels deploy E2E failed (non-blocking, Docker-dependent)"
-        elif [[ "${{ needs.scan-panels-deploy-e2e.result }}" == "skipped" ]]; then
+        elif [[ "${{ needs.bluesky-panels-deploy-e2e.result }}" == "skipped" ]]; then
           echo "⏭️  Scan panels deploy E2E skipped (only run on PRs)"
         else
           echo "✅ Scan panels deploy E2E passed"

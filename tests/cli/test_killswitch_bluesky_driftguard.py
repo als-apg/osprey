@@ -4,7 +4,7 @@ FRAMEWORK_SERVERS' write-gated tools.
 Task 1.11 generalized the kill-switch's writes-off deny/remove_ask block in
 ``build_claude_code_context`` to walk ``FRAMEWORK_SERVERS`` for any
 ``hooks_pre`` rule gated by ``_WRITES_CHECK``, so a new write server (e.g.
-scan's ``launch_scan``) is covered automatically with no per-server code
+scan's ``launch_run``) is covered automatically with no per-server code
 change. ``test_killswitch_scan_deny.py`` pins that behavior at the
 ``build_claude_code_context`` context-dict level.
 
@@ -16,7 +16,7 @@ and it computes the expected write-gated tool set *dynamically* from
 kinds of drift: a future change that decouples the template from
 ``facility_permissions.deny``/``remove_ask``, and a new
 ``_WRITES_CHECK``-gated tool added to ``FRAMEWORK_SERVERS`` with no matching
-kill-switch coverage — including ``mcp__scan__launch_scan`` specifically, but
+kill-switch coverage — including ``mcp__bluesky__launch_run`` specifically, but
 not limited to it.
 """
 
@@ -114,24 +114,24 @@ def test_every_write_gated_tool_is_covered_when_writes_off(tmp_path):
             )
 
 
-def test_scan_launch_scan_specifically_hard_denied_when_writes_off(tmp_path):
-    """The concrete case this drift guard exists for: scan's launch_scan."""
+def test_scan_launch_run_specifically_hard_denied_when_writes_off(tmp_path):
+    """The concrete case this drift guard exists for: scan's launch_run."""
     project_dir = _build_project(tmp_path, writes_enabled=False)
     perms = _rendered_permissions(project_dir)
-    assert "mcp__scan__launch_scan" in perms["deny"]
+    assert "mcp__bluesky__launch_run" in perms["deny"]
 
 
-def test_scan_launch_scan_not_denied_when_writes_on(tmp_path):
+def test_scan_launch_run_not_denied_when_writes_on(tmp_path):
     project_dir = _build_project(tmp_path, writes_enabled=True)
     perms = _rendered_permissions(project_dir)
-    assert "mcp__scan__launch_scan" not in perms["deny"]
-    assert "mcp__scan__launch_scan" not in perms.get("remove_ask", [])
+    assert "mcp__bluesky__launch_run" not in perms["deny"]
+    assert "mcp__bluesky__launch_run" not in perms.get("remove_ask", [])
 
 
-def test_scan_stop_scan_never_denied_regardless_of_writes_enabled(tmp_path):
-    """stop_scan carries approval only (no _WRITES_CHECK) -- the kill switch
+def test_scan_stop_run_never_denied_regardless_of_writes_enabled(tmp_path):
+    """stop_run carries approval only (no _WRITES_CHECK) -- the kill switch
     must never block stopping a scan, in either direction."""
     for writes_enabled in (True, False):
         project_dir = _build_project(tmp_path, writes_enabled=writes_enabled)
         perms = _rendered_permissions(project_dir)
-        assert "mcp__scan__stop_scan" not in perms["deny"]
+        assert "mcp__bluesky__stop_run" not in perms["deny"]

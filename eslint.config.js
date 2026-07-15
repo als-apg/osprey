@@ -13,7 +13,7 @@ export default [
   {
     files: [
       'src/osprey/interfaces/**/*.js',
-      'src/osprey/services/scan_panels/panels/**/*.js',
+      'src/osprey/services/bluesky_panels/panels/**/*.js',
       'tests/**/*.{js,mjs}',
     ],
     languageOptions: {
@@ -59,7 +59,7 @@ export default [
   {
     files: [
       'src/osprey/interfaces/**/static/js/**/*.js',
-      'src/osprey/services/scan_panels/panels/**/*.js',
+      'src/osprey/services/bluesky_panels/panels/**/*.js',
       'tests/**/*.{js,mjs}',
     ],
     plugins: { local: { rules: { 'no-ts-nocheck': noTsNocheck } } },

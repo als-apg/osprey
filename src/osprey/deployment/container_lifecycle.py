@@ -476,13 +476,13 @@ def _ensure_service_tokens(
             _raise_invalid_var(name)
 
 
-def _ensure_scan_substrate_env(config: dict, env_path: Path | None = None) -> None:
+def _ensure_bluesky_substrate_env(config: dict, env_path: Path | None = None) -> None:
     """Auto-configure the bluesky bridge's EPICS-substrate scan devices for a
-    VA-backed scan stack, making ``osprey deploy up`` turn-key.
+    VA-backed Bluesky stack, making ``osprey deploy up`` turn-key.
 
     Additive and non-breaking, mirroring ``_ensure_service_tokens``'s
     "existing value wins, append what's missing" convention: when the
-    deployed project is a VA-backed scan stack (BOTH ``"bluesky"`` and
+    deployed project is a VA-backed Bluesky stack (BOTH ``"bluesky"`` and
     ``"virtual_accelerator"`` present in ``deployed_services``), derive
     ``BLUESKY_EPICS_SUBSTRATE``/``BLUESKY_EPICS_MOTORS``/``_DETECTORS`` from
     the built project's own ``data/channel_limits.json`` (the canonical
@@ -503,7 +503,7 @@ def _ensure_scan_substrate_env(config: dict, env_path: Path | None = None) -> No
 
     Never raises into a deploy: a missing/unreadable ``channel_limits.json``
     or a derivation that yields no correctors/BPMs logs a warning and is
-    skipped, leaving the bridge to fall back to its own demo-scanner default
+    skipped, leaving the bridge to fall back to its own demo-runner default
     (or a manually-set substrate env) exactly as before this function
     existed.
 
@@ -752,9 +752,9 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     _ensure_service_tokens(config, expose_network)
 
     # Auto-configure the bluesky bridge's EPICS-substrate scan devices for a
-    # VA-backed scan stack (additive; no-op unless both bluesky and
-    # virtual_accelerator are deployed) -- see _ensure_scan_substrate_env.
-    _ensure_scan_substrate_env(config)
+    # VA-backed Bluesky stack (additive; no-op unless both bluesky and
+    # virtual_accelerator are deployed) -- see _ensure_bluesky_substrate_env.
+    _ensure_bluesky_substrate_env(config)
 
     # Set up environment for containers
     env = os.environ.copy()
