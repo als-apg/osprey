@@ -173,7 +173,7 @@ ariel-proxy = [
 
 # Google Sheets database backend for channel finder
 sheets = [
-    "gspread>=6.0.0",
+    "gspread>=6.2.1",
 ]
 
 # MongoDB archiver connector backend
