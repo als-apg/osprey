@@ -18,9 +18,7 @@ from importlib.resources import as_file, files
 
 import pytest
 
-_DOC_PACKAGE_PATH = (
-    "templates/skills/osprey-build-deploy/references/modules/web-terminals.md"
-)
+_DOC_PACKAGE_PATH = "templates/skills/osprey-build-deploy/references/modules/web-terminals.md"
 
 # Markers that identify a hand-rendered per-user compose/nginx fragment for
 # web_terminals: a prose "FOR each ... users" loop that emits a `services:`-shaped
@@ -77,9 +75,7 @@ def test_render_verb_appears_in_compose_section(doc_text: str) -> None:
     module is enabled" / "### compose", not just be mentioned in passing (e.g.
     only in an unrelated troubleshooting table).
     """
-    compose_section_match = re.search(
-        r"### compose\n(.*?)\n### ", doc_text, re.DOTALL
-    )
+    compose_section_match = re.search(r"### compose\n(.*?)\n### ", doc_text, re.DOTALL)
     assert compose_section_match is not None, "could not locate the '### compose' section"
     assert _RENDER_VERB in compose_section_match.group(1), (
         "the '### compose' section of web-terminals.md must instruct the skill "
