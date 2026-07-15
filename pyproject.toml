@@ -83,7 +83,7 @@ dependencies = [
     "markdown>=3.5",  # Markdown-to-HTML rendering for artifact converters
     "aiofiles>=24.1.0",  # Async file I/O for non-blocking Python executor
     # MCP server development (for building MCP servers)
-    "fastmcp>=3.0.0",
+    "fastmcp>=3.4.4",
     # Scientific computing stack - for Python execution capability
     "scipy>=1.17.1",
     "seaborn",
