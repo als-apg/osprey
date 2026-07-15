@@ -1,12 +1,12 @@
-"""Safety proof: launch_scan refuses when writes are disabled, even with a
+"""Safety proof: launch_run refuses when writes are disabled, even with a
 VALID promote token — zero HTTP calls issued.
 
 This is the authoritative in-tool guard (see ``scan/tools/launch.py``): the
 ``control_system.writes_enabled`` re-check runs BEFORE any HTTP call, so a
 caller that bypasses the PreToolUse approval hook entirely (e.g. a direct MCP
 call) and supplies a correct ``BLUESKY_PROMOTE_TOKEN`` is still refused. General
-unit coverage of ``launch_scan``'s error mapping lives in
-``test_launch_scan.py``; this file exists as the standalone, easy-to-locate
+unit coverage of ``launch_run``'s error mapping lives in
+``test_launch_run.py``; this file exists as the standalone, easy-to-locate
 proof of the one property that matters most: writes-disabled beats a valid
 token, unconditionally, with no network call ever issued.
 
@@ -22,13 +22,13 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from osprey.mcp_server.scan.server_context import initialize_server_context, reset_server_context
-from osprey.mcp_server.scan.tools.launch import launch_scan
+from osprey.mcp_server.bluesky.server_context import initialize_server_context, reset_server_context
+from osprey.mcp_server.bluesky.tools.launch import launch_run
 from tests.mcp_server.conftest import assert_raises_error, get_tool_fn
 
 pytestmark = pytest.mark.unit
 
-_MOD = "osprey.mcp_server.scan.tools.launch"
+_MOD = "osprey.mcp_server.bluesky.tools.launch"
 
 
 @pytest.fixture(autouse=True)
@@ -54,7 +54,7 @@ async def test_writes_disabled_refuses_launch_with_valid_token_and_zero_http_cal
     monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", "genuinely-valid-token")
     initialize_server_context()
 
-    fn = get_tool_fn(launch_scan)
+    fn = get_tool_fn(launch_run)
     with patch(f"{_MOD}._http_post_json") as mock_post:
         with assert_raises_error(error_type="writes_disabled") as ctx:
             await fn(run_id="some-run-id")
@@ -70,7 +70,7 @@ async def test_writes_disabled_refuses_launch_even_without_a_token(tmp_path, mon
     monkeypatch.delenv("BLUESKY_PROMOTE_TOKEN", raising=False)
     initialize_server_context()
 
-    fn = get_tool_fn(launch_scan)
+    fn = get_tool_fn(launch_run)
     with patch(f"{_MOD}._http_post_json") as mock_post:
         with assert_raises_error(error_type="writes_disabled"):
             await fn(run_id="some-run-id")
@@ -90,7 +90,7 @@ async def test_writes_enabled_with_valid_token_does_reach_the_bridge(tmp_path, m
     monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", "genuinely-valid-token")
     initialize_server_context()
 
-    fn = get_tool_fn(launch_scan)
+    fn = get_tool_fn(launch_run)
     with patch(
         f"{_MOD}._http_post_json", return_value=(200, {"id": "x", "status": "running"})
     ) as m:
@@ -111,7 +111,7 @@ async def test_missing_config_fails_closed_even_with_valid_token(tmp_path, monke
     monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", "genuinely-valid-token")
     initialize_server_context()
 
-    fn = get_tool_fn(launch_scan)
+    fn = get_tool_fn(launch_run)
     with patch(f"{_MOD}._http_post_json") as mock_post:
         with assert_raises_error(error_type="writes_disabled"):
             await fn(run_id="some-run-id")
@@ -122,7 +122,7 @@ async def test_missing_config_fails_closed_even_with_valid_token(tmp_path, monke
 async def test_writes_enabled_true_but_token_unset_refused_client_side(tmp_path, monkeypatch):
     """The second gate: writes_enabled=true is not sufficient on its own.
 
-    With no BLUESKY_PROMOTE_TOKEN configured for this MCP server, launch_scan
+    With no BLUESKY_PROMOTE_TOKEN configured for this MCP server, launch_run
     must still refuse — client-side, before any HTTP call — rather than
     sending a promote request with no credential at all.
     """
@@ -131,9 +131,9 @@ async def test_writes_enabled_true_but_token_unset_refused_client_side(tmp_path,
     monkeypatch.delenv("BLUESKY_PROMOTE_TOKEN", raising=False)
     initialize_server_context()
 
-    fn = get_tool_fn(launch_scan)
+    fn = get_tool_fn(launch_run)
     with patch(f"{_MOD}._http_post_json") as mock_post:
-        with assert_raises_error(error_type="scan_promote_unarmed"):
+        with assert_raises_error(error_type="run_promote_unarmed"):
             await fn(run_id="some-run-id")
 
     mock_post.assert_not_called()

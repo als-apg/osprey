@@ -1,24 +1,24 @@
 """MCP tools: read/allow-listed Bluesky bridge operations.
 
-Each tool is a thin HTTP client of one endpoint of the facility-side scan
+Each tool is a thin HTTP client of one endpoint of the facility-side Bluesky
 bridge. All five are safe to call without operator approval
-(``permissions_allow``) — none of them can start motion; ``launch_scan``
+(``permissions_allow``) — none of them can start motion; ``launch_run``
 (Task 1.8) is the sole promote path.
 
 ==========================  =================================================
 Tool                        Bridge endpoint
 ==========================  =================================================
-create_scan_intent          POST /runs
-scan_status                 GET  /runs/{id}
-list_scan_plans             GET  /plans
+create_run_intent          POST /runs
+run_status                 GET  /runs/{id}
+list_plans             GET  /plans
 list_runs                   GET  /runs
-read_scan_data              GET  /runs/{id}/data
+read_run_data              GET  /runs/{id}/data
 ==========================  =================================================
 
 The HTTP primitives (``_http_get_json`` / ``_http_post_json``) and the
 ``bridge_error_message`` / ``UNKNOWN_RUN_HINTS`` error-envelope helpers live in
-``osprey.mcp_server.scan.server_context`` so tests can patch the network
-boundary and every scan tool renders identical error shapes. A
+``osprey.mcp_server.bluesky.server_context`` so tests can patch the network
+boundary and every tool renders identical error shapes. A
 connection-level failure there already raises the standard
 ``bluesky_bridge_unreachable`` error envelope, so the tools below only need to
 translate non-2xx bridge responses (404/409/etc.) into ``make_error`` calls.
@@ -28,33 +28,33 @@ import json
 
 import anyio
 
-from osprey.mcp_server.errors import make_error
-from osprey.mcp_server.scan.server import mcp
-from osprey.mcp_server.scan.server_context import (
+from osprey.mcp_server.bluesky.server import mcp
+from osprey.mcp_server.bluesky.server_context import (
     UNKNOWN_RUN_HINTS,
     _http_get_json,
     _http_post_json,
     bridge_error_message,
 )
+from osprey.mcp_server.errors import make_error
 
 
 # ---------------------------------------------------------------------------
-# Tool 1: create scan intent
+# Tool 1: create run intent
 # ---------------------------------------------------------------------------
 @mcp.tool()
-async def create_scan_intent(plan_name: str, plan_args: dict | None = None) -> str:
-    """Record a scan intent on the bridge — validated but NOT started.
+async def create_run_intent(plan_name: str, plan_args: dict | None = None) -> str:
+    """Record a run intent on the bridge — validated but NOT started.
 
     Motion-safe: creating an intent never touches a device or starts the
     RunEngine. It records a request the operator or agent can inspect via
-    scan_status before deciding whether to call launch_scan — the sole
+    run_status before deciding whether to call launch_run — the sole
     promote path, which requires both an armed bridge token and
     ``control_system.writes_enabled``.
 
     Args:
         plan_name: Name of a plan registered on the bridge (e.g. "scan",
             "count", "grid_scan" for the v1 bluesky built-ins — see
-            list_scan_plans for what this bridge actually supports).
+            list_plans for what this bridge actually supports).
         plan_args: Plan parameters as a JSON-serializable dict (device
             names, points, exposure time, etc.); shape is plan-specific and
             validated by the bridge. Defaults to an empty dict.
@@ -66,10 +66,10 @@ async def create_scan_intent(plan_name: str, plan_args: dict | None = None) -> s
     status, body = await anyio.to_thread.run_sync(_http_post_json, "/runs", payload)
     if status not in (200, 201):
         return make_error(
-            "scan_intent_rejected",
+            "run_intent_rejected",
             bridge_error_message(body, status),
             [
-                "Check plan_name is registered on the bridge (see list_scan_plans).",
+                "Check plan_name is registered on the bridge (see list_plans).",
                 "Check plan_args matches that plan's parameter schema.",
             ],
         )
@@ -77,14 +77,14 @@ async def create_scan_intent(plan_name: str, plan_args: dict | None = None) -> s
 
 
 # ---------------------------------------------------------------------------
-# Tool 2: scan status
+# Tool 2: run status
 # ---------------------------------------------------------------------------
 @mcp.tool()
-async def scan_status(run_id: str) -> str:
+async def run_status(run_id: str) -> str:
     """Get one run's current lifecycle status.
 
     Args:
-        run_id: Run id returned by create_scan_intent or list_runs.
+        run_id: Run id returned by create_run_intent or list_runs.
 
     Returns:
         JSON run record: ``{"id", "status", "tiled_degraded", ["completion"],
@@ -102,10 +102,10 @@ async def scan_status(run_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Tool 3: list scan plans
+# Tool 3: list plans
 # ---------------------------------------------------------------------------
 @mcp.tool()
-async def list_scan_plans() -> str:
+async def list_plans() -> str:
     """List the plans registered on the bridge.
 
     Each plan entry carries ``metadata`` (the plan's authoring-declared
@@ -114,7 +114,7 @@ async def list_scan_plans() -> str:
     trust tier: ``shipped``/``preset``/``facility``/``session``/
     ``unreviewed``, ascending ephemerality). Use these to prefer a
     higher-provenance plan and to check ``required_devices``/``writes``
-    before selecting a plan for ``create_scan_intent``.
+    before selecting a plan for ``create_run_intent``.
 
     Returns:
         JSON ``{"status": "success", "plans": [...]}``, each entry shaped
@@ -141,7 +141,7 @@ async def list_runs(limit: int = 20) -> str:
 
     Returns:
         JSON ``{"status": "success", "runs": [...]}`` — each entry has the
-        same shape as scan_status's response.
+        same shape as run_status's response.
     """
     status, body = await anyio.to_thread.run_sync(_http_get_json, f"/runs?limit={limit}")
     if status != 200:
@@ -150,10 +150,10 @@ async def list_runs(limit: int = 20) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Tool 5: read scan data (bounded)
+# Tool 5: read run data (bounded)
 # ---------------------------------------------------------------------------
 @mcp.tool()
-async def read_scan_data(
+async def read_run_data(
     run_id: str, max_rows: int = 100, offset: int | None = None, tail: bool = False
 ) -> str:
     """Read a bounded window of a run's data.
@@ -164,7 +164,7 @@ async def read_scan_data(
     the run's *true* total vs. what this window actually returned.
 
     Args:
-        run_id: Run id returned by create_scan_intent or list_runs.
+        run_id: Run id returned by create_run_intent or list_runs.
         max_rows: Maximum number of rows to return (bridge-enforced cap).
         offset: Row offset to start from (``None`` = start from the
             beginning, or from the end if ``tail`` is true).
@@ -187,11 +187,11 @@ async def read_scan_data(
         return make_error("unknown_run", bridge_error_message(body, status), UNKNOWN_RUN_HINTS)
     if status == 409:
         return make_error(
-            "scan_data_not_ready",
+            "run_data_not_ready",
             bridge_error_message(body, status),
             [
                 "The run has not started yet, so there is no run_uid to read data for.",
-                "Check scan_status; data becomes readable once the run is promoted and running.",
+                "Check run_status; data becomes readable once the run is promoted and running.",
             ],
         )
     if status != 200:

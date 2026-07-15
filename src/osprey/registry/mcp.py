@@ -285,10 +285,10 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         ],
         hooks_post=[_post_error("mcp__osprey_facility_knowledge__.*")],
     ),
-    "scan": ServerDefinition(
-        name="scan",
-        module="osprey.mcp_server.scan",
-        # Off by default: only profiles that opt in (claude_code.servers.scan.enabled
+    "bluesky": ServerDefinition(
+        name="bluesky",
+        module="osprey.mcp_server.bluesky",
+        # Off by default: only profiles that opt in (claude_code.servers.bluesky.enabled
         # = true) get the Bluesky bridge client tools — running them requires a live
         # facility-side Bluesky bridge process (mirrors phoebus's opt-in reasoning).
         default_enabled=False,
@@ -299,43 +299,43 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "BLUESKY_PROMOTE_TOKEN": "${BLUESKY_PROMOTE_TOKEN:-}",
         },
         permissions_allow=[
-            "create_scan_intent",
-            "scan_status",
-            "list_scan_plans",
+            "create_run_intent",
+            "run_status",
+            "list_plans",
             "list_runs",
-            "read_scan_data",
+            "read_run_data",
         ],
-        # launch_scan starts a real scan (promote); stop_scan is the safe direction
+        # launch_run starts a real scan (promote); stop_run is the safe direction
         # and must never be kill-switch-blocked, so it carries approval only.
-        # write_bluesky_plan/validate_bluesky_plan (task 2.3) reach NO hardware
-        # either way: write_bluesky_plan only writes a file (never imports/execs
-        # it), and validate_bluesky_plan's dry run drives mock devices only, in a
+        # write_plan/validate_plan (task 2.3) reach NO hardware
+        # either way: write_plan only writes a file (never imports/execs
+        # it), and validate_plan's dry run drives mock devices only, in a
         # subprocess with EPICS_CA_* neutralized — both work identically whether
-        # control_system.writes_enabled is on or off, so like stop_scan neither
+        # control_system.writes_enabled is on or off, so like stop_run neither
         # carries _WRITES_CHECK. They get their own (distinct, independently
-        # allowlistable) short-names rather than reusing launch_scan/stop_scan's
+        # allowlistable) short-names rather than reusing launch_run/stop_run's
         # tier, since an operator may want to permit authoring/validating plan
-        # bodies without also auto-approving launch_scan/stop_scan, or vice versa.
-        permissions_ask=["launch_scan", "stop_scan", "write_bluesky_plan", "validate_bluesky_plan"],
+        # bodies without also auto-approving launch_run/stop_run, or vice versa.
+        permissions_ask=["launch_run", "stop_run", "write_plan", "validate_plan"],
         hooks_pre=[
             HookRule(
-                matcher="mcp__scan__launch_scan",
+                matcher="mcp__bluesky__launch_run",
                 hooks=[_WRITES_CHECK, _APPROVAL],
             ),
             HookRule(
-                matcher="mcp__scan__stop_scan",
+                matcher="mcp__bluesky__stop_run",
                 hooks=[_APPROVAL],
             ),
             HookRule(
-                matcher="mcp__scan__write_bluesky_plan",
+                matcher="mcp__bluesky__write_plan",
                 hooks=[_APPROVAL],
             ),
             HookRule(
-                matcher="mcp__scan__validate_bluesky_plan",
+                matcher="mcp__bluesky__validate_plan",
                 hooks=[_APPROVAL],
             ),
         ],
-        hooks_post=[_post_error("mcp__scan__.*")],
+        hooks_post=[_post_error("mcp__bluesky__.*")],
     ),
     "channel-finder": ServerDefinition(
         name="channel-finder",

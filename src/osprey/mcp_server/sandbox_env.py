@@ -8,7 +8,7 @@ environment: agent-run code must never be able to read a token that gates a
 write-capable action from outside the sandbox (e.g. the Bluesky bridge's
 ``/runs/{id}/promote`` endpoint, event-dispatch webhooks) and call the gated
 endpoint directly. The in-tool ``writes_enabled`` re-check inside
-``launch_scan`` is the actual write-safety authority — not possession of a
+``launch_run`` is the actual write-safety authority — not possession of a
 token — so this scrub closes the read side of that attack surface.
 
 Centralized here (rather than duplicated per sandbox) so the two deny-lists

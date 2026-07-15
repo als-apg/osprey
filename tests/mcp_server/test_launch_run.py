@@ -1,4 +1,4 @@
-"""Unit tests for the launch_scan MCP tool — the sole scan write path.
+"""Unit tests for the launch_run MCP tool — the sole scan write path.
 
 Covers both in-tool safety layers (writes_enabled re-read, client-side token
 presence) and the bridge response mapping. The HTTP boundary
@@ -11,17 +11,17 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from osprey.mcp_server.scan.server_context import initialize_server_context, reset_server_context
-from osprey.mcp_server.scan.tools import launch
+from osprey.mcp_server.bluesky.server_context import initialize_server_context, reset_server_context
+from osprey.mcp_server.bluesky.tools import launch
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 pytestmark = pytest.mark.unit
 
-_MOD = "osprey.mcp_server.scan.tools.launch"
+_MOD = "osprey.mcp_server.bluesky.tools.launch"
 
 
 def _fn():
-    return get_tool_fn(launch.launch_scan)
+    return get_tool_fn(launch.launch_run)
 
 
 def _write_config(tmp_path, writes_enabled: bool, promote_token: str | None = None) -> None:
@@ -95,7 +95,7 @@ async def test_refuses_client_side_when_no_token(tmp_path, monkeypatch):
     initialize_server_context()
 
     with patch(f"{_MOD}._http_post_json") as m:
-        with assert_raises_error(error_type="scan_promote_unarmed"):
+        with assert_raises_error(error_type="run_promote_unarmed"):
             await _fn()(run_id="abc123")
     m.assert_not_called()
 
@@ -103,7 +103,7 @@ async def test_refuses_client_side_when_no_token(tmp_path, monkeypatch):
 # ── Success path + bridge response mapping ──────────────────────────────────
 
 
-async def test_launch_scan_success(tmp_path, monkeypatch):
+async def test_launch_run_success(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, writes_enabled=True)
     monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", "valid-token")
@@ -120,7 +120,7 @@ async def test_launch_scan_success(tmp_path, monkeypatch):
     assert data["status"] == "running"
 
 
-async def test_launch_scan_unknown_run(tmp_path, monkeypatch):
+async def test_launch_run_unknown_run(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, writes_enabled=True)
     monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", "valid-token")
@@ -132,7 +132,7 @@ async def test_launch_scan_unknown_run(tmp_path, monkeypatch):
     assert "unknown run" in ctx["envelope"]["error_message"]
 
 
-async def test_launch_scan_forbidden_token_mismatch(tmp_path, monkeypatch):
+async def test_launch_run_forbidden_token_mismatch(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, writes_enabled=True)
     monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", "valid-token")
@@ -142,11 +142,11 @@ async def test_launch_scan_forbidden_token_mismatch(tmp_path, monkeypatch):
         f"{_MOD}._http_post_json",
         return_value=(403, {"detail": "invalid or missing promote token"}),
     ):
-        with assert_raises_error(error_type="scan_promote_forbidden"):
+        with assert_raises_error(error_type="run_promote_forbidden"):
             await _fn()(run_id="abc123")
 
 
-async def test_launch_scan_conflict(tmp_path, monkeypatch):
+async def test_launch_run_conflict(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, writes_enabled=True)
     monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", "valid-token")
@@ -155,12 +155,12 @@ async def test_launch_scan_conflict(tmp_path, monkeypatch):
     with patch(
         f"{_MOD}._http_post_json", return_value=(409, {"detail": "run 'abc123' already promoted"})
     ):
-        with assert_raises_error(error_type="scan_promote_conflict") as ctx:
+        with assert_raises_error(error_type="run_promote_conflict") as ctx:
             await _fn()(run_id="abc123")
     assert "already promoted" in ctx["envelope"]["error_message"]
 
 
-async def test_launch_scan_bridge_unarmed(tmp_path, monkeypatch):
+async def test_launch_run_bridge_unarmed(tmp_path, monkeypatch):
     """The bridge process itself has no BLUESKY_PROMOTE_TOKEN configured (503)."""
     monkeypatch.chdir(tmp_path)
     _write_config(tmp_path, writes_enabled=True)
@@ -174,7 +174,7 @@ async def test_launch_scan_bridge_unarmed(tmp_path, monkeypatch):
             {"detail": "promotion disabled: BLUESKY_PROMOTE_TOKEN is not configured"},
         ),
     ):
-        with assert_raises_error(error_type="scan_promote_unarmed") as ctx:
+        with assert_raises_error(error_type="run_promote_unarmed") as ctx:
             await _fn()(run_id="abc123")
     assert "not configured" in ctx["envelope"]["error_message"]
 

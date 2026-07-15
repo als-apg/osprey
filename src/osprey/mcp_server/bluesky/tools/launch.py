@@ -1,4 +1,4 @@
-"""MCP tool: launch_scan — the sole promote path from a scan intent to a running scan.
+"""MCP tool: launch_run — the sole promote path from a run intent to a running plan.
 
 Two safety layers gate this tool, both enforced BEFORE any HTTP call is made:
 
@@ -23,23 +23,23 @@ import json
 
 import anyio
 
-from osprey.mcp_server.errors import make_error
-from osprey.mcp_server.scan.server import mcp
-from osprey.mcp_server.scan.server_context import (
+from osprey.mcp_server.bluesky.server import mcp
+from osprey.mcp_server.bluesky.server_context import (
     UNKNOWN_RUN_HINTS,
     _http_post_json,
     bridge_error_message,
     get_server_context,
 )
+from osprey.mcp_server.errors import make_error
 
 
 def _writes_enabled() -> bool:
     """Fail-closed re-read of ``control_system.writes_enabled`` straight from config.
 
     Mirrors ``ControlSystemConnector._writes_enabled`` (same config key, same
-    fail-closed except clause) so the scan write gate agrees with every other
+    fail-closed except clause) so the launch write gate agrees with every other
     OSPREY write path on one on/off switch. Deliberately NOT cached on the
-    ScanContext singleton — the whole point is a fresh read on every call.
+    BridgeContext singleton — the whole point is a fresh read on every call.
     """
     try:
         from osprey.utils.config import get_config_value
@@ -50,8 +50,8 @@ def _writes_enabled() -> bool:
 
 
 @mcp.tool()
-async def launch_scan(run_id: str) -> str:
-    """Promote a scan intent into a running scan. The sole write path in this server.
+async def launch_run(run_id: str) -> str:
+    """Promote a run intent into a running plan. The sole write path in this server.
 
     Two safety layers must pass before any network call is made: this
     deployment's control_system.writes_enabled must re-read true (checked
@@ -62,7 +62,7 @@ async def launch_scan(run_id: str) -> str:
     header.
 
     Args:
-        run_id: Run id returned by create_scan_intent or list_runs. Must
+        run_id: Run id returned by create_run_intent or list_runs. Must
             currently be in "intent" status.
 
     Returns:
@@ -72,18 +72,18 @@ async def launch_scan(run_id: str) -> str:
         return make_error(
             "writes_disabled",
             "Control-system writes are disabled in this deployment "
-            "(control_system.writes_enabled=false in config.yml). launch_scan refused.",
-            ["Set control_system.writes_enabled: true in config.yml to enable launch_scan."],
+            "(control_system.writes_enabled=false in config.yml). launch_run refused.",
+            ["Set control_system.writes_enabled: true in config.yml to enable launch_run."],
         )
 
     token = get_server_context().promote_token
     if not token:
         return make_error(
-            "scan_promote_unarmed",
-            "This scan MCP server has no BLUESKY_PROMOTE_TOKEN configured — "
-            "launch_scan is refused client-side before contacting the bridge.",
+            "run_promote_unarmed",
+            "This Bluesky MCP server has no BLUESKY_PROMOTE_TOKEN configured — "
+            "launch_run is refused client-side before contacting the bridge.",
             [
-                "Set BLUESKY_PROMOTE_TOKEN (or scan.promote_token in config.yml) "
+                "Set BLUESKY_PROMOTE_TOKEN (or bluesky.promote_token in config.yml) "
                 "for this bridge instance."
             ],
         )
@@ -97,7 +97,7 @@ async def launch_scan(run_id: str) -> str:
         return make_error("unknown_run", bridge_error_message(body, status), UNKNOWN_RUN_HINTS)
     if status == 403:
         return make_error(
-            "scan_promote_forbidden",
+            "run_promote_forbidden",
             "The Bluesky bridge rejected the promote token.",
             [
                 "Confirm BLUESKY_PROMOTE_TOKEN matches the bridge's configured token for this instance."
@@ -105,13 +105,13 @@ async def launch_scan(run_id: str) -> str:
         )
     if status == 409:
         return make_error(
-            "scan_promote_conflict",
+            "run_promote_conflict",
             bridge_error_message(body, status),
-            ["Check scan_status — the run may already be promoted, stopped, or mid-promotion."],
+            ["Check run_status — the run may already be promoted, stopped, or mid-promotion."],
         )
     if status == 503:
         return make_error(
-            "scan_promote_unarmed",
+            "run_promote_unarmed",
             bridge_error_message(body, status),
             [
                 "The bridge itself has no BLUESKY_PROMOTE_TOKEN configured; contact the deployment operator."

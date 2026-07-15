@@ -1,9 +1,9 @@
-"""Scan MCP Server Context — bridge connection resolution and HTTP boundary.
+"""Bluesky MCP Server Context — bridge connection resolution and HTTP boundary.
 
 Resolves the facility-side Bluesky bridge's base URL and promote token (env with
 config.yml fallback, mirroring
 ``osprey.mcp_server.control_system.server_context``), and exposes the
-module-level HTTP primitives every scan tool module uses to talk to the
+module-level HTTP primitives every tool module uses to talk to the
 bridge. Centralizing the primitives here means every tool gets identical
 ``bluesky_bridge_unreachable`` handling without repeating a try/except around
 each HTTP call.
@@ -14,7 +14,7 @@ translating a non-2xx bridge response into a ``make_error`` call, so all three
 render the same error envelope for the same bridge failure.
 
 Usage in tools:
-    from osprey.mcp_server.scan.server_context import _http_get_json, _http_post_json
+    from osprey.mcp_server.bluesky.server_context import _http_get_json, _http_post_json
 
     status, body = _http_get_json("/runs")
 """
@@ -28,17 +28,17 @@ import httpx
 
 from osprey.mcp_server.errors import make_error
 
-logger = logging.getLogger("osprey.mcp_server.scan.server_context")
+logger = logging.getLogger("osprey.mcp_server.bluesky.server_context")
 
 _DEFAULT_BRIDGE_URL = "http://127.0.0.1:8090"
 _TIMEOUT = 15.0  # seconds
 
 _UNREACHABLE_HINTS = [
     "Confirm the facility Bluesky bridge process is running.",
-    "Check the BLUESKY_BRIDGE_URL env var or scan.bridge_url in config.yml.",
+    "Check the BLUESKY_BRIDGE_URL env var or bluesky.bridge_url in config.yml.",
 ]
 
-# Shared by every scan tool module (read_tools, launch, stop): the hint
+# Shared by every tool module (read_tools, launch, stop): the hint
 # attached to a 404 from the bridge's in-memory run registry.
 UNKNOWN_RUN_HINTS = [
     "The bridge's run registry is in-memory only; a restart forgets prior runs.",
@@ -54,9 +54,9 @@ def bridge_error_message(body: object, status: int) -> str:
 
 
 # ---------------------------------------------------------------------------
-# ScanContext
+# BridgeContext
 # ---------------------------------------------------------------------------
-class ScanContext:
+class BridgeContext:
     """Resolved Bluesky bridge connection details for the current process."""
 
     def __init__(self) -> None:
@@ -76,7 +76,7 @@ class ScanContext:
         self.promote_token = self._resolve_promote_token()
         self._initialized = True
         logger.info(
-            "ScanContext: initialized (bridge_url=%s, promote_token_set=%s)",
+            "BridgeContext: initialized (bridge_url=%s, promote_token_set=%s)",
             self.bridge_url,
             self.promote_token is not None,
         )
@@ -89,7 +89,7 @@ class ScanContext:
 
         1. ``BLUESKY_BRIDGE_URL`` env var (full URL) — set by the framework server
            definition per bridge instance; wins outright.
-        2. ``scan.bridge_url`` in config.yml.
+        2. ``bluesky.bridge_url`` in config.yml.
         3. ``http://127.0.0.1:8090`` default.
         """
         full = os.environ.get("BLUESKY_BRIDGE_URL")
@@ -99,7 +99,7 @@ class ScanContext:
         from osprey.utils.workspace import load_osprey_config
 
         config = load_osprey_config()
-        url = config.get("scan", {}).get("bridge_url", _DEFAULT_BRIDGE_URL)
+        url = config.get("bluesky", {}).get("bridge_url", _DEFAULT_BRIDGE_URL)
         return str(url).rstrip("/")
 
     @staticmethod
@@ -110,8 +110,8 @@ class ScanContext:
 
         1. ``BLUESKY_PROMOTE_TOKEN`` env var — minted fail-closed per bridge
            instance by the framework server definition; wins outright.
-        2. ``scan.promote_token`` in config.yml (local/dev convenience only).
-        3. ``None`` — ``launch_scan`` refuses client-side when unset.
+        2. ``bluesky.promote_token`` in config.yml (local/dev convenience only).
+        3. ``None`` — ``launch_run`` refuses client-side when unset.
         """
         token = os.environ.get("BLUESKY_PROMOTE_TOKEN")
         if token:
@@ -120,7 +120,7 @@ class ScanContext:
         from osprey.utils.workspace import load_osprey_config
 
         config = load_osprey_config()
-        token = config.get("scan", {}).get("promote_token")
+        token = config.get("bluesky", {}).get("promote_token")
         return str(token) if token else None
 
 
@@ -128,31 +128,31 @@ class ScanContext:
 # Module-level singleton (mirrors osprey.mcp_server.control_system.server_context)
 # ---------------------------------------------------------------------------
 
-_context: ScanContext | None = None
+_context: BridgeContext | None = None
 
 
-def get_server_context() -> ScanContext:
-    """Get the ScanContext singleton.
+def get_server_context() -> BridgeContext:
+    """Get the BridgeContext singleton.
 
     Raises RuntimeError if initialize_server_context() hasn't been called.
     """
     if _context is None:
         raise RuntimeError(
-            "Scan server context not initialized. Call initialize_server_context() first."
+            "Bluesky server context not initialized. Call initialize_server_context() first."
         )
     return _context
 
 
-def initialize_server_context() -> ScanContext:
-    """Create and initialize the ScanContext singleton."""
+def initialize_server_context() -> BridgeContext:
+    """Create and initialize the BridgeContext singleton."""
     global _context
-    _context = ScanContext()
+    _context = BridgeContext()
     _context.initialize()
     return _context
 
 
 def reset_server_context() -> None:
-    """Reset the ScanContext singleton (for testing)."""
+    """Reset the BridgeContext singleton (for testing)."""
     global _context
     _context = None
 

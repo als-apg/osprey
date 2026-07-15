@@ -15,14 +15,14 @@ import json
 import pytest
 from fastmcp.exceptions import ToolError
 
+from osprey.mcp_server.bluesky.server import mcp
+from osprey.mcp_server.bluesky.tools import read_tools
 from osprey.mcp_server.errors import make_error
-from osprey.mcp_server.scan.server import mcp
-from osprey.mcp_server.scan.tools import read_tools
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
 pytestmark = pytest.mark.unit
 
-_MOD = "osprey.mcp_server.scan.tools.read_tools"
+_MOD = "osprey.mcp_server.bluesky.tools.read_tools"
 
 
 def _fn(name):
@@ -39,11 +39,11 @@ def _unreachable(*_args, **_kwargs):
 
 
 # ---------------------------------------------------------------------------
-# create_scan_intent — POST /runs
+# create_run_intent — POST /runs
 # ---------------------------------------------------------------------------
 
 
-async def test_create_scan_intent_request_response_mapping(monkeypatch):
+async def test_create_run_intent_request_response_mapping(monkeypatch):
     captured = {}
 
     def fake_post(path, payload, **kwargs):
@@ -53,7 +53,7 @@ async def test_create_scan_intent_request_response_mapping(monkeypatch):
 
     monkeypatch.setattr(f"{_MOD}._http_post_json", fake_post)
 
-    result = await _fn("create_scan_intent")(
+    result = await _fn("create_run_intent")(
         plan_name="grid_scan", plan_args={"motors": ["m1", "m2"], "points": 10}
     )
 
@@ -66,19 +66,19 @@ async def test_create_scan_intent_request_response_mapping(monkeypatch):
     assert data == {"id": "run-1", "status": "intent"}
 
 
-async def test_create_scan_intent_unreachable(monkeypatch):
+async def test_create_run_intent_unreachable(monkeypatch):
     monkeypatch.setattr(f"{_MOD}._http_post_json", _unreachable)
     with assert_raises_error(error_type="bluesky_bridge_unreachable") as ctx:
-        await _fn("create_scan_intent")(plan_name="count")
+        await _fn("create_run_intent")(plan_name="count")
     assert "Could not reach the Bluesky bridge" in ctx["envelope"]["error_message"]
 
 
 # ---------------------------------------------------------------------------
-# scan_status — GET /runs/{id}
+# run_status — GET /runs/{id}
 # ---------------------------------------------------------------------------
 
 
-async def test_scan_status_request_response_mapping(monkeypatch):
+async def test_run_status_request_response_mapping(monkeypatch):
     captured = {}
 
     def fake_get(path, **kwargs):
@@ -87,7 +87,7 @@ async def test_scan_status_request_response_mapping(monkeypatch):
 
     monkeypatch.setattr(f"{_MOD}._http_get_json", fake_get)
 
-    result = await _fn("scan_status")(run_id="run-1")
+    result = await _fn("run_status")(run_id="run-1")
 
     assert captured["path"] == "/runs/run-1"
     data = extract_response_dict(result)
@@ -95,55 +95,53 @@ async def test_scan_status_request_response_mapping(monkeypatch):
     assert data["completion"] == 0.42
 
 
-async def test_scan_status_unreachable(monkeypatch):
+async def test_run_status_unreachable(monkeypatch):
     monkeypatch.setattr(f"{_MOD}._http_get_json", _unreachable)
     with assert_raises_error(error_type="bluesky_bridge_unreachable"):
-        await _fn("scan_status")(run_id="run-1")
+        await _fn("run_status")(run_id="run-1")
 
 
-def test_scan_status_docstring_names_every_key_run_to_dict_can_emit():
+def test_run_status_docstring_names_every_key_run_to_dict_can_emit():
     """The docstring IS the contract: it's the only description of the JSON
     run record an agent ever sees, and nothing in the bridge/MCP path is
     typed to catch drift between it and `Run.to_dict` (`runs.py`) — this is
     exactly how `tiled_degraded` (FR5) slipped through unseen originally.
     Exercises `to_dict` across intent/healthy-promoted/errored-promoted runs
     and asserts every key any of them can emit is literally named (quoted)
-    in `scan_status`'s docstring, so a future key added to `to_dict` without
+    in `run_status`'s docstring, so a future key added to `to_dict` without
     a docstring update fails here rather than staying silently invisible.
     """
+    from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
     from osprey.services.bluesky_bridge.runs import Run
-    from osprey.services.bluesky_bridge.scanner import FakeScanner
 
     intent_run = Run(id="r", request={})
 
-    healthy_scanner = FakeScanner()
-    healthy_scanner.start_scan_thread()
-    healthy_scanner.simulate_progress(0.5)
-    healthy_scanner.tiled_degraded = False
-    healthy_run = Run(
-        id="r", request={}, promoted=True, scanner=healthy_scanner, launched_by="agent"
-    )
+    healthy_runner = FakePlanRunner()
+    healthy_runner.start_run_thread()
+    healthy_runner.simulate_progress(0.5)
+    healthy_runner.tiled_degraded = False
+    healthy_run = Run(id="r", request={}, promoted=True, runner=healthy_runner, launched_by="agent")
 
-    errored_scanner = FakeScanner()
-    errored_scanner.start_scan_thread()
-    errored_scanner.simulate_error("device timeout")
-    errored_run = Run(id="r", request={}, promoted=True, scanner=errored_scanner)
+    errored_runner = FakePlanRunner()
+    errored_runner.start_run_thread()
+    errored_runner.simulate_error("device timeout")
+    errored_run = Run(id="r", request={}, promoted=True, runner=errored_runner)
 
     all_keys: set[str] = set()
     for run in (intent_run, healthy_run, errored_run):
         all_keys.update(run.to_dict().keys())
 
-    doc = read_tools.scan_status.__doc__ or ""
+    doc = read_tools.run_status.__doc__ or ""
     missing = {key for key in all_keys if f'"{key}"' not in doc}
-    assert not missing, f"scan_status docstring is missing keys Run.to_dict emits: {missing}"
+    assert not missing, f"run_status docstring is missing keys Run.to_dict emits: {missing}"
 
 
 # ---------------------------------------------------------------------------
-# list_scan_plans — GET /plans
+# list_plans — GET /plans
 # ---------------------------------------------------------------------------
 
 
-async def test_list_scan_plans_request_response_mapping(monkeypatch):
+async def test_list_plans_request_response_mapping(monkeypatch):
     captured = {}
     plans = [{"name": "count", "params": {}}, {"name": "grid_scan", "params": {"motors": []}}]
 
@@ -153,7 +151,7 @@ async def test_list_scan_plans_request_response_mapping(monkeypatch):
 
     monkeypatch.setattr(f"{_MOD}._http_get_json", fake_get)
 
-    result = await _fn("list_scan_plans")()
+    result = await _fn("list_plans")()
 
     assert captured["path"] == "/plans"
     data = extract_response_dict(result)
@@ -161,10 +159,10 @@ async def test_list_scan_plans_request_response_mapping(monkeypatch):
     assert data["plans"] == plans
 
 
-async def test_list_scan_plans_unreachable(monkeypatch):
+async def test_list_plans_unreachable(monkeypatch):
     monkeypatch.setattr(f"{_MOD}._http_get_json", _unreachable)
     with assert_raises_error(error_type="bluesky_bridge_unreachable"):
-        await _fn("list_scan_plans")()
+        await _fn("list_plans")()
 
 
 # ---------------------------------------------------------------------------
@@ -197,11 +195,11 @@ async def test_list_runs_unreachable(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# read_scan_data — GET /runs/{id}/data (bounded stub)
+# read_run_data — GET /runs/{id}/data (bounded stub)
 # ---------------------------------------------------------------------------
 
 
-async def test_read_scan_data_request_response_mapping(monkeypatch):
+async def test_read_run_data_request_response_mapping(monkeypatch):
     captured = {}
     body = {
         "run_uid": "uid-1",
@@ -218,17 +216,17 @@ async def test_read_scan_data_request_response_mapping(monkeypatch):
 
     monkeypatch.setattr(f"{_MOD}._http_get_json", fake_get)
 
-    result = await _fn("read_scan_data")(run_id="run-1", max_rows=25, offset=10, tail=False)
+    result = await _fn("read_run_data")(run_id="run-1", max_rows=25, offset=10, tail=False)
 
     assert captured["path"] == "/runs/run-1/data?max_rows=25&offset=10"
     data = extract_response_dict(result)
     assert data == body
 
 
-async def test_read_scan_data_unreachable(monkeypatch):
+async def test_read_run_data_unreachable(monkeypatch):
     monkeypatch.setattr(f"{_MOD}._http_get_json", _unreachable)
     with assert_raises_error(error_type="bluesky_bridge_unreachable"):
-        await _fn("read_scan_data")(run_id="run-1")
+        await _fn("read_run_data")(run_id="run-1")
 
 
 # ---------------------------------------------------------------------------
@@ -239,11 +237,11 @@ async def test_read_scan_data_unreachable(monkeypatch):
 async def test_all_client_tools_are_registered_fastmcp_function_tools():
     """Every client tool is registered on the scan server as a FunctionTool."""
     for name in (
-        "create_scan_intent",
-        "scan_status",
-        "list_scan_plans",
+        "create_run_intent",
+        "run_status",
+        "list_plans",
         "list_runs",
-        "read_scan_data",
+        "read_run_data",
     ):
         tool = await mcp.get_tool(name)
         assert tool.fn is getattr(read_tools, name), f"{name} was not registered via @mcp.tool()"

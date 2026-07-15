@@ -1,26 +1,26 @@
 """MCP tools: author and validate a session-tier Bluesky plan file.
 
 Both tools are thin HTTP clients of the bridge's authoring routes and reach
-NO hardware — ``write_bluesky_plan`` only writes a file (never imports or
-execs it), and ``validate_bluesky_plan``'s dry run drives mock devices only,
+NO hardware — ``write_plan`` only writes a file (never imports or
+execs it), and ``validate_plan``'s dry run drives mock devices only,
 in a subprocess with ``EPICS_CA_*`` neutralized (see
 ``osprey.services.bluesky_bridge.plan_validation``). Both therefore work
 identically whether ``control_system.writes_enabled`` is on or off, and
-neither carries the kill-switch (``_WRITES_CHECK``) hook — see the ``scan``
+neither carries the kill-switch (``_WRITES_CHECK``) hook — see the ``bluesky``
 ``ServerDefinition`` in ``registry/mcp.py``. Both are still approval-gated
 (``permissions_ask``) so a human sees every authored/validated plan body.
 
 ==========================  =================================================
 Tool                        Bridge endpoint
 ==========================  =================================================
-write_bluesky_plan          POST /plans/session
-validate_bluesky_plan       POST /plans/validate
+write_plan          POST /plans/session
+validate_plan       POST /plans/validate
 ==========================  =================================================
 
 Same conventions as ``read_tools.py``: ``async def``, JSON string return
 (``json.dumps`` / ``make_error``), blocking HTTP dispatched via
 ``anyio.to_thread.run_sync``, and the shared ``_http_post_json`` /
-``bridge_error_message`` helpers from ``scan/server_context.py``.
+``bridge_error_message`` helpers from ``bluesky/server_context.py``.
 """
 
 from __future__ import annotations
@@ -29,16 +29,16 @@ import json
 
 import anyio
 
+from osprey.mcp_server.bluesky.server import mcp
+from osprey.mcp_server.bluesky.server_context import _http_post_json, bridge_error_message
 from osprey.mcp_server.errors import make_error
-from osprey.mcp_server.scan.server import mcp
-from osprey.mcp_server.scan.server_context import _http_post_json, bridge_error_message
 
 
 # ---------------------------------------------------------------------------
 # Tool 1: write a session-tier plan file
 # ---------------------------------------------------------------------------
 @mcp.tool()
-async def write_bluesky_plan(
+async def write_plan(
     name: str,
     category: str,
     required_devices: list[str],
@@ -46,14 +46,14 @@ async def write_bluesky_plan(
     body: str,
     description: str = "",
 ) -> str:
-    """Author a session-tier scan plan file on the bridge. Reaches NO hardware.
+    """Author a session-tier plan file on the bridge. Reaches NO hardware.
 
     The bridge assembles a `PLAN_METADATA = {...}` block from
     ``name``/``description``/``category``/``required_devices``/``writes`` and
     prepends it to ``body`` (your own ``PARAMS`` + ``build_plan`` source, per
     the layered directory catalog's file contract), writing the combined text
     as one file. The bridge NEVER imports or execs this file — it is inert
-    until validate_bluesky_plan passes it and, later, a human approves
+    until validate_plan passes it and, later, a human approves
     launching it. Re-authoring an existing ``name`` overwrites the file and
     invalidates any prior passing validation (its content hash changes).
 
@@ -74,7 +74,7 @@ async def write_bluesky_plan(
 
     Returns:
         JSON ``{"name", "content_hash"}`` on success — pass ``name`` to
-        validate_bluesky_plan next. On rejection (e.g. an invalid ``name``),
+        validate_plan next. On rejection (e.g. an invalid ``name``),
         an error envelope naming what to fix.
     """
     payload = {
@@ -102,12 +102,12 @@ async def write_bluesky_plan(
 # Tool 2: validate a session-tier plan file
 # ---------------------------------------------------------------------------
 @mcp.tool()
-async def validate_bluesky_plan(
+async def validate_plan(
     name: str,
     sample_args: dict | None = None,
     dry_run_timeout: float = 30.0,
 ) -> str:
-    """Validate a session plan already written by write_bluesky_plan. Reaches NO hardware.
+    """Validate a session plan already written by write_plan. Reaches NO hardware.
 
     Runs the bridge's three-stage validator (static import/pattern allowlist,
     then a mock-device dry run) against the CURRENT on-disk content of the
@@ -121,7 +121,7 @@ async def validate_bluesky_plan(
     must be re-validated.
 
     Args:
-        name: Session plan name, as passed to write_bluesky_plan.
+        name: Session plan name, as passed to write_plan.
         sample_args: Sample `PARAMS` field values used to build the dry run's
             generator and mock devices (e.g. device names, point counts).
             Omit only for a `PARAMS` with no required fields.
@@ -139,7 +139,7 @@ async def validate_bluesky_plan(
         return make_error(
             "unknown_session_plan",
             bridge_error_message(resp_body, status),
-            ["Call write_bluesky_plan first to author this plan name."],
+            ["Call write_plan first to author this plan name."],
         )
     if status != 200:
         return make_error("bluesky_bridge_error", bridge_error_message(resp_body, status))

@@ -1,12 +1,12 @@
 """Tests for the session-plan authoring/validation surface (task 2.3):
-`write_bluesky_plan` / `validate_bluesky_plan` MCP tools, their bridge routes
+`write_plan` / `validate_plan` MCP tools, their bridge routes
 (`POST /plans/session`, `POST /plans/validate`), and their permission tier.
 
 Two layers are covered:
 
-- MCP-tool level (`osprey.mcp_server.scan.tools.authoring`): payload shape and
+- MCP-tool level (`osprey.mcp_server.bluesky.tools.authoring`): payload shape and
   error-envelope mapping, with `_http_post_json` mocked out (no bridge process
-  needed) — mirrors `test_launch_scan.py`'s conventions.
+  needed) — mirrors `test_launch_run.py`'s conventions.
 - Bridge-route level (`osprey.services.bluesky_bridge.app`): exercised via
   FastAPI's `TestClient` against the real routes, proving the write path never
   imports/execs the authored body, the HASH CONTRACT (the bytes validated are
@@ -27,15 +27,15 @@ from unittest.mock import patch
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.mcp_server.scan.server_context import initialize_server_context, reset_server_context
-from osprey.mcp_server.scan.tools import authoring
+from osprey.mcp_server.bluesky.server_context import initialize_server_context, reset_server_context
+from osprey.mcp_server.bluesky.tools import authoring
 from osprey.registry.mcp import FRAMEWORK_SERVERS
 from osprey.services.bluesky_bridge.app import app
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
 from osprey.services.bluesky_bridge.validation_record import validation_records
 from tests.mcp_server.conftest import assert_raises_error, extract_response_dict, get_tool_fn
 
-_MOD = "osprey.mcp_server.scan.tools.authoring"
+_MOD = "osprey.mcp_server.bluesky.tools.authoring"
 
 _BENIGN_BODY = textwrap.dedent(
     """\
@@ -74,13 +74,13 @@ _BENIGN_SAMPLE_ARGS = {"correctors": ["c1"], "detectors": ["d1"], "num": 3}
 
 
 def test_both_tools_are_approval_ask_tier_never_writes_checked():
-    scan = FRAMEWORK_SERVERS["scan"]
-    assert "write_bluesky_plan" in scan.permissions_ask
-    assert "validate_bluesky_plan" in scan.permissions_ask
+    scan = FRAMEWORK_SERVERS["bluesky"]
+    assert "write_plan" in scan.permissions_ask
+    assert "validate_plan" in scan.permissions_ask
 
     by_matcher = {rule.matcher: rule for rule in scan.hooks_pre}
-    for tool in ("write_bluesky_plan", "validate_bluesky_plan"):
-        matcher = f"mcp__scan__{tool}"
+    for tool in ("write_plan", "validate_plan"):
+        matcher = f"mcp__bluesky__{tool}"
         assert matcher in by_matcher, f"no hooks_pre rule for {matcher}"
         commands = [h.command for h in by_matcher[matcher].hooks]
         assert any("osprey_approval.py" in c for c in commands), (
@@ -92,14 +92,14 @@ def test_both_tools_are_approval_ask_tier_never_writes_checked():
 
 
 def test_both_tools_get_distinct_independently_allowlistable_short_names():
-    scan = FRAMEWORK_SERVERS["scan"]
-    # Distinct from launch_scan/stop_scan's own tier, and from each other.
-    assert len({"launch_scan", "stop_scan", "write_bluesky_plan", "validate_bluesky_plan"}) == 4
+    scan = FRAMEWORK_SERVERS["bluesky"]
+    # Distinct from launch_run/stop_run's own tier, and from each other.
+    assert len({"launch_run", "stop_run", "write_plan", "validate_plan"}) == 4
     assert set(scan.permissions_ask) >= {
-        "write_bluesky_plan",
-        "validate_bluesky_plan",
-        "launch_scan",
-        "stop_scan",
+        "write_plan",
+        "validate_plan",
+        "launch_run",
+        "stop_run",
     }
 
 
@@ -109,11 +109,11 @@ def test_both_tools_get_distinct_independently_allowlistable_short_names():
 
 
 def _write_fn():
-    return get_tool_fn(authoring.write_bluesky_plan)
+    return get_tool_fn(authoring.write_plan)
 
 
 def _validate_fn():
-    return get_tool_fn(authoring.validate_bluesky_plan)
+    return get_tool_fn(authoring.validate_plan)
 
 
 @pytest.fixture(autouse=True)
@@ -122,7 +122,7 @@ def _reset_scan_context():
     reset_server_context()
 
 
-async def test_write_bluesky_plan_posts_the_structured_payload(tmp_path, monkeypatch):
+async def test_write_plan_posts_the_structured_payload(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     initialize_server_context()
 
@@ -153,7 +153,7 @@ async def test_write_bluesky_plan_posts_the_structured_payload(tmp_path, monkeyp
     assert data == {"name": "tiny", "content_hash": "deadbeef"}
 
 
-async def test_write_bluesky_plan_rejected_maps_to_error_envelope(tmp_path, monkeypatch):
+async def test_write_plan_rejected_maps_to_error_envelope(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     initialize_server_context()
 
@@ -169,7 +169,7 @@ async def test_write_bluesky_plan_rejected_maps_to_error_envelope(tmp_path, monk
     assert "invalid plan name" in ctx["envelope"]["error_message"]
 
 
-async def test_validate_bluesky_plan_posts_name_and_sample_args(tmp_path, monkeypatch):
+async def test_validate_plan_posts_name_and_sample_args(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     initialize_server_context()
 
@@ -187,7 +187,7 @@ async def test_validate_bluesky_plan_posts_name_and_sample_args(tmp_path, monkey
     assert data["passed"] is True
 
 
-async def test_validate_bluesky_plan_unknown_name_maps_to_error_envelope(tmp_path, monkeypatch):
+async def test_validate_plan_unknown_name_maps_to_error_envelope(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     initialize_server_context()
 

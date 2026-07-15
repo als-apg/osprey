@@ -1,7 +1,7 @@
-"""Tests for the `osprey_approval` hook's `launch_scan` enrichment (task 2.6).
+"""Tests for the `osprey_approval` hook's `launch_run` enrichment (task 2.6).
 
-`launch_scan` is the sole promote path for a Bluesky scan (see
-`mcp_server/scan/tools/launch.py`) — its own tool_input carries nothing but a
+`launch_run` is the sole promote path for a Bluesky scan (see
+`mcp_server/bluesky/tools/launch.py`) — its own tool_input carries nothing but a
 bare `run_id`. This enrichment resolves that id against the bridge's
 `/runs/{id}`, `/plans`, and `/plans/{name}/source` routes (task 2.6's new
 endpoint) to render the plan actually about to launch: its metadata,
@@ -32,8 +32,8 @@ from contextlib import contextmanager
 import pytest
 
 SCAN_HOOK_CONFIG = {
-    "server_prefixes": ["mcp__scan__"],
-    "approval_prefixes": ["mcp__scan__"],
+    "server_prefixes": ["mcp__bluesky__"],
+    "approval_prefixes": ["mcp__bluesky__"],
 }
 
 
@@ -99,7 +99,7 @@ _OBFUSCATED_SESSION_SOURCE = (
 
 
 @pytest.mark.unit
-def test_launch_scan_renders_shipped_plan_metadata_and_source(
+def test_launch_run_renders_shipped_plan_metadata_and_source(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
     """A shipped (operator-trusted) plan renders category/devices/hazard/
@@ -145,7 +145,7 @@ def test_launch_scan_renders_shipped_plan_metadata_and_source(
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         result = hook_runner(
             "osprey_approval.py",
-            "mcp__scan__launch_scan",
+            "mcp__bluesky__launch_run",
             {"run_id": "run-1"},
             config_path=config,
             cwd=tmp_path,
@@ -170,7 +170,7 @@ def test_launch_scan_renders_shipped_plan_metadata_and_source(
 
 
 @pytest.mark.unit
-def test_launch_scan_labels_unvalidated_session_plan_as_untrusted(
+def test_launch_run_labels_unvalidated_session_plan_as_untrusted(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
     """A session-tier plan with NO passing validation record is clearly
@@ -204,7 +204,7 @@ def test_launch_scan_labels_unvalidated_session_plan_as_untrusted(
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         result = hook_runner(
             "osprey_approval.py",
-            "mcp__scan__launch_scan",
+            "mcp__bluesky__launch_run",
             {"run_id": "run-2"},
             config_path=config,
             cwd=tmp_path,
@@ -225,7 +225,7 @@ def test_launch_scan_labels_unvalidated_session_plan_as_untrusted(
 
 
 @pytest.mark.unit
-def test_launch_scan_reports_a_validated_session_plan_as_passed(
+def test_launch_run_reports_a_validated_session_plan_as_passed(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
     config = make_config(
@@ -269,7 +269,7 @@ def test_launch_scan_reports_a_validated_session_plan_as_passed(
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
         result = hook_runner(
             "osprey_approval.py",
-            "mcp__scan__launch_scan",
+            "mcp__bluesky__launch_run",
             {"run_id": "run-3"},
             config_path=config,
             cwd=tmp_path,
@@ -282,7 +282,7 @@ def test_launch_scan_reports_a_validated_session_plan_as_passed(
 
 
 @pytest.mark.unit
-def test_launch_scan_fails_open_when_bridge_is_unreachable(
+def test_launch_run_fails_open_when_bridge_is_unreachable(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
     """A dead bridge must never block the approval prompt: the hook still
@@ -300,7 +300,7 @@ def test_launch_scan_fails_open_when_bridge_is_unreachable(
 
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__scan__launch_scan",
+        "mcp__bluesky__launch_run",
         {"run_id": "run-unreachable"},
         config_path=config,
         cwd=tmp_path,
@@ -311,13 +311,13 @@ def test_launch_scan_fails_open_when_bridge_is_unreachable(
     output = result["hookSpecificOutput"]
     assert output["permissionDecision"] == "ask"
     reason = output["permissionDecisionReason"]
-    assert "Tool: launch_scan" in reason
+    assert "Tool: launch_run" in reason
     assert "Approval policy: always" in reason
     assert "Plan:" not in reason
 
 
 @pytest.mark.unit
-def test_launch_scan_without_a_run_id_degrades_to_the_plain_reason(
+def test_launch_run_without_a_run_id_degrades_to_the_plain_reason(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
     """Malformed tool_input (no run_id) degrades gracefully — never a crash."""
@@ -331,7 +331,7 @@ def test_launch_scan_without_a_run_id_degrades_to_the_plain_reason(
 
     result = hook_runner(
         "osprey_approval.py",
-        "mcp__scan__launch_scan",
+        "mcp__bluesky__launch_run",
         {},
         config_path=config,
         cwd=tmp_path,
@@ -341,4 +341,4 @@ def test_launch_scan_without_a_run_id_degrades_to_the_plain_reason(
     assert result is not None
     output = result["hookSpecificOutput"]
     assert output["permissionDecision"] == "ask"
-    assert "Tool: launch_scan" in output["permissionDecisionReason"]
+    assert "Tool: launch_run" in output["permissionDecisionReason"]
