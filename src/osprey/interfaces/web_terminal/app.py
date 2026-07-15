@@ -435,6 +435,13 @@ def _create_lifespan(
             os.environ.get("OSPREY_WEB_APP_NAME", "").strip()
             or str((config.get("web") or {}).get("app_name") or "").strip()
         )
+        # Per-user deployment identity for multi-user compose stacks. No
+        # config key exists for either of these today, so the config-side
+        # fallback is always empty and ``OSPREY_TERMINAL_USER`` /
+        # ``OSPREY_TERMINAL_LANDING_URL`` are the sole source. Empty ⇒ no
+        # user badge / logout control is rendered.
+        app.state.terminal_user = os.environ.get("OSPREY_TERMINAL_USER", "").strip()
+        app.state.landing_url = os.environ.get("OSPREY_TERMINAL_LANDING_URL", "").strip()
 
         # Ensure OSPREY_CONFIG is set before any load_osprey_config() call
         if "OSPREY_CONFIG" not in os.environ:
@@ -653,8 +660,17 @@ def create_app(
     async def root(request: Request):
         app_name = getattr(request.app.state, "app_name", "")
         web_theme_id = getattr(request.app.state, "web_theme_id", "dark")
+        terminal_user = getattr(request.app.state, "terminal_user", "")
+        landing_url = getattr(request.app.state, "landing_url", "")
         return templates.TemplateResponse(
-            request, "index.html", {"app_name": app_name, "web_theme_id": web_theme_id}
+            request,
+            "index.html",
+            {
+                "app_name": app_name,
+                "web_theme_id": web_theme_id,
+                "terminal_user": terminal_user,
+                "landing_url": landing_url,
+            },
         )
 
     configure_interface_app(app, static_dir=STATIC_DIR)

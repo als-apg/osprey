@@ -20,6 +20,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initResizeHandle();
   initKeyboardShortcuts();
   initNewSessionButton();
+  initLogoutButton();
   initDrawerTriggerHighlight();
   initSettings();
   initMemoryGallery();
@@ -48,6 +49,48 @@ function initNewSessionButton() {
       btn.disabled = false;
     }
   });
+}
+
+/* ---- Logout Button ---- */
+
+/**
+ * Only present in the DOM when the server rendered a non-empty `landing_url`
+ * (multi-user deployments). Plain `osprey web` never emits the button, so
+ * this is a no-op there.
+ */
+function initLogoutButton() {
+  const btn = /** @type {HTMLButtonElement} */ (document.getElementById('logout-btn'));
+  if (!btn) return;
+
+  const landingUrl = btn.dataset.landingUrl;
+  if (!landingUrl) return;
+
+  btn.addEventListener('click', () => {
+    if (!isSafeLandingUrl(landingUrl)) {
+      console.error('Refusing to navigate to unsafe landing_url:', landingUrl);
+      return;
+    }
+    window.location.assign(landingUrl);
+  });
+}
+
+/**
+ * `landing_url` comes from operator config, not user input, but it's still a
+ * live navigation sink — reject anything that isn't a same-origin relative
+ * path or an http(s) URL so a misconfigured value can't smuggle a
+ * `javascript:`/`data:` scheme into the page origin. A leading "//" is
+ * excluded from the relative-path case too: browsers resolve it as
+ * protocol-relative (same scheme, attacker-controlled host), so a bare
+ * `startsWith('/')` check would still let it through.
+ */
+function isSafeLandingUrl(/** @type {string} */ url) {
+  if (url.startsWith('/') && !url.startsWith('//')) return true;
+  try {
+    const parsed = new URL(url, window.location.origin);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch {
+    return false;
+  }
 }
 
 /* ---- Drawer Trigger Highlight ---- */

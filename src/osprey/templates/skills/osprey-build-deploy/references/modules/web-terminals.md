@@ -1,36 +1,42 @@
 # Module: web_terminals
 
-A multi-user web terminal stack lets named operators reach the built assistant from a browser without installing Claude Code locally. Each user gets a dedicated container running `osprey web` with a private Claude Code config, private session memory, and a private CLAUDE.md. An nginx reverse proxy in front offers a landing page and routes browser requests to the right per-user container. Enable this when the facility wants more than one or two people using the assistant interactively, when laptops can't reach internal services directly, or when persistent per-user state matters.
+A multi-user web terminal stack lets named operators reach the built assistant from a browser without installing Claude Code locally. Each user gets a dedicated container running `osprey web` with a private Claude Code config, private session memory, and a private CLAUDE.md. That same container also runs three companion services per user — an artifact gallery, ARIEL search, and a lattice dashboard — each bound to its own port, so nothing collides across users or across a single user's own services. An nginx reverse proxy in front offers a landing page and routes browser requests to the right per-user service. Enable this when the facility wants more than one or two people using the assistant interactively, when laptops can't reach internal services directly, or when persistent per-user state matters.
 
 **Enabled when**: `modules.web_terminals.enabled: true` in `facility-config.yml`.
+
+> **Perimeter-trust only — NOT authenticated, NOT TLS-terminated.** Anyone who can reach a configured port gets in as whoever owns that service; there is no login and nothing encrypts the traffic in front of it. Every per-user service binds `0.0.0.0` directly under `network_mode: host`, so nginx is a landing-page convenience, **not** a security chokepoint — it can be bypassed entirely by hitting a per-user port directly. Only deploy this module on a network you already trust (VPN-only segment, firewalled lab subnet, etc.). Authentication, TLS termination, and single-origin routing are Phase 2 work and are not present today.
 
 ---
 
 ## Architecture
 
 ```
-                          ┌──────────────────────────┐
-   browser ───────────────│  nginx                    │
-   :${config.modules.     │  :${config.modules.       │
-    web_terminals.        │   web_terminals.          │
-    nginx_port}           │   nginx_port}             │
-                          │  - landing page           │
-                          │  - per-user reverse proxy │
-                          └────────────┬──────────────┘
+                          ┌─────────────────────────────┐
+   browser ───────────────│  nginx                      │
+                          │  :${config.modules.         │
+                          │   web_terminals.nginx_port} │
+                          │  - landing page             │
+                          │  - per-user reverse proxy   │
+                          └────────────┬────────────────┘
                                        │
                   ┌────────────────────┼────────────────────┐
                   ▼                    ▼                    ▼
-   ${prefix}-web-${user1}  ${prefix}-web-${user2}  ${prefix}-web-${userN}
-   :${base_port + 0}        :${base_port + 1}        :${base_port + N-1}
-   - osprey web             - osprey web             - osprey web
-   - per-user CLAUDE.md     - per-user CLAUDE.md     - per-user CLAUDE.md
-   - per-user named volume  - per-user named volume  - per-user named volume
-   - all MCP servers, all   - all MCP servers, all   - all MCP servers, all
-     stdio subprocesses       stdio subprocesses       stdio subprocesses
-     (confluence, etc.)       (confluence, etc.)       (confluence, etc.)
+       ${prefix}-web-${user[0]}  ${prefix}-web-${user[1]}  ${prefix}-web-${user[N-1]}
+        one container per user — same image, four independently-bound host ports
 ```
 
-Each container is a complete OSPREY runtime. The Claude Code project (and its `.mcp.json`, `config.yml`, agents, skills, hooks) is **baked into the image at CI time** — there is no rsync to the deploy server. At runtime each container exec's `osprey web`, which serves the chat UI on the container's internal port and mounts the per-user named volume at `/data/claude-config/`.
+Each user's single container publishes four ports, one per service family:
+
+| Family (per-user service) | Env var inside the container | Host port for user at index `i` |
+|----------------------------|--------------------------------|-----------------------------------|
+| web (terminal UI, `osprey web`) | `OSPREY_WEB_PORT` | `web_base_port + i` |
+| artifact (build artifact gallery) | `OSPREY_ARTIFACT_SERVER_PORT` | `artifact_base_port + i` |
+| ariel (ARIEL search) | `OSPREY_ARIEL_PORT` | `ariel_base_port + i` |
+| lattice (lattice dashboard) | `OSPREY_LATTICE_DASHBOARD_PORT` | `lattice_base_port + i` |
+
+Each container also has a private CLAUDE.md, a private named volume mounted at `/data/claude-config/`, and every MCP server / stdio subprocess the profile configures (confluence, etc.).
+
+Each container is a complete OSPREY runtime. The Claude Code project (and its `.mcp.json`, `config.yml`, agents, skills, hooks) is **baked into the image at CI time** — there is no rsync to the deploy server. At runtime each container exec's `osprey web`, whose unconfigured default listen port is the fixed constant **8087**; this module overrides it per user via `OSPREY_WEB_PORT=<web_base_port + i>` (env-over-config), so the process binds directly to its published host port with no internal-port remapping under `network_mode: host`. The artifact/ariel/lattice companion servers auto-launch the same way inside the same container, each reading its own `OSPREY_*_PORT` env var (see `src/osprey/registry/web.py` for their unconfigured defaults, which are not 8087 and are not shared across families).
 
 ---
 
@@ -43,15 +49,25 @@ modules:
   web_terminals:
     enabled: true
     nginx_port: 9080                    # ${config.modules.web_terminals.nginx_port}
-    base_port: 9091                     # first per-user terminal port
+    web_base_port: 9091                 # first per-user web-terminal port      → OSPREY_WEB_PORT
+    artifact_base_port: 9291            # first per-user artifact-gallery port  → OSPREY_ARTIFACT_SERVER_PORT
+    ariel_base_port: 9391               # first per-user ARIEL search port      → OSPREY_ARIEL_PORT
+    lattice_base_port: 9491             # first per-user lattice-dashboard port → OSPREY_LATTICE_DASHBOARD_PORT
     users:                              # one container per user
       - alice
       - bob
       - carol
-    landing_page_template: "default"    # default | custom
+    landing:                            # grouped landing page served at nginx_port
+      groups:
+        - type: "users"                 # auto-populated: one card per entry in `users` above
+        - type: "links"
+          label: "Facility Tools"
+          links:
+            - label: "Elog"
+              url: "https://elog.example.org"
 ```
 
-**Port allocation rule**: each user container binds host port `${config.modules.web_terminals.base_port} + index` (where `index` is the zero-based position in the `users:` list). With `base_port: 9091` and three users, the bindings are `9091 → user[0]`, `9092 → user[1]`, `9093 → user[2]`. The interview enforces no collision with `${config.ports.*}`.
+**Port allocation rule**: each user's four services bind host port `<family>_base_port + index` (where `index` is the zero-based position in the `users:` list, and `family` is one of `web`, `artifact`, `ariel`, `lattice`). With the values above and three users, `alice` (index 0) gets `9091`/`9291`/`9391`/`9491`, `bob` (index 1) gets `9092`/`9292`/`9392`/`9492`, and so on. This arithmetic is implemented once, in `deployment/web_terminals/ports.py`'s `allocate_ports()` — the renderer and the lint both call it rather than reimplementing it. The interview enforces no collision across all four families, `${config.ports.*}`, and the event-dispatcher sidecar range (see validation rule 11 in `facility-config-schema.md`).
 
 **The per-user list is durable**. Adding a user appends to the list (re-run the interview, or hand-edit then re-scaffold) without disturbing existing users' state. Removing a user from the list does **not** delete their named volume — the volume sticks around and can be reattached if the user comes back. To actually wipe a user's state, run `${config.runtime.engine} volume rm ${config.facility.prefix}-${user}-claude-config`.
 
@@ -65,36 +81,15 @@ A compose overlay (`docker-compose.web.yml` by default; added to `${config.runti
 
 - One `nginx` service (container name `${config.facility.prefix}-nginx`) listening on `0.0.0.0:${config.modules.web_terminals.nginx_port}`. Mounts `./nginx/nginx.conf` and `./nginx/landing.html` read-only.
 - An anchor `&web-terminal` block holding image, restart policy, env_file, network — extended by every per-user service.
-- One service per user via list expansion:
+- One service per user, each publishing all four `*_base_port + index` host ports (per the Architecture table above) with `OSPREY_TERMINAL_USER=<user>` and the other three `OSPREY_*_PORT` env vars set alongside it — plus a paired `<user>-claude-config` / `<user>-agent-data` named volume per user, living on the container engine's local graphroot, **not** on any NFS mount. (Deliberate: rootless container UIDs don't survive NFS write paths reliably, but Claude Code writes to its config dir continuously during a session.)
 
-```
-# FOR each in modules.web_terminals.users
-  web-${each}:
-    <<: *web-terminal
-    container_name: ${config.facility.prefix}-web-${each}
-    ports:
-      - "0.0.0.0:${config.modules.web_terminals.base_port + each.index}:9087"
-    environment:
-      - CLAUDE_CONFIG_DIR=/data/claude-config
-      - HOME=/data/claude-config
-      - ${config.facility.prefix|upper}_TERMINAL_USER=${each}
-      # ...plus any module-cross-references (DISPATCH_SIDECAR_TOKEN if event_dispatcher enabled)
-    volumes:
-      - ${each}-claude-config:/data/claude-config
-      - ${each}-agent-data:/app/${config.facility.prefix}-assistant/_agent_data
-# END FOR
+**These artifacts are generated deterministically, not hand-rendered by the scaffolding skill.** Run:
+
+```bash
+osprey scaffold web-terminals render --config facility-config.yml -o <deploy dir>
 ```
 
-- Named volumes (one pair per user):
-
-```
-# FOR each in modules.web_terminals.users
-  ${each}-claude-config:
-  ${each}-agent-data:
-# END FOR
-```
-
-The named volumes live on the container engine's local graphroot — **not** on any NFS mount. This is deliberate: rootless container UIDs don't survive NFS write paths reliably, but Claude Code writes to its config dir continuously during a session.
+This reads `modules.web_terminals` straight from `facility-config.yml` and writes the full compose overlay (nginx + one service per user + named volumes), the nginx routing fragment, and the static landing page into `<deploy dir>`. It lints the stanza first by default and aborts on error-severity findings (`osprey scaffold web-terminals lint --config facility-config.yml` runs the same check standalone; pass `--no-lint` to render anyway). **The skill must invoke this verb for the `web_terminals` module and must never emit its own web_terminals compose or nginx fragment** — the port/env-var mapping in Architecture/Configuration above is the contract this verb implements; hand-rendering it a second time in prose is exactly the drift this verb exists to prevent.
 
 ### .gitlab-ci.yml
 
@@ -106,14 +101,15 @@ The named volumes live on the container engine's local graphroot — **not** on 
 ### scripts/deploy.sh
 
 - For every user in `${config.modules.web_terminals.users}`:
-  1. Ensures the user's named volumes exist (the engine creates them on first `compose up`, but the seeding step below needs them present).
-  2. **Seeds CLAUDE.md** by streaming the concatenation of `docker/web-terminal-context/base.md` and `docker/web-terminal-context/${user}.md` into the user's `claude-config` volume at `/data/claude-config/CLAUDE.md`. This runs every deploy so per-user memory updates land without rebuilding the image.
-- After `compose up -d`, optional readiness probe: HEAD requests against `http://localhost:${config.modules.web_terminals.base_port + index}/` until a 200 comes back, with a 30s timeout per user.
+  1. Skips the user if their container isn't up yet (a `${config.runtime.engine} container exists` check) — the seed step is a no-op on a partial/failed `compose up` rather than a hard failure.
+  2. **Seeds CLAUDE.md** by streaming the concatenation of `docker/web-terminal-context/base.md` and the user's overlay into the user's `claude-config` volume at `/data/claude-config/CLAUDE.md`. The overlay is `docker/web-terminal-context/<user>/extra.md`; for facilities that haven't migrated off the old flat layout, the legacy `docker/web-terminal-context/<user>.md` is read as a fallback when `<user>/extra.md` is absent. This runs every deploy so per-user memory updates land without rebuilding the image.
+  3. **Seeds `skills/`** by tar-piping `docker/web-terminal-context/<user>/skills/` into `/app/${config.facility.prefix}-assistant/.claude/skills/` inside the container — the **project-scope** skills directory (`<project_cwd>/.claude/skills/`, since the web terminal launches `claude` with `cwd` set to the project directory), **not** the user-scope `CLAUDE_CONFIG_DIR/skills/` (`/data/claude-config/skills/`). This is deliberate, and easy to get wrong by intuition: the web terminal launches Claude Code with `--setting-sources project`, and that flag gates skill *discovery* itself, not just `settings.json` loading — skills placed under `CLAUDE_CONFIG_DIR/skills/` are silently never picked up under `--setting-sources project`, while the same skills under the project's `.claude/skills/` are. Only the project-scope path is live; seed there. That directory is also where a running Claude Code session keeps live, user-installed skills (e.g. anything added interactively with `osprey skills install`), so this step never blanket-replaces it: every skill directory the overlay writes gets a `.deploy-managed` sentinel, and only sentinel-bearing directories are ever touched — refreshed on each deploy, removed if the overlay stops shipping them, and left alone if they lack the sentinel. (This `--setting-sources` gating applies only to `skills/`; the CLAUDE.md seeding in step 2 above is plain user-scope auto-discovery, unrelated to `--setting-sources`, and is unaffected.)
+- `scripts/deploy.sh` does not itself HTTP-probe the per-user services after `compose up -d`; the post-deploy health check is `scripts/verify.sh` (below), run separately.
 
 ### scripts/verify.sh
 
 - `nginx_health`: `curl -fsS http://localhost:${config.modules.web_terminals.nginx_port}/`
-- `web_terminal_health` (per user): `curl -fsS http://localhost:${config.modules.web_terminals.base_port + index}/health`
+- Per-user probe (`probe_web_terminal`): not an HTTP health check — execs into the user's container as uid 1000 and confirms it can create and remove a probe file under both `/app/${config.facility.prefix}-assistant/_agent_data/` and `/data/claude-config/`. This catches volume-permission problems but does not individually probe the artifact/ariel/lattice companion ports.
 
 ### .env.template
 
@@ -122,9 +118,10 @@ No new entries are required by this module on its own — web terminals reuse th
 ### Other files
 
 - `nginx/nginx.conf` — generated; routes `/u/<user>/` to the matching upstream and serves the landing page at `/`.
-- `nginx/landing.html` — generated from `landing_page_template`. The default template lists all users with a button per user; the `custom` setting tells scaffolding to skip overwriting if the file already exists.
+- `nginx/landing.html` — rendered from `modules.web_terminals.landing.groups` (see Configuration above): a `type: "users"` group auto-populates one card per entry in `users:`, and any `type: "links"` groups render as static link lists (e.g. facility tools). There is no `landing_page_template` field anymore — the landing page is fully data-driven from `landing.groups`.
 - `docker/web-terminal-context/base.md` — generated empty stub; intended to hold guidance every user sees.
-- `docker/web-terminal-context/<user>.md` — one empty stub per user; intended for per-user nicknames, working preferences, etc.
+- `docker/web-terminal-context/<user>/extra.md` — one empty stub per user; intended for per-user nicknames, working preferences, etc. The legacy flat `docker/web-terminal-context/<user>.md` is still read as a fallback when this file doesn't exist (see `scripts/deploy.sh` above).
+- `docker/web-terminal-context/<user>/skills/` — optional per-user skill overlay, deploy-managed and sentinel-tracked (see `scripts/deploy.sh` above); never touches user-authored skills already present in the running container. Seeded to the container's **project-scope** `.claude/skills/`, not `CLAUDE_CONFIG_DIR` — see `scripts/deploy.sh` for why.
 
 ---
 
@@ -158,7 +155,7 @@ curl -X POST 'http://${config.deploy.host}:<port>/api/chat?stream=false' \
   -d '{"prompt": "summarize the last hour"}'
 ```
 
-`<port>` is `${config.modules.web_terminals.base_port} + <user_index>`. Scripts that don't care which user runs the prompt can pin to user[0]; scripts that want isolation per requester should pick deterministically.
+`<port>` is `${config.modules.web_terminals.web_base_port} + <user_index>` — the REST API rides on the `web` family port, the same one the terminal UI uses, not the artifact/ariel/lattice ports. Scripts that don't care which user runs the prompt can pin to user[0]; scripts that want isolation per requester should pick deterministically.
 
 ---
 
@@ -168,7 +165,7 @@ curl -X POST 'http://${config.deploy.host}:<port>/api/chat?stream=false' \
 
 1. Append the new login to `modules.web_terminals.users` in `facility-config.yml` (re-run the interview, or hand-edit and skip ahead).
 2. Re-scaffold: regenerates the compose overlay with the new service + named volumes, and adds a row to the nginx upstream block.
-3. Create the per-user context stub: `touch docker/web-terminal-context/<new_user>.md`.
+3. Create the per-user context stub: `mkdir -p docker/web-terminal-context/<new_user> && touch docker/web-terminal-context/<new_user>/extra.md`. (The legacy flat `docker/web-terminal-context/<new_user>.md` still works, but new facilities should use the directory form so a `skills/` overlay can be added later without restructuring.)
 4. Commit and push. CI rebuilds nothing image-side (the user list isn't baked into the image), but the new container only appears after a deploy.
 5. Deploy: `ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ./scripts/deploy.sh"`. The seeding step creates the user's CLAUDE.md on first run.
 
@@ -212,17 +209,17 @@ Every `command:` should reference `/app/...`, never `/builds/...`. If the latter
 | User's CLAUDE.md is empty | The seeding step in `deploy.sh` couldn't reach the named volume — verify the volume exists and is mounted |
 | Claude session "forgets" between visits | Named volume was destroyed — `--nuke` deploy or someone manually `volume rm`'d it |
 | All web terminals see the same memory | Containers are sharing a volume — check the per-user `volumes:` block in the compose overlay rendered correctly (no anchor reuse bug) |
-| nginx serves landing page but reverse-proxy to user URLs returns 502 | Per-user container internal port doesn't match nginx upstream — both should be `9087` (the port `osprey web` binds inside the container) |
+| nginx serves landing page but reverse-proxy to user URLs returns 502 | Per-user service's env-var-overridden listen port doesn't match nginx's upstream for that family — check `OSPREY_WEB_PORT`/`OSPREY_ARTIFACT_SERVER_PORT`/`OSPREY_ARIEL_PORT`/`OSPREY_LATTICE_DASHBOARD_PORT` inside the container against the `*_base_port + index` nginx expects. (The `web` family's unconfigured default is `8087` — a service still listening on that default instead of its assigned host port is the usual cause under `network_mode: host`.) |
 
-### Updating per-user CLAUDE.md without redeploying images
+### Updating per-user CLAUDE.md and skills without redeploying images
 
-The CLAUDE.md seeding runs in `deploy.sh`, not in the image build, so:
+The CLAUDE.md and `skills/` seeding runs in `deploy.sh`, not in the image build, so:
 
-1. Edit `docker/web-terminal-context/base.md` or `docker/web-terminal-context/<user>.md`.
+1. Edit `docker/web-terminal-context/base.md` and/or the user's `docker/web-terminal-context/<user>/extra.md` (or the legacy flat `<user>.md`); add or edit files under `docker/web-terminal-context/<user>/skills/<skill-name>/` for a per-user skill.
 2. Commit + push (so the change reaches the deploy server's git checkout).
-3. `ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ./scripts/deploy.sh"` — git pull picks up the new files, and the seed step copies them in. Containers stay up; the file just changes under them.
+3. `ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ./scripts/deploy.sh"` — git pull picks up the new files, and the seed step copies them in. Containers stay up; the files just change under them.
 
-The user must restart their Claude session in the browser to pick up the new CLAUDE.md (Claude Code reads it on session start).
+The user must restart their Claude session in the browser to pick up the new CLAUDE.md or skills (Claude Code reads them on session start).
 
 ---
 

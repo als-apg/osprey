@@ -229,9 +229,12 @@ The `scripts/deploy.sh --nuke` mode does this sequence. Don't reinvent it.
 # Single service
 ssh -L <local_port>:localhost:${config.ports.<service>} ${config.deploy.host}
 
-# Multiple services in one command
+# Multiple services in one command — web_terminals publishes four per-user port
+# families (web/artifact/ariel/lattice); repeat the -L pattern with
+# artifact_base_port / ariel_base_port / lattice_base_port to reach the other
+# three companion services for the same user.
 ssh -L ${config.ports.web_terminal_nginx}:localhost:${config.ports.web_terminal_nginx} \
-    -L ${config.ports.web_terminal_base}:localhost:${config.ports.web_terminal_base} \
+    -L ${config.modules.web_terminals.web_base_port}:localhost:${config.modules.web_terminals.web_base_port} \
     -L ${config.ports.integration_tests}:localhost:${config.ports.integration_tests} \
     ${config.deploy.host}
 
@@ -244,7 +247,10 @@ After the tunnel is up: open `http://localhost:<local_port>` in the browser.
 | Service (when enabled) | Remote port | Suggested local port |
 |------------------------|-------------|----------------------|
 | Nginx landing page | `${config.ports.web_terminal_nginx}` | same |
-| Web terminal (per user) | `${config.ports.web_terminal_base + offset}` | same |
+| Web terminal (per user) | `${config.modules.web_terminals.web_base_port + offset}` | same |
+| Artifact gallery (per user) | `${config.modules.web_terminals.artifact_base_port + offset}` | same |
+| ARIEL search (per user) | `${config.modules.web_terminals.ariel_base_port + offset}` | same |
+| Lattice dashboard (per user) | `${config.modules.web_terminals.lattice_base_port + offset}` | same |
 | Integration tests dashboard | `${config.ports.integration_tests}` | same |
 | Event dispatcher | `${config.modules.event_dispatcher.port}` | same |
 | Each custom MCP server | `${config.modules.custom_mcp_servers.servers[*].port}` | same |
