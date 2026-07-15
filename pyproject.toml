@@ -217,6 +217,10 @@ bluesky-bridge = [
 # builds where softioc was still gated here) keep resolving.
 virtual-accelerator = []
 
+# scan_panels sidecar: fastapi/uvicorn[standard]/httpx are already core deps;
+# this extra exists so the service image can install osprey-framework[scan-panels].
+scan-panels = []
+
 # All optional dependencies for complete installation
 all = [
     "osprey-framework[docs,dev,ariel,sheets,screen-capture-linux,archiver-mongodb,knowledge]"

@@ -149,6 +149,24 @@ class VAConfig:
     src/osprey/services/virtual_accelerator/entrypoint.py's run contract)."""
 
 
+@dataclass
+class ScanPanelsConfig:
+    """Scan-panels sidecar configuration for a build profile (opt-in via the
+    ``scan_panels:`` key).
+
+    Consumed by the build pipeline's scan-panels-injection step
+    (``_inject_scan_panels`` in ``build_cmd.py``) to deploy the single
+    ``scan_panels`` FastAPI sidecar (compose service ``scan-panels``) that
+    serves the three operator web panels (``scan-plan``, ``scan-results``,
+    ``scan-health``) and read-proxies the bluesky bridge. Port is validated
+    by :meth:`BuildProfile.validate`.
+    """
+
+    port: int = 8095
+    """Host/container port the sidecar's uvicorn process binds and publishes
+    (see ``templates/services/scan_panels/docker-compose.yml.j2``)."""
+
+
 _ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
 
 
@@ -305,6 +323,7 @@ class BuildProfile:
     dispatch: DispatchConfig | None = None
     bluesky: BlueskyConfig | None = None
     virtual_accelerator: VAConfig | None = None
+    scan_panels: ScanPanelsConfig | None = None
 
     def resolved_tier(self) -> int:
         """Resolve the build-time tier, applying a paradigm-aware default.
@@ -435,6 +454,15 @@ class BuildProfile:
             # url-less here — accept it rather than aborting the build.
             if panel == "events" and self.dispatch is not None:
                 continue
+            # The three scan-panel ids' URLs are likewise derived post-build
+            # (``_inject_scan_panels`` in build_cmd.py, which runs after this
+            # validator) from the scan_panels sidecar's port — so they are
+            # legitimately url-less here when a scan_panels block is present.
+            if (
+                panel in ("scan-plan", "scan-results", "scan-health")
+                and self.scan_panels is not None
+            ):
+                continue
             errors.append(
                 f"Unknown web_panel {panel!r}: not in BUILTIN_PANELS "
                 f"({sorted(BUILTIN_PANELS)}) and no '{url_key}' config override"
@@ -549,6 +577,12 @@ class BuildProfile:
             if not (1 <= va.port <= 65535):
                 errors.append(f"virtual_accelerator.port must be in 1..65535 (got {va.port})")
 
+        # Validate scan_panels configuration
+        if self.scan_panels is not None:
+            sp = self.scan_panels
+            if not (1 <= sp.port <= 65535):
+                errors.append(f"scan_panels.port must be in 1..65535 (got {sp.port})")
+
         if errors:
             raise BuildProfileError(
                 "Build profile validation failed:\n  - " + "\n  - ".join(errors)
@@ -620,6 +654,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "dispatch",
         "bluesky",
         "virtual_accelerator",
+        "scan_panels",
     }
 )
 
@@ -751,6 +786,15 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             port=va_raw.get("port", 5064),
         )
 
+    scan_panels_raw = raw.get("scan_panels")
+    scan_panels = None
+    if scan_panels_raw is not None:
+        if not isinstance(scan_panels_raw, dict):
+            raise BuildProfileError("Profile 'scan_panels' must be a mapping")
+        scan_panels = ScanPanelsConfig(
+            port=scan_panels_raw.get("port", 8095),
+        )
+
     return BuildProfile(
         name=raw.get("name", ""),
         data_bundle=raw.get("data_bundle", "control_assistant"),
@@ -780,6 +824,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         dispatch=dispatch,
         bluesky=bluesky,
         virtual_accelerator=virtual_accelerator,
+        scan_panels=scan_panels,
     )
 
 
