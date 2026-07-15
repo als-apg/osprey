@@ -57,7 +57,7 @@ dependencies = [
     "nbconvert>=7.0.0",
     # AI/ML provider integrations
     "litellm>=1.56.0",  # Unified LLM provider interface (100+ providers)
-    "openai>=2",
+    "openai>=2.45.0",
     "anthropic",
     "google-generativeai",
     "ollama>=0.5.1",
