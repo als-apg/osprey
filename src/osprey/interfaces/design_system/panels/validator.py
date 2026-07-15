@@ -400,3 +400,40 @@ def assert_valid_panel(panel_dir: str | Path) -> None:
     errors = validate_panel(panel_dir)
     if errors:
         raise PanelValidationError(errors)
+
+
+def _main(argv: Sequence[str] | None = None) -> int:
+    """CLI entry point: validate a panel directory and report the result.
+
+    Usage: ``python -m osprey.interfaces.design_system.panels.validator <panel_dir>``.
+
+    Exits ``0`` when the panel passes, ``1`` after printing every failure
+    (one ``"{source}: {message}"`` line per :class:`PanelError`), and ``2``
+    on a usage error. Runnable so the panel-authoring skill and the build
+    gates can invoke the validator directly rather than only via the
+    :func:`assert_valid_panel` import form.
+    """
+    import sys
+
+    args = list(sys.argv[1:] if argv is None else argv)
+    if len(args) != 1:
+        print(
+            "usage: python -m osprey.interfaces.design_system.panels.validator"
+            " <panel_dir>",
+            file=sys.stderr,
+        )
+        return 2
+
+    errors = validate_panel(args[0])
+    if errors:
+        for error in errors:
+            print(str(error), file=sys.stderr)
+        print(f"PANEL INVALID: {len(errors)} error(s) in {args[0]}", file=sys.stderr)
+        return 1
+
+    print(f"PANEL OK: {args[0]}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())
