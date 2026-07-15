@@ -18,7 +18,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from osprey.interfaces.common_middleware import ExceptionLoggingMiddleware, NoCacheStaticMiddleware
+from osprey.interfaces.common_middleware import (
+    BasePathMiddleware,
+    ExceptionLoggingMiddleware,
+    NoCacheStaticMiddleware,
+    normalize_base_path,
+)
 from osprey.interfaces.vendor import vendor_url
 from osprey.interfaces.web_terminal.file_watcher import FileEventBroadcaster, WorkspaceWatcher
 from osprey.interfaces.web_terminal.operator_session import OperatorRegistry
@@ -33,6 +38,9 @@ STATIC_DIR = Path(__file__).parent / "static"
 
 templates = Jinja2Templates(directory=str(STATIC_DIR))
 templates.env.globals["vendor_url"] = vendor_url
+# Default so templates that use base_path never crash on concatenation; the
+# root route overrides this per-request with the resolved prefix.
+templates.env.globals["base_path"] = ""
 
 logger = __import__("logging").getLogger(__name__)
 
@@ -258,6 +266,22 @@ def _load_web_config(config_path: str | Path | None = None) -> dict:
     return {}
 
 
+def _resolve_base_path(explicit: str | None = None, config_path: str | Path | None = None) -> str:
+    """Resolve the web-terminal URL base path.
+
+    Precedence (highest first): explicit argument, ``OSPREY_WEB_BASE_PATH`` env
+    var (so ``--reload``/uvicorn-factory and detached child processes inherit
+    it), then ``web_terminal.base_path`` in ``config.yml``. Returns a normalized
+    prefix (``""`` for root). See :func:`normalize_base_path`.
+    """
+    if explicit is not None:
+        return normalize_base_path(explicit)
+    env_val = os.environ.get("OSPREY_WEB_BASE_PATH")
+    if env_val is not None:
+        return normalize_base_path(env_val)
+    return normalize_base_path(_load_web_config(config_path).get("base_path", ""))
+
+
 def _load_claude_code_config(config_path: str | Path | None = None) -> dict:
     """Load claude_code config section from config.yml.
 
@@ -459,6 +483,7 @@ def create_app(
     config_path: str | Path | None = None,
     shell_command: list[str] | None = None,
     project_dir: str | Path | None = None,
+    base_path: str | None = None,
 ) -> FastAPI:
     """Create the Web Terminal FastAPI application.
 
@@ -467,16 +492,23 @@ def create_app(
         shell_command: Shell command to spawn in the PTY.
         project_dir: Optional OSPREY project directory. When set, used as
             ``project_cwd`` instead of the current working directory.
+        base_path: Optional URL prefix to serve under (e.g. ``/user/a``) when
+            behind a reverse proxy. Resolved via :func:`_resolve_base_path`
+            (explicit arg → ``OSPREY_WEB_BASE_PATH`` env → config) so
+            ``--reload``/uvicorn-factory launches inherit it. ``""`` = root.
 
     Returns:
         Configured FastAPI application.
     """
+    resolved_base_path = _resolve_base_path(base_path, config_path)
+
     app = FastAPI(
         title="OSPREY Web Terminal",
         description="Browser-based terminal with live workspace viewer",
         version="1.0.0",
         lifespan=_create_lifespan(config_path, shell_command, project_dir),
     )
+    app.state.base_path = resolved_base_path
 
     app.add_middleware(
         CORSMiddleware,
@@ -489,11 +521,17 @@ def create_app(
     app.add_middleware(NoCacheStaticMiddleware)
     app.add_middleware(ExceptionLoggingMiddleware)
 
+    # Added last so it is the outermost middleware — it must rewrite the request
+    # path (strip the prefix) and set root_path before routing runs.
+    app.add_middleware(BasePathMiddleware, base_path=resolved_base_path)
+
     app.include_router(router)
 
     @app.get("/")
     async def root(request: Request):
-        return templates.TemplateResponse(request, "index.html", {})
+        return templates.TemplateResponse(
+            request, "index.html", {"base_path": request.app.state.base_path}
+        )
 
     # Mount shared fonts before /static (Starlette matches in declaration order)
     SHARED_FONTS_DIR = Path(__file__).parent.parent / "shared_fonts"
@@ -538,6 +576,7 @@ def run_web(
     shell_command: list[str] | None = None,
     config_path: str | None = None,
     project_dir: str | None = None,
+    base_path: str | None = None,
 ) -> None:
     """Run the web terminal server.
 
@@ -547,11 +586,22 @@ def run_web(
         shell_command: Shell command to spawn in the PTY.
         config_path: Optional path to config file.
         project_dir: Optional OSPREY project directory.
+        base_path: Optional URL prefix to serve under (e.g. ``/user/a``).
     """
     import uvicorn
 
-    url = f"http://{host}:{port}"
+    resolved_base_path = _resolve_base_path(base_path, config_path)
+
+    url = f"http://{host}:{port}{resolved_base_path}/"
     _open_browser_when_ready(url)
 
-    app = create_app(config_path=config_path, shell_command=shell_command, project_dir=project_dir)
+    app = create_app(
+        config_path=config_path,
+        shell_command=shell_command,
+        project_dir=project_dir,
+        base_path=resolved_base_path,
+    )
+    # NB: root_path is intentionally not passed to uvicorn — the BasePathMiddleware
+    # strips the prefix instead (uvicorn's root_path sets scope['root_path'],
+    # which breaks StaticFiles mount resolution in the pinned Starlette).
     uvicorn.run(app, host=host, port=port, log_level="info")

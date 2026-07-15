@@ -8,7 +8,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from osprey.interfaces.web_terminal.app import create_app
+from osprey.interfaces.common_middleware import normalize_base_path
+from osprey.interfaces.web_terminal.app import _resolve_base_path, create_app
 
 
 @pytest.fixture
@@ -218,3 +219,100 @@ class TestStaticServing:
         resp = client.get("/")
         assert resp.status_code == 200
         assert "text/html" in resp.headers["content-type"]
+
+
+def _client_with_base_path(workspace_dir, base_path):
+    """TestClient for an app served under ``base_path`` (lifespan active)."""
+    with patch(
+        "osprey.interfaces.web_terminal.app._load_web_config",
+        return_value={"watch_dir": str(workspace_dir)},
+    ):
+        app = create_app(shell_command="echo", base_path=base_path)
+        with TestClient(app) as c:
+            yield app, c
+
+
+@pytest.fixture
+def base_path_app(workspace_dir):
+    """App + client served under the '/user/a' prefix."""
+    yield from _client_with_base_path(workspace_dir, "/user/a")
+
+
+class TestBasePathResolution:
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            (None, ""),
+            ("", ""),
+            ("/", ""),
+            ("user/a", "/user/a"),
+            ("/user/a", "/user/a"),
+            ("/user/a/", "/user/a"),
+            ("  /user/a/  ", "/user/a"),
+        ],
+    )
+    def test_normalize_base_path(self, raw, expected):
+        assert normalize_base_path(raw) == expected
+
+    def test_explicit_arg_wins(self, monkeypatch):
+        monkeypatch.setenv("OSPREY_WEB_BASE_PATH", "/from/env")
+        with patch(
+            "osprey.interfaces.web_terminal.app._load_web_config",
+            return_value={"base_path": "/from/config"},
+        ):
+            assert _resolve_base_path("user/x") == "/user/x"
+
+    def test_env_var_over_config(self, monkeypatch):
+        monkeypatch.setenv("OSPREY_WEB_BASE_PATH", "env/p")
+        with patch(
+            "osprey.interfaces.web_terminal.app._load_web_config",
+            return_value={"base_path": "/from/config"},
+        ):
+            assert _resolve_base_path(None) == "/env/p"
+
+    def test_config_fallback(self, monkeypatch):
+        monkeypatch.delenv("OSPREY_WEB_BASE_PATH", raising=False)
+        with patch(
+            "osprey.interfaces.web_terminal.app._load_web_config",
+            return_value={"base_path": "cfg/p"},
+        ):
+            assert _resolve_base_path(None) == "/cfg/p"
+
+
+class TestBasePathServing:
+    def test_state_base_path_set(self, base_path_app):
+        app, _client = base_path_app
+        assert app.state.base_path == "/user/a"
+
+    def test_default_is_root(self, client):
+        """No base path → empty prefix and unprefixed assets (backward compat)."""
+        resp = client.get("/")
+        assert 'window.OSPREY_BASE_PATH = "";' in resp.text
+        assert 'href="/static/css/variables.css"' in resp.text
+
+    def test_html_served_under_prefix(self, base_path_app):
+        _app, client = base_path_app
+        resp = client.get("/user/a/")
+        assert resp.status_code == 200
+        assert 'window.OSPREY_BASE_PATH = "/user/a";' in resp.text
+        assert "/user/a/static/css/variables.css" in resp.text
+        assert "/user/a/static/js/app.js" in resp.text
+
+    def test_health_under_prefix(self, base_path_app):
+        _app, client = base_path_app
+        resp = client.get("/user/a/health")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "healthy"
+
+    def test_static_served_under_prefix(self, base_path_app):
+        _app, client = base_path_app
+        resp = client.get("/user/a/static/js/app.js")
+        assert resp.status_code == 200
+
+    def test_panel_config_url_carries_prefix(self, base_path_app):
+        _app, client = base_path_app
+        resp = client.get("/user/a/api/artifact-server")
+        assert resp.status_code == 200
+        # Artifact server is always launched in lifespan (fallback URL set),
+        # so the browser-facing proxy path must include the base path.
+        assert resp.json()["url"] == "/user/a/panel/artifacts"

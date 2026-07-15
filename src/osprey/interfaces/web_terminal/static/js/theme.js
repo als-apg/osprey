@@ -6,6 +6,8 @@
  * xterm.js palettes stored as JS objects (xterm does NOT support CSS variables).
  */
 
+import { apiPath } from './api.js';
+
 const STORAGE_KEY = 'osprey-theme';
 const VALID_THEMES = ['dark', 'light'];
 
@@ -109,7 +111,7 @@ function applyTheme(name, { broadcast = true, transition = false } = {}) {
 function swapHighlightTheme(name) {
   const link = document.getElementById('hljs-theme');
   if (link) {
-    link.href = HLJS_THEMES[name];
+    link.href = apiPath(HLJS_THEMES[name]);
   }
 }
 

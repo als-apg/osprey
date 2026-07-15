@@ -1,5 +1,23 @@
 /* OSPREY Web Terminal — Connection Helpers */
 
+/**
+ * The URL prefix the app is served under (e.g. '/user/a') when behind a
+ * reverse proxy. Injected into the page by the server as window.OSPREY_BASE_PATH;
+ * empty string at the domain root.
+ */
+export function basePath() {
+  return window.OSPREY_BASE_PATH || '';
+}
+
+/**
+ * Prefix a root-absolute path with the base path so requests resolve under the
+ * reverse-proxy prefix. Pass a leading-slash path such as '/api/config'.
+ * A no-op when served at the root.
+ */
+export function apiPath(path) {
+  return basePath() + path;
+}
+
 /** @type {'connected'|'connecting'|'disconnected'} */
 let wsState = 'disconnected';
 /** @type {'connected'|'connecting'|'disconnected'} */
@@ -22,11 +40,12 @@ export function getConnectionState() {
 /**
  * Build a same-origin WebSocket URL with the scheme that matches the current
  * page: wss:// when served over HTTPS, ws:// otherwise. Pass a root-absolute
- * path such as '/ws/terminal'. Avoids mixed-content failures under TLS.
+ * path such as '/ws/terminal'. The base path (reverse-proxy prefix) is applied
+ * automatically. Avoids mixed-content failures under TLS.
  */
 export function wsUrl(path) {
   const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${scheme}//${location.host}${path}`;
+  return `${scheme}//${location.host}${basePath()}${path}`;
 }
 
 /**
@@ -107,7 +126,7 @@ export function createEventSource(url, { onMessage, onError } = {}) {
     sseState = 'connecting';
     notifyStateChange();
 
-    es = new EventSource(url);
+    es = new EventSource(apiPath(url));
 
     es.onopen = () => {
       sseState = 'connected';
@@ -145,10 +164,20 @@ export function createEventSource(url, { onMessage, onError } = {}) {
 }
 
 /**
- * Fetch JSON from a URL.
+ * Fetch JSON from a root-absolute path (e.g. '/api/config'). The base path
+ * (reverse-proxy prefix) is applied automatically, so callers pass the same
+ * leading-slash path whether or not the app is served under a prefix.
  */
 export async function fetchJSON(url) {
-  const res = await fetch(url, { cache: 'no-store' });
+  const res = await fetch(apiPath(url), { cache: 'no-store' });
   if (!res.ok) throw new Error(`HTTP ${res.status}: ${res.statusText}`);
   return res.json();
+}
+
+/**
+ * fetch() wrapper that applies the base path to a root-absolute path. Use for
+ * non-GET/JSON requests (POST/PUT/DELETE) that pass raw fetch options.
+ */
+export function apiFetch(url, options) {
+  return fetch(apiPath(url), options);
 }

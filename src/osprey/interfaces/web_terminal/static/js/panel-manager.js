@@ -6,7 +6,7 @@
  * switching between tabs is instant.
  */
 
-import { fetchJSON } from './api.js';
+import { fetchJSON, apiFetch, apiPath, basePath } from './api.js';
 import { getTheme } from './theme.js';
 import { getCurrentSessionId } from './terminal.js';
 
@@ -185,7 +185,7 @@ export async function initPanelManager(panelId) {
   //   panel_register   {type, id, label, url, healthEndpoint, path}
   //                                             — add a runtime panel; do NOT
   //                                               auto-activate (URL may not be ready).
-  const es = new EventSource('/api/files/events');
+  const es = new EventSource(apiPath('/api/files/events'));
   es.onmessage = (e) => {
     try {
       const data = JSON.parse(e.data);
@@ -515,7 +515,7 @@ function activateTab(panelId, { userInitiated = false } = {}) {
 
   // Report user-initiated tab switches to the server (avoids SSE feedback loop)
   if (userInitiated) {
-    fetch('/api/panel-focus', {
+    apiFetch('/api/panel-focus', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ panel: panelId }),
@@ -528,6 +528,13 @@ function activateTab(panelId, { userInitiated = false } = {}) {
 function navigatePanel(panelId, url) {
   const state = panelState[panelId];
   if (!state) return;
+
+  // Agent-driven focus URLs are root-absolute /panel/... paths without the
+  // reverse-proxy prefix. Apply the base path unless it's already present or
+  // the URL is absolute (http(s)://). A no-op when served at the root.
+  if (url && url.startsWith('/') && !url.startsWith(basePath() + '/')) {
+    url = apiPath(url);
+  }
 
   // Store the target URL so that createIframe() picks it up if the iframe
   // hasn't been lazy-loaded yet (e.g. first panel_focus SSE before the user

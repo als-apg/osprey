@@ -1,6 +1,6 @@
 /* OSPREY Web Terminal — Agent Settings Panel */
 
-import { fetchJSON } from './api.js';
+import { fetchJSON, apiFetch } from './api.js';
 import { closeDrawer } from './drawer.js';
 import { restartTerminal, startTerminal } from './terminal.js';
 
@@ -346,7 +346,7 @@ async function applySettings() {
       // Raw mode: send the full YAML text as-is (user is responsible for content)
       const textarea = document.getElementById('settings-raw-editor');
       const yamlContent = textarea ? textarea.value : '';
-      const saveResp = await fetch('/api/config', {
+      const saveResp = await apiFetch('/api/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ raw: yamlContent }),
@@ -364,7 +364,7 @@ async function applySettings() {
         if (applyBtn) applyBtn.disabled = false;
         return;
       }
-      const patchResp = await fetch('/api/config', {
+      const patchResp = await apiFetch('/api/config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ updates }),

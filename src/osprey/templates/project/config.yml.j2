@@ -214,6 +214,28 @@ cli:
   # banner: |
   #   Your custom ASCII art here
 
+# ============================================================
+# WEB TERMINAL CONFIGURATION
+# ============================================================
+# Settings for `osprey web` (the browser terminal).
+
+# web_terminal:
+#   host: 127.0.0.1
+#   port: 8087
+#
+#   # Serve the terminal under a URL prefix when it sits behind a reverse
+#   # proxy (e.g. per-user routing). Empty = served at the domain root.
+#   # Overridable per-launch with `osprey web --base-path /user/a` or the
+#   # OSPREY_WEB_BASE_PATH env var. Embedded panels are proxied through the
+#   # terminal, so they inherit the prefix automatically.
+#   #
+#   # Works whether or not the proxy strips the prefix before forwarding.
+#   # Example nginx (prefix stripped — recommended):
+#   #   location /user/a/ { proxy_pass http://127.0.0.1:8087/; }
+#   # Example nginx (prefix forwarded as-is):
+#   #   location /user/a/ { proxy_pass http://127.0.0.1:8087; }
+#   base_path: /user/a
+
 
 # Note: Theme system logging uses the existing 'base' logger color
 # No additional logging configuration needed

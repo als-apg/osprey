@@ -1,6 +1,6 @@
 /* OSPREY Web Terminal — Terminal Module */
 
-import { createWebSocket, wsUrl } from './api.js';
+import { createWebSocket, wsUrl, apiFetch } from './api.js';
 import { getXtermPalette, setTerminalRef } from './theme.js';
 
 let term = null;
@@ -184,7 +184,7 @@ export async function restartTerminal() {
   }
 
   // Hit the restart endpoint (kill old PTY on backend)
-  await fetch('/api/terminal/restart', { method: 'POST' });
+  await apiFetch('/api/terminal/restart', { method: 'POST' });
 }
 
 /**

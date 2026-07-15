@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OSPREY Web Terminal</title>
 
+  <!-- Base path (URL prefix when served behind a reverse proxy). Empty at root. -->
+  <script>window.OSPREY_BASE_PATH = "{{ base_path }}";</script>
+
   <!-- FOUC prevention: set data-theme before any CSS loads -->
   <script>
     (function() {
@@ -15,33 +18,33 @@
   </script>
 
   <!-- Fonts (self-hosted, no external CDN) -->
-  <link rel="stylesheet" href="/static/fonts/fonts.css">
+  <link rel="stylesheet" href="{{ base_path }}/static/fonts/fonts.css">
 
   <!-- xterm.js (CDN by default; local in OSPREY_OFFLINE mode) -->
-  <link rel="stylesheet" href="{{ vendor_url('xterm.css', '/static/vendor/xterm.min.css') }}">
-  <script src="{{ vendor_url('xterm.js', '/static/vendor/xterm.min.js') }}"></script>
-  <script src="{{ vendor_url('xterm addon-fit', '/static/vendor/addon-fit.min.js') }}"></script>
-  <script src="{{ vendor_url('xterm addon-web-links', '/static/vendor/addon-web-links.min.js') }}"></script>
+  <link rel="stylesheet" href="{{ vendor_url('xterm.css', base_path + '/static/vendor/xterm.min.css') }}">
+  <script src="{{ vendor_url('xterm.js', base_path + '/static/vendor/xterm.min.js') }}"></script>
+  <script src="{{ vendor_url('xterm addon-fit', base_path + '/static/vendor/addon-fit.min.js') }}"></script>
+  <script src="{{ vendor_url('xterm addon-web-links', base_path + '/static/vendor/addon-web-links.min.js') }}"></script>
 
   <!-- highlight.js -->
-  <link id="hljs-theme" rel="stylesheet" href="{{ vendor_url('highlight.js atom-one-dark theme', '/static/vendor/atom-one-dark.min.css') }}">
-  <link rel="prefetch" href="{{ vendor_url('highlight.js atom-one-light theme', '/static/vendor/atom-one-light.min.css') }}">
-  <script src="{{ vendor_url('highlight.js', '/static/vendor/highlight.min.js') }}"></script>
+  <link id="hljs-theme" rel="stylesheet" href="{{ vendor_url('highlight.js atom-one-dark theme', base_path + '/static/vendor/atom-one-dark.min.css') }}">
+  <link rel="prefetch" href="{{ vendor_url('highlight.js atom-one-light theme', base_path + '/static/vendor/atom-one-light.min.css') }}">
+  <script src="{{ vendor_url('highlight.js', base_path + '/static/vendor/highlight.min.js') }}"></script>
 
   <!-- marked.js -->
-  <script src="{{ vendor_url('marked', '/static/vendor/marked.min.js') }}"></script>
+  <script src="{{ vendor_url('marked', base_path + '/static/vendor/marked.min.js') }}"></script>
 
   <!-- OSPREY styles -->
-  <link rel="stylesheet" href="/static/css/variables.css">
-  <link rel="stylesheet" href="/static/css/terminal.css">
-  <link rel="stylesheet" href="/static/css/files.css">
-  <link rel="stylesheet" href="/static/css/operator.css">
-  <link rel="stylesheet" href="/static/css/md-rendered.css">
-  <link rel="stylesheet" href="/static/css/drawer.css">
-  <link rel="stylesheet" href="/static/css/sessions.css">
-  <link rel="stylesheet" href="/static/css/settings.css">
-  <link rel="stylesheet" href="/static/css/scaffold.css">
-  <link rel="stylesheet" href="/static/css/theme-light.css">
+  <link rel="stylesheet" href="{{ base_path }}/static/css/variables.css">
+  <link rel="stylesheet" href="{{ base_path }}/static/css/terminal.css">
+  <link rel="stylesheet" href="{{ base_path }}/static/css/files.css">
+  <link rel="stylesheet" href="{{ base_path }}/static/css/operator.css">
+  <link rel="stylesheet" href="{{ base_path }}/static/css/md-rendered.css">
+  <link rel="stylesheet" href="{{ base_path }}/static/css/drawer.css">
+  <link rel="stylesheet" href="{{ base_path }}/static/css/sessions.css">
+  <link rel="stylesheet" href="{{ base_path }}/static/css/settings.css">
+  <link rel="stylesheet" href="{{ base_path }}/static/css/scaffold.css">
+  <link rel="stylesheet" href="{{ base_path }}/static/css/theme-light.css">
 </head>
 <body>
 
@@ -198,7 +201,7 @@
     <div class="welcome-terminal">
       <pre class="welcome-ascii" id="welcome-ascii" aria-hidden="true"></pre>
       <a class="welcome-safety-link" id="welcome-safety-link" style="visibility:hidden"
-         href="/static/safety.html" target="_blank" rel="noopener">Read the safety guidelines</a>
+         href="{{ base_path }}/static/safety.html" target="_blank" rel="noopener">Read the safety guidelines</a>
       <button class="welcome-prompt" id="welcome-dismiss" style="visibility:hidden">
         <span class="welcome-cursor"></span> Press ENTER to continue
       </button>
@@ -206,7 +209,7 @@
   </div>
 
   <!-- App entry point -->
-  <script type="module" src="/static/js/app.js"></script>
+  <script type="module" src="{{ base_path }}/static/js/app.js"></script>
 
 </body>
 </html>

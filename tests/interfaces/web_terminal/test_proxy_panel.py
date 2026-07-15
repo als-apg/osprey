@@ -9,9 +9,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from osprey.interfaces.web_terminal.app import UNIVERSAL_PANELS, create_app
+from osprey.interfaces.web_terminal.routes.proxy import _rewrite_content
 
 
-def _make_client(workspace_dir, custom_panels):
+def _make_client(workspace_dir, custom_panels, base_path=""):
     """Create a TestClient with custom panels configured."""
     enabled = set(UNIVERSAL_PANELS)
     with (
@@ -24,7 +25,7 @@ def _make_client(workspace_dir, custom_panels):
             return_value=(enabled, custom_panels, None),
         ),
     ):
-        app = create_app(shell_command="echo")
+        app = create_app(shell_command="echo", base_path=base_path)
         with TestClient(app) as c:
             yield app, c
 
@@ -141,6 +142,53 @@ class TestProxyForwardedPrefix:
         assert '"/panel/my-dash/dashboard/triggers"' in resp.text
         assert "'/panel/my-dash/dashboard/runs'" in resp.text
         assert '"/panel/my-dash/dashboard/stream/abc"' in resp.text
+
+
+class TestRewriteContentBasePath:
+    """`_rewrite_content` prefixes with the reverse-proxy base path."""
+
+    def test_no_base_path_backcompat(self):
+        body = 'a="/static/x";b="/api";href="/"'
+        out = _rewrite_content(body, "ariel")
+        assert '"/panel/ariel/static/x"' in out
+        assert '"/panel/ariel/api"' in out
+        assert 'href="/panel/ariel/"' in out
+
+    def test_with_base_path(self):
+        body = 'a="/static/x";b="/api";href="/"'
+        out = _rewrite_content(body, "ariel", "/user/a")
+        assert '"/user/a/panel/ariel/static/x"' in out
+        assert '"/user/a/panel/ariel/api"' in out
+        assert 'href="/user/a/panel/ariel/"' in out
+
+
+class TestProxyUnderBasePath:
+    """End-to-end: the panel proxy honors the app's base path."""
+
+    @pytest.fixture
+    def app_and_client(self, workspace_dir):
+        custom = [{"id": "my-dash", "label": "DASH", "url": "http://localhost:9000"}]
+        yield from _make_client(workspace_dir, custom, base_path="/user/a")
+
+    def test_forwarded_prefix_and_rewrite_include_base_path(self, app_and_client):
+        app, client = app_and_client
+
+        captured_headers = {}
+
+        async def fake_request(*, method, url, headers, content):
+            captured_headers.update(headers)
+            return httpx.Response(
+                status_code=200,
+                text='var x = "/static/js/foo.js";',
+                headers={"content-type": "application/javascript"},
+            )
+
+        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
+
+        resp = client.get("/user/a/panel/my-dash/static/js/gallery.js")
+        assert resp.status_code == 200
+        assert captured_headers.get("x-forwarded-prefix") == "/user/a/panel/my-dash"
+        assert "/user/a/panel/my-dash/static/js/foo.js" in resp.text
 
 
 class TestEventsPanelTokenInjection:

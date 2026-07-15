@@ -120,6 +120,12 @@ def _wait_for_server(host: str, port: int, proc: subprocess.Popen, timeout: floa
     default=None,
     help="OSPREY project directory (default: current directory)",
 )
+@click.option(
+    "--base-path",
+    default=None,
+    help="URL prefix to serve under when behind a reverse proxy, e.g. /user/a "
+    "(default: from config web_terminal.base_path, else root)",
+)
 @click.option("--detach", is_flag=True, help="Run in background, write PID file")
 @click.pass_context
 def web(
@@ -129,6 +135,7 @@ def web(
     reload: bool,
     shell: str | None,
     project: str | None,
+    base_path: str | None,
     detach: bool,
 ) -> None:
     """Launch the OSPREY Web Terminal interface.
@@ -144,6 +151,7 @@ def web(
         osprey web --host 0.0.0.0          # Bind to all interfaces
         osprey web --shell zsh             # Use zsh instead of claude
         osprey web --reload                # Development mode
+        osprey web --base-path /user/a     # Serve under a URL prefix (reverse proxy)
         osprey web --detach                # Start in background
         osprey web stop                    # Stop background server
     """
@@ -156,6 +164,19 @@ def web(
     cc_config = get_config_value("claude_code", {})
     host = host or wt_config.get("host", "127.0.0.1")
     port = port or wt_config.get("port", 8087)
+
+    # Base-path precedence: --base-path flag > OSPREY_WEB_BASE_PATH env >
+    # web_terminal.base_path config > "" (root). Normalize and re-export via the
+    # env var so uvicorn --reload (factory) and the detached child inherit it.
+    from osprey.interfaces.common_middleware import normalize_base_path
+
+    if base_path is not None:
+        resolved_base_path = normalize_base_path(base_path)
+    elif os.environ.get("OSPREY_WEB_BASE_PATH") is not None:
+        resolved_base_path = normalize_base_path(os.environ["OSPREY_WEB_BASE_PATH"])
+    else:
+        resolved_base_path = normalize_base_path(wt_config.get("base_path", ""))
+    os.environ["OSPREY_WEB_BASE_PATH"] = resolved_base_path
 
     from osprey.utils.claude_launcher import build_claude_launch_argv
     from osprey.utils.shell_resolver import resolve_shell_command
@@ -183,7 +204,7 @@ def web(
         raise SystemExit(1) from e
 
     if detach:
-        _start_detached(host, port, user_shell_override, project)
+        _start_detached(host, port, user_shell_override, project, resolved_base_path)
         return
 
     # -- foreground (original behavior) ------------------------------------
@@ -202,7 +223,7 @@ def web(
             click.echo(f"  Or use another:    osprey web --port {port + 1}", err=True)
             raise SystemExit(1) from exc
 
-    click.echo(f"Starting OSPREY Web Terminal on http://{host}:{port}")
+    click.echo(f"Starting OSPREY Web Terminal on http://{host}:{port}{resolved_base_path}")
     click.echo(f"Shell: {' '.join(shell_command)}")
     click.echo("Press Ctrl+C to stop\n")
 
@@ -217,8 +238,11 @@ def web(
 
             from osprey.interfaces.web_terminal.app import _open_browser_when_ready
 
-            _open_browser_when_ready(f"http://{host}:{port}")
+            _open_browser_when_ready(f"http://{host}:{port}{resolved_base_path}/")
 
+            # create_app (factory) reads the base path from OSPREY_WEB_BASE_PATH
+            # and strips it via BasePathMiddleware (not uvicorn root_path, which
+            # would break StaticFiles mounts in the pinned Starlette).
             uvicorn.run(
                 "osprey.interfaces.web_terminal.app:create_app",
                 factory=True,
@@ -230,12 +254,20 @@ def web(
         else:
             from osprey.interfaces.web_terminal import run_web
 
-            run_web(host=host, port=port, shell_command=shell_command, project_dir=project)
+            run_web(
+                host=host,
+                port=port,
+                shell_command=shell_command,
+                project_dir=project,
+                base_path=resolved_base_path,
+            )
     except KeyboardInterrupt:
         click.echo("\nShutting down...")
 
 
-def _start_detached(host: str, port: int, shell: str | None, project: str | None) -> None:
+def _start_detached(
+    host: str, port: int, shell: str | None, project: str | None, base_path: str = ""
+) -> None:
     """Spawn the web server as a background process.
 
     ``shell`` is the raw user ``--shell`` flag (or None), NOT the resolved argv.
@@ -259,6 +291,8 @@ def _start_detached(host: str, port: int, shell: str | None, project: str | None
         cmd += ["--shell", shell]
     if project:
         cmd += ["--project", str(Path(project).resolve())]
+    if base_path:
+        cmd += ["--base-path", base_path]
 
     log_path = project_dir / LOG_FILE
     log_fh = open(log_path, "w")  # noqa: SIM115
@@ -274,7 +308,7 @@ def _start_detached(host: str, port: int, shell: str | None, project: str | None
 
     if _wait_for_server(host, port, proc):
         click.echo(f"Web terminal started (PID {proc.pid}).")
-        click.echo(f"  URL:  http://{host}:{port}")
+        click.echo(f"  URL:  http://{host}:{port}{base_path}")
         click.echo(f"  Log:  {log_path}")
         click.echo("  Stop: osprey web stop")
     else:

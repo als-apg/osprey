@@ -91,15 +91,19 @@ def _resolve_panel_url(request: Request, panel_id: str) -> str | None:
     return None
 
 
-def _rewrite_content(body: str, panel_id: str) -> str:
+def _rewrite_content(body: str, panel_id: str, base_path: str = "") -> str:
     """Rewrite root-absolute paths inside string delimiters for proxied content.
 
     Only touches known prefixes inside ``"``, ``'``, or backtick delimiters.
     CDN URLs (``https://…``), protocol-relative (``//…``), and data URIs
     are unaffected because the pattern requires a delimiter immediately
     before the ``/``.
+
+    ``base_path`` is the reverse-proxy prefix the web terminal itself is served
+    under (e.g. ``/user/a``); it is prepended so the rewritten panel paths
+    resolve back through the terminal rather than at the domain root.
     """
-    prefix = f"/panel/{panel_id}"
+    prefix = f"{base_path}/panel/{panel_id}"
 
     for path in _REWRITE_PREFIXES:
         # Match path inside string delimiters: "/static/..." → "/panel/id/static/..."
@@ -133,6 +137,9 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
             status_code=404,
         )
 
+    # URL prefix the web terminal is served under (reverse-proxy base path).
+    base_path = getattr(request.app.state, "base_path", "")
+
     # Build the target URL.
     target = f"{backend_url.rstrip('/')}/{path}"
     if request.url.query:
@@ -146,7 +153,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
         for k, v in request.headers.items()
         if k.lower() not in _HOP_BY_HOP and k.lower() != "host"
     }
-    fwd_headers["x-forwarded-prefix"] = f"/panel/{panel_id}"
+    fwd_headers["x-forwarded-prefix"] = f"{base_path}/panel/{panel_id}"
 
     # The event-dispatcher dashboard endpoints are bearer-gated. Inject the
     # dispatcher token server-side for the EVENTS panel only, so the browser
@@ -216,7 +223,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
     # (large, immutable, no OSPREY paths to rewrite).
     if base_type in _REWRITABLE_TYPES and "/vendor/" not in path:
         text = resp.text
-        text = _rewrite_content(text, panel_id)
+        text = _rewrite_content(text, panel_id, base_path)
         return Response(
             content=text,
             status_code=resp.status_code,

@@ -18,6 +18,17 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
+def _panel_proxy_path(request: Request, panel_id: str) -> str:
+    """Browser-facing proxy path for a panel, including any reverse-proxy prefix.
+
+    Returns ``{base_path}/panel/{panel_id}`` (e.g. ``/user/a/panel/ariel``) so
+    the iframe src, health polling, and the ``basePath`` embed param all resolve
+    back through the web terminal when it is served under a URL prefix.
+    """
+    base_path = getattr(request.app.state, "base_path", "")
+    return f"{base_path}/panel/{panel_id}"
+
+
 @router.get("/health")
 async def health(request: Request):
     """Health check endpoint."""
@@ -36,7 +47,7 @@ async def health(request: Request):
 async def artifact_server_config(request: Request):
     """Return the artifact gallery server URL for iframe embedding."""
     url = getattr(request.app.state, "artifact_server_url", None)
-    proxy_url = "/panel/artifacts" if url else None
+    proxy_url = _panel_proxy_path(request, "artifacts") if url else None
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
@@ -52,7 +63,7 @@ async def get_type_registry():
 async def ariel_server_config(request: Request):
     """Return the ARIEL logbook server URL for iframe embedding."""
     url = getattr(request.app.state, "ariel_server_url", None)
-    proxy_url = "/panel/ariel" if url else None
+    proxy_url = _panel_proxy_path(request, "ariel") if url else None
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
@@ -60,7 +71,7 @@ async def ariel_server_config(request: Request):
 async def tuning_server_config(request: Request):
     """Return the tuning panel server URL for iframe embedding."""
     url = getattr(request.app.state, "tuning_server_url", None)
-    proxy_url = "/panel/tuning" if url else None
+    proxy_url = _panel_proxy_path(request, "tuning") if url else None
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
@@ -68,7 +79,7 @@ async def tuning_server_config(request: Request):
 async def channel_finder_server_config(request: Request):
     """Return the Channel Finder server URL for iframe embedding."""
     url = getattr(request.app.state, "channel_finder_server_url", None)
-    proxy_url = "/panel/channel-finder" if url else None
+    proxy_url = _panel_proxy_path(request, "channel-finder") if url else None
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
@@ -76,7 +87,7 @@ async def channel_finder_server_config(request: Request):
 async def lattice_server_config(request: Request):
     """Return the lattice dashboard server URL for iframe embedding."""
     url = getattr(request.app.state, "lattice_dashboard_server_url", None)
-    proxy_url = "/panel/lattice" if url else None
+    proxy_url = _panel_proxy_path(request, "lattice") if url else None
     return {"url": proxy_url, "available": proxy_url is not None}
 
 
@@ -111,7 +122,7 @@ async def get_panels(request: Request):
     """
     enabled = list(getattr(request.app.state, "enabled_panels", set()))
     custom_raw = getattr(request.app.state, "custom_panels", [])
-    custom = [{**cp, "url": f"/panel/{cp['id']}"} for cp in custom_raw]
+    custom = [{**cp, "url": _panel_proxy_path(request, cp["id"])} for cp in custom_raw]
     default = getattr(request.app.state, "default_panel", None)
     visible = getattr(request.app.state, "visible_panels", enabled)
     active = getattr(request.app.state, "active_panel", None)
@@ -403,12 +414,17 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
             "type": "panel_register",
             "id": body.id,
             "label": body.label,
-            "url": f"/panel/{body.id}",  # rewritten for the browser
+            "url": _panel_proxy_path(request, body.id),  # rewritten for the browser
             "healthEndpoint": body.health_endpoint,
             "path": body.path,
         }
     )
-    return {"status": "ok", "id": body.id, "label": body.label, "url": f"/panel/{body.id}"}
+    return {
+        "status": "ok",
+        "id": body.id,
+        "label": body.label,
+        "url": _panel_proxy_path(request, body.id),
+    }
 
 
 @router.post("/api/terminal/restart")

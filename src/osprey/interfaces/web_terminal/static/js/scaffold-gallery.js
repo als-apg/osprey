@@ -18,7 +18,7 @@
  *   DELETE /api/scaffold/{name}/override?delete_file=true -> remove override
  */
 
-import { fetchJSON } from './api.js';
+import { fetchJSON, apiFetch } from './api.js';
 import { registerUnsavedGuard } from './drawer.js';
 import { tokenize, computeWordDiff, groupChangeBlocks, renderWordsIntoLine } from './diff-utils.js';
 import { renderSettingsJsonEditor, renderMcpJson } from './config-renderers.js';
@@ -359,7 +359,7 @@ class ArtifactGallery {
 
   async registerUntracked(canonicalName) {
     try {
-      const resp = await fetch('/api/scaffold/untracked/register', {
+      const resp = await apiFetch('/api/scaffold/untracked/register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: canonicalName }),
@@ -379,7 +379,7 @@ class ArtifactGallery {
     if (!confirm(`Delete "${canonicalName}"? This file will be removed from disk.`)) return;
 
     try {
-      const resp = await fetch(
+      const resp = await apiFetch(
         `/api/scaffold/untracked/${encodeURIComponent(canonicalName)}`,
         { method: 'DELETE' }
       );
@@ -1255,7 +1255,7 @@ class ArtifactGallery {
     if (!confirm('By doing this you take responsibility for this file.')) return;
 
     try {
-      const resp = await fetch(
+      const resp = await apiFetch(
         `/api/scaffold/${encodeURIComponent(this.selectedArtifact.name)}/claim`,
         { method: 'POST' }
       );
@@ -1284,7 +1284,7 @@ class ArtifactGallery {
     if (!confirm('This will create a project copy for editing.')) return;
 
     try {
-      const resp = await fetch(
+      const resp = await apiFetch(
         `/api/scaffold/${encodeURIComponent(this.selectedArtifact.name)}/claim`,
         { method: 'POST' }
       );
@@ -1372,7 +1372,7 @@ class ArtifactGallery {
       if (!confirmed) return;
 
       // Scaffold (claim) the file before writing the override
-      const scaffoldResp = await fetch(
+      const scaffoldResp = await apiFetch(
         `/api/scaffold/${encodeURIComponent(this.selectedArtifact.name)}/claim`,
         { method: 'POST' }
       );
@@ -1385,7 +1385,7 @@ class ArtifactGallery {
     }
 
     try {
-      const resp = await fetch(
+      const resp = await apiFetch(
         `/api/scaffold/${encodeURIComponent(this.selectedArtifact.name)}/override`,
         {
           method: 'PUT',
@@ -1481,7 +1481,7 @@ class ArtifactGallery {
     }
 
     try {
-      const resp = await fetch(
+      const resp = await apiFetch(
         `/api/scaffold/${encodeURIComponent(this.selectedArtifact.name)}/override?delete_file=true`,
         { method: 'DELETE' }
       );

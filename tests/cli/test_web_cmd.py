@@ -192,6 +192,58 @@ def test_detach_shows_url_and_pid(
     assert "osprey web stop" in result.output
 
 
+# -- base path --------------------------------------------------------------
+
+
+@patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/bin/fake-claude")
+@patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
+@patch("osprey.cli.web_cmd.subprocess.Popen")
+@patch("osprey.cli.web_cmd.get_config_value", return_value={})
+def test_detach_forwards_normalized_base_path(
+    mock_config, mock_popen, mock_wait, mock_resolve, tmp_path, runner, monkeypatch
+):
+    monkeypatch.delenv("OSPREY_WEB_BASE_PATH", raising=False)
+    mock_proc = MagicMock()
+    mock_proc.pid = 4321
+    mock_popen.return_value = mock_proc
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        result = runner.invoke(web, ["--detach", "--base-path", "user/a/"])
+
+    assert result.exit_code == 0
+    argv = mock_popen.call_args.args[0]
+    assert "--base-path" in argv
+    assert argv[argv.index("--base-path") + 1] == "/user/a"
+    # Printed URL includes the prefix
+    assert "http://127.0.0.1:8087/user/a" in result.output
+
+
+@patch("osprey.utils.shell_resolver.resolve_shell_command", return_value="/bin/fake-claude")
+@patch("osprey.cli.web_cmd._wait_for_server", return_value=True)
+@patch("osprey.cli.web_cmd.subprocess.Popen")
+@patch("osprey.cli.web_cmd.get_config_value", return_value={})
+def test_detach_no_base_path_omits_flag(
+    mock_config, mock_popen, mock_wait, mock_resolve, tmp_path, runner, monkeypatch
+):
+    monkeypatch.delenv("OSPREY_WEB_BASE_PATH", raising=False)
+    mock_proc = MagicMock()
+    mock_proc.pid = 4322
+    mock_popen.return_value = mock_proc
+
+    with runner.isolated_filesystem(temp_dir=tmp_path):
+        result = runner.invoke(web, ["--detach"])
+
+    assert result.exit_code == 0
+    argv = mock_popen.call_args.args[0]
+    assert "--base-path" not in argv
+
+
+def test_web_help_shows_base_path(runner: CliRunner):
+    result = runner.invoke(web, ["--help"])
+    assert result.exit_code == 0
+    assert "--base-path" in result.output
+
+
 # -- stop -------------------------------------------------------------------
 
 

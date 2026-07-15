@@ -11,6 +11,8 @@
  * permission entries without touching raw JSON.
  */
 
+import { apiFetch } from './api.js';
+
 // ---------------------------------------------------------------------------
 // settings.json renderer
 // ---------------------------------------------------------------------------
@@ -667,7 +669,7 @@ function _clearChildren(el) {
  * Fetch /api/mcp-servers and update cards with tool lists and descriptions.
  */
 function _fetchAndEnrichCards(cardMap) {
-  fetch('/api/mcp-servers')
+  apiFetch('/api/mcp-servers')
     .then(r => r.ok ? r.json() : Promise.reject(r.status))
     .then(servers => {
       for (const server of servers) {

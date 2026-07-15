@@ -16,7 +16,7 @@
  *   DELETE /api/claude-memory/{filename}   -> delete file
  */
 
-import { fetchJSON } from './api.js';
+import { fetchJSON, apiFetch } from './api.js';
 import { registerUnsavedGuard } from './drawer.js';
 
 // ---- Constants ---- //
@@ -408,7 +408,7 @@ class MemoryGallery {
     if (!textarea) return;
 
     try {
-      const resp = await fetch(`/api/claude-memory/${encodeURIComponent(this.selectedFile.filename)}`, {
+      const resp = await apiFetch(`/api/claude-memory/${encodeURIComponent(this.selectedFile.filename)}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: textarea.value }),
@@ -447,7 +447,7 @@ class MemoryGallery {
     if (!confirm(`Delete "${this.selectedFile.filename}"? This cannot be undone.`)) return;
 
     try {
-      const resp = await fetch(`/api/claude-memory/${encodeURIComponent(this.selectedFile.filename)}`, {
+      const resp = await apiFetch(`/api/claude-memory/${encodeURIComponent(this.selectedFile.filename)}`, {
         method: 'DELETE',
       });
 
@@ -478,7 +478,7 @@ class MemoryGallery {
     }
 
     try {
-      const resp = await fetch('/api/claude-memory', {
+      const resp = await apiFetch('/api/claude-memory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filename, content: `# ${filename.replace('.md', '')}\n\n` }),

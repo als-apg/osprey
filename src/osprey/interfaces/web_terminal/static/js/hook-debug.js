@@ -1,6 +1,6 @@
 /* OSPREY Web Terminal — Hook Debug Toggle & Log Viewer */
 
-import { fetchJSON } from './api.js';
+import { fetchJSON, apiFetch } from './api.js';
 
 /**
  * Initialize the hook debug toggle bar and collapsible log viewer
@@ -21,7 +21,7 @@ export function initHookDebug() {
   toggle.addEventListener('change', async () => {
     const enabled = toggle.checked;
     try {
-      const res = await fetch('/api/config', {
+      const res = await apiFetch('/api/config', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ updates: { 'hooks.debug': enabled } }),
