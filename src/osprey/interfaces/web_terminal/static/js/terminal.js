@@ -13,6 +13,76 @@ let hasConnectedBefore = false;
 /** @type {string|null} */
 let currentSessionId = null;
 
+// localStorage key for persisting the active PTY session ID across page
+// loads, so a kept-warm session survives a logout -> landing page ->
+// return round trip. Scoped to the terminal origin, same style as the
+// welcome-modal's 'osprey-server-session' key in app.js.
+const PTY_SESSION_STORAGE_KEY = 'osprey-pty-session';
+
+// A resume connection gets NO server confirmation that it actually landed
+// on the requested session — routes/websocket.py only runs session
+// discovery (which is what emits 'session_info') when mode is 'new'. So
+// there is no positive "resume succeeded" message to listen for; we can
+// only infer success from the ABSENCE of a failure signal within a short
+// window after connecting. See the isAutoResumeAttempt handling in
+// startTerminal() and the 'exit' branch in onMessage below.
+//
+// Known gap (server-side, out of scope here): if a stale --resume id
+// causes the server to silently start a fresh PTY instead of erroring,
+// there is no signal at all to detect the mismatch — the stale id would
+// stay in localStorage uncorrected. Fixing that needs routes/websocket.py
+// to emit a session_info-equivalent confirmation on the resume path too.
+const RESUME_LIVENESS_TIMEOUT_MS = 2000;
+
+// Session ID we auto-resumed on page load, if any. Armed by initTerminal()
+// right before the auto-resume startTerminal() call; disarmed either by
+// the liveness timer (RESUME_LIVENESS_TIMEOUT_MS after connecting, if no
+// 'exit' arrived — see startTerminal()) or, if an 'exit' arrives first, by
+// the 'exit' handler itself as it falls back to a fresh session. One-shot:
+// only ever set for the initial page-load resume, never for other resume
+// call sites (e.g. sessions.js's resumeSession), so explicit user-driven
+// resumes are unaffected by this fallback.
+/** @type {string|null} */
+let autoResumeFailoverId = null;
+
+/**
+ * Read the persisted PTY session ID. Returns null if none is stored or if
+ * localStorage is unavailable (e.g. private browsing).
+ * @returns {string|null}
+ */
+function loadStoredSessionId() {
+  try {
+    return localStorage.getItem(PTY_SESSION_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Persist the active PTY session ID so a later page load can resume it.
+ * @param {string} sessionId
+ */
+function storeSessionId(sessionId) {
+  try {
+    localStorage.setItem(PTY_SESSION_STORAGE_KEY, sessionId);
+  } catch {
+    // Ignore — private browsing / storage disabled. Persistence is a
+    // convenience; the terminal still works without it.
+  }
+}
+
+/**
+ * Clear the persisted PTY session ID (e.g. once a resume attempt turns out
+ * to target a dead/expired session).
+ */
+function clearStoredSessionId() {
+  try {
+    localStorage.removeItem(PTY_SESSION_STORAGE_KEY);
+  } catch {
+    // Ignore — see storeSessionId().
+  }
+}
+
 /**
  * Initialize xterm.js terminal in the given container.
  * @param {string} containerId
@@ -86,8 +156,18 @@ export function initTerminal(containerId) {
   });
   resizeObserver.observe(/** @type {Element} */ (container.parentElement));
 
-  // Start the PTY WebSocket connection
-  startTerminal();
+  // Start the PTY WebSocket connection. If a session was kept warm from a
+  // previous page load (e.g. a logout -> landing page -> return round
+  // trip), resume it via the existing server mode=resume path instead of
+  // starting a new one. A failed resume (dead/expired id) is detected and
+  // falls back to a fresh session — see the 'exit' handling below.
+  const storedSessionId = loadStoredSessionId();
+  if (storedSessionId) {
+    autoResumeFailoverId = storedSessionId;
+    startTerminal(storedSessionId, 'resume');
+  } else {
+    startTerminal();
+  }
 }
 
 /**
@@ -101,12 +181,21 @@ export function startTerminal(sessionId = null, mode = 'new') {
   if (!term) return;
 
   let url = wsUrl('/ws/terminal');
+  // Is this specifically the page-load auto-resume attempt (as opposed to
+  // e.g. an explicit resume from sessions.js)? Captured now, before any
+  // async work, since autoResumeFailoverId can change out from under us.
+  const isAutoResumeAttempt = mode === 'resume' && sessionId != null && sessionId === autoResumeFailoverId;
   if (mode === 'resume' && sessionId) {
     url += `?session_id=${encodeURIComponent(sessionId)}&mode=resume`;
     currentSessionId = sessionId;
+    // Persist optimistically — the server sends no confirmation for a
+    // resume connection (session_info is only emitted for new sessions),
+    // so this is corrected by the 'exit' fallback below if it turns out
+    // to be wrong.
+    storeSessionId(sessionId);
   }
 
-  wsConnection = createWebSocket(url, {
+  const socket = createWebSocket(url, {
     onOpen() {
       // On reconnection (server restart), reset terminal to avoid
       // garbled output from old session mixed with new.
@@ -141,14 +230,32 @@ export function startTerminal(sessionId = null, mode = 'new') {
             term.write(`\r\n\x1b[33m[Process exited with code ${msg.code}]\x1b[0m\r\n`);
             const led = document.getElementById('session-led');
             if (led) led.classList.remove('active');
+
+            // If this was our page-load auto-resume attempt, the server
+            // has no way to report a resume failure other than letting
+            // the PTY exit (resume connections get no session_info
+            // confirmation). Treat it as a stale/expired session: drop
+            // the dead id and fall back to a fresh one so the user isn't
+            // stuck reconnecting to it forever.
+            if (autoResumeFailoverId) {
+              autoResumeFailoverId = null;
+              clearStoredSessionId();
+              currentSessionId = null;
+              stopTerminal();
+              startTerminal();
+            }
           } else if (msg.type === 'session_info') {
             currentSessionId = msg.session_id;
+            autoResumeFailoverId = null;
+            storeSessionId(msg.session_id);
             const label = document.getElementById('terminal-label');
             if (label) label.textContent = `Session ${msg.session_id.slice(0, 8)}`;
             notifySessionChange(msg.session_id);
           } else if (msg.type === 'session_switched') {
             term.reset();
             currentSessionId = msg.session_id;
+            autoResumeFailoverId = null;
+            storeSessionId(msg.session_id);
             const label = document.getElementById('terminal-label');
             if (label) label.textContent = `Session ${msg.session_id.slice(0, 8)}`;
             notifySessionChange(msg.session_id);
@@ -177,6 +284,27 @@ export function startTerminal(sessionId = null, mode = 'new') {
       if (body) body.classList.remove('active');
     },
   });
+  wsConnection = socket;
+
+  // Disarm the auto-resume failover if this is that attempt and it
+  // survives briefly without an 'exit'. There is no positive "resume
+  // succeeded" message (see RESUME_LIVENESS_TIMEOUT_MS comment above), so
+  // absence-of-failure-within-a-window is the best available signal: a
+  // genuinely stale/expired --resume id causes claude to exit almost
+  // immediately, while a live resumed shell just keeps running. Guarded by
+  // identity (`wsConnection === socket`) so a connection torn down or
+  // replaced in the meantime can't spuriously disarm/notify.
+  if (isAutoResumeAttempt) {
+    setTimeout(() => {
+      if (autoResumeFailoverId === sessionId && wsConnection === socket) {
+        autoResumeFailoverId = null;
+        // The resume never gets a session_info message (server-side —
+        // discovery only runs for new sessions), so this is the only
+        // place panel iframes learn the resumed session id.
+        notifySessionChange(/** @type {string} */ (sessionId));
+      }
+    }, RESUME_LIVENESS_TIMEOUT_MS);
+  }
 }
 
 /**
