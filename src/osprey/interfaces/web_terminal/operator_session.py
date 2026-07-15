@@ -9,6 +9,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -204,11 +206,24 @@ class OperatorSession:
         for warning in validate_project_directory(self._cwd):
             logger.warning("Operator session: %s (cwd=%s)", warning, self._cwd)
 
+        # Force a known session UUID and hand it to the workspace
+        # provenance_locator tool via env, so a filed issue can point back to
+        # this session's telemetry. The same value is forced onto the SDK
+        # session (session_id below) so the OTEL emitter's session.id matches
+        # what the locator returns. env is a build_clean_env dict in production
+        # (which strips the harness's own CLAUDE_CODE_* id); inject into a copy.
+        telemetry_session_id = str(uuid.uuid4())
+        session_env = dict(self._env) if self._env is not None else None
+        if session_env is not None:
+            session_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
+            session_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
+
         options = ClaudeAgentOptions(
             system_prompt=build_system_prompt(get_facility_timezone()),
             cwd=self._cwd,
-            env=self._env,
+            env=session_env,
             setting_sources=["project"],
+            session_id=telemetry_session_id,
         )
         self._client = ClaudeSDKClient(options=options)
         await self._client.__aenter__()

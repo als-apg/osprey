@@ -219,6 +219,7 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "artifact_save",
             "artifact_delete",
             "artifact_delete_all",
+            "provenance_locator",
             "session_log",
             "session_summary",
             "archiver_downsample",
