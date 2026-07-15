@@ -38,6 +38,19 @@ def _load_config(project_dir: Path) -> dict[str, Any]:
         return resolve_env_vars(yaml.safe_load(f) or {})
 
 
+def _load_facility_config(config_path: str) -> dict[str, Any]:
+    """Load and parse a facility-config.yml at an arbitrary path.
+
+    Used by the ``web-terminals`` subcommands, which take an explicit
+    ``--config`` path rather than reading a project directory's config.yml (see
+    :func:`_load_config`), so no env-var resolution or existence check is applied
+    here — ``click.Path(exists=True)`` on the option already guarantees the file
+    exists.
+    """
+    with open(config_path, encoding="utf-8") as f:
+        return yaml.safe_load(f) or {}
+
+
 @click.group(name="scaffold", invoke_without_command=True)
 @click.pass_context
 def scaffold(ctx):
@@ -309,3 +322,150 @@ def unclaim(name, project):
 
     console.print(f"  [success]\u2713[/success] Released ownership of {name}")
     console.print("\n  Next `osprey claude regen` will overwrite with the framework template.\n")
+
+
+@scaffold.group(name="web-terminals", invoke_without_command=True)
+@click.pass_context
+def web_terminals(ctx):
+    """Validate and render the ``modules.web_terminals`` deployment stanza.
+
+    Examples:
+
+    \b
+      osprey scaffold web-terminals lint --config facility-config.yml
+      osprey scaffold web-terminals render --config facility-config.yml -o deploy/
+    """
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+def _print_web_terminals_lint_errors(errors: list[Any]) -> None:
+    """Print the ``modules.web_terminals lint`` "Errors:" block.
+
+    Shared by ``lint`` (as part of its full errors+warnings report) and
+    ``render``'s pre-render lint gate (errors only, no warnings section). Takes
+    a list of ``osprey.deployment.web_terminals.lint.Finding`` (not type-hinted
+    as such here to keep this module's lazy-import convention for that package).
+    """
+    console.print("  [dim]Errors:[/dim]")
+    for finding in errors:
+        console.print(f"    [error]\u2717[/error] [{finding.code}] {finding.message}")
+
+
+@web_terminals.command(name="lint")
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(exists=True, dir_okay=False, resolve_path=True),
+    required=True,
+    help="Path to a facility-config.yml to validate.",
+)
+def web_terminals_lint(config_path):
+    """Validate the ``modules.web_terminals`` stanza of a facility config.
+
+    Checks port-family allocation, reserved service names, and duplicate
+    users. Exits non-zero if any error-severity finding is reported;
+    warnings (e.g. an enabled module with zero configured users) do not
+    fail the check, so this is safe to wire into a CI gate.
+
+    Examples:
+
+    \b
+      osprey scaffold web-terminals lint --config facility-config.yml
+    """
+    from osprey.deployment.web_terminals.lint import lint_web_terminals
+
+    config = _load_facility_config(config_path)
+    findings = lint_web_terminals(config)
+
+    if not findings:
+        console.print("[success]\u2713[/success] modules.web_terminals: no issues found\n")
+        return
+
+    errors = [f for f in findings if f.severity == "error"]
+    warnings = [f for f in findings if f.severity == "warn"]
+
+    console.print("\n[bold]modules.web_terminals lint[/bold]\n")
+
+    if errors:
+        _print_web_terminals_lint_errors(errors)
+
+    if warnings:
+        console.print("\n  [dim]Warnings:[/dim]")
+        for finding in warnings:
+            console.print(f"    [warning]\u26a0[/warning] [{finding.code}] {finding.message}")
+
+    console.print()
+
+    if errors:
+        raise SystemExit(1)
+
+
+@web_terminals.command(name="render")
+@click.option(
+    "--config",
+    "config_path",
+    type=click.Path(exists=True, dir_okay=False, resolve_path=True),
+    required=True,
+    help="Path to a facility-config.yml to render.",
+)
+@click.option(
+    "--output",
+    "-o",
+    "output_dir",
+    type=click.Path(file_okay=False, resolve_path=True),
+    required=True,
+    help="Directory to write the rendered deployment artifacts into.",
+)
+@click.option(
+    "--no-lint",
+    is_flag=True,
+    default=False,
+    help="Skip the lint pre-check (by default, lint errors abort the render).",
+)
+def web_terminals_render(config_path, output_dir, no_lint):
+    """Render the ``modules.web_terminals`` deployment artifacts of a facility config.
+
+    Writes the docker-compose overlay, nginx routing fragment, and static landing
+    page into --output, creating the directory (and its nginx/ subdirectory) as
+    needed. By default the stanza is linted first and error-severity findings
+    abort the render; pass --no-lint to render anyway.
+
+    Examples:
+
+    \b
+      osprey scaffold web-terminals render --config facility-config.yml -o deploy/
+    """
+    from osprey.deployment.web_terminals.render import render_web_terminals
+
+    config = _load_facility_config(config_path)
+
+    if not no_lint:
+        from osprey.deployment.web_terminals.lint import lint_web_terminals
+
+        errors = [f for f in lint_web_terminals(config) if f.severity == "error"]
+        if errors:
+            console.print("\n[bold]modules.web_terminals lint[/bold]\n")
+            _print_web_terminals_lint_errors(errors)
+            console.print()
+            raise click.ClickException(
+                "modules.web_terminals has lint errors; fix them or pass --no-lint to render anyway."
+            )
+
+    try:
+        artifacts = render_web_terminals(config)
+    except ValueError as exc:
+        raise click.ClickException(str(exc)) from exc
+
+    output_path = Path(output_dir)
+    written = []
+    for relative_path, content in artifacts.items():
+        target = output_path / relative_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        written.append(target)
+
+    console.print("\n[bold]modules.web_terminals render[/bold]\n")
+    for target in written:
+        console.print(f"  [success]\u2713[/success] {target}")
+    console.print()
