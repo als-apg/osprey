@@ -40,7 +40,7 @@ dependencies = [
     # Core framework dependencies
     "rich>=14.0.0",
     "click>=8.1.0",
-    "questionary>=2.0.0",
+    "questionary>=2.1.1",
     "python-dotenv>=1.1.0",
     "PyYAML>=6.0.2",
     "ruamel.yaml>=0.18.0",  # Comment-preserving YAML for config updates
