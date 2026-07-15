@@ -14,8 +14,8 @@ services:
       # With multiple `-f` compose files, ALL relative paths (build contexts and
       # bind mounts alike) resolve against the FIRST file's dir — the compose
       # project directory, build/services/ — not this file's own subdir. So the
-      # context is ./scan-panels, matching the volume-path convention below.
-      context: ./scan-panels
+      # context is ./scan_panels, matching the volume-path convention below.
+      context: ./scan_panels
       dockerfile: Dockerfile
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
@@ -78,7 +78,7 @@ services:
       # Bind-mount source is relative to the compose project directory
       # (build/services/), not this file's own subdir — hence the
       # scan-panels/ prefix (mirrors the bridge's config.yml:ro convention).
-      - ./scan-panels/config.yml:/app/project/config.yml:ro
+      - ./scan_panels/config.yml:/app/project/config.yml:ro
     networks:
       - osprey-network
     healthcheck:
