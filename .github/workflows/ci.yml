@@ -20,25 +20,6 @@ on:
     # benchmarks) gates on github.event_name == 'schedule'.
     - cron: '0 7 * * *'
 
-# openobserve image pulls
-# -----------------------
-# Every app template ships openobserve in `deployed_services`, so every lane
-# that runs `osprey deploy up` pulls that image. ECR Public rate-limits
-# anonymous pulls per source IP and GitHub-hosted runners share egress IPs, so
-# those pulls fail intermittently with "toomanyrequests: Rate exceeded". Those
-# lanes therefore pull the ghcr mirror (no anonymous pull-rate limit) via a
-# job-level OSPREY_OPENOBSERVE_IMAGE override.
-#
-# The mirror is populated BY HAND for one tag at a time (mirror-openobserve.yml),
-# so when the compose template's pin moves: run that workflow for the new tag
-# first, then bump the override here. A guard test keeps the two in lockstep
-# (tests/deployment/test_compose_generator.py).
-#
-# The mirrored package is private (publishing it would be AGPL redistribution),
-# so each of those lanes needs `packages: read` plus a ghcr login. A job-level
-# permissions block REPLACES the default rather than extending it, which is why
-# contents: read is restated alongside it.
-
 # Note: This workflow runs tests, linting, docs build, and package checks
 # For documentation deployment to GitHub Pages, see .github/workflows/docs.yml
 
@@ -472,22 +453,7 @@ jobs:
     # Also runs on manual workflow_dispatch to enable scoped reruns via the e2e_filter input.
     if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'workflow_dispatch'
 
-    # Pull openobserve from the ghcr mirror, not rate-limited ECR Public.
-    # See "openobserve image pulls" at the top of this file.
-    permissions:
-      contents: read
-      packages: read
-    env:
-      OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.14.4
-
     steps:
-    - name: Log in to ghcr for the openobserve mirror
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -580,22 +546,7 @@ jobs:
     # Only run on PRs from same repo (secrets unavailable on forks)
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
 
-    # Pull openobserve from the ghcr mirror, not rate-limited ECR Public.
-    # See "openobserve image pulls" at the top of this file.
-    permissions:
-      contents: read
-      packages: read
-    env:
-      OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.14.4
-
     steps:
-    - name: Log in to ghcr for the openobserve mirror
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -657,22 +608,7 @@ jobs:
     # Only run on PRs from same repo (secrets unavailable on forks).
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
 
-    # Pull openobserve from the ghcr mirror, not rate-limited ECR Public.
-    # See "openobserve image pulls" at the top of this file.
-    permissions:
-      contents: read
-      packages: read
-    env:
-      OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.14.4
-
     steps:
-    - name: Log in to ghcr for the openobserve mirror
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -739,22 +675,7 @@ jobs:
     # extra Docker-build-and-deploy job, not just secret-gated ones.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
 
-    # Pull openobserve from the ghcr mirror, not rate-limited ECR Public.
-    # See "openobserve image pulls" at the top of this file.
-    permissions:
-      contents: read
-      packages: read
-    env:
-      OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.14.4
-
     steps:
-    - name: Log in to ghcr for the openobserve mirror
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -799,22 +720,7 @@ jobs:
     # equivalence-e2e, not bluesky-deploy-e2e.
     timeout-minutes: 45
 
-    # Pull openobserve from the ghcr mirror, not rate-limited ECR Public.
-    # See "openobserve image pulls" at the top of this file.
-    permissions:
-      contents: read
-      packages: read
-    env:
-      OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.14.4
-
     steps:
-    - name: Log in to ghcr for the openobserve mirror
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -864,22 +770,7 @@ jobs:
     # step below) — a too-tight timeout must not be what reds its first PR.
     timeout-minutes: 45
 
-    # Pull openobserve from the ghcr mirror, not rate-limited ECR Public.
-    # See "openobserve image pulls" at the top of this file.
-    permissions:
-      contents: read
-      packages: read
-    env:
-      OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.14.4
-
     steps:
-    - name: Log in to ghcr for the openobserve mirror
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -923,22 +814,7 @@ jobs:
     # timeout-minutes; this job gets one for the extra image-pull headroom.
     timeout-minutes: 20
 
-    # Pull openobserve from the ghcr mirror, not rate-limited ECR Public.
-    # See "openobserve image pulls" at the top of this file.
-    permissions:
-      contents: read
-      packages: read
-    env:
-      OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.14.4
-
     steps:
-    - name: Log in to ghcr for the openobserve mirror
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -981,22 +857,7 @@ jobs:
     # bluesky-deploy-e2e rather than va-substrate-equivalence-e2e.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
 
-    # Pull openobserve from the ghcr mirror, not rate-limited ECR Public.
-    # See "openobserve image pulls" at the top of this file.
-    permissions:
-      contents: read
-      packages: read
-    env:
-      OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.14.4
-
     steps:
-    - name: Log in to ghcr for the openobserve mirror
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -1042,22 +903,7 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     timeout-minutes: 45
 
-    # Pull openobserve from the ghcr mirror, not rate-limited ECR Public.
-    # See "openobserve image pulls" at the top of this file.
-    permissions:
-      contents: read
-      packages: read
-    env:
-      OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.14.4
-
     steps:
-    - name: Log in to ghcr for the openobserve mirror
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
@@ -1094,22 +940,7 @@ jobs:
     # Only run on PRs from same repo (mirrors deploy-e2e gating)
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
 
-    # Pull openobserve from the ghcr mirror, not rate-limited ECR Public.
-    # See "openobserve image pulls" at the top of this file.
-    permissions:
-      contents: read
-      packages: read
-    env:
-      OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.14.4
-
     steps:
-    - name: Log in to ghcr for the openobserve mirror
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Checkout repository
       uses: actions/checkout@v7
       with:
