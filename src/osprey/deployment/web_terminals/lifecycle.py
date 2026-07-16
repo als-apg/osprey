@@ -4,41 +4,59 @@ This module owns the destructive side of multi-user web-terminal deployments —
 removing a user's container/volumes and the roster entry, artifacts, and routing
 that referenced them. It is deliberately built from a small set of exact-named,
 composable primitives (:func:`remove_container`, :func:`remove_volume`,
-:func:`archive_volume`, :func:`confirm_destroy`) so that every runtime-mutating
-call in this file is auditable at a glance: no ``prune``, no ``-a``/``--all``, no
-label glob, no bare ``down -v`` — every removal argv names exactly one resource,
-or (for :func:`nuke_stack`'s container teardown) is an explicit ``compose -p
-<project> down`` naming exactly one project. The one place this module *reads*
-runtime state in bulk is :func:`prune_users`'s orphan discovery (``ps -a`` /
-``volume ls``), which is read-only and never itself a removal argv.
+:func:`remove_image`, :func:`archive_volume`, :func:`confirm_destroy`) so that
+every runtime-mutating call in this file is auditable at a glance: no
+``prune``, no ``-a``/``--all``, no label glob, no bare ``down -v`` — every
+removal argv names exactly one resource, or (for :func:`nuke_stack`'s container
+teardown) is an explicit ``compose -p <project> down`` naming exactly one
+project. The one place this module *reads* runtime state in bulk is
+:func:`prune_users`'s orphan discovery (``ps -a`` / ``volume ls``), which is
+read-only and never itself a removal argv; :func:`nuke_stack`'s pre-removal
+``image inspect`` calls are the same kind of read-only check.
 
 :func:`decommission_user`, :func:`prune_users`, and :func:`nuke_stack` are the
 three verbs this module implements.
 
 Volume-scoping boundary (applies to :func:`prune_users`'s discovery and to
-:func:`nuke_stack`'s per-user volume teardown alike): matching volumes by
-``<project>_`` name-prefix (see :func:`_discover_orphan_volumes`) is correct
-under the single-OSPREY-project-per-host baseline this module targets, but a
-project name containing an underscore could in principle collide with a
-sibling deployment's volume namespace on a host running multiple OSPREY
-projects. The printed plan + typed confirmation every destructive verb here
-requires is the operator's backstop against that edge case — nothing is removed
-without the operator seeing the exact resource names first. The robust fix for
-true multi-project hosts is to filter by the compose-assigned owning-project
-label (``com.docker.compose.project``) instead of name-prefix matching; that is
-a documented future hardening path, not implemented here.
+:func:`nuke_stack`'s per-user volume teardown alike): orphan discovery
+(:func:`_discover_orphan_containers`, :func:`_discover_orphan_volumes`) filters
+the runtime listing by the compose-assigned owning-project label
+(``com.docker.compose.project=<project>``, matching exactly what
+:func:`osprey.deployment.runtime_helper.runtime_env`'s ``COMPOSE_PROJECT_NAME``
+pins compose to stamp on every container/volume it creates) *before* any
+name-based parsing — so two OSPREY deployments on the same host, even ones
+whose project names happen to share a prefix or contain an underscore, can
+never cross-match each other's containers or volumes. The printed plan + typed
+confirmation every destructive verb here requires remains the operator's
+backstop regardless: nothing is removed without the operator seeing the exact
+resource names first.
+
+Image-scoping boundary (applies only to :func:`nuke_stack`'s persona-image
+teardown): unlike containers and volumes, image tags are host-global — two
+OSPREY deployments that happen to use identically-named personas would build
+identically-named ``<persona.project>-<persona>:local`` tags. There is no
+label-filtered *listing* equivalent to ``ps -a``/``volume ls`` for this (image
+tags aren't compose-project-scoped), so each candidate tag is instead
+individually verified with ``image inspect`` against its own
+``com.osprey.project`` label (stamped by the local-mode image build,
+:func:`osprey.deployment.container_lifecycle.build_persona_images`) before it
+is ever considered for removal — a missing or mismatched label means the tag
+is skipped with a warning, not removed, since it may belong to a sibling
+deployment.
 """
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 from typing import Any
 
 from osprey.deployment.compose_generator import resolve_project_name, resolve_user_volume_names
+from osprey.deployment.facility_config import normalize_facility_config
 from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
 from osprey.deployment.web_terminals.artifacts import write_web_terminal_artifacts
-from osprey.deployment.web_terminals.ports import normalize_users
+from osprey.deployment.web_terminals.ports import normalize_users, resolve_personas
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.config_writer import config_replace_list
 
@@ -95,7 +113,7 @@ def decommission_user(
         RuntimeError: If volume destruction was requested but not confirmed.
     """
     config_path = Path(config_path)
-    config = ConfigBuilder(str(config_path)).raw_config
+    config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
 
     web_terminals = _as_dict(_as_dict(config.get("modules")).get("web_terminals"))
     migrated = normalize_users(web_terminals.get("users"))
@@ -124,7 +142,7 @@ def decommission_user(
     # Roster edit + artifact re-render happen before container/volume removal:
     # they are recoverable by re-running `osprey deploy up`, unlike volume removal.
     config_replace_list(config_path, _USERS_KEY_PATH, remaining)
-    updated_config = ConfigBuilder(str(config_path)).raw_config
+    updated_config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
     write_web_terminal_artifacts(updated_config)
 
     runtime = get_runtime_command(config)[0]
@@ -161,9 +179,10 @@ def prune_users(
     Order of operations:
 
     1. Load the config and resolve the current roster's user names.
-    2. List all containers and volumes belonging to this project/facility (via
-       name-pattern matching) and split them into on-roster (left alone) and
-       off-roster (orphans). This step never removes anything.
+    2. List all containers and volumes belonging to this project (via the
+       compose-assigned ``com.docker.compose.project`` label) and split them
+       into on-roster (left alone) and off-roster (orphans). This step never
+       removes anything.
     3. Print a plan: which containers/volumes would be removed, and the disposal
        (retain/archive/purge) for each orphan's volumes. If ``dry_run``, stop
        here — nothing is touched.
@@ -186,7 +205,7 @@ def prune_users(
         RuntimeError: If pruning was requested but not confirmed.
     """
     config_path = Path(config_path)
-    config = ConfigBuilder(str(config_path)).raw_config
+    config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
 
     web_terminals = _as_dict(_as_dict(config.get("modules")).get("web_terminals"))
     roster_names = {entry["name"] for entry in normalize_users(web_terminals.get("users"))}
@@ -196,7 +215,9 @@ def prune_users(
     facility_prefix = _as_dict(config.get("facility")).get("prefix") or ""
     project = resolve_project_name(config)
 
-    orphan_containers = _discover_orphan_containers(runtime, facility_prefix, roster_names, env=env)
+    orphan_containers = _discover_orphan_containers(
+        runtime, project, facility_prefix, roster_names, env=env
+    )
     orphan_volumes = _discover_orphan_volumes(runtime, project, roster_names, env=env)
     orphan_users = sorted(set(orphan_containers) | set(orphan_volumes))
 
@@ -244,8 +265,9 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
     The most destructive verb in this module: unlike :func:`decommission_user`
     (one named user) and :func:`prune_users` (only off-roster orphans), ``nuke``
     removes *everything* this project owns — every web-terminal, nginx, and base
-    service container, plus every named volume belonging to this project's web
-    terminals (roster *and* off-roster/orphaned alike) — with no retain option.
+    service container, every named volume belonging to this project's web
+    terminals (roster *and* off-roster/orphaned alike), and every roster
+    persona's locally-built image — with no retain option.
 
     Containers are torn down with a single project-scoped ``compose -p <project>
     down`` rather than by enumerating container names one at a time: the base
@@ -266,6 +288,16 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
     always provably exact-named (see the module docstring for the volume-
     scoping boundary this relies on).
 
+    Image removal is deliberately the least trusting step: image tags
+    (``<persona.project>-<persona>:local``) are host-global, not scoped to this
+    project the way ``com.docker.compose.project``-labeled containers/volumes
+    are, so a same-named tag could belong to an entirely different deployment.
+    Every candidate tag is therefore ``image inspect``-verified against its own
+    ``com.osprey.project`` label before removal (see the module docstring's
+    image-scoping boundary); a missing tag is tolerated silently (nothing to
+    remove), and a missing/mismatched label is skipped with a warning rather
+    than removed.
+
     Order of operations:
 
     1. Load the config; resolve the project name and the roster's user names.
@@ -276,17 +308,27 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
        discovery :func:`prune_users` uses) — so a user who was decommissioned
        with the default retain policy, or hand-edited out of ``config.yml``,
        still gets their volumes torn down by ``nuke``.
-    3. Print a plan (the project-scoped container teardown, plus the full exact
-       volume list — roster and orphan), then gate on a typed confirmation
-       (unless ``assume_yes``) *before touching anything* — same ordering
-       lesson as :func:`decommission_user`: a decline must be a true no-op, so
-       nothing runs until confirmation succeeds.
-    4. Run the project-scoped ``compose down`` (containers only). A non-zero
-       exit aborts immediately, before any volume is touched — proceeding to
-       remove volumes out from under containers ``down`` failed to stop would
-       just fail again downstream (volume "in use") while masking the real
-       error, and the CLI would report success on a failed teardown.
-    5. Remove each exact-named volume from the teardown set.
+    3. Compute the image teardown set: resolve the roster's personas leniently
+       (:func:`osprey.deployment.web_terminals.ports.resolve_personas` with
+       ``strict=False`` — a stale/bad persona reference never blocks ``nuke``),
+       collect the distinct ``:local``-suffixed image tags (registry-mode
+       images and lenient-degraded entries never resolve to a ``:local`` tag,
+       so they are never candidates), then ``image inspect`` each candidate and
+       keep only the ones whose ``com.osprey.project`` label matches this
+       deployment's project name.
+    4. Print a plan (the project-scoped container teardown, the full exact
+       volume list — roster and orphan, and the label-verified image list, plus
+       a warning line for any candidate image skipped on label mismatch), then
+       gate on a typed confirmation (unless ``assume_yes``) *before touching
+       anything* — same ordering lesson as :func:`decommission_user`: a decline
+       must be a true no-op, so nothing runs until confirmation succeeds.
+    5. Run the project-scoped ``compose down`` (containers only). A non-zero
+       exit aborts immediately, before any volume or image is touched —
+       proceeding would just fail again downstream (volume "in use") while
+       masking the real error, and the CLI would report success on a failed
+       teardown.
+    6. Remove each exact-named volume from the teardown set.
+    7. Remove each label-verified exact-named image tag from the teardown set.
 
     Args:
         config_path: Path to the facility ``config.yml``.
@@ -298,7 +340,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
             exits non-zero.
     """
     config_path = Path(config_path)
-    config = ConfigBuilder(str(config_path)).raw_config
+    config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
 
     web_terminals = _as_dict(_as_dict(config.get("modules")).get("web_terminals"))
     roster_names = [entry["name"] for entry in normalize_users(web_terminals.get("users"))]
@@ -307,6 +349,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
     runtime = runtime_cmd[0]
     env = runtime_env(config)
     project = resolve_project_name(config)
+    facility_prefix = _as_dict(config.get("facility")).get("prefix") or ""
 
     volumes: list[str] = []
     for user in roster_names:
@@ -319,20 +362,54 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
     for user_volumes in orphan_volumes.values():
         volumes.extend(user_volumes)
 
+    # Roster personas' locally-built images. Lenient resolution (strict=False)
+    # means a stale/bad persona reference degrades to the zero-migration
+    # (non-":local") image rather than blocking nuke — see resolve_personas.
+    registry_cfg = _as_dict(config.get("registry"))
+    personas_resolved = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False)
+    candidate_images: list[str] = []
+    for entry in personas_resolved:
+        image = entry["image"]
+        if image.endswith(":local") and image not in candidate_images:
+            candidate_images.append(image)
+
+    # Each candidate is individually label-verified against THIS deployment's
+    # project name before it is ever considered for removal — image tags are
+    # host-global, so a sibling deployment's identically-named tag must survive
+    # even if it happens to match this roster's persona naming.
+    images_to_remove: list[str] = []
+    skipped_images: list[tuple[str, str | None]] = []
+    for image in candidate_images:
+        exists, label_value = _inspect_image_project_label(runtime, image, env=env)
+        if not exists:
+            continue  # absent image: tolerated, not part of the plan, not an error
+        if label_value != project:
+            skipped_images.append((image, label_value))
+            continue
+        images_to_remove.append(image)
+
     print(
         f"nuke: this will tear down project {project!r}'s entire web-terminal + "
-        f"service stack — every container (project-scoped) plus {len(volumes)} "
+        f"service stack — every container (project-scoped), {len(volumes)} "
         f"volume(s) ({len(roster_names)} roster user(s), "
-        f"{len(orphan_volumes)} off-roster user(s)):"
+        f"{len(orphan_volumes)} off-roster user(s)), and {len(images_to_remove)} "
+        "persona image(s):"
     )
     print(f"  - containers: {' '.join(runtime_cmd)} -p {project} down")
     for volume in volumes:
         print(f"  - volume {volume!r}: removed permanently (no retain/archive)")
+    for image in images_to_remove:
+        print(f"  - image {image!r}: removed permanently (com.osprey.project verified)")
+    for image, label_value in skipped_images:
+        print(
+            f"  - image {image!r}: SKIPPED — com.osprey.project label {label_value!r} "
+            f"does not match this deployment's project {project!r}"
+        )
 
     prompt = (
         f"This will PERMANENTLY tear down the entire web-terminal stack for "
-        f"project {project!r}, including {len(volumes)} volume(s). "
-        "Type 'nuke' to confirm: "
+        f"project {project!r}, including {len(volumes)} volume(s) and "
+        f"{len(images_to_remove)} persona image(s). Type 'nuke' to confirm: "
     )
     if not confirm_destroy(prompt, assume_yes, expected="nuke"):
         raise RuntimeError("Nuke aborted: confirmation did not match.")
@@ -347,6 +424,9 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
 
     for volume in volumes:
         remove_volume(runtime, volume, env=env)
+
+    for image in images_to_remove:
+        remove_image(runtime, image, env=env)
 
 
 def _compose_down_project(
@@ -385,6 +465,7 @@ def _compose_down_project(
 
 def _discover_orphan_containers(
     runtime: str,
+    project: str,
     facility_prefix: str,
     roster_names: set[str],
     *,
@@ -392,13 +473,22 @@ def _discover_orphan_containers(
 ) -> dict[str, str]:
     """Read-only: list containers and return ``{user: container_name}`` for orphans.
 
-    Uses ``ps -a --format {{.Names}}`` — a listing, never a removal — so the
-    ``-a`` here is not subject to the "no ``-a``/``--all``" removal-argv
-    guardrail. Only containers matching ``<facility_prefix>-web-<user>`` are
-    considered; anything else the runtime reports is ignored.
+    Uses ``ps -a --filter label=com.docker.compose.project=<project> --format
+    {{.Names}}`` — a listing, never a removal — so the ``-a`` here is not
+    subject to the "no ``-a``/``--all``" removal-argv guardrail. The label
+    filter scopes the listing to exactly this deployment's compose project
+    (the same project name :func:`osprey.deployment.runtime_helper.runtime_env`
+    pins as ``COMPOSE_PROJECT_NAME``), so a sibling OSPREY deployment on the
+    same host — even one whose project name shares a prefix with this one —
+    can never contribute a false match. Within that project-scoped listing,
+    only containers matching ``<facility_prefix>-web-<user>`` are web-terminal
+    containers; anything else the project owns (nginx, base services, ...) is
+    ignored here.
 
     Args:
         runtime: Runtime binary, e.g. ``"docker"`` or ``"podman"``.
+        project: This deployment's compose project name (the label value to
+            filter on).
         facility_prefix: This facility's container-name prefix.
         roster_names: Current roster user names; matches are excluded.
         env: Environment for the subprocess call.
@@ -407,7 +497,18 @@ def _discover_orphan_containers(
         Mapping of orphaned user name to their exact container name.
     """
     result = subprocess.run(
-        [runtime, "ps", "-a", "--format", "{{.Names}}"], capture_output=True, text=True, env=env
+        [
+            runtime,
+            "ps",
+            "-a",
+            "--filter",
+            f"label=com.docker.compose.project={project}",
+            "--format",
+            "{{.Names}}",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
     )
     prefix = f"{facility_prefix}-web-"
     orphans: dict[str, str] = {}
@@ -430,15 +531,22 @@ def _discover_orphan_volumes(
 ) -> dict[str, list[str]]:
     """Read-only: list volumes and return ``{user: [volume_names]}`` for orphans.
 
-    Uses ``volume ls --format {{.Name}}`` — a listing, never a removal. Only
-    volumes matching ``<project>_<user>-claude-config`` or
+    Uses ``volume ls --filter label=com.docker.compose.project=<project>
+    --format {{.Name}}`` — a listing, never a removal. The label filter scopes
+    the listing to exactly this deployment's compose project (the same value
+    :func:`osprey.deployment.runtime_helper.runtime_env` pins as
+    ``COMPOSE_PROJECT_NAME``), so a sibling OSPREY deployment's volumes — even
+    under a project name that shares a prefix or contains an underscore — can
+    never be mistaken for this project's. Within that project-scoped listing,
+    only volumes matching ``<project>_<user>-claude-config`` or
     ``<project>_<user>-agent-data`` (the same names
     :func:`osprey.deployment.compose_generator.resolve_user_volume_names`
-    derives) are considered; anything else the runtime reports is ignored.
+    derives) are considered; anything else the project owns is ignored here.
 
     Args:
         runtime: Runtime binary, e.g. ``"docker"`` or ``"podman"``.
-        project: This deployment's project name (the volume namespace prefix).
+        project: This deployment's compose project name (the label value to
+            filter on, and the volume namespace prefix).
         roster_names: Current roster user names; matches are excluded.
         env: Environment for the subprocess call.
 
@@ -447,7 +555,18 @@ def _discover_orphan_volumes(
         entries depending on which volumes actually exist).
     """
     result = subprocess.run(
-        [runtime, "volume", "ls", "--format", "{{.Name}}"], capture_output=True, text=True, env=env
+        [
+            runtime,
+            "volume",
+            "ls",
+            "--filter",
+            f"label=com.docker.compose.project={project}",
+            "--format",
+            "{{.Name}}",
+        ],
+        capture_output=True,
+        text=True,
+        env=env,
     )
     prefix = f"{project}_"
     suffixes = ("-claude-config", "-agent-data")
@@ -464,6 +583,54 @@ def _discover_orphan_volumes(
                     orphans.setdefault(user, []).append(name)
                 break
     return orphans
+
+
+def _inspect_image_project_label(
+    runtime: str, image: str, *, env: dict[str, str] | None = None
+) -> tuple[bool, str | None]:
+    """Read-only: check whether *image* exists and, if so, its owning project.
+
+    Uses ``image inspect <image> --format {{json .Config.Labels}}`` — a read,
+    never a removal — and parses the label map itself in Python rather than
+    indexing the label directly in the Go template, since ``index`` on a
+    missing/nil label map is fragile across docker/podman versions; parsing a
+    JSON object (or ``null``) defensively is not.
+
+    Unlike :func:`_discover_orphan_containers`/:func:`_discover_orphan_volumes`,
+    this has no compose-project-label-filtered *listing* to draw on: image tags
+    are host-global, not scoped to a compose project, so each candidate tag
+    :func:`nuke_stack` considers is checked individually rather than discovered
+    in bulk.
+
+    Args:
+        runtime: Runtime binary, e.g. ``"docker"`` or ``"podman"``.
+        image: Exact image tag to inspect. Never a glob or label selector.
+        env: Environment for the subprocess call.
+
+    Returns:
+        ``(exists, label_value)``. ``exists`` is ``False`` when the tag isn't
+        present on this host at all (a non-zero ``image inspect`` exit) —
+        tolerated by the caller, not an error. When ``exists`` is ``True``,
+        ``label_value`` is the image's ``com.osprey.project`` label value, or
+        ``None`` if the image has no such label (or an unparseable/non-object
+        labels blob).
+    """
+    result = subprocess.run(
+        [runtime, "image", "inspect", image, "--format", "{{json .Config.Labels}}"],
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    if result.returncode != 0:
+        return False, None
+    try:
+        labels = json.loads(result.stdout.strip() or "null")
+    except json.JSONDecodeError:
+        labels = None
+    if not isinstance(labels, dict):
+        return True, None
+    label_value = labels.get("com.osprey.project")
+    return True, label_value if isinstance(label_value, str) else None
 
 
 # =============================================================================
@@ -509,6 +676,31 @@ def remove_volume(
         The completed subprocess, for callers that want to inspect the outcome.
     """
     return subprocess.run([runtime, "volume", "rm", name], capture_output=True, text=True, env=env)
+
+
+def remove_image(
+    runtime: str, tag: str, *, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess:
+    """Remove one exact-named, label-verified image tag.
+
+    Only ever called by :func:`nuke_stack`, and only for tags that
+    :func:`_inspect_image_project_label` already confirmed both exist and carry
+    a matching ``com.osprey.project`` label — this function itself does not
+    re-check either condition, it just issues the single-tag removal. Never
+    ``image prune``, never a label-selector or wildcard removal, and never more
+    than one tag per invocation.
+
+    Args:
+        runtime: Runtime binary, e.g. ``"docker"`` or ``"podman"``.
+        tag: Exact image tag, e.g. ``"<persona.project>-<persona>:local"``.
+            Never a glob or label selector.
+        env: Environment for the subprocess call. Defaults to inheriting the
+            parent process environment.
+
+    Returns:
+        The completed subprocess, for callers that want to inspect the outcome.
+    """
+    return subprocess.run([runtime, "image", "rm", tag], capture_output=True, text=True, env=env)
 
 
 def archive_volume(

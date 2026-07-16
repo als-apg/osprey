@@ -24,24 +24,43 @@ _FORBIDDEN_ARGV_TOKENS = {"prune", "-a", "--all", "system", "network"}
 _GLOB_METACHARACTERS = set("*?[")
 
 
-def _config(users, *, project_name="demo-project", facility_prefix="dls"):
-    """Minimal-but-complete facility config exercising every field decommission_user reads."""
+def _config(
+    users,
+    *,
+    project_name="demo-project",
+    facility_prefix="dls",
+    personas=None,
+    default_persona=None,
+    image_source=None,
+):
+    """Minimal-but-complete facility config exercising every field decommission_user reads.
+
+    ``personas``/``default_persona``/``image_source`` are only exercised by the
+    nuke persona-image tests; omitted, ``resolve_personas`` resolves every
+    entry to the zero-migration (non-persona) path, exactly as it does for a
+    config predating persona catalogs.
+    """
+    web_terminals = {
+        "enabled": True,
+        "nginx_port": 8080,
+        "web_base_port": 9000,
+        "artifact_base_port": 9100,
+        "ariel_base_port": 9200,
+        "lattice_base_port": 9300,
+        "users": users,
+    }
+    if personas is not None:
+        web_terminals["personas"] = personas
+    if default_persona is not None:
+        web_terminals["default_persona"] = default_persona
+    if image_source is not None:
+        web_terminals["image_source"] = image_source
     return {
         "project_name": project_name,
         "facility": {"name": "Demo Light Source", "prefix": facility_prefix, "timezone": "UTC"},
         "registry": {"url": "registry.example.org"},
         "deploy": {"fqdn": "deploy.example.org"},
-        "modules": {
-            "web_terminals": {
-                "enabled": True,
-                "nginx_port": 8080,
-                "web_base_port": 9000,
-                "artifact_base_port": 9100,
-                "ariel_base_port": 9200,
-                "lattice_base_port": 9300,
-                "users": users,
-            }
-        },
+        "modules": {"web_terminals": web_terminals},
     }
 
 
@@ -87,7 +106,7 @@ def fake_runtime_prune(monkeypatch):
 
     def _fake_run(argv, capture_output=True, text=True, env=None, check=False):
         calls.append(list(argv))
-        if argv[1:4] == ["ps", "-a", "--format"]:
+        if argv[1:3] == ["ps", "-a"]:
             stdout = "\n".join(listing["containers"])
         elif argv[1:3] == ["volume", "ls"]:
             stdout = "\n".join(listing["volumes"])
@@ -104,21 +123,28 @@ def fake_runtime_prune(monkeypatch):
 def fake_runtime_nuke(monkeypatch):
     """Like ``fake_runtime_prune``, but also lets tests control ``compose down``'s
     exit code/stderr — needed to exercise nuke's abort-before-volume-removal path
-    on a failed teardown.
+    on a failed teardown — and each candidate persona image's simulated
+    ``image inspect`` result.
 
-    Returns ``(calls, listing, down_result)``: ``calls``/``listing`` are the same
-    contract as ``fake_runtime_prune`` (``listing["volumes"]`` drives
-    ``_discover_orphan_volumes``, the same off-roster sweep ``prune_users`` uses);
-    ``down_result`` is a mutable ``{"returncode": 0, "stderr": ""}`` dict tests
-    can set *before* calling ``nuke_stack`` to simulate a failed ``compose down``.
+    Returns ``(calls, listing, down_result, image_labels)``: ``calls``/
+    ``listing`` are the same contract as ``fake_runtime_prune``
+    (``listing["volumes"]`` drives ``_discover_orphan_volumes``, the same
+    off-roster sweep ``prune_users`` uses); ``down_result`` is a mutable
+    ``{"returncode": 0, "stderr": ""}`` dict tests can set *before* calling
+    ``nuke_stack`` to simulate a failed ``compose down``; ``image_labels`` is a
+    mutable ``{tag: com.osprey.project value or None}`` dict — a tag absent
+    from this mapping simulates ``image inspect`` failing (tag doesn't exist on
+    this host); a tag present with value ``None`` simulates an image that
+    exists but carries no ``com.osprey.project`` label at all.
     """
     calls: list[list[str]] = []
     listing: dict[str, list[str]] = {"containers": [], "volumes": []}
     down_result = {"returncode": 0, "stderr": ""}
+    image_labels: dict[str, str | None] = {}
 
     def _fake_run(argv, capture_output=True, text=True, env=None, check=False):
         calls.append(list(argv))
-        if argv[1:4] == ["ps", "-a", "--format"]:
+        if argv[1:3] == ["ps", "-a"]:
             return subprocess.CompletedProcess(
                 argv, returncode=0, stdout="\n".join(listing["containers"]), stderr=""
             )
@@ -126,6 +152,17 @@ def fake_runtime_nuke(monkeypatch):
             return subprocess.CompletedProcess(
                 argv, returncode=0, stdout="\n".join(listing["volumes"]), stderr=""
             )
+        if argv[1:3] == ["image", "inspect"]:
+            tag = argv[3]
+            if tag not in image_labels:
+                return subprocess.CompletedProcess(
+                    argv, returncode=1, stdout="", stderr=f"Error: no such image: {tag}"
+                )
+            label_value = image_labels[tag]
+            labels_json = (
+                "null" if label_value is None else f'{{"com.osprey.project":"{label_value}"}}'
+            )
+            return subprocess.CompletedProcess(argv, returncode=0, stdout=labels_json, stderr="")
         if "down" in argv:
             return subprocess.CompletedProcess(
                 argv, returncode=down_result["returncode"], stdout="", stderr=down_result["stderr"]
@@ -134,7 +171,7 @@ def fake_runtime_nuke(monkeypatch):
 
     monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
     monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
-    return calls, listing, down_result
+    return calls, listing, down_result, image_labels
 
 
 def _assert_no_input_prompt(monkeypatch):
@@ -531,6 +568,50 @@ def test_prune_assume_yes_skips_prompt_and_proceeds(tmp_path, monkeypatch, fake_
     assert [c for c in calls if c[1:3] == ["volume", "rm"]]
 
 
+def test_prune_discovery_filters_by_compose_project_label(
+    tmp_path, monkeypatch, fake_runtime_prune
+):
+    """Orphan discovery must scope by the compose-assigned
+    ``com.docker.compose.project`` label, not a name prefix, so a sibling
+    OSPREY deployment on the same host — even one whose project name shares a
+    prefix with this one — can never contribute a false match."""
+    calls, listing = fake_runtime_prune
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice"], project_name="demo-project")
+    config_path = _write_config(tmp_path, config)
+    eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
+    listing["containers"] = ["dls-web-eve"]
+    listing["volumes"] = [eve_claude, eve_agent]
+
+    lifecycle.prune_users(str(config_path), dry_run=True)
+
+    ps_calls = [c for c in calls if c[1:3] == ["ps", "-a"]]
+    assert ps_calls == [
+        [
+            "docker",
+            "ps",
+            "-a",
+            "--filter",
+            "label=com.docker.compose.project=demo-project",
+            "--format",
+            "{{.Names}}",
+        ]
+    ]
+
+    volume_ls_calls = [c for c in calls if c[1:3] == ["volume", "ls"]]
+    assert volume_ls_calls == [
+        [
+            "docker",
+            "volume",
+            "ls",
+            "--filter",
+            "label=com.docker.compose.project=demo-project",
+            "--format",
+            "{{.Name}}",
+        ]
+    ]
+
+
 def test_prune_argv_safety_removal_commands_are_exact_named(
     tmp_path, monkeypatch, fake_runtime_prune
 ):
@@ -575,9 +656,13 @@ def test_prune_argv_safety_removal_commands_are_exact_named(
 
 def _removal_calls(calls):
     """Filter emitted argv down to actual removal/teardown calls, excluding the
-    read-only ``ps -a``/``volume ls`` discovery ``nuke_stack`` also emits (same
-    read-vs-removal distinction the prune tests draw)."""
-    return [c for c in calls if c[1] == "rm" or c[1:3] == ["volume", "rm"] or "down" in c]
+    read-only ``ps -a``/``volume ls``/``image inspect`` discovery ``nuke_stack``
+    also emits (same read-vs-removal distinction the prune tests draw)."""
+    return [
+        c
+        for c in calls
+        if c[1] == "rm" or c[1:3] in (["volume", "rm"], ["image", "rm"]) or "down" in c
+    ]
 
 
 def test_nuke_without_confirmation_is_a_true_noop(tmp_path, monkeypatch, fake_runtime_nuke):
@@ -585,7 +670,7 @@ def test_nuke_without_confirmation_is_a_true_noop(tmp_path, monkeypatch, fake_ru
     decommission/prune: confirm BEFORE any removal. Read-only orphan-volume
     discovery is allowed to run (it feeds the pre-confirmation plan), but zero
     removal/teardown argv may be emitted."""
-    calls, listing, _down_result = fake_runtime_nuke
+    calls, listing, _down_result, _image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
     config = _config(["alice", "bob"])
     config_path = _write_config(tmp_path, config)
@@ -599,7 +684,7 @@ def test_nuke_without_confirmation_is_a_true_noop(tmp_path, monkeypatch, fake_ru
 
 def test_nuke_generic_yes_does_not_confirm(tmp_path, monkeypatch, fake_runtime_nuke):
     """Only the literal 'nuke' confirms — a muscle-memory "yes" must not."""
-    calls, listing, _down_result = fake_runtime_nuke
+    calls, listing, _down_result, _image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
     config = _config(["alice"])
     config_path = _write_config(tmp_path, config)
@@ -612,7 +697,7 @@ def test_nuke_generic_yes_does_not_confirm(tmp_path, monkeypatch, fake_runtime_n
 
 
 def test_nuke_typed_confirmation_proceeds(tmp_path, monkeypatch, fake_runtime_nuke):
-    calls, listing, _down_result = fake_runtime_nuke
+    calls, listing, _down_result, _image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
     config = _config(["alice", "bob"])
     config_path = _write_config(tmp_path, config)
@@ -630,7 +715,7 @@ def test_nuke_typed_confirmation_proceeds(tmp_path, monkeypatch, fake_runtime_nu
 def test_nuke_assume_yes_skips_prompt_removes_project_scoped_containers_and_all_volumes(
     tmp_path, monkeypatch, fake_runtime_nuke
 ):
-    calls, listing, _down_result = fake_runtime_nuke
+    calls, listing, _down_result, _image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
     config = _config(["alice", "bob"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
@@ -666,7 +751,7 @@ def test_nuke_sweeps_off_roster_orphan_volumes_too(
     roster membership, so nuke's volume sweep must reach their volumes too —
     otherwise "tear down everything this project owns" is false. The orphan
     must also show up in the printed plan before confirmation."""
-    calls, listing, _down_result = fake_runtime_nuke
+    calls, listing, _down_result, _image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
     config = _config(["alice"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
@@ -685,6 +770,19 @@ def test_nuke_sweeps_off_roster_orphan_volumes_too(
     assert eve_claude in plan_output
     assert eve_agent in plan_output
 
+    volume_ls_calls = [c for c in calls if c[1:3] == ["volume", "ls"]]
+    assert volume_ls_calls == [
+        [
+            "docker",
+            "volume",
+            "ls",
+            "--filter",
+            "label=com.docker.compose.project=demo-project",
+            "--format",
+            "{{.Name}}",
+        ]
+    ]
+
 
 def test_nuke_aborts_before_removing_any_volume_when_compose_down_fails(
     tmp_path, monkeypatch, fake_runtime_nuke
@@ -693,7 +791,7 @@ def test_nuke_aborts_before_removing_any_volume_when_compose_down_fails(
     is touched — proceeding would remove volumes out from under containers
     `down` failed to stop (failing again, "in use", while masking the real
     error) and the CLI would otherwise report success on a failed nuke."""
-    calls, listing, down_result = fake_runtime_nuke
+    calls, listing, down_result, _image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
     config = _config(["alice", "bob"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
@@ -718,7 +816,7 @@ def test_nuke_argv_safety_no_dangerous_flags_project_scoped_down_exact_named_vol
     runtime operations. The container teardown must be an explicit
     ``compose -p <project> down`` (never a bare/global down); every volume
     removal must be exact-named."""
-    calls, listing, _down_result = fake_runtime_nuke
+    calls, listing, _down_result, _image_labels = fake_runtime_nuke
     monkeypatch.chdir(tmp_path)
     config = _config(["alice", "bob"], project_name="demo-project")
     config_path = _write_config(tmp_path, config)
@@ -730,7 +828,7 @@ def test_nuke_argv_safety_no_dangerous_flags_project_scoped_down_exact_named_vol
         joined = " ".join(argv)
         for token in _FORBIDDEN_ARGV_TOKENS:
             assert token not in argv, f"forbidden token {token!r} in argv: {joined}"
-        if argv[1:4] == ["ps", "-a", "--format"] or argv[1:3] == ["volume", "ls"]:
+        if argv[1:3] == ["ps", "-a"] or argv[1:3] == ["volume", "ls"]:
             continue  # read-only discovery legitimately contains `-a`
         for glob_arg in argv:
             assert not any(ch in glob_arg for ch in _GLOB_METACHARACTERS), (
@@ -747,6 +845,269 @@ def test_nuke_argv_safety_no_dangerous_flags_project_scoped_down_exact_named_vol
         if argv[1:3] == ["volume", "rm"]:
             name = argv[3] if len(argv) == 4 else ""
             assert name, f"volume rm without exact name: {joined}"
+
+
+# =============================================================================
+# nuke: persona-local image teardown
+# =============================================================================
+
+
+def _persona_config(users, **kwargs):
+    """A ``_config`` with one local-mode persona catalog entry, ``control-room``,
+    set as ``default_persona`` — so every bare-string roster entry (no explicit
+    ``persona:`` key) resolves to it, and ``image_source: local`` means every
+    such entry's image is the local-build tag under test."""
+    return _config(
+        users,
+        personas={"control-room": {"project": "acc-control", "project_path": "/x"}},
+        default_persona="control-room",
+        image_source="local",
+        **kwargs,
+    )
+
+
+def test_nuke_removes_label_verified_persona_local_image(tmp_path, monkeypatch, fake_runtime_nuke):
+    calls, listing, _down_result, image_labels = fake_runtime_nuke
+    monkeypatch.chdir(tmp_path)
+    config = _persona_config(["alice"], project_name="demo-project")
+    config_path = _write_config(tmp_path, config)
+    image_labels["acc-control-control-room:local"] = "demo-project"  # matches THIS deployment
+    _assert_no_input_prompt(monkeypatch)
+
+    lifecycle.nuke_stack(str(config_path), assume_yes=True)
+
+    image_rm_calls = [c for c in calls if c[1:3] == ["image", "rm"]]
+    assert image_rm_calls == [["docker", "image", "rm", "acc-control-control-room:local"]]
+
+
+def test_nuke_skips_image_with_mismatched_project_label_and_warns(
+    tmp_path, monkeypatch, capsys, fake_runtime_nuke
+):
+    """Image tags are host-global: a tag that resolves for THIS roster but whose
+    com.osprey.project label names a different deployment must survive — it may
+    belong to a sibling deployment that happens to use the same persona/project
+    naming."""
+    calls, listing, _down_result, image_labels = fake_runtime_nuke
+    monkeypatch.chdir(tmp_path)
+    config = _persona_config(["alice"], project_name="demo-project")
+    config_path = _write_config(tmp_path, config)
+    image_labels["acc-control-control-room:local"] = "some-other-project"
+    _assert_no_input_prompt(monkeypatch)
+
+    lifecycle.nuke_stack(str(config_path), assume_yes=True)
+
+    image_rm_calls = [c for c in calls if c[1:3] == ["image", "rm"]]
+    assert image_rm_calls == []
+
+    out = capsys.readouterr().out
+    assert "acc-control-control-room:local" in out
+    assert "SKIPPED" in out
+    assert "some-other-project" in out
+
+
+def test_nuke_skips_image_with_missing_label_and_warns(
+    tmp_path, monkeypatch, capsys, fake_runtime_nuke
+):
+    """An image that exists but carries no com.osprey.project label at all is
+    treated the same as a mismatch: skipped with a warning, never removed."""
+    calls, listing, _down_result, image_labels = fake_runtime_nuke
+    monkeypatch.chdir(tmp_path)
+    config = _persona_config(["alice"], project_name="demo-project")
+    config_path = _write_config(tmp_path, config)
+    image_labels["acc-control-control-room:local"] = None  # exists, but unlabeled
+    _assert_no_input_prompt(monkeypatch)
+
+    lifecycle.nuke_stack(str(config_path), assume_yes=True)
+
+    assert [c for c in calls if c[1:3] == ["image", "rm"]] == []
+    assert "SKIPPED" in capsys.readouterr().out
+
+
+def test_nuke_tolerates_absent_image_silently(tmp_path, monkeypatch, capsys, fake_runtime_nuke):
+    """A candidate tag that doesn't exist on this host at all (image inspect
+    fails) is tolerated — never an error, and not called out as a warning
+    (there's nothing wrong, it just was never built/already gone)."""
+    calls, listing, _down_result, _image_labels = fake_runtime_nuke  # no entry -> inspect fails
+    monkeypatch.chdir(tmp_path)
+    config = _persona_config(["alice"], project_name="demo-project")
+    config_path = _write_config(tmp_path, config)
+    _assert_no_input_prompt(monkeypatch)
+
+    lifecycle.nuke_stack(str(config_path), assume_yes=True)  # must not raise
+
+    assert [c for c in calls if c[1:3] == ["image", "rm"]] == []
+    assert "SKIPPED" not in capsys.readouterr().out
+
+
+def test_nuke_zero_migration_config_performs_no_image_operations(
+    tmp_path, monkeypatch, fake_runtime_nuke
+):
+    """A config with no persona catalog at all (today's zero-migration roster)
+    must never touch images: every entry resolves off the non-":local" default
+    image, so there are no candidates to inspect or remove — pinned explicitly
+    since this is the common case for every facility that hasn't adopted
+    personas yet."""
+    calls, listing, _down_result, _image_labels = fake_runtime_nuke
+    monkeypatch.chdir(tmp_path)
+    config = _config(["alice", "bob"], project_name="demo-project")  # no personas configured
+    config_path = _write_config(tmp_path, config)
+    _assert_no_input_prompt(monkeypatch)
+
+    lifecycle.nuke_stack(str(config_path), assume_yes=True)
+
+    assert [c for c in calls if c[1:3] in (["image", "inspect"], ["image", "rm"])] == []
+
+
+def test_nuke_dedupes_one_image_removal_per_shared_persona(
+    tmp_path, monkeypatch, fake_runtime_nuke
+):
+    """Two roster users on the same persona share one image tag — nuke must
+    inspect and remove it once, not once per user."""
+    calls, listing, _down_result, image_labels = fake_runtime_nuke
+    monkeypatch.chdir(tmp_path)
+    config = _persona_config(["alice", "bob"], project_name="demo-project")
+    config_path = _write_config(tmp_path, config)
+    image_labels["acc-control-control-room:local"] = "demo-project"
+    _assert_no_input_prompt(monkeypatch)
+
+    lifecycle.nuke_stack(str(config_path), assume_yes=True)
+
+    inspect_calls = [c for c in calls if c[1:3] == ["image", "inspect"]]
+    assert inspect_calls == [
+        [
+            "docker",
+            "image",
+            "inspect",
+            "acc-control-control-room:local",
+            "--format",
+            "{{json .Config.Labels}}",
+        ]
+    ]
+    image_rm_calls = [c for c in calls if c[1:3] == ["image", "rm"]]
+    assert image_rm_calls == [["docker", "image", "rm", "acc-control-control-room:local"]]
+
+
+def test_nuke_image_removal_happens_after_compose_down_and_volume_removal(
+    tmp_path, monkeypatch, fake_runtime_nuke
+):
+    calls, listing, _down_result, image_labels = fake_runtime_nuke
+    monkeypatch.chdir(tmp_path)
+    config = _persona_config(["alice"], project_name="demo-project")
+    config_path = _write_config(tmp_path, config)
+    image_labels["acc-control-control-room:local"] = "demo-project"
+    _assert_no_input_prompt(monkeypatch)
+
+    lifecycle.nuke_stack(str(config_path), assume_yes=True)
+
+    down_index = next(i for i, c in enumerate(calls) if "down" in c)
+    volume_rm_index = next(i for i, c in enumerate(calls) if c[1:3] == ["volume", "rm"])
+    image_rm_index = next(i for i, c in enumerate(calls) if c[1:3] == ["image", "rm"])
+    assert down_index < volume_rm_index < image_rm_index
+
+
+def test_nuke_prints_image_plan_before_confirmation(
+    tmp_path, monkeypatch, capsys, fake_runtime_nuke
+):
+    """Both the removed and skipped persona images must appear in the printed
+    plan before the typed-confirmation prompt is read — the operator must see
+    the exact image outcome, same as the container/volume plan."""
+    calls, listing, _down_result, image_labels = fake_runtime_nuke
+    monkeypatch.chdir(tmp_path)
+    config = _persona_config(["alice"], project_name="demo-project")
+    config_path = _write_config(tmp_path, config)
+    image_labels["acc-control-control-room:local"] = "demo-project"
+
+    prompts: list[str] = []
+
+    def _record_prompt(prompt=""):
+        prompts.append(prompt)
+        return "nuke"
+
+    monkeypatch.setattr("builtins.input", _record_prompt)
+
+    lifecycle.nuke_stack(str(config_path), assume_yes=False)
+
+    out = capsys.readouterr().out
+    assert "acc-control-control-room:local" in out
+    assert "persona image" in out
+    # The plan (containing the image line) was printed strictly before input() was read.
+    assert prompts, "expected the confirmation prompt to have been read"
+    assert "1 persona image" in prompts[0] or "persona image" in prompts[0]
+
+
+def test_nuke_without_confirmation_never_removes_or_inspects_images_when_declined(
+    tmp_path, monkeypatch, fake_runtime_nuke
+):
+    """Declining nuke must still be a true no-op for images: the plan may read
+    labels (read-only), but zero image rm argv may ever be emitted."""
+    calls, listing, _down_result, image_labels = fake_runtime_nuke
+    monkeypatch.chdir(tmp_path)
+    config = _persona_config(["alice"], project_name="demo-project")
+    config_path = _write_config(tmp_path, config)
+    image_labels["acc-control-control-room:local"] = "demo-project"
+    monkeypatch.setattr("builtins.input", lambda prompt="": "")
+
+    with pytest.raises(RuntimeError):
+        lifecycle.nuke_stack(str(config_path), assume_yes=False)
+
+    assert [c for c in calls if c[1:3] == ["image", "rm"]] == []
+
+
+def test_nuke_argv_safety_image_rm_is_single_exact_named_tag(
+    tmp_path, monkeypatch, fake_runtime_nuke
+):
+    """Extends the argv-safety guardrail to image removal: exact one tag per
+    argv, no glob metacharacters, no forbidden tokens."""
+    calls, listing, _down_result, image_labels = fake_runtime_nuke
+    monkeypatch.chdir(tmp_path)
+    config = _persona_config(["alice", "bob"], project_name="demo-project")
+    config_path = _write_config(tmp_path, config)
+    image_labels["acc-control-control-room:local"] = "demo-project"
+
+    lifecycle.nuke_stack(str(config_path), assume_yes=True)
+
+    image_rm_calls = [c for c in calls if c[1:3] == ["image", "rm"]]
+    assert image_rm_calls, "expected at least one image rm call"
+    for argv in image_rm_calls:
+        joined = " ".join(argv)
+        for token in _FORBIDDEN_ARGV_TOKENS:
+            assert token not in argv, f"forbidden token {token!r} in argv: {joined}"
+        assert len(argv) == 4, f"image rm must name exactly one tag: {joined}"
+        assert not any(ch in argv[3] for ch in _GLOB_METACHARACTERS), (
+            f"glob metacharacter in image tag: {joined}"
+        )
+
+
+def test_decommission_never_touches_images_even_with_local_personas_configured(
+    tmp_path, monkeypatch, fake_runtime
+):
+    """decommission stays containers+volumes only — image teardown is nuke's
+    responsibility alone, even when the facility config has local-mode personas
+    configured."""
+    monkeypatch.chdir(tmp_path)
+    config = _persona_config(["alice", "bob"], project_name="demo-project")
+    config_path = _write_config(tmp_path, config)
+
+    lifecycle.decommission_user(str(config_path), "alice", purge=True, assume_yes=True)
+
+    assert [c for c in fake_runtime if c[1] == "image" or "image" in c] == []
+
+
+def test_prune_never_touches_images_even_with_local_personas_configured(
+    tmp_path, monkeypatch, fake_runtime_prune
+):
+    """prune stays containers+volumes only — same boundary as decommission."""
+    calls, listing = fake_runtime_prune
+    monkeypatch.chdir(tmp_path)
+    config = _persona_config(["alice"], project_name="demo-project")
+    config_path = _write_config(tmp_path, config)
+    eve_claude, eve_agent = resolve_user_volume_names(config, "eve")
+    listing["containers"] = ["dls-web-eve"]
+    listing["volumes"] = [eve_claude, eve_agent]
+
+    lifecycle.prune_users(str(config_path), purge=True, assume_yes=True)
+
+    assert [c for c in calls if c[1] == "image" or "image" in c] == []
 
 
 # =============================================================================

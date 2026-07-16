@@ -5,6 +5,7 @@ import logging
 
 import pytest
 
+from osprey.deployment.web_terminals.render import render_web_terminals
 from osprey.registry.mcp import HOOK_PRESETS, resolve_agents, resolve_servers
 
 # ---------------------------------------------------------------------------
@@ -801,6 +802,60 @@ class TestTemplateRendering:
         controls = data["mcpServers"]["controls"]
         assert "command" in controls
         assert "type" not in controls
+
+    def test_topology_default_leaves_custom_url_server_untouched(self, template_manager):
+        """Regression guard (web-terminals Task 2.5): the `modules.web_terminals.
+        mcp.topology` fail-closed gate lives entirely in
+        `osprey.deployment.web_terminals.render`, a module that never reads
+        `claude_code.servers` and is never invoked by this project-level `.mcp.json`
+        pipeline. A project's own custom `url`-transport server must keep rendering
+        its `{type: "http", url: ...}` entry exactly as before, both on its own
+        (this assertion) and with a sibling facility config that carries the
+        default (or omitted) web-terminals topology present in the same overall
+        config (the `render_web_terminals()` call below, which must not raise and
+        must not consult `claude_code.servers` at all)."""
+        # `.mcp.json` side: the custom url server still resolves and renders
+        # exactly as it does without the topology key existing at all.
+        ctx = self._full_ctx(
+            _claude_code_config={
+                "servers": {
+                    "remote-api": {
+                        "url": "http://remote:8001/sse",
+                    }
+                }
+            }
+        )
+        rendered = self._render(template_manager, "claude_code/mcp.json.j2", ctx)
+        data = json.loads(rendered)
+        assert data["mcpServers"]["remote-api"] == {
+            "type": "http",
+            "url": "http://remote:8001/sse",
+        }
+
+        # web-terminals side: a sibling facility config with the default topology
+        # (here, simply omitted) renders clean, and the topology gate does not
+        # implicate this claude_code.servers stanza in any way.
+        facility_config = {
+            "facility": {"name": "Demo Light Source", "prefix": "dls"},
+            "registry": {"url": "git.dls.example.org:5050/physics/production/dls-profiles"},
+            "deploy": {"host": "dls-deploy", "fqdn": "dls-deploy.dls.example.org"},
+            "modules": {
+                "web_terminals": {
+                    "enabled": True,
+                    "nginx_port": 9080,
+                    "web_base_port": 9091,
+                    "artifact_base_port": 9291,
+                    "ariel_base_port": 9391,
+                    "lattice_base_port": 9491,
+                    "users": ["alice"],
+                }
+            },
+            # Same shape as the project-level config exercised above — present
+            # here only to prove render_web_terminals() never looks at it.
+            "claude_code": {"servers": {"remote-api": {"url": "http://remote:8001/sse"}}},
+        }
+        artifacts = render_web_terminals(facility_config)
+        assert "docker-compose.web.yml" in artifacts
 
     def test_render_settings_json(self, template_manager):
         """Rendered settings.json is valid JSON with permissions and hooks."""

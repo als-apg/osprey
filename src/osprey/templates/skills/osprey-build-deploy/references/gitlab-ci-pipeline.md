@@ -32,13 +32,13 @@ Read these from `facility-config.yml`:
 
 | Field | Source | Used for |
 |-------|--------|----------|
-| GitLab host | `${config.gitlab.host}` | Registry hostname, CI URLs, OSPREY mirror reachability |
-| Project path | `${config.gitlab.project_path}` | Image namespace, registry login target on the deploy server |
-| Project ID | `${config.gitlab.project_id}` | API URLs (`/api/v4/projects/${id}/...`) |
-| Default branch | `${config.gitlab.default_branch}` | Branch the release stage gates on |
-| PAT env var | `${config.gitlab.token_env_var}` | All authenticated git/registry/API calls |
+| GitLab host | `${config.ci.host}` | Registry hostname, CI URLs, OSPREY mirror reachability |
+| Project path | `${config.ci.project_path}` | Image namespace, registry login target on the deploy server |
+| Project ID | `${config.ci.project_id}` | API URLs (`/api/v4/projects/${id}/...`) |
+| Default branch | `${config.ci.default_branch}` | Branch the release stage gates on |
+| PAT env var | `${config.ci.token_env_var}` | All authenticated git/registry/API calls |
 
-The OSPREY framework itself is installed into the CI base image from a GitLab-reachable mirror (most facility GitLab instances cannot reach GitHub directly). That mirror is referenced inside `docker/Dockerfile.ci` — its location is not part of `facility-config.yml`, but the token used to clone it is `${config.gitlab.token_env_var}`.
+The OSPREY framework itself is installed into the CI base image from a GitLab-reachable mirror (most facility GitLab instances cannot reach GitHub directly). That mirror is referenced inside `docker/Dockerfile.ci` — its location is not part of `facility-config.yml`, but the token used to clone it is `${config.ci.token_env_var}`.
 
 `${config.registry.external_projects[*]}` lists sibling projects whose images this deploy also pulls (e.g., a separate team's service with its own pipeline). Each external project needs:
 - Its own deploy token created in that project, scope `read_registry`.
@@ -56,7 +56,7 @@ Required for every facility:
 | Variable name | Purpose |
 |---------------|---------|
 | `${config.llm.api_key_env_var}` | LLM provider key for the assistant (baked into web-terminal image's `.env.production` at build time) |
-| `${config.gitlab.token_env_var}` | Used by every CI job for git clone, registry login, API calls. Must have `api`, `read_registry`, and `write_registry` scopes |
+| `${config.ci.token_env_var}` | Used by every CI job for git clone, registry login, API calls. Must have `api`, `read_registry`, and `write_registry` scopes |
 
 Module-conditional variables (only required when the module is enabled in `facility-config.yml`):
 
@@ -81,7 +81,7 @@ Every image is tagged twice:
 
 Why two tags: separating "built" from "released" creates a manual gate. CI is allowed to build broken images; only an operator pressing the release button promotes them to `:latest`. This is the only protection between a bad commit and a production deploy.
 
-The release stage is restricted to `${config.gitlab.default_branch}` and configured `when: manual` (see Stage 5 below).
+The release stage is restricted to `${config.ci.default_branch}` and configured `when: manual` (see Stage 5 below).
 
 ---
 
@@ -100,13 +100,13 @@ Builds `${config.registry.url}/ci-base:latest` — the Python image with all pro
 **Why these triggers**: anything that affects the *contents* of the base image must rebuild it. The CI YAML is in the trigger list because tweaking job definitions sometimes reveals base-image gaps (e.g., a missing apt package); a manual rebuild is then needed to test the change.
 
 **What it does**:
-1. `docker login ${config.registry.url%%/*}` using `${config.gitlab.token_env_var}`.
+1. `docker login ${config.registry.url%%/*}` using `${config.ci.token_env_var}`.
 2. `docker build --no-cache -t ${config.registry.url}/ci-base:latest -f docker/Dockerfile.ci .`
 3. `docker push ${config.registry.url}/ci-base:latest`
 
 `--no-cache` is mandatory: pip layers cache aggressively and silently use stale OSPREY versions when the upstream pin advances. The trigger frequency is low enough that the ~2-minute rebuild is acceptable.
 
-**Env vars needed**: `${config.gitlab.token_env_var}`, plus proxy vars from `${config.network.*}` if the runner needs them to reach OSPREY's mirror.
+**Env vars needed**: `${config.ci.token_env_var}`, plus proxy vars from `${config.network.*}` if the runner needs them to reach OSPREY's mirror.
 
 ### Stage 2: `osprey-build`
 
@@ -150,7 +150,7 @@ Lightweight gates that fail the pipeline early.
 ### Stage 4: `docker-build` (parallel)
 
 One job per buildable image. Every job:
-1. Logs into `${config.registry.url%%/*}` using `${config.gitlab.token_env_var}`.
+1. Logs into `${config.registry.url%%/*}` using `${config.ci.token_env_var}`.
 2. Pulls the artifacts from `osprey-build`.
 3. Builds the image with `${env.CI_COMMIT_SHORT_SHA}` tag.
 4. Pushes the SHA-tagged image.
@@ -159,7 +159,9 @@ One job per buildable image. Every job:
 
 | Image | Dockerfile | Artifacts COPYed | Notes |
 |-------|------------|------------------|-------|
-| `web-terminal` | `docker/Dockerfile.web-terminal` | `artifacts/${config.facility.prefix}-assistant/`, `artifacts/.env.production` | Bakes Claude CLI, OSPREY, the rendered project, and the dispatch sidecar. Runs supervisord. |
+| `web-terminal` | `docker/Dockerfile.web-terminal` | `artifacts/${config.facility.prefix}-assistant/`, `artifacts/.env.production` | Bakes Claude CLI, OSPREY, the rendered project, and the dispatch sidecar. Runs supervisord. Uses the default values of the `OSPREY_PROJECT_SRC`/`OSPREY_PROJECT_NAME` build ARGs (see below) — no `--build-arg` overrides for this job. |
+
+**Per-persona web-terminal images** — in registry mode (`image_source: registry`, the default) with a `personas` catalog configured, one additional `build-web-terminal-<persona>` job per **non-default** persona, built from the *same* `docker/Dockerfile.web-terminal`, but with `--build-arg OSPREY_PROJECT_SRC=artifacts/personas/<name>/<project>` and `--build-arg OSPREY_PROJECT_NAME=<project>` overridden to COPY that persona's own rendered project (produced by a per-persona `osprey build` step in `osprey-build`) instead of the facility-default one. Pushed to its own `web-terminal-<persona>:$CI_COMMIT_SHORT_SHA` tag. Local mode (`image_source: local`) has no per-persona CI job — `deploy up` builds those images itself. Full ARG contract (why these two ARGs, the post-COPY path-regen step, and why they're not named `OSPREY_PROJECT_DIR`) is in `references/modules/web-terminals.md` § "Container path regeneration" — this is the authoritative source, don't re-derive it here.
 
 **Module-conditional images** — one per enabled module that owns a container:
 
@@ -185,14 +187,14 @@ docker-build-${each.name}:
 
 Each job pulls only the artifacts it needs (declared via `dependencies:`). A custom MCP server that lists `artifacts: ["artifacts/foo.db"]` in its config gets exactly that one file in its build context, not the full artifact set.
 
-**Env vars needed**: `${config.gitlab.token_env_var}` (or the per-job `${env.CI_JOB_TOKEN}`, which works for the same project's registry).
+**Env vars needed**: `${config.ci.token_env_var}` (or the per-job `${env.CI_JOB_TOKEN}`, which works for the same project's registry).
 
 ### Stage 5: `release` (manual, default-branch only)
 
 Re-tags every SHA-tagged image as `:latest`.
 
 **Restrictions**:
-- `only: [${config.gitlab.default_branch}]` — never runs on feature branches.
+- `only: [${config.ci.default_branch}]` — never runs on feature branches.
 - `when: manual` — only fires when an operator clicks "play" in the GitLab UI.
 
 **What it does**, for each built image:
@@ -207,12 +209,12 @@ docker push ${config.registry.url}/<image>:latest
 - **API**:
   ```bash
   # Find the job ID for the release stage on the latest pipeline
-  curl -s -H "PRIVATE-TOKEN: ${env.${config.gitlab.token_env_var}}" \
-    "https://${config.gitlab.host}/api/v4/projects/${config.gitlab.project_id}/pipelines?per_page=1" \
+  curl -s -H "PRIVATE-TOKEN: ${env.${config.ci.token_env_var}}" \
+    "https://${config.ci.host}/api/v4/projects/${config.ci.project_id}/pipelines?per_page=1" \
     | python3 -c "import json,sys;p=json.load(sys.stdin)[0];print(p['id'])"
   # then list jobs and POST /play to the release one:
-  curl -X POST -H "PRIVATE-TOKEN: ${env.${config.gitlab.token_env_var}}" \
-    "https://${config.gitlab.host}/api/v4/projects/${config.gitlab.project_id}/jobs/<job_id>/play"
+  curl -X POST -H "PRIVATE-TOKEN: ${env.${config.ci.token_env_var}}" \
+    "https://${config.ci.host}/api/v4/projects/${config.ci.project_id}/jobs/<job_id>/play"
   ```
 
 After the release job succeeds, the deploy server can `compose pull` and pick up the new images.
@@ -264,7 +266,7 @@ Before `osprey deploy up` runs, the operator (by hand or via a thin CI/cron trig
 ```bash
 cd ${config.deploy.project_path}
 git pull                                                                        # sync compose files, web-terminal context, .env.template
-echo "${env.${config.gitlab.token_env_var}}" \
+echo "${env.${config.ci.token_env_var}}" \
   | ${config.runtime.engine} login --username deploy --password-stdin "${config.registry.url%%/*}"  # registry login
 # IF MODULE registry.external_projects (any entries)
 # FOR each in registry.external_projects
@@ -287,11 +289,11 @@ which pulls every `${config.registry.url}/*` image, brings up (and, when `module
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| `docker login` fails with `denied: access forbidden` | `${config.gitlab.token_env_var}` lacks `read_registry`+`write_registry` scopes, or it's not protected/masked correctly | Recreate the PAT with `api`, `read_registry`, `write_registry`. Re-add to project CI/CD vars, mask + protect. |
+| `docker login` fails with `denied: access forbidden` | `${config.ci.token_env_var}` lacks `read_registry`+`write_registry` scopes, or it's not protected/masked correctly | Recreate the PAT with `api`, `read_registry`, `write_registry`. Re-add to project CI/CD vars, mask + protect. |
 | `osprey-build` fails with `command not found: osprey` | CI base image is stale — OSPREY moved on its mirror but base image still has old install | Manually trigger `build-ci-image`, or push a no-op change to `pyproject.toml`/`Dockerfile.ci` |
 | `osprey-build` fails with `KeyError: '<env-var>'` | Required env var listed in prod profile not in CI variables | Add the variable at Settings → CI/CD → Variables, masked + protected |
 | Custom MCP server build fails with `COPY failed: artifacts/foo.db not found` | The `osprey-build` stage didn't produce that artifact, or the custom server's `artifacts:` list doesn't match the actual build output paths | Check the `osprey-build` job logs; reconcile the paths in `modules.custom_mcp_servers.servers[*].artifacts` with what the build emits |
-| Pipeline passes but `:latest` is unchanged after release | Release job ran on a non-default branch, or the job is waiting on manual trigger | Confirm pipeline ran on `${config.gitlab.default_branch}`; click play on the release job |
+| Pipeline passes but `:latest` is unchanged after release | Release job ran on a non-default branch, or the job is waiting on manual trigger | Confirm pipeline ran on `${config.ci.default_branch}`; click play on the release job |
 | `release` job fails with `denied` on push | PAT scope issue (same as login failure) | See first row |
 | Web-terminal container has stale Claude project after deploy | The build pulled cached layers for `COPY artifacts/${config.facility.prefix}-assistant/`. Often happens when artifacts changed but Dockerfile didn't | Rebuild with `--no-cache` (add a CI knob, or trigger build-ci-image to invalidate) |
 | External project image fails to pull on deploy server | External project's deploy token expired or was rotated | Regenerate the token in the external project, update the value in `.env` on the deploy server |

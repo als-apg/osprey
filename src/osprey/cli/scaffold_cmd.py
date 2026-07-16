@@ -16,6 +16,7 @@ import yaml
 
 from osprey.cli.styles import console
 from osprey.cli.templates.manager import TemplateManager
+from osprey.deployment.facility_config import normalize_facility_config
 from osprey.services.build_artifacts.catalog import BuildArtifactCatalog
 from osprey.services.build_artifacts.ownership import (
     get_user_owned,
@@ -48,7 +49,7 @@ def _load_facility_config(config_path: str) -> dict[str, Any]:
     exists.
     """
     with open(config_path, encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+        return normalize_facility_config(yaml.safe_load(f) or {})
 
 
 @click.group(name="scaffold", invoke_without_command=True)

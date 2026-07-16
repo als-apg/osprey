@@ -134,8 +134,8 @@ This is the canonical deploy path. Every facility's pipeline has the same shape;
                                                                                compose pull
                                                                                compose up -d
                                                                                reconcile + seed web terminals (if enabled)
+                                                                               verify.sh (auto-run, advisory — exit code ignored)
                                                                                ── osprey deploy up ends here ──
-                                                                               verify.sh (operator, run manually — advisory, not auto-run)
 ```
 
 The on-server entrypoint is the `osprey deploy` CLI command (installed with OSPREY on the deploy server), not a generated shell script. It owns the entire container + multi-user web-terminal lifecycle: bringing the stack up, tearing it down, and per-user provisioning/removal.
@@ -144,11 +144,11 @@ The on-server entrypoint is the `osprey deploy` CLI command (installed with OSPR
 
 ```bash
 # 1. Push (triggers CI)
-git push ${config.gitlab.remote_name} ${config.gitlab.default_branch}
+git push ${config.ci.remote_name} ${config.ci.default_branch}
 
 # 2. Watch the pipeline until status: "manual"
-curl -s --header "PRIVATE-TOKEN: $${config.gitlab.token_env_var}" \
-  "https://${config.gitlab.host}/api/v4/projects/${config.gitlab.project_id}/pipelines?per_page=1" \
+curl -s --header "PRIVATE-TOKEN: $${config.ci.token_env_var}" \
+  "https://${config.ci.host}/api/v4/projects/${config.ci.project_id}/pipelines?per_page=1" \
   | python3 -m json.tool
 
 # 3. Trigger the manual `release` job (GitLab UI, or POST to /jobs/<id>/play)
@@ -163,7 +163,7 @@ ssh ${config.deploy.host} "cd ${config.deploy.project_path} && osprey deploy nuk
 
 | `osprey deploy` verb | What it does |
 |-----------------------|---------------|
-| `up` | Reconciles services + web-terminal users idempotently (`compose pull` + `compose up -d`), then seeds each live web-terminal container's CLAUDE.md and skills. Safe to re-run — a no-op second run recreates nothing |
+| `up` | Reconciles services + web-terminal users idempotently (`compose pull` + `compose up -d`), then seeds each live web-terminal container's CLAUDE.md and skills, then auto-runs `verify.sh` (advisory — exit code ignored). Safe to re-run — a no-op second run recreates nothing |
 | `down` / `restart` | Stop / restart the running stack without touching images or volumes |
 | `status` | Per-service health, plus per-user web-terminal health and volume presence |
 | `decommission <user> [--archive\|--purge]` | Remove a single user's web-terminal workspace (container + roster entry); volumes are retained by default |
@@ -174,12 +174,12 @@ ssh ${config.deploy.host} "cd ${config.deploy.project_path} && osprey deploy nuk
 
 Operator/CI responsibilities that happen **before** `osprey deploy up` — these are environment prep, not part of the deploy lifecycle itself:
 - **Code checkout** — `git pull` (or whatever CI already does to sync the profile repo) so the running config, compose files, and web-terminal context reflect the pushed commit.
-- **Registry login** — `${config.runtime.engine} login` against `${config.registry.url}` with `${config.gitlab.token_env_var}`, so `compose pull` can fetch the `:latest` images the release job just tagged.
+- **Registry login** — `${config.runtime.engine} login` against `${config.registry.url}` with `${config.ci.token_env_var}`, so `compose pull` can fetch the `:latest` images the release job just tagged.
 - **Secrets provisioning** — `.env` exists on the server with every value `.env.template` lists (see `references/deploy-server.md`).
 
 `osprey deploy up` assumes all three are already in place; it does not perform them itself.
 
-`verify.sh` runs manually after a deploy (see `references/deploy-server.md` § Verifying a deploy) and is **advisory** — it never fails the deploy, just reports health. If it surfaces a real problem, the operator decides what to do.
+`verify.sh` is auto-run by `osprey deploy up` as its last step (see `references/deploy-server.md` § Verifying a deploy) and is **advisory** — its exit code is ignored and it never fails the deploy, just reports health. It's also runnable by hand at any time. If it surfaces a real problem, the operator decides what to do.
 
 ### What NOT to do before deploying
 
@@ -196,7 +196,7 @@ These are anti-patterns the operations team learned to avoid:
 ### Pre-deploy checklist (substitute from config)
 
 1. Working tree clean: `git status` shows nothing.
-2. Pushed: `git push ${config.gitlab.remote_name} ${config.gitlab.default_branch}`.
+2. Pushed: `git push ${config.ci.remote_name} ${config.ci.default_branch}`.
 3. CI passes through `docker-build` and lands at `release` (manual gate).
 4. Trigger the release job (re-tags all images as `:latest`).
 5. On the server: `git pull` (env-prep), then `osprey deploy up`.

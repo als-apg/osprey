@@ -32,8 +32,9 @@ import tarfile
 from pathlib import Path
 from typing import Any
 
+from osprey.deployment.facility_config import normalize_facility_config
 from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
-from osprey.deployment.web_terminals.ports import normalize_users
+from osprey.deployment.web_terminals.ports import normalize_users, resolve_personas
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.logger import get_logger
 
@@ -106,7 +107,7 @@ def seed_web_terminals(config_path: str | Path, user: str | None = None) -> None
         ValueError: If ``user`` is given but not present in
             ``modules.web_terminals.users``.
     """
-    config = ConfigBuilder(str(config_path)).raw_config
+    config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
     seed_user_containers(config, user=user)
 
 
@@ -134,8 +135,17 @@ def seed_user_containers(
     problem, so it aborts before any user is touched. No-op if web terminals
     are disabled or the roster is empty (and ``user`` was not given).
 
+    Each user's skills target directory is derived from their resolved
+    persona's ``container_project_dir`` (via :func:`ports.resolve_personas`,
+    ``strict=True``) rather than a hardcoded ``<facility_prefix>-assistant``
+    path, so a user on a non-default persona gets skills seeded into their
+    own project's ``.claude/skills``. ``CLAUDE.md`` seeding is unaffected by
+    persona — the ``base.md``/``extra.md`` overlay convention and its target
+    path are the same for every user regardless of persona.
+
     Args:
-        config: Parsed facility config (a ``ConfigBuilder.raw_config`` dict).
+        config: Parsed, normalizer-wrapped facility config (a ``ConfigBuilder``
+            raw-config dict).
         user: If given, seed only this user's container; a user not present in
             ``modules.web_terminals.users`` raises rather than silently
             no-op'ing. If ``None`` (default), seed every user on the roster.
@@ -148,7 +158,10 @@ def seed_user_containers(
             if at least one container was ready and every ready container's
             seed failed.
         ValueError: If ``user`` is given but not present in
-            ``modules.web_terminals.users``.
+            ``modules.web_terminals.users``, or if a roster entry's persona
+            reference cannot be resolved against
+            ``modules.web_terminals.personas`` (see
+            :func:`ports.resolve_personas`).
     """
     modules = config.get("modules") or {}
     web_terminals = modules.get("web_terminals") or {}
@@ -178,14 +191,23 @@ def seed_user_containers(
     runtime = get_runtime_command(config)[0]
     run_env = env if env is not None else runtime_env(config)
     facility_prefix = (config.get("facility") or {}).get("prefix") or ""
-    # Project scope, not $CLAUDE_CONFIG_DIR — the launcher runs the CLI with
-    # --setting-sources project, which makes $CLAUDE_CONFIG_DIR/skills/ inert.
-    project_skills_dir = f"/app/{facility_prefix}-assistant/.claude/skills"
+    registry_cfg = config.get("registry") or {}
+    # strict=True: an unresolvable persona reference is a misconfiguration, not a
+    # per-user issue, so it raises here — before any container is touched — same
+    # as the base.md check above.
+    resolved_by_name = {
+        entry["name"]: entry
+        for entry in resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=True)
+    }
 
     logger.info("Seeding per-user CLAUDE.md and skills into claude-config volumes...")
     attempted = 0
     failed = 0
     for entry in targets:
+        container_project_dir = resolved_by_name[entry["name"]]["container_project_dir"]
+        # Project scope, not $CLAUDE_CONFIG_DIR — the launcher runs the CLI with
+        # --setting-sources project, which makes $CLAUDE_CONFIG_DIR/skills/ inert.
+        project_skills_dir = f"{container_project_dir}/.claude/skills"
         outcome = _seed_one_user(
             runtime, entry["name"], facility_prefix, base_content, project_skills_dir, env=run_env
         )

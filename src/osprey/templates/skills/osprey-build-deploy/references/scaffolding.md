@@ -29,7 +29,7 @@ When you see `${config.X.Y}` in a template, substitute the value from the loaded
 | Placeholder | Source | Example resolved value |
 |-------------|--------|------------------------|
 | `${config.facility.prefix}` | `facility.prefix` | `als` |
-| `${config.gitlab.host}` | `gitlab.host` | `git.als.lbl.gov` |
+| `${config.ci.host}` | `ci.host` | `git.als.lbl.gov` |
 | `${config.deploy.host}` | `deploy.host` | `appsdev2` |
 | `${config.registry.url}` | `registry.url` | `git.als.lbl.gov:5050/physics/production/als-profiles` |
 | `${config.ports.matlab}` | `ports.matlab` | `8001` |

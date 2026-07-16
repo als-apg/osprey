@@ -14,7 +14,13 @@ from __future__ import annotations
 import pytest
 from click.testing import CliRunner
 
-from osprey.cli.web_cmd import DECLARED_BIND_ENV, resolve_bind_host, web
+from osprey.cli.web_cmd import (
+    DECLARED_BIND_ENV,
+    DECLARED_WEB_PORT_ENV,
+    resolve_bind_host,
+    resolve_web_port,
+    web,
+)
 
 
 @pytest.fixture
@@ -36,7 +42,7 @@ def _isolate_bind_and_port_env(monkeypatch):
     state (present or absent) at teardown, regardless of what the app wrote
     in between.
     """
-    for _key in ("OSPREY_WEB_PORT", DECLARED_BIND_ENV):
+    for _key in ("OSPREY_WEB_PORT", DECLARED_BIND_ENV, DECLARED_WEB_PORT_ENV):
         monkeypatch.setenv(_key, "__unset_by_test_fixture__")
         monkeypatch.delenv(_key)
 
@@ -191,6 +197,107 @@ class TestPortEnvvar:
             "osprey.interfaces.web_terminal.run_web", lambda **kw: captured.update(kw)
         )
 
+        result = runner.invoke(
+            web,
+            ["--port", str(flag_port), "--shell", "true", "--skip-preflight"],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert captured.get("port") == flag_port
+
+
+class TestResolveWebPort:
+    """Pure resolver: declared env authoritative; CLI/config only as fallback."""
+
+    def test_declared_web_port_env_overrides_explicit_port(self):
+        assert resolve_web_port(9000, None, {DECLARED_WEB_PORT_ENV: "8087"}) == 8087
+
+    def test_no_env_honors_explicit_port(self):
+        assert resolve_web_port(9000, None, {}) == 9000
+
+    def test_deliberate_matching_declaration(self):
+        """A deployment CAN declare the same port the flag already requests —
+        the invariant is "declared wins", not "flag is always rejected"."""
+        assert resolve_web_port(8087, None, {DECLARED_WEB_PORT_ENV: "8087"}) == 8087
+
+    def test_falls_back_to_config_then_default(self):
+        assert resolve_web_port(None, 9100, {}) == 9100
+        assert resolve_web_port(None, None, {}) == 8087
+
+
+class TestWebCommandHonorsDeclaredWebPortEnv:
+    """The load-bearing wiring guard: the reconciled port must actually reach
+    the server entrypoint, not just the pure resolver."""
+
+    def _stub_launch(self, monkeypatch):
+        monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", lambda **_kw: None)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+
+    def test_multiuser_env_pins_port_reaches_run_web(self, runner, monkeypatch):
+        """A stale/hostile image CMD passes a mismatched --port, but the
+        multi-user container has declared OSPREY_TERMINAL_WEB_PORT. The port
+        that reaches run_web must be the declared one, NOT the flag —
+        otherwise nginx's per-user upstream mapping desyncs from the
+        container's actual listener."""
+        declared_port = _free_port()
+        monkeypatch.setenv(DECLARED_WEB_PORT_ENV, str(declared_port))
+        captured = {}
+
+        def _fake_run_web(**kwargs):
+            captured.update(kwargs)
+
+        monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", _fake_run_web)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+
+        result = runner.invoke(
+            web,
+            [
+                "--port",
+                str(_free_port()),
+                "--shell",
+                "true",
+                "--skip-preflight",
+            ],
+            catch_exceptions=False,
+        )
+
+        assert result.exit_code == 0
+        assert captured.get("port") == declared_port
+
+    def test_notice_printed_when_declared_env_overrides_port_flag(self, runner, monkeypatch):
+        declared_port = _free_port()
+        monkeypatch.setenv(DECLARED_WEB_PORT_ENV, str(declared_port))
+        self._stub_launch(monkeypatch)
+
+        result = runner.invoke(
+            web,
+            [
+                "--port",
+                str(_free_port()),
+                "--shell",
+                "true",
+                "--skip-preflight",
+            ],
+            catch_exceptions=False,
+        )
+
+        assert "NOTICE" in result.output
+        assert DECLARED_WEB_PORT_ENV in result.output
+
+    def test_single_user_no_env_keeps_explicit_port(self, runner, monkeypatch):
+        """Without the declared env (single-user `osprey web`), --port must
+        still work exactly as before."""
+        monkeypatch.delenv(DECLARED_WEB_PORT_ENV, raising=False)
+        captured = {}
+
+        def _fake_run_web(**kwargs):
+            captured.update(kwargs)
+
+        monkeypatch.setattr("osprey.interfaces.web_terminal.run_web", _fake_run_web)
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+
+        flag_port = _free_port()
         result = runner.invoke(
             web,
             ["--port", str(flag_port), "--shell", "true", "--skip-preflight"],

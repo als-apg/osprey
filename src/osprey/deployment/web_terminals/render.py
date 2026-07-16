@@ -17,7 +17,8 @@ from jinja2 import Environment, FileSystemLoader
 from osprey.deployment.web_terminals.ports import (
     allocate_ports,
     base_ports_from_config,
-    normalize_users,
+    effective_image_source,
+    resolve_personas,
 )
 
 # Package-relative location of the .j2 sources (Tasks 1.3/1.6). Resolved via
@@ -44,6 +45,14 @@ _LANDING_OUTPUT = "nginx/landing.html"
 # provide.
 _LOOPBACK_BIND_HOST = "127.0.0.1"
 
+# Task 2.5: the only wired value for `modules.web_terminals.mcp.topology`. Every
+# other value (including the recognized-but-rejected `shared_http`) is fail-closed
+# at render time — see `_check_mcp_topology()`. This key is scoped to the shared
+# framework-MCP tier only; it has no bearing on a facility's own
+# `claude_code.servers` custom entries (those render through the unrelated
+# per-project `.mcp.json` pipeline, untouched by this module).
+_SUPPORTED_MCP_TOPOLOGY = "per_container_stdio"
+
 
 def render_web_terminals(config: Any) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
@@ -62,23 +71,36 @@ def render_web_terminals(config: Any) -> dict[str, str]:
 
     Raises:
         ValueError: If ``modules.web_terminals.nginx_port`` is missing/not an int,
-            if a configured user can't resolve a full four-family port set, or if
+            if a configured user can't resolve a full four-family port set, if
             ``deploy.fqdn`` is missing while at least one user is configured (the
-            landing-origin host baked into ``OSPREY_TERMINAL_LANDING_URL``).
+            landing-origin host baked into ``OSPREY_TERMINAL_LANDING_URL``), if
+            a roster entry's persona reference can't be resolved (see
+            :func:`osprey.deployment.web_terminals.ports.resolve_personas`'s
+            ``strict`` contract — render always resolves strictly), or if
+            ``modules.web_terminals.mcp.topology`` is set to anything other than
+            ``per_container_stdio`` (see :func:`_check_mcp_topology`).
     """
     root = _as_dict(config)
     facility = _as_dict(root.get("facility"))
     registry = _as_dict(root.get("registry"))
     web_terminals = _as_dict(_as_dict(root.get("modules")).get("web_terminals"))
+    facility_prefix = facility.get("prefix") or ""
 
-    users_raw = web_terminals.get("users")
-    normalized_users = normalize_users(users_raw)
-    users = [entry["name"] for entry in normalized_users]
+    _check_mcp_topology(web_terminals)
+
+    resolved_users = resolve_personas(web_terminals, registry, facility_prefix, strict=True)
+    users = [entry["name"] for entry in resolved_users]
 
     base_ports = base_ports_from_config(web_terminals)
     services = [
-        {"user": entry["name"], **allocate_ports(base_ports, entry["index"])}
-        for entry in normalized_users
+        {
+            "user": entry["name"],
+            "image": entry["image"],
+            "project": entry["project"],
+            "container_project_dir": entry["container_project_dir"],
+            **allocate_ports(base_ports, entry["index"]),
+        }
+        for entry in resolved_users
     ]
 
     nginx_port = web_terminals.get("nginx_port")
@@ -87,9 +109,12 @@ def render_web_terminals(config: Any) -> dict[str, str]:
 
     landing_url = _landing_url(root, nginx_port) if services else ""
 
+    image_source = effective_image_source(web_terminals)
+
     compose_ctx = {
-        "facility_prefix": facility.get("prefix") or "",
+        "facility_prefix": facility_prefix,
         "registry_url": registry.get("url") or "",
+        "image_source": image_source,
         "services": services,
         "nginx_port": nginx_port,
         "landing_url": landing_url,
@@ -219,6 +244,45 @@ def _auth_tls_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
         "tls_cert": tls.get("cert"),
         "tls_key": tls.get("key"),
     }
+
+
+def _check_mcp_topology(web_terminals: dict[str, Any]) -> None:
+    """Fail closed on any ``modules.web_terminals.mcp.topology`` value other than
+    the one wired topology, ``per_container_stdio`` (Task 2.5).
+
+    Only two of the framework's eight MCP servers (``channel-finder`` and
+    ``facility-knowledge``) were found to be safely shareable across a shared
+    HTTP tier without per-user-state corruption — not enough to justify
+    building and securing a whole shared tier this phase. ``shared_http`` is
+    therefore a *recognized but rejected* schema value: it lints as an ERROR
+    (Task 2.4) and raises here at render time. See
+    ``references/modules/web-terminals.md`` for the full deferral rationale.
+
+    This check is scoped to the shared **framework**-MCP tier only. It has
+    nothing to do with, and never rejects, a facility's own
+    ``claude_code.servers`` custom ``url``/HTTP entries — those are a
+    separate, already-supported path (resolved by
+    :func:`osprey.registry.mcp.resolve_servers` into each project's own
+    ``.mcp.json``) that this module never reads or touches.
+
+    Args:
+        web_terminals: The already-unwrapped ``modules.web_terminals`` dict.
+
+    Raises:
+        ValueError: If ``mcp.topology`` is set to anything other than
+            ``per_container_stdio`` (including ``shared_http`` and any other
+            unrecognized value).
+    """
+    mcp_cfg = _as_dict(web_terminals.get("mcp"))
+    topology = mcp_cfg.get("topology") or _SUPPORTED_MCP_TOPOLOGY
+    if topology != _SUPPORTED_MCP_TOPOLOGY:
+        raise ValueError(
+            f"modules.web_terminals.mcp.topology {topology!r} is not wired yet for "
+            "the shared framework-MCP tier; per_container_stdio is the only "
+            "supported topology (a facility's own claude_code.servers custom "
+            "`url` entries are a separate, already-supported path and are "
+            "unaffected by this restriction)."
+        )
 
 
 def _as_dict(value: Any) -> dict[str, Any]:

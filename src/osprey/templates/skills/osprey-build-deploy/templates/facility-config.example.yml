@@ -42,10 +42,15 @@ control_system:
   archiver_url: "http://arch.dls.example.org:17668"
 
 # -----------------------------------------------------------------------------
-# GitLab — where source lives and CI runs.
+# CI/CD provider — where source lives and CI runs. `provider` mirrors the
+# `llm.provider` enum pattern; `gitlab` is the only value with a shipped CI
+# template today. A legacy `gitlab:` block (no `provider` key) is still read
+# via the facility-config normalizer, aliased to this shape with a deprecation
+# warning — new configs should write `ci:` directly.
 # token_env_var holds the NAME of the env var, never the token value itself.
 # -----------------------------------------------------------------------------
-gitlab:
+ci:
+  provider: "gitlab"                     # gitlab | other (see facility-config-schema.md)
   host: "git.dls.example.org"
   remote_name: "gitlab"
   default_branch: "main"
@@ -55,11 +60,14 @@ gitlab:
 
 # -----------------------------------------------------------------------------
 # Container registry — where CI pushes built images and `osprey deploy up` pulls from.
-# external_projects covers other GitLab projects whose images this deploy
-# also pulls (each needs its own deploy token).
+# token_env_var is optional and defaults to ci.token_env_var when unset; set it
+# explicitly only to decouple registry auth from the CI token (e.g. a dedicated
+# deploy token). external_projects covers other GitLab projects whose images
+# this deploy also pulls (each needs its own deploy token).
 # -----------------------------------------------------------------------------
 registry:
   url: "git.dls.example.org:5050/physics/production/dls-profiles"
+  # token_env_var: "DLS_REGISTRY_TOKEN"   # uncomment to decouple from ci.token_env_var
   external_projects:
     - name: "beam-viewer"
       url: "git.dls.example.org:5050/physics/production/beam-viewer"
@@ -183,6 +191,25 @@ modules:
     users:
       - alice
       - bob
+      - name: "carol"                    # object-form entry — same container, explicit fields
+        index: 2                        # required for object-form entries — explicit port-offset
+        persona: "analysis"              # references personas.analysis below
+    # image_source/personas/mcp below are OPTIONAL — omitting them entirely is the
+    # zero-migration path: one shared image, one shared project, exactly today's
+    # behavior. This example exercises the heterogeneous-persona shape instead.
+    image_source: "registry"             # registry (default) | local — see facility-config-schema.md
+    default_persona: "assistant"         # required when image_source: local
+    personas:
+      assistant:                        # default persona — alice, bob resolve here
+        project: "dls-assistant"
+        project_path: "../dls-assistant"
+        build_profile: "profiles/assistant.yml"
+      analysis:                         # non-default persona — only carol uses this one
+        project: "dls-analysis"
+        project_path: "../dls-analysis"
+        build_profile: "profiles/analysis.yml"
+    mcp:
+      topology: "per_container_stdio"    # only accepted value; shared_http is rejected fail-closed
     landing:                             # grouped landing page served at nginx_port
       groups:
         - type: "users"                  # auto-populated: one card per user above

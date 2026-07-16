@@ -12,29 +12,41 @@
 
     facility_prefix: str
       facility.prefix from facility-config.yml (e.g. "als"). Used for
-      container_name (`<prefix>-web-<user>`, `<prefix>-nginx`) and the
-      per-user agent-data mount path (`/app/<prefix>-assistant/_agent_data`).
+      container_name (`<prefix>-web-<user>`, `<prefix>-nginx`) only — the
+      per-user agent-data mount path comes from each service's own
+      `container_project_dir` (below), not this field, so a persona-resolved
+      user's mount can differ from the facility-prefix default.
 
     registry_url: str
-      registry.url from facility-config.yml. The per-user image is
-      `<registry_url>/web-terminal:latest` — ONE shared image for every user,
-      baked at CI time (see references/modules/web-terminals.md); same
-      convention as the `ariel-sync` service in templates/core/docker-compose.yml.
+      registry.url from facility-config.yml. NOT read directly by this
+      template's per-user image line (that comes pre-resolved as `svc.image`,
+      below) — kept in the render context for the nginx/landing sibling
+      templates and any future use, per the same convention as the
+      `ariel-sync` service in templates/core/docker-compose.yml.
 
     services: list[dict], required (may be empty — the 0-user case)
       ONE entry per configured user, PRE-BUILT by render.py from
-      `modules.web_terminals.users[]` + `allocate_ports()`
-      (deployment/web_terminals/ports.py) — port arithmetic stays in Python;
-      this template only iterates. Each entry is `{"user": str, **allocate_ports(base_ports, index)}`,
-      i.e. `allocate_ports()`'s own family keys, unrenamed:
+      `resolve_personas()` (deployment/web_terminals/ports.py) +
+      `allocate_ports()` — persona resolution and port arithmetic both stay
+      in Python; this template only iterates. Each entry is
+      `{"user": str, "image": str, "project": str, "container_project_dir": str,
+      **allocate_ports(base_ports, index)}`:
         {
-          "user": str,       # bare username, e.g. "thellert"
-          "web": int,        # web_base_port + index      -> OSPREY_WEB_PORT
+          "user": str,                  # bare username, e.g. "thellert"
+          "image": str,                 # resolved by resolve_personas() -> per-svc `image:`
+          "project": str,               # resolved by resolve_personas() (not read by this template)
+          "container_project_dir": str, # resolved by resolve_personas() -> agent-data mount root
+          "web": int,        # web_base_port + index      -> OSPREY_WEB_PORT / OSPREY_TERMINAL_WEB_PORT
           "artifact": int,   # artifact_base_port + index -> OSPREY_ARTIFACT_SERVER_PORT
           "ariel": int,      # ariel_base_port + index    -> OSPREY_ARIEL_PORT
           "lattice": int,    # lattice_base_port + index  -> OSPREY_LATTICE_DASHBOARD_PORT
         }
-      render.py MUST NOT include an entry whose "user" is "nginx" (reserved
+      A no-personas config (the zero-migration path) resolves every entry's
+      `image` to the same `<registry_url>/web-terminal:latest` this template
+      used to build directly, and every entry's `container_project_dir` to
+      `/app/<facility_prefix>-assistant` — byte-identical output to before
+      personas existed (see resolve_personas()'s docstring). render.py MUST
+      NOT include an entry whose "user" is "nginx" (reserved
       service name; enforced by the lint (Task 1.5) against facility-config).
       This template ALSO refuses to render such a `services` list (see the
       loop below) — belt-and-suspenders, because a `services:` mapping with
@@ -125,7 +137,7 @@ services:
 {% endif %}
 
   web-{{ svc.user }}:
-    image: {{ registry_url }}/web-terminal:latest
+    image: {{ svc.image }}
     container_name: {{ facility_prefix }}-web-{{ svc.user }}
     restart: unless-stopped
     network_mode: host
@@ -137,13 +149,14 @@ services:
       - OSPREY_TERMINAL_USER={{ svc.user }}
       - OSPREY_TERMINAL_LANDING_URL={{ landing_url }}
       - OSPREY_TERMINAL_BIND_HOST={{ bind_host }}
+      - OSPREY_TERMINAL_WEB_PORT={{ svc.web }}
       - OSPREY_WEB_PORT={{ svc.web }}
       - OSPREY_ARTIFACT_SERVER_PORT={{ svc.artifact }}
       - OSPREY_ARIEL_PORT={{ svc.ariel }}
       - OSPREY_LATTICE_DASHBOARD_PORT={{ svc.lattice }}
     volumes:
       - {{ svc.user }}-claude-config:/data/claude-config
-      - {{ svc.user }}-agent-data:/app/{{ facility_prefix }}-assistant/_agent_data
+      - {{ svc.user }}-agent-data:{{ svc.container_project_dir }}/_agent_data
     healthcheck:
       # osprey web's own default listen port is the fixed constant 8087
       # (cli/web_cmd.py) — only relevant to a bare `osprey web` with no
