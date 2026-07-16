@@ -476,3 +476,560 @@ def test_lint_object_form_duplicate_name_is_still_a_duplicate_user_error() -> No
     # Assert
     errors = _errors(findings)
     assert any(f.code == "web_terminals.duplicate_user" for f in errors)
+
+
+# --- Task 2.3: persona catalog identity/reference checks ---------------------
+
+
+def test_lint_clean_persona_catalog_reports_no_error_findings() -> None:
+    """A well-formed catalog with a valid default_persona and a matching
+    explicit reference must not trip any of the new persona checks."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["registry"] = {"url": "registry.example.org:5050"}
+    config["modules"]["web_terminals"]["personas"] = {
+        "assistant": {"project": "als-assistant"},
+        "analysis": {"project": "als-analysis", "build_profile": "profiles/analysis.yml"},
+    }
+    config["modules"]["web_terminals"]["default_persona"] = "assistant"
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0},
+        {"name": "gmartino", "index": 1, "persona": "analysis"},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _errors(findings) == []
+
+
+def test_lint_unknown_explicit_persona_reference_is_an_error() -> None:
+    """A roster entry's own `persona:` key must name a catalog entry."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["personas"] = {"assistant": {"project": "als-assistant"}}
+    config["modules"]["web_terminals"]["default_persona"] = "assistant"
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0, "persona": "ghost"}
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    unknown_ref = [f for f in errors if f.code == "web_terminals.unknown_persona_reference"]
+    assert unknown_ref
+    assert any("thellert" in f.message and "ghost" in f.message for f in unknown_ref)
+
+
+def test_lint_unknown_inherited_default_persona_reference_is_an_error() -> None:
+    """A user with no `persona:` of its own inherits `default_persona`; if that
+    name isn't in the catalog, the inherited reference is unresolvable too."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["personas"] = {"assistant": {"project": "als-assistant"}}
+    config["modules"]["web_terminals"]["default_persona"] = "ghost"
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.unknown_persona_reference" for f in errors)
+
+
+def test_lint_default_persona_not_in_catalog_is_an_error() -> None:
+    """`default_persona` must itself name a catalog entry."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["personas"] = {"assistant": {"project": "als-assistant"}}
+    config["modules"]["web_terminals"]["default_persona"] = "ghost"
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.unknown_default_persona" for f in errors)
+    assert any(
+        "ghost" in f.message for f in errors if f.code == "web_terminals.unknown_default_persona"
+    )
+
+
+def test_lint_default_persona_in_catalog_reports_no_error() -> None:
+    """A `default_persona` that does name a catalog entry must not be flagged."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["personas"] = {"assistant": {"project": "als-assistant"}}
+    config["modules"]["web_terminals"]["default_persona"] = "assistant"
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert not any(f.code == "web_terminals.unknown_default_persona" for f in errors)
+
+
+def test_lint_persona_catalog_bad_charset_is_an_error() -> None:
+    """A persona catalog key becomes an image-tag suffix and a path component;
+    it's held to the same charset as usernames."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["personas"] = {"Bad Persona": {"project": "als-x"}}
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.invalid_persona_charset" for f in errors)
+
+
+def test_lint_persona_catalog_reserved_name_is_an_error() -> None:
+    """A persona named 'nginx' collides with the same reserved-name closed set
+    held over usernames."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["personas"] = {"nginx": {"project": "als-x"}}
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.persona_reserved_name" for f in errors)
+
+
+def test_lint_no_personas_catalog_reports_no_persona_findings() -> None:
+    """A config predating persona catalogs (no `personas:` block, no `persona:`
+    keys, no `default_persona`) must resolve every entry as zero-migration and
+    trip none of the new persona checks."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    persona_codes = {
+        "web_terminals.invalid_persona_charset",
+        "web_terminals.persona_reserved_name",
+        "web_terminals.unknown_default_persona",
+        "web_terminals.unknown_persona_reference",
+    }
+    assert not any(f.code in persona_codes for f in findings)
+
+
+# --- Task 2.4: mode-coherence checks -----------------------------------------
+
+
+def _persona_config(**overrides: object) -> dict:
+    """A minimal config with a persona catalog in effect, for the mode-coherence
+    tests below. Callers override/add keys under `modules.web_terminals` and/or
+    the top-level `registry` section via the two supported override kwargs."""
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    web_terminals_overrides = overrides.pop("web_terminals", {})
+    registry_overrides = overrides.pop("registry", None)
+    assert not overrides, f"unsupported override keys: {sorted(overrides)}"
+    config["modules"]["web_terminals"]["personas"] = {
+        "assistant": {"project": "als-assistant"},
+    }
+    config["modules"]["web_terminals"]["default_persona"] = "assistant"
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": 0}]
+    config["modules"]["web_terminals"].update(web_terminals_overrides)
+    if registry_overrides is not None:
+        config["registry"] = registry_overrides
+    return config
+
+
+def test_lint_unknown_image_source_is_an_error() -> None:
+    """An `image_source` value that is neither `registry` nor `local` is an error."""
+    # Arrange
+    config = _persona_config(
+        web_terminals={"image_source": "s3"}, registry={"url": "registry.example.org:5050"}
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.unknown_image_source" for f in errors)
+    assert any("s3" in f.message for f in errors if f.code == "web_terminals.unknown_image_source")
+
+
+def test_lint_registry_mode_without_registry_url_is_an_error() -> None:
+    """`image_source: registry` (the default) needs registry.url to pull images."""
+    # Arrange
+    config = _persona_config()  # image_source unset -> registry; no registry.url
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.registry_mode_missing_url" for f in errors)
+
+
+def test_lint_registry_mode_with_registry_url_reports_no_missing_url_error() -> None:
+    """A registry.url that is actually set clears the coherence error."""
+    # Arrange
+    config = _persona_config(registry={"url": "registry.example.org:5050"})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert not any(f.code == "web_terminals.registry_mode_missing_url" for f in errors)
+
+
+def test_lint_no_persona_catalog_does_not_require_registry_url() -> None:
+    """Zero-migration path: a config with no personas catalog at all never
+    triggers the registry.url coherence check, even with zero registry.url."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert not any(f.code == "web_terminals.registry_mode_missing_url" for f in errors)
+
+
+def test_lint_local_mode_with_registry_url_is_a_warning() -> None:
+    """`image_source: local` never reads registry.url; setting it anyway warns."""
+    # Arrange
+    config = _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "personas": {"assistant": {"project": "als-assistant", "project_path": "/nonexistent"}},
+        },
+        registry={"url": "registry.example.org:5050"},
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    warnings = _warnings(findings)
+    assert any(f.code == "web_terminals.local_mode_unused_registry_url" for f in warnings)
+
+
+def test_lint_local_mode_without_catalog_is_an_error() -> None:
+    """`image_source: local` requires both a catalog and a default_persona —
+    the lint-side mirror of resolve_personas()'s strict ValueError guard."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["image_source"] = "local"
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.local_mode_requires_catalog" for f in errors)
+
+
+def test_lint_local_mode_without_default_persona_is_an_error() -> None:
+    """A catalog alone isn't enough for local mode; default_persona is also required."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["image_source"] = "local"
+    config["modules"]["web_terminals"]["personas"] = {
+        "assistant": {"project": "als-assistant", "project_path": "/nonexistent"}
+    }
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.local_mode_requires_catalog" for f in errors)
+
+
+def test_lint_local_mode_missing_project_path_is_an_error() -> None:
+    """A referenced persona with no `project_path` set can't be built locally."""
+    # Arrange
+    config = _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "personas": {"assistant": {"project": "als-assistant"}},
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.persona_missing_project_path" for f in errors)
+
+
+def test_lint_local_mode_project_path_not_a_directory_is_an_error(tmp_path) -> None:
+    """A `project_path` that doesn't exist (or isn't a directory) can't be built."""
+    # Arrange
+    missing_path = tmp_path / "does-not-exist"
+    config = _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "personas": {
+                "assistant": {"project": "als-assistant", "project_path": str(missing_path)}
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.persona_project_path_not_dir" for f in errors)
+
+
+def test_lint_local_mode_missing_dockerfile_is_an_error(tmp_path) -> None:
+    """A project_path directory with no Dockerfile can't be built."""
+    # Arrange
+    project_dir = tmp_path / "als-assistant"
+    project_dir.mkdir()
+    (project_dir / "config.yml").write_text("project_name: als-assistant\n")
+    config = _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "personas": {
+                "assistant": {"project": "als-assistant", "project_path": str(project_dir)}
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.persona_missing_dockerfile" for f in errors)
+
+
+def test_lint_local_mode_missing_config_yml_is_an_error(tmp_path) -> None:
+    """A project_path directory with no config.yml can't be existence-checked
+    for its own project_name, and can't confirm the persona's identity."""
+    # Arrange
+    project_dir = tmp_path / "als-assistant"
+    project_dir.mkdir()
+    (project_dir / "Dockerfile").write_text("FROM scratch\n")
+    config = _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "personas": {
+                "assistant": {"project": "als-assistant", "project_path": str(project_dir)}
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.persona_missing_config_yml" for f in errors)
+
+
+def test_lint_local_mode_well_formed_project_path_reports_no_error(tmp_path) -> None:
+    """A project_path with a Dockerfile, a config.yml, and a matching
+    project_name must not trip any of the local-mode existence checks."""
+    # Arrange
+    project_dir = tmp_path / "als-assistant"
+    project_dir.mkdir()
+    (project_dir / "Dockerfile").write_text("FROM scratch\n")
+    (project_dir / "config.yml").write_text("project_name: als-assistant\n")
+    config = _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "personas": {
+                "assistant": {"project": "als-assistant", "project_path": str(project_dir)}
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _errors(findings) == []
+
+
+def test_lint_local_mode_project_name_mismatch_is_an_error(tmp_path) -> None:
+    """The catalog's `project` must equal the project_path's own config.yml
+    `project_name` — a mismatch would silently mount/path against the wrong
+    directory at runtime."""
+    # Arrange
+    project_dir = tmp_path / "als-assistant"
+    project_dir.mkdir()
+    (project_dir / "Dockerfile").write_text("FROM scratch\n")
+    (project_dir / "config.yml").write_text("project_name: something-else\n")
+    config = _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "personas": {
+                "assistant": {"project": "als-assistant", "project_path": str(project_dir)}
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    mismatch = [f for f in errors if f.code == "web_terminals.persona_project_mismatch"]
+    assert mismatch
+    assert any("als-assistant" in f.message and "something-else" in f.message for f in mismatch)
+
+
+def test_lint_local_mode_unreferenced_persona_project_path_is_not_checked(tmp_path) -> None:
+    """A catalog entry nobody references (no user's `persona:`, not
+    `default_persona`) is outside the local-mode existence checks — an unused
+    draft entry never blocks a deploy since only referenced personas are ever
+    built."""
+    # Arrange
+    project_dir = tmp_path / "als-assistant"
+    project_dir.mkdir()
+    (project_dir / "Dockerfile").write_text("FROM scratch\n")
+    (project_dir / "config.yml").write_text("project_name: als-assistant\n")
+    config = _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "personas": {
+                "assistant": {"project": "als-assistant", "project_path": str(project_dir)},
+                "unused": {"project": "als-unused", "project_path": "/nonexistent"},
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _errors(findings) == []
+
+
+def test_lint_registry_mode_non_default_persona_without_build_profile_is_an_error() -> None:
+    """In registry mode, a non-default persona has no local project_path to
+    build from — `build_profile` is its only route to a CI build job."""
+    # Arrange
+    config = _persona_config(
+        web_terminals={
+            "personas": {
+                "assistant": {"project": "als-assistant"},
+                "analysis": {"project": "als-analysis"},
+            },
+            "users": [
+                {"name": "thellert", "index": 0},
+                {"name": "gmartino", "index": 1, "persona": "analysis"},
+            ],
+        },
+        registry={"url": "registry.example.org:5050"},
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    missing_profile = [f for f in errors if f.code == "web_terminals.persona_missing_build_profile"]
+    assert missing_profile
+    assert any("analysis" in f.message for f in missing_profile)
+
+
+def test_lint_registry_mode_default_persona_is_exempt_from_build_profile() -> None:
+    """The default persona's image is built by the core CI job, not a
+    per-persona one — it never needs `build_profile`."""
+    # Arrange
+    config = _persona_config(registry={"url": "registry.example.org:5050"})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert not any(f.code == "web_terminals.persona_missing_build_profile" for f in errors)
+
+
+def test_lint_registry_mode_non_default_persona_with_build_profile_reports_no_error() -> None:
+    """Setting build_profile on the non-default persona clears the error."""
+    # Arrange
+    config = _persona_config(
+        web_terminals={
+            "personas": {
+                "assistant": {"project": "als-assistant"},
+                "analysis": {
+                    "project": "als-analysis",
+                    "build_profile": "profiles/analysis.yml",
+                },
+            },
+            "users": [
+                {"name": "thellert", "index": 0},
+                {"name": "gmartino", "index": 1, "persona": "analysis"},
+            ],
+        },
+        registry={"url": "registry.example.org:5050"},
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert not any(f.code == "web_terminals.persona_missing_build_profile" for f in errors)
+
+
+def test_lint_unknown_mcp_topology_is_an_error() -> None:
+    """`shared_http` (and any other unrecognized value) is fail-closed at lint
+    time too — the lint-side mirror of render.py's ValueError."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["mcp"] = {"topology": "shared_http"}
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.unknown_mcp_topology" for f in errors)
+    assert any("shared_http" in f.message for f in errors)
+
+
+def test_lint_per_container_stdio_topology_reports_no_error() -> None:
+    """The one wired, default topology value must never be flagged."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["mcp"] = {"topology": "per_container_stdio"}
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert not any(f.code == "web_terminals.unknown_mcp_topology" for f in errors)
+
+
+def test_lint_omitted_mcp_topology_reports_no_error() -> None:
+    """No `mcp:` stanza at all (the common case) must never be flagged."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert not any(f.code == "web_terminals.unknown_mcp_topology" for f in errors)

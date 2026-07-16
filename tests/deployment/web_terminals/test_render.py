@@ -535,6 +535,46 @@ def test_malformed_user_entries_are_dropped() -> None:
     assert int(bob_env["OSPREY_WEB_PORT"]) == allocate_ports(_BASE_PORTS, 4)["web"]
 
 
+def test_catalog_present_all_users_on_default_persona_is_byte_identical_image_and_mount() -> None:
+    """A `personas` catalog can exist without moving any user off the default persona
+    (no roster entry sets `persona:`, so every entry falls back to `default_persona`).
+    resolve_personas()'s registry-mode default-persona branch must still produce the
+    SAME unsuffixed `<registry_url>/web-terminal:latest` image and the SAME
+    `/app/<facility_prefix>-assistant` agent-data mount root a no-catalog config
+    produces — introducing a catalog is zero-migration until a user is actually
+    reassigned to a non-default persona."""
+    # Arrange
+    baseline_config = copy.deepcopy(_MULTI_USER_CONFIG)
+    catalog_config = copy.deepcopy(_MULTI_USER_CONFIG)
+    catalog_config["modules"]["web_terminals"]["default_persona"] = "assistant"
+    catalog_config["modules"]["web_terminals"]["personas"] = {
+        "assistant": {
+            "project": "dls-assistant",
+            "project_path": "../dls-assistant",
+            "build_profile": "profiles/assistant.yml",
+        },
+    }
+    users = baseline_config["modules"]["web_terminals"]["users"]
+
+    # Act
+    baseline = render_web_terminals(baseline_config)
+    catalog = render_web_terminals(catalog_config)
+    baseline_compose = yaml.safe_load(baseline["docker-compose.web.yml"])
+    catalog_compose = yaml.safe_load(catalog["docker-compose.web.yml"])
+
+    # Assert
+    for user in users:
+        baseline_svc = baseline_compose["services"][f"web-{user}"]
+        catalog_svc = catalog_compose["services"][f"web-{user}"]
+        assert catalog_svc["image"] == baseline_svc["image"]
+        assert catalog_svc["volumes"] == baseline_svc["volumes"]
+        assert (
+            catalog_svc["image"]
+            == "git.dls.example.org:5050/physics/production/dls-profiles/web-terminal:latest"
+        )
+        assert f"{user}-agent-data:/app/dls-assistant/_agent_data" in catalog_svc["volumes"]
+
+
 def test_auth_default_none() -> None:
     """No `web_terminals.auth` stanza -> auth_method defaults to 'none' (v1 has no auth)."""
     # Arrange
@@ -744,3 +784,123 @@ def test_nginx_seam_auth_none_omits_auth_request_even_with_tls_enabled() -> None
     # Assert
     assert "listen 443 ssl;" in nginx_conf
     assert "auth_request" not in nginx_conf
+
+
+# ---------------------------------------------------------------------------
+# Task 2.5: mcp.topology fail-closed
+# ---------------------------------------------------------------------------
+
+
+def test_mcp_topology_omitted_renders_unchanged() -> None:
+    """No `web_terminals.mcp` stanza at all -> today's behavior, byte-identical
+    to a config that has never heard of the topology key (zero migration)."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    assert "mcp" not in config["modules"]["web_terminals"]
+
+    # Act
+    artifacts = render_web_terminals(config)
+
+    # Assert
+    assert set(artifacts.keys()) == {
+        "docker-compose.web.yml",
+        "nginx/nginx.conf",
+        "nginx/landing.html",
+    }
+
+
+def test_mcp_topology_explicit_per_container_stdio_renders_unchanged() -> None:
+    """Explicitly spelling out the default value is equally inert."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["modules"]["web_terminals"]["mcp"] = {"topology": "per_container_stdio"}
+
+    # Act
+    artifacts = render_web_terminals(config)
+
+    # Assert
+    assert set(artifacts.keys()) == {
+        "docker-compose.web.yml",
+        "nginx/nginx.conf",
+        "nginx/landing.html",
+    }
+
+
+def test_mcp_topology_shared_http_raises_value_error_scoped_to_shared_tier() -> None:
+    """`shared_http` is a recognized-but-rejected value (Task 2.4 owns the lint
+    ERROR twin of this check): render must fail closed, and the message must be
+    scoped to the shared framework-MCP tier — it must never read as though it
+    were rejecting HTTP MCP transport in general, since a facility's own
+    `claude_code.servers` custom `url` entries are a separate, unaffected,
+    already-supported path."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["modules"]["web_terminals"]["mcp"] = {"topology": "shared_http"}
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="mcp.topology") as exc_info:
+        render_web_terminals(config)
+    message = str(exc_info.value)
+    assert "shared_http" in message
+    assert "per_container_stdio" in message
+    # Scoped to the shared framework-MCP tier, not a blanket HTTP-transport ban.
+    assert "claude_code.servers" in message
+    assert "unaffected" in message
+
+
+def test_mcp_topology_unknown_value_raises_value_error() -> None:
+    """Any value other than `per_container_stdio` is fail-closed, not just the one
+    named-in-the-schema `shared_http` alternative."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["modules"]["web_terminals"]["mcp"] = {"topology": "some_future_value"}
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="mcp.topology"):
+        render_web_terminals(config)
+
+
+def test_mcp_topology_malformed_mcp_stanza_falls_back_to_default() -> None:
+    """A non-dict `mcp` stanza (well-formedness is lint's job, not this
+    function's) must not raise here — it falls back to the same default as an
+    absent stanza, matching the `_as_dict`-style defensive-read convention used
+    throughout this module (see `_auth_tls_context`)."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["modules"]["web_terminals"]["mcp"] = "not-a-dict"
+
+    # Act
+    artifacts = render_web_terminals(config)
+
+    # Assert
+    assert "docker-compose.web.yml" in artifacts
+
+
+def test_mcp_topology_custom_url_server_config_is_a_separate_namespace() -> None:
+    """Regression guard against over-broad validation: a facility config that
+    also carries a project-level `claude_code.servers` custom `url` entry
+    alongside `modules.web_terminals` must render exactly as it would without
+    that entry — the topology gate reads only `modules.web_terminals.mcp`, and
+    must never inspect, walk, or reject on the unrelated `claude_code.servers`
+    key. The corresponding `.mcp.json` rendering assertion (that the url-server
+    entry itself renders unchanged) lives in
+    `tests/registry/test_mcp.py::test_topology_default_leaves_custom_url_server_untouched`.
+    """
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    config["claude_code"] = {
+        "servers": {
+            "remote-api": {"url": "http://remote:8001/sse"},
+        }
+    }
+    assert "mcp" not in config["modules"]["web_terminals"]
+
+    # Act
+    artifacts = render_web_terminals(config)
+
+    # Assert — unaffected by the sibling claude_code.servers stanza
+    assert set(artifacts.keys()) == {
+        "docker-compose.web.yml",
+        "nginx/nginx.conf",
+        "nginx/landing.html",
+    }

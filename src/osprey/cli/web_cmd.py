@@ -23,6 +23,7 @@ import click
 PID_FILE = ".osprey-web.pid"
 LOG_FILE = ".osprey-web.log"
 DECLARED_BIND_ENV = "OSPREY_TERMINAL_BIND_HOST"
+DECLARED_WEB_PORT_ENV = "OSPREY_TERMINAL_WEB_PORT"
 
 
 def resolve_bind_host(
@@ -47,6 +48,36 @@ def resolve_bind_host(
     if declared:
         return declared
     return cli_host or config_host or "127.0.0.1"
+
+
+def resolve_web_port(
+    cli_port: int | None, config_port: int | None, env: Mapping[str, str] = os.environ
+) -> int:
+    """Single source of the port ``osprey web`` binds to. Enforces criterion C3 for ports.
+
+    DECLARATION-ONLY INVARIANT: when a deployment DECLARES a port via
+    ``OSPREY_TERMINAL_WEB_PORT`` (the multi-user compose overlay sets it on
+    every per-user container so nginx's per-user upstream mapping always
+    matches the container's actual listener), that declaration is
+    AUTHORITATIVE over ``--port`` and config. A stale or hostile image CMD
+    passing a mismatched ``--port`` must NOT desync the container from the
+    reverse-proxy's routing table. Single-user ``osprey web`` sets no such
+    env, so ``--port`` (or the ``OSPREY_WEB_PORT`` click envvar fallback, or
+    config, or the 8087 default) is honored verbatim.
+
+    ``OSPREY_TERMINAL_WEB_PORT`` is a DECLARATION set by the compose overlay
+    for THIS container only — it is never re-exported to children, unlike
+    the child-facing ``OSPREY_WEB_PORT`` publication at the bottom of
+    ``web()``. Do NOT collapse this into ``@click.option("--port",
+    envvar=...)``: Click env defaults LOSE to an explicit flag, which is the
+    opposite of "declared wins" this function exists to provide — the same
+    reasoning that keeps ``resolve_bind_host`` a plain function rather than
+    a click envvar.
+    """
+    declared = env.get(DECLARED_WEB_PORT_ENV)
+    if declared:
+        return int(declared)
+    return cli_port or config_port or 8087
 
 
 def get_config_value(key: str, default=None):
@@ -419,7 +450,14 @@ def web(
             err=True,
         )
     host = resolve_bind_host(host, wt_config.get("host"))
-    port = port or wt_config.get("port", 8087)
+    _declared_port = os.environ.get(DECLARED_WEB_PORT_ENV)
+    if _declared_port and port is not None and str(port) != _declared_port:
+        click.echo(
+            f"NOTICE: {DECLARED_WEB_PORT_ENV}={_declared_port} is authoritative for the "
+            f"multi-user reverse-proxy port mapping; ignoring --port {port}.",
+            err=True,
+        )
+    port = resolve_web_port(port, wt_config.get("port"))
 
     user_shell_override = shell  # keep raw click value for the detached re-spawn
     try:

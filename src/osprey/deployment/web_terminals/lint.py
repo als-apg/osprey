@@ -12,12 +12,17 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
+
+import yaml
 
 from osprey.deployment.web_terminals.ports import (
     FAMILY_BASE_FIELDS,
     allocate_ports,
     base_ports_from_config,
+    effective_image_source,
+    resolve_personas,
 )
 
 # Rule 12's closed set of reserved compose service keys. "dispatch-sidecar-*" is a
@@ -84,6 +89,16 @@ def lint_web_terminals(config: Any) -> list[Finding]:
     findings.extend(_check_bare_list_port_drift_risk(users))
     findings.extend(_check_port_families_allocatable(web_terminals, users))
     findings.extend(_check_port_overlap(root, web_terminals, users))
+    findings.extend(_check_persona_charset(web_terminals))
+    findings.extend(_check_persona_reserved_names(web_terminals))
+    findings.extend(_check_default_persona_exists(web_terminals))
+    findings.extend(_check_unknown_persona_reference(root, web_terminals, users))
+    findings.extend(_check_unknown_image_source(web_terminals))
+    findings.extend(_check_registry_url_coherence(root, web_terminals))
+    findings.extend(_check_local_mode_requires_catalog(web_terminals))
+    findings.extend(_check_persona_project_paths(web_terminals, users))
+    findings.extend(_check_registry_mode_build_profile(web_terminals, users))
+    findings.extend(_check_unknown_mcp_topology(web_terminals))
     return findings
 
 
@@ -387,6 +402,419 @@ def _check_port_overlap(
                 )
             )
     return findings
+
+
+# --- Task 2.3: persona catalog identity/reference checks --------------------
+#
+# Note on duplicate catalog keys: `modules.web_terminals.personas` arrives here
+# already parsed by `yaml.safe_load`, which silently collapses a YAML mapping's
+# duplicate keys down to the last-declared value — by the time this module
+# sees a Python dict, a duplicate `personas:` key has already vanished without
+# a trace (no exception, no marker to detect). There is nothing observable
+# post-load, so no duplicate-catalog-key check exists here.
+#
+# Mode-coherence checks (image_source/registry.url agreement, project_path /
+# Dockerfile / config.yml existence, build_profile requirements) are below,
+# layered on top of `_persona_catalog` and the checks above (Task 2.4).
+
+
+def _persona_catalog(web_terminals: dict[str, Any]) -> dict[str, Any]:
+    """Read ``modules.web_terminals.personas``, defensively as a dict."""
+    catalog = web_terminals.get("personas")
+    return catalog if isinstance(catalog, dict) else {}
+
+
+def _check_persona_charset(web_terminals: dict[str, Any]) -> list[Finding]:
+    """A persona catalog key becomes an image-tag suffix
+    (``web-terminal-<persona>:latest``) and a path component (``/app/<project>``,
+    local-mode image tags); it's held to the same charset as usernames,
+    ``^[a-z0-9][a-z0-9_-]*$`` (see :func:`_check_username_charset`)."""
+    findings: list[Finding] = []
+    for persona_name in _persona_catalog(web_terminals):
+        if isinstance(persona_name, str) and not _USERNAME_CHARSET_RE.match(persona_name):
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.invalid_persona_charset",
+                    message=(
+                        f"modules.web_terminals.personas key {persona_name!r} does not "
+                        f"match {_USERNAME_CHARSET_RE.pattern!r} (persona names become "
+                        "image-tag suffixes and path components)"
+                    ),
+                )
+            )
+    return findings
+
+
+def _check_persona_reserved_names(web_terminals: dict[str, Any]) -> list[Finding]:
+    """A persona catalog key may not collide with a reserved compose service
+    name, the same closed set held over usernames (see
+    :func:`_check_reserved_names`)."""
+    findings: list[Finding] = []
+    for persona_name in _persona_catalog(web_terminals):
+        if not isinstance(persona_name, str):
+            continue
+        is_reserved = persona_name in _RESERVED_SERVICE_NAMES or persona_name.startswith(
+            _RESERVED_SERVICE_PREFIX
+        )
+        if is_reserved:
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.persona_reserved_name",
+                    message=(
+                        f"modules.web_terminals.personas key {persona_name!r} collides "
+                        "with a reserved service name"
+                    ),
+                )
+            )
+    return findings
+
+
+def _check_default_persona_exists(web_terminals: dict[str, Any]) -> list[Finding]:
+    """``default_persona``, when set, must name an entry in the persona catalog
+    — the entry every roster user with no ``persona:`` of its own inherits."""
+    default_persona = web_terminals.get("default_persona")
+    if not isinstance(default_persona, str) or not default_persona:
+        return []
+    if default_persona in _persona_catalog(web_terminals):
+        return []
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.unknown_default_persona",
+            message=(
+                f"modules.web_terminals.default_persona {default_persona!r} has no "
+                "entry in modules.web_terminals.personas"
+            ),
+        )
+    ]
+
+
+def _check_unknown_persona_reference(
+    root: dict[str, Any], web_terminals: dict[str, Any], users: list[Any]
+) -> list[Finding]:
+    """Every roster entry's effective persona reference (its own ``persona:``
+    key, else the inherited ``default_persona``) must name a catalog entry.
+
+    Resolves via :func:`resolve_personas`'s lenient path (``strict=False``) —
+    the same function the render path calls with ``strict=True`` — so an
+    unresolvable reference degrades to a reportable :class:`Finding` here
+    instead of raising ``ValueError``.
+    """
+    if not users:
+        return []
+    personas_catalog = _persona_catalog(web_terminals)
+    facility_prefix = _as_dict(root.get("facility")).get("prefix") or ""
+    registry_cfg = _as_dict(root.get("registry"))
+    resolved = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False)
+
+    findings: list[Finding] = []
+    for entry in resolved:
+        persona_ref = entry["persona"]
+        if persona_ref is not None and persona_ref not in personas_catalog:
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.unknown_persona_reference",
+                    message=(
+                        f"modules.web_terminals user {entry['name']!r} references "
+                        f"persona {persona_ref!r}, which has no entry in "
+                        "modules.web_terminals.personas"
+                    ),
+                )
+            )
+    return findings
+
+
+# --- Task 2.4: mode-coherence checks ----------------------------------------
+
+# The two recognized `modules.web_terminals.image_source` values (schema rule
+# 14). Anything else is `_check_unknown_image_source`'s ERROR.
+_VALID_IMAGE_SOURCES = frozenset({"registry", "local"})
+
+# Mirrors render.py's own `_SUPPORTED_MCP_TOPOLOGY` (Task 2.5) — duplicated
+# rather than imported, since lint.py and render.py are siblings with no
+# shared-constants module today (unlike `FAMILY_BASE_FIELDS`, which lives in
+# ports.py precisely so lint.py and render.py can both import it without one
+# depending on the other).
+_SUPPORTED_MCP_TOPOLOGY = "per_container_stdio"
+
+
+def _check_unknown_image_source(web_terminals: dict[str, Any]) -> list[Finding]:
+    """``image_source``, when set, must be one of the two recognized modes."""
+    value = web_terminals.get("image_source")
+    if value is None or value in _VALID_IMAGE_SOURCES:
+        return []
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.unknown_image_source",
+            message=(
+                f"modules.web_terminals.image_source {value!r} is not a recognized "
+                f"value; expected one of {sorted(_VALID_IMAGE_SOURCES)}"
+            ),
+        )
+    ]
+
+
+def _check_registry_url_coherence(
+    root: dict[str, Any], web_terminals: dict[str, Any]
+) -> list[Finding]:
+    """Rule 14: ``image_source``/``registry.url`` agreement.
+
+    Only evaluated once a persona catalog is actually configured. A config
+    with no ``personas:`` block at all resolves every user through
+    :func:`~osprey.deployment.web_terminals.ports.resolve_personas`'s
+    zero-migration path exactly as it did before catalogs/mode-coherence
+    existed — this check does not retroactively demand a ``registry.url`` from
+    deployments that never opted into the persona system.
+    """
+    if not _persona_catalog(web_terminals):
+        return []
+    registry_url = _as_dict(root.get("registry")).get("url")
+    has_url = isinstance(registry_url, str) and bool(registry_url)
+    image_source = effective_image_source(web_terminals)
+    if image_source == "registry" and not has_url:
+        return [
+            Finding(
+                severity="error",
+                code="web_terminals.registry_mode_missing_url",
+                message=(
+                    "modules.web_terminals.image_source is 'registry' (the "
+                    "default) but registry.url is not set; registry mode needs "
+                    "it to pull every persona's image"
+                ),
+            )
+        ]
+    if image_source == "local" and has_url:
+        return [
+            Finding(
+                severity="warn",
+                code="web_terminals.local_mode_unused_registry_url",
+                message=(
+                    "modules.web_terminals.image_source is 'local' but "
+                    f"registry.url is set to {registry_url!r}; local mode builds "
+                    "every persona's image and never reads registry.url"
+                ),
+            )
+        ]
+    return []
+
+
+def _check_local_mode_requires_catalog(web_terminals: dict[str, Any]) -> list[Finding]:
+    """Rule 14: the lint-side mirror of
+    :func:`~osprey.deployment.web_terminals.ports.resolve_personas`'s
+    ``strict=True`` ``ValueError`` guard. ``deploy up`` never runs the lint
+    pass, so both guards must independently fail closed on ``image_source:
+    local`` without a catalog + ``default_persona``."""
+    if effective_image_source(web_terminals) != "local":
+        return []
+    default_persona = web_terminals.get("default_persona")
+    has_default = isinstance(default_persona, str) and bool(default_persona)
+    if _persona_catalog(web_terminals) and has_default:
+        return []
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.local_mode_requires_catalog",
+            message=(
+                "modules.web_terminals.image_source is 'local', which requires "
+                "both a non-empty modules.web_terminals.personas catalog and "
+                "default_persona to be configured"
+            ),
+        )
+    ]
+
+
+def _referenced_persona_names(web_terminals: dict[str, Any], users: list[Any]) -> set[str]:
+    """Every persona name actually in play for this roster: ``default_persona``
+    plus each roster entry's own explicit ``persona:`` override. A catalog
+    entry nobody references sits outside every check below — an unused draft
+    entry with a broken ``project_path`` never blocks a deploy, since only
+    referenced personas are ever built or pulled."""
+    names: set[str] = set()
+    default_persona = web_terminals.get("default_persona")
+    if isinstance(default_persona, str) and default_persona:
+        names.add(default_persona)
+    for user in users:
+        if isinstance(user, dict):
+            persona = user.get("persona")
+            if isinstance(persona, str) and persona:
+                names.add(persona)
+    return names
+
+
+def _read_project_name(config_yml_path: Path) -> str | None:
+    """Best-effort read of a persona project's own ``config.yml``
+    ``project_name``. Any failure to open or parse degrades to ``None`` rather
+    than raising — an unreadable ``config.yml`` is already its own ERROR (see
+    :func:`_check_persona_project_paths`, which only calls this once the file
+    is confirmed to exist)."""
+    try:
+        with config_yml_path.open("r", encoding="utf-8") as fh:
+            parsed = yaml.safe_load(fh)
+    except (OSError, yaml.YAMLError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    name = parsed.get("project_name")
+    return name if isinstance(name, str) and name else None
+
+
+def _check_persona_project_paths(web_terminals: dict[str, Any], users: list[Any]) -> list[Finding]:
+    """Local mode only: every referenced persona's ``project_path`` must exist,
+    contain a ``Dockerfile`` and a ``config.yml``, and that ``config.yml``'s own
+    ``project_name`` must equal the catalog entry's ``project`` — a mismatch
+    silently produces a dead mount/path at runtime (the per-svc
+    ``container_project_dir`` derivation is keyed on the catalog's ``project``,
+    not on anything read from the persona's own ``config.yml``).
+    """
+    if effective_image_source(web_terminals) != "local":
+        return []
+    catalog = _persona_catalog(web_terminals)
+    findings: list[Finding] = []
+    for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
+        entry = catalog.get(persona_name)
+        if not isinstance(entry, dict):
+            continue  # unresolvable reference — _check_unknown_persona_reference /
+            # _check_default_persona_exists already report this
+
+        project_path_raw = entry.get("project_path")
+        if not isinstance(project_path_raw, str) or not project_path_raw:
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.persona_missing_project_path",
+                    message=(
+                        f"modules.web_terminals.personas[{persona_name!r}] has no "
+                        "project_path set; image_source: local requires one to "
+                        "build this persona's image from"
+                    ),
+                )
+            )
+            continue
+
+        project_path = Path(project_path_raw)
+        if not project_path.is_dir():
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.persona_project_path_not_dir",
+                    message=(
+                        f"modules.web_terminals.personas[{persona_name!r}]."
+                        f"project_path {project_path_raw!r} does not exist or is "
+                        "not a directory"
+                    ),
+                )
+            )
+            continue
+
+        if not (project_path / "Dockerfile").is_file():
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.persona_missing_dockerfile",
+                    message=(
+                        f"modules.web_terminals.personas[{persona_name!r}]."
+                        f"project_path {project_path_raw!r} has no Dockerfile; "
+                        "local mode builds each persona's image from its own "
+                        "project directory"
+                    ),
+                )
+            )
+
+        config_yml_path = project_path / "config.yml"
+        if not config_yml_path.is_file():
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.persona_missing_config_yml",
+                    message=(
+                        f"modules.web_terminals.personas[{persona_name!r}]."
+                        f"project_path {project_path_raw!r} has no config.yml"
+                    ),
+                )
+            )
+            continue  # nothing to compare `project` against
+
+        catalog_project = entry.get("project")
+        if not isinstance(catalog_project, str) or not catalog_project:
+            continue  # entry.project itself unset — not this check's concern
+        rendered_project_name = _read_project_name(config_yml_path)
+        if rendered_project_name is not None and rendered_project_name != catalog_project:
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.persona_project_mismatch",
+                    message=(
+                        f"modules.web_terminals.personas[{persona_name!r}].project "
+                        f"{catalog_project!r} does not match its project_path's "
+                        f"config.yml project_name {rendered_project_name!r}"
+                    ),
+                )
+            )
+    return findings
+
+
+def _check_registry_mode_build_profile(
+    web_terminals: dict[str, Any], users: list[Any]
+) -> list[Finding]:
+    """Registry mode only: every referenced non-default persona must set
+    ``build_profile`` — the committed profile YAML that feeds its one
+    ``.gitlab-ci.yml`` build job. The default persona is exempt: its image
+    stays the un-suffixed ``web-terminal:latest``, built by the pre-existing
+    core CI job, not a per-persona one."""
+    if effective_image_source(web_terminals) != "registry":
+        return []
+    catalog = _persona_catalog(web_terminals)
+    default_persona = web_terminals.get("default_persona")
+    findings: list[Finding] = []
+    for persona_name in sorted(_referenced_persona_names(web_terminals, users)):
+        if persona_name == default_persona:
+            continue
+        entry = catalog.get(persona_name)
+        if not isinstance(entry, dict):
+            continue  # unresolvable reference — reported elsewhere
+        build_profile = entry.get("build_profile")
+        if isinstance(build_profile, str) and build_profile:
+            continue
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.persona_missing_build_profile",
+                message=(
+                    f"modules.web_terminals.personas[{persona_name!r}] has no "
+                    "build_profile set; image_source: registry needs one to "
+                    "generate this non-default persona's CI build job"
+                ),
+            )
+        )
+    return findings
+
+
+def _check_unknown_mcp_topology(web_terminals: dict[str, Any]) -> list[Finding]:
+    """Lint-side mirror of render.py's ``_check_mcp_topology`` fail-closed
+    ``ValueError`` (Task 2.5) — ``shared_http`` and any other unrecognized
+    value are an ERROR here too, so a bad topology value is caught before a
+    render/deploy attempt rather than only at render time."""
+    mcp_cfg = _as_dict(web_terminals.get("mcp"))
+    topology = mcp_cfg.get("topology") or _SUPPORTED_MCP_TOPOLOGY
+    if topology == _SUPPORTED_MCP_TOPOLOGY:
+        return []
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.unknown_mcp_topology",
+            message=(
+                f"modules.web_terminals.mcp.topology {topology!r} is not wired "
+                "yet for the shared framework-MCP tier; per_container_stdio is "
+                "the only supported topology (a facility's own "
+                "claude_code.servers custom `url` entries are a separate, "
+                "already-supported path and are unaffected)"
+            ),
+        )
+    ]
 
 
 def _as_dict(value: Any) -> dict[str, Any]:

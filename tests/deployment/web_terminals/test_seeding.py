@@ -22,18 +22,27 @@ from osprey.deployment.web_terminals import seeding
 _FACILITY_PREFIX = "dls"
 
 
-def _config(users, *, facility_prefix=_FACILITY_PREFIX):
-    """Minimal-but-complete facility config exercising every field seed_user_containers reads."""
-    return {
+def _config(users, *, facility_prefix=_FACILITY_PREFIX, registry=None, web_terminals_extra=None):
+    """Minimal-but-complete facility config exercising every field seed_user_containers reads.
+
+    ``registry`` and ``web_terminals_extra`` (merged into ``modules.web_terminals``, e.g.
+    ``personas``/``default_persona``/``image_source``) let persona-resolution tests build on
+    top of this without duplicating the whole config shape.
+    """
+    web_terminals: dict = {
+        "enabled": True,
+        "users": users,
+    }
+    if web_terminals_extra:
+        web_terminals.update(web_terminals_extra)
+    config = {
         "project_name": "demo-project",
         "facility": {"name": "Demo Light Source", "prefix": facility_prefix, "timezone": "UTC"},
-        "modules": {
-            "web_terminals": {
-                "enabled": True,
-                "users": users,
-            }
-        },
+        "modules": {"web_terminals": web_terminals},
     }
+    if registry is not None:
+        config["registry"] = registry
+    return config
 
 
 def _write_config(tmp_path, config):
@@ -228,6 +237,93 @@ def test_skills_reconcile_carries_names_and_target_and_sentinel_phases(
 
     idx = calls.index(argv)
     assert inputs[idx] is not None and len(inputs[idx]) > 0  # non-empty tar stream
+
+
+def test_no_catalog_config_targets_hardcoded_default_dir(tmp_path, monkeypatch, fake_runtime):
+    """Zero-migration: a config with no personas catalog resolves to today's exact hardcoded
+    skills path (`resolve_personas` guarantees this default), so pre-existing rosters are
+    unaffected by the switch to persona-derived paths."""
+    calls, inputs, ready = fake_runtime
+    monkeypatch.chdir(tmp_path)
+    _write_base_md(tmp_path)
+    container = f"{_FACILITY_PREFIX}-web-alice"
+    ready.add(container)
+
+    seeding.seed_user_containers(_config(["alice"]))
+
+    skills_calls = _skills_calls(calls)
+    assert len(skills_calls) == 1
+    assert skills_calls[0][11] == f"/app/{_FACILITY_PREFIX}-assistant/.claude/skills"
+
+
+def test_non_default_persona_drives_skills_target_from_its_own_project(
+    tmp_path, monkeypatch, fake_runtime
+):
+    """A non-default persona's `container_project_dir` (its own `/app/<project>`, not the
+    facility-prefix default) drives the per-user skills target."""
+    calls, inputs, ready = fake_runtime
+    monkeypatch.chdir(tmp_path)
+    _write_base_md(tmp_path)
+    container = f"{_FACILITY_PREFIX}-web-alice"
+    ready.add(container)
+
+    config = _config(
+        [{"name": "alice", "index": 0, "persona": "beamline-ops"}],
+        registry={"url": "registry.example.org"},
+        web_terminals_extra={
+            "personas": {"beamline-ops": {"project": "beamline-ops-app"}},
+        },
+    )
+
+    seeding.seed_user_containers(config)
+
+    skills_calls = _skills_calls(calls)
+    assert len(skills_calls) == 1
+    assert skills_calls[0][11] == "/app/beamline-ops-app/.claude/skills"
+
+
+def test_default_persona_keeps_default_container_dir_for_skills(
+    tmp_path, monkeypatch, fake_runtime
+):
+    """The default persona's skills target stays pinned to `/app/<facility_prefix>-assistant`
+    even though a personas catalog is configured, matching resolve_personas' contract that the
+    existing per-user agent-data volume keeps resolving to the same in-container path."""
+    calls, inputs, ready = fake_runtime
+    monkeypatch.chdir(tmp_path)
+    _write_base_md(tmp_path)
+    container = f"{_FACILITY_PREFIX}-web-alice"
+    ready.add(container)
+
+    config = _config(
+        [{"name": "alice", "index": 0}],
+        registry={"url": "registry.example.org"},
+        web_terminals_extra={
+            "default_persona": "ops",
+            "personas": {"ops": {"project": "ops-app"}},
+        },
+    )
+
+    seeding.seed_user_containers(config)
+
+    skills_calls = _skills_calls(calls)
+    assert len(skills_calls) == 1
+    assert skills_calls[0][11] == f"/app/{_FACILITY_PREFIX}-assistant/.claude/skills"
+
+
+def test_unresolvable_persona_raises_before_touching_runtime(tmp_path, monkeypatch, fake_runtime):
+    """An unresolvable persona reference is a misconfiguration, not a per-user issue — it must
+    raise before any container is even inspected, same as the missing-base.md case."""
+    calls, inputs, ready = fake_runtime
+    monkeypatch.chdir(tmp_path)
+    _write_base_md(tmp_path)
+    ready.add(f"{_FACILITY_PREFIX}-web-alice")
+
+    config = _config([{"name": "alice", "index": 0, "persona": "missing"}])
+
+    with pytest.raises(ValueError, match="missing"):
+        seeding.seed_user_containers(config)
+
+    assert calls == []  # aborted before any runtime call, not even the inspect check
 
 
 def test_no_skills_overlay_still_reconciles_with_empty_tar(tmp_path, monkeypatch, fake_runtime):
