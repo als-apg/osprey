@@ -2,7 +2,7 @@
 the co-deployed Tiled catalog (PROPOSAL.md's success criterion 11).
 
 Deploys the bridge + Tiled with the mock-devices demo scanner
-(``bluesky.demo_scanner=true``, ``bluesky.tiled_enabled=true`` — no virtual
+(``bluesky.demo_runner=true``, ``bluesky.tiled_enabled=true`` — no virtual
 accelerator, no EPICS, no QEMU: the demo scanner runs a real bluesky
 RunEngine against in-process mock devices), runs a scan to completion,
 restarts ONLY the bridge container, and reads the same run back through the
@@ -23,7 +23,7 @@ vacuously.
 Container safety: every docker invocation below names an exact container or
 image — never a wildcard, never ``system prune``/``--volumes``. Teardown
 goes through ``osprey deploy down``, never a raw ``docker rm`` sweep. The
-restart step names ``osprey-bluesky-bridge`` only; ``osprey deploy restart``
+restart step names the ``<project>-bluesky-bridge`` container only; ``osprey deploy restart``
 is never used here because it bounces every service, including Tiled, which
 would defeat the whole proof.
 
@@ -50,14 +50,19 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Deliberately distinct from test_scan_deploy.py's 18090 and
+# Deliberately distinct from test_bluesky_deploy.py's 18090 and
 # test_va_substrate_equivalence.py's 18099 so all three can run concurrently
 # on a shared dev machine without a port collision.
 BRIDGE_PORT = 18101
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 BRIDGE_IMAGE = "osprey-bluesky-bridge:local"
-BRIDGE_CONTAINER = "osprey-bluesky-bridge"
-TILED_CONTAINER = "osprey-bluesky-tiled"
+# The fixture builds/deploys under this project name; the compose template
+# renders each container_name as ``<project>-<service>``
+# (services/bluesky/docker-compose.yml.j2), so derive them rather than hardcode
+# host-global names that break the moment the template is namespaced per-project.
+PROJECT_NAME = "proj"
+BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
+TILED_CONTAINER = f"{PROJECT_NAME}-bluesky-tiled"
 
 # The demo scanner's mock device factory (devices/mock.py's build_devices())
 # defaults to a single "det1" MockDetector when the bridge's app.py lifespan
@@ -133,7 +138,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     """Build + co-deploy the bridge and Tiled; yield the project directory."""
     osprey_bin = _find_osprey_console_script()
     base = tmp_path_factory.mktemp("tiled_roundtrip_build")
-    project_dir = base / "proj"
+    project_dir = base / PROJECT_NAME
 
     # `dispatch: null` drops control-assistant's default event-dispatcher
     # stack (Node + Claude CLI image) -- irrelevant to this proof and far
@@ -155,7 +160,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         "dispatch: null\nconfig:\n  services.postgresql.port_host: 15432\n", encoding="utf-8"
     )
 
-    # bluesky.port/demo_scanner/tiled_enabled are all leaf scalars under the
+    # bluesky.port/demo_runner/tiled_enabled are all leaf scalars under the
     # top-level `bluesky:` profile key, so plain --set works (a dotted --set
     # only becomes unsafe for keys nested under an existing block you don't
     # want replaced wholesale, e.g. control_system.type -- not the case
@@ -166,7 +171,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         [
             str(osprey_bin),
             "build",
-            "proj",
+            PROJECT_NAME,
             "--preset",
             "control-assistant",
             "--override",
@@ -174,7 +179,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "--set",
             f"bluesky.port={BRIDGE_PORT}",
             "--set",
-            "bluesky.demo_scanner=true",
+            "bluesky.demo_runner=true",
             "--set",
             "bluesky.tiled_enabled=true",
             "--skip-deps",

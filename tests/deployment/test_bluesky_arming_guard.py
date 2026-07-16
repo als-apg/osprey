@@ -3,7 +3,7 @@
 The local python-executor path runs agent-authored code with cwd=project_root
 and no filesystem/network sandboxing, so it can read BLUESKY_PROMOTE_TOKEN
 straight out of .env/config.yml and POST the bridge's /runs/{id}/promote
-directly — bypassing launch_scan's in-tool writes_enabled re-check entirely.
+directly — bypassing launch_run's in-tool writes_enabled re-check entirely.
 The container execution_method is fs/network isolated and doesn't have this
 exposure. Per the user ruling (2026-07-06, "guard + document"),
 container_lifecycle._ensure_service_tokens must refuse to mint
@@ -214,6 +214,7 @@ def test_allowlist_membership_is_pinned():
         "BLUESKY_TILED_API_KEY",
         "EVENT_DISPATCHER_TOKEN",
         "DISPATCH_WORKER_TOKEN",
+        "ZO_ROOT_USER_PASSWORD",
     }
     assert "BLUESKY_PROMOTE_TOKEN" not in container_lifecycle._LOCAL_EXEC_SAFE_VARS
 
@@ -234,6 +235,20 @@ def test_every_declared_var_is_classified():
     assert unclassified == {"BLUESKY_PROMOTE_TOKEN"}
     # Every allowlist entry is actually declared by some service — no dead entries.
     assert container_lifecycle._LOCAL_EXEC_SAFE_VARS <= declared
+
+
+def test_authoring_tools_declare_no_new_bluesky_arming_token():
+    """The task-2.3 authoring MCP tools (write_plan, validate_plan)
+    reach no hardware and gate on ``_APPROVAL`` only in the registry (see
+    ``tests/registry/test_bluesky_server_definition.py``) — they need no arming
+    token of their own. Pin that ``bluesky``'s declared token vars are still
+    exactly the pre-2.3 pair, so this guard's promote-token-withheld
+    invariant (asserted above) still covers the whole deployed surface and
+    hasn't silently been left behind by an unclassified third var."""
+    assert container_lifecycle._SERVICE_TOKEN_VARS["bluesky"] == (
+        "BLUESKY_PROMOTE_TOKEN",
+        "BLUESKY_TILED_API_KEY",
+    )
 
 
 def test_unlisted_arming_token_fails_closed_under_unsafe_local_exec(

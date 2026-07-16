@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
+from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
 from osprey.services.bluesky_bridge.runs import RunRegistry, do_promote
-from osprey.services.bluesky_bridge.scanner import FakeScanner
 
 
 @pytest.fixture
@@ -16,23 +16,23 @@ def registry() -> RunRegistry:
 
 def test_do_promote_builds_and_starts_the_scanner(registry: RunRegistry) -> None:
     run = registry.add(request={"devices": ["motor1"]})
-    scanner = FakeScanner()
+    runner = FakePlanRunner()
 
-    result = do_promote(run, lambda: scanner)
+    result = do_promote(run, lambda: runner)
 
     assert result is run
     assert run.promoted is True
     assert run.promoting is False
-    assert run.scanner is scanner
-    assert scanner.reinitialize_calls == 1
-    assert scanner.start_calls == 1
+    assert run.runner is runner
+    assert runner.reinitialize_calls == 1
+    assert runner.start_calls == 1
     assert run.status == "running"
 
 
 def test_do_promote_passes_the_run_request_as_exec_config(registry: RunRegistry) -> None:
     seen: list[object] = []
 
-    class RecordingScanner(FakeScanner):
+    class RecordingScanner(FakePlanRunner):
         def reinitialize(self, exec_config: object) -> bool:
             seen.append(exec_config)
             return super().reinitialize(exec_config)
@@ -45,10 +45,10 @@ def test_do_promote_passes_the_run_request_as_exec_config(registry: RunRegistry)
 
 def test_do_promote_rejects_a_second_promotion(registry: RunRegistry) -> None:
     run = registry.add(request={})
-    do_promote(run, FakeScanner)
+    do_promote(run, FakePlanRunner)
 
     with pytest.raises(HTTPException) as excinfo:
-        do_promote(run, FakeScanner)
+        do_promote(run, FakePlanRunner)
     assert excinfo.value.status_code == 409
 
 
@@ -57,7 +57,7 @@ def test_do_promote_rejects_promoting_a_stopped_run(registry: RunRegistry) -> No
     run.stopped = True
 
     with pytest.raises(HTTPException) as excinfo:
-        do_promote(run, FakeScanner)
+        do_promote(run, FakePlanRunner)
     assert excinfo.value.status_code == 409
     assert run.promoted is False
 
@@ -67,7 +67,7 @@ def test_do_promote_rejects_reentrant_promotion_in_progress(registry: RunRegistr
     run.promoting = True  # simulate a promote already underway
 
     with pytest.raises(HTTPException) as excinfo:
-        do_promote(run, FakeScanner)
+        do_promote(run, FakePlanRunner)
     assert excinfo.value.status_code == 409
     assert run.promoted is False
 
@@ -76,10 +76,10 @@ def test_do_promote_returns_500_and_records_error_when_reinitialize_fails(
     registry: RunRegistry,
 ) -> None:
     run = registry.add(request={})
-    scanner = FakeScanner(reinitialize_fails=True)
+    runner = FakePlanRunner(reinitialize_fails=True)
 
     with pytest.raises(HTTPException) as excinfo:
-        do_promote(run, lambda: scanner)
+        do_promote(run, lambda: runner)
 
     assert excinfo.value.status_code == 500
     assert run.promoted is False
@@ -88,11 +88,11 @@ def test_do_promote_returns_500_and_records_error_when_reinitialize_fails(
     assert run.status == "error"
 
 
-def test_do_promote_returns_500_when_scanner_factory_raises(registry: RunRegistry) -> None:
+def test_do_promote_returns_500_when_runner_factory_raises(registry: RunRegistry) -> None:
     run = registry.add(request={})
 
-    def failing_factory() -> FakeScanner:
-        raise RuntimeError("could not build scanner")
+    def failing_factory() -> FakePlanRunner:
+        raise RuntimeError("could not build runner")
 
     with pytest.raises(HTTPException) as excinfo:
         do_promote(run, failing_factory)
@@ -100,52 +100,52 @@ def test_do_promote_returns_500_when_scanner_factory_raises(registry: RunRegistr
     assert excinfo.value.status_code == 500
     assert run.promoted is False
     assert run.promoting is False
-    assert run.error == "could not build scanner"
+    assert run.error == "could not build runner"
 
 
 def test_do_promote_stops_a_scanner_that_partially_started_then_raised(
     registry: RunRegistry,
 ) -> None:
-    """MANDATORY handoff fix (task 2.7): a `start_scan_thread()` that raises after
+    """MANDATORY handoff fix (task 2.7): a `start_run_thread()` that raises after
     partially starting something must not leave a live, untracked, unstoppable
-    scan behind — `run.scanner` is never published on this path, so nothing
-    else could ever call `stop_scanning_thread()` on it unless `do_promote`
+    scan behind — `run.runner` is never published on this path, so nothing
+    else could ever call `stop_run_thread()` on it unless `do_promote`
     itself does.
     """
     run = registry.add(request={})
 
-    class PartiallyStartingScanner(FakeScanner):
-        def start_scan_thread(self) -> None:
-            # Simulate a real Scanner whose thread partially launches before
+    class PartiallyStartingScanner(FakePlanRunner):
+        def start_run_thread(self) -> None:
+            # Simulate a real PlanRunner whose thread partially launches before
             # failing to fully come up.
             self._active = True
             raise RuntimeError("thread launch failed after partial start")
 
-    scanner = PartiallyStartingScanner()
+    runner = PartiallyStartingScanner()
 
     with pytest.raises(HTTPException) as excinfo:
-        do_promote(run, lambda: scanner)
+        do_promote(run, lambda: runner)
 
     assert excinfo.value.status_code == 500
-    assert run.scanner is None
-    assert scanner.stop_calls == 1
-    assert scanner.is_scanning_active() is False
+    assert run.runner is None
+    assert runner.stop_calls == 1
+    assert runner.is_run_active() is False
 
 
 def test_do_promote_does_not_call_stop_when_the_factory_itself_raises(
     registry: RunRegistry,
 ) -> None:
-    """No scanner instance exists in this failure mode — there is nothing to stop."""
+    """No runner instance exists in this failure mode — there is nothing to stop."""
     run = registry.add(request={})
     stop_calls: list[str] = []
 
-    class RecordingScanner(FakeScanner):
-        def stop_scanning_thread(self) -> None:
+    class RecordingScanner(FakePlanRunner):
+        def stop_run_thread(self) -> None:
             stop_calls.append("stop")
-            super().stop_scanning_thread()
+            super().stop_run_thread()
 
     def failing_factory() -> RecordingScanner:
-        raise RuntimeError("could not build scanner")
+        raise RuntimeError("could not build runner")
 
     with pytest.raises(HTTPException):
         do_promote(run, failing_factory)
@@ -157,13 +157,13 @@ def test_a_failed_promote_can_be_retried(registry: RunRegistry) -> None:
     run = registry.add(request={})
 
     with pytest.raises(HTTPException):
-        do_promote(run, lambda: FakeScanner(reinitialize_fails=True))
+        do_promote(run, lambda: FakePlanRunner(reinitialize_fails=True))
     assert run.error is not None
 
-    scanner = FakeScanner()
-    result = do_promote(run, lambda: scanner)
+    runner = FakePlanRunner()
+    result = do_promote(run, lambda: runner)
 
     assert result is run
     assert run.promoted is True
     assert run.error is None
-    assert run.scanner is scanner
+    assert run.runner is runner

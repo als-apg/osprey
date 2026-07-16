@@ -54,6 +54,8 @@ def _resolve_default_sdk_model(project_dir: Path) -> str:
     spec = ClaudeCodeModelResolver.resolve(
         config.get("claude_code", {}),
         config.get("api", {}).get("providers", {}),
+        # Model-id reader only: never let a telemetry misconfig abort a benchmark.
+        include_telemetry=False,
     )
     if spec is None:
         raise ValueError(

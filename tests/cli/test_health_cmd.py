@@ -6,7 +6,7 @@ Iteration 1: Smoke tests and basic functionality
 Target: 0% → 30%+ coverage
 """
 
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from click.testing import CliRunner
@@ -684,3 +684,65 @@ class TestHealthExitCodes:
                     result = cli_runner.invoke(health, [])
 
                     assert result.exit_code == 2
+
+
+class TestHealthCheckerOpenObserve:
+    """The OpenObserve telemetry-store probe: readiness + retention posture."""
+
+    def _checker(self, deployed, retention=None):
+        checker = HealthChecker()
+        oo = {"path": "./services/openobserve", "port": 5080}
+        if retention is not None:
+            oo["retention_days"] = retention
+        checker.config = {"deployed_services": deployed, "services": {"openobserve": oo}}
+        return checker
+
+    def test_skipped_when_not_deployed(self):
+        checker = self._checker(deployed=[])
+        with patch("osprey.cli.health_cmd.console"):
+            checker.check_openobserve()
+        assert not [r for r in checker.results if r.name.startswith("openobserve")]
+
+    def test_ready(self):
+        checker = self._checker(deployed=["openobserve"])
+        resp_cm = MagicMock()
+        resp_cm.__enter__.return_value.status = 200
+        with (
+            patch("osprey.cli.health_cmd.console"),
+            patch("urllib.request.urlopen", return_value=resp_cm),
+        ):
+            checker.check_openobserve()
+        healthz = [r for r in checker.results if r.name == "openobserve_healthz"]
+        assert healthz and healthz[0].status == "ok"
+
+    def test_unreachable(self):
+        import urllib.error
+
+        checker = self._checker(deployed=["openobserve"])
+        with (
+            patch("osprey.cli.health_cmd.console"),
+            patch("urllib.request.urlopen", side_effect=urllib.error.URLError("boom")),
+        ):
+            checker.check_openobserve()
+        healthz = [r for r in checker.results if r.name == "openobserve_healthz"]
+        assert healthz and healthz[0].status == "warning"
+
+    def test_retention_below_floor_warns(self):
+        checker = self._checker(deployed=["openobserve"], retention=1)
+        with (
+            patch("osprey.cli.health_cmd.console"),
+            patch("urllib.request.urlopen", side_effect=OSError("no server")),
+        ):
+            checker.check_openobserve()
+        ret = [r for r in checker.results if r.name == "openobserve_retention"]
+        assert ret and ret[0].status == "warning"
+
+    def test_retention_ok(self):
+        checker = self._checker(deployed=["openobserve"], retention=14)
+        with (
+            patch("osprey.cli.health_cmd.console"),
+            patch("urllib.request.urlopen", side_effect=OSError("no server")),
+        ):
+            checker.check_openobserve()
+        ret = [r for r in checker.results if r.name == "openobserve_retention"]
+        assert ret and ret[0].status == "ok"

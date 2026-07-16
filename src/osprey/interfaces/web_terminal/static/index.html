@@ -58,6 +58,13 @@
       <div class="header-tabs" id="header-tabs">
         <!-- Populated by panel-manager.js -->
       </div>
+      <!-- Add-panel control (browser-tab style "+"); menu populated by panel-add-menu.js -->
+      <div class="panel-add" id="panel-add">
+        <button class="panel-add-btn" id="panel-add-btn" type="button"
+                title="Add panel" aria-label="Add panel"
+                aria-haspopup="true" aria-expanded="false">+</button>
+        <div class="panel-add-menu" id="panel-add-menu" aria-label="Add panel"></div>
+      </div>
       <div class="header-actions">
         {% if app_name %}<span class="header-app-name" title="{{ app_name }}">{{ app_name }}</span>{% endif %}
         <a class="header-icon-btn" id="docs-link" href="https://als-apg.github.io/osprey/" title="Documentation" target="_blank" rel="noopener">&#128214;</a>

@@ -284,6 +284,179 @@
 .header-tab .tab-led.healthy { background: var(--color-success); }
 .header-tab .tab-led.offline { background: var(--color-error); }
 
+/* Per-tab close "×" — browser-tab style, revealed on hover / when active. */
+.header-tab .tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  margin-left: 1px;
+  border-radius: 3px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-muted);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity var(--wt-transition-fast), color var(--wt-transition-fast),
+    background var(--wt-transition-fast);
+}
+
+.header-tab:hover .tab-close,
+.header-tab.active .tab-close { opacity: 0.7; }
+
+.header-tab .tab-close:hover {
+  opacity: 1;
+  color: var(--color-error);
+  background: var(--accent-tint-08);
+}
+
+/* An offline (disabled) tab is inert, but its "×" stays clickable and visible so
+   a panel whose backend is down can always be dismissed. */
+.header-tab.disabled .tab-close {
+  pointer-events: auto;
+  opacity: 0.6;
+}
+
+/* ---- Add-panel "+" control ---- */
+
+.panel-add {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  margin: 0 6px;
+}
+
+.panel-add-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
+    background var(--wt-transition-fast);
+}
+
+.panel-add-btn:hover,
+.panel-add-btn[aria-expanded="true"] {
+  color: var(--color-accent-light);
+  border-color: var(--color-accent-light);
+  background: var(--accent-tint-08);
+}
+
+.panel-add-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 240px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  box-shadow: var(--shadow-dropdown);
+  z-index: 100;
+  padding: 4px;
+}
+
+.panel-add-menu.open { display: block; }
+
+.panel-add-heading {
+  padding: 8px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  font-family: var(--font-display);
+}
+
+.panel-add-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-family: var(--font-display);
+  font-size: 13px;
+  transition: background var(--wt-transition-fast);
+}
+
+.panel-add-item:hover,
+.panel-add-item:focus { background: var(--bg-elevated); outline: none; }
+
+.panel-add-empty {
+  padding: 8px 10px;
+  color: var(--text-muted);
+  font-style: italic;
+  font-size: 12px;
+}
+
+.panel-add-divider {
+  height: 1px;
+  background: var(--border-default);
+  margin: 4px 0;
+}
+
+.panel-add-url {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 10px 8px;
+}
+
+.panel-add-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-default);
+  border-radius: 5px;
+}
+
+.panel-add-input:focus {
+  outline: none;
+  border-color: var(--border-accent);
+}
+
+.panel-add-url-error {
+  font-size: 11px;
+  color: var(--color-error);
+  line-height: 1.35;
+}
+
+.panel-add-submit {
+  align-self: flex-start;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-display);
+  color: var(--color-accent-light);
+  background: var(--accent-tint-08);
+  border: 1px solid var(--color-accent-light);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: color var(--wt-transition-fast), background var(--wt-transition-fast);
+}
+
+.panel-add-submit:hover { background: var(--color-accent-light); color: var(--bg-primary); }
+.panel-add-submit:disabled { opacity: 0.5; cursor: default; }
+
 /* ---- Main layout ---- */
 
 .main-container {

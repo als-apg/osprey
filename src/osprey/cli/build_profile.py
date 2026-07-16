@@ -17,6 +17,7 @@ from typing import Any, Literal
 import yaml
 
 from osprey.errors import BuildProfileError
+from osprey.profiles.web_panels import BUILTIN_PANELS
 
 VALID_CHANNEL_FINDER_MODES: tuple[str, ...] = (
     "in_context",
@@ -115,14 +116,21 @@ class BlueskyConfig:
     port: int = 8090
     tiled_enabled: bool = False
     tiled_port: int = 8091
-    demo_scanner: bool = False
+    demo_runner: bool = False
     """Opt-in only for the deploy-smoke-demo / tutorial case: wires the
     container's bridge process to a real bluesky RunEngine against mock
     ophyd-async devices (``devices/mock.py``) via app.py's guarded startup
-    hook (task 2.14a), instead of the Phase 1 no-op ``FakeScanner`` default.
+    hook (task 2.14a), instead of the Phase 1 no-op ``FakePlanRunner`` default.
     MUST stay False for any facility wiring real EPICS hardware — turning
     this on would silently override real device/plan wiring with an
-    in-memory mock scanner.
+    in-memory mock runner.
+    """
+    plan_dir: str | None = None
+    """Optional host directory of facility plan files (Task 1.4),
+    bind-mounted read-only into the bridge container and surfaced to the
+    plan loader as a ``BLUESKY_PLAN_DIRS`` (facility-tier) layer — see
+    ``plan_loader.py``. ``None`` (default) deploys the bridge with no
+    facility plan directory, matching every prior bluesky-only build.
     """
 
 
@@ -133,13 +141,31 @@ class VAConfig:
 
     Consumed by the build pipeline's VA-injection step to deploy the single
     ``virtual_accelerator`` service (compose service ``virtual-accelerator``,
-    container ``osprey-virtual-accelerator``). Port is validated by
+    container ``<project>-virtual-accelerator``). Port is validated by
     :meth:`BuildProfile.validate`.
     """
 
     port: int = 5064
     """Channel Access TCP port the soft-IOC serves PVs on (see
     src/osprey/services/virtual_accelerator/entrypoint.py's run contract)."""
+
+
+@dataclass
+class BlueskyPanelsConfig:
+    """Scan-panels sidecar configuration for a build profile (opt-in via the
+    ``bluesky_panels:`` key).
+
+    Consumed by the build pipeline's bluesky-panels-injection step
+    (``_inject_bluesky_panels`` in ``build_cmd.py``) to deploy the single
+    ``bluesky_panels`` FastAPI sidecar (compose service ``bluesky-panels``) that
+    serves the three operator web panels (``plan``, ``results``,
+    ``health``) and read-proxies the bluesky bridge. Port is validated
+    by :meth:`BuildProfile.validate`.
+    """
+
+    port: int = 8095
+    """Host/container port the sidecar's uvicorn process binds and publishes
+    (see ``templates/services/bluesky_panels/docker-compose.yml.j2``)."""
 
 
 _ENV_VAR_RE = re.compile(r"^[A-Z_][A-Z0-9_]*$")
@@ -287,6 +313,14 @@ class BuildProfile:
     output_styles: list[str] = field(default_factory=list)
     web_panels: list[str] = field(default_factory=list)
     default_panel: str | None = None
+    panel_presets: dict[str, list[str]] = field(default_factory=dict)
+    """Named panel layouts ("presets") rendered into ``web.presets``. Each key is
+    the display label, each value a list of member panel ids (built-ins or
+    custom ``web.panels.<id>.url``-backed ids). A human applies one from the
+    Web Terminal "+" popover's "Layouts" section. Empty (the default) renders no
+    ``web.presets`` block. Members are typo-validated at build time, mirroring
+    :attr:`default_panel`.
+    """
     claude_md_template: str | None = None
     """Bundled `templates/claude_code/<filename>` to render as CLAUDE.md
     (default: "CLAUDE.md.j2"). Lets a preset pick an alternate persona
@@ -298,6 +332,7 @@ class BuildProfile:
     dispatch: DispatchConfig | None = None
     bluesky: BlueskyConfig | None = None
     virtual_accelerator: VAConfig | None = None
+    bluesky_panels: BlueskyPanelsConfig | None = None
 
     def resolved_tier(self) -> int:
         """Resolve the build-time tier, applying a paradigm-aware default.
@@ -310,6 +345,22 @@ class BuildProfile:
         if self.tier is not None:
             return self.tier
         return 1 if self.channel_finder_mode == "in_context" else 3
+
+    def _is_known_panel_id(self, pid: str) -> bool:
+        """Return True if ``pid`` names a panel this profile could render.
+
+        A panel id is known when it is a framework built-in, a declared
+        ``web_panels`` entry, or a custom panel backed by a
+        ``web.panels.<id>.url`` config override. Shared by the ``default_panel``
+        and ``panel_presets`` member validation so both reject the same typos
+        with the same predicate (a single source of truth, not two drifting
+        membership checks).
+        """
+        if pid in BUILTIN_PANELS:
+            return True
+        if pid in self.web_panels:
+            return True
+        return f"web.panels.{pid}.url" in self.config
 
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
@@ -414,8 +465,6 @@ class BuildProfile:
         # by the framework) or a custom panel backed by a ``web.panels.<id>.url``
         # config override (rendered as an iframe by the web terminal). Catches
         # typos in shipped presets and missing URL backing for facility panels.
-        from osprey.profiles.web_panels import BUILTIN_PANELS
-
         for panel in self.web_panels:
             if panel in BUILTIN_PANELS:
                 continue
@@ -428,6 +477,12 @@ class BuildProfile:
             # url-less here — accept it rather than aborting the build.
             if panel == "events" and self.dispatch is not None:
                 continue
+            # The three panel ids' URLs are likewise derived post-build
+            # (``_inject_bluesky_panels`` in build_cmd.py, which runs after this
+            # validator) from the bluesky_panels sidecar's port — so they are
+            # legitimately url-less here when a bluesky_panels block is present.
+            if panel in ("plan", "results", "health") and self.bluesky_panels is not None:
+                continue
             errors.append(
                 f"Unknown web_panel {panel!r}: not in BUILTIN_PANELS "
                 f"({sorted(BUILTIN_PANELS)}) and no '{url_key}' config override"
@@ -437,22 +492,31 @@ class BuildProfile:
         # entry, or a custom panel backed by a `web.panels.<id>.url` override.
         # Catches typos like `default_panel: areil` that would otherwise
         # silently fall back to the frontend DEFAULT_PANEL_FALLBACK at runtime.
-        if self.default_panel is not None:
-            known_custom_urls = {
-                key.split(".")[2]
-                for key in self.config
-                if key.startswith("web.panels.") and key.endswith(".url")
-            }
-            if (
-                self.default_panel not in BUILTIN_PANELS
-                and self.default_panel not in self.web_panels
-                and self.default_panel not in known_custom_urls
-            ):
+        if self.default_panel is not None and not self._is_known_panel_id(self.default_panel):
+            errors.append(
+                f"Unknown default_panel {self.default_panel!r}: not in BUILTIN_PANELS "
+                f"({sorted(BUILTIN_PANELS)}), not in web_panels, and no "
+                f"'web.panels.{self.default_panel}.url' config override"
+            )
+
+        # Validate panel_presets: each member id must resolve the same way a
+        # default_panel does (built-in, declared web_panels, or url-backed
+        # custom). Catches typos in a preset's member list at build time so a
+        # facility author gets the same fail-fast feedback as default_panel.
+        for preset_name, members in self.panel_presets.items():
+            if not isinstance(members, list):
                 errors.append(
-                    f"Unknown default_panel {self.default_panel!r}: not in BUILTIN_PANELS "
-                    f"({sorted(BUILTIN_PANELS)}), not in web_panels, and no "
-                    f"'web.panels.{self.default_panel}.url' config override"
+                    f"panel_presets[{preset_name!r}] must be a list of panel ids "
+                    f"(got {type(members).__name__})"
                 )
+                continue
+            for member in members:
+                if not self._is_known_panel_id(member):
+                    errors.append(
+                        f"Unknown panel_presets[{preset_name!r}] member {member!r}: not in "
+                        f"BUILTIN_PANELS ({sorted(BUILTIN_PANELS)}), not in web_panels, and no "
+                        f"'web.panels.{member}.url' config override"
+                    )
 
         # Validate custom category definitions
         import re
@@ -542,6 +606,12 @@ class BuildProfile:
             if not (1 <= va.port <= 65535):
                 errors.append(f"virtual_accelerator.port must be in 1..65535 (got {va.port})")
 
+        # Validate bluesky_panels configuration
+        if self.bluesky_panels is not None:
+            sp = self.bluesky_panels
+            if not (1 <= sp.port <= 65535):
+                errors.append(f"bluesky_panels.port must be in 1..65535 (got {sp.port})")
+
         if errors:
             raise BuildProfileError(
                 "Build profile validation failed:\n  - " + "\n  - ".join(errors)
@@ -608,11 +678,13 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "output_styles",
         "web_panels",
         "default_panel",
+        "panel_presets",
         "claude_md_template",
         "categories",
         "dispatch",
         "bluesky",
         "virtual_accelerator",
+        "bluesky_panels",
     }
 )
 
@@ -731,7 +803,8 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             port=bluesky_raw.get("port", 8090),
             tiled_enabled=bluesky_raw.get("tiled_enabled", False),
             tiled_port=bluesky_raw.get("tiled_port", 8091),
-            demo_scanner=bluesky_raw.get("demo_scanner", False),
+            demo_runner=bluesky_raw.get("demo_runner", False),
+            plan_dir=bluesky_raw.get("plan_dir"),
         )
 
     va_raw = raw.get("virtual_accelerator")
@@ -741,6 +814,15 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
             raise BuildProfileError("Profile 'virtual_accelerator' must be a mapping")
         virtual_accelerator = VAConfig(
             port=va_raw.get("port", 5064),
+        )
+
+    bluesky_panels_raw = raw.get("bluesky_panels")
+    bluesky_panels = None
+    if bluesky_panels_raw is not None:
+        if not isinstance(bluesky_panels_raw, dict):
+            raise BuildProfileError("Profile 'bluesky_panels' must be a mapping")
+        bluesky_panels = BlueskyPanelsConfig(
+            port=bluesky_panels_raw.get("port", 8095),
         )
 
     return BuildProfile(
@@ -767,11 +849,13 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         output_styles=raw.get("output_styles", []),
         web_panels=raw.get("web_panels", []),
         default_panel=raw.get("default_panel"),
+        panel_presets=raw.get("panel_presets", {}),
         claude_md_template=raw.get("claude_md_template"),
         categories=raw.get("categories", {}),
         dispatch=dispatch,
         bluesky=bluesky,
         virtual_accelerator=virtual_accelerator,
+        bluesky_panels=bluesky_panels,
     )
 
 

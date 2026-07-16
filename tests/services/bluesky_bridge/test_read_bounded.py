@@ -6,7 +6,7 @@ Two layers:
    live-row buffer via `LiveRowRecorder` (no bluesky import, no Tiled server)
    to exercise the route's pagination/truncation/partial logic.
 2. A MANDATORY non-patched integration test (Phase 1 handoff item): a real
-   HTTP server hosting this app, hit by the *actual* `read_scan_data` MCP
+   HTTP server hosting this app, hit by the *actual* `read_run_data` MCP
    tool over a real socket — `_http_get_json` is never mocked here, so a
    missing/renamed bridge route can never hide behind a patched primitive
    again.
@@ -25,10 +25,10 @@ import uvicorn
 from fastapi.testclient import TestClient
 
 from osprey.services.bluesky_bridge import live_rows
-from osprey.services.bluesky_bridge.app import app, set_scanner_factory
+from osprey.services.bluesky_bridge.app import app, set_runner_factory
 from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
+from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
 from osprey.services.bluesky_bridge.runs import Run, do_promote, registry
-from osprey.services.bluesky_bridge.scanner import FakeScanner
 
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
@@ -46,13 +46,13 @@ def _isolated_state(monkeypatch: pytest.MonkeyPatch):
     """
     registry._runs.clear()
     live_rows._clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
     monkeypatch.delenv(_TILED_URI_ENV, raising=False)
     monkeypatch.delenv(_TILED_API_KEY_ENV, raising=False)
     yield
     registry._runs.clear()
     live_rows._clear()
-    set_scanner_factory(FakeScanner)
+    set_runner_factory(FakePlanRunner)
 
 
 @pytest.fixture
@@ -61,9 +61,9 @@ def client() -> TestClient:
 
 
 def _promoted_run_with_uid(run_uid: str) -> Run:
-    """A run promoted with a FakeScanner pre-seeded with `run_uid`."""
+    """A run promoted with a FakePlanRunner pre-seeded with `run_uid`."""
     run = registry.add(request={"plan_name": "count"})
-    do_promote(run, lambda: FakeScanner(run_uid=run_uid))
+    do_promote(run, lambda: FakePlanRunner(run_uid=run_uid))
     return run
 
 
@@ -252,20 +252,20 @@ def _live_bridge() -> Iterator[str]:
         t.join(timeout=5)
 
 
-async def test_read_scan_data_tool_end_to_end_over_real_http(
+async def test_read_run_data_tool_end_to_end_over_real_http(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The actual MCP tool, unpatched, talking to the actual bridge route over a real socket.
 
     Guards against the exact gap flagged at the Phase 1 handoff: every other
-    `read_scan_data` test patches `_http_get_json`, so a renamed/missing
+    `read_run_data` test patches `_http_get_json`, so a renamed/missing
     bridge route could pass every unit test while being unreachable in
     production. This test never touches `_http_get_json` — it runs the real
     bridge, seeds its real run registry + live-row buffer, points the scan
     server context at the real port, and calls the real MCP tool.
     """
-    from osprey.mcp_server.scan import server_context
-    from osprey.mcp_server.scan.tools import read_tools
+    from osprey.mcp_server.bluesky import server_context
+    from osprey.mcp_server.bluesky.tools import read_tools
     from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
     run = _promoted_run_with_uid("uid-e2e")
@@ -278,7 +278,7 @@ async def test_read_scan_data_tool_end_to_end_over_real_http(
         server_context.reset_server_context()
         server_context.initialize_server_context()
         try:
-            result = await get_tool_fn(read_tools.read_scan_data)(run_id=run.id, max_rows=2)
+            result = await get_tool_fn(read_tools.read_run_data)(run_id=run.id, max_rows=2)
         finally:
             server_context.reset_server_context()
 

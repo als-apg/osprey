@@ -24,6 +24,25 @@ from tests.e2e.sdk_helpers import (
 SAFETY_LIMITS_DB = Path(__file__).parent / "fixtures" / "safety_limits.json"
 
 
+def _pin_local_execution(project_dir: Path) -> None:
+    """Force the safety project onto in-process (``local``) code execution.
+
+    The control-assistant preset sets ``execution.execution_method: container``
+    (its production arming posture needs the containerized executor). These
+    safety e2e run against a bare ``init_project`` with no deployed Jupyter
+    container, so container-mode ``execute`` would fail on connect. The safety
+    layers under test (limits monkeypatch, pattern detection) are applied by the
+    wrapper before execution and behave identically in either mode, so pinning
+    ``local`` here decouples the test from the preset's production posture --
+    the same decoupling ``_point_at_safety_limits_db`` does for the limits DB.
+    Run this LAST, after any fixture-specific config rewrite.
+    """
+    config_path = project_dir / "config.yml"
+    config = yaml.safe_load(config_path.read_text())
+    config.setdefault("execution", {})["execution_method"] = "local"
+    config_path.write_text(yaml.dump(config, default_flow_style=False))
+
+
 def _point_at_safety_limits_db(project_dir: Path) -> None:
     """Repoint a rendered project's limits database at the safety fixture.
 
@@ -66,6 +85,7 @@ def safety_project(tmp_path_factory):
     tmp = tmp_path_factory.mktemp("safety")
     project_dir = init_project(tmp, "safety-test-project", provider="als-apg")
     _point_at_safety_limits_db(project_dir)
+    _pin_local_execution(project_dir)
     return project_dir
 
 
@@ -103,6 +123,7 @@ def safety_project_writes_off(tmp_path_factory):
         f"osprey claude regen failed:\n--- stdout ---\n{regen.stdout}\n"
         f"--- stderr ---\n{regen.stderr}"
     )
+    _pin_local_execution(project_dir)
     return project_dir
 
 
@@ -133,6 +154,7 @@ def safety_project_selective(tmp_path_factory):
     config["control_system"]["writes_enabled"] = True
     config["control_system"]["limits_checking"]["database_path"] = str(SAFETY_LIMITS_DB)
     config_path.write_text(yaml.dump(config, default_flow_style=False))
+    _pin_local_execution(project_dir)
     return project_dir
 
 
@@ -152,4 +174,5 @@ def safety_project_default_policy_always(tmp_path_factory):
     config["approval"] = {"enabled": True, "default_policy": "always"}
     config["control_system"]["writes_enabled"] = True
     config_path.write_text(yaml.dump(config, default_flow_style=False))
+    _pin_local_execution(project_dir)
     return project_dir

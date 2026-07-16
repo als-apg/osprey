@@ -13,7 +13,7 @@ not.
 Threat model: ``BLUESKY_PROMOTE_TOKEN`` authenticates callers of the Bluesky
 bridge's ``/runs/{id}/promote`` endpoint. If agent-generated code running in
 this sandbox could read that token from its environment, it could bypass
-``launch_scan``'s in-tool ``writes_enabled`` re-check and POST directly to
+``launch_run``'s in-tool ``writes_enabled`` re-check and POST directly to
 ``/promote``. This test proves that path is closed at the environment layer.
 """
 

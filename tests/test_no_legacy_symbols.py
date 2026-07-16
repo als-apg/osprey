@@ -1,8 +1,14 @@
-"""Release-gate test: no legacy ``prompts``-era symbols survive the rename.
+"""Release-gate test: no legacy renamed symbols survive.
 
 Walks ``src/``, ``tests/``, and ``docs/`` (sources only) and asserts that none
 of the following substrings appear anywhere. Intentionally has no per-file
 exclusions — if a legitimate match shows up later, the rename surfaced it.
+
+Two rename generations are guarded: the ``prompts``-era rename, and the
+``scan`` -> ``bluesky`` rename that generalized the Bluesky plan/run subsystem
+(a plan is an arbitrary generator, not only a scan). The genuine scan tokens
+that legitimately survive — the ``scan``/``grid_scan`` *plan names*, their
+``Scan*Params`` schemas, and physics scan docs — are NOT listed here.
 """
 
 from __future__ import annotations
@@ -10,6 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 
 LEGACY_SUBSTRINGS = (
+    # prompts-era rename
     "PromptCatalog",
     "PromptArtifact",
     "services.prompts",
@@ -21,6 +28,29 @@ LEGACY_SUBSTRINGS = (
     "PromptGalleryService",
     "prompts.css",
     "prompts_cmd",
+    # scan -> bluesky rename: mislabeled subsystem identifiers (never genuine)
+    "scan_panels",
+    "SCAN_PANELS",
+    "scan-panels",
+    "ScanPanelsConfig",
+    "_inject_scan_panels",
+    "mcp__scan__",
+    "osprey.mcp_server.scan",
+    "mcp_server/scan",
+    "create_scan_intent",
+    "list_scan_plans",
+    "read_scan_data",
+    "launch_scan",
+    "stop_scan",
+    "scan_status",
+    "BlueskyScanner",
+    "FakeScanner",
+    "ScanContext",
+    "scanner_factory",
+    "scanner_bluesky",
+    "BLUESKY_DEMO_SCANNER",
+    "write_bluesky_plan",
+    "validate_bluesky_plan",
 )
 
 ROOTS = ("src", "tests", "docs/source")
@@ -84,4 +114,4 @@ def test_no_legacy_symbols() -> None:
                     if needle in ln
                 ][:3]
                 offenders.append(f"{path}: {needle!r}\n  " + "\n  ".join(lines))
-    assert not offenders, "Legacy prompts-era symbols remain:\n" + "\n".join(offenders)
+    assert not offenders, "Legacy renamed symbols remain:\n" + "\n".join(offenders)

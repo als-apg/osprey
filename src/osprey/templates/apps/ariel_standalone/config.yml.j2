@@ -101,9 +101,21 @@ services:
     password: ariel
     port_host: 5432
 
+  # Local telemetry backend for the OSPREY agent — a single-binary OTLP
+  # logs/metrics store (see the `telemetry:` block under `claude_code:` below
+  # and docs/how-to/monitor-agent.rst). Deployed by default: the agent emits its
+  # telemetry here, so `osprey deploy up` + `osprey web` gives you a working,
+  # queryable observability store out of the box. Bound to localhost.
+  openobserve:
+    path: ./services/openobserve
+    port: 5080          # Host port for the OpenObserve UI + OTLP ingest
+    retention_days: 14  # Growth bound: drop data older than N days (min 3). A
+                        # named volume has no size cap, so age is the size knob.
+
 # Services to deploy with `osprey deploy up`
 deployed_services:
   - postgresql
+  - openobserve
 
 # ============================================================
 # SAFETY CONTROLS
@@ -227,6 +239,42 @@ claude_code:
   # agent_models:
   #   logbook-deep-research: sonnet
 
+  # ── Telemetry / Observability (on by default, local + loopback-bound) ──
+  # The agent emits OTLP logs + metrics to the co-deployed OpenObserve store
+  # (declared in `services:` and listed in `deployed_services:` above; UI at
+  # http://localhost:5080). On by default: the underlying harness already records
+  # every prompt, response, and API body to disk, so this adds no new exposure —
+  # it just makes that data queryable in a local store you own. To turn it off,
+  # set `enabled: false`. Tracing and OTEL_LOG_TOOL_CONTENT are intentionally
+  # NOT wired. See docs/how-to/monitor-agent.rst.
+  telemetry:
+    enabled: true                        # Master switch
+    backend: openobserve                 # openobserve | generic
+    protocol: http/protobuf              # http/protobuf | grpc
+    # backend: openobserve auto-derives the endpoint per network context —
+    # http://localhost:5080/api/<org> on the host, http://openobserve:5080/api/<org>
+    # inside the deploy network — so `endpoint` is intentionally OMITTED here.
+    # (Hardcoding localhost would make the in-container dispatch worker emit to
+    # its own loopback and silently drop everything.)
+    #
+    # OpenObserve auth + org routing. user/password read the OpenObserve root
+    # credentials from the project .env — the SAME values the openobserve service
+    # reads — so container and agent auth stay in sync (single source of truth).
+    # `osprey deploy up` mints a strong ZO_ROOT_USER_PASSWORD into .env; the
+    # ${VAR:-default} fallbacks keep the agent launchable before the first deploy.
+    openobserve:
+      user: ${ZO_ROOT_USER_EMAIL:-root@example.com}
+      password: ${ZO_ROOT_USER_PASSWORD:-Complexpass#123}
+      org: default
+    # Content gates — all default ON. The store is local and loopback-bound, so
+    # full capture is the default posture; set any to false to suppress that
+    # category. (If you rebind the store off localhost, change the default
+    # password first — these records include raw API bodies.)
+    log_user_prompts: true               # Operator chat prompts
+    log_assistant_responses: true        # Agent replies
+    log_tool_details: true               # Tool names + arguments
+    log_raw_api_bodies: true             # Raw provider request/response bodies
+
 # ============================================================
 # WEB PANEL CONFIGURATION
 # ============================================================
@@ -249,10 +297,21 @@ web:
 {%- else %}
   panels: {}
 {%- endif %}
+{%- if panel_presets is defined and panel_presets %}
+  # Panel layouts ("Layouts"): named sets of panels a human applies in one click
+  # from the web terminal "+" popover. The key is the menu label; the value is
+  # the exact set of panels to show (non-member panels close).
+  presets:
+{%- for preset_name, preset_panels in panel_presets.items() %}
+    {{ preset_name | tojson }}: [{{ preset_panels | join(", ") }}]
+{%- endfor %}
+{%- endif %}
   # Optional panel controls (off by default; uncomment to use):
   #   web.panels.<id>.hidden: true                          # launch the panel but keep its tab hidden until shown
   #   web.allow_runtime_panels: true                        # let the agent register ad-hoc URL panels at runtime
   #   web.runtime_panel_allowlist: ["dashboard.local:3000"] # restrict registration targets to these host[:port]
+  #   web.presets:                                          # named "Layouts" a human applies from the "+" popover
+  #     "Logbook review": [ariel, artifacts]
 
 # ──────────────────────────────────────────────────────────────────────
 # User-Owned Prompt Artifacts

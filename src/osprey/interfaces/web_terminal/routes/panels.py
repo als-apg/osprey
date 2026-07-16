@@ -118,7 +118,18 @@ async def get_panels(request: Request):
             "visible":  [...],          # enabled + custom ids minus hidden: true panels
             "active":   str|None,       # currently focused panel id
             "labels":   {id: label},    # display labels for enabled built-in panels
+            "allow_runtime_panels": bool,  # whether the human "+" may add a URL panel
+            "presets":  [...],          # config-defined layouts: [{"name", "panels": [id,...]}]
         }
+
+    ``presets`` is the config-defined "Layouts" list (``web.presets``), resolved
+    at startup against the live panel set and carried in config order. It is
+    empty unless a deployment opts in, so the "+" popover renders unchanged by
+    default. Each entry is ``{"name": <label>, "panels": [<member id>, ...]}``.
+
+    ``allow_runtime_panels`` mirrors the config gate the ``POST /api/panels/register``
+    route enforces, so the frontend can show or hide the "new panel from URL" input
+    without first attempting a registration that would 403.
 
     ``default`` is not validated here — the frontend falls back to
     ``DEFAULT_PANEL_FALLBACK`` when it is unknown so a typo doesn't leave the
@@ -137,6 +148,8 @@ async def get_panels(request: Request):
     visible = getattr(request.app.state, "visible_panels", enabled)
     active = getattr(request.app.state, "active_panel", None)
     labels = {pid: BUILTIN_PANEL_LABELS[pid] for pid in enabled if pid in BUILTIN_PANEL_LABELS}
+    allow_runtime = bool(getattr(request.app.state, "allow_runtime_panels", False))
+    presets = list(getattr(request.app.state, "panel_presets", []))
     return {
         "enabled": enabled,
         "custom": custom,
@@ -144,6 +157,8 @@ async def get_panels(request: Request):
         "visible": visible,
         "active": active,
         "labels": labels,
+        "allow_runtime_panels": allow_runtime,
+        "presets": presets,
     }
 
 

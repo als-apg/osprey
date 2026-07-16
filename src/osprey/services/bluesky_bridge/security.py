@@ -5,7 +5,7 @@ starts a real scan; this module is its sole guard. Fail-closed by design: if
 ``BLUESKY_PROMOTE_TOKEN`` isn't set in the bridge process's environment, the
 promote path is simply not armed, regardless of what header a caller sends.
 This is arming/network protection only — the authoritative safety check is the
-agent-side ``launch_scan`` tool's in-tool ``writes_enabled`` re-read (task 1.8),
+agent-side ``launch_run`` tool's in-tool ``writes_enabled`` re-read (task 1.8),
 which runs before this token is ever sent. Mirrors BELLA's
 ``runs.require_armed`` / ``promote_intent`` token check.
 
@@ -15,8 +15,8 @@ That assumption holds for the python-executor's container execution_method
 (fs/network isolated from the project ``.env``), but NOT for its local
 execution_method — agent-authored code there runs unsandboxed on the host
 (cwd=project_root) and can trivially ``open(".env")`` or read
-``config.yml``'s ``scan.promote_token``, then call this route directly,
-bypassing ``launch_scan``'s ``writes_enabled`` gate entirely. Because of this,
+``config.yml``'s ``bluesky.promote_token``, then call this route directly,
+bypassing ``launch_run``'s ``writes_enabled`` gate entirely. Because of this,
 ``osprey.deployment.container_lifecycle`` refuses to mint
 ``BLUESKY_PROMOTE_TOKEN`` (leaving this bridge permanently unarmed, i.e.
 ``require_armed`` keeps 503ing) whenever ``control_system.writes_enabled`` and

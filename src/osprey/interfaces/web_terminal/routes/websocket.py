@@ -7,6 +7,7 @@ import json
 import logging
 import re
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 
 import yaml
@@ -80,11 +81,23 @@ async def _discover_and_notify(
 def _build_extra_env(
     websocket: WebSocket,
     claude_session_id: str | None,
+    telemetry_session_id: str | None = None,
 ) -> dict[str, str]:
-    """Build the extra environment dict for PTY sessions."""
+    """Build the extra environment dict for PTY sessions.
+
+    ``telemetry_session_id`` is the session UUID this terminal's ``claude`` is
+    forced onto (via ``--session-id``); it is handed to the workspace
+    provenance_locator tool so a filed issue can point back to this session's
+    telemetry. Kept separate from ``claude_session_id`` — which drives
+    ``OSPREY_SESSION_ID`` (artifact-store relocation) and stays unset for new
+    sessions — because the telemetry locator must NOT relocate the artifact store.
+    """
     extra_env: dict[str, str] = {}
     if claude_session_id:
         extra_env["OSPREY_SESSION_ID"] = claude_session_id
+    if telemetry_session_id:
+        extra_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
+        extra_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
     hooks_env = getattr(websocket.app.state, "hooks_env", {})
     if hooks_env:
         extra_env.update(hooks_env)
@@ -123,8 +136,17 @@ async def terminal_ws(websocket: WebSocket):
     if mode == "resume" and req_session_id:
         command: list[str] = [*base_shell_command, "--resume", req_session_id]
         claude_session_id: str | None = req_session_id
+        telemetry_session_id: str = req_session_id
     else:
-        command = [*base_shell_command]
+        # Force a known session UUID so the workspace provenance_locator tool can
+        # hand it back (via OSPREY_TELEMETRY_SESSION_ID, injected below) and it
+        # matches the value the OTEL emitter tags records with as session.id — a
+        # filed issue's provenance pointer then resolves. Leave claude_session_id
+        # None so the new-session snapshot/discovery path is unchanged: discovery
+        # simply finds the id we forced. (Not claude_session_id, which would set
+        # OSPREY_SESSION_ID and relocate the artifact store.)
+        telemetry_session_id = str(uuid.uuid4())
+        command = [*base_shell_command, "--session-id", telemetry_session_id]
         claude_session_id = None
 
     if effort:
@@ -153,7 +175,7 @@ async def terminal_ws(websocket: WebSocket):
     if claude_session_id is None:
         snapshot = discovery.snapshot_session_ids()
 
-    extra_env = _build_extra_env(websocket, claude_session_id)
+    extra_env = _build_extra_env(websocket, claude_session_id, telemetry_session_id)
 
     session, was_reused = registry.get_or_create_session(
         current_key,

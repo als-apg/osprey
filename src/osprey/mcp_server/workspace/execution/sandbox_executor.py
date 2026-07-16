@@ -26,6 +26,7 @@ import os
 import sys
 import time
 import uuid
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -171,7 +172,12 @@ _DANGEROUS_PATTERNS: list[tuple[str, str]] = [
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
-def validate_sandbox_code(code: str) -> tuple[bool, list[str]]:
+def validate_sandbox_code(
+    code: str,
+    *,
+    allowed_top_level: AbstractSet[str] = _ALLOWED_TOP_LEVEL,
+    dangerous_patterns: list[tuple[str, str]] = _DANGEROUS_PATTERNS,
+) -> tuple[bool, list[str]]:
     """Validate code for safety before sandboxed execution.
 
     Checks:
@@ -181,6 +187,15 @@ def validate_sandbox_code(code: str) -> tuple[bool, list[str]]:
 
     Args:
         code: Python source code to validate.
+        allowed_top_level: Top-level module names an ``import``/``import
+            from`` may reference. Defaults to this module's own
+            :data:`_ALLOWED_TOP_LEVEL` (the viz sandbox's whitelist) — pass a
+            different set (or frozenset) to reuse this function's syntax gate
+            and dangerous-pattern scan for another caller's own import policy
+            (e.g. the bluesky plan validator) without touching this module's
+            whitelist.
+        dangerous_patterns: ``(pattern, description)`` pairs scanned as plain
+            substrings. Defaults to this module's own :data:`_DANGEROUS_PATTERNS`.
 
     Returns:
         Tuple of (is_safe, list_of_violations). Empty violations list means safe.
@@ -198,16 +213,16 @@ def validate_sandbox_code(code: str) -> tuple[bool, list[str]]:
         if isinstance(node, ast.Import):
             for alias in node.names:
                 top = alias.name.split(".")[0]
-                if top not in _ALLOWED_TOP_LEVEL:
+                if top not in allowed_top_level:
                     violations.append(f"Import not allowed: '{alias.name}'")
         elif isinstance(node, ast.ImportFrom):
             if node.module:
                 top = node.module.split(".")[0]
-                if top not in _ALLOWED_TOP_LEVEL:
+                if top not in allowed_top_level:
                     violations.append(f"Import not allowed: 'from {node.module}'")
 
     # 3. Dangerous pattern scan (text-level)
-    for pattern, description in _DANGEROUS_PATTERNS:
+    for pattern, description in dangerous_patterns:
         if pattern in code:
             violations.append(f"Dangerous pattern: {description}")
 
