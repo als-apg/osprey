@@ -37,46 +37,83 @@
     <span class="panel-kicker">OSPREY Bluesky Panels</span>
   </header>
 
-  <p class="lead">
-    Browse registered plans, inspect a plan's source and provenance, set
-    its parameters, and execute it directly. Execution is deterministic — no
-    agent or LLM is in this path.
-  </p>
-
   <div id="root-error" class="banner banner-err" hidden></div>
 
-  <section class="card">
-    <h2>Plans</h2>
-    <p id="plans-empty" class="muted" hidden>No plans available.</p>
-    <ul id="plan-list" class="plan-list"></ul>
-  </section>
+  <!--
+    Two-pane browser. LEFT: a dense file-browser plan selector — names first,
+    trust/validation reduced to a status dot (details in the tooltip and the
+    detail header). RIGHT: the selected plan under a Parameters / Source tab
+    strip; Parameters is a 2-D schema-driven GUI (see schema-form.js) with a
+    live readout, and the footer carries the deterministic, connector-gated
+    Execute action. Everything dynamic is built via createElement/textContent
+    in panel.js — no innerHTML sink anywhere in this panel.
+  -->
+  <div class="browser">
+    <aside class="sidebar" aria-label="Plan browser">
+      <div class="sidebar-head">
+        <input id="plan-search" class="search" type="search"
+               placeholder="Filter…" autocomplete="off"
+               aria-label="Filter plans by name or description">
+      </div>
+      <div id="plan-tree" class="tree" role="tree" aria-label="Registered plans"></div>
+      <p id="plans-empty" class="muted sidebar-note" hidden>No plans available.</p>
+      <p id="plans-filtered-empty" class="muted sidebar-note" hidden>No match.</p>
+    </aside>
 
-  <section id="detail-card" class="card" hidden>
-    <h2 id="detail-title">Plan detail</h2>
-    <div id="detail-badges" class="badges"></div>
-    <p id="session-note" class="muted" hidden>
-      Session plans are in-memory; lost on bridge restart.
-    </p>
+    <section class="detail" aria-label="Plan detail">
+      <div id="detail-empty" class="detail-empty" hidden>
+        <p class="muted">No plan selected.</p>
+      </div>
 
-    <h3 class="sub">Source</h3>
-    <pre id="detail-source" class="source"></pre>
+      <div id="detail-body" class="detail-body" hidden>
+        <div class="detail-head">
+          <div class="detail-id">
+            <h2 id="detail-title" class="detail-title"></h2>
+            <span id="detail-status" class="status-line"></span>
+          </div>
+          <p id="detail-desc" class="detail-desc"></p>
+          <p id="session-note" class="muted" hidden>
+            Session plans are in-memory; lost on bridge restart.
+          </p>
+          <div class="tabs" role="tablist" aria-label="Plan views">
+            <button type="button" id="tab-params" class="tab active" role="tab"
+                    aria-selected="true" aria-controls="panel-params" data-tab="params">
+              Parameters
+            </button>
+            <button type="button" id="tab-source" class="tab" role="tab"
+                    aria-selected="false" aria-controls="panel-source" data-tab="source">
+              Source
+            </button>
+          </div>
+        </div>
 
-    <h3 class="sub">Parameters</h3>
-    <form id="param-form" class="param-form"></form>
+        <div id="panel-params" class="tabpanel" role="tabpanel" aria-labelledby="tab-params">
+          <form id="param-form" class="param-form"></form>
+        </div>
 
-    <div id="exec-banner" class="banner" hidden></div>
+        <div id="panel-source" class="tabpanel" role="tabpanel" aria-labelledby="tab-source" hidden>
+          <pre id="detail-source" class="source"></pre>
+        </div>
 
-    <p id="unvalidated-note" class="muted" hidden>
-      not validated — cannot execute
-    </p>
-
-    <button type="button" id="execute-btn" class="btn" disabled>Execute plan</button>
-
-    <p class="footnote">
-      Validated ≠ safe to run unattended; execution is gated by the same
-      arming as the agent path, with the connector as the sole write gate.
-    </p>
-  </section>
+        <div class="detail-foot">
+          <div id="exec-banner" class="banner" hidden></div>
+          <div class="foot-row">
+            <div class="foot-info">
+              <span id="param-summary" class="readout" hidden></span>
+              <span id="unvalidated-note" class="muted" hidden>
+                not validated — cannot execute
+              </span>
+              <span class="footnote">
+                Execution is gated by the same arming as the agent path; the
+                connector is the sole write gate.
+              </span>
+            </div>
+            <button type="button" id="execute-btn" class="btn" disabled>Execute plan</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
 </div>
 <script type="module" src="./panel.js"></script>
 </body>
