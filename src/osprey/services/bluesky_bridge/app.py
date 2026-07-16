@@ -23,7 +23,7 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from . import live_rows
@@ -846,7 +846,11 @@ async def validate_session_plan(request: PlanValidateRequest) -> dict:
 # already sitting on disk.
 # ---------------------------------------------------------------------------
 
-_SOURCE_TRUNCATE_CHARS = 4000  # a few KB: enough for a human skim, bounded
+_SOURCE_TRUNCATE_CHARS = 4000  # default: a few KB, enough for a human skim
+# Hard ceiling for an explicit `max_chars` ask (the plan panel's Source tab
+# requests full source this way). Far above any real plan file, but still a
+# bound — the response can never grow unbounded with the file.
+_SOURCE_TRUNCATE_CHARS_MAX = 200_000
 
 
 def _find_layer_source_path(name: str) -> tuple[Any, Provenance] | None:
@@ -891,9 +895,21 @@ def _find_layer_source_path(name: str) -> tuple[Any, Provenance] | None:
 
 
 @app.get("/plans/{name}/source")
-def get_plan_source(name: str) -> dict:
+def get_plan_source(
+    name: str,
+    max_chars: int = Query(
+        default=_SOURCE_TRUNCATE_CHARS, ge=1, le=_SOURCE_TRUNCATE_CHARS_MAX
+    ),
+) -> dict:
     """Truncated source text for one plan — the launch-approval hook's data
     source for rendering what a `launch_run` call would actually run.
+
+    ``max_chars`` bounds the returned source text. The default stays at the
+    approval hook's skim size (the hook embeds the response verbatim in its
+    prompt, so its excerpt must stay small); a caller that needs the full
+    text — the plan panel's Source tab — asks for more explicitly. The ask is
+    itself capped (422 beyond ``_SOURCE_TRUNCATE_CHARS_MAX``) so the response
+    stays bounded no matter what the client sends.
 
     A session-tier file is looked up directly: its filename IS its name (see
     `write_session_plan`). Its ``validated`` flag reflects the SAME
@@ -924,7 +940,7 @@ def get_plan_source(name: str) -> dict:
         content = path.read_text(encoding="utf-8")
         validated = True
 
-    truncated_content = content[:_SOURCE_TRUNCATE_CHARS]
+    truncated_content = content[:max_chars]
     return {
         "name": name,
         "provenance": provenance,

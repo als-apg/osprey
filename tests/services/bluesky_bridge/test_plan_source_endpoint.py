@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 from osprey.services.bluesky_bridge import plan_loader
 from osprey.services.bluesky_bridge.app import (
     _SOURCE_TRUNCATE_CHARS,
+    _SOURCE_TRUNCATE_CHARS_MAX,
     app,
 )
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
@@ -120,6 +121,38 @@ def test_session_plan_source_is_truncated_beyond_the_bound(
     assert body["truncated"] is True
     assert len(body["source"]) == _SOURCE_TRUNCATE_CHARS
     assert body["source"] == source[:_SOURCE_TRUNCATE_CHARS]
+
+
+def test_max_chars_raises_the_bound_for_full_source_reads(
+    tmp_path: Path, client: TestClient
+) -> None:
+    """The plan panel's Source tab asks for more than the skim default via
+    `?max_chars=` — a source longer than the default but within the ask comes
+    back whole, and the default-bound behavior is unchanged for callers (the
+    approval hook) that don't pass the param."""
+    oversized_body = "\n# padding\n" * (_SOURCE_TRUNCATE_CHARS // 5)
+    source = _session_plan_source("full_read_plan", body=oversized_body)
+    assert _SOURCE_TRUNCATE_CHARS < len(source) < _SOURCE_TRUNCATE_CHARS_MAX
+    _write_session_plan(tmp_path, "full_read_plan", source)
+
+    resp = client.get(f"/plans/full_read_plan/source?max_chars={_SOURCE_TRUNCATE_CHARS_MAX}")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["truncated"] is False
+    assert body["source"] == source
+
+
+def test_max_chars_beyond_the_ceiling_is_422(tmp_path: Path, client: TestClient) -> None:
+    """The explicit ask is itself capped — the response can never be made
+    unbounded by a client-chosen number."""
+    source = _session_plan_source("capped_plan")
+    _write_session_plan(tmp_path, "capped_plan", source)
+
+    resp = client.get(f"/plans/capped_plan/source?max_chars={_SOURCE_TRUNCATE_CHARS_MAX + 1}")
+    assert resp.status_code == 422
+
+    resp = client.get("/plans/capped_plan/source?max_chars=0")
+    assert resp.status_code == 422
 
 
 def test_unknown_plan_name_is_404(client: TestClient) -> None:
