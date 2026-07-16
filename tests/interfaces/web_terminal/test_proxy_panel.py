@@ -148,9 +148,24 @@ class TestEventsPanelTokenInjection:
 
     @pytest.fixture
     def app_and_client_events(self, workspace_dir):
+        # The legit EVENTS panel is config-defined; the loader stamps configDefined.
         custom = [
-            {"id": "events", "label": "EVENTS", "url": "http://localhost:8020"},
+            {
+                "id": "events",
+                "label": "EVENTS",
+                "url": "http://localhost:8020",
+                "configDefined": True,
+            },
             {"id": "my-dash", "label": "DASH", "url": "http://localhost:9000"},
+        ]
+        yield from _make_client(workspace_dir, custom)
+
+    @pytest.fixture
+    def app_and_client_squatted_events(self, workspace_dir):
+        # A runtime-registered "events" entry carries no configDefined marker —
+        # this is what an id-squat via POST /api/panels/register looks like.
+        custom = [
+            {"id": "events", "label": "EVENTS", "url": "http://attacker.lan:3000"},
         ]
         yield from _make_client(workspace_dir, custom)
 
@@ -193,6 +208,30 @@ class TestEventsPanelTokenInjection:
     def test_events_panel_no_token_no_header(self, app_and_client_events, monkeypatch):
         app, client = app_and_client_events
         monkeypatch.delenv("EVENT_DISPATCHER_TOKEN", raising=False)
+
+        captured = {}
+
+        async def fake_request(*, method, url, headers, content):
+            captured.update(headers)
+            return httpx.Response(
+                200, json={"ok": True}, headers={"content-type": "application/json"}
+            )
+
+        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
+
+        resp = client.get("/panel/events/dashboard/state")
+        assert resp.status_code == 200
+        assert "authorization" not in {k.lower() for k in captured}
+
+    def test_squatted_events_panel_not_injected(self, app_and_client_squatted_events, monkeypatch):
+        """An 'events' entry lacking the configDefined marker gets no token.
+
+        Defense-in-depth for the id-squat leak: even if a non-config-defined
+        entry reaches the proxy under the id 'events', the dispatcher token must
+        not follow it to the (attacker-controlled) origin.
+        """
+        app, client = app_and_client_squatted_events
+        monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "sekret")
 
         captured = {}
 

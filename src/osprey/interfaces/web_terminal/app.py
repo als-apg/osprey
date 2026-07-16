@@ -278,6 +278,14 @@ def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
                     "url": spec.get("url", ""),
                     "healthEndpoint": spec.get("health_endpoint"),
                     "path": spec.get("path", "/"),
+                    # Trust marker: this panel was declared in config (a trusted
+                    # input), not registered at runtime via POST /api/panels/register.
+                    # Only the config loader stamps it, so credential injection
+                    # (routes/proxy.py) and id reservation (routes/panels.py) can key
+                    # off panel *origin* rather than the forgeable id string. Set
+                    # explicitly here — GET /api/panels spreads this dict to the
+                    # browser, so only deliberately-placed fields are exposed.
+                    "configDefined": True,
                     # Path suffixes whose JSON responses get the proxy's
                     # root-absolute-literal rewrite (see routes/proxy.py) —
                     # for backends whose SPA bootstraps its API base from a

@@ -221,6 +221,24 @@ class TestLoadPanelConfig:
         assert events[0]["healthEndpoint"] == "/health"
         assert events[0]["label"] == "EVENTS"
 
+    def test_config_defined_custom_panel_carries_marker(self):
+        """Config-defined custom panels carry ``configDefined=True``.
+
+        The marker is the trust boundary: only the config loader stamps it, so
+        server-side credential injection and id reservation can key off panel
+        *origin* rather than the id string (which a runtime registration can
+        forge). See routes/proxy.py (events token gate) and routes/panels.py
+        (register reservation).
+        """
+        with patch(
+            "osprey.utils.workspace.load_osprey_config",
+            return_value={
+                "web": {"panels": {"events": {"label": "EVENTS", "url": "http://localhost:8020"}}}
+            },
+        ):
+            _enabled, custom, _default = _load_panel_config()
+        assert custom[0]["configDefined"] is True
+
     def test_config_load_failure(self):
         """Config load failure returns universal panels only."""
         with patch(
@@ -421,6 +439,40 @@ def _make_client_with_hidden_panel(workspace_dir, hidden_panel_id, enabled_panel
         app = create_app(shell_command="echo")
         with TestClient(app) as c:
             yield c
+
+
+def _make_client_runtime_with_config_events(workspace_dir):
+    """Yield ``(app, client)`` with allow_runtime_panels AND a config-defined EVENTS panel.
+
+    Unlike ``_make_client_with_runtime_panels``, this patches only the raw osprey
+    config and lets the real ``_load_panel_config`` run — so the events entry is
+    stamped with the production ``configDefined`` marker the reservation check
+    relies on.
+    """
+    with (
+        patch(
+            "osprey.interfaces.web_terminal.app._load_web_config",
+            return_value={"watch_dir": str(workspace_dir)},
+        ),
+        patch(
+            "osprey.utils.workspace.load_osprey_config",
+            return_value={
+                "web": {
+                    "allow_runtime_panels": True,
+                    "panels": {
+                        "events": {
+                            "label": "EVENTS",
+                            "url": "http://localhost:8020",
+                            "path": "/dashboard",
+                        }
+                    },
+                }
+            },
+        ),
+    ):
+        app = create_app(shell_command="echo")
+        with TestClient(app) as c:
+            yield app, c
 
 
 @pytest.fixture
@@ -784,3 +836,50 @@ class TestPanelRegisterAPI:
 
         # Assert
         assert resp.status_code == 200
+
+
+class TestConfigDefinedPanelReservation:
+    """A config-defined panel id is reserved against runtime registration.
+
+    Without this, an agent (via the workspace ``register_panel`` MCP tool) could
+    register ``id="events"``; the remove-then-append would silently repoint the
+    config-defined EVENTS panel at an attacker URL, and the proxy's server-side
+    token injection would then hand ``EVENT_DISPATCHER_TOKEN`` to that URL.
+    """
+
+    @pytest.fixture
+    def app_and_client(self, workspace_dir):
+        yield from _make_client_runtime_with_config_events(workspace_dir)
+
+    def test_marker_is_stamped_on_startup(self, app_and_client):
+        """Precondition: the real config path stamps configDefined on events."""
+        app, _client = app_and_client
+        events = [cp for cp in app.state.custom_panels if cp["id"] == "events"]
+        assert events and events[0].get("configDefined") is True
+
+    def test_register_config_defined_id_returns_422(self, app_and_client):
+        """Registering a config-defined id (events) is rejected, like a built-in."""
+        _app, client = app_and_client
+        with patch(_GETADDRINFO_TARGET, return_value=_LAN_ADDR):
+            resp = client.post(
+                "/api/panels/register",
+                json={"id": "events", "label": "PWNED", "url": "http://attacker.lan:3000"},
+            )
+        assert resp.status_code == 422
+
+    def test_config_entry_survives_squat_attempt(self, app_and_client):
+        """The reserved id's config entry is never mutated — url/label unchanged.
+
+        Guards the remove-then-append: a status-only assertion would pass even if
+        the entry were replaced-then-rejected, so assert the entry itself.
+        """
+        app, client = app_and_client
+        with patch(_GETADDRINFO_TARGET, return_value=_LAN_ADDR):
+            client.post(
+                "/api/panels/register",
+                json={"id": "events", "label": "PWNED", "url": "http://attacker.lan:3000"},
+            )
+        events = [cp for cp in app.state.custom_panels if cp["id"] == "events"]
+        assert len(events) == 1
+        assert events[0]["url"] == "http://localhost:8020"  # original, not attacker's
+        assert events[0]["label"] == "EVENTS"
