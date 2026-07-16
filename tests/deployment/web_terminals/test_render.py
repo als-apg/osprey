@@ -438,6 +438,103 @@ def test_removing_user_regenerates_without_their_service_route_and_volumes() -> 
         assert "volume prune" not in content
 
 
+def test_object_form_users_render_with_explicit_index() -> None:
+    """Object-form users (`{"name": ..., "index": ...}`) drive port allocation from
+    their own `index` field, not their position in the list."""
+    # Arrange
+    config = copy.deepcopy(_config([{"name": "alice", "index": 5}]))
+
+    # Act
+    artifacts = render_web_terminals(config)
+    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
+
+    # Assert
+    expected = allocate_ports(_BASE_PORTS, 5)
+    env = dict(
+        item.split("=", 1)
+        for item in compose["services"]["web-alice"]["environment"]
+        if "=" in item
+    )
+    assert int(env["OSPREY_WEB_PORT"]) == expected["web"]
+    assert int(env["OSPREY_ARTIFACT_SERVER_PORT"]) == expected["artifact"]
+
+
+def test_mixed_object_and_bare_users_render_together() -> None:
+    """A roster mixing object-form and legacy bare-string entries renders both:
+    the object-form entry uses its explicit index, the bare entry falls back to
+    its position in the list."""
+    # Arrange
+    config = copy.deepcopy(_config([{"name": "alice", "index": 5}, "bob"]))
+
+    # Act
+    artifacts = render_web_terminals(config)
+    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
+    landing_html = artifacts["nginx/landing.html"]
+
+    # Assert
+    assert set(compose["services"].keys()) == {"nginx", "web-alice", "web-bob"}
+    alice_env = dict(
+        item.split("=", 1)
+        for item in compose["services"]["web-alice"]["environment"]
+        if "=" in item
+    )
+    bob_env = dict(
+        item.split("=", 1) for item in compose["services"]["web-bob"]["environment"] if "=" in item
+    )
+    assert int(alice_env["OSPREY_WEB_PORT"]) == allocate_ports(_BASE_PORTS, 5)["web"]
+    # 'bob' is the second list entry (position 1) -> falls back to positional index 1.
+    assert int(bob_env["OSPREY_WEB_PORT"]) == allocate_ports(_BASE_PORTS, 1)["web"]
+    assert ">alice<" in landing_html
+    assert ">bob<" in landing_html
+
+
+def test_legacy_bare_users_render_identically_to_before() -> None:
+    """A bare-string-only roster is unaffected by the object-form parsing path:
+    ports and landing cards still come from positional index, byte-for-byte the
+    same as the pre-existing behavior covered elsewhere in this file."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+
+    # Act
+    artifacts = render_web_terminals(config)
+    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
+
+    # Assert
+    for index, user in enumerate(("alice", "bob", "carol")):
+        expected = allocate_ports(_BASE_PORTS, index)
+        env = dict(
+            item.split("=", 1)
+            for item in compose["services"][f"web-{user}"]["environment"]
+            if "=" in item
+        )
+        assert int(env["OSPREY_WEB_PORT"]) == expected["web"]
+
+
+def test_malformed_user_entries_are_dropped() -> None:
+    """A non-string, non-well-formed-object entry is dropped rather than raising
+    (well-formedness is lint's job, not render's) -- mirrors the prior silent-drop
+    behavior for non-string entries."""
+    # Arrange
+    config = copy.deepcopy(
+        _config([{"name": "alice", "index": 0}, {"name": "no-index"}, 42, None, "bob"])
+    )
+
+    # Act
+    artifacts = render_web_terminals(config)
+    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
+
+    # Assert
+    assert set(compose["services"].keys()) == {"nginx", "web-alice", "web-bob"}
+    # 'bob' is the 5th raw list entry (position 4). A bare entry keeps its RAW
+    # position rather than compacting over the dropped junk ahead of it -- pinned
+    # here so the semantic is locked (raw position also prevents a bare fallback
+    # from colliding with an object entry's explicit index in a mixed roster).
+    bob_env = dict(
+        item.split("=", 1) for item in compose["services"]["web-bob"]["environment"] if "=" in item
+    )
+    assert int(bob_env["OSPREY_WEB_PORT"]) == allocate_ports(_BASE_PORTS, 4)["web"]
+
+
 def test_auth_default_none() -> None:
     """No `web_terminals.auth` stanza -> auth_method defaults to 'none' (v1 has no auth)."""
     # Arrange
