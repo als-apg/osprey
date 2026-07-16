@@ -463,6 +463,120 @@ select.field-input { cursor: pointer; }
 .chips-input:focus { outline: none; }
 .chips-input::placeholder { color: var(--text-muted); }
 
+/* Channel list (arrays of scalars, x-widget: channel-list — long instrument
+ * lists). Entries stack one per row in a fixed-height scroll region with a
+ * live count header, so tens of correctors/BPMs stay readable. */
+.channel-list {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.channel-list:focus-within { border-color: var(--color-accent-light); }
+.channel-list-head {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-default);
+}
+.channel-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.channel-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 180px;
+  overflow-y: auto;
+}
+.channel-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 10px;
+  border-bottom: 1px solid var(--border-default);
+}
+.channel-item:last-child { border-bottom: none; }
+.channel-item:hover { background: var(--accent-tint-06); }
+.channel-name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chan-x {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  font-size: 13px;
+  line-height: 1;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  padding: 0;
+  cursor: pointer;
+}
+.chan-x:hover { color: var(--color-error); background: var(--error-tint-08); }
+.channel-add {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--border-default);
+  padding: 6px 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.channel-add:focus { outline: none; }
+.channel-add::placeholder { color: var(--text-muted); }
+
+/* Segmented control (small enums, x-widget: segmented — e.g. sweep direction).
+ * Every option is a visible, mutually-exclusive button. */
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+}
+.segmented-option {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  padding: 5px 12px;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+.segmented-option:hover:not(.active) { color: var(--text-primary); }
+.segmented-option.active {
+  color: var(--color-on-accent);
+  background: var(--color-accent-light);
+}
+.segmented-option:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-accent-light);
+}
+
 /* Editable table (arrays of flat objects — e.g. grid axes) */
 .table-field {
   display: flex;

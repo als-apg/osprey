@@ -117,6 +117,7 @@ const PLAN_LAYOUTS = {
   orm: [
     ['correctors', 'detectors'],
     ['span_a', 'num'],
+    ['sweep'],
   ],
   grid_scan: [['axes'], ['detectors', 'snake_axes']],
 };
@@ -136,9 +137,13 @@ const PLAN_SUMMARIES = {
     const span = typeof args.span_a === 'number' ? args.span_a : null;
     /** @type {string[]} */
     const parts = [];
+    const sweep = typeof args.sweep === 'string' ? args.sweep : null;
     if (c) parts.push(`${c} corrector${c === 1 ? '' : 's'}`);
     if (d) parts.push(`${d} BPM${d === 1 ? '' : 's'}`);
-    if (span !== null) parts.push(`±${span} A`);
+    if (span !== null) {
+      // Monodirectional sweeps [0, +span]; bidirectional the symmetric ±span.
+      parts.push(sweep === 'monodirectional' ? `0…${span} A` : `±${span} A`);
+    }
     if (c && n) parts.push(`${c} × ${n} = ${c * n} sweep points`);
     else if (n) parts.push(`${n} points`);
     return parts.join(' · ');

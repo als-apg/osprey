@@ -146,6 +146,59 @@ def test_orm_schema_validation_path_matches_reinitialize() -> None:
         ORMParams.model_validate({"correctors": [], "detectors": ["bpm1"], "span_a": 2.0, "num": 5})
 
 
+def test_orm_params_sweep_defaults_to_bidirectional() -> None:
+    """`sweep` is optional: an omitting payload (every pre-existing caller)
+    keeps the symmetric two-sided sweep."""
+    params = ORMParams(correctors=["hcm1"], detectors=["bpm1"], span_a=2.0, num=5)
+    assert params.sweep == "bidirectional"
+
+
+def test_orm_params_accepts_monodirectional_sweep() -> None:
+    params = ORMParams(
+        correctors=["hcm1"], detectors=["bpm1"], span_a=2.0, num=5, sweep="monodirectional"
+    )
+    assert params.sweep == "monodirectional"
+
+
+def test_orm_params_rejects_an_unknown_sweep() -> None:
+    with pytest.raises(ValidationError):
+        ORMParams(correctors=["hcm1"], detectors=["bpm1"], span_a=2.0, num=5, sweep="sideways")
+
+
+def _corrector_sweep_setpoints(params: ORMParams) -> list[float]:
+    """Drive the `orm` generator directly (no RunEngine) and collect, in
+    order, the current values it commands onto its single corrector — the
+    sweep points followed by the restore-to-0 in the `finally`. Iterating a
+    plan just walks its `Msg` stream; none of `orm`'s control flow branches on
+    a yielded value, so this needs no RunEngine."""
+    devices = asyncio.run(build_devices(motor_names=["hcm1"], detector_names=["bpm1"]))
+    corrector = devices["hcm1"]
+    setpoints: list[float] = []
+    for msg in orm_plan(devices, params):
+        if msg.command == "set" and msg.obj is corrector:
+            setpoints.append(msg.args[0])
+    return setpoints
+
+
+def test_orm_bidirectional_sweep_spans_symmetric_range() -> None:
+    """The default sweep drives the corrector across the symmetric
+    `[-span_a, +span_a]` (both signs present), then restores it to 0."""
+    params = ORMParams(correctors=["hcm1"], detectors=["bpm1"], span_a=3.0, num=4)
+    setpoints = _corrector_sweep_setpoints(params)
+    assert setpoints == [-3.0, -1.0, 1.0, 3.0, 0.0]
+
+
+def test_orm_monodirectional_sweep_spans_zero_to_span() -> None:
+    """A monodirectional sweep never drives the corrector negative: it spans
+    `[0, +span_a]` only, then restores to 0."""
+    params = ORMParams(
+        correctors=["hcm1"], detectors=["bpm1"], span_a=3.0, num=4, sweep="monodirectional"
+    )
+    setpoints = _corrector_sweep_setpoints(params)
+    assert setpoints == [0.0, 1.0, 2.0, 3.0, 0.0]
+    assert all(value >= 0.0 for value in setpoints)
+
+
 # =========================================================================
 # `orm`'s restore-in-`finally` abort safety (task 2.3, CC-1): a refused
 # restore write must never replace the original in-flight exception that

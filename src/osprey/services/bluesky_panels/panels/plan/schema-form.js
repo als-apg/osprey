@@ -74,6 +74,7 @@ export const OMIT = Symbol('omit');
  * @property {number} [exclusiveMinimum]
  * @property {number} [exclusiveMaximum]
  * @property {number} [minItems]
+ * @property {string} [x-widget]
  */
 
 /**
@@ -258,6 +259,29 @@ function parseScalar(raw, type) {
 }
 
 /**
+ * Parse one list input's raw text into scalar values: split on whitespace and
+ * commas (so a pasted list of names commits as many values), parse each token
+ * per the item type, all-or-nothing. Returns ``null`` if any token is invalid,
+ * so the caller can leave the whole text visibly unaccepted rather than
+ * silently drop part of it. Shared by the chip and channel-list editors.
+ *
+ * @param {string} raw
+ * @param {string} itemType
+ * @returns {unknown[]|null}
+ */
+function parseValueList(raw, itemType) {
+  const parts = raw.trim().split(/[\s,]+/).filter(Boolean);
+  /** @type {unknown[]} */
+  const accepted = [];
+  for (const part of parts) {
+    const parsed = parseScalar(part, itemType);
+    if (!parsed) return null;
+    accepted.push(parsed.value);
+  }
+  return accepted;
+}
+
+/**
  * Build one control (no label) for a schema node, seeded with ``value`` (or
  * the node's ``default`` when ``value`` is undefined).
  *
@@ -270,7 +294,16 @@ function buildControl(root, rawNode, value) {
   const node = resolveNode(root, rawNode);
   const seed = value === undefined ? node.default : value;
 
-  if (Array.isArray(node.enum)) return buildEnum(node, seed);
+  // A plan may opt one field into a purpose-built control via an `x-widget`
+  // hint in its schema (Pydantic `json_schema_extra`) — a presentation
+  // refinement layered over the type-driven default below, never a gate: an
+  // unknown or type-mismatched hint just falls through to the generic control.
+  const widget = node['x-widget'];
+
+  if (Array.isArray(node.enum)) {
+    if (widget === 'segmented') return buildSegmented(node, seed);
+    return buildEnum(node, seed);
+  }
 
   switch (effectiveType(node)) {
     case 'boolean':
@@ -281,7 +314,10 @@ function buildControl(root, rawNode, value) {
       return buildNumber(node, seed, false);
     case 'array': {
       const item = node.items ? resolveNode(root, node.items) : { type: 'string' };
-      if (isScalar(item)) return buildChips(node, item, seed);
+      if (isScalar(item)) {
+        if (widget === 'channel-list') return buildChannelList(node, item, seed);
+        return buildChips(node, item, seed);
+      }
       if (isFlatObject(root, item)) return buildTable(root, node, item, seed);
       return buildArrayRows(root, node, item, seed);
     }
@@ -438,14 +474,8 @@ function buildChips(node, itemSchema, seed) {
   function commit() {
     const raw = input.value.trim();
     if (!raw) return;
-    const parts = raw.split(/[\s,]+/).filter(Boolean);
-    /** @type {unknown[]} */
-    const accepted = [];
-    for (const part of parts) {
-      const parsed = parseScalar(part, itemType);
-      if (!parsed) return; // leave the text in place — visibly not accepted
-      accepted.push(parsed.value);
-    }
+    const accepted = parseValueList(raw, itemType);
+    if (accepted === null) return; // leave the text in place — visibly not accepted
     values.push(...accepted);
     input.value = '';
     render();
@@ -475,6 +505,160 @@ function buildChips(node, itemSchema, seed) {
   return {
     el,
     collect: () => (values.length > 0 ? values.slice() : OMIT),
+  };
+}
+
+/**
+ * Array of scalars → a vertical channel list (opt-in via ``x-widget:
+ * "channel-list"``). Unlike the chip editor's wrapping well, entries stack one
+ * per row inside a fixed-height scroll region with a live count header — built
+ * for long instrument lists (tens of correctors/BPMs) that would otherwise
+ * cram into an unreadable chip row. Editing is the chip editor's: type a value
+ * and Enter/comma/paste commits it (whitespace/comma-separated pastes add many
+ * at once, all-or-nothing per the item type), Backspace on an empty input
+ * removes the last entry, and each row's × removes that entry.
+ *
+ * @param {JsonSchemaNode} node       The (resolved) array node.
+ * @param {JsonSchemaNode} itemSchema The resolved item schema (scalar).
+ * @param {unknown} seed
+ * @returns {Field}
+ */
+function buildChannelList(node, itemSchema, seed) {
+  const itemType = Array.isArray(itemSchema.enum) ? 'string' : effectiveType(itemSchema);
+  /** @type {unknown[]} */
+  const values = Array.isArray(seed) ? seed.slice() : [];
+
+  const count = h('span', { class: 'channel-count' });
+  const head = h('div', { class: 'channel-list-head' }, count);
+  const list = h('ul', { class: 'channel-items', role: 'list' });
+  const input = /** @type {HTMLInputElement} */ (
+    h('input', {
+      class: 'channel-add',
+      type: 'text',
+      placeholder: '+ add channel, press Enter',
+      'aria-label': `add ${node.title || 'channel'}`,
+      autocomplete: 'off',
+      spellcheck: false,
+    })
+  );
+  const el = h('div', { class: 'channel-list' }, head, list, input);
+
+  function render() {
+    list.replaceChildren();
+    values.forEach((value, index) => {
+      const remove = h('button', {
+        type: 'button',
+        class: 'chan-x',
+        'aria-label': `remove ${String(value)}`,
+        text: '×',
+      });
+      remove.addEventListener('click', () => {
+        values.splice(index, 1);
+        render();
+        emitChange(el);
+      });
+      list.appendChild(
+        h(
+          'li',
+          { class: 'channel-item' },
+          h('span', { class: 'channel-name', text: String(value) }),
+          remove
+        )
+      );
+    });
+    const n = values.length;
+    count.textContent = `${n} channel${n === 1 ? '' : 's'}`;
+  }
+
+  /** Commit the input text as list entries; all-or-nothing (see parseValueList). */
+  function commit() {
+    const raw = input.value.trim();
+    if (!raw) return;
+    const accepted = parseValueList(raw, itemType);
+    if (accepted === null) return; // leave the text in place — visibly not accepted
+    values.push(...accepted);
+    input.value = '';
+    render();
+    input.focus();
+    emitChange(el);
+  }
+
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ',') {
+      event.preventDefault();
+      commit();
+    } else if (event.key === 'Backspace' && input.value === '' && values.length > 0) {
+      values.pop();
+      render();
+      input.focus();
+      emitChange(el);
+    }
+  });
+  input.addEventListener('blur', () => commit());
+
+  render();
+
+  return {
+    el,
+    collect: () => (values.length > 0 ? values.slice() : OMIT),
+  };
+}
+
+/**
+ * A small enum → a segmented control (opt-in via ``x-widget: "segmented"``):
+ * every option is a visible, mutually-exclusive button, so a two-way choice
+ * (e.g. ``bidirectional`` / ``monodirectional``) reads as a labeled toggle
+ * rather than a collapsed ``<select>``. Native radiogroup semantics
+ * (``role="radiogroup"`` + ``role="radio"``/``aria-checked``) keep it
+ * keyboard/AT-legible. Always contributes its active value (a segmented
+ * control has no blank state) — the seed's option when the seed matches one,
+ * else the first.
+ *
+ * @param {JsonSchemaNode} node
+ * @param {unknown} seed
+ * @returns {Field}
+ */
+function buildSegmented(node, seed) {
+  const options = (node.enum || []).map((opt) => String(opt));
+  let selected = seed !== undefined && options.includes(String(seed)) ? String(seed) : options[0];
+
+  const el = h('div', {
+    class: 'segmented',
+    role: 'radiogroup',
+    'aria-label': node.title || 'value',
+  });
+  /** @type {HTMLElement[]} */
+  const buttons = [];
+  for (const opt of options) {
+    const btn = h('button', {
+      type: 'button',
+      class: `segmented-option${opt === selected ? ' active' : ''}`,
+      role: 'radio',
+      'aria-checked': opt === selected ? 'true' : 'false',
+      text: opt,
+    });
+    btn.addEventListener('click', () => {
+      if (selected === opt) return;
+      selected = opt;
+      for (const other of buttons) {
+        const on = other === btn;
+        other.classList.toggle('active', on);
+        other.setAttribute('aria-checked', on ? 'true' : 'false');
+      }
+      emitChange(el);
+    });
+    buttons.push(btn);
+    el.appendChild(btn);
+  }
+
+  return {
+    el,
+    // Map the active label back to the enum's original (possibly non-string)
+    // member, mirroring buildEnum's collect.
+    collect: () => {
+      const chosen = (node.enum || []).find((opt) => String(opt) === selected);
+      return chosen === undefined ? OMIT : chosen;
+    },
   };
 }
 

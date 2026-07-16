@@ -30,26 +30,36 @@ const ORM_SCHEMA = {
       minItems: 1,
       title: 'Correctors',
       type: 'array',
+      'x-widget': 'channel-list',
     },
     detectors: {
       description: 'BPM detector device names to read at every point.',
       items: { type: 'string' },
       minItems: 1,
-      title: 'Detectors',
+      title: 'BPMs',
       type: 'array',
+      'x-widget': 'channel-list',
     },
     span_a: {
-      description: 'Half-width, in amps, of the symmetric current sweep around zero.',
+      description: 'Maximum corrector kick, in amps, at the far end of the sweep.',
       exclusiveMinimum: 0,
       maximum: 10.0,
-      title: 'Span A',
+      title: 'Max kick (A)',
       type: 'number',
     },
     num: {
       description: 'Number of evenly-spaced current points per corrector.',
       minimum: 3,
-      title: 'Num',
+      title: 'Number of steps',
       type: 'integer',
+    },
+    sweep: {
+      default: 'bidirectional',
+      description: 'bidirectional sweeps [-span_a, +span_a]; monodirectional sweeps [0, +span_a].',
+      enum: ['bidirectional', 'monodirectional'],
+      title: 'Sweep direction',
+      type: 'string',
+      'x-widget': 'segmented',
     },
   },
   required: ['correctors', 'detectors', 'span_a', 'num'],
@@ -141,6 +151,18 @@ function addChip(chipsEl, text) {
   input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
 }
 
+/**
+ * Type text into a channel-list input and press Enter (how an operator adds a
+ * channel to a channel-list widget).
+ * @param {any} listEl
+ * @param {string} text
+ */
+function addChannel(listEl, text) {
+  const input = $(listEl, '.channel-add');
+  input.value = text;
+  input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+}
+
 describe('resolveNode', () => {
   test('dereferences a $ref into $defs and keeps sibling keys', () => {
     const node = resolveNode(GRID_SCAN_SCHEMA, {
@@ -158,16 +180,18 @@ describe('resolveNode', () => {
   });
 });
 
-describe('orm schema (chips + bounded scalars + layout)', () => {
-  test('renders chip editors for device lists and bounded number inputs', () => {
+describe('orm schema (channel lists + segmented sweep + bounded scalars + layout)', () => {
+  test('renders channel-list editors for device lists, bounded scalars, and a segmented sweep', () => {
     renderSchemaForm(form, ORM_SCHEMA);
 
-    // Four labeled rows, in schema order.
+    // Five labeled rows, in schema order.
     const names = $$(form, '.field-name').map((n) => n.textContent);
-    expect(names).toEqual(['Correctors', 'Detectors', 'Span A', 'Num']);
+    expect(names).toEqual(['Correctors', 'BPMs', 'Max kick (A)', 'Number of steps', 'Sweep direction']);
 
-    // Both device lists are chip editors (not a lone text box).
-    expect($$(form, '.chips').length).toBe(2);
+    // Both device lists render as the vertical channel-list widget — not the
+    // wrapping chip well, and not a lone text box.
+    expect($$(form, '.channel-list').length).toBe(2);
+    expect($$(form, '.chips').length).toBe(0);
 
     // span_a: number input carrying the schema bounds.
     const numberInputs = $$(form, 'input[type="number"]');
@@ -179,36 +203,42 @@ describe('orm schema (chips + bounded scalars + layout)', () => {
     const numInput = numberInputs.find((i) => i.step === '1');
     expect(numInput.min).toBe('3');
 
-    // Required markers on all four.
+    // sweep: a two-option segmented control, seeded active on its default.
+    const segmented = $(form, '.segmented');
+    expect(segmented).toBeTruthy();
+    const options = $$(segmented, '.segmented-option');
+    expect(options.map((o) => o.textContent)).toEqual(['bidirectional', 'monodirectional']);
+    expect(options[0].getAttribute('aria-checked')).toBe('true');
+    expect(options[1].getAttribute('aria-checked')).toBe('false');
+
+    // Required markers on the four required fields (sweep is optional).
     expect($$(form, '.field-required').length).toBe(4);
   });
 
   test('a layout option places fields into side-by-side rows', () => {
     renderSchemaForm(form, ORM_SCHEMA, {
-      layout: [
-        ['correctors', 'detectors'],
-        ['span_a', 'num'],
-      ],
+      layout: [['correctors', 'detectors'], ['span_a', 'num'], ['sweep']],
     });
     const rows = $$(form, '.form-row');
-    expect(rows.length).toBe(2);
+    expect(rows.length).toBe(3);
     expect(rows[0].style.getPropertyValue('--cols')).toBe('2');
-    expect($$(rows[0], '.field-name').map((n) => n.textContent)).toEqual([
-      'Correctors',
-      'Detectors',
+    expect($$(rows[0], '.field-name').map((n) => n.textContent)).toEqual(['Correctors', 'BPMs']);
+    expect($$(rows[1], '.field-name').map((n) => n.textContent)).toEqual([
+      'Max kick (A)',
+      'Number of steps',
     ]);
-    expect($$(rows[1], '.field-name').map((n) => n.textContent)).toEqual(['Span A', 'Num']);
+    expect($$(rows[2], '.field-name').map((n) => n.textContent)).toEqual(['Sweep direction']);
   });
 
-  test('chips commit on Enter, split pasted lists, and collect as arrays', () => {
+  test('channel entries commit on Enter, split pasted lists, and collect as arrays', () => {
     const collect = renderSchemaForm(form, ORM_SCHEMA);
-    const [correctors, detectors] = $$(form, '.chips');
+    const [correctors, detectors] = $$(form, '.channel-list');
 
-    addChip(correctors, 'HCM1');
-    addChip(correctors, 'HCM2, HCM3'); // comma-separated paste → two chips
-    addChip(detectors, 'BPM1');
+    addChannel(correctors, 'HCM1');
+    addChannel(correctors, 'HCM2, HCM3'); // comma-separated paste → two entries
+    addChannel(detectors, 'BPM1');
 
-    expect($$(correctors, '.chip').length).toBe(3);
+    expect($$(correctors, '.channel-item').length).toBe(3);
 
     const spanA = $$(form, 'input[type="number"]').find((i) => i.step === 'any');
     const num = $$(form, 'input[type="number"]').find((i) => i.step === '1');
@@ -220,37 +250,65 @@ describe('orm schema (chips + bounded scalars + layout)', () => {
       detectors: ['BPM1'],
       span_a: 2.5,
       num: 7,
+      // The segmented control always contributes; untouched, it is its default.
+      sweep: 'bidirectional',
     });
   });
 
-  test('chip × removes a chip; Backspace on empty input removes the last', () => {
-    const collect = renderSchemaForm(form, ORM_SCHEMA);
-    const [correctors] = $$(form, '.chips');
-    addChip(correctors, 'HCM1');
-    addChip(correctors, 'HCM2');
-    addChip(correctors, 'HCM3');
+  test('the channel-list header reflects the current count', () => {
+    renderSchemaForm(form, ORM_SCHEMA);
+    const [correctors] = $$(form, '.channel-list');
+    expect($(correctors, '.channel-count').textContent).toBe('0 channels');
+    addChannel(correctors, 'HCM1');
+    expect($(correctors, '.channel-count').textContent).toBe('1 channel');
+    addChannel(correctors, 'HCM2 HCM3'); // whitespace-separated paste → two more
+    expect($(correctors, '.channel-count').textContent).toBe('3 channels');
+  });
 
-    // × on the first chip.
-    $(correctors, '.chip-x').click();
-    // Backspace with an empty input pops the last chip.
-    $(correctors, '.chips-input').dispatchEvent(
+  test('channel × removes an entry; Backspace on empty input removes the last', () => {
+    const collect = renderSchemaForm(form, ORM_SCHEMA);
+    const [correctors] = $$(form, '.channel-list');
+    addChannel(correctors, 'HCM1');
+    addChannel(correctors, 'HCM2');
+    addChannel(correctors, 'HCM3');
+
+    // × on the first entry.
+    $(correctors, '.chan-x').click();
+    // Backspace with an empty input pops the last entry.
+    $(correctors, '.channel-add').dispatchEvent(
       new KeyboardEvent('keydown', { key: 'Backspace', bubbles: true })
     );
 
     expect(collect().correctors).toEqual(['HCM2']);
   });
 
-  test('structural chip edits dispatch a bubbling form-change event', () => {
+  test('structural channel edits dispatch a bubbling form-change event', () => {
     renderSchemaForm(form, ORM_SCHEMA);
     const listener = vi.fn();
     form.addEventListener('form-change', listener);
-    addChip($$(form, '.chips')[0], 'HCM1');
+    addChannel($$(form, '.channel-list')[0], 'HCM1');
     expect(listener).toHaveBeenCalled();
   });
 
-  test('omits blank fields so plan-side defaults apply', () => {
+  test('the segmented control switches the active option and collects it', () => {
     const collect = renderSchemaForm(form, ORM_SCHEMA);
-    expect(collect()).toEqual({});
+    const listener = vi.fn();
+    form.addEventListener('form-change', listener);
+
+    const options = $$(form, '.segmented-option');
+    options[1].click(); // monodirectional
+
+    expect(options[0].getAttribute('aria-checked')).toBe('false');
+    expect(options[1].getAttribute('aria-checked')).toBe('true');
+    expect(listener).toHaveBeenCalled();
+    expect(collect().sweep).toBe('monodirectional');
+  });
+
+  test('omits blank optional fields, but a segmented control always contributes', () => {
+    const collect = renderSchemaForm(form, ORM_SCHEMA);
+    // Nothing typed: the required device/scalar fields are omitted so plan-side
+    // defaults apply, but the segmented sweep always carries its active value.
+    expect(collect()).toEqual({ sweep: 'bidirectional' });
   });
 
   test('rejects a fractional value on an integer field', () => {
