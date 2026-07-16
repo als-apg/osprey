@@ -54,6 +54,7 @@ def create_server() -> FastMCP:
     with startup_timer("tool_imports"):
         from osprey.mcp_server.bluesky.tools import (  # noqa: F401
             authoring,
+            draft,
             launch,
             read_tools,
             stop,

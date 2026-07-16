@@ -77,6 +77,9 @@ def test_bluesky_permissions_allow():
         "list_plans",
         "list_runs",
         "read_run_data",
+        "get_plan_draft",
+        "set_plan_draft",
+        "clear_plan_draft",
     ]
 
 
@@ -160,13 +163,17 @@ def test_bluesky_authoring_tools_never_writes_check_gated():
     assert "osprey_approval.py" in stop_rule.hooks[0].command
     assert not any("osprey_writes_check.py" in h.command for h in stop_rule.hooks)
 
-    # The read tiers are unchanged by task 2.3's authoring additions.
+    # The read tiers are unchanged by task 2.3's authoring additions (task
+    # 2.1's draft tools are silent-allow too, added separately below).
     assert bluesky_def.permissions_allow == [
         "create_run_intent",
         "run_status",
         "list_plans",
         "list_runs",
         "read_run_data",
+        "get_plan_draft",
+        "set_plan_draft",
+        "clear_plan_draft",
     ]
 
 

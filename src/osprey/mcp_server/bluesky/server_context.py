@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 
@@ -160,18 +162,18 @@ def reset_server_context() -> None:
 # ---------------------------------------------------------------------------
 # HTTP boundary (patched in tests)
 # ---------------------------------------------------------------------------
-def _http_get_json(path: str) -> tuple[int, dict | list]:
-    """GET ``path`` on the Bluesky bridge and return ``(status, parsed_json)``.
+def _request_json(
+    request: Callable[..., httpx.Response], path: str, **kwargs: Any
+) -> tuple[int, Any]:
+    """Shared core of the ``_http_*_json`` helpers: dispatch, parse, unreachable handling.
 
-    Raises ``ToolError`` via ``make_error("bluesky_bridge_unreachable", ...)`` when
-    the bridge cannot be reached at all, so every tool gets identical
-    unreachable-bridge handling. HTTP error responses (4xx/5xx) are returned
-    to the caller as ``(status, parsed_body)`` so tools can render the
-    bridge's own error semantics (404/409/403/503).
+    ``request`` is the ``httpx`` verb function to call. The public wrappers
+    below look it up (``httpx.get``/``httpx.post``/...) at call time, so tests
+    that patch those module attributes still intercept the request.
     """
     url = f"{get_server_context().bridge_url}{path}"
     try:
-        resp = httpx.get(url, timeout=_TIMEOUT)
+        resp = request(url, timeout=_TIMEOUT, **kwargs)
     except httpx.HTTPError as exc:
         make_error(
             "bluesky_bridge_unreachable",
@@ -187,6 +189,18 @@ def _http_get_json(path: str) -> tuple[int, dict | list]:
     return resp.status_code, body
 
 
+def _http_get_json(path: str) -> tuple[int, dict | list]:
+    """GET ``path`` on the Bluesky bridge and return ``(status, parsed_json)``.
+
+    Raises ``ToolError`` via ``make_error("bluesky_bridge_unreachable", ...)`` when
+    the bridge cannot be reached at all, so every tool gets identical
+    unreachable-bridge handling. HTTP error responses (4xx/5xx) are returned
+    to the caller as ``(status, parsed_body)`` so tools can render the
+    bridge's own error semantics (404/409/403/503).
+    """
+    return _request_json(httpx.get, path)
+
+
 def _http_post_json(
     path: str, payload: dict, *, headers: dict[str, str] | None = None
 ) -> tuple[int, dict]:
@@ -194,19 +208,22 @@ def _http_post_json(
 
     Same unreachable-bridge/error-body contract as :func:`_http_get_json`.
     """
-    url = f"{get_server_context().bridge_url}{path}"
-    try:
-        resp = httpx.post(url, json=payload, headers=headers, timeout=_TIMEOUT)
-    except httpx.HTTPError as exc:
-        make_error(
-            "bluesky_bridge_unreachable",
-            f"Could not reach the Bluesky bridge: {exc}",
-            _UNREACHABLE_HINTS,
-        )
+    return _request_json(httpx.post, path, json=payload, headers=headers)
 
-    body: dict = {}
-    try:
-        body = resp.json()
-    except Exception:
-        pass
-    return resp.status_code, body
+
+def _http_patch_json(
+    path: str, payload: dict, *, headers: dict[str, str] | None = None
+) -> tuple[int, dict]:
+    """PATCH ``payload`` as JSON to ``path`` on the Bluesky bridge.
+
+    Same unreachable-bridge/error-body contract as :func:`_http_get_json`.
+    """
+    return _request_json(httpx.patch, path, json=payload, headers=headers)
+
+
+def _http_delete_json(path: str, *, headers: dict[str, str] | None = None) -> tuple[int, dict]:
+    """DELETE ``path`` on the Bluesky bridge.
+
+    Same unreachable-bridge/error-body contract as :func:`_http_get_json`.
+    """
+    return _request_json(httpx.delete, path, headers=headers)

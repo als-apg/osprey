@@ -305,6 +305,18 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "list_plans",
             "list_runs",
             "read_run_data",
+            # Draft tools (task 2.1) never touch hardware — editing the shared
+            # plan draft only stages what a future launch_run/Execute click
+            # might run, so like the read tools above they need no approval
+            # prompt and carry no _WRITES_CHECK hook. clear_plan_draft is
+            # nonetheless auto-classified side-effecting by
+            # agent_runner.write_tools._DESTRUCTIVE_MARKERS (matches
+            # "clear") and blocked under the headless read-only floor
+            # regardless of this allow-listing — acceptable, expected
+            # posture; do not rename the tool to dodge it.
+            "get_plan_draft",
+            "set_plan_draft",
+            "clear_plan_draft",
         ],
         # launch_run starts a real scan (promote); stop_run is the safe direction
         # and must never be kill-switch-blocked, so it carries approval only.
