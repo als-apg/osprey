@@ -3,8 +3,9 @@
 # ${config.facility.name} — verify.sh
 # =============================================================================
 #
-# Post-deploy advisory health check. Not run automatically by `osprey deploy
-# up` — run it by hand after a deploy:
+# Post-deploy advisory health check. Run automatically by `osprey deploy up`
+# (advisory — its exit code is ignored and never blocks the deploy); also
+# runnable by hand after a deploy:
 #
 #   ./scripts/verify.sh                           # full check
 #   ./scripts/verify.sh epics archiver            # restrict to specific categories

@@ -16,7 +16,7 @@ in GitLab CI/CD and pushed to `${config.registry.url}`. The deploy server
   git push ──▶ CI builds N images ──▶ manual `release` re-tags as :latest ──▶ server: git pull, registry login, osprey deploy up
                                                                                          │
                                                                                          ▼
-                                                                                 pull → up → reconcile/seed web terminals
+                                                                                 pull → up → reconcile/seed web terminals → verify.sh
 ```
 
 ### One-line deploy
@@ -30,9 +30,10 @@ ssh ${config.deploy.host} "cd ${config.deploy.project_path} && git pull && ospre
 
 `osprey deploy up` is idempotent — run it as many times as you want. It pulls
 images, brings up (or reconciles) the compose stack, and — if web terminals
-are enabled — seeds every live per-user container's CLAUDE.md and skills.
-Run `./scripts/verify.sh` afterward for the advisory health report; it is not
-run automatically.
+are enabled — seeds every live per-user container's CLAUDE.md and skills, then
+auto-runs `./scripts/verify.sh` as its last step (advisory — the exit code is
+ignored and never blocks the deploy). Run it again by hand at any time for the
+same advisory health report.
 
 ### `osprey deploy` verbs
 
@@ -96,7 +97,8 @@ ssh ${config.deploy.host} "cd ${config.deploy.project_path} && osprey deploy sta
 # Tail logs for one service
 ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ${config.runtime.compose_command} logs -f integration-tests"
 
-# Run the full health report standalone (advisory; not run automatically by `osprey deploy up`)
+# Re-run the full health report standalone (advisory; osprey deploy up already
+# auto-runs this as its last step, exit code ignored)
 ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ./scripts/verify.sh"
 
 # Restart one service

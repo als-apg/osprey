@@ -9,12 +9,12 @@
 # Five-stage pipeline:
 #   build-ci-image → osprey-build → checks → docker-build → release
 #
-# The release stage is manual and restricted to ${config.gitlab.default_branch}.
+# The release stage is manual and restricted to ${config.ci.default_branch}.
 # It re-tags every SHA-tagged image as :latest. Until that job runs, the
 # deploy server continues to pull the previous :latest.
 #
 # Required CI/CD variables (Settings → CI/CD → Variables, masked, protected):
-#   ${config.gitlab.token_env_var}    — api + read_registry + write_registry scopes
+#   ${config.ci.token_env_var}    — api + read_registry + write_registry scopes
 #   ${config.llm.api_key_env_var}     — LLM provider key
 #   (plus module-specific tokens — see references/gitlab-ci-pipeline.md)
 # =============================================================================
@@ -79,7 +79,7 @@ osprey-build:
     - |
       cat > .env.production << ENVEOF
       ${config.llm.api_key_env_var}=${env.${config.llm.api_key_env_var}}
-      ${config.gitlab.token_env_var}=${env.${config.gitlab.token_env_var}}
+      ${config.ci.token_env_var}=${env.${config.ci.token_env_var}}
       # IF MODULE olog.enabled
       ${config.modules.olog.username_env_var}=${env.${config.modules.olog.username_env_var}}
       ${config.modules.olog.password_env_var}=${env.${config.modules.olog.password_env_var}}
@@ -122,6 +122,23 @@ osprey-build:
     - cp build-output/${config.facility.prefix}-assistant/config.yml artifacts/config.yml
     - cp -r build-output/${config.facility.prefix}-assistant artifacts/${config.facility.prefix}-assistant
     - cp .env.production artifacts/.env.production
+
+    # IF MODULE web_terminals.enabled
+    # FOR each in modules.web_terminals.personas where each.name != default_persona
+    # Persona render: ${each.name} is a distinct project + build profile from
+    # the persona catalog (modules.web_terminals.personas.${each.name}), so it
+    # needs its own `osprey build` invocation here — its rendered project lands
+    # under its own artifacts subdirectory, never touching the default
+    # project's artifacts/ above, so the per-persona docker-build job below
+    # can COPY it in isolation.
+    - >
+      osprey build ${each.project} ${each.build_profile}
+      -o build-output --skip-lifecycle --skip-deps
+      --runtime-root /app/${each.project}
+    - mkdir -p artifacts/personas/${each.name}
+    - cp -r build-output/${each.project} artifacts/personas/${each.name}/${each.project}
+    # END FOR
+    # END IF
 
   artifacts:
     paths:
@@ -232,6 +249,41 @@ build-web-terminal:
       -f docker/Dockerfile.web-terminal
       -t $REGISTRY/web-terminal:$CI_COMMIT_SHORT_SHA .
     - docker push $REGISTRY/web-terminal:$CI_COMMIT_SHORT_SHA
+
+# FOR each in modules.web_terminals.personas where each.name != default_persona
+# ---------------------------------------------------------------------------
+# Persona web terminal image: ${each.name}. Same docker/Dockerfile.web-terminal
+# as the default image above, parameterized to COPY this persona's own
+# rendered project (artifacts/personas/${each.name}/${each.project}/, produced
+# by the persona-render loop in the osprey-build job) instead of the
+# facility-default artifacts/${config.facility.prefix}-assistant/ tree:
+#   OSPREY_PROJECT_SRC  — build-context path to COPY the rendered project from
+#   OSPREY_PROJECT_NAME — the persona's project name; the in-image destination
+#                         is /app/${OSPREY_PROJECT_NAME}, and the same value
+#                         feeds the post-COPY `osprey claude regen --project`
+#                         step (see references/modules/web-terminals.md,
+#                         "Container path regeneration")
+# Deliberately NOT named OSPREY_PROJECT_DIR: that name is the RUNTIME
+# in-container env var the dispatch sidecar reads (docker-compose.yml.j2,
+# sdk_runner.py, dispatch_api.py) — reusing it for a build-context path here
+# would poison that runtime value if the Dockerfile ever re-exported it as-is.
+# Suffixed image tag so it never collides with the un-suffixed default — the
+# default persona keeps build-web-terminal/web-terminal untouched.
+# ---------------------------------------------------------------------------
+build-web-terminal-${each.name}:
+  <<: *docker-build-template
+  script:
+    - docker system prune -af --filter "until=24h" || true
+    - >
+      docker build
+      --build-arg OSPREY_INSTALL_TOKEN=$CI_DEPLOY_TOKEN
+      --build-arg OSPREY_CACHE_BUST=$CI_PIPELINE_ID
+      --build-arg OSPREY_PROJECT_SRC=artifacts/personas/${each.name}/${each.project}
+      --build-arg OSPREY_PROJECT_NAME=${each.project}
+      -f docker/Dockerfile.web-terminal
+      -t $REGISTRY/web-terminal-${each.name}:$CI_COMMIT_SHORT_SHA .
+    - docker push $REGISTRY/web-terminal-${each.name}:$CI_COMMIT_SHORT_SHA
+# END FOR
 # END IF
 
 # ---------------------------------------------------------------------------
@@ -259,6 +311,9 @@ release:
     # END IF
     # IF MODULE web_terminals.enabled
     - build-web-terminal
+    # FOR each in modules.web_terminals.personas where each.name != default_persona
+    - build-web-terminal-${each.name}
+    # END FOR
     # END IF
   before_script:
     - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
@@ -275,6 +330,9 @@ release:
       # END IF
       # IF MODULE web_terminals.enabled
       IMAGES="$IMAGES web-terminal"
+      # FOR each in modules.web_terminals.personas where each.name != default_persona
+      IMAGES="$IMAGES web-terminal-${each.name}"
+      # END FOR
       # END IF
       for img in $IMAGES; do
         docker pull $REGISTRY/$img:$CI_COMMIT_SHORT_SHA
@@ -282,5 +340,5 @@ release:
         docker push $REGISTRY/$img:latest
       done
   rules:
-    - if: $CI_COMMIT_BRANCH == "${config.gitlab.default_branch}"
+    - if: $CI_COMMIT_BRANCH == "${config.ci.default_branch}"
       when: manual

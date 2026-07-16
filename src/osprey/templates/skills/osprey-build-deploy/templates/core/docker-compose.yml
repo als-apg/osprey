@@ -54,7 +54,21 @@ services:
     # ARIEL sync runs inside the web-terminal image because it has OSPREY
     # installed. One-shot container that exits after sync — restart policy
     # is intentionally "on-failure" so it doesn't loop forever.
+    #
+    # Image resolution follows modules.web_terminals.image_source, same as
+    # every per-user web-terminal service (see references/modules/
+    # web-terminals.md "Personas"): registry mode (default) pulls the shared
+    # CI-built tag; local mode has no registry image to pull at all, so use
+    # the DEFAULT persona's locally-built image instead — the same
+    # <project>-<persona>:local tag `deploy up` builds and tags for that
+    # persona's own per-user containers (resolve_personas() suffixes even the
+    # default persona's tag in local mode; only registry mode keeps it
+    # unsuffixed).
+    # IF modules.web_terminals.image_source == local
+    image: ${config.modules.web_terminals.personas[config.modules.web_terminals.default_persona].project}-${config.modules.web_terminals.default_persona}:local
+    # ELSE
     image: ${config.registry.url}/web-terminal:latest
+    # END IF
     container_name: ${config.facility.prefix}-ariel-sync
     command: osprey ariel sync
     env_file: .env

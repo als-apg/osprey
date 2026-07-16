@@ -32,7 +32,7 @@ Don't use the client profile when:
 | Network access to `${config.deploy.fqdn}` | Typically requires being on the facility's control network, via VPN or on-site. Test with `curl -v http://${config.deploy.fqdn}:${config.ports.integration_tests}/health` before building. |
 | Local container runtime — *only if* the client profile uses any containerized component | The standard client profile does NOT run local containers. If your facility's `${config.facility.prefix}-client.yml` adds local containers (rare), Docker Desktop (Mac/Windows) or Docker Engine (Linux) is sufficient — podman is not required for client builds. |
 
-The developer does *not* need a deploy token, a registry login, or anything that touches `${config.gitlab.host}`. Client builds are read-only against the deploy server.
+The developer does *not* need a deploy token, a registry login, or anything that touches `${config.ci.host}`. Client builds are read-only against the deploy server.
 
 ---
 

@@ -75,9 +75,19 @@ Save what you have to `facility-config.yml`.
 
 ---
 
-## Phase 2 — GitLab and container registry
+## Phase 2 — CI/CD provider and container registry
 
-This is the source-control + CI side. The user must already have a GitLab project created (or know they will create one).
+This is the source-control + CI side. The user must already have a project created with their CI/CD provider (or know they will create one).
+
+**Q2.0 CI/CD provider:**
+- GitLab (Recommended — the only provider with a shipped CI template today)
+- Other
+
+> "Which CI/CD provider hosts your source and runs your pipeline? OSPREY ships one CI template (`.gitlab-ci.yml`) today, so `gitlab` is the only value that actually renders a working pipeline — `provider` is still a named field (mirroring how `llm.provider` names providers OSPREY doesn't all support equally) so a future provider can be added as a schema value later without a breaking change. If you're not on GitLab, pick `other`, note it in the README, and expect to hand-adapt the CI template."
+
+This writes `ci.provider` (or, if the user is re-entering an interview against an existing config with a legacy `gitlab:` block, the normalizer already reads it as `provider: "gitlab"` — no action needed).
+
+The remaining Phase 2 questions below assume `gitlab`; ask them only in that case. For `other`, collect `host`, `remote_name`, `default_branch`, `project_path`, and `token_env_var` in generic terms (skip `project_id`, which is GitLab-specific), and note in the README that no CI template is generated.
 
 > "Now let's talk about your GitLab setup. You should already have a project created (or be ready to create one) — that's where this repo gets pushed and where CI builds the container images."
 
@@ -103,7 +113,7 @@ Follow-up: ask for the **GitLab remote name** (the local `git remote` name point
 Add `${TOKEN_ENV_VAR}=<paste your PAT here>` to `.env.template` with a comment.
 
 **Q2.6 Container registry URL:**
-> "Where do CI-built images go? For GitLab projects this is usually `${gitlab.host}:5050/${gitlab.project_path}`. Confirm or override."
+> "Where do CI-built images go? For GitLab projects this is usually `${ci.host}:5050/${ci.project_path}`. Confirm or override."
 
 Default: compute from the answers above and ask the user to confirm.
 
@@ -112,7 +122,10 @@ Default: compute from the answers above and ask the user to confirm.
 
 If yes, loop through each external project and gather details. If no, skip.
 
-Save to `facility-config.yml`.
+**Q2.8 Registry token env var** (optional — only ask if the facility wants registry auth decoupled from the CI PAT):
+> "Registry login normally reuses the CI token env var you just gave me (Q2.5). If your registry uses a separate credential — a dedicated deploy token, or a registry that isn't your CI provider's own — tell me its env var name and I'll set `registry.token_env_var` explicitly. Otherwise I'll leave it unset and it'll default to your CI token."
+
+Save to `facility-config.yml`, writing the `ci:` block (never a legacy `gitlab:` block, even when `provider` is `gitlab`).
 
 ---
 

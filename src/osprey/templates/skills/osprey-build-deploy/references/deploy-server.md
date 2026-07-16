@@ -36,7 +36,7 @@ These must be present on the server before the first deploy. The interview asks 
 | `${config.runtime.engine}` (podman or docker) | Container runtime | Rootless podman is the most-tested path; docker requires the user to be in the `docker` group |
 | `${config.runtime.compose_command}` (e.g., `podman-compose`, `docker compose`) | Orchestration | Must understand all overlay files in `${config.runtime.compose_files}` |
 | Python 3.12+ | Optional — only for off-pipeline OSPREY runs | Most facilities don't need a system Python on the deploy server |
-| `git` | Pulling the profile repo and `${config.gitlab.default_branch}` | |
+| `git` | Pulling the profile repo and `${config.ci.default_branch}` | |
 | `ssh` access | Operator workflow | Operator's laptop must be able to `ssh ${config.deploy.host}` (configure in `~/.ssh/config`) |
 | `osprey` (Python 3.11+, `pip install osprey-framework`) | On-server deploy lifecycle | Provides `osprey deploy` — the entrypoint every deploy/decommission/prune/nuke/seed/status operation on this server runs through |
 | EPICS base | If `control_system.type == "epics"` AND any host-network service binds to CA broadcast | Required for `caget`/`caput` debugging from the host shell. Container-internal EPICS use does NOT require host EPICS. |
@@ -52,7 +52,7 @@ One-time per server. Run as `${config.deploy.user}`.
 
 ```bash
 # 1. Clone the profile repo
-git clone https://${config.gitlab.host}/${config.gitlab.project_path}.git ${config.deploy.project_path}
+git clone https://${config.ci.host}/${config.ci.project_path}.git ${config.deploy.project_path}
 cd ${config.deploy.project_path}
 
 # 2. Install osprey (provides the `osprey deploy` command)
@@ -63,7 +63,7 @@ cp .env.template .env
 $EDITOR .env   # fill in real secrets
 
 # 4. Verify the registry is reachable and credentials work
-echo "${env.${config.gitlab.token_env_var}}" \
+echo "${env.${config.ci.token_env_var}}" \
   | ${config.runtime.engine} login --username deploy --password-stdin "${config.registry.url%%/*}"
 
 # 5. Bring the stack up (reconciles services + web-terminal users, seeds each user)
@@ -95,7 +95,7 @@ Required structure (every facility has at least these):
 ```bash
 # --- Registry credentials ---
 # Used to login to ${config.registry.url} before `osprey deploy up`
-${config.gitlab.token_env_var}=<paste-PAT-with-read_registry-scope>
+${config.ci.token_env_var}=<paste-PAT-with-read_registry-scope>
 
 # --- LLM provider ---
 ${config.llm.api_key_env_var}=<provider-api-key>
@@ -274,7 +274,8 @@ ssh ${config.deploy.host} "cd ${config.deploy.project_path} && osprey deploy sta
 ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ${config.runtime.compose_command} ps --format json" \
   | python3 -c "import json,sys;[print(c['Service'],c['State']) for c in json.load(sys.stdin)]"
 
-# 3. Run the advisory health check suite (not run automatically by `osprey deploy up`)
+# 3. Re-run the advisory health check suite by hand if you want it again
+#    (osprey deploy up already auto-ran it as its last step, advisory — exit code ignored)
 ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ./scripts/verify.sh"
 ```
 
@@ -298,7 +299,7 @@ When the facility moves from `serverA` to `serverB` (e.g., hardware refresh, OS 
 4. **Copy `.env`** from the old server to the new (NOT through git — it's gitignored). Update any host-specific paths inside it (e.g., variables that point to local data directories that may live at a different absolute path on the new host).
 5. **First deploy on the new server**:
    ```bash
-   ssh ${config.deploy.host} "git clone https://${config.gitlab.host}/${config.gitlab.project_path}.git ${config.deploy.project_path}"
+   ssh ${config.deploy.host} "git clone https://${config.ci.host}/${config.ci.project_path}.git ${config.deploy.project_path}"
    scp .env ${config.deploy.host}:${config.deploy.project_path}/
    ssh ${config.deploy.host} "cd ${config.deploy.project_path} && osprey deploy up"
    ```
