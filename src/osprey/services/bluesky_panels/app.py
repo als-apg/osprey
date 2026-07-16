@@ -87,6 +87,24 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="OSPREY Bluesky Panels", lifespan=_lifespan)
 
 
+@app.middleware("http")
+async def _no_cache(request, call_next):  # type: ignore[no-untyped-def]
+    """Forbid browser caching on everything this sidecar serves.
+
+    The panel bundles ship unversioned filenames (``panel.js``, not
+    ``panel-<hash>.js``), so a cached copy silently survives a container
+    rebuild — an operator panel showing last week's UI. Everything else here
+    is live JSON that must never be cached either. Header string matches
+    ``osprey.interfaces.common_middleware.NoCacheStaticMiddleware``'s
+    uncached branch (that middleware's path rules are interface-app specific
+    — ``/static/``, ``/api/`` — and match nothing this sidecar mounts, hence
+    the blanket rule; on a loopback service re-fetching is free).
+    """
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    return response
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}

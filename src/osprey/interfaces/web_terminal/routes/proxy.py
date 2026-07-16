@@ -70,6 +70,15 @@ _HOP_BY_HOP = frozenset(
     }
 )
 
+# The proxy-wide caching default, applied to any proxied response whose
+# upstream set no Cache-Control of its own. Panels ship unversioned asset
+# filenames (panel.js, not panel-<hash>.js), and a header-less response lets
+# the browser cache heuristically — so a panel redeploy silently doesn't
+# reach an operator's already-open browser. Filled in with setdefault, never
+# overridden: an upstream that made a deliberate caching decision (e.g. the
+# artifact gallery's immutable versioned vendor bundles) keeps it.
+_DEFAULT_NO_CACHE = "no-cache, no-store, must-revalidate"
+
 # Panel ID → app.state attribute name
 _PANEL_STATE_MAP = {
     "artifacts": "artifact_server_url",
@@ -221,6 +230,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
             resp_headers = {
                 k: v for k, v in upstream.headers.items() if k.lower() not in _HOP_BY_HOP
             }
+            resp_headers.setdefault("cache-control", _DEFAULT_NO_CACHE)
             return StreamingResponse(
                 _stream(),
                 status_code=upstream.status_code,
@@ -242,8 +252,10 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
             status_code=502,
         )
 
-    # Filter response headers.
+    # Filter response headers; fill in the no-cache default when the upstream
+    # made no caching decision of its own (see _DEFAULT_NO_CACHE).
     resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in _HOP_BY_HOP}
+    resp_headers.setdefault("cache-control", _DEFAULT_NO_CACHE)
 
     content_type = resp.headers.get("content-type", "")
     base_type = content_type.split(";")[0].strip().lower()

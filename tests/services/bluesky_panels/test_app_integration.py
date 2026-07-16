@@ -296,3 +296,15 @@ def test_panel_mounts_are_registered_on_composed_app() -> None:
     mounted_paths = {route.path for route in app.routes if hasattr(route, "path")}
     for mount_path in ("/plan", "/results", "/health-panel"):
         assert mount_path in mounted_paths
+
+
+def test_every_response_forbids_browser_caching() -> None:
+    """Panel assets ship unversioned filenames (panel.js), so any cached copy
+    silently survives a container rebuild; the no-cache header is what makes a
+    redeploy actually reach the operator's browser. Blanket: static panel
+    bundles, design-system assets, and live JSON alike."""
+    with TestClient(app) as client:
+        for path in ("/plan/", "/health", "/design-system/css/tokens.css"):
+            response = client.get(path)
+            assert response.status_code == 200, path
+            assert response.headers["cache-control"] == "no-cache, no-store, must-revalidate", path
