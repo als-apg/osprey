@@ -11,7 +11,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Path to the canonical hierarchical template database — the full ~1210-channel
+# Path to the canonical hierarchical template database — the full ~2900-channel
 # structural superset. Tier-filtered subsets and other paradigms (in_context,
 # middle_layer) are generated from this file by scripts/generate_tier_databases.py.
 TEMPLATE_DB_PATH = (
@@ -230,7 +230,7 @@ TIER_1 = TierSpec(
         "CAVITY": frozenset({"VOLTAGE"}),
         "GAUGE": frozenset({"PRESSURE"}),
     },
-    target_count=217,
+    target_count=569,
 )
 
 TIER_2 = TierSpec(
@@ -238,7 +238,7 @@ TIER_2 = TierSpec(
     rings=frozenset({"SR"}),
     families=None,  # all SR families
     allowed_subfields=frozenset({"SP", "RB", "GOLDEN", "X", "Y", "FWD", "REV", "NET", "INST"}),
-    target_count=553,
+    target_count=1549,
 )
 
 TIER_3 = TierSpec(
@@ -246,7 +246,7 @@ TIER_3 = TierSpec(
     rings=frozenset({"SR", "BR", "BTS"}),
     families=None,  # all families
     allowed_subfields=None,  # all subfields
-    target_count=1228,
+    target_count=2908,
 )
 
 

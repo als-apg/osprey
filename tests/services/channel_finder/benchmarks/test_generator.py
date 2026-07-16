@@ -408,7 +408,7 @@ class TestFormatHierarchical:
         exp = dipole_dev.get("_expansion")
         assert exp is not None, "Missing _expansion in DIPOLE/DEVICE"
         assert exp["_type"] == "range"
-        assert exp["_range"] == [1, 24], f"Range should be [1, 24], got {exp['_range']}"
+        assert exp["_range"] == [1, 36], f"Range should be [1, 36], got {exp['_range']}"
 
     def test_channel_count_matches_tier(self, tree_data: dict, all_channels: list[dict]) -> None:
         """Expanding the pruned tree should yield the tier target count."""

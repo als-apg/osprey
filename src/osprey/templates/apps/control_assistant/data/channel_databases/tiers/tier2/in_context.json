@@ -2,7 +2,7 @@
   "_metadata": {
     "version": "1.0",
     "tier": "tier2",
-    "total_channels": 553,
+    "total_channels": 1549,
     "generated_by": "osprey-benchmark-generator"
   },
   "channels": [
@@ -607,6 +607,1566 @@
       "description": "Storage ring beam position monitor 20 position vertical"
     },
     {
+      "channel": "StorageRing_BPM_21_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:21:GOLDEN:X",
+      "description": "Storage ring beam position monitor 21 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_21_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:21:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 21 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_21_Offset_X",
+      "address": "SR:DIAG:BPM:21:OFFSET:X",
+      "description": "Storage ring beam position monitor 21 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_21_Offset_Y",
+      "address": "SR:DIAG:BPM:21:OFFSET:Y",
+      "description": "Storage ring beam position monitor 21 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_21_Position_X",
+      "address": "SR:DIAG:BPM:21:POSITION:X",
+      "description": "Storage ring beam position monitor 21 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_21_Position_Y",
+      "address": "SR:DIAG:BPM:21:POSITION:Y",
+      "description": "Storage ring beam position monitor 21 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_22_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:22:GOLDEN:X",
+      "description": "Storage ring beam position monitor 22 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_22_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:22:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 22 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_22_Offset_X",
+      "address": "SR:DIAG:BPM:22:OFFSET:X",
+      "description": "Storage ring beam position monitor 22 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_22_Offset_Y",
+      "address": "SR:DIAG:BPM:22:OFFSET:Y",
+      "description": "Storage ring beam position monitor 22 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_22_Position_X",
+      "address": "SR:DIAG:BPM:22:POSITION:X",
+      "description": "Storage ring beam position monitor 22 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_22_Position_Y",
+      "address": "SR:DIAG:BPM:22:POSITION:Y",
+      "description": "Storage ring beam position monitor 22 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_23_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:23:GOLDEN:X",
+      "description": "Storage ring beam position monitor 23 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_23_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:23:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 23 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_23_Offset_X",
+      "address": "SR:DIAG:BPM:23:OFFSET:X",
+      "description": "Storage ring beam position monitor 23 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_23_Offset_Y",
+      "address": "SR:DIAG:BPM:23:OFFSET:Y",
+      "description": "Storage ring beam position monitor 23 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_23_Position_X",
+      "address": "SR:DIAG:BPM:23:POSITION:X",
+      "description": "Storage ring beam position monitor 23 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_23_Position_Y",
+      "address": "SR:DIAG:BPM:23:POSITION:Y",
+      "description": "Storage ring beam position monitor 23 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_24_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:24:GOLDEN:X",
+      "description": "Storage ring beam position monitor 24 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_24_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:24:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 24 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_24_Offset_X",
+      "address": "SR:DIAG:BPM:24:OFFSET:X",
+      "description": "Storage ring beam position monitor 24 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_24_Offset_Y",
+      "address": "SR:DIAG:BPM:24:OFFSET:Y",
+      "description": "Storage ring beam position monitor 24 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_24_Position_X",
+      "address": "SR:DIAG:BPM:24:POSITION:X",
+      "description": "Storage ring beam position monitor 24 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_24_Position_Y",
+      "address": "SR:DIAG:BPM:24:POSITION:Y",
+      "description": "Storage ring beam position monitor 24 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_25_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:25:GOLDEN:X",
+      "description": "Storage ring beam position monitor 25 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_25_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:25:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 25 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_25_Offset_X",
+      "address": "SR:DIAG:BPM:25:OFFSET:X",
+      "description": "Storage ring beam position monitor 25 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_25_Offset_Y",
+      "address": "SR:DIAG:BPM:25:OFFSET:Y",
+      "description": "Storage ring beam position monitor 25 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_25_Position_X",
+      "address": "SR:DIAG:BPM:25:POSITION:X",
+      "description": "Storage ring beam position monitor 25 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_25_Position_Y",
+      "address": "SR:DIAG:BPM:25:POSITION:Y",
+      "description": "Storage ring beam position monitor 25 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_26_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:26:GOLDEN:X",
+      "description": "Storage ring beam position monitor 26 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_26_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:26:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 26 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_26_Offset_X",
+      "address": "SR:DIAG:BPM:26:OFFSET:X",
+      "description": "Storage ring beam position monitor 26 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_26_Offset_Y",
+      "address": "SR:DIAG:BPM:26:OFFSET:Y",
+      "description": "Storage ring beam position monitor 26 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_26_Position_X",
+      "address": "SR:DIAG:BPM:26:POSITION:X",
+      "description": "Storage ring beam position monitor 26 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_26_Position_Y",
+      "address": "SR:DIAG:BPM:26:POSITION:Y",
+      "description": "Storage ring beam position monitor 26 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_27_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:27:GOLDEN:X",
+      "description": "Storage ring beam position monitor 27 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_27_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:27:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 27 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_27_Offset_X",
+      "address": "SR:DIAG:BPM:27:OFFSET:X",
+      "description": "Storage ring beam position monitor 27 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_27_Offset_Y",
+      "address": "SR:DIAG:BPM:27:OFFSET:Y",
+      "description": "Storage ring beam position monitor 27 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_27_Position_X",
+      "address": "SR:DIAG:BPM:27:POSITION:X",
+      "description": "Storage ring beam position monitor 27 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_27_Position_Y",
+      "address": "SR:DIAG:BPM:27:POSITION:Y",
+      "description": "Storage ring beam position monitor 27 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_28_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:28:GOLDEN:X",
+      "description": "Storage ring beam position monitor 28 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_28_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:28:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 28 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_28_Offset_X",
+      "address": "SR:DIAG:BPM:28:OFFSET:X",
+      "description": "Storage ring beam position monitor 28 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_28_Offset_Y",
+      "address": "SR:DIAG:BPM:28:OFFSET:Y",
+      "description": "Storage ring beam position monitor 28 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_28_Position_X",
+      "address": "SR:DIAG:BPM:28:POSITION:X",
+      "description": "Storage ring beam position monitor 28 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_28_Position_Y",
+      "address": "SR:DIAG:BPM:28:POSITION:Y",
+      "description": "Storage ring beam position monitor 28 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_29_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:29:GOLDEN:X",
+      "description": "Storage ring beam position monitor 29 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_29_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:29:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 29 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_29_Offset_X",
+      "address": "SR:DIAG:BPM:29:OFFSET:X",
+      "description": "Storage ring beam position monitor 29 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_29_Offset_Y",
+      "address": "SR:DIAG:BPM:29:OFFSET:Y",
+      "description": "Storage ring beam position monitor 29 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_29_Position_X",
+      "address": "SR:DIAG:BPM:29:POSITION:X",
+      "description": "Storage ring beam position monitor 29 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_29_Position_Y",
+      "address": "SR:DIAG:BPM:29:POSITION:Y",
+      "description": "Storage ring beam position monitor 29 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_30_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:30:GOLDEN:X",
+      "description": "Storage ring beam position monitor 30 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_30_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:30:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 30 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_30_Offset_X",
+      "address": "SR:DIAG:BPM:30:OFFSET:X",
+      "description": "Storage ring beam position monitor 30 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_30_Offset_Y",
+      "address": "SR:DIAG:BPM:30:OFFSET:Y",
+      "description": "Storage ring beam position monitor 30 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_30_Position_X",
+      "address": "SR:DIAG:BPM:30:POSITION:X",
+      "description": "Storage ring beam position monitor 30 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_30_Position_Y",
+      "address": "SR:DIAG:BPM:30:POSITION:Y",
+      "description": "Storage ring beam position monitor 30 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_31_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:31:GOLDEN:X",
+      "description": "Storage ring beam position monitor 31 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_31_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:31:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 31 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_31_Offset_X",
+      "address": "SR:DIAG:BPM:31:OFFSET:X",
+      "description": "Storage ring beam position monitor 31 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_31_Offset_Y",
+      "address": "SR:DIAG:BPM:31:OFFSET:Y",
+      "description": "Storage ring beam position monitor 31 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_31_Position_X",
+      "address": "SR:DIAG:BPM:31:POSITION:X",
+      "description": "Storage ring beam position monitor 31 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_31_Position_Y",
+      "address": "SR:DIAG:BPM:31:POSITION:Y",
+      "description": "Storage ring beam position monitor 31 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_32_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:32:GOLDEN:X",
+      "description": "Storage ring beam position monitor 32 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_32_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:32:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 32 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_32_Offset_X",
+      "address": "SR:DIAG:BPM:32:OFFSET:X",
+      "description": "Storage ring beam position monitor 32 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_32_Offset_Y",
+      "address": "SR:DIAG:BPM:32:OFFSET:Y",
+      "description": "Storage ring beam position monitor 32 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_32_Position_X",
+      "address": "SR:DIAG:BPM:32:POSITION:X",
+      "description": "Storage ring beam position monitor 32 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_32_Position_Y",
+      "address": "SR:DIAG:BPM:32:POSITION:Y",
+      "description": "Storage ring beam position monitor 32 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_33_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:33:GOLDEN:X",
+      "description": "Storage ring beam position monitor 33 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_33_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:33:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 33 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_33_Offset_X",
+      "address": "SR:DIAG:BPM:33:OFFSET:X",
+      "description": "Storage ring beam position monitor 33 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_33_Offset_Y",
+      "address": "SR:DIAG:BPM:33:OFFSET:Y",
+      "description": "Storage ring beam position monitor 33 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_33_Position_X",
+      "address": "SR:DIAG:BPM:33:POSITION:X",
+      "description": "Storage ring beam position monitor 33 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_33_Position_Y",
+      "address": "SR:DIAG:BPM:33:POSITION:Y",
+      "description": "Storage ring beam position monitor 33 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_34_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:34:GOLDEN:X",
+      "description": "Storage ring beam position monitor 34 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_34_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:34:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 34 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_34_Offset_X",
+      "address": "SR:DIAG:BPM:34:OFFSET:X",
+      "description": "Storage ring beam position monitor 34 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_34_Offset_Y",
+      "address": "SR:DIAG:BPM:34:OFFSET:Y",
+      "description": "Storage ring beam position monitor 34 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_34_Position_X",
+      "address": "SR:DIAG:BPM:34:POSITION:X",
+      "description": "Storage ring beam position monitor 34 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_34_Position_Y",
+      "address": "SR:DIAG:BPM:34:POSITION:Y",
+      "description": "Storage ring beam position monitor 34 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_35_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:35:GOLDEN:X",
+      "description": "Storage ring beam position monitor 35 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_35_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:35:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 35 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_35_Offset_X",
+      "address": "SR:DIAG:BPM:35:OFFSET:X",
+      "description": "Storage ring beam position monitor 35 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_35_Offset_Y",
+      "address": "SR:DIAG:BPM:35:OFFSET:Y",
+      "description": "Storage ring beam position monitor 35 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_35_Position_X",
+      "address": "SR:DIAG:BPM:35:POSITION:X",
+      "description": "Storage ring beam position monitor 35 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_35_Position_Y",
+      "address": "SR:DIAG:BPM:35:POSITION:Y",
+      "description": "Storage ring beam position monitor 35 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_36_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:36:GOLDEN:X",
+      "description": "Storage ring beam position monitor 36 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_36_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:36:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 36 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_36_Offset_X",
+      "address": "SR:DIAG:BPM:36:OFFSET:X",
+      "description": "Storage ring beam position monitor 36 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_36_Offset_Y",
+      "address": "SR:DIAG:BPM:36:OFFSET:Y",
+      "description": "Storage ring beam position monitor 36 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_36_Position_X",
+      "address": "SR:DIAG:BPM:36:POSITION:X",
+      "description": "Storage ring beam position monitor 36 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_36_Position_Y",
+      "address": "SR:DIAG:BPM:36:POSITION:Y",
+      "description": "Storage ring beam position monitor 36 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_37_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:37:GOLDEN:X",
+      "description": "Storage ring beam position monitor 37 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_37_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:37:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 37 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_37_Offset_X",
+      "address": "SR:DIAG:BPM:37:OFFSET:X",
+      "description": "Storage ring beam position monitor 37 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_37_Offset_Y",
+      "address": "SR:DIAG:BPM:37:OFFSET:Y",
+      "description": "Storage ring beam position monitor 37 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_37_Position_X",
+      "address": "SR:DIAG:BPM:37:POSITION:X",
+      "description": "Storage ring beam position monitor 37 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_37_Position_Y",
+      "address": "SR:DIAG:BPM:37:POSITION:Y",
+      "description": "Storage ring beam position monitor 37 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_38_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:38:GOLDEN:X",
+      "description": "Storage ring beam position monitor 38 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_38_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:38:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 38 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_38_Offset_X",
+      "address": "SR:DIAG:BPM:38:OFFSET:X",
+      "description": "Storage ring beam position monitor 38 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_38_Offset_Y",
+      "address": "SR:DIAG:BPM:38:OFFSET:Y",
+      "description": "Storage ring beam position monitor 38 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_38_Position_X",
+      "address": "SR:DIAG:BPM:38:POSITION:X",
+      "description": "Storage ring beam position monitor 38 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_38_Position_Y",
+      "address": "SR:DIAG:BPM:38:POSITION:Y",
+      "description": "Storage ring beam position monitor 38 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_39_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:39:GOLDEN:X",
+      "description": "Storage ring beam position monitor 39 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_39_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:39:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 39 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_39_Offset_X",
+      "address": "SR:DIAG:BPM:39:OFFSET:X",
+      "description": "Storage ring beam position monitor 39 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_39_Offset_Y",
+      "address": "SR:DIAG:BPM:39:OFFSET:Y",
+      "description": "Storage ring beam position monitor 39 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_39_Position_X",
+      "address": "SR:DIAG:BPM:39:POSITION:X",
+      "description": "Storage ring beam position monitor 39 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_39_Position_Y",
+      "address": "SR:DIAG:BPM:39:POSITION:Y",
+      "description": "Storage ring beam position monitor 39 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_40_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:40:GOLDEN:X",
+      "description": "Storage ring beam position monitor 40 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_40_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:40:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 40 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_40_Offset_X",
+      "address": "SR:DIAG:BPM:40:OFFSET:X",
+      "description": "Storage ring beam position monitor 40 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_40_Offset_Y",
+      "address": "SR:DIAG:BPM:40:OFFSET:Y",
+      "description": "Storage ring beam position monitor 40 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_40_Position_X",
+      "address": "SR:DIAG:BPM:40:POSITION:X",
+      "description": "Storage ring beam position monitor 40 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_40_Position_Y",
+      "address": "SR:DIAG:BPM:40:POSITION:Y",
+      "description": "Storage ring beam position monitor 40 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_41_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:41:GOLDEN:X",
+      "description": "Storage ring beam position monitor 41 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_41_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:41:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 41 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_41_Offset_X",
+      "address": "SR:DIAG:BPM:41:OFFSET:X",
+      "description": "Storage ring beam position monitor 41 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_41_Offset_Y",
+      "address": "SR:DIAG:BPM:41:OFFSET:Y",
+      "description": "Storage ring beam position monitor 41 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_41_Position_X",
+      "address": "SR:DIAG:BPM:41:POSITION:X",
+      "description": "Storage ring beam position monitor 41 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_41_Position_Y",
+      "address": "SR:DIAG:BPM:41:POSITION:Y",
+      "description": "Storage ring beam position monitor 41 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_42_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:42:GOLDEN:X",
+      "description": "Storage ring beam position monitor 42 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_42_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:42:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 42 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_42_Offset_X",
+      "address": "SR:DIAG:BPM:42:OFFSET:X",
+      "description": "Storage ring beam position monitor 42 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_42_Offset_Y",
+      "address": "SR:DIAG:BPM:42:OFFSET:Y",
+      "description": "Storage ring beam position monitor 42 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_42_Position_X",
+      "address": "SR:DIAG:BPM:42:POSITION:X",
+      "description": "Storage ring beam position monitor 42 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_42_Position_Y",
+      "address": "SR:DIAG:BPM:42:POSITION:Y",
+      "description": "Storage ring beam position monitor 42 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_43_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:43:GOLDEN:X",
+      "description": "Storage ring beam position monitor 43 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_43_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:43:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 43 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_43_Offset_X",
+      "address": "SR:DIAG:BPM:43:OFFSET:X",
+      "description": "Storage ring beam position monitor 43 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_43_Offset_Y",
+      "address": "SR:DIAG:BPM:43:OFFSET:Y",
+      "description": "Storage ring beam position monitor 43 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_43_Position_X",
+      "address": "SR:DIAG:BPM:43:POSITION:X",
+      "description": "Storage ring beam position monitor 43 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_43_Position_Y",
+      "address": "SR:DIAG:BPM:43:POSITION:Y",
+      "description": "Storage ring beam position monitor 43 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_44_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:44:GOLDEN:X",
+      "description": "Storage ring beam position monitor 44 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_44_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:44:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 44 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_44_Offset_X",
+      "address": "SR:DIAG:BPM:44:OFFSET:X",
+      "description": "Storage ring beam position monitor 44 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_44_Offset_Y",
+      "address": "SR:DIAG:BPM:44:OFFSET:Y",
+      "description": "Storage ring beam position monitor 44 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_44_Position_X",
+      "address": "SR:DIAG:BPM:44:POSITION:X",
+      "description": "Storage ring beam position monitor 44 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_44_Position_Y",
+      "address": "SR:DIAG:BPM:44:POSITION:Y",
+      "description": "Storage ring beam position monitor 44 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_45_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:45:GOLDEN:X",
+      "description": "Storage ring beam position monitor 45 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_45_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:45:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 45 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_45_Offset_X",
+      "address": "SR:DIAG:BPM:45:OFFSET:X",
+      "description": "Storage ring beam position monitor 45 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_45_Offset_Y",
+      "address": "SR:DIAG:BPM:45:OFFSET:Y",
+      "description": "Storage ring beam position monitor 45 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_45_Position_X",
+      "address": "SR:DIAG:BPM:45:POSITION:X",
+      "description": "Storage ring beam position monitor 45 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_45_Position_Y",
+      "address": "SR:DIAG:BPM:45:POSITION:Y",
+      "description": "Storage ring beam position monitor 45 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_46_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:46:GOLDEN:X",
+      "description": "Storage ring beam position monitor 46 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_46_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:46:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 46 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_46_Offset_X",
+      "address": "SR:DIAG:BPM:46:OFFSET:X",
+      "description": "Storage ring beam position monitor 46 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_46_Offset_Y",
+      "address": "SR:DIAG:BPM:46:OFFSET:Y",
+      "description": "Storage ring beam position monitor 46 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_46_Position_X",
+      "address": "SR:DIAG:BPM:46:POSITION:X",
+      "description": "Storage ring beam position monitor 46 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_46_Position_Y",
+      "address": "SR:DIAG:BPM:46:POSITION:Y",
+      "description": "Storage ring beam position monitor 46 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_47_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:47:GOLDEN:X",
+      "description": "Storage ring beam position monitor 47 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_47_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:47:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 47 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_47_Offset_X",
+      "address": "SR:DIAG:BPM:47:OFFSET:X",
+      "description": "Storage ring beam position monitor 47 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_47_Offset_Y",
+      "address": "SR:DIAG:BPM:47:OFFSET:Y",
+      "description": "Storage ring beam position monitor 47 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_47_Position_X",
+      "address": "SR:DIAG:BPM:47:POSITION:X",
+      "description": "Storage ring beam position monitor 47 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_47_Position_Y",
+      "address": "SR:DIAG:BPM:47:POSITION:Y",
+      "description": "Storage ring beam position monitor 47 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_48_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:48:GOLDEN:X",
+      "description": "Storage ring beam position monitor 48 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_48_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:48:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 48 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_48_Offset_X",
+      "address": "SR:DIAG:BPM:48:OFFSET:X",
+      "description": "Storage ring beam position monitor 48 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_48_Offset_Y",
+      "address": "SR:DIAG:BPM:48:OFFSET:Y",
+      "description": "Storage ring beam position monitor 48 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_48_Position_X",
+      "address": "SR:DIAG:BPM:48:POSITION:X",
+      "description": "Storage ring beam position monitor 48 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_48_Position_Y",
+      "address": "SR:DIAG:BPM:48:POSITION:Y",
+      "description": "Storage ring beam position monitor 48 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_49_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:49:GOLDEN:X",
+      "description": "Storage ring beam position monitor 49 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_49_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:49:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 49 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_49_Offset_X",
+      "address": "SR:DIAG:BPM:49:OFFSET:X",
+      "description": "Storage ring beam position monitor 49 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_49_Offset_Y",
+      "address": "SR:DIAG:BPM:49:OFFSET:Y",
+      "description": "Storage ring beam position monitor 49 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_49_Position_X",
+      "address": "SR:DIAG:BPM:49:POSITION:X",
+      "description": "Storage ring beam position monitor 49 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_49_Position_Y",
+      "address": "SR:DIAG:BPM:49:POSITION:Y",
+      "description": "Storage ring beam position monitor 49 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_50_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:50:GOLDEN:X",
+      "description": "Storage ring beam position monitor 50 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_50_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:50:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 50 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_50_Offset_X",
+      "address": "SR:DIAG:BPM:50:OFFSET:X",
+      "description": "Storage ring beam position monitor 50 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_50_Offset_Y",
+      "address": "SR:DIAG:BPM:50:OFFSET:Y",
+      "description": "Storage ring beam position monitor 50 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_50_Position_X",
+      "address": "SR:DIAG:BPM:50:POSITION:X",
+      "description": "Storage ring beam position monitor 50 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_50_Position_Y",
+      "address": "SR:DIAG:BPM:50:POSITION:Y",
+      "description": "Storage ring beam position monitor 50 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_51_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:51:GOLDEN:X",
+      "description": "Storage ring beam position monitor 51 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_51_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:51:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 51 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_51_Offset_X",
+      "address": "SR:DIAG:BPM:51:OFFSET:X",
+      "description": "Storage ring beam position monitor 51 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_51_Offset_Y",
+      "address": "SR:DIAG:BPM:51:OFFSET:Y",
+      "description": "Storage ring beam position monitor 51 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_51_Position_X",
+      "address": "SR:DIAG:BPM:51:POSITION:X",
+      "description": "Storage ring beam position monitor 51 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_51_Position_Y",
+      "address": "SR:DIAG:BPM:51:POSITION:Y",
+      "description": "Storage ring beam position monitor 51 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_52_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:52:GOLDEN:X",
+      "description": "Storage ring beam position monitor 52 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_52_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:52:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 52 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_52_Offset_X",
+      "address": "SR:DIAG:BPM:52:OFFSET:X",
+      "description": "Storage ring beam position monitor 52 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_52_Offset_Y",
+      "address": "SR:DIAG:BPM:52:OFFSET:Y",
+      "description": "Storage ring beam position monitor 52 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_52_Position_X",
+      "address": "SR:DIAG:BPM:52:POSITION:X",
+      "description": "Storage ring beam position monitor 52 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_52_Position_Y",
+      "address": "SR:DIAG:BPM:52:POSITION:Y",
+      "description": "Storage ring beam position monitor 52 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_53_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:53:GOLDEN:X",
+      "description": "Storage ring beam position monitor 53 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_53_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:53:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 53 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_53_Offset_X",
+      "address": "SR:DIAG:BPM:53:OFFSET:X",
+      "description": "Storage ring beam position monitor 53 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_53_Offset_Y",
+      "address": "SR:DIAG:BPM:53:OFFSET:Y",
+      "description": "Storage ring beam position monitor 53 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_53_Position_X",
+      "address": "SR:DIAG:BPM:53:POSITION:X",
+      "description": "Storage ring beam position monitor 53 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_53_Position_Y",
+      "address": "SR:DIAG:BPM:53:POSITION:Y",
+      "description": "Storage ring beam position monitor 53 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_54_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:54:GOLDEN:X",
+      "description": "Storage ring beam position monitor 54 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_54_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:54:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 54 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_54_Offset_X",
+      "address": "SR:DIAG:BPM:54:OFFSET:X",
+      "description": "Storage ring beam position monitor 54 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_54_Offset_Y",
+      "address": "SR:DIAG:BPM:54:OFFSET:Y",
+      "description": "Storage ring beam position monitor 54 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_54_Position_X",
+      "address": "SR:DIAG:BPM:54:POSITION:X",
+      "description": "Storage ring beam position monitor 54 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_54_Position_Y",
+      "address": "SR:DIAG:BPM:54:POSITION:Y",
+      "description": "Storage ring beam position monitor 54 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_55_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:55:GOLDEN:X",
+      "description": "Storage ring beam position monitor 55 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_55_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:55:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 55 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_55_Offset_X",
+      "address": "SR:DIAG:BPM:55:OFFSET:X",
+      "description": "Storage ring beam position monitor 55 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_55_Offset_Y",
+      "address": "SR:DIAG:BPM:55:OFFSET:Y",
+      "description": "Storage ring beam position monitor 55 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_55_Position_X",
+      "address": "SR:DIAG:BPM:55:POSITION:X",
+      "description": "Storage ring beam position monitor 55 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_55_Position_Y",
+      "address": "SR:DIAG:BPM:55:POSITION:Y",
+      "description": "Storage ring beam position monitor 55 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_56_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:56:GOLDEN:X",
+      "description": "Storage ring beam position monitor 56 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_56_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:56:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 56 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_56_Offset_X",
+      "address": "SR:DIAG:BPM:56:OFFSET:X",
+      "description": "Storage ring beam position monitor 56 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_56_Offset_Y",
+      "address": "SR:DIAG:BPM:56:OFFSET:Y",
+      "description": "Storage ring beam position monitor 56 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_56_Position_X",
+      "address": "SR:DIAG:BPM:56:POSITION:X",
+      "description": "Storage ring beam position monitor 56 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_56_Position_Y",
+      "address": "SR:DIAG:BPM:56:POSITION:Y",
+      "description": "Storage ring beam position monitor 56 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_57_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:57:GOLDEN:X",
+      "description": "Storage ring beam position monitor 57 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_57_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:57:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 57 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_57_Offset_X",
+      "address": "SR:DIAG:BPM:57:OFFSET:X",
+      "description": "Storage ring beam position monitor 57 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_57_Offset_Y",
+      "address": "SR:DIAG:BPM:57:OFFSET:Y",
+      "description": "Storage ring beam position monitor 57 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_57_Position_X",
+      "address": "SR:DIAG:BPM:57:POSITION:X",
+      "description": "Storage ring beam position monitor 57 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_57_Position_Y",
+      "address": "SR:DIAG:BPM:57:POSITION:Y",
+      "description": "Storage ring beam position monitor 57 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_58_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:58:GOLDEN:X",
+      "description": "Storage ring beam position monitor 58 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_58_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:58:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 58 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_58_Offset_X",
+      "address": "SR:DIAG:BPM:58:OFFSET:X",
+      "description": "Storage ring beam position monitor 58 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_58_Offset_Y",
+      "address": "SR:DIAG:BPM:58:OFFSET:Y",
+      "description": "Storage ring beam position monitor 58 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_58_Position_X",
+      "address": "SR:DIAG:BPM:58:POSITION:X",
+      "description": "Storage ring beam position monitor 58 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_58_Position_Y",
+      "address": "SR:DIAG:BPM:58:POSITION:Y",
+      "description": "Storage ring beam position monitor 58 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_59_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:59:GOLDEN:X",
+      "description": "Storage ring beam position monitor 59 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_59_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:59:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 59 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_59_Offset_X",
+      "address": "SR:DIAG:BPM:59:OFFSET:X",
+      "description": "Storage ring beam position monitor 59 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_59_Offset_Y",
+      "address": "SR:DIAG:BPM:59:OFFSET:Y",
+      "description": "Storage ring beam position monitor 59 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_59_Position_X",
+      "address": "SR:DIAG:BPM:59:POSITION:X",
+      "description": "Storage ring beam position monitor 59 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_59_Position_Y",
+      "address": "SR:DIAG:BPM:59:POSITION:Y",
+      "description": "Storage ring beam position monitor 59 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_60_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:60:GOLDEN:X",
+      "description": "Storage ring beam position monitor 60 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_60_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:60:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 60 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_60_Offset_X",
+      "address": "SR:DIAG:BPM:60:OFFSET:X",
+      "description": "Storage ring beam position monitor 60 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_60_Offset_Y",
+      "address": "SR:DIAG:BPM:60:OFFSET:Y",
+      "description": "Storage ring beam position monitor 60 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_60_Position_X",
+      "address": "SR:DIAG:BPM:60:POSITION:X",
+      "description": "Storage ring beam position monitor 60 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_60_Position_Y",
+      "address": "SR:DIAG:BPM:60:POSITION:Y",
+      "description": "Storage ring beam position monitor 60 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_61_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:61:GOLDEN:X",
+      "description": "Storage ring beam position monitor 61 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_61_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:61:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 61 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_61_Offset_X",
+      "address": "SR:DIAG:BPM:61:OFFSET:X",
+      "description": "Storage ring beam position monitor 61 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_61_Offset_Y",
+      "address": "SR:DIAG:BPM:61:OFFSET:Y",
+      "description": "Storage ring beam position monitor 61 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_61_Position_X",
+      "address": "SR:DIAG:BPM:61:POSITION:X",
+      "description": "Storage ring beam position monitor 61 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_61_Position_Y",
+      "address": "SR:DIAG:BPM:61:POSITION:Y",
+      "description": "Storage ring beam position monitor 61 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_62_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:62:GOLDEN:X",
+      "description": "Storage ring beam position monitor 62 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_62_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:62:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 62 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_62_Offset_X",
+      "address": "SR:DIAG:BPM:62:OFFSET:X",
+      "description": "Storage ring beam position monitor 62 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_62_Offset_Y",
+      "address": "SR:DIAG:BPM:62:OFFSET:Y",
+      "description": "Storage ring beam position monitor 62 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_62_Position_X",
+      "address": "SR:DIAG:BPM:62:POSITION:X",
+      "description": "Storage ring beam position monitor 62 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_62_Position_Y",
+      "address": "SR:DIAG:BPM:62:POSITION:Y",
+      "description": "Storage ring beam position monitor 62 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_63_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:63:GOLDEN:X",
+      "description": "Storage ring beam position monitor 63 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_63_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:63:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 63 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_63_Offset_X",
+      "address": "SR:DIAG:BPM:63:OFFSET:X",
+      "description": "Storage ring beam position monitor 63 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_63_Offset_Y",
+      "address": "SR:DIAG:BPM:63:OFFSET:Y",
+      "description": "Storage ring beam position monitor 63 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_63_Position_X",
+      "address": "SR:DIAG:BPM:63:POSITION:X",
+      "description": "Storage ring beam position monitor 63 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_63_Position_Y",
+      "address": "SR:DIAG:BPM:63:POSITION:Y",
+      "description": "Storage ring beam position monitor 63 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_64_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:64:GOLDEN:X",
+      "description": "Storage ring beam position monitor 64 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_64_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:64:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 64 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_64_Offset_X",
+      "address": "SR:DIAG:BPM:64:OFFSET:X",
+      "description": "Storage ring beam position monitor 64 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_64_Offset_Y",
+      "address": "SR:DIAG:BPM:64:OFFSET:Y",
+      "description": "Storage ring beam position monitor 64 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_64_Position_X",
+      "address": "SR:DIAG:BPM:64:POSITION:X",
+      "description": "Storage ring beam position monitor 64 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_64_Position_Y",
+      "address": "SR:DIAG:BPM:64:POSITION:Y",
+      "description": "Storage ring beam position monitor 64 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_65_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:65:GOLDEN:X",
+      "description": "Storage ring beam position monitor 65 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_65_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:65:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 65 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_65_Offset_X",
+      "address": "SR:DIAG:BPM:65:OFFSET:X",
+      "description": "Storage ring beam position monitor 65 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_65_Offset_Y",
+      "address": "SR:DIAG:BPM:65:OFFSET:Y",
+      "description": "Storage ring beam position monitor 65 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_65_Position_X",
+      "address": "SR:DIAG:BPM:65:POSITION:X",
+      "description": "Storage ring beam position monitor 65 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_65_Position_Y",
+      "address": "SR:DIAG:BPM:65:POSITION:Y",
+      "description": "Storage ring beam position monitor 65 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_66_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:66:GOLDEN:X",
+      "description": "Storage ring beam position monitor 66 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_66_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:66:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 66 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_66_Offset_X",
+      "address": "SR:DIAG:BPM:66:OFFSET:X",
+      "description": "Storage ring beam position monitor 66 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_66_Offset_Y",
+      "address": "SR:DIAG:BPM:66:OFFSET:Y",
+      "description": "Storage ring beam position monitor 66 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_66_Position_X",
+      "address": "SR:DIAG:BPM:66:POSITION:X",
+      "description": "Storage ring beam position monitor 66 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_66_Position_Y",
+      "address": "SR:DIAG:BPM:66:POSITION:Y",
+      "description": "Storage ring beam position monitor 66 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_67_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:67:GOLDEN:X",
+      "description": "Storage ring beam position monitor 67 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_67_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:67:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 67 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_67_Offset_X",
+      "address": "SR:DIAG:BPM:67:OFFSET:X",
+      "description": "Storage ring beam position monitor 67 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_67_Offset_Y",
+      "address": "SR:DIAG:BPM:67:OFFSET:Y",
+      "description": "Storage ring beam position monitor 67 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_67_Position_X",
+      "address": "SR:DIAG:BPM:67:POSITION:X",
+      "description": "Storage ring beam position monitor 67 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_67_Position_Y",
+      "address": "SR:DIAG:BPM:67:POSITION:Y",
+      "description": "Storage ring beam position monitor 67 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_68_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:68:GOLDEN:X",
+      "description": "Storage ring beam position monitor 68 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_68_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:68:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 68 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_68_Offset_X",
+      "address": "SR:DIAG:BPM:68:OFFSET:X",
+      "description": "Storage ring beam position monitor 68 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_68_Offset_Y",
+      "address": "SR:DIAG:BPM:68:OFFSET:Y",
+      "description": "Storage ring beam position monitor 68 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_68_Position_X",
+      "address": "SR:DIAG:BPM:68:POSITION:X",
+      "description": "Storage ring beam position monitor 68 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_68_Position_Y",
+      "address": "SR:DIAG:BPM:68:POSITION:Y",
+      "description": "Storage ring beam position monitor 68 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_69_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:69:GOLDEN:X",
+      "description": "Storage ring beam position monitor 69 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_69_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:69:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 69 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_69_Offset_X",
+      "address": "SR:DIAG:BPM:69:OFFSET:X",
+      "description": "Storage ring beam position monitor 69 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_69_Offset_Y",
+      "address": "SR:DIAG:BPM:69:OFFSET:Y",
+      "description": "Storage ring beam position monitor 69 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_69_Position_X",
+      "address": "SR:DIAG:BPM:69:POSITION:X",
+      "description": "Storage ring beam position monitor 69 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_69_Position_Y",
+      "address": "SR:DIAG:BPM:69:POSITION:Y",
+      "description": "Storage ring beam position monitor 69 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_70_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:70:GOLDEN:X",
+      "description": "Storage ring beam position monitor 70 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_70_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:70:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 70 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_70_Offset_X",
+      "address": "SR:DIAG:BPM:70:OFFSET:X",
+      "description": "Storage ring beam position monitor 70 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_70_Offset_Y",
+      "address": "SR:DIAG:BPM:70:OFFSET:Y",
+      "description": "Storage ring beam position monitor 70 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_70_Position_X",
+      "address": "SR:DIAG:BPM:70:POSITION:X",
+      "description": "Storage ring beam position monitor 70 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_70_Position_Y",
+      "address": "SR:DIAG:BPM:70:POSITION:Y",
+      "description": "Storage ring beam position monitor 70 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_71_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:71:GOLDEN:X",
+      "description": "Storage ring beam position monitor 71 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_71_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:71:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 71 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_71_Offset_X",
+      "address": "SR:DIAG:BPM:71:OFFSET:X",
+      "description": "Storage ring beam position monitor 71 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_71_Offset_Y",
+      "address": "SR:DIAG:BPM:71:OFFSET:Y",
+      "description": "Storage ring beam position monitor 71 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_71_Position_X",
+      "address": "SR:DIAG:BPM:71:POSITION:X",
+      "description": "Storage ring beam position monitor 71 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_71_Position_Y",
+      "address": "SR:DIAG:BPM:71:POSITION:Y",
+      "description": "Storage ring beam position monitor 71 position vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_72_GoldenOrbit_X",
+      "address": "SR:DIAG:BPM:72:GOLDEN:X",
+      "description": "Storage ring beam position monitor 72 golden orbit horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_72_GoldenOrbit_Y",
+      "address": "SR:DIAG:BPM:72:GOLDEN:Y",
+      "description": "Storage ring beam position monitor 72 golden orbit vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_72_Offset_X",
+      "address": "SR:DIAG:BPM:72:OFFSET:X",
+      "description": "Storage ring beam position monitor 72 offset horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_72_Offset_Y",
+      "address": "SR:DIAG:BPM:72:OFFSET:Y",
+      "description": "Storage ring beam position monitor 72 offset vertical"
+    },
+    {
+      "channel": "StorageRing_BPM_72_Position_X",
+      "address": "SR:DIAG:BPM:72:POSITION:X",
+      "description": "Storage ring beam position monitor 72 position horizontal"
+    },
+    {
+      "channel": "StorageRing_BPM_72_Position_Y",
+      "address": "SR:DIAG:BPM:72:POSITION:Y",
+      "description": "Storage ring beam position monitor 72 position vertical"
+    },
+    {
       "channel": "StorageRing_DCCT_01_Current_Readback",
       "address": "SR:DIAG:DCCT:01:CURRENT:RB",
       "description": "Storage ring DC current transformer 01 current readback"
@@ -1012,6 +2572,186 @@
       "description": "Storage ring dipole bending magnet 24 current setpoint"
     },
     {
+      "channel": "StorageRing_Dipole_25_Current_Golden",
+      "address": "SR:MAG:DIPOLE:25:CURRENT:GOLDEN",
+      "description": "Storage ring dipole bending magnet 25 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_25_Current_Readback",
+      "address": "SR:MAG:DIPOLE:25:CURRENT:RB",
+      "description": "Storage ring dipole bending magnet 25 current readback"
+    },
+    {
+      "channel": "StorageRing_Dipole_25_Current_Setpoint",
+      "address": "SR:MAG:DIPOLE:25:CURRENT:SP",
+      "description": "Storage ring dipole bending magnet 25 current setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_26_Current_Golden",
+      "address": "SR:MAG:DIPOLE:26:CURRENT:GOLDEN",
+      "description": "Storage ring dipole bending magnet 26 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_26_Current_Readback",
+      "address": "SR:MAG:DIPOLE:26:CURRENT:RB",
+      "description": "Storage ring dipole bending magnet 26 current readback"
+    },
+    {
+      "channel": "StorageRing_Dipole_26_Current_Setpoint",
+      "address": "SR:MAG:DIPOLE:26:CURRENT:SP",
+      "description": "Storage ring dipole bending magnet 26 current setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_27_Current_Golden",
+      "address": "SR:MAG:DIPOLE:27:CURRENT:GOLDEN",
+      "description": "Storage ring dipole bending magnet 27 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_27_Current_Readback",
+      "address": "SR:MAG:DIPOLE:27:CURRENT:RB",
+      "description": "Storage ring dipole bending magnet 27 current readback"
+    },
+    {
+      "channel": "StorageRing_Dipole_27_Current_Setpoint",
+      "address": "SR:MAG:DIPOLE:27:CURRENT:SP",
+      "description": "Storage ring dipole bending magnet 27 current setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_28_Current_Golden",
+      "address": "SR:MAG:DIPOLE:28:CURRENT:GOLDEN",
+      "description": "Storage ring dipole bending magnet 28 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_28_Current_Readback",
+      "address": "SR:MAG:DIPOLE:28:CURRENT:RB",
+      "description": "Storage ring dipole bending magnet 28 current readback"
+    },
+    {
+      "channel": "StorageRing_Dipole_28_Current_Setpoint",
+      "address": "SR:MAG:DIPOLE:28:CURRENT:SP",
+      "description": "Storage ring dipole bending magnet 28 current setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_29_Current_Golden",
+      "address": "SR:MAG:DIPOLE:29:CURRENT:GOLDEN",
+      "description": "Storage ring dipole bending magnet 29 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_29_Current_Readback",
+      "address": "SR:MAG:DIPOLE:29:CURRENT:RB",
+      "description": "Storage ring dipole bending magnet 29 current readback"
+    },
+    {
+      "channel": "StorageRing_Dipole_29_Current_Setpoint",
+      "address": "SR:MAG:DIPOLE:29:CURRENT:SP",
+      "description": "Storage ring dipole bending magnet 29 current setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_30_Current_Golden",
+      "address": "SR:MAG:DIPOLE:30:CURRENT:GOLDEN",
+      "description": "Storage ring dipole bending magnet 30 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_30_Current_Readback",
+      "address": "SR:MAG:DIPOLE:30:CURRENT:RB",
+      "description": "Storage ring dipole bending magnet 30 current readback"
+    },
+    {
+      "channel": "StorageRing_Dipole_30_Current_Setpoint",
+      "address": "SR:MAG:DIPOLE:30:CURRENT:SP",
+      "description": "Storage ring dipole bending magnet 30 current setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_31_Current_Golden",
+      "address": "SR:MAG:DIPOLE:31:CURRENT:GOLDEN",
+      "description": "Storage ring dipole bending magnet 31 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_31_Current_Readback",
+      "address": "SR:MAG:DIPOLE:31:CURRENT:RB",
+      "description": "Storage ring dipole bending magnet 31 current readback"
+    },
+    {
+      "channel": "StorageRing_Dipole_31_Current_Setpoint",
+      "address": "SR:MAG:DIPOLE:31:CURRENT:SP",
+      "description": "Storage ring dipole bending magnet 31 current setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_32_Current_Golden",
+      "address": "SR:MAG:DIPOLE:32:CURRENT:GOLDEN",
+      "description": "Storage ring dipole bending magnet 32 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_32_Current_Readback",
+      "address": "SR:MAG:DIPOLE:32:CURRENT:RB",
+      "description": "Storage ring dipole bending magnet 32 current readback"
+    },
+    {
+      "channel": "StorageRing_Dipole_32_Current_Setpoint",
+      "address": "SR:MAG:DIPOLE:32:CURRENT:SP",
+      "description": "Storage ring dipole bending magnet 32 current setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_33_Current_Golden",
+      "address": "SR:MAG:DIPOLE:33:CURRENT:GOLDEN",
+      "description": "Storage ring dipole bending magnet 33 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_33_Current_Readback",
+      "address": "SR:MAG:DIPOLE:33:CURRENT:RB",
+      "description": "Storage ring dipole bending magnet 33 current readback"
+    },
+    {
+      "channel": "StorageRing_Dipole_33_Current_Setpoint",
+      "address": "SR:MAG:DIPOLE:33:CURRENT:SP",
+      "description": "Storage ring dipole bending magnet 33 current setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_34_Current_Golden",
+      "address": "SR:MAG:DIPOLE:34:CURRENT:GOLDEN",
+      "description": "Storage ring dipole bending magnet 34 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_34_Current_Readback",
+      "address": "SR:MAG:DIPOLE:34:CURRENT:RB",
+      "description": "Storage ring dipole bending magnet 34 current readback"
+    },
+    {
+      "channel": "StorageRing_Dipole_34_Current_Setpoint",
+      "address": "SR:MAG:DIPOLE:34:CURRENT:SP",
+      "description": "Storage ring dipole bending magnet 34 current setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_35_Current_Golden",
+      "address": "SR:MAG:DIPOLE:35:CURRENT:GOLDEN",
+      "description": "Storage ring dipole bending magnet 35 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_35_Current_Readback",
+      "address": "SR:MAG:DIPOLE:35:CURRENT:RB",
+      "description": "Storage ring dipole bending magnet 35 current readback"
+    },
+    {
+      "channel": "StorageRing_Dipole_35_Current_Setpoint",
+      "address": "SR:MAG:DIPOLE:35:CURRENT:SP",
+      "description": "Storage ring dipole bending magnet 35 current setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_36_Current_Golden",
+      "address": "SR:MAG:DIPOLE:36:CURRENT:GOLDEN",
+      "description": "Storage ring dipole bending magnet 36 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_Dipole_36_Current_Readback",
+      "address": "SR:MAG:DIPOLE:36:CURRENT:RB",
+      "description": "Storage ring dipole bending magnet 36 current readback"
+    },
+    {
+      "channel": "StorageRing_Dipole_36_Current_Setpoint",
+      "address": "SR:MAG:DIPOLE:36:CURRENT:SP",
+      "description": "Storage ring dipole bending magnet 36 current setpoint"
+    },
+    {
       "channel": "StorageRing_HorizCorr_01_Current_Golden",
       "address": "SR:MAG:HCM:01:CURRENT:GOLDEN",
       "description": "Storage ring horizontal corrector 01 current golden setpoint"
@@ -1312,6 +3052,786 @@
       "description": "Storage ring horizontal corrector 20 current setpoint"
     },
     {
+      "channel": "StorageRing_HorizCorr_21_Current_Golden",
+      "address": "SR:MAG:HCM:21:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 21 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_21_Current_Readback",
+      "address": "SR:MAG:HCM:21:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 21 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_21_Current_Setpoint",
+      "address": "SR:MAG:HCM:21:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 21 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_22_Current_Golden",
+      "address": "SR:MAG:HCM:22:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 22 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_22_Current_Readback",
+      "address": "SR:MAG:HCM:22:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 22 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_22_Current_Setpoint",
+      "address": "SR:MAG:HCM:22:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 22 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_23_Current_Golden",
+      "address": "SR:MAG:HCM:23:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 23 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_23_Current_Readback",
+      "address": "SR:MAG:HCM:23:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 23 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_23_Current_Setpoint",
+      "address": "SR:MAG:HCM:23:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 23 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_24_Current_Golden",
+      "address": "SR:MAG:HCM:24:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 24 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_24_Current_Readback",
+      "address": "SR:MAG:HCM:24:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 24 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_24_Current_Setpoint",
+      "address": "SR:MAG:HCM:24:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 24 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_25_Current_Golden",
+      "address": "SR:MAG:HCM:25:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 25 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_25_Current_Readback",
+      "address": "SR:MAG:HCM:25:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 25 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_25_Current_Setpoint",
+      "address": "SR:MAG:HCM:25:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 25 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_26_Current_Golden",
+      "address": "SR:MAG:HCM:26:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 26 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_26_Current_Readback",
+      "address": "SR:MAG:HCM:26:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 26 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_26_Current_Setpoint",
+      "address": "SR:MAG:HCM:26:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 26 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_27_Current_Golden",
+      "address": "SR:MAG:HCM:27:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 27 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_27_Current_Readback",
+      "address": "SR:MAG:HCM:27:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 27 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_27_Current_Setpoint",
+      "address": "SR:MAG:HCM:27:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 27 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_28_Current_Golden",
+      "address": "SR:MAG:HCM:28:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 28 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_28_Current_Readback",
+      "address": "SR:MAG:HCM:28:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 28 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_28_Current_Setpoint",
+      "address": "SR:MAG:HCM:28:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 28 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_29_Current_Golden",
+      "address": "SR:MAG:HCM:29:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 29 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_29_Current_Readback",
+      "address": "SR:MAG:HCM:29:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 29 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_29_Current_Setpoint",
+      "address": "SR:MAG:HCM:29:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 29 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_30_Current_Golden",
+      "address": "SR:MAG:HCM:30:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 30 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_30_Current_Readback",
+      "address": "SR:MAG:HCM:30:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 30 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_30_Current_Setpoint",
+      "address": "SR:MAG:HCM:30:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 30 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_31_Current_Golden",
+      "address": "SR:MAG:HCM:31:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 31 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_31_Current_Readback",
+      "address": "SR:MAG:HCM:31:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 31 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_31_Current_Setpoint",
+      "address": "SR:MAG:HCM:31:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 31 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_32_Current_Golden",
+      "address": "SR:MAG:HCM:32:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 32 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_32_Current_Readback",
+      "address": "SR:MAG:HCM:32:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 32 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_32_Current_Setpoint",
+      "address": "SR:MAG:HCM:32:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 32 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_33_Current_Golden",
+      "address": "SR:MAG:HCM:33:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 33 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_33_Current_Readback",
+      "address": "SR:MAG:HCM:33:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 33 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_33_Current_Setpoint",
+      "address": "SR:MAG:HCM:33:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 33 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_34_Current_Golden",
+      "address": "SR:MAG:HCM:34:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 34 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_34_Current_Readback",
+      "address": "SR:MAG:HCM:34:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 34 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_34_Current_Setpoint",
+      "address": "SR:MAG:HCM:34:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 34 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_35_Current_Golden",
+      "address": "SR:MAG:HCM:35:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 35 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_35_Current_Readback",
+      "address": "SR:MAG:HCM:35:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 35 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_35_Current_Setpoint",
+      "address": "SR:MAG:HCM:35:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 35 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_36_Current_Golden",
+      "address": "SR:MAG:HCM:36:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 36 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_36_Current_Readback",
+      "address": "SR:MAG:HCM:36:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 36 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_36_Current_Setpoint",
+      "address": "SR:MAG:HCM:36:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 36 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_37_Current_Golden",
+      "address": "SR:MAG:HCM:37:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 37 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_37_Current_Readback",
+      "address": "SR:MAG:HCM:37:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 37 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_37_Current_Setpoint",
+      "address": "SR:MAG:HCM:37:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 37 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_38_Current_Golden",
+      "address": "SR:MAG:HCM:38:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 38 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_38_Current_Readback",
+      "address": "SR:MAG:HCM:38:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 38 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_38_Current_Setpoint",
+      "address": "SR:MAG:HCM:38:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 38 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_39_Current_Golden",
+      "address": "SR:MAG:HCM:39:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 39 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_39_Current_Readback",
+      "address": "SR:MAG:HCM:39:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 39 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_39_Current_Setpoint",
+      "address": "SR:MAG:HCM:39:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 39 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_40_Current_Golden",
+      "address": "SR:MAG:HCM:40:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 40 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_40_Current_Readback",
+      "address": "SR:MAG:HCM:40:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 40 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_40_Current_Setpoint",
+      "address": "SR:MAG:HCM:40:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 40 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_41_Current_Golden",
+      "address": "SR:MAG:HCM:41:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 41 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_41_Current_Readback",
+      "address": "SR:MAG:HCM:41:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 41 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_41_Current_Setpoint",
+      "address": "SR:MAG:HCM:41:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 41 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_42_Current_Golden",
+      "address": "SR:MAG:HCM:42:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 42 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_42_Current_Readback",
+      "address": "SR:MAG:HCM:42:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 42 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_42_Current_Setpoint",
+      "address": "SR:MAG:HCM:42:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 42 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_43_Current_Golden",
+      "address": "SR:MAG:HCM:43:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 43 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_43_Current_Readback",
+      "address": "SR:MAG:HCM:43:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 43 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_43_Current_Setpoint",
+      "address": "SR:MAG:HCM:43:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 43 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_44_Current_Golden",
+      "address": "SR:MAG:HCM:44:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 44 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_44_Current_Readback",
+      "address": "SR:MAG:HCM:44:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 44 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_44_Current_Setpoint",
+      "address": "SR:MAG:HCM:44:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 44 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_45_Current_Golden",
+      "address": "SR:MAG:HCM:45:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 45 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_45_Current_Readback",
+      "address": "SR:MAG:HCM:45:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 45 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_45_Current_Setpoint",
+      "address": "SR:MAG:HCM:45:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 45 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_46_Current_Golden",
+      "address": "SR:MAG:HCM:46:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 46 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_46_Current_Readback",
+      "address": "SR:MAG:HCM:46:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 46 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_46_Current_Setpoint",
+      "address": "SR:MAG:HCM:46:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 46 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_47_Current_Golden",
+      "address": "SR:MAG:HCM:47:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 47 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_47_Current_Readback",
+      "address": "SR:MAG:HCM:47:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 47 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_47_Current_Setpoint",
+      "address": "SR:MAG:HCM:47:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 47 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_48_Current_Golden",
+      "address": "SR:MAG:HCM:48:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 48 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_48_Current_Readback",
+      "address": "SR:MAG:HCM:48:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 48 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_48_Current_Setpoint",
+      "address": "SR:MAG:HCM:48:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 48 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_49_Current_Golden",
+      "address": "SR:MAG:HCM:49:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 49 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_49_Current_Readback",
+      "address": "SR:MAG:HCM:49:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 49 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_49_Current_Setpoint",
+      "address": "SR:MAG:HCM:49:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 49 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_50_Current_Golden",
+      "address": "SR:MAG:HCM:50:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 50 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_50_Current_Readback",
+      "address": "SR:MAG:HCM:50:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 50 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_50_Current_Setpoint",
+      "address": "SR:MAG:HCM:50:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 50 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_51_Current_Golden",
+      "address": "SR:MAG:HCM:51:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 51 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_51_Current_Readback",
+      "address": "SR:MAG:HCM:51:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 51 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_51_Current_Setpoint",
+      "address": "SR:MAG:HCM:51:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 51 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_52_Current_Golden",
+      "address": "SR:MAG:HCM:52:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 52 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_52_Current_Readback",
+      "address": "SR:MAG:HCM:52:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 52 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_52_Current_Setpoint",
+      "address": "SR:MAG:HCM:52:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 52 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_53_Current_Golden",
+      "address": "SR:MAG:HCM:53:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 53 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_53_Current_Readback",
+      "address": "SR:MAG:HCM:53:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 53 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_53_Current_Setpoint",
+      "address": "SR:MAG:HCM:53:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 53 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_54_Current_Golden",
+      "address": "SR:MAG:HCM:54:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 54 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_54_Current_Readback",
+      "address": "SR:MAG:HCM:54:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 54 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_54_Current_Setpoint",
+      "address": "SR:MAG:HCM:54:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 54 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_55_Current_Golden",
+      "address": "SR:MAG:HCM:55:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 55 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_55_Current_Readback",
+      "address": "SR:MAG:HCM:55:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 55 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_55_Current_Setpoint",
+      "address": "SR:MAG:HCM:55:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 55 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_56_Current_Golden",
+      "address": "SR:MAG:HCM:56:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 56 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_56_Current_Readback",
+      "address": "SR:MAG:HCM:56:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 56 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_56_Current_Setpoint",
+      "address": "SR:MAG:HCM:56:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 56 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_57_Current_Golden",
+      "address": "SR:MAG:HCM:57:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 57 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_57_Current_Readback",
+      "address": "SR:MAG:HCM:57:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 57 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_57_Current_Setpoint",
+      "address": "SR:MAG:HCM:57:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 57 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_58_Current_Golden",
+      "address": "SR:MAG:HCM:58:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 58 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_58_Current_Readback",
+      "address": "SR:MAG:HCM:58:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 58 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_58_Current_Setpoint",
+      "address": "SR:MAG:HCM:58:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 58 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_59_Current_Golden",
+      "address": "SR:MAG:HCM:59:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 59 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_59_Current_Readback",
+      "address": "SR:MAG:HCM:59:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 59 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_59_Current_Setpoint",
+      "address": "SR:MAG:HCM:59:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 59 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_60_Current_Golden",
+      "address": "SR:MAG:HCM:60:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 60 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_60_Current_Readback",
+      "address": "SR:MAG:HCM:60:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 60 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_60_Current_Setpoint",
+      "address": "SR:MAG:HCM:60:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 60 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_61_Current_Golden",
+      "address": "SR:MAG:HCM:61:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 61 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_61_Current_Readback",
+      "address": "SR:MAG:HCM:61:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 61 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_61_Current_Setpoint",
+      "address": "SR:MAG:HCM:61:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 61 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_62_Current_Golden",
+      "address": "SR:MAG:HCM:62:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 62 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_62_Current_Readback",
+      "address": "SR:MAG:HCM:62:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 62 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_62_Current_Setpoint",
+      "address": "SR:MAG:HCM:62:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 62 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_63_Current_Golden",
+      "address": "SR:MAG:HCM:63:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 63 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_63_Current_Readback",
+      "address": "SR:MAG:HCM:63:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 63 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_63_Current_Setpoint",
+      "address": "SR:MAG:HCM:63:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 63 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_64_Current_Golden",
+      "address": "SR:MAG:HCM:64:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 64 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_64_Current_Readback",
+      "address": "SR:MAG:HCM:64:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 64 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_64_Current_Setpoint",
+      "address": "SR:MAG:HCM:64:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 64 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_65_Current_Golden",
+      "address": "SR:MAG:HCM:65:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 65 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_65_Current_Readback",
+      "address": "SR:MAG:HCM:65:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 65 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_65_Current_Setpoint",
+      "address": "SR:MAG:HCM:65:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 65 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_66_Current_Golden",
+      "address": "SR:MAG:HCM:66:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 66 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_66_Current_Readback",
+      "address": "SR:MAG:HCM:66:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 66 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_66_Current_Setpoint",
+      "address": "SR:MAG:HCM:66:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 66 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_67_Current_Golden",
+      "address": "SR:MAG:HCM:67:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 67 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_67_Current_Readback",
+      "address": "SR:MAG:HCM:67:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 67 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_67_Current_Setpoint",
+      "address": "SR:MAG:HCM:67:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 67 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_68_Current_Golden",
+      "address": "SR:MAG:HCM:68:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 68 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_68_Current_Readback",
+      "address": "SR:MAG:HCM:68:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 68 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_68_Current_Setpoint",
+      "address": "SR:MAG:HCM:68:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 68 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_69_Current_Golden",
+      "address": "SR:MAG:HCM:69:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 69 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_69_Current_Readback",
+      "address": "SR:MAG:HCM:69:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 69 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_69_Current_Setpoint",
+      "address": "SR:MAG:HCM:69:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 69 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_70_Current_Golden",
+      "address": "SR:MAG:HCM:70:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 70 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_70_Current_Readback",
+      "address": "SR:MAG:HCM:70:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 70 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_70_Current_Setpoint",
+      "address": "SR:MAG:HCM:70:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 70 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_71_Current_Golden",
+      "address": "SR:MAG:HCM:71:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 71 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_71_Current_Readback",
+      "address": "SR:MAG:HCM:71:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 71 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_71_Current_Setpoint",
+      "address": "SR:MAG:HCM:71:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 71 current setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_72_Current_Golden",
+      "address": "SR:MAG:HCM:72:CURRENT:GOLDEN",
+      "description": "Storage ring horizontal corrector 72 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_72_Current_Readback",
+      "address": "SR:MAG:HCM:72:CURRENT:RB",
+      "description": "Storage ring horizontal corrector 72 current readback"
+    },
+    {
+      "channel": "StorageRing_HorizCorr_72_Current_Setpoint",
+      "address": "SR:MAG:HCM:72:CURRENT:SP",
+      "description": "Storage ring horizontal corrector 72 current setpoint"
+    },
+    {
       "channel": "StorageRing_QuadDefocus_01_Current_Golden",
       "address": "SR:MAG:QD:01:CURRENT:GOLDEN",
       "description": "Storage ring defocusing quadrupole 01 current golden setpoint"
@@ -1550,6 +4070,126 @@
       "channel": "StorageRing_QuadDefocus_16_Current_Setpoint",
       "address": "SR:MAG:QD:16:CURRENT:SP",
       "description": "Storage ring defocusing quadrupole 16 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_17_Current_Golden",
+      "address": "SR:MAG:QD:17:CURRENT:GOLDEN",
+      "description": "Storage ring defocusing quadrupole 17 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_17_Current_Readback",
+      "address": "SR:MAG:QD:17:CURRENT:RB",
+      "description": "Storage ring defocusing quadrupole 17 current readback"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_17_Current_Setpoint",
+      "address": "SR:MAG:QD:17:CURRENT:SP",
+      "description": "Storage ring defocusing quadrupole 17 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_18_Current_Golden",
+      "address": "SR:MAG:QD:18:CURRENT:GOLDEN",
+      "description": "Storage ring defocusing quadrupole 18 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_18_Current_Readback",
+      "address": "SR:MAG:QD:18:CURRENT:RB",
+      "description": "Storage ring defocusing quadrupole 18 current readback"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_18_Current_Setpoint",
+      "address": "SR:MAG:QD:18:CURRENT:SP",
+      "description": "Storage ring defocusing quadrupole 18 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_19_Current_Golden",
+      "address": "SR:MAG:QD:19:CURRENT:GOLDEN",
+      "description": "Storage ring defocusing quadrupole 19 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_19_Current_Readback",
+      "address": "SR:MAG:QD:19:CURRENT:RB",
+      "description": "Storage ring defocusing quadrupole 19 current readback"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_19_Current_Setpoint",
+      "address": "SR:MAG:QD:19:CURRENT:SP",
+      "description": "Storage ring defocusing quadrupole 19 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_20_Current_Golden",
+      "address": "SR:MAG:QD:20:CURRENT:GOLDEN",
+      "description": "Storage ring defocusing quadrupole 20 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_20_Current_Readback",
+      "address": "SR:MAG:QD:20:CURRENT:RB",
+      "description": "Storage ring defocusing quadrupole 20 current readback"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_20_Current_Setpoint",
+      "address": "SR:MAG:QD:20:CURRENT:SP",
+      "description": "Storage ring defocusing quadrupole 20 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_21_Current_Golden",
+      "address": "SR:MAG:QD:21:CURRENT:GOLDEN",
+      "description": "Storage ring defocusing quadrupole 21 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_21_Current_Readback",
+      "address": "SR:MAG:QD:21:CURRENT:RB",
+      "description": "Storage ring defocusing quadrupole 21 current readback"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_21_Current_Setpoint",
+      "address": "SR:MAG:QD:21:CURRENT:SP",
+      "description": "Storage ring defocusing quadrupole 21 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_22_Current_Golden",
+      "address": "SR:MAG:QD:22:CURRENT:GOLDEN",
+      "description": "Storage ring defocusing quadrupole 22 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_22_Current_Readback",
+      "address": "SR:MAG:QD:22:CURRENT:RB",
+      "description": "Storage ring defocusing quadrupole 22 current readback"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_22_Current_Setpoint",
+      "address": "SR:MAG:QD:22:CURRENT:SP",
+      "description": "Storage ring defocusing quadrupole 22 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_23_Current_Golden",
+      "address": "SR:MAG:QD:23:CURRENT:GOLDEN",
+      "description": "Storage ring defocusing quadrupole 23 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_23_Current_Readback",
+      "address": "SR:MAG:QD:23:CURRENT:RB",
+      "description": "Storage ring defocusing quadrupole 23 current readback"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_23_Current_Setpoint",
+      "address": "SR:MAG:QD:23:CURRENT:SP",
+      "description": "Storage ring defocusing quadrupole 23 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_24_Current_Golden",
+      "address": "SR:MAG:QD:24:CURRENT:GOLDEN",
+      "description": "Storage ring defocusing quadrupole 24 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_24_Current_Readback",
+      "address": "SR:MAG:QD:24:CURRENT:RB",
+      "description": "Storage ring defocusing quadrupole 24 current readback"
+    },
+    {
+      "channel": "StorageRing_QuadDefocus_24_Current_Setpoint",
+      "address": "SR:MAG:QD:24:CURRENT:SP",
+      "description": "Storage ring defocusing quadrupole 24 current setpoint"
     },
     {
       "channel": "StorageRing_QuadFocus_01_Current_Golden",
@@ -1792,6 +4432,486 @@
       "description": "Storage ring focusing quadrupole 16 current setpoint"
     },
     {
+      "channel": "StorageRing_QuadFocus_17_Current_Golden",
+      "address": "SR:MAG:QF:17:CURRENT:GOLDEN",
+      "description": "Storage ring focusing quadrupole 17 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_17_Current_Readback",
+      "address": "SR:MAG:QF:17:CURRENT:RB",
+      "description": "Storage ring focusing quadrupole 17 current readback"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_17_Current_Setpoint",
+      "address": "SR:MAG:QF:17:CURRENT:SP",
+      "description": "Storage ring focusing quadrupole 17 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_18_Current_Golden",
+      "address": "SR:MAG:QF:18:CURRENT:GOLDEN",
+      "description": "Storage ring focusing quadrupole 18 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_18_Current_Readback",
+      "address": "SR:MAG:QF:18:CURRENT:RB",
+      "description": "Storage ring focusing quadrupole 18 current readback"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_18_Current_Setpoint",
+      "address": "SR:MAG:QF:18:CURRENT:SP",
+      "description": "Storage ring focusing quadrupole 18 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_19_Current_Golden",
+      "address": "SR:MAG:QF:19:CURRENT:GOLDEN",
+      "description": "Storage ring focusing quadrupole 19 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_19_Current_Readback",
+      "address": "SR:MAG:QF:19:CURRENT:RB",
+      "description": "Storage ring focusing quadrupole 19 current readback"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_19_Current_Setpoint",
+      "address": "SR:MAG:QF:19:CURRENT:SP",
+      "description": "Storage ring focusing quadrupole 19 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_20_Current_Golden",
+      "address": "SR:MAG:QF:20:CURRENT:GOLDEN",
+      "description": "Storage ring focusing quadrupole 20 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_20_Current_Readback",
+      "address": "SR:MAG:QF:20:CURRENT:RB",
+      "description": "Storage ring focusing quadrupole 20 current readback"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_20_Current_Setpoint",
+      "address": "SR:MAG:QF:20:CURRENT:SP",
+      "description": "Storage ring focusing quadrupole 20 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_21_Current_Golden",
+      "address": "SR:MAG:QF:21:CURRENT:GOLDEN",
+      "description": "Storage ring focusing quadrupole 21 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_21_Current_Readback",
+      "address": "SR:MAG:QF:21:CURRENT:RB",
+      "description": "Storage ring focusing quadrupole 21 current readback"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_21_Current_Setpoint",
+      "address": "SR:MAG:QF:21:CURRENT:SP",
+      "description": "Storage ring focusing quadrupole 21 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_22_Current_Golden",
+      "address": "SR:MAG:QF:22:CURRENT:GOLDEN",
+      "description": "Storage ring focusing quadrupole 22 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_22_Current_Readback",
+      "address": "SR:MAG:QF:22:CURRENT:RB",
+      "description": "Storage ring focusing quadrupole 22 current readback"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_22_Current_Setpoint",
+      "address": "SR:MAG:QF:22:CURRENT:SP",
+      "description": "Storage ring focusing quadrupole 22 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_23_Current_Golden",
+      "address": "SR:MAG:QF:23:CURRENT:GOLDEN",
+      "description": "Storage ring focusing quadrupole 23 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_23_Current_Readback",
+      "address": "SR:MAG:QF:23:CURRENT:RB",
+      "description": "Storage ring focusing quadrupole 23 current readback"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_23_Current_Setpoint",
+      "address": "SR:MAG:QF:23:CURRENT:SP",
+      "description": "Storage ring focusing quadrupole 23 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_24_Current_Golden",
+      "address": "SR:MAG:QF:24:CURRENT:GOLDEN",
+      "description": "Storage ring focusing quadrupole 24 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_24_Current_Readback",
+      "address": "SR:MAG:QF:24:CURRENT:RB",
+      "description": "Storage ring focusing quadrupole 24 current readback"
+    },
+    {
+      "channel": "StorageRing_QuadFocus_24_Current_Setpoint",
+      "address": "SR:MAG:QF:24:CURRENT:SP",
+      "description": "Storage ring focusing quadrupole 24 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_01_Current_Golden",
+      "address": "SR:MAG:QFA:01:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 01 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_01_Current_Readback",
+      "address": "SR:MAG:QFA:01:CURRENT:RB",
+      "description": "Storage ring QFA 01 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_01_Current_Setpoint",
+      "address": "SR:MAG:QFA:01:CURRENT:SP",
+      "description": "Storage ring QFA 01 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_02_Current_Golden",
+      "address": "SR:MAG:QFA:02:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 02 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_02_Current_Readback",
+      "address": "SR:MAG:QFA:02:CURRENT:RB",
+      "description": "Storage ring QFA 02 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_02_Current_Setpoint",
+      "address": "SR:MAG:QFA:02:CURRENT:SP",
+      "description": "Storage ring QFA 02 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_03_Current_Golden",
+      "address": "SR:MAG:QFA:03:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 03 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_03_Current_Readback",
+      "address": "SR:MAG:QFA:03:CURRENT:RB",
+      "description": "Storage ring QFA 03 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_03_Current_Setpoint",
+      "address": "SR:MAG:QFA:03:CURRENT:SP",
+      "description": "Storage ring QFA 03 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_04_Current_Golden",
+      "address": "SR:MAG:QFA:04:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 04 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_04_Current_Readback",
+      "address": "SR:MAG:QFA:04:CURRENT:RB",
+      "description": "Storage ring QFA 04 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_04_Current_Setpoint",
+      "address": "SR:MAG:QFA:04:CURRENT:SP",
+      "description": "Storage ring QFA 04 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_05_Current_Golden",
+      "address": "SR:MAG:QFA:05:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 05 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_05_Current_Readback",
+      "address": "SR:MAG:QFA:05:CURRENT:RB",
+      "description": "Storage ring QFA 05 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_05_Current_Setpoint",
+      "address": "SR:MAG:QFA:05:CURRENT:SP",
+      "description": "Storage ring QFA 05 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_06_Current_Golden",
+      "address": "SR:MAG:QFA:06:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 06 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_06_Current_Readback",
+      "address": "SR:MAG:QFA:06:CURRENT:RB",
+      "description": "Storage ring QFA 06 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_06_Current_Setpoint",
+      "address": "SR:MAG:QFA:06:CURRENT:SP",
+      "description": "Storage ring QFA 06 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_07_Current_Golden",
+      "address": "SR:MAG:QFA:07:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 07 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_07_Current_Readback",
+      "address": "SR:MAG:QFA:07:CURRENT:RB",
+      "description": "Storage ring QFA 07 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_07_Current_Setpoint",
+      "address": "SR:MAG:QFA:07:CURRENT:SP",
+      "description": "Storage ring QFA 07 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_08_Current_Golden",
+      "address": "SR:MAG:QFA:08:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 08 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_08_Current_Readback",
+      "address": "SR:MAG:QFA:08:CURRENT:RB",
+      "description": "Storage ring QFA 08 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_08_Current_Setpoint",
+      "address": "SR:MAG:QFA:08:CURRENT:SP",
+      "description": "Storage ring QFA 08 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_09_Current_Golden",
+      "address": "SR:MAG:QFA:09:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 09 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_09_Current_Readback",
+      "address": "SR:MAG:QFA:09:CURRENT:RB",
+      "description": "Storage ring QFA 09 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_09_Current_Setpoint",
+      "address": "SR:MAG:QFA:09:CURRENT:SP",
+      "description": "Storage ring QFA 09 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_10_Current_Golden",
+      "address": "SR:MAG:QFA:10:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 10 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_10_Current_Readback",
+      "address": "SR:MAG:QFA:10:CURRENT:RB",
+      "description": "Storage ring QFA 10 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_10_Current_Setpoint",
+      "address": "SR:MAG:QFA:10:CURRENT:SP",
+      "description": "Storage ring QFA 10 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_11_Current_Golden",
+      "address": "SR:MAG:QFA:11:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 11 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_11_Current_Readback",
+      "address": "SR:MAG:QFA:11:CURRENT:RB",
+      "description": "Storage ring QFA 11 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_11_Current_Setpoint",
+      "address": "SR:MAG:QFA:11:CURRENT:SP",
+      "description": "Storage ring QFA 11 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_12_Current_Golden",
+      "address": "SR:MAG:QFA:12:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 12 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_12_Current_Readback",
+      "address": "SR:MAG:QFA:12:CURRENT:RB",
+      "description": "Storage ring QFA 12 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_12_Current_Setpoint",
+      "address": "SR:MAG:QFA:12:CURRENT:SP",
+      "description": "Storage ring QFA 12 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_13_Current_Golden",
+      "address": "SR:MAG:QFA:13:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 13 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_13_Current_Readback",
+      "address": "SR:MAG:QFA:13:CURRENT:RB",
+      "description": "Storage ring QFA 13 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_13_Current_Setpoint",
+      "address": "SR:MAG:QFA:13:CURRENT:SP",
+      "description": "Storage ring QFA 13 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_14_Current_Golden",
+      "address": "SR:MAG:QFA:14:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 14 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_14_Current_Readback",
+      "address": "SR:MAG:QFA:14:CURRENT:RB",
+      "description": "Storage ring QFA 14 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_14_Current_Setpoint",
+      "address": "SR:MAG:QFA:14:CURRENT:SP",
+      "description": "Storage ring QFA 14 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_15_Current_Golden",
+      "address": "SR:MAG:QFA:15:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 15 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_15_Current_Readback",
+      "address": "SR:MAG:QFA:15:CURRENT:RB",
+      "description": "Storage ring QFA 15 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_15_Current_Setpoint",
+      "address": "SR:MAG:QFA:15:CURRENT:SP",
+      "description": "Storage ring QFA 15 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_16_Current_Golden",
+      "address": "SR:MAG:QFA:16:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 16 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_16_Current_Readback",
+      "address": "SR:MAG:QFA:16:CURRENT:RB",
+      "description": "Storage ring QFA 16 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_16_Current_Setpoint",
+      "address": "SR:MAG:QFA:16:CURRENT:SP",
+      "description": "Storage ring QFA 16 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_17_Current_Golden",
+      "address": "SR:MAG:QFA:17:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 17 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_17_Current_Readback",
+      "address": "SR:MAG:QFA:17:CURRENT:RB",
+      "description": "Storage ring QFA 17 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_17_Current_Setpoint",
+      "address": "SR:MAG:QFA:17:CURRENT:SP",
+      "description": "Storage ring QFA 17 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_18_Current_Golden",
+      "address": "SR:MAG:QFA:18:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 18 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_18_Current_Readback",
+      "address": "SR:MAG:QFA:18:CURRENT:RB",
+      "description": "Storage ring QFA 18 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_18_Current_Setpoint",
+      "address": "SR:MAG:QFA:18:CURRENT:SP",
+      "description": "Storage ring QFA 18 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_19_Current_Golden",
+      "address": "SR:MAG:QFA:19:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 19 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_19_Current_Readback",
+      "address": "SR:MAG:QFA:19:CURRENT:RB",
+      "description": "Storage ring QFA 19 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_19_Current_Setpoint",
+      "address": "SR:MAG:QFA:19:CURRENT:SP",
+      "description": "Storage ring QFA 19 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_20_Current_Golden",
+      "address": "SR:MAG:QFA:20:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 20 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_20_Current_Readback",
+      "address": "SR:MAG:QFA:20:CURRENT:RB",
+      "description": "Storage ring QFA 20 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_20_Current_Setpoint",
+      "address": "SR:MAG:QFA:20:CURRENT:SP",
+      "description": "Storage ring QFA 20 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_21_Current_Golden",
+      "address": "SR:MAG:QFA:21:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 21 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_21_Current_Readback",
+      "address": "SR:MAG:QFA:21:CURRENT:RB",
+      "description": "Storage ring QFA 21 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_21_Current_Setpoint",
+      "address": "SR:MAG:QFA:21:CURRENT:SP",
+      "description": "Storage ring QFA 21 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_22_Current_Golden",
+      "address": "SR:MAG:QFA:22:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 22 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_22_Current_Readback",
+      "address": "SR:MAG:QFA:22:CURRENT:RB",
+      "description": "Storage ring QFA 22 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_22_Current_Setpoint",
+      "address": "SR:MAG:QFA:22:CURRENT:SP",
+      "description": "Storage ring QFA 22 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_23_Current_Golden",
+      "address": "SR:MAG:QFA:23:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 23 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_23_Current_Readback",
+      "address": "SR:MAG:QFA:23:CURRENT:RB",
+      "description": "Storage ring QFA 23 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_23_Current_Setpoint",
+      "address": "SR:MAG:QFA:23:CURRENT:SP",
+      "description": "Storage ring QFA 23 current setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_24_Current_Golden",
+      "address": "SR:MAG:QFA:24:CURRENT:GOLDEN",
+      "description": "Storage ring QFA 24 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_QFA_24_Current_Readback",
+      "address": "SR:MAG:QFA:24:CURRENT:RB",
+      "description": "Storage ring QFA 24 current readback"
+    },
+    {
+      "channel": "StorageRing_QFA_24_Current_Setpoint",
+      "address": "SR:MAG:QFA:24:CURRENT:SP",
+      "description": "Storage ring QFA 24 current setpoint"
+    },
+    {
       "channel": "StorageRing_SextDefocus_01_Current_Golden",
       "address": "SR:MAG:SD:01:CURRENT:GOLDEN",
       "description": "Storage ring sextupole (defocusing) 01 current golden setpoint"
@@ -1972,6 +5092,186 @@
       "description": "Storage ring sextupole (defocusing) 12 current setpoint"
     },
     {
+      "channel": "StorageRing_SextDefocus_13_Current_Golden",
+      "address": "SR:MAG:SD:13:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (defocusing) 13 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_13_Current_Readback",
+      "address": "SR:MAG:SD:13:CURRENT:RB",
+      "description": "Storage ring sextupole (defocusing) 13 current readback"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_13_Current_Setpoint",
+      "address": "SR:MAG:SD:13:CURRENT:SP",
+      "description": "Storage ring sextupole (defocusing) 13 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_14_Current_Golden",
+      "address": "SR:MAG:SD:14:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (defocusing) 14 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_14_Current_Readback",
+      "address": "SR:MAG:SD:14:CURRENT:RB",
+      "description": "Storage ring sextupole (defocusing) 14 current readback"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_14_Current_Setpoint",
+      "address": "SR:MAG:SD:14:CURRENT:SP",
+      "description": "Storage ring sextupole (defocusing) 14 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_15_Current_Golden",
+      "address": "SR:MAG:SD:15:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (defocusing) 15 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_15_Current_Readback",
+      "address": "SR:MAG:SD:15:CURRENT:RB",
+      "description": "Storage ring sextupole (defocusing) 15 current readback"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_15_Current_Setpoint",
+      "address": "SR:MAG:SD:15:CURRENT:SP",
+      "description": "Storage ring sextupole (defocusing) 15 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_16_Current_Golden",
+      "address": "SR:MAG:SD:16:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (defocusing) 16 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_16_Current_Readback",
+      "address": "SR:MAG:SD:16:CURRENT:RB",
+      "description": "Storage ring sextupole (defocusing) 16 current readback"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_16_Current_Setpoint",
+      "address": "SR:MAG:SD:16:CURRENT:SP",
+      "description": "Storage ring sextupole (defocusing) 16 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_17_Current_Golden",
+      "address": "SR:MAG:SD:17:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (defocusing) 17 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_17_Current_Readback",
+      "address": "SR:MAG:SD:17:CURRENT:RB",
+      "description": "Storage ring sextupole (defocusing) 17 current readback"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_17_Current_Setpoint",
+      "address": "SR:MAG:SD:17:CURRENT:SP",
+      "description": "Storage ring sextupole (defocusing) 17 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_18_Current_Golden",
+      "address": "SR:MAG:SD:18:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (defocusing) 18 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_18_Current_Readback",
+      "address": "SR:MAG:SD:18:CURRENT:RB",
+      "description": "Storage ring sextupole (defocusing) 18 current readback"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_18_Current_Setpoint",
+      "address": "SR:MAG:SD:18:CURRENT:SP",
+      "description": "Storage ring sextupole (defocusing) 18 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_19_Current_Golden",
+      "address": "SR:MAG:SD:19:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (defocusing) 19 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_19_Current_Readback",
+      "address": "SR:MAG:SD:19:CURRENT:RB",
+      "description": "Storage ring sextupole (defocusing) 19 current readback"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_19_Current_Setpoint",
+      "address": "SR:MAG:SD:19:CURRENT:SP",
+      "description": "Storage ring sextupole (defocusing) 19 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_20_Current_Golden",
+      "address": "SR:MAG:SD:20:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (defocusing) 20 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_20_Current_Readback",
+      "address": "SR:MAG:SD:20:CURRENT:RB",
+      "description": "Storage ring sextupole (defocusing) 20 current readback"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_20_Current_Setpoint",
+      "address": "SR:MAG:SD:20:CURRENT:SP",
+      "description": "Storage ring sextupole (defocusing) 20 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_21_Current_Golden",
+      "address": "SR:MAG:SD:21:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (defocusing) 21 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_21_Current_Readback",
+      "address": "SR:MAG:SD:21:CURRENT:RB",
+      "description": "Storage ring sextupole (defocusing) 21 current readback"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_21_Current_Setpoint",
+      "address": "SR:MAG:SD:21:CURRENT:SP",
+      "description": "Storage ring sextupole (defocusing) 21 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_22_Current_Golden",
+      "address": "SR:MAG:SD:22:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (defocusing) 22 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_22_Current_Readback",
+      "address": "SR:MAG:SD:22:CURRENT:RB",
+      "description": "Storage ring sextupole (defocusing) 22 current readback"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_22_Current_Setpoint",
+      "address": "SR:MAG:SD:22:CURRENT:SP",
+      "description": "Storage ring sextupole (defocusing) 22 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_23_Current_Golden",
+      "address": "SR:MAG:SD:23:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (defocusing) 23 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_23_Current_Readback",
+      "address": "SR:MAG:SD:23:CURRENT:RB",
+      "description": "Storage ring sextupole (defocusing) 23 current readback"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_23_Current_Setpoint",
+      "address": "SR:MAG:SD:23:CURRENT:SP",
+      "description": "Storage ring sextupole (defocusing) 23 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_24_Current_Golden",
+      "address": "SR:MAG:SD:24:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (defocusing) 24 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_24_Current_Readback",
+      "address": "SR:MAG:SD:24:CURRENT:RB",
+      "description": "Storage ring sextupole (defocusing) 24 current readback"
+    },
+    {
+      "channel": "StorageRing_SextDefocus_24_Current_Setpoint",
+      "address": "SR:MAG:SD:24:CURRENT:SP",
+      "description": "Storage ring sextupole (defocusing) 24 current setpoint"
+    },
+    {
       "channel": "StorageRing_SextFocus_01_Current_Golden",
       "address": "SR:MAG:SF:01:CURRENT:GOLDEN",
       "description": "Storage ring sextupole (focusing) 01 current golden setpoint"
@@ -2150,6 +5450,906 @@
       "channel": "StorageRing_SextFocus_12_Current_Setpoint",
       "address": "SR:MAG:SF:12:CURRENT:SP",
       "description": "Storage ring sextupole (focusing) 12 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_13_Current_Golden",
+      "address": "SR:MAG:SF:13:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (focusing) 13 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_13_Current_Readback",
+      "address": "SR:MAG:SF:13:CURRENT:RB",
+      "description": "Storage ring sextupole (focusing) 13 current readback"
+    },
+    {
+      "channel": "StorageRing_SextFocus_13_Current_Setpoint",
+      "address": "SR:MAG:SF:13:CURRENT:SP",
+      "description": "Storage ring sextupole (focusing) 13 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_14_Current_Golden",
+      "address": "SR:MAG:SF:14:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (focusing) 14 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_14_Current_Readback",
+      "address": "SR:MAG:SF:14:CURRENT:RB",
+      "description": "Storage ring sextupole (focusing) 14 current readback"
+    },
+    {
+      "channel": "StorageRing_SextFocus_14_Current_Setpoint",
+      "address": "SR:MAG:SF:14:CURRENT:SP",
+      "description": "Storage ring sextupole (focusing) 14 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_15_Current_Golden",
+      "address": "SR:MAG:SF:15:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (focusing) 15 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_15_Current_Readback",
+      "address": "SR:MAG:SF:15:CURRENT:RB",
+      "description": "Storage ring sextupole (focusing) 15 current readback"
+    },
+    {
+      "channel": "StorageRing_SextFocus_15_Current_Setpoint",
+      "address": "SR:MAG:SF:15:CURRENT:SP",
+      "description": "Storage ring sextupole (focusing) 15 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_16_Current_Golden",
+      "address": "SR:MAG:SF:16:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (focusing) 16 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_16_Current_Readback",
+      "address": "SR:MAG:SF:16:CURRENT:RB",
+      "description": "Storage ring sextupole (focusing) 16 current readback"
+    },
+    {
+      "channel": "StorageRing_SextFocus_16_Current_Setpoint",
+      "address": "SR:MAG:SF:16:CURRENT:SP",
+      "description": "Storage ring sextupole (focusing) 16 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_17_Current_Golden",
+      "address": "SR:MAG:SF:17:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (focusing) 17 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_17_Current_Readback",
+      "address": "SR:MAG:SF:17:CURRENT:RB",
+      "description": "Storage ring sextupole (focusing) 17 current readback"
+    },
+    {
+      "channel": "StorageRing_SextFocus_17_Current_Setpoint",
+      "address": "SR:MAG:SF:17:CURRENT:SP",
+      "description": "Storage ring sextupole (focusing) 17 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_18_Current_Golden",
+      "address": "SR:MAG:SF:18:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (focusing) 18 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_18_Current_Readback",
+      "address": "SR:MAG:SF:18:CURRENT:RB",
+      "description": "Storage ring sextupole (focusing) 18 current readback"
+    },
+    {
+      "channel": "StorageRing_SextFocus_18_Current_Setpoint",
+      "address": "SR:MAG:SF:18:CURRENT:SP",
+      "description": "Storage ring sextupole (focusing) 18 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_19_Current_Golden",
+      "address": "SR:MAG:SF:19:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (focusing) 19 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_19_Current_Readback",
+      "address": "SR:MAG:SF:19:CURRENT:RB",
+      "description": "Storage ring sextupole (focusing) 19 current readback"
+    },
+    {
+      "channel": "StorageRing_SextFocus_19_Current_Setpoint",
+      "address": "SR:MAG:SF:19:CURRENT:SP",
+      "description": "Storage ring sextupole (focusing) 19 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_20_Current_Golden",
+      "address": "SR:MAG:SF:20:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (focusing) 20 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_20_Current_Readback",
+      "address": "SR:MAG:SF:20:CURRENT:RB",
+      "description": "Storage ring sextupole (focusing) 20 current readback"
+    },
+    {
+      "channel": "StorageRing_SextFocus_20_Current_Setpoint",
+      "address": "SR:MAG:SF:20:CURRENT:SP",
+      "description": "Storage ring sextupole (focusing) 20 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_21_Current_Golden",
+      "address": "SR:MAG:SF:21:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (focusing) 21 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_21_Current_Readback",
+      "address": "SR:MAG:SF:21:CURRENT:RB",
+      "description": "Storage ring sextupole (focusing) 21 current readback"
+    },
+    {
+      "channel": "StorageRing_SextFocus_21_Current_Setpoint",
+      "address": "SR:MAG:SF:21:CURRENT:SP",
+      "description": "Storage ring sextupole (focusing) 21 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_22_Current_Golden",
+      "address": "SR:MAG:SF:22:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (focusing) 22 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_22_Current_Readback",
+      "address": "SR:MAG:SF:22:CURRENT:RB",
+      "description": "Storage ring sextupole (focusing) 22 current readback"
+    },
+    {
+      "channel": "StorageRing_SextFocus_22_Current_Setpoint",
+      "address": "SR:MAG:SF:22:CURRENT:SP",
+      "description": "Storage ring sextupole (focusing) 22 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_23_Current_Golden",
+      "address": "SR:MAG:SF:23:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (focusing) 23 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_23_Current_Readback",
+      "address": "SR:MAG:SF:23:CURRENT:RB",
+      "description": "Storage ring sextupole (focusing) 23 current readback"
+    },
+    {
+      "channel": "StorageRing_SextFocus_23_Current_Setpoint",
+      "address": "SR:MAG:SF:23:CURRENT:SP",
+      "description": "Storage ring sextupole (focusing) 23 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_24_Current_Golden",
+      "address": "SR:MAG:SF:24:CURRENT:GOLDEN",
+      "description": "Storage ring sextupole (focusing) 24 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SextFocus_24_Current_Readback",
+      "address": "SR:MAG:SF:24:CURRENT:RB",
+      "description": "Storage ring sextupole (focusing) 24 current readback"
+    },
+    {
+      "channel": "StorageRing_SextFocus_24_Current_Setpoint",
+      "address": "SR:MAG:SF:24:CURRENT:SP",
+      "description": "Storage ring sextupole (focusing) 24 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_01_Current_Golden",
+      "address": "SR:MAG:SHD:01:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 01 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_01_Current_Readback",
+      "address": "SR:MAG:SHD:01:CURRENT:RB",
+      "description": "Storage ring SHD 01 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_01_Current_Setpoint",
+      "address": "SR:MAG:SHD:01:CURRENT:SP",
+      "description": "Storage ring SHD 01 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_02_Current_Golden",
+      "address": "SR:MAG:SHD:02:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 02 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_02_Current_Readback",
+      "address": "SR:MAG:SHD:02:CURRENT:RB",
+      "description": "Storage ring SHD 02 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_02_Current_Setpoint",
+      "address": "SR:MAG:SHD:02:CURRENT:SP",
+      "description": "Storage ring SHD 02 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_03_Current_Golden",
+      "address": "SR:MAG:SHD:03:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 03 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_03_Current_Readback",
+      "address": "SR:MAG:SHD:03:CURRENT:RB",
+      "description": "Storage ring SHD 03 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_03_Current_Setpoint",
+      "address": "SR:MAG:SHD:03:CURRENT:SP",
+      "description": "Storage ring SHD 03 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_04_Current_Golden",
+      "address": "SR:MAG:SHD:04:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 04 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_04_Current_Readback",
+      "address": "SR:MAG:SHD:04:CURRENT:RB",
+      "description": "Storage ring SHD 04 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_04_Current_Setpoint",
+      "address": "SR:MAG:SHD:04:CURRENT:SP",
+      "description": "Storage ring SHD 04 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_05_Current_Golden",
+      "address": "SR:MAG:SHD:05:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 05 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_05_Current_Readback",
+      "address": "SR:MAG:SHD:05:CURRENT:RB",
+      "description": "Storage ring SHD 05 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_05_Current_Setpoint",
+      "address": "SR:MAG:SHD:05:CURRENT:SP",
+      "description": "Storage ring SHD 05 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_06_Current_Golden",
+      "address": "SR:MAG:SHD:06:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 06 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_06_Current_Readback",
+      "address": "SR:MAG:SHD:06:CURRENT:RB",
+      "description": "Storage ring SHD 06 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_06_Current_Setpoint",
+      "address": "SR:MAG:SHD:06:CURRENT:SP",
+      "description": "Storage ring SHD 06 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_07_Current_Golden",
+      "address": "SR:MAG:SHD:07:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 07 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_07_Current_Readback",
+      "address": "SR:MAG:SHD:07:CURRENT:RB",
+      "description": "Storage ring SHD 07 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_07_Current_Setpoint",
+      "address": "SR:MAG:SHD:07:CURRENT:SP",
+      "description": "Storage ring SHD 07 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_08_Current_Golden",
+      "address": "SR:MAG:SHD:08:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 08 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_08_Current_Readback",
+      "address": "SR:MAG:SHD:08:CURRENT:RB",
+      "description": "Storage ring SHD 08 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_08_Current_Setpoint",
+      "address": "SR:MAG:SHD:08:CURRENT:SP",
+      "description": "Storage ring SHD 08 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_09_Current_Golden",
+      "address": "SR:MAG:SHD:09:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 09 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_09_Current_Readback",
+      "address": "SR:MAG:SHD:09:CURRENT:RB",
+      "description": "Storage ring SHD 09 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_09_Current_Setpoint",
+      "address": "SR:MAG:SHD:09:CURRENT:SP",
+      "description": "Storage ring SHD 09 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_10_Current_Golden",
+      "address": "SR:MAG:SHD:10:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 10 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_10_Current_Readback",
+      "address": "SR:MAG:SHD:10:CURRENT:RB",
+      "description": "Storage ring SHD 10 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_10_Current_Setpoint",
+      "address": "SR:MAG:SHD:10:CURRENT:SP",
+      "description": "Storage ring SHD 10 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_11_Current_Golden",
+      "address": "SR:MAG:SHD:11:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 11 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_11_Current_Readback",
+      "address": "SR:MAG:SHD:11:CURRENT:RB",
+      "description": "Storage ring SHD 11 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_11_Current_Setpoint",
+      "address": "SR:MAG:SHD:11:CURRENT:SP",
+      "description": "Storage ring SHD 11 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_12_Current_Golden",
+      "address": "SR:MAG:SHD:12:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 12 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_12_Current_Readback",
+      "address": "SR:MAG:SHD:12:CURRENT:RB",
+      "description": "Storage ring SHD 12 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_12_Current_Setpoint",
+      "address": "SR:MAG:SHD:12:CURRENT:SP",
+      "description": "Storage ring SHD 12 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_13_Current_Golden",
+      "address": "SR:MAG:SHD:13:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 13 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_13_Current_Readback",
+      "address": "SR:MAG:SHD:13:CURRENT:RB",
+      "description": "Storage ring SHD 13 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_13_Current_Setpoint",
+      "address": "SR:MAG:SHD:13:CURRENT:SP",
+      "description": "Storage ring SHD 13 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_14_Current_Golden",
+      "address": "SR:MAG:SHD:14:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 14 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_14_Current_Readback",
+      "address": "SR:MAG:SHD:14:CURRENT:RB",
+      "description": "Storage ring SHD 14 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_14_Current_Setpoint",
+      "address": "SR:MAG:SHD:14:CURRENT:SP",
+      "description": "Storage ring SHD 14 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_15_Current_Golden",
+      "address": "SR:MAG:SHD:15:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 15 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_15_Current_Readback",
+      "address": "SR:MAG:SHD:15:CURRENT:RB",
+      "description": "Storage ring SHD 15 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_15_Current_Setpoint",
+      "address": "SR:MAG:SHD:15:CURRENT:SP",
+      "description": "Storage ring SHD 15 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_16_Current_Golden",
+      "address": "SR:MAG:SHD:16:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 16 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_16_Current_Readback",
+      "address": "SR:MAG:SHD:16:CURRENT:RB",
+      "description": "Storage ring SHD 16 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_16_Current_Setpoint",
+      "address": "SR:MAG:SHD:16:CURRENT:SP",
+      "description": "Storage ring SHD 16 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_17_Current_Golden",
+      "address": "SR:MAG:SHD:17:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 17 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_17_Current_Readback",
+      "address": "SR:MAG:SHD:17:CURRENT:RB",
+      "description": "Storage ring SHD 17 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_17_Current_Setpoint",
+      "address": "SR:MAG:SHD:17:CURRENT:SP",
+      "description": "Storage ring SHD 17 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_18_Current_Golden",
+      "address": "SR:MAG:SHD:18:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 18 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_18_Current_Readback",
+      "address": "SR:MAG:SHD:18:CURRENT:RB",
+      "description": "Storage ring SHD 18 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_18_Current_Setpoint",
+      "address": "SR:MAG:SHD:18:CURRENT:SP",
+      "description": "Storage ring SHD 18 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_19_Current_Golden",
+      "address": "SR:MAG:SHD:19:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 19 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_19_Current_Readback",
+      "address": "SR:MAG:SHD:19:CURRENT:RB",
+      "description": "Storage ring SHD 19 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_19_Current_Setpoint",
+      "address": "SR:MAG:SHD:19:CURRENT:SP",
+      "description": "Storage ring SHD 19 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_20_Current_Golden",
+      "address": "SR:MAG:SHD:20:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 20 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_20_Current_Readback",
+      "address": "SR:MAG:SHD:20:CURRENT:RB",
+      "description": "Storage ring SHD 20 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_20_Current_Setpoint",
+      "address": "SR:MAG:SHD:20:CURRENT:SP",
+      "description": "Storage ring SHD 20 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_21_Current_Golden",
+      "address": "SR:MAG:SHD:21:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 21 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_21_Current_Readback",
+      "address": "SR:MAG:SHD:21:CURRENT:RB",
+      "description": "Storage ring SHD 21 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_21_Current_Setpoint",
+      "address": "SR:MAG:SHD:21:CURRENT:SP",
+      "description": "Storage ring SHD 21 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_22_Current_Golden",
+      "address": "SR:MAG:SHD:22:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 22 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_22_Current_Readback",
+      "address": "SR:MAG:SHD:22:CURRENT:RB",
+      "description": "Storage ring SHD 22 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_22_Current_Setpoint",
+      "address": "SR:MAG:SHD:22:CURRENT:SP",
+      "description": "Storage ring SHD 22 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_23_Current_Golden",
+      "address": "SR:MAG:SHD:23:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 23 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_23_Current_Readback",
+      "address": "SR:MAG:SHD:23:CURRENT:RB",
+      "description": "Storage ring SHD 23 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_23_Current_Setpoint",
+      "address": "SR:MAG:SHD:23:CURRENT:SP",
+      "description": "Storage ring SHD 23 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_24_Current_Golden",
+      "address": "SR:MAG:SHD:24:CURRENT:GOLDEN",
+      "description": "Storage ring SHD 24 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHD_24_Current_Readback",
+      "address": "SR:MAG:SHD:24:CURRENT:RB",
+      "description": "Storage ring SHD 24 current readback"
+    },
+    {
+      "channel": "StorageRing_SHD_24_Current_Setpoint",
+      "address": "SR:MAG:SHD:24:CURRENT:SP",
+      "description": "Storage ring SHD 24 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_01_Current_Golden",
+      "address": "SR:MAG:SHF:01:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 01 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_01_Current_Readback",
+      "address": "SR:MAG:SHF:01:CURRENT:RB",
+      "description": "Storage ring SHF 01 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_01_Current_Setpoint",
+      "address": "SR:MAG:SHF:01:CURRENT:SP",
+      "description": "Storage ring SHF 01 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_02_Current_Golden",
+      "address": "SR:MAG:SHF:02:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 02 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_02_Current_Readback",
+      "address": "SR:MAG:SHF:02:CURRENT:RB",
+      "description": "Storage ring SHF 02 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_02_Current_Setpoint",
+      "address": "SR:MAG:SHF:02:CURRENT:SP",
+      "description": "Storage ring SHF 02 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_03_Current_Golden",
+      "address": "SR:MAG:SHF:03:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 03 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_03_Current_Readback",
+      "address": "SR:MAG:SHF:03:CURRENT:RB",
+      "description": "Storage ring SHF 03 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_03_Current_Setpoint",
+      "address": "SR:MAG:SHF:03:CURRENT:SP",
+      "description": "Storage ring SHF 03 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_04_Current_Golden",
+      "address": "SR:MAG:SHF:04:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 04 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_04_Current_Readback",
+      "address": "SR:MAG:SHF:04:CURRENT:RB",
+      "description": "Storage ring SHF 04 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_04_Current_Setpoint",
+      "address": "SR:MAG:SHF:04:CURRENT:SP",
+      "description": "Storage ring SHF 04 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_05_Current_Golden",
+      "address": "SR:MAG:SHF:05:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 05 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_05_Current_Readback",
+      "address": "SR:MAG:SHF:05:CURRENT:RB",
+      "description": "Storage ring SHF 05 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_05_Current_Setpoint",
+      "address": "SR:MAG:SHF:05:CURRENT:SP",
+      "description": "Storage ring SHF 05 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_06_Current_Golden",
+      "address": "SR:MAG:SHF:06:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 06 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_06_Current_Readback",
+      "address": "SR:MAG:SHF:06:CURRENT:RB",
+      "description": "Storage ring SHF 06 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_06_Current_Setpoint",
+      "address": "SR:MAG:SHF:06:CURRENT:SP",
+      "description": "Storage ring SHF 06 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_07_Current_Golden",
+      "address": "SR:MAG:SHF:07:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 07 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_07_Current_Readback",
+      "address": "SR:MAG:SHF:07:CURRENT:RB",
+      "description": "Storage ring SHF 07 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_07_Current_Setpoint",
+      "address": "SR:MAG:SHF:07:CURRENT:SP",
+      "description": "Storage ring SHF 07 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_08_Current_Golden",
+      "address": "SR:MAG:SHF:08:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 08 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_08_Current_Readback",
+      "address": "SR:MAG:SHF:08:CURRENT:RB",
+      "description": "Storage ring SHF 08 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_08_Current_Setpoint",
+      "address": "SR:MAG:SHF:08:CURRENT:SP",
+      "description": "Storage ring SHF 08 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_09_Current_Golden",
+      "address": "SR:MAG:SHF:09:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 09 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_09_Current_Readback",
+      "address": "SR:MAG:SHF:09:CURRENT:RB",
+      "description": "Storage ring SHF 09 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_09_Current_Setpoint",
+      "address": "SR:MAG:SHF:09:CURRENT:SP",
+      "description": "Storage ring SHF 09 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_10_Current_Golden",
+      "address": "SR:MAG:SHF:10:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 10 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_10_Current_Readback",
+      "address": "SR:MAG:SHF:10:CURRENT:RB",
+      "description": "Storage ring SHF 10 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_10_Current_Setpoint",
+      "address": "SR:MAG:SHF:10:CURRENT:SP",
+      "description": "Storage ring SHF 10 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_11_Current_Golden",
+      "address": "SR:MAG:SHF:11:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 11 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_11_Current_Readback",
+      "address": "SR:MAG:SHF:11:CURRENT:RB",
+      "description": "Storage ring SHF 11 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_11_Current_Setpoint",
+      "address": "SR:MAG:SHF:11:CURRENT:SP",
+      "description": "Storage ring SHF 11 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_12_Current_Golden",
+      "address": "SR:MAG:SHF:12:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 12 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_12_Current_Readback",
+      "address": "SR:MAG:SHF:12:CURRENT:RB",
+      "description": "Storage ring SHF 12 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_12_Current_Setpoint",
+      "address": "SR:MAG:SHF:12:CURRENT:SP",
+      "description": "Storage ring SHF 12 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_13_Current_Golden",
+      "address": "SR:MAG:SHF:13:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 13 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_13_Current_Readback",
+      "address": "SR:MAG:SHF:13:CURRENT:RB",
+      "description": "Storage ring SHF 13 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_13_Current_Setpoint",
+      "address": "SR:MAG:SHF:13:CURRENT:SP",
+      "description": "Storage ring SHF 13 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_14_Current_Golden",
+      "address": "SR:MAG:SHF:14:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 14 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_14_Current_Readback",
+      "address": "SR:MAG:SHF:14:CURRENT:RB",
+      "description": "Storage ring SHF 14 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_14_Current_Setpoint",
+      "address": "SR:MAG:SHF:14:CURRENT:SP",
+      "description": "Storage ring SHF 14 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_15_Current_Golden",
+      "address": "SR:MAG:SHF:15:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 15 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_15_Current_Readback",
+      "address": "SR:MAG:SHF:15:CURRENT:RB",
+      "description": "Storage ring SHF 15 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_15_Current_Setpoint",
+      "address": "SR:MAG:SHF:15:CURRENT:SP",
+      "description": "Storage ring SHF 15 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_16_Current_Golden",
+      "address": "SR:MAG:SHF:16:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 16 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_16_Current_Readback",
+      "address": "SR:MAG:SHF:16:CURRENT:RB",
+      "description": "Storage ring SHF 16 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_16_Current_Setpoint",
+      "address": "SR:MAG:SHF:16:CURRENT:SP",
+      "description": "Storage ring SHF 16 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_17_Current_Golden",
+      "address": "SR:MAG:SHF:17:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 17 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_17_Current_Readback",
+      "address": "SR:MAG:SHF:17:CURRENT:RB",
+      "description": "Storage ring SHF 17 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_17_Current_Setpoint",
+      "address": "SR:MAG:SHF:17:CURRENT:SP",
+      "description": "Storage ring SHF 17 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_18_Current_Golden",
+      "address": "SR:MAG:SHF:18:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 18 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_18_Current_Readback",
+      "address": "SR:MAG:SHF:18:CURRENT:RB",
+      "description": "Storage ring SHF 18 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_18_Current_Setpoint",
+      "address": "SR:MAG:SHF:18:CURRENT:SP",
+      "description": "Storage ring SHF 18 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_19_Current_Golden",
+      "address": "SR:MAG:SHF:19:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 19 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_19_Current_Readback",
+      "address": "SR:MAG:SHF:19:CURRENT:RB",
+      "description": "Storage ring SHF 19 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_19_Current_Setpoint",
+      "address": "SR:MAG:SHF:19:CURRENT:SP",
+      "description": "Storage ring SHF 19 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_20_Current_Golden",
+      "address": "SR:MAG:SHF:20:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 20 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_20_Current_Readback",
+      "address": "SR:MAG:SHF:20:CURRENT:RB",
+      "description": "Storage ring SHF 20 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_20_Current_Setpoint",
+      "address": "SR:MAG:SHF:20:CURRENT:SP",
+      "description": "Storage ring SHF 20 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_21_Current_Golden",
+      "address": "SR:MAG:SHF:21:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 21 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_21_Current_Readback",
+      "address": "SR:MAG:SHF:21:CURRENT:RB",
+      "description": "Storage ring SHF 21 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_21_Current_Setpoint",
+      "address": "SR:MAG:SHF:21:CURRENT:SP",
+      "description": "Storage ring SHF 21 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_22_Current_Golden",
+      "address": "SR:MAG:SHF:22:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 22 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_22_Current_Readback",
+      "address": "SR:MAG:SHF:22:CURRENT:RB",
+      "description": "Storage ring SHF 22 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_22_Current_Setpoint",
+      "address": "SR:MAG:SHF:22:CURRENT:SP",
+      "description": "Storage ring SHF 22 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_23_Current_Golden",
+      "address": "SR:MAG:SHF:23:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 23 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_23_Current_Readback",
+      "address": "SR:MAG:SHF:23:CURRENT:RB",
+      "description": "Storage ring SHF 23 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_23_Current_Setpoint",
+      "address": "SR:MAG:SHF:23:CURRENT:SP",
+      "description": "Storage ring SHF 23 current setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_24_Current_Golden",
+      "address": "SR:MAG:SHF:24:CURRENT:GOLDEN",
+      "description": "Storage ring SHF 24 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_SHF_24_Current_Readback",
+      "address": "SR:MAG:SHF:24:CURRENT:RB",
+      "description": "Storage ring SHF 24 current readback"
+    },
+    {
+      "channel": "StorageRing_SHF_24_Current_Setpoint",
+      "address": "SR:MAG:SHF:24:CURRENT:SP",
+      "description": "Storage ring SHF 24 current setpoint"
     },
     {
       "channel": "StorageRing_VertCorr_01_Current_Golden",
@@ -2450,6 +6650,786 @@
       "channel": "StorageRing_VertCorr_20_Current_Setpoint",
       "address": "SR:MAG:VCM:20:CURRENT:SP",
       "description": "Storage ring vertical corrector 20 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_21_Current_Golden",
+      "address": "SR:MAG:VCM:21:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 21 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_21_Current_Readback",
+      "address": "SR:MAG:VCM:21:CURRENT:RB",
+      "description": "Storage ring vertical corrector 21 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_21_Current_Setpoint",
+      "address": "SR:MAG:VCM:21:CURRENT:SP",
+      "description": "Storage ring vertical corrector 21 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_22_Current_Golden",
+      "address": "SR:MAG:VCM:22:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 22 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_22_Current_Readback",
+      "address": "SR:MAG:VCM:22:CURRENT:RB",
+      "description": "Storage ring vertical corrector 22 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_22_Current_Setpoint",
+      "address": "SR:MAG:VCM:22:CURRENT:SP",
+      "description": "Storage ring vertical corrector 22 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_23_Current_Golden",
+      "address": "SR:MAG:VCM:23:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 23 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_23_Current_Readback",
+      "address": "SR:MAG:VCM:23:CURRENT:RB",
+      "description": "Storage ring vertical corrector 23 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_23_Current_Setpoint",
+      "address": "SR:MAG:VCM:23:CURRENT:SP",
+      "description": "Storage ring vertical corrector 23 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_24_Current_Golden",
+      "address": "SR:MAG:VCM:24:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 24 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_24_Current_Readback",
+      "address": "SR:MAG:VCM:24:CURRENT:RB",
+      "description": "Storage ring vertical corrector 24 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_24_Current_Setpoint",
+      "address": "SR:MAG:VCM:24:CURRENT:SP",
+      "description": "Storage ring vertical corrector 24 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_25_Current_Golden",
+      "address": "SR:MAG:VCM:25:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 25 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_25_Current_Readback",
+      "address": "SR:MAG:VCM:25:CURRENT:RB",
+      "description": "Storage ring vertical corrector 25 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_25_Current_Setpoint",
+      "address": "SR:MAG:VCM:25:CURRENT:SP",
+      "description": "Storage ring vertical corrector 25 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_26_Current_Golden",
+      "address": "SR:MAG:VCM:26:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 26 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_26_Current_Readback",
+      "address": "SR:MAG:VCM:26:CURRENT:RB",
+      "description": "Storage ring vertical corrector 26 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_26_Current_Setpoint",
+      "address": "SR:MAG:VCM:26:CURRENT:SP",
+      "description": "Storage ring vertical corrector 26 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_27_Current_Golden",
+      "address": "SR:MAG:VCM:27:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 27 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_27_Current_Readback",
+      "address": "SR:MAG:VCM:27:CURRENT:RB",
+      "description": "Storage ring vertical corrector 27 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_27_Current_Setpoint",
+      "address": "SR:MAG:VCM:27:CURRENT:SP",
+      "description": "Storage ring vertical corrector 27 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_28_Current_Golden",
+      "address": "SR:MAG:VCM:28:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 28 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_28_Current_Readback",
+      "address": "SR:MAG:VCM:28:CURRENT:RB",
+      "description": "Storage ring vertical corrector 28 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_28_Current_Setpoint",
+      "address": "SR:MAG:VCM:28:CURRENT:SP",
+      "description": "Storage ring vertical corrector 28 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_29_Current_Golden",
+      "address": "SR:MAG:VCM:29:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 29 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_29_Current_Readback",
+      "address": "SR:MAG:VCM:29:CURRENT:RB",
+      "description": "Storage ring vertical corrector 29 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_29_Current_Setpoint",
+      "address": "SR:MAG:VCM:29:CURRENT:SP",
+      "description": "Storage ring vertical corrector 29 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_30_Current_Golden",
+      "address": "SR:MAG:VCM:30:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 30 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_30_Current_Readback",
+      "address": "SR:MAG:VCM:30:CURRENT:RB",
+      "description": "Storage ring vertical corrector 30 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_30_Current_Setpoint",
+      "address": "SR:MAG:VCM:30:CURRENT:SP",
+      "description": "Storage ring vertical corrector 30 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_31_Current_Golden",
+      "address": "SR:MAG:VCM:31:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 31 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_31_Current_Readback",
+      "address": "SR:MAG:VCM:31:CURRENT:RB",
+      "description": "Storage ring vertical corrector 31 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_31_Current_Setpoint",
+      "address": "SR:MAG:VCM:31:CURRENT:SP",
+      "description": "Storage ring vertical corrector 31 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_32_Current_Golden",
+      "address": "SR:MAG:VCM:32:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 32 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_32_Current_Readback",
+      "address": "SR:MAG:VCM:32:CURRENT:RB",
+      "description": "Storage ring vertical corrector 32 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_32_Current_Setpoint",
+      "address": "SR:MAG:VCM:32:CURRENT:SP",
+      "description": "Storage ring vertical corrector 32 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_33_Current_Golden",
+      "address": "SR:MAG:VCM:33:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 33 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_33_Current_Readback",
+      "address": "SR:MAG:VCM:33:CURRENT:RB",
+      "description": "Storage ring vertical corrector 33 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_33_Current_Setpoint",
+      "address": "SR:MAG:VCM:33:CURRENT:SP",
+      "description": "Storage ring vertical corrector 33 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_34_Current_Golden",
+      "address": "SR:MAG:VCM:34:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 34 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_34_Current_Readback",
+      "address": "SR:MAG:VCM:34:CURRENT:RB",
+      "description": "Storage ring vertical corrector 34 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_34_Current_Setpoint",
+      "address": "SR:MAG:VCM:34:CURRENT:SP",
+      "description": "Storage ring vertical corrector 34 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_35_Current_Golden",
+      "address": "SR:MAG:VCM:35:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 35 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_35_Current_Readback",
+      "address": "SR:MAG:VCM:35:CURRENT:RB",
+      "description": "Storage ring vertical corrector 35 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_35_Current_Setpoint",
+      "address": "SR:MAG:VCM:35:CURRENT:SP",
+      "description": "Storage ring vertical corrector 35 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_36_Current_Golden",
+      "address": "SR:MAG:VCM:36:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 36 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_36_Current_Readback",
+      "address": "SR:MAG:VCM:36:CURRENT:RB",
+      "description": "Storage ring vertical corrector 36 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_36_Current_Setpoint",
+      "address": "SR:MAG:VCM:36:CURRENT:SP",
+      "description": "Storage ring vertical corrector 36 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_37_Current_Golden",
+      "address": "SR:MAG:VCM:37:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 37 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_37_Current_Readback",
+      "address": "SR:MAG:VCM:37:CURRENT:RB",
+      "description": "Storage ring vertical corrector 37 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_37_Current_Setpoint",
+      "address": "SR:MAG:VCM:37:CURRENT:SP",
+      "description": "Storage ring vertical corrector 37 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_38_Current_Golden",
+      "address": "SR:MAG:VCM:38:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 38 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_38_Current_Readback",
+      "address": "SR:MAG:VCM:38:CURRENT:RB",
+      "description": "Storage ring vertical corrector 38 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_38_Current_Setpoint",
+      "address": "SR:MAG:VCM:38:CURRENT:SP",
+      "description": "Storage ring vertical corrector 38 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_39_Current_Golden",
+      "address": "SR:MAG:VCM:39:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 39 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_39_Current_Readback",
+      "address": "SR:MAG:VCM:39:CURRENT:RB",
+      "description": "Storage ring vertical corrector 39 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_39_Current_Setpoint",
+      "address": "SR:MAG:VCM:39:CURRENT:SP",
+      "description": "Storage ring vertical corrector 39 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_40_Current_Golden",
+      "address": "SR:MAG:VCM:40:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 40 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_40_Current_Readback",
+      "address": "SR:MAG:VCM:40:CURRENT:RB",
+      "description": "Storage ring vertical corrector 40 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_40_Current_Setpoint",
+      "address": "SR:MAG:VCM:40:CURRENT:SP",
+      "description": "Storage ring vertical corrector 40 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_41_Current_Golden",
+      "address": "SR:MAG:VCM:41:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 41 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_41_Current_Readback",
+      "address": "SR:MAG:VCM:41:CURRENT:RB",
+      "description": "Storage ring vertical corrector 41 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_41_Current_Setpoint",
+      "address": "SR:MAG:VCM:41:CURRENT:SP",
+      "description": "Storage ring vertical corrector 41 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_42_Current_Golden",
+      "address": "SR:MAG:VCM:42:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 42 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_42_Current_Readback",
+      "address": "SR:MAG:VCM:42:CURRENT:RB",
+      "description": "Storage ring vertical corrector 42 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_42_Current_Setpoint",
+      "address": "SR:MAG:VCM:42:CURRENT:SP",
+      "description": "Storage ring vertical corrector 42 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_43_Current_Golden",
+      "address": "SR:MAG:VCM:43:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 43 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_43_Current_Readback",
+      "address": "SR:MAG:VCM:43:CURRENT:RB",
+      "description": "Storage ring vertical corrector 43 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_43_Current_Setpoint",
+      "address": "SR:MAG:VCM:43:CURRENT:SP",
+      "description": "Storage ring vertical corrector 43 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_44_Current_Golden",
+      "address": "SR:MAG:VCM:44:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 44 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_44_Current_Readback",
+      "address": "SR:MAG:VCM:44:CURRENT:RB",
+      "description": "Storage ring vertical corrector 44 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_44_Current_Setpoint",
+      "address": "SR:MAG:VCM:44:CURRENT:SP",
+      "description": "Storage ring vertical corrector 44 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_45_Current_Golden",
+      "address": "SR:MAG:VCM:45:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 45 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_45_Current_Readback",
+      "address": "SR:MAG:VCM:45:CURRENT:RB",
+      "description": "Storage ring vertical corrector 45 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_45_Current_Setpoint",
+      "address": "SR:MAG:VCM:45:CURRENT:SP",
+      "description": "Storage ring vertical corrector 45 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_46_Current_Golden",
+      "address": "SR:MAG:VCM:46:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 46 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_46_Current_Readback",
+      "address": "SR:MAG:VCM:46:CURRENT:RB",
+      "description": "Storage ring vertical corrector 46 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_46_Current_Setpoint",
+      "address": "SR:MAG:VCM:46:CURRENT:SP",
+      "description": "Storage ring vertical corrector 46 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_47_Current_Golden",
+      "address": "SR:MAG:VCM:47:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 47 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_47_Current_Readback",
+      "address": "SR:MAG:VCM:47:CURRENT:RB",
+      "description": "Storage ring vertical corrector 47 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_47_Current_Setpoint",
+      "address": "SR:MAG:VCM:47:CURRENT:SP",
+      "description": "Storage ring vertical corrector 47 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_48_Current_Golden",
+      "address": "SR:MAG:VCM:48:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 48 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_48_Current_Readback",
+      "address": "SR:MAG:VCM:48:CURRENT:RB",
+      "description": "Storage ring vertical corrector 48 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_48_Current_Setpoint",
+      "address": "SR:MAG:VCM:48:CURRENT:SP",
+      "description": "Storage ring vertical corrector 48 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_49_Current_Golden",
+      "address": "SR:MAG:VCM:49:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 49 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_49_Current_Readback",
+      "address": "SR:MAG:VCM:49:CURRENT:RB",
+      "description": "Storage ring vertical corrector 49 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_49_Current_Setpoint",
+      "address": "SR:MAG:VCM:49:CURRENT:SP",
+      "description": "Storage ring vertical corrector 49 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_50_Current_Golden",
+      "address": "SR:MAG:VCM:50:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 50 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_50_Current_Readback",
+      "address": "SR:MAG:VCM:50:CURRENT:RB",
+      "description": "Storage ring vertical corrector 50 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_50_Current_Setpoint",
+      "address": "SR:MAG:VCM:50:CURRENT:SP",
+      "description": "Storage ring vertical corrector 50 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_51_Current_Golden",
+      "address": "SR:MAG:VCM:51:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 51 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_51_Current_Readback",
+      "address": "SR:MAG:VCM:51:CURRENT:RB",
+      "description": "Storage ring vertical corrector 51 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_51_Current_Setpoint",
+      "address": "SR:MAG:VCM:51:CURRENT:SP",
+      "description": "Storage ring vertical corrector 51 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_52_Current_Golden",
+      "address": "SR:MAG:VCM:52:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 52 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_52_Current_Readback",
+      "address": "SR:MAG:VCM:52:CURRENT:RB",
+      "description": "Storage ring vertical corrector 52 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_52_Current_Setpoint",
+      "address": "SR:MAG:VCM:52:CURRENT:SP",
+      "description": "Storage ring vertical corrector 52 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_53_Current_Golden",
+      "address": "SR:MAG:VCM:53:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 53 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_53_Current_Readback",
+      "address": "SR:MAG:VCM:53:CURRENT:RB",
+      "description": "Storage ring vertical corrector 53 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_53_Current_Setpoint",
+      "address": "SR:MAG:VCM:53:CURRENT:SP",
+      "description": "Storage ring vertical corrector 53 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_54_Current_Golden",
+      "address": "SR:MAG:VCM:54:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 54 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_54_Current_Readback",
+      "address": "SR:MAG:VCM:54:CURRENT:RB",
+      "description": "Storage ring vertical corrector 54 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_54_Current_Setpoint",
+      "address": "SR:MAG:VCM:54:CURRENT:SP",
+      "description": "Storage ring vertical corrector 54 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_55_Current_Golden",
+      "address": "SR:MAG:VCM:55:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 55 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_55_Current_Readback",
+      "address": "SR:MAG:VCM:55:CURRENT:RB",
+      "description": "Storage ring vertical corrector 55 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_55_Current_Setpoint",
+      "address": "SR:MAG:VCM:55:CURRENT:SP",
+      "description": "Storage ring vertical corrector 55 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_56_Current_Golden",
+      "address": "SR:MAG:VCM:56:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 56 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_56_Current_Readback",
+      "address": "SR:MAG:VCM:56:CURRENT:RB",
+      "description": "Storage ring vertical corrector 56 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_56_Current_Setpoint",
+      "address": "SR:MAG:VCM:56:CURRENT:SP",
+      "description": "Storage ring vertical corrector 56 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_57_Current_Golden",
+      "address": "SR:MAG:VCM:57:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 57 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_57_Current_Readback",
+      "address": "SR:MAG:VCM:57:CURRENT:RB",
+      "description": "Storage ring vertical corrector 57 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_57_Current_Setpoint",
+      "address": "SR:MAG:VCM:57:CURRENT:SP",
+      "description": "Storage ring vertical corrector 57 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_58_Current_Golden",
+      "address": "SR:MAG:VCM:58:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 58 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_58_Current_Readback",
+      "address": "SR:MAG:VCM:58:CURRENT:RB",
+      "description": "Storage ring vertical corrector 58 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_58_Current_Setpoint",
+      "address": "SR:MAG:VCM:58:CURRENT:SP",
+      "description": "Storage ring vertical corrector 58 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_59_Current_Golden",
+      "address": "SR:MAG:VCM:59:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 59 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_59_Current_Readback",
+      "address": "SR:MAG:VCM:59:CURRENT:RB",
+      "description": "Storage ring vertical corrector 59 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_59_Current_Setpoint",
+      "address": "SR:MAG:VCM:59:CURRENT:SP",
+      "description": "Storage ring vertical corrector 59 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_60_Current_Golden",
+      "address": "SR:MAG:VCM:60:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 60 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_60_Current_Readback",
+      "address": "SR:MAG:VCM:60:CURRENT:RB",
+      "description": "Storage ring vertical corrector 60 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_60_Current_Setpoint",
+      "address": "SR:MAG:VCM:60:CURRENT:SP",
+      "description": "Storage ring vertical corrector 60 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_61_Current_Golden",
+      "address": "SR:MAG:VCM:61:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 61 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_61_Current_Readback",
+      "address": "SR:MAG:VCM:61:CURRENT:RB",
+      "description": "Storage ring vertical corrector 61 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_61_Current_Setpoint",
+      "address": "SR:MAG:VCM:61:CURRENT:SP",
+      "description": "Storage ring vertical corrector 61 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_62_Current_Golden",
+      "address": "SR:MAG:VCM:62:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 62 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_62_Current_Readback",
+      "address": "SR:MAG:VCM:62:CURRENT:RB",
+      "description": "Storage ring vertical corrector 62 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_62_Current_Setpoint",
+      "address": "SR:MAG:VCM:62:CURRENT:SP",
+      "description": "Storage ring vertical corrector 62 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_63_Current_Golden",
+      "address": "SR:MAG:VCM:63:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 63 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_63_Current_Readback",
+      "address": "SR:MAG:VCM:63:CURRENT:RB",
+      "description": "Storage ring vertical corrector 63 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_63_Current_Setpoint",
+      "address": "SR:MAG:VCM:63:CURRENT:SP",
+      "description": "Storage ring vertical corrector 63 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_64_Current_Golden",
+      "address": "SR:MAG:VCM:64:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 64 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_64_Current_Readback",
+      "address": "SR:MAG:VCM:64:CURRENT:RB",
+      "description": "Storage ring vertical corrector 64 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_64_Current_Setpoint",
+      "address": "SR:MAG:VCM:64:CURRENT:SP",
+      "description": "Storage ring vertical corrector 64 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_65_Current_Golden",
+      "address": "SR:MAG:VCM:65:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 65 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_65_Current_Readback",
+      "address": "SR:MAG:VCM:65:CURRENT:RB",
+      "description": "Storage ring vertical corrector 65 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_65_Current_Setpoint",
+      "address": "SR:MAG:VCM:65:CURRENT:SP",
+      "description": "Storage ring vertical corrector 65 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_66_Current_Golden",
+      "address": "SR:MAG:VCM:66:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 66 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_66_Current_Readback",
+      "address": "SR:MAG:VCM:66:CURRENT:RB",
+      "description": "Storage ring vertical corrector 66 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_66_Current_Setpoint",
+      "address": "SR:MAG:VCM:66:CURRENT:SP",
+      "description": "Storage ring vertical corrector 66 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_67_Current_Golden",
+      "address": "SR:MAG:VCM:67:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 67 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_67_Current_Readback",
+      "address": "SR:MAG:VCM:67:CURRENT:RB",
+      "description": "Storage ring vertical corrector 67 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_67_Current_Setpoint",
+      "address": "SR:MAG:VCM:67:CURRENT:SP",
+      "description": "Storage ring vertical corrector 67 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_68_Current_Golden",
+      "address": "SR:MAG:VCM:68:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 68 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_68_Current_Readback",
+      "address": "SR:MAG:VCM:68:CURRENT:RB",
+      "description": "Storage ring vertical corrector 68 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_68_Current_Setpoint",
+      "address": "SR:MAG:VCM:68:CURRENT:SP",
+      "description": "Storage ring vertical corrector 68 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_69_Current_Golden",
+      "address": "SR:MAG:VCM:69:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 69 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_69_Current_Readback",
+      "address": "SR:MAG:VCM:69:CURRENT:RB",
+      "description": "Storage ring vertical corrector 69 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_69_Current_Setpoint",
+      "address": "SR:MAG:VCM:69:CURRENT:SP",
+      "description": "Storage ring vertical corrector 69 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_70_Current_Golden",
+      "address": "SR:MAG:VCM:70:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 70 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_70_Current_Readback",
+      "address": "SR:MAG:VCM:70:CURRENT:RB",
+      "description": "Storage ring vertical corrector 70 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_70_Current_Setpoint",
+      "address": "SR:MAG:VCM:70:CURRENT:SP",
+      "description": "Storage ring vertical corrector 70 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_71_Current_Golden",
+      "address": "SR:MAG:VCM:71:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 71 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_71_Current_Readback",
+      "address": "SR:MAG:VCM:71:CURRENT:RB",
+      "description": "Storage ring vertical corrector 71 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_71_Current_Setpoint",
+      "address": "SR:MAG:VCM:71:CURRENT:SP",
+      "description": "Storage ring vertical corrector 71 current setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_72_Current_Golden",
+      "address": "SR:MAG:VCM:72:CURRENT:GOLDEN",
+      "description": "Storage ring vertical corrector 72 current golden setpoint"
+    },
+    {
+      "channel": "StorageRing_VertCorr_72_Current_Readback",
+      "address": "SR:MAG:VCM:72:CURRENT:RB",
+      "description": "Storage ring vertical corrector 72 current readback"
+    },
+    {
+      "channel": "StorageRing_VertCorr_72_Current_Setpoint",
+      "address": "SR:MAG:VCM:72:CURRENT:SP",
+      "description": "Storage ring vertical corrector 72 current setpoint"
     },
     {
       "channel": "StorageRing_Cavity_01_Frequency_Readback",
