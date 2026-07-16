@@ -237,20 +237,39 @@ def test_health_full_rollup_on_composed_app(monkeypatch: pytest.MonkeyPatch) -> 
 # ---------------------------------------------------------------------------
 
 
+def _served_routes() -> dict[str, set[str]]:
+    """Return ``{path: {METHOD, ...}}`` from the composed app's OpenAPI schema.
+
+    Enumerating the OpenAPI schema rather than ``app.routes`` keeps these
+    negative safety assertions robust to Starlette's internal route
+    representation: since Starlette 1.0, ``include_router`` stores opaque
+    wrapper objects on the parent app instead of flattening the child routes,
+    so ``app.routes`` no longer exposes a per-route ``.path``/``.methods`` for
+    router-mounted endpoints (they surface only as method-less wrappers). The
+    execute/read-proxy/health routes are all attached via ``include_router``,
+    so an ``app.routes`` scan silently sees *zero* of them — passing the
+    ``/stop`` check vacuously and failing the ``/runs/execute`` check. The
+    OpenAPI schema is the public, version-stable contract for what the app
+    actually serves. See ``test_scaffold_routes_registration._registered_paths``.
+    """
+    schema = app.openapi()
+    return {
+        path: {method.upper() for method in operations}
+        for path, operations in schema["paths"].items()
+    }
+
+
 def test_no_route_ends_with_stop() -> None:
-    for route in app.routes:
-        path = getattr(route, "path", None)
-        if path:
-            assert not path.endswith("/stop"), f"composed app must not expose a stop route: {path}"
+    for path in _served_routes():
+        assert not path.endswith("/stop"), f"composed app must not expose a stop route: {path}"
 
 
 def test_only_post_under_runs_is_execute() -> None:
-    post_run_paths = set()
-    for route in app.routes:
-        path = getattr(route, "path", None)
-        methods = getattr(route, "methods", None) or set()
-        if path and path.startswith("/runs") and "POST" in methods:
-            post_run_paths.add(path)
+    post_run_paths = {
+        path
+        for path, methods in _served_routes().items()
+        if path.startswith("/runs") and "POST" in methods
+    }
     assert post_run_paths == {"/runs/execute"}, (
         "composed app must expose exactly one POST route under /runs "
         f"(/runs/execute), found: {post_run_paths}"
