@@ -514,6 +514,28 @@ reach the port — right for the intended single-operator, local setup, but a
 facility that exposes the terminal more widely should put its own
 authentication in front of it.</p>
 </div>
+</section>
+<section id="panel-layouts-presets">
+<h2>Panel layouts (“presets”)<a class="headerlink" href="#panel-layouts-presets" title="Link to this heading">#</a></h2>
+<p>A <strong>layout</strong> is a named set of panels an operator applies in one click — “the
+machine-setup view is these four panels.” Define them under <code class="docutils literal notranslate"><span class="pre">web.presets</span></code>, where
+each key is the menu label and each value is the exact set of panels to show:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">web</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">presets</span><span class="p">:</span>
+<span class="w">    </span><span class="s">&quot;Machine</span><span class="nv"> </span><span class="s">setup&quot;</span><span class="p p-Indicator">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">channel-finder</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">lattice</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">artifacts</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">okf</span><span class="p p-Indicator">]</span>
+<span class="w">    </span><span class="s">&quot;Logbook</span><span class="nv"> </span><span class="s">review&quot;</span><span class="p p-Indicator">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">ariel</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">artifacts</span><span class="p p-Indicator">]</span>
+</pre></div>
+</div>
+<p>Each layout appears under a <strong>Layouts</strong> section at the top of the panel <code class="docutils literal notranslate"><span class="pre">+</span></code>
+menu. Picking one is <em>exclusive</em>: its panels open and every other panel closes.
+Members must be enabled built-in panels or custom panels you have declared; an
+unknown id is dropped with a warning, and a layout with no valid members is
+skipped. When no <code class="docutils literal notranslate"><span class="pre">web.presets</span></code> are configured — the default — the <code class="docutils literal notranslate"><span class="pre">+</span></code> menu is
+unchanged, so layouts never add clutter to a deployment that has not opted in.</p>
+<p>Layouts are just a shortcut over the ordinary show/hide of panels, so the OSPREY
+agent can achieve the same result with its <code class="docutils literal notranslate"><span class="pre">show_panel</span></code> / <code class="docutils literal notranslate"><span class="pre">hide_panel</span></code> tools;
+<code class="docutils literal notranslate"><span class="pre">list_panels</span></code> reports the configured layouts so the agent can honor a request
+like “set up for machine setup.”</p>
 <details class="sd-sphinx-override sd-dropdown sd-card sd-mb-3">
 <summary class="sd-summary-title sd-card-header">
 <span class="sd-summary-icon"><svg version="1.1" width="1.0em" height="1.0em" class="sd-octicon sd-octicon-package" viewBox="0 0 16 16" aria-hidden="true"><path d="m8.878.392 5.25 3.045c.54.314.872.89.872 1.514v6.098a1.75 1.75 0 0 1-.872 1.514l-5.25 3.045a1.75 1.75 0 0 1-1.756 0l-5.25-3.045A1.75 1.75 0 0 1 1 11.049V4.951c0-.624.332-1.201.872-1.514L7.122.392a1.75 1.75 0 0 1 1.756 0ZM7.875 1.69l-4.63 2.685L8 7.133l4.755-2.758-4.63-2.685a.248.248 0 0 0-.25 0ZM2.5 5.677v5.372c0 .09.047.171.125.216l4.625 2.683V8.432Zm6.25 8.271 4.625-2.683a.25.25 0 0 0 .125-.216V5.677L8.75 8.432Z"></path></svg></span><span class="sd-summary-text">Going deeper — how panels work</span><span class="sd-summary-state-marker sd-summary-chevron-right"><svg version="1.1" width="1.5em" height="1.5em" class="sd-octicon sd-octicon-chevron-right" viewBox="0 0 24 24" aria-hidden="true"><path d="M8.72 18.78a.75.75 0 0 1 0-1.06L14.44 12 8.72 6.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018l6.25 6.25a.75.75 0 0 1 0 1.06l-6.25 6.25a.75.75 0 0 1-1.06 0Z"></path></svg></span></summary><div class="sd-summary-content sd-card-body docutils">
@@ -613,6 +635,7 @@ shape of it.</p>
   <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#adding-your-own-panel">Adding your own panel</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#panel-layouts-presets">Panel layouts (“presets”)</a></li>
 </ul>
   </nav></div>
 
