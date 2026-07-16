@@ -47,12 +47,12 @@ A plan file is a single Python module exposing exactly three things:
    (typically built with `bluesky.plan_stubs`/`bluesky.plans`/
    `bluesky.preprocessors`).
 
-**Study the two shipped exemplars for the full worked pattern — do not
+**Study the two shipped plans for the full worked pattern — do not
 invent new accelerator physics:**
-- `response_matrix` (`src/osprey/services/bluesky_bridge/plans_core/response_matrix.py`)
+- `orm` (`src/osprey/services/bluesky_bridge/plans_core/orm.py`)
   — sweeps each corrector over a bounded current range, reading every BPM
   detector at each point, to measure an orbit-response matrix.
-- `grid_scan_nd` (`src/osprey/services/bluesky_bridge/plans_core/grid_scan.py`)
+- `grid_scan` (`src/osprey/services/bluesky_bridge/plans_core/grid_scan.py`)
   — steps a set of setpoint devices over a rectangular grid, reading a set of
   detectors at every grid point.
 
@@ -133,8 +133,8 @@ never a substitute for `bps.sleep` inside a plan's own control flow.
   (`epics`, `caput`/`caget`, `_osprey_connector`, raw PV names) — all device
   I/O goes through the `devices` dict `build_plan` receives.
 - **Never** use `time.sleep(...)` inside a plan body — use `bps.sleep(...)`.
-- **Never** propose a BBA or tune-scan plan — `response_matrix` (ORM) and
-  `grid_scan_nd` are the only scan patterns this framework ships.
+- **Never** propose a BBA or tune-scan plan — `orm` and `grid_scan` are the
+  only scan patterns this framework ships.
 - **Never** hard-code a facility device name inside `build_plan` — resolve
   every device by string name through the injected `devices` dict, exactly
   like both exemplars.

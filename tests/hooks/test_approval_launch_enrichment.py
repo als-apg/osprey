@@ -82,7 +82,7 @@ def _unused_port() -> int:
 
 
 _SHIPPED_SOURCE = (
-    'PLAN_METADATA = {"name": "response_matrix", "description": "orm", '
+    'PLAN_METADATA = {"name": "orm", "description": "orm", '
     '"category": "accelerator", "required_devices": ["correctors", "detectors"], '
     '"writes": True}\n\n'
     "def build_plan(devices, params):\n"
@@ -114,16 +114,16 @@ def test_launch_run_renders_shipped_plan_metadata_and_source(
         "/runs/run-1": {
             "id": "run-1",
             "status": "intent",
-            "plan_name": "response_matrix",
+            "plan_name": "orm",
             "plan_args": {"num_points": 5},
         },
         "/plans": [
             {
-                "name": "response_matrix",
+                "name": "orm",
                 "description": "orm",
                 "schema": {},
                 "metadata": {
-                    "name": "response_matrix",
+                    "name": "orm",
                     "description": "orm",
                     "category": "accelerator",
                     "required_devices": ["correctors", "detectors"],
@@ -132,8 +132,8 @@ def test_launch_run_renders_shipped_plan_metadata_and_source(
                 "provenance": "shipped",
             }
         ],
-        "/plans/response_matrix/source": {
-            "name": "response_matrix",
+        "/plans/orm/source": {
+            "name": "orm",
             "provenance": "shipped",
             "validated": True,
             "truncated": False,
@@ -157,7 +157,7 @@ def test_launch_run_renders_shipped_plan_metadata_and_source(
     assert output["permissionDecision"] == "ask"
     reason = output["permissionDecisionReason"]
 
-    assert "Plan: response_matrix" in reason
+    assert "Plan: orm" in reason
     assert "Category: accelerator" in reason
     assert "correctors" in reason and "detectors" in reason
     assert "Hazard: writes to hardware" in reason

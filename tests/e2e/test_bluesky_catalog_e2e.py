@@ -7,8 +7,8 @@ the loader in this repo resolves layers and trust tiers correctly in-process.
 They never prove that a *deployed* bridge container -- built from the shipped
 image, reading its own filesystem layers -- actually serves the same catalog
 over HTTP. This is the other half: it deploys a real bluesky-bridge container
-and asserts the layered catalog (shipped exemplars + an externally-injected
-facility plan + the built-ins) is discoverable via ``GET /plans`` with correct
+and asserts the layered catalog (the shipped plans + an externally-injected
+facility plan) is discoverable via ``GET /plans`` with correct
 provenance/metadata, and that a facility-injected plan file is not just
 discoverable but actually executable end to end (launch -> promote -> read).
 
@@ -279,21 +279,18 @@ def test_plans_endpoint_shows_shipped_and_facility_provenance(
 ) -> None:
     """``GET /plans`` against the real container must show, in one response:
 
-    - the shipped exemplars (``response_matrix``, ``grid_scan_nd``) with
-      ``provenance == "shipped"`` and non-null ``metadata`` (Task 1.5's
-      in-image ``plans_core/`` files);
+    - the shipped plans (``orm``, ``grid_scan``) with ``provenance ==
+      "shipped"`` and non-null ``metadata`` (Task 1.5's in-image
+      ``plans_core/`` files);
     - the externally-injected ``facility_probe`` plan with
       ``provenance == "facility"`` and its authored metadata round-tripped
-      byte-for-byte through the loader's ``PLAN_METADATA`` parser;
-    - the built-in plans (``count``/``scan``/``grid_scan``/``orm``) still
-      present (``plans.py``'s hand-built ``PlanSpec`` set, merged in by
-      ``app.py``'s ``/plans`` route regardless of the directory catalog).
+      byte-for-byte through the loader's ``PLAN_METADATA`` parser.
     """
     status, plans = _get("/plans")
     assert status == 200, f"GET /plans failed: {status} {plans}"
     by_name = {p["name"]: p for p in plans}
 
-    for shipped_name in ("response_matrix", "grid_scan_nd"):
+    for shipped_name in ("orm", "grid_scan"):
         assert shipped_name in by_name, (
             f"{shipped_name!r} missing from GET /plans: {sorted(by_name)}"
         )
@@ -315,11 +312,6 @@ def test_plans_endpoint_shows_shipped_and_facility_provenance(
     assert metadata["category"] == "diagnostic"
     assert metadata["required_devices"] == ["motor", "detector"]
     assert metadata["writes"] is True
-
-    for builtin_name in ("count", "scan", "grid_scan", "orm"):
-        assert builtin_name in by_name, (
-            f"built-in plan {builtin_name!r} missing from GET /plans: {sorted(by_name)}"
-        )
 
 
 # ---------------------------------------------------------------------------

@@ -25,9 +25,9 @@ def _fn(name):
 async def test_create_run_intent_success():
     body = {"id": "abc123", "status": "intent"}
     with patch(f"{_MOD}._http_post_json", return_value=(200, body)) as m:
-        result = await _fn("create_run_intent")(plan_name="count", plan_args={"num": 5})
+        result = await _fn("create_run_intent")(plan_name="orm", plan_args={"num": 5})
     assert m.call_args.args[0] == "/runs"
-    assert m.call_args.args[1] == {"plan_name": "count", "plan_args": {"num": 5}}
+    assert m.call_args.args[1] == {"plan_name": "orm", "plan_args": {"num": 5}}
     data = extract_response_dict(result)
     assert data["id"] == "abc123"
     assert data["status"] == "intent"
@@ -35,7 +35,7 @@ async def test_create_run_intent_success():
 
 async def test_create_run_intent_default_plan_args():
     with patch(f"{_MOD}._http_post_json", return_value=(200, {"id": "x", "status": "intent"})) as m:
-        await _fn("create_run_intent")(plan_name="count")
+        await _fn("create_run_intent")(plan_name="orm")
     assert m.call_args.args[1]["plan_args"] == {}
 
 

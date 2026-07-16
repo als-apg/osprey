@@ -76,7 +76,7 @@ def client() -> TestClient:
 
 def _promoted_run_with_uid(run_uid: str) -> Run:
     """A run promoted with a FakePlanRunner pre-seeded with `run_uid`."""
-    run = registry.add(request={"plan_name": "count"})
+    run = registry.add(request={"plan_name": "orm"})
     do_promote(run, lambda: FakePlanRunner(run_uid=run_uid))
     return run
 
@@ -287,7 +287,7 @@ def test_unpromoted_run_returns_409_without_consulting_tiled(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(app_module, "_from_tiled", _refusing_from_tiled)
-    run = registry.add(request={"plan_name": "count"})
+    run = registry.add(request={"plan_name": "orm"})
 
     resp = client.get(f"/runs/{run.id}/data")
 

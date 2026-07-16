@@ -33,8 +33,8 @@ Asserts, against the REAL deployed container:
     bluesky-bridge extra (task 2.8's reviewer carry-forward) — NOT merely
     that the image builds, since a PyPI-based build would silently lack both
     and this must fail loudly rather than pass on stale code.
-  * a demo ``count`` scan against mock devices (``det1``) promotes, runs to
-    completion, and ``GET /runs/{id}/data`` returns the buffered rows.
+  * a demo ``grid_scan`` against mock devices (``motor1``/``det1``) promotes,
+    runs to completion, and ``GET /runs/{id}/data`` returns the buffered rows.
 
 CONTAINER SAFETY: every docker/podman invocation below names an exact
 container/image — never a wildcard, never ``system prune``/``--volumes``.
@@ -291,8 +291,18 @@ def test_demo_scan_against_mock_devices_completes(deployed_bridge: Path) -> None
     """End-to-end: launch -> promote -> poll -> read_run_data, against the real container."""
     token = _minted_token(deployed_bridge)
 
+    # Minimal single-axis grid_scan (the demo runner's default mock devices
+    # are motor1/det1) -- the shipped registry only has orm/grid_scan; a
+    # 3-point 1-axis sweep stands in for the removed built-in `count` plan.
     status, body = _post(
-        "/runs", {"plan_name": "count", "plan_args": {"detectors": ["det1"], "num": 3}}
+        "/runs",
+        {
+            "plan_name": "grid_scan",
+            "plan_args": {
+                "detectors": ["det1"],
+                "axes": [{"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 3}],
+            },
+        },
     )
     assert status == 200, f"POST /runs failed: {status} {body}"
     run_id = body["id"]

@@ -42,7 +42,7 @@ def client() -> TestClient:
 
 
 def _create_run(client: TestClient) -> str:
-    resp = client.post("/runs", json={"plan_name": "count", "plan_args": {"num": 3}})
+    resp = client.post("/runs", json={"plan_name": "grid_scan", "plan_args": {"num": 3}})
     assert resp.status_code == 200, resp.text
     body = resp.json()
     assert body["status"] == "intent"

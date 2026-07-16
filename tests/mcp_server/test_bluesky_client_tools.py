@@ -69,7 +69,7 @@ async def test_create_run_intent_request_response_mapping(monkeypatch):
 async def test_create_run_intent_unreachable(monkeypatch):
     monkeypatch.setattr(f"{_MOD}._http_post_json", _unreachable)
     with assert_raises_error(error_type="bluesky_bridge_unreachable") as ctx:
-        await _fn("create_run_intent")(plan_name="count")
+        await _fn("create_run_intent")(plan_name="orm")
     assert "Could not reach the Bluesky bridge" in ctx["envelope"]["error_message"]
 
 

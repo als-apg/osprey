@@ -52,7 +52,7 @@ def _make_app(client: httpx.AsyncClient) -> FastAPI:
 
 
 def _post_execute(app: FastAPI, **json_body: object) -> httpx.Response:
-    payload = {"plan_name": "response_matrix", "plan_args": {}}
+    payload = {"plan_name": "orm", "plan_args": {}}
     payload.update(json_body)
     with TestClient(app) as client:
         return client.post("/runs/execute", json=payload)

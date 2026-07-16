@@ -60,7 +60,7 @@ ci.yml's ``bluesky-sandbox-escape-e2e`` job); run locally with
 
 GAP FOUND WHILE WRITING THIS E2E, NOW FIXED: ``plan_validation.py``'s stage-1
 ``_ALLOWED_TOP_LEVEL_MODULES`` originally never added ``typing``/
-``__future__``/``logging`` -- the shipped ``plans_core/response_matrix.py``
+``__future__``/``logging`` -- the shipped ``plans_core/orm.py``
 exemplar this test's positive plan body mirrors uses all three
 (`from __future__ import annotations`, `from typing import Any`,
 `import logging`), so an author copying that exact, idiomatic house style
@@ -211,7 +211,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 '''
 
 
-# response_matrix-shaped (mirrors plans_core/response_matrix.py's PARAMS/
+# orm-shaped (mirrors plans_core/orm.py's PARAMS/
 # build_plan in spirit, and now also its typing/logging imports verbatim --
 # see the module docstring's "GAP FOUND ... NOW FIXED" note): device-agnostic,
 # resolves correctors/detectors by string name against whatever `devices`
@@ -220,7 +220,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 # PLAN_METADATA -- lives here.
 #
 # SEPARATE, STRUCTURAL CONSTRAINT (found running this e2e for real, distinct
-# from the now-fixed allowlist gap): unlike `plans_core/response_matrix.py`
+# from the now-fixed allowlist gap): unlike `plans_core/orm.py`
 # (a shipped file, never passed through this prepending), this body's own
 # text is NOT position 0 in the file `write_session_plan` actually writes --
 # `POST /plans/session` assembles `f"PLAN_METADATA = {metadata!r}\\n\\n{body}"`,
@@ -236,7 +236,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 # and are used exactly as the shipped exemplar does.
 _POSITIVE_PLAN_BODY = '''"""Session-authored positive plan body for the sandbox-escape e2e
 (tests/e2e/test_bluesky_sandbox_escape_e2e.py) -- mirrors plans_core/
-response_matrix.py's PARAMS/build_plan, proving the author -> validate ->
+orm.py's PARAMS/build_plan, proving the author -> validate ->
 launch -> promote -> read path works end to end for a legitimately-authored
 session plan, in the same deployed stack the negative case runs against.
 """

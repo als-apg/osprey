@@ -21,7 +21,7 @@ from osprey.services.bluesky_bridge.plan_metadata import (
 from osprey.services.bluesky_bridge.plan_types import PlanSpec
 
 _WELL_FORMED = {
-    "name": "response_matrix",
+    "name": "orm",
     "description": "Sweep each corrector, reading all BPMs at every point.",
     "category": "accelerator",
     "required_devices": ["SR:MAG:HCM:01:CURRENT:SP", "SR:DIAG:BPM:01:X"],
@@ -36,7 +36,7 @@ class _Params(BaseModel):
 def test_well_formed_dict_parses_into_plan_metadata_with_all_fields() -> None:
     metadata = parse_plan_metadata_dict(_WELL_FORMED, source="test")
 
-    assert metadata.name == "response_matrix"
+    assert metadata.name == "orm"
     assert metadata.description == _WELL_FORMED["description"]
     assert metadata.category == "accelerator"
     assert metadata.required_devices == _WELL_FORMED["required_devices"]
@@ -97,7 +97,7 @@ def test_wrong_type_writes_raises_typed_error() -> None:
 def test_plan_spec_to_dict_includes_metadata_when_set() -> None:
     metadata = PlanMetadata(**_WELL_FORMED)
     spec = PlanSpec(
-        name="response_matrix",
+        name="orm",
         plan=lambda devices, params: None,
         schema=_Params,
         description="A plan with metadata.",
@@ -125,9 +125,9 @@ def test_plan_spec_to_dict_metadata_is_none_when_unset() -> None:
 
 
 def test_plan_spec_old_style_construction_still_works_and_defaults_provenance() -> None:
-    """Regression: the pre-existing `BUILTIN_PLANS` construction style (name/
-    plan/schema/description only, no metadata/provenance kwargs) must keep
-    working unchanged."""
+    """Regression: `PlanSpec`'s old-style construction (name/plan/schema/
+    description only, no metadata/provenance kwargs) must keep working
+    unchanged."""
     spec = PlanSpec(
         name="count",
         plan=lambda devices, params: None,

@@ -11,9 +11,7 @@ works in a bluesky-less bridge process.
 
 from __future__ import annotations
 
-import logging
 import sys
-import types
 from pathlib import Path
 
 import pytest
@@ -176,10 +174,9 @@ def test_get_plans_serves_facility_injected_plan_via_http(
     the legacy contract's `wiggle` plan never set `PlanSpec.metadata`, so it
     stays `None`, but its `provenance` is loader-normalized to `"facility"`
     regardless of what the module declared (see `load_facility_plans`). A
-    built-in (`count`) is the other half of the contract: `provenance ==
-    "shipped"` with `metadata: None`, since built-ins don't author
-    `PLAN_METADATA` — see `test_plan_loader_layered.py` for the directory-layer
-    case where `metadata` is populated.
+    shipped plan (`orm`) is the other half of the contract: `provenance ==
+    "shipped"` with real authored `PLAN_METADATA` — see
+    `test_plan_loader_layered.py` for the directory-layer case in isolation.
     """
     module_path = _write_facility_module(tmp_path)
     monkeypatch.setenv(_ENV_VAR, str(module_path))
@@ -195,9 +192,9 @@ def test_get_plans_serves_facility_injected_plan_via_http(
     assert wiggle["metadata"] is None
     assert wiggle["provenance"] == "facility"
 
-    count = plans_by_name["count"]
-    assert count["metadata"] is None
-    assert count["provenance"] == "shipped"
+    orm = plans_by_name["orm"]
+    assert orm["metadata"] is not None
+    assert orm["provenance"] == "shipped"
 
 
 def test_get_facility_plans_constructs_devices_once_and_caches(
@@ -212,64 +209,6 @@ def test_get_facility_plans_constructs_devices_once_and_caches(
 
     assert first is second
     assert first.devices == {"wiggler": "fake-wiggler-device"}
-
-
-def test_load_facility_plans_warns_when_a_plan_shadows_a_builtin(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    """A facility plan reusing a built-in's name (e.g. `count`) logs a warning
-    at load time — silent shadowing would otherwise be a surprising way to
-    lose a built-in without any trace. Injects a fake `plans` module into
-    `sys.modules` so this is testable without bluesky installed: relative
-    imports resolve against `sys.modules` first, so `plan_loader`'s guarded
-    `from .plans import BUILTIN_PLANS` picks up the fake instead of trying
-    (and failing) to import the real bluesky-backed module.
-    """
-    fake_plans_module = types.ModuleType("osprey.services.bluesky_bridge.plans")
-    fake_plans_module.BUILTIN_PLANS = {"count": object()}  # type: ignore[attr-defined]
-    monkeypatch.setitem(sys.modules, "osprey.services.bluesky_bridge.plans", fake_plans_module)
-
-    facility_dir = tmp_path / "shadowing_facility"
-    facility_dir.mkdir()
-    module_path = facility_dir / "shadow_plans.py"
-    module_path.write_text(
-        "from osprey.services.bluesky_bridge.plan_types import PlanSpec\n"
-        "from pydantic import BaseModel\n\n"
-        "class P(BaseModel):\n"
-        "    pass\n\n"
-        "PLANS = {'count': PlanSpec(name='count', plan=lambda d, p: None, schema=P, "
-        "description='facility count')}\n\n"
-        "def get_devices():\n"
-        "    return {}\n"
-    )
-
-    with caplog.at_level(logging.WARNING, logger="osprey.services.bluesky_bridge.plan_loader"):
-        result = plan_loader.load_facility_plans(str(module_path))
-
-    assert "count" in result.plans
-    assert any(
-        record.levelno == logging.WARNING and "count" in record.message for record in caplog.records
-    )
-
-
-def test_get_plans_reraises_a_non_bridge_import_error_from_builtins(
-    monkeypatch: pytest.MonkeyPatch, client: TestClient
-) -> None:
-    """`GET /plans` must only swallow an ImportError caused by a missing
-    bridge dependency (bluesky/ophyd/ophyd_async/tiled) — anything else (e.g.
-    `plans.py` itself missing an expected attribute) is a genuine bug and
-    must propagate, not silently degrade to an empty/facility-only list.
-
-    Injects a fake, attribute-less `plans` module into `sys.modules` so
-    `from .plans import BUILTIN_PLANS` raises "cannot import name", whose
-    `ImportError.name` is the `plans` module itself — not a bridge dependency
-    — so the route's allow-list must re-raise rather than swallow it.
-    """
-    broken_plans_module = types.ModuleType("osprey.services.bluesky_bridge.plans")
-    monkeypatch.setitem(sys.modules, "osprey.services.bluesky_bridge.plans", broken_plans_module)
-
-    with pytest.raises(ImportError):
-        client.get("/plans")
 
 
 def test_get_plans_serves_directory_layer_metadata_via_http(

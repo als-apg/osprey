@@ -158,8 +158,9 @@ def test_shipped_plan_is_located_by_declared_name_not_file_stem(
     tmp_path: Path, client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A shipped-tier file may declare a `PLAN_METADATA["name"]` different
-    from its own filename (e.g. `plans_core/grid_scan.py` -> "grid_scan_nd")
-    — the source route must resolve by the declared name, not the stem."""
+    from its own filename (e.g. a `some_file_stem.py` declaring
+    `"name": "declared_plan_name"`) — the source route must resolve by the
+    declared name, not the stem."""
     shipped_dir = tmp_path / "shipped"
     shipped_dir.mkdir()
     (shipped_dir / "some_file_stem.py").write_text(_session_plan_source("declared_plan_name"))

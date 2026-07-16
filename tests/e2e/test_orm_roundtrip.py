@@ -21,10 +21,10 @@ proves two things end to end:
       addresses) blocks exactly there, so a fixture-level timeout on this
       assertion IS the regression signature, not an incidentally slow test.
 
-No physics fault is seeded on this stack (no ``VA_QUAD_MISALIGN``/
-``VA_BPM_ERRORS``/``VA_CORR_GAIN`` in the written ``.env`` -- see
-``_orm_stack.write_scan_env``), so every BPM/corrector carries the identity
-error state (``PhysicsBridge.__init__``'s default). The measured/model
+No physics fault is seeded on this stack (no ``VA_BPM_ERRORS``/
+``VA_CORR_GAIN`` in the written ``.env`` -- see ``_orm_stack.write_scan_env``),
+so every BPM/corrector carries the identity error state
+(``PhysicsBridge.__init__``'s default). The measured/model
 agreement is therefore bounded only by AT numerical-solve reproducibility and
 the JSON/HTTP round trip, not a physical noise floor -- see ``MATCH_ATOL``.
 
@@ -88,8 +88,8 @@ SCAN_TIMEOUT_SEC = 240.0
 SPAN_A = 5.0
 NUM_POINTS = 5
 
-# No VA_QUAD_MISALIGN/VA_BPM_ERRORS/VA_CORR_GAIN are seeded on this stack (see
-# module docstring) -- every device carries PhysicsBridge's identity error
+# No VA_BPM_ERRORS/VA_CORR_GAIN are seeded on this stack (see module
+# docstring) -- every device carries PhysicsBridge's identity error
 # state, so there is no physical noise floor to size this against. The bound
 # below is float round-trip/AT numerical-solve reproducibility margin, kept
 # generous relative to task 5.1's probed in-process figure (4.9e-15 relative)

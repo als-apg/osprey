@@ -160,7 +160,7 @@ def test_execute_armed_end_to_end_on_composed_app(monkeypatch: pytest.MonkeyPatc
     with TestClient(app) as client:
         _wire_mock_bridge(handler)
         response = client.post(
-            "/runs/execute", json={"plan_name": "response_matrix", "plan_args": {}}
+            "/runs/execute", json={"plan_name": "orm", "plan_args": {}}
         )
 
     assert response.status_code == 200
@@ -180,7 +180,7 @@ def test_execute_unarmed_on_composed_app_is_inert() -> None:
     with TestClient(app) as client:
         _wire_mock_bridge(_refusing_handler)
         response = client.post(
-            "/runs/execute", json={"plan_name": "response_matrix", "plan_args": {}}
+            "/runs/execute", json={"plan_name": "orm", "plan_args": {}}
         )
 
     assert response.status_code == 200

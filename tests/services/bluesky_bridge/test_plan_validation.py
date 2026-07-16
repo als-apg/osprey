@@ -438,7 +438,7 @@ class TestCollectDeviceNames:
         assert detectors == {"d1"}
 
     def test_nested_axes_setpoint_field(self):
-        """Mirrors `grid_scan_nd`'s PARAMS shape: setpoints nested under
+        """Mirrors `grid_scan`'s PARAMS shape: setpoints nested under
         `axes[].setpoint`, not a flat field named "setpoints"."""
         motors, detectors = _collect_device_names(
             {
@@ -618,8 +618,8 @@ _PLANS_CORE_DIR = (
 
 
 class TestShippedExemplarsPassValidation:
-    def test_response_matrix_source_passes_the_static_and_pattern_stages(self):
-        source = (_PLANS_CORE_DIR / "response_matrix.py").read_text(encoding="utf-8")
+    def test_orm_source_passes_the_static_and_pattern_stages(self):
+        source = (_PLANS_CORE_DIR / "orm.py").read_text(encoding="utf-8")
         assert _static_allowlist_check(source) == []
         assert _ca_pattern_scan(source) == []
 
@@ -628,11 +628,11 @@ class TestShippedExemplarsPassValidation:
         assert _static_allowlist_check(source) == []
         assert _ca_pattern_scan(source) == []
 
-    async def test_response_matrix_source_passes_full_validation_including_dry_run(self):
-        source = (_PLANS_CORE_DIR / "response_matrix.py").read_text(encoding="utf-8")
+    async def test_orm_source_passes_full_validation_including_dry_run(self):
+        source = (_PLANS_CORE_DIR / "orm.py").read_text(encoding="utf-8")
         result = await validate_plan(
             source,
-            plan_name="response_matrix",
+            plan_name="orm",
             sample_args={
                 "correctors": ["hcm1", "hcm2"],
                 "detectors": ["bpm1", "bpm2"],
@@ -646,7 +646,7 @@ class TestShippedExemplarsPassValidation:
         source = (_PLANS_CORE_DIR / "grid_scan.py").read_text(encoding="utf-8")
         result = await validate_plan(
             source,
-            plan_name="grid_scan_nd",
+            plan_name="grid_scan",
             sample_args={
                 "detectors": ["det1"],
                 "axes": [

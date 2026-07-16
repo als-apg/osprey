@@ -310,8 +310,19 @@ def test_tiled_roundtrip(deployed_stack: Path) -> None:
     # brings up bridge + Tiled, and waits for both to report healthy.
 
     # --- 2. create + promote a scan --------------------------------------
+    # Minimal single-axis grid_scan (the demo runner's default mock devices
+    # are motor1/det1) -- shipped registry only has orm/grid_scan; this test
+    # just wants a small, readable buffered stream, so a 3-point 1-axis
+    # sweep stands in for the removed built-in `count` plan.
     status, body = _post(
-        "/runs", {"plan_name": "count", "plan_args": {"detectors": [DEMO_DETECTOR], "num": 3}}
+        "/runs",
+        {
+            "plan_name": "grid_scan",
+            "plan_args": {
+                "detectors": [DEMO_DETECTOR],
+                "axes": [{"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 3}],
+            },
+        },
     )
     assert status == 200, f"POST /runs failed: {status} {body}"
     run_id = body["id"]

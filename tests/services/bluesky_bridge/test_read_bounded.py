@@ -62,7 +62,7 @@ def client() -> TestClient:
 
 def _promoted_run_with_uid(run_uid: str) -> Run:
     """A run promoted with a FakePlanRunner pre-seeded with `run_uid`."""
-    run = registry.add(request={"plan_name": "count"})
+    run = registry.add(request={"plan_name": "orm"})
     do_promote(run, lambda: FakePlanRunner(run_uid=run_uid))
     return run
 
@@ -83,7 +83,7 @@ def _feed(run_uid: str, rows: list[dict], *, stop: bool = False) -> None:
 
 
 def test_read_data_before_promotion_returns_409(client: TestClient) -> None:
-    run = registry.add(request={"plan_name": "count"})
+    run = registry.add(request={"plan_name": "orm"})
     resp = client.get(f"/runs/{run.id}/data")
     assert resp.status_code == 409
 

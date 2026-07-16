@@ -2,12 +2,12 @@
 
 Two parts, per the task split:
 
-- **Part A**: `app.py`'s `_epics_runner_factory` now resolves plan names
-  through the gated registry (``plans=None`` -> `BlueskyPlanRunner.reinitialize`
-  falls back to `_default_plan_registry()`, which merges built-ins with the
-  re-scanned, re-gated `get_facility_plans().plans`) instead of a fixed
-  `BUILTIN_PLANS` snapshot — so a validated session/facility plan is
-  launchable on the connector-mediated path, and an unvalidated one is not.
+- **Part A**: `app.py`'s `_epics_runner_factory` resolves plan names through
+  the gated registry (``plans=None`` -> `BlueskyPlanRunner.reinitialize` falls
+  back to `_default_plan_registry()`, the re-scanned, re-gated
+  `get_facility_plans().plans`) rather than a fixed snapshot — so a validated
+  session/facility plan is launchable on the connector-mediated path, and an
+  unvalidated one is not.
 - **Part B**: `app.py`'s `_promote_validation_gate`, dependency-injected into
   `runs.do_promote` as its `validator` keyword, 409s a promote attempt for a
   session/unreviewed plan whose CURRENT on-disk content hash has no passing
@@ -313,8 +313,8 @@ def _clean_epics_env(monkeypatch: pytest.MonkeyPatch):
 def test_epics_runner_factory_resolves_a_validated_session_plan(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _clean_epics_env: None
 ) -> None:
-    """`_epics_runner_factory` no longer pins `plans=BUILTIN_PLANS` — a
-    validated session plan (re-gated by `_default_plan_registry()` on every
+    """`_epics_runner_factory` pins no fixed plan snapshot — a validated
+    session plan (re-gated by `_default_plan_registry()` on every
     `reinitialize()` call) is resolvable through the connector-mediated
     launch path, and an unvalidated one is not.
     """

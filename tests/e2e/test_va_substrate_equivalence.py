@@ -697,11 +697,12 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
     status, body = _post(
         "/runs",
         {
-            "plan_name": "scan",
+            "plan_name": "grid_scan",
             "plan_args": {
                 "detectors": [P4_DETECTOR],
-                "axes": [{"motor": SCAN_MOTOR, "start": start, "stop": stop}],
-                "num": num,
+                "axes": [
+                    {"setpoint": SCAN_MOTOR, "start": start, "stop": stop, "num_points": num}
+                ],
             },
         },
     )

@@ -161,7 +161,15 @@ def test_flag_set_with_bluesky_present_wires_and_completes_a_real_scan(
 
         create_resp = client.post(
             "/runs",
-            json={"plan_name": "count", "plan_args": {"detectors": ["det1"], "num": 3}},
+            json={
+                "plan_name": "grid_scan",
+                "plan_args": {
+                    "detectors": ["det1"],
+                    "axes": [
+                        {"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 3}
+                    ],
+                },
+            },
         )
         assert create_resp.status_code == 200, create_resp.text
         run_id = create_resp.json()["id"]

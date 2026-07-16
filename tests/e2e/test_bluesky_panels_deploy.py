@@ -22,13 +22,11 @@ is the bluesky-panels sidecar's port, so this module calls ``override_yaml``/
 
 Plan discovery (test 4/5's headline): ``GET /plans`` through the sidecar's
 read-proxy is scanned for a plan whose ``metadata.writes`` is ``True`` (the
-only plans that actually drive a device -- ``count``/``scan``/``grid_scan``/
-``orm``, the v1 built-ins, carry no ``PLAN_METADATA`` at all and are excluded
-by construction, not by name); each candidate's ``GET /plans/{name}/source``
-is then checked for ``validated: true``. The shipped exemplar catalog
-currently has two such plans (``response_matrix``, ``grid_scan_nd`` --
-see the project's "no bba/tune_scan" convention: only ``response_matrix``(orm)
-+ n-d ``grid_scan`` ship as exemplars), but NEITHER name is hardcoded here:
+only plans that actually drive a device); each candidate's
+``GET /plans/{name}/source`` is then checked for ``validated: true``. The
+shipped catalog currently has exactly two such plans (``orm``, ``grid_scan``
+-- see the project's "no bba/tune_scan" convention: only ``orm`` + n-d
+``grid_scan`` ship), but NEITHER name is hardcoded here:
 ``_build_minimal_plan_args`` maps the winning candidate's JSON ``schema`` by
 FIELD SHAPE (``correctors``+``detectors``+``span_a``+``num`` vs.
 ``axes``+``detectors``) onto the derived corrector/BPM device names, so a
@@ -316,7 +314,7 @@ def _build_minimal_plan_args(
     bpm_names = list(bpms.keys())
 
     if {"correctors", "detectors", "span_a", "num"} <= props.keys():
-        # response_matrix-shaped: sweep one corrector over a small bounded
+        # orm-shaped: sweep one corrector over a small bounded
         # current range, reading the BPMs.
         if not corrector_names or not bpm_names:
             return None
@@ -328,7 +326,7 @@ def _build_minimal_plan_args(
         }
 
     if {"axes", "detectors"} <= props.keys():
-        # grid_scan_nd-shaped: one axis (one corrector setpoint), one detector.
+        # grid_scan-shaped: one axis (one corrector setpoint), one detector.
         if not corrector_names or not bpm_names:
             return None
         axis_name = corrector_names[0]
@@ -353,8 +351,7 @@ def _discover_writes_plan(
     and build minimal ``plan_args`` for it.
 
     Candidates are every ``GET /plans`` entry whose ``metadata.writes`` is
-    ``True`` (the v1 built-ins -- ``count``/``scan``/``grid_scan``/``orm`` --
-    carry no ``PLAN_METADATA`` at all and are excluded by construction).
+    ``True`` -- the only plans that actually drive a device.
     Sorted by name for a deterministic pick across runs. Each candidate is
     checked against ``GET /plans/{name}/source``'s ``validated`` flag before
     its schema is used -- never assumed.
@@ -642,7 +639,7 @@ def test_sidecar_exposes_no_stop_or_unbounded_create_route(
     # Bare POST /runs (unbounded intent-create) must not be exposed either --
     # GET /runs is registered (read-proxy), so a POST there hits Starlette's
     # 405 for a matched path/wrong method, not a 404.
-    status, body = _sidecar_post("/runs", {"plan_name": "count", "plan_args": {}})
+    status, body = _sidecar_post("/runs", {"plan_name": "grid_scan", "plan_args": {}})
     assert status == 405, (
         f"sidecar must not expose unbounded POST /runs (only /runs/execute), got {status}: {body}"
     )
