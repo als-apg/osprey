@@ -902,6 +902,67 @@ jobs:
         docker rm -f osprey-e2e-mus-p3-registry || true
         docker compose -p osprey-e2e-mus-p3 down || true
 
+  multi-user-deploy-lifecycle-e2e-podman:
+    name: Multi-User Deploy Lifecycle E2E (epic→main only, podman runtime)
+    runs-on: ubuntu-latest
+    # Podman counterpart of multi-user-deploy-lifecycle-e2e above — same job,
+    # same real-runtime lifecycle mechanics, run against rootless podman
+    # instead of docker (tests/e2e/test_deploy_lifecycle.py picks its runtime
+    # from OSPREY_E2E_RUNTIME). Scoped identically: epic-integration-branch ->
+    # main only, same-repo PRs only — not part of every epic-phase PR's checks.
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up rootless Podman
+      run: |
+        podman --version
+        pip install --user podman-compose
+        podman compose version
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Run multi-user deploy lifecycle E2E (podman)
+      env:
+        OSPREY_E2E_RUNTIME: podman
+        # Explicit belt-and-suspenders alongside the test's own RUNTIME ->
+        # CONTAINER_RUNTIME coupling (see _run_osprey): makes the deploy-side
+        # runtime selection self-documenting here too, not just inferred.
+        CONTAINER_RUNTIME: podman
+      run: |
+        uv run pytest tests/e2e/test_deploy_lifecycle.py -v --tb=short
+
+    # Belt-and-suspenders on top of the test's own try/finally teardown: every
+    # resource named here is exact (never a prune/-a/wildcard), matching
+    # tests/e2e/test_deploy_lifecycle.py's own container-ops safety guardrail.
+    - name: Clean up any stranded lifecycle-e2e resources
+      if: always()
+      run: |
+        for user in alice bob carol dave erin; do
+          podman rm -f "e2e-web-${user}" || true
+          podman volume rm "osprey-e2e-mus-p3_${user}-claude-config" || true
+          podman volume rm "osprey-e2e-mus-p3_${user}-agent-data" || true
+        done
+        podman rm -f e2e-nginx || true
+        podman rm -f osprey-e2e-mus-p3-registry || true
+        podman compose -p osprey-e2e-mus-p3 down || true
+
   all-checks-passed:
     name: All CI Checks Passed
     needs: [test, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, scan-deploy-e2e, va-substrate-equivalence-e2e, tiled-roundtrip-e2e, dockerfile-e2e, agentic-per-preset]
