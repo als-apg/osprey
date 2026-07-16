@@ -11,9 +11,11 @@ versa.
 from __future__ import annotations
 
 from osprey.services.virtual_accelerator.manifest import PARTITION_PYAT_COUPLED, build_manifest
+from osprey.simulation.facility_spec import ALS_U_AR
 
-# The MAG families plus the DIAG BPM family that make up partition (a).
-PYAT_COUPLED_FAMILIES = frozenset({"DIPOLE", "QF", "QD", "HCM", "VCM", "SF", "SD", "BPM"})
+# Spec-derived: every family the facility spec declares (magnets, correctors,
+# and the BPM monitor) is pyat-coupled -- backed by the AT lattice model.
+PYAT_COUPLED_FAMILIES = frozenset(f.name for f in ALS_U_AR.families)
 
 
 def pyat_coupled_device_ids() -> dict[str, list[str]]:
