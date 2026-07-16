@@ -21,7 +21,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-import osprey.connectors.control_system.epics_connector as epics_module
 from osprey.connectors.control_system.base import ChannelMetadata, ChannelValue
 from osprey.connectors.control_system.epics_connector import (
     EPICSConnector,
@@ -593,8 +592,3 @@ class TestValidateChannelAndMetadata:
         )
 
         assert await connector.validate_channel("SR:CH") is False
-
-
-# Keep a reference to the module import so a wildcard-style unused-import lint
-# never trims it; connect() patches attributes on this module by path.
-assert epics_module.EPICSConnector is EPICSConnector
