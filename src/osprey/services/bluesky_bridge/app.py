@@ -27,6 +27,7 @@ from fastapi import FastAPI, Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from . import live_rows
+from .draft import router as draft_router
 from .plan_runner import FakePlanRunner, PlanRunner
 from .plan_types import Provenance
 from .plan_validation import hash_plan_body, validate_plan
@@ -497,6 +498,13 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="OSPREY Bluesky Bridge", lifespan=_lifespan)
+
+# The shared plan draft's routes (`GET`/`PATCH`/`DELETE /draft`, `GET
+# /draft/events`) live in their own self-contained module — state, lock, and
+# SSE broadcaster all belong together, and don't need anything else this
+# module owns. First `include_router` precedent in this app; every other
+# route here is still an inline `@app.<verb>`.
+app.include_router(draft_router)
 
 
 class RunRequest(BaseModel):
