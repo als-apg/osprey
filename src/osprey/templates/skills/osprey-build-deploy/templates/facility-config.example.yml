@@ -54,7 +54,7 @@ gitlab:
   token_env_var: "DLS_GITLAB_TOKEN"
 
 # -----------------------------------------------------------------------------
-# Container registry — where CI pushes built images and deploy.sh pulls from.
+# Container registry — where CI pushes built images and `osprey deploy up` pulls from.
 # external_projects covers other GitLab projects whose images this deploy
 # also pulls (each needs its own deploy token).
 # -----------------------------------------------------------------------------

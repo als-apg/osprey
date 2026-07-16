@@ -230,7 +230,7 @@ Pretty-prints `/checks` results with colors and icons:
 ./scripts/verify.sh epics_read olog      # multiple
 ```
 
-Always exits 0 — advisory only. `scripts/deploy.sh` runs it automatically after containers come up.
+Always exits 0 — advisory only. Run it by hand after `osprey deploy up` brings containers up; it is not invoked automatically.
 
 ---
 

@@ -236,3 +236,243 @@ def test_lint_tls_disabled_does_not_add_443_to_port_overlap_set() -> None:
     errors = _errors(findings)
     overlap_findings = [f for f in errors if f.code == "web_terminals.port_overlap"]
     assert not any("443" in f.message for f in overlap_findings)
+
+
+# --- Task 1.3: index-related findings for object-form users -----------------
+
+
+def test_lint_duplicate_explicit_index_is_an_error() -> None:
+    """Two object-form users sharing an index would collide on every port family."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0},
+        {"name": "gmartino", "index": 0},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.duplicate_index" for f in errors)
+
+
+def test_lint_distinct_explicit_indices_are_not_a_duplicate_index_error() -> None:
+    """Distinct explicit indices must not falsely trigger the duplicate-index check."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0},
+        {"name": "gmartino", "index": 1},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert not any(f.code == "web_terminals.duplicate_index" for f in errors)
+
+
+def test_lint_missing_index_on_object_form_user_is_an_error() -> None:
+    """An object-form entry with no `index` key at all is invalid."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert"}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.invalid_index" for f in errors)
+
+
+def test_lint_non_integer_index_is_an_error() -> None:
+    """A string index (e.g. from a hand-edited YAML) is not a valid port offset."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": "0"}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.invalid_index" for f in errors)
+
+
+def test_lint_boolean_index_is_an_error() -> None:
+    """`bool` is an `int` subclass in Python, but `index: true`/`false` is invalid."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": True}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.invalid_index" for f in errors)
+
+
+def test_lint_negative_index_is_an_error() -> None:
+    """A negative index can't resolve to a real port offset."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [{"name": "thellert", "index": -1}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.invalid_index" for f in errors)
+
+
+def test_lint_valid_object_form_users_report_no_index_errors() -> None:
+    """A well-formed, explicit-index roster must not trip either index error check."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0},
+        {"name": "gmartino", "index": 1},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert not any(f.code == "web_terminals.invalid_index" for f in errors)
+    assert not any(f.code == "web_terminals.duplicate_index" for f in errors)
+
+
+def test_lint_bare_multi_user_list_warns_about_port_drift_risk() -> None:
+    """A legacy bare list with >1 user risks positional port drift on decommission."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = ["thellert", "gmartino"]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    warnings = _warnings(findings)
+    assert any(f.code == "web_terminals.bare_list_port_drift_risk" for f in warnings)
+
+
+def test_lint_bare_single_user_list_does_not_warn_about_port_drift_risk() -> None:
+    """A single-user bare list has no positional drift risk to warn about."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = ["thellert"]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    warnings = _warnings(findings)
+    assert not any(f.code == "web_terminals.bare_list_port_drift_risk" for f in warnings)
+
+
+def test_lint_explicit_index_roster_does_not_warn_about_port_drift_risk() -> None:
+    """A roster already using explicit indices is exempt from the drift warning."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0},
+        {"name": "gmartino", "index": 1},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    warnings = _warnings(findings)
+    assert not any(f.code == "web_terminals.bare_list_port_drift_risk" for f in warnings)
+
+
+def test_lint_mixed_roster_does_not_crash_and_does_not_warn_about_port_drift_risk() -> None:
+    """A mixed bare/object-form roster is odd but must not crash the linter, and
+    is exempt from the bare-list drift warning (it isn't a pure legacy list)."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = ["thellert", {"name": "gmartino", "index": 1}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert (no crash by construction; assert the drift warn specifically)
+    warnings = _warnings(findings)
+    assert not any(f.code == "web_terminals.bare_list_port_drift_risk" for f in warnings)
+
+
+def test_lint_object_form_reserved_name_is_an_error() -> None:
+    """Object-form entries must be held to the same reserved-name rule as bare
+    strings — the schema change must not open a validation gap."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "nginx", "index": 0},
+        {"name": "gmartino", "index": 1},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.reserved_name" for f in errors)
+
+
+def test_lint_object_form_bad_charset_is_an_error() -> None:
+    """Object-form entries must be held to the same charset rule as bare
+    strings — usernames still become nginx location keys either way."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [{"name": "Bad_User", "index": 0}]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.invalid_username_charset" for f in errors)
+
+
+def test_lint_object_form_valid_name_reports_no_reserved_or_charset_errors() -> None:
+    """A well-formed object-form name must not trip either name-validation check."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0},
+        {"name": "gmartino", "index": 1},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert not any(f.code == "web_terminals.reserved_name" for f in errors)
+    assert not any(f.code == "web_terminals.invalid_username_charset" for f in errors)
+
+
+def test_lint_object_form_duplicate_name_is_still_a_duplicate_user_error() -> None:
+    """Object-form users must still be caught by the pre-existing duplicate-name
+    check (a dict is unhashable, so this exercises the name-based comparison)."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["modules"]["web_terminals"]["users"] = [
+        {"name": "thellert", "index": 0},
+        {"name": "thellert", "index": 1},
+    ]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.duplicate_user" for f in errors)

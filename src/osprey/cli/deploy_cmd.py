@@ -21,8 +21,23 @@ from .project_utils import resolve_config_path, resolve_project_path
 @click.command()
 @click.argument(
     "action",
-    type=click.Choice(["up", "down", "restart", "status", "build", "clean", "rebuild"]),
+    type=click.Choice(
+        [
+            "up",
+            "down",
+            "restart",
+            "status",
+            "build",
+            "clean",
+            "rebuild",
+            "decommission",
+            "prune",
+            "nuke",
+            "seed",
+        ]
+    ),
 )
+@click.argument("user", required=False)
 @click.option(
     "--project",
     "-p",
@@ -52,25 +67,74 @@ from .project_utils import resolve_config_path, resolve_project_path
     is_flag=True,
     help="Expose services to all network interfaces (0.0.0.0). WARNING: This exposes services to the network! Only use with proper authentication configured.",
 )
-def deploy(action: str, project: str, config: str, detached: bool, dev: bool, expose: bool):
+@click.option(
+    "--archive",
+    is_flag=True,
+    help="Archive a user's workspace before removing it (decommission/prune only).",
+)
+@click.option(
+    "--purge",
+    is_flag=True,
+    help="Permanently delete a user's workspace without archiving it (decommission/prune only).",
+)
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    help="Assume yes to confirmation prompts (decommission/prune/nuke).",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would happen without making changes (prune only).",
+)
+def deploy(
+    action: str,
+    user: str | None,
+    project: str,
+    config: str,
+    detached: bool,
+    dev: bool,
+    expose: bool,
+    archive: bool,
+    purge: bool,
+    yes: bool,
+    dry_run: bool,
+):
     """Manage Docker/Podman services for Osprey projects.
 
     This command wraps the existing container management functionality,
-    providing control over service deployment, status, and cleanup.
+    providing control over service deployment, status, and cleanup, plus
+    per-user web-terminal lifecycle management.
 
     Actions:
 
     \b
-      up       - Start all configured services
-      down     - Stop all services
-      restart  - Restart all services
-      status   - Show service status
-      build    - Build/prepare compose files without starting services
-      clean    - Remove containers and volumes (WARNING: destructive)
-      rebuild  - Clean, rebuild, and restart services
+      up            - Start all configured services
+      down          - Stop all services
+      restart       - Restart all services
+      status        - Show service status
+      build         - Build/prepare compose files without starting services
+      clean         - Remove containers and volumes (WARNING: destructive)
+      rebuild       - Clean, rebuild, and restart services
+      decommission  - Remove a single user's web-terminal workspace (requires USER)
+      prune         - Remove workspaces for users no longer in the user index
+      nuke          - Tear down the entire multi-user web-terminal stack (WARNING: destructive)
+      seed          - (Re)seed web-terminal workspaces from the user index; optional
+                      USER targets one user, omit to reseed all
 
     The services to deploy are defined in your config.yml under
     the 'deployed_services' key.
+
+    Lifecycle flags:
+
+    \b
+      --archive     Archive a user's workspace before removing it
+                     (decommission/prune only; mutually exclusive with --purge)
+      --purge       Permanently delete a user's workspace, no archive
+                     (decommission/prune only; mutually exclusive with --archive)
+      --yes, -y     Assume yes to confirmation prompts (decommission/prune/nuke)
+      --dry-run     Show what would happen without making changes (prune only)
 
     Examples:
 
@@ -108,7 +172,50 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool, ex
 
       # Rebuild with local osprey for development
       $ osprey deploy rebuild --dev
+
+      # Remove a single user's workspace, archiving it first
+      $ osprey deploy decommission alice --archive
+
+      # Preview which stale user workspaces would be pruned
+      $ osprey deploy prune --dry-run
+
+      # Prune stale user workspaces, purging without archiving
+      $ osprey deploy prune --purge --yes
+
+      # Tear down the entire multi-user stack
+      $ osprey deploy nuke --yes
+
+      # Reseed a single user's workspace from the user index
+      $ osprey deploy seed alice
+
+      # Reseed every user's workspace from the user index
+      $ osprey deploy seed
     """
+    # Argument validation happens BEFORE any project/config resolution or
+    # lazy import so it is exercised even when the lifecycle modules (or a
+    # project directory) don't exist yet.
+    if action == "decommission" and not user:
+        raise click.UsageError(
+            f"'{action}' requires a USER argument, e.g. osprey deploy {action} alice"
+        )
+
+    if archive and purge:
+        raise click.UsageError("--archive and --purge are mutually exclusive.")
+
+    if (archive or purge) and action not in ("decommission", "prune"):
+        flag = "--archive" if archive else "--purge"
+        raise click.UsageError(
+            f"{flag} is only valid for 'decommission' and 'prune', not '{action}'."
+        )
+
+    if dry_run and action != "prune":
+        raise click.UsageError(f"--dry-run is only valid for 'prune', not '{action}'.")
+
+    # A stray USER on an action that doesn't consume it is a typo, not a no-op:
+    # only decommission/seed take a target user (the require-USER guard above
+    # covers the missing-user case for those two).
+    if user and action not in ("decommission", "seed"):
+        raise click.UsageError(f"'{action}' does not take a USER argument (got {user!r}).")
 
     if action != "status":
         console.print(f"Service management: [bold]{action}[/bold]")
@@ -214,6 +321,26 @@ def deploy(action: str, project: str, config: str, detached: bool, dev: bool, ex
 
         elif action == "rebuild":
             rebuild_deployment(config_path, detached=detached, dev_mode=dev, expose_network=expose)
+
+        elif action == "decommission":
+            from osprey.deployment.web_terminals.lifecycle import decommission_user
+
+            decommission_user(config_path, user, archive=archive, purge=purge, assume_yes=yes)
+
+        elif action == "prune":
+            from osprey.deployment.web_terminals.lifecycle import prune_users
+
+            prune_users(config_path, dry_run=dry_run, archive=archive, purge=purge, assume_yes=yes)
+
+        elif action == "nuke":
+            from osprey.deployment.web_terminals.lifecycle import nuke_stack
+
+            nuke_stack(config_path, assume_yes=yes)
+
+        elif action == "seed":
+            from osprey.deployment.web_terminals.seeding import seed_web_terminals
+
+            seed_web_terminals(config_path, user)
 
     except KeyboardInterrupt:
         console.print("\n!  Operation cancelled by user", style=Styles.WARNING)

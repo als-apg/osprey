@@ -3,18 +3,17 @@
 # ${config.facility.name} — verify.sh
 # =============================================================================
 #
-# Post-deploy advisory health check. Runs automatically at the end of
-# deploy.sh; can also be run standalone:
+# Post-deploy advisory health check. Not run automatically by `osprey deploy
+# up` — run it by hand after a deploy:
 #
 #   ./scripts/verify.sh                           # full check
 #   ./scripts/verify.sh epics archiver            # restrict to specific categories
 #
 # IMPORTANT: this script ALWAYS exits 0. Verification is advisory — a failed
-# probe tells you something to look at, but never blocks a deploy. If you
-# want a deploy to abort on health failure, wrap the call in deploy.sh;
-# don't add `exit 1` here. Operations learned the hard way that letting
-# verify.sh fail the deploy created perverse incentives to mask problems
-# rather than investigate them.
+# probe tells you something to look at, but never blocks a deploy. Don't add
+# `exit 1` here. Operations learned the hard way that letting verify.sh fail
+# the deploy created perverse incentives to mask problems rather than
+# investigate them.
 #
 # No -e: individual probe failures must not abort the rest of the suite.
 # The main() wrapper is required so the per-user / per-sidecar FOR-each

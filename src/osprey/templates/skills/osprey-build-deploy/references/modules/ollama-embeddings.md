@@ -25,7 +25,7 @@ modules:
 
 - compose: nothing by default (Ollama is external). If you opt into the on-server pattern below, a single `${config.facility.prefix}-ollama` service is added with a GPU device mapping.
 - .gitlab-ci.yml: nothing — Ollama is not built or shipped through CI.
-- scripts/deploy.sh: nothing — Ollama runs out-of-band.
+- `osprey deploy`: nothing — Ollama runs out-of-band.
 - scripts/verify.sh: a check that does `curl -s ${config.modules.ollama.url}/api/tags` and confirms the response is non-empty JSON listing at least one model. Advisory only.
 - .env.template: nothing required — the URL lives in `facility-config.yml` and is passed to consuming services via compose env vars.
 

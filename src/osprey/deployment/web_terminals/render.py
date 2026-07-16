@@ -14,7 +14,11 @@ from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
 
-from osprey.deployment.web_terminals.ports import allocate_ports, base_ports_from_config
+from osprey.deployment.web_terminals.ports import (
+    allocate_ports,
+    base_ports_from_config,
+    normalize_users,
+)
 
 # Package-relative location of the .j2 sources (Tasks 1.3/1.6). Resolved via
 # importlib.resources, NOT Path(__file__).parent, so this works from an installed
@@ -68,13 +72,13 @@ def render_web_terminals(config: Any) -> dict[str, str]:
     web_terminals = _as_dict(_as_dict(root.get("modules")).get("web_terminals"))
 
     users_raw = web_terminals.get("users")
-    users = (
-        [user for user in users_raw if isinstance(user, str)] if isinstance(users_raw, list) else []
-    )
+    normalized_users = normalize_users(users_raw)
+    users = [entry["name"] for entry in normalized_users]
 
     base_ports = base_ports_from_config(web_terminals)
     services = [
-        {"user": user, **allocate_ports(base_ports, index)} for index, user in enumerate(users)
+        {"user": entry["name"], **allocate_ports(base_ports, entry["index"])}
+        for entry in normalized_users
     ]
 
     nginx_port = web_terminals.get("nginx_port")

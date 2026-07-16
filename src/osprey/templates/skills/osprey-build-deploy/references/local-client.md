@@ -80,7 +80,7 @@ The two profiles share most overlay/agent/rule definitions (often via `extends:`
 | Concern | `*-prod.yml` (deploy server) | `*-client.yml` (developer laptop) |
 |---------|------------------------------|------------------------------------|
 | MCP server URLs | `http://localhost:<port>/mcp` (or Docker DNS service names like `http://<service>:<port>/mcp` from inside containers) | `http://${config.deploy.fqdn}:<port>/mcp` |
-| `env.file` | `.env.production` (server-side, has all secrets) | `.env.local` (developer-side, has just the LLM key) |
+| `env.file` | `.env` (server-side, has all secrets) | `.env.local` (developer-side, has just the LLM key) |
 | `env.required` | Long list (every service credential) | Short list (`${config.llm.api_key_env_var}` and any client-specific key) |
 | `container_runtime` | `${config.runtime.engine}` (whatever the server uses) | typically `docker` (most developer laptops) |
 | `overlay:` extras | Server-side test infrastructure, soft-IOC management skills, etc. | Stripped down — no test IOC, no on-server admin skills |

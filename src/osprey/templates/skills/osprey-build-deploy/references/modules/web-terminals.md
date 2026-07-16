@@ -71,7 +71,7 @@ modules:
 
 **Port allocation rule**: each user's four services bind host port `<family>_base_port + index` (where `index` is the zero-based position in the `users:` list, and `family` is one of `web`, `artifact`, `ariel`, `lattice`). With the values above and three users, `alice` (index 0) gets `9091`/`9291`/`9391`/`9491`, `bob` (index 1) gets `9092`/`9292`/`9392`/`9492`, and so on. This arithmetic is implemented once, in `deployment/web_terminals/ports.py`'s `allocate_ports()` — the renderer and the lint both call it rather than reimplementing it. The interview enforces no collision across all four families, `${config.ports.*}`, and the event-dispatcher sidecar range (see validation rule 11 in `facility-config-schema.md`). When `modules.web_terminals.tls.enabled: true`, the lint also reserves port `443` (the TLS listener) against that same overlap set, so a facility can't independently assign `443` to something else in `${config.ports.*}`.
 
-**The per-user list is durable**. Adding a user appends to the list (re-run the interview, or hand-edit then re-scaffold) without disturbing existing users' state. Removing a user from the list does **not** delete their named volume — the volume sticks around and can be reattached if the user comes back. To actually wipe a user's state, run `${config.runtime.engine} volume rm ${config.facility.prefix}-${user}-claude-config`.
+**The per-user list is durable**. Adding a user appends to the list (re-run the interview, or hand-edit then re-scaffold) without disturbing existing users' state. Removing a user from the list does **not** delete their named volume by default — the volume sticks around and can be reattached if the user comes back. To actually wipe a user's state, use `osprey deploy decommission <user> --purge` (see "Operating the module" below), or run `${config.runtime.engine} volume rm ${config.facility.prefix}-${user}-claude-config` by hand.
 
 ---
 
@@ -100,13 +100,15 @@ This reads `modules.web_terminals` straight from `facility-config.yml` and write
   2. **Python stage** — installs OSPREY + facility profile dependencies into a venv.
   3. **Final stage** — copies the built project from `artifacts/${config.facility.prefix}-assistant/` (produced by an earlier `osprey build` CI job), then runs the path regen step (see below).
 
-### scripts/deploy.sh
+### `osprey deploy` (up / seed)
 
-- For every user in `${config.modules.web_terminals.users}`:
-  1. Skips the user if their container isn't up yet (a `${config.runtime.engine} container exists` check) — the seed step is a no-op on a partial/failed `compose up` rather than a hard failure.
-  2. **Seeds CLAUDE.md** by streaming the concatenation of `docker/web-terminal-context/base.md` and the user's overlay into the user's `claude-config` volume at `/data/claude-config/CLAUDE.md`. The overlay is `docker/web-terminal-context/<user>/extra.md`; for facilities that haven't migrated off the old flat layout, the legacy `docker/web-terminal-context/<user>.md` is read as a fallback when `<user>/extra.md` is absent. This runs every deploy so per-user memory updates land without rebuilding the image.
-  3. **Seeds `skills/`** by tar-piping `docker/web-terminal-context/<user>/skills/` into `/app/${config.facility.prefix}-assistant/.claude/skills/` inside the container — the **project-scope** skills directory (`<project_cwd>/.claude/skills/`, since the web terminal launches `claude` with `cwd` set to the project directory), **not** the user-scope `CLAUDE_CONFIG_DIR/skills/` (`/data/claude-config/skills/`). This is deliberate, and easy to get wrong by intuition: the web terminal launches Claude Code with `--setting-sources project`, and that flag gates skill *discovery* itself, not just `settings.json` loading — skills placed under `CLAUDE_CONFIG_DIR/skills/` are silently never picked up under `--setting-sources project`, while the same skills under the project's `.claude/skills/` are. Only the project-scope path is live; seed there. That directory is also where a running Claude Code session keeps live, user-installed skills (e.g. anything added interactively with `osprey skills install`), so this step never blanket-replaces it: every skill directory the overlay writes gets a `.deploy-managed` sentinel, and only sentinel-bearing directories are ever touched — refreshed on each deploy, removed if the overlay stops shipping them, and left alone if they lack the sentinel. (This `--setting-sources` gating applies only to `skills/`; the CLAUDE.md seeding in step 2 above is plain user-scope auto-discovery, unrelated to `--setting-sources`, and is unaffected.)
-- `scripts/deploy.sh` does not itself HTTP-probe the per-user services after `compose up -d`; the post-deploy health check is `scripts/verify.sh` (below), run separately.
+Per-user seeding is implemented in Python (`osprey.deployment.web_terminals.seeding`), not a shell script. `osprey deploy up` runs it automatically as the last step of its web-terminal reconcile, right after `compose up -d`; `osprey deploy seed [user]` runs the same logic standalone (one user, or the whole roster) without touching containers otherwise. For every user in `${config.modules.web_terminals.users}` (or just the named one, for `seed <user>`):
+
+1. Skips the user if their container isn't up yet (a `${config.runtime.engine} container exists` check) — logged, not fatal, so the rest of the roster still seeds.
+2. **Seeds CLAUDE.md** by streaming the concatenation of `docker/web-terminal-context/base.md` and the user's overlay into the user's `claude-config` volume at `/data/claude-config/CLAUDE.md`. The overlay is `docker/web-terminal-context/<user>/extra.md`; for facilities that haven't migrated off the old flat layout, the legacy `docker/web-terminal-context/<user>.md` is read as a fallback when `<user>/extra.md` is absent. This runs on every `osprey deploy up` (and every `osprey deploy seed`) so per-user memory updates land without rebuilding the image.
+3. **Seeds `skills/`** by tar-piping `docker/web-terminal-context/<user>/skills/` into `/app/${config.facility.prefix}-assistant/.claude/skills/` inside the container — the **project-scope** skills directory (`<project_cwd>/.claude/skills/`, since the web terminal launches `claude` with `cwd` set to the project directory), **not** the user-scope `CLAUDE_CONFIG_DIR/skills/` (`/data/claude-config/skills/`). This is deliberate, and easy to get wrong by intuition: the web terminal launches Claude Code with `--setting-sources project`, and that flag gates skill *discovery* itself, not just `settings.json` loading — skills placed under `CLAUDE_CONFIG_DIR/skills/` are silently never picked up under `--setting-sources project`, while the same skills under the project's `.claude/skills/` are. Only the project-scope path is live; seed there. That directory is also where a running Claude Code session keeps live, user-installed skills (e.g. anything added interactively with `osprey skills install`), so this step never blanket-replaces it: every skill directory the overlay writes gets a `.deploy-managed` sentinel, and only sentinel-bearing directories are ever touched — refreshed on each deploy, removed if the overlay stops shipping them, and left alone if they lack the sentinel. (This `--setting-sources` gating applies only to `skills/`; the CLAUDE.md seeding in step 2 above is plain user-scope auto-discovery, unrelated to `--setting-sources`, and is unaffected.)
+
+Neither `osprey deploy up` nor `osprey deploy seed` HTTP-probes the per-user services after seeding; the post-deploy health check is `scripts/verify.sh` (below) and `osprey deploy status`, run separately.
 
 ### scripts/verify.sh
 
@@ -122,8 +124,8 @@ No new entries are required by this module on its own — web terminals reuse th
 - `nginx/nginx.conf` — generated; routes `/u/<user>/` to the matching upstream and serves the landing page at `/`.
 - `nginx/landing.html` — rendered from `modules.web_terminals.landing.groups` (see Configuration above): a `type: "users"` group auto-populates one card per entry in `users:`, and any `type: "links"` groups render as static link lists (e.g. facility tools). There is no `landing_page_template` field anymore — the landing page is fully data-driven from `landing.groups`.
 - `docker/web-terminal-context/base.md` — generated empty stub; intended to hold guidance every user sees.
-- `docker/web-terminal-context/<user>/extra.md` — one empty stub per user; intended for per-user nicknames, working preferences, etc. The legacy flat `docker/web-terminal-context/<user>.md` is still read as a fallback when this file doesn't exist (see `scripts/deploy.sh` above).
-- `docker/web-terminal-context/<user>/skills/` — optional per-user skill overlay, deploy-managed and sentinel-tracked (see `scripts/deploy.sh` above); never touches user-authored skills already present in the running container. Seeded to the container's **project-scope** `.claude/skills/`, not `CLAUDE_CONFIG_DIR` — see `scripts/deploy.sh` for why.
+- `docker/web-terminal-context/<user>/extra.md` — one empty stub per user; intended for per-user nicknames, working preferences, etc. The legacy flat `docker/web-terminal-context/<user>.md` is still read as a fallback when this file doesn't exist (see `osprey deploy` (up / seed) above).
+- `docker/web-terminal-context/<user>/skills/` — optional per-user skill overlay, deploy-managed and sentinel-tracked (see `osprey deploy` (up / seed) above); never touches user-authored skills already present in the running container. Seeded to the container's **project-scope** `.claude/skills/`, not `CLAUDE_CONFIG_DIR` — see `osprey deploy` (up / seed) above for why.
 
 ---
 
@@ -169,20 +171,26 @@ curl -X POST 'http://${config.deploy.host}:<port>/api/chat?stream=false' \
 2. Re-scaffold: regenerates the compose overlay with the new service + named volumes, and adds a row to the nginx upstream block.
 3. Create the per-user context stub: `mkdir -p docker/web-terminal-context/<new_user> && touch docker/web-terminal-context/<new_user>/extra.md`. (The legacy flat `docker/web-terminal-context/<new_user>.md` still works, but new facilities should use the directory form so a `skills/` overlay can be added later without restructuring.)
 4. Commit and push. CI rebuilds nothing image-side (the user list isn't baked into the image), but the new container only appears after a deploy.
-5. Deploy: `ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ./scripts/deploy.sh"`. The seeding step creates the user's CLAUDE.md on first run.
+5. Deploy: `ssh ${config.deploy.host} "cd ${config.deploy.project_path} && osprey deploy up"`. The seeding step creates the user's CLAUDE.md on first run.
 
 Existing users are unaffected — their named volumes are untouched.
 
 ### Remove a user
 
+The one-command way, on the deploy server: `osprey deploy decommission <user>` (add `--archive` to tar the workspace first, or `--purge` to skip retention and delete the volumes outright). It edits the roster in `config.yml`, re-renders the web-terminal artifacts, and force-removes the user's container — all in one step, gated on a typed confirmation (or `--yes`) since the volume disposition is not reversible once purged. By default (no `--archive`/`--purge`) the two named volumes (`<user>-claude-config`, `<user>-agent-data`) are **retained**.
+
+The equivalent by hand, if you're editing `facility-config.yml` directly instead of going through `decommission`:
+
 1. Remove the entry from `modules.web_terminals.users`.
-2. Re-scaffold + commit + push + deploy. The user's container is stopped and removed.
-3. Their named volumes (`<user>-claude-config`, `<user>-agent-data`) are **kept** unless explicitly deleted:
+2. Re-scaffold + commit + push + `osprey deploy up`. The user's container is stopped and removed.
+3. Their named volumes are **kept** unless explicitly deleted:
    ```bash
    ssh ${config.deploy.host} "${config.runtime.engine} volume rm \
      ${config.facility.prefix}-<user>-claude-config \
      ${config.facility.prefix}-<user>-agent-data"
    ```
+
+To clean up users that were removed from the roster this second way (bypassing `decommission`) and left as orphans, run `osprey deploy prune [--dry-run] [--archive|--purge]` — it discovers containers/volumes not on the current roster and removes them the same way `decommission` would.
 
 ### Inspect a user's session state
 
@@ -208,18 +216,18 @@ Every `command:` should reference `/app/...`, never `/builds/...`. If the latter
 |---------|-------------|
 | User opens the landing page, clicks their button, gets a blank/500 page | Check `${config.runtime.engine} ps` for the user's container; if exited, check `${config.runtime.engine} logs ${config.facility.prefix}-web-<user>` |
 | Container is up but `osprey web` immediately exits with "no project" | Path regen step skipped or failed during image build — rebuild the image |
-| User's CLAUDE.md is empty | The seeding step in `deploy.sh` couldn't reach the named volume — verify the volume exists and is mounted |
-| Claude session "forgets" between visits | Named volume was destroyed — `--nuke` deploy or someone manually `volume rm`'d it |
+| User's CLAUDE.md is empty | The seeding step (`osprey deploy up`/`seed`) couldn't reach the named volume — verify the volume exists and is mounted |
+| Claude session "forgets" between visits | Named volume was destroyed — `osprey deploy nuke`, `decommission --purge`/`prune --purge`, or someone manually `volume rm`'d it |
 | All web terminals see the same memory | Containers are sharing a volume — check the per-user `volumes:` block in the compose overlay rendered correctly (no anchor reuse bug) |
 | nginx serves landing page but reverse-proxy to user URLs returns 502 | Per-user service's env-var-overridden listen port doesn't match nginx's upstream for that family — check `OSPREY_WEB_PORT`/`OSPREY_ARTIFACT_SERVER_PORT`/`OSPREY_ARIEL_PORT`/`OSPREY_LATTICE_DASHBOARD_PORT` inside the container against the `*_base_port + index` nginx expects. (The `web` family's unconfigured default is `8087` — a service still listening on that default instead of its assigned host port is the usual cause under `network_mode: host`.) |
 
 ### Updating per-user CLAUDE.md and skills without redeploying images
 
-The CLAUDE.md and `skills/` seeding runs in `deploy.sh`, not in the image build, so:
+The CLAUDE.md and `skills/` seeding runs in `osprey deploy` (the `up`/`seed` verbs), not in the image build, so:
 
 1. Edit `docker/web-terminal-context/base.md` and/or the user's `docker/web-terminal-context/<user>/extra.md` (or the legacy flat `<user>.md`); add or edit files under `docker/web-terminal-context/<user>/skills/<skill-name>/` for a per-user skill.
 2. Commit + push (so the change reaches the deploy server's git checkout).
-3. `ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ./scripts/deploy.sh"` — git pull picks up the new files, and the seed step copies them in. Containers stay up; the files just change under them.
+3. `ssh ${config.deploy.host} "cd ${config.deploy.project_path} && git pull && osprey deploy up"` (or `osprey deploy seed <user>` to reseed just that user without touching containers) — git pull picks up the new files, and the seed step copies them in. Containers stay up; the files just change under them.
 
 The user must restart their Claude session in the browser to pick up the new CLAUDE.md or skills (Claude Code reads them on session start).
 
@@ -229,6 +237,6 @@ The user must restart their Claude session in the browser to pick up the new CLA
 
 1. Set `modules.web_terminals.enabled: false` in `facility-config.yml`.
 2. Re-scaffold — the compose overlay file is removed from `${config.runtime.compose_files}` and (optionally) deleted; the web-terminal CI job is removed.
-3. `ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ./scripts/deploy.sh --clean"` to stop and remove the per-user containers and the nginx container.
+3. `ssh ${config.deploy.host} "cd ${config.deploy.project_path} && osprey deploy down && osprey deploy up"` to stop and remove the per-user containers and the nginx container.
 4. Named volumes survive disable. To wipe them too, run `${config.runtime.engine} volume rm` per user (script the loop over the old user list).
 5. If `modules.benchmarks` was enabled, it must also be disabled (benchmarks run inside a web-terminal container; the interview enforces this).

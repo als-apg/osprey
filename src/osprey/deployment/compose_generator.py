@@ -141,6 +141,35 @@ def resolve_project_name(config):
     return project_name
 
 
+def resolve_user_volume_names(config, user):
+    """Derive the real runtime names of a web terminal user's named volumes.
+
+    The web terminal compose template declares each user's volumes bare
+    (``<user>-claude-config``, ``<user>-agent-data``). Compose namespaces bare
+    volume names with ``COMPOSE_PROJECT_NAME`` (defaulting to
+    ``basename(cwd)`` when unset), which is independent of the project name
+    :func:`resolve_project_name` derives for container labels. Left alone,
+    those two can diverge — the labels say one project, the actual volumes
+    live under another. :func:`runtime_helper.runtime_env` pins
+    ``COMPOSE_PROJECT_NAME`` to :func:`resolve_project_name`'s result for
+    every runtime invocation, so this function returns the same
+    ``<project>_<name>`` form to give volume-targeting code (inspect/rm/
+    archive) the real runtime volume names deterministically, without
+    shelling out to discover them.
+
+    :param config: Configuration dictionary (``None`` is treated as an empty
+        config, resolving to the ``"unnamed-project"`` namespace — symmetric with
+        :func:`runtime_helper.runtime_env`)
+    :type config: dict
+    :param user: Web terminal username the volumes belong to
+    :type user: str
+    :return: Tuple of ``(claude_config_volume, agent_data_volume)`` runtime names
+    :rtype: tuple[str, str]
+    """
+    project = resolve_project_name(config or {})
+    return f"{project}_{user}-claude-config", f"{project}_{user}-agent-data"
+
+
 def _inject_project_metadata(config):
     """Add project tracking metadata for container labels.
 

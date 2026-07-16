@@ -29,7 +29,7 @@ modules:
 
 - compose: in the host-overlay file (typically `docker-compose.host.yml` per `${config.runtime.compose_files}`), each service in `services_to_mount` gets an additional `volumes:` entry: `${config.modules.shared_disk.host_path}:${config.modules.shared_disk.container_path}:${config.modules.shared_disk.mount_mode}`.
 - .gitlab-ci.yml: nothing — the data lives on the deploy server, not in CI.
-- scripts/deploy.sh: a pre-flight check that verifies `${config.modules.shared_disk.host_path}` exists on the deploy server before running compose up. If missing, the deploy aborts with a clear error rather than starting containers that will fail to mount.
+- `osprey deploy`: no pre-flight check of `${config.modules.shared_disk.host_path}` — `osprey deploy up` does not verify the host path exists before bringing containers up (the old `deploy.sh` had this check; it has not carried over). A missing `host_path` currently surfaces only via the mount-presence probe in `scripts/verify.sh`, after containers are already running. Verify the path exists on the deploy server by hand before deploying.
 - scripts/verify.sh: a check that runs `${config.runtime.engine} exec` on one of the `services_to_mount` services and verifies `${config.modules.shared_disk.container_path}` is a populated directory inside the container. Advisory only.
 - .env.template: nothing — the path is captured in `facility-config.yml`, not via env vars.
 

@@ -81,7 +81,7 @@ modules:
   - If `epics_ca.enabled: true`: `network_mode: host` because EPICS CA discovery uses subnet broadcasts that don't traverse bridge NAT reliably. Otherwise the service joins the bridge network like every other MCP server.
   - Mounts `./${config.modules.event_dispatcher.triggers_file}` read-only into the container at `/app/triggers.yml`.
   - Exposes `${config.modules.event_dispatcher.port}` (host-bound when on bridge network; bound directly when host-networked).
-  - Loads `.env.production` for `EPICS_CA_ADDR_LIST`, `EVENT_DISPATCHER_TOKEN`, `DISPATCH_SIDECAR_TOKEN`, and any tokens trigger prompts need.
+  - Loads `.env` for `EPICS_CA_ADDR_LIST`, `EVENT_DISPATCHER_TOKEN`, `DISPATCH_SIDECAR_TOKEN`, and any tokens trigger prompts need.
 - N services `dispatch-sidecar-1 … dispatch-sidecar-N` (container names `${config.facility.prefix}-dispatch-sidecar-${index}`).
   - Each binds `${config.modules.event_dispatcher.sidecar_port_base} + (index - 1)`.
   - Each receives `DISPATCH_SIDECAR_TOKEN` and the LLM provider key (`${config.llm.api_key_env_var}`).
@@ -98,7 +98,7 @@ modules:
     ports:
       - "0.0.0.0:${config.modules.event_dispatcher.sidecar_port_base + i}:9100"
     # END IF
-    env_file: .env.production
+    env_file: .env
     environment:
       - SIDECAR_PORT=${host-or-9100-depending-on-network-mode}
       - ${config.modules.event_dispatcher.sidecar_token_env_var}=${env.${...}}
@@ -114,10 +114,10 @@ modules:
 - One `build-dispatch-sidecar` job in the same stage (Dockerfile at `docker/Dockerfile.dispatch-sidecar`). This is a SEPARATE image from the dispatcher — kept distinct so dispatcher rebuilds don't invalidate every sidecar's image layer.
 - Both images appear in the `release` job's `needs:` and in the IMAGES retag loop. The release job is the only place `:latest` is published.
 
-### scripts/deploy.sh
+### `osprey deploy`
 
-- No special pre-deploy steps for the dispatcher itself. The compose pull + up handles everything.
-- If `epics_ca.enabled: true`: deploy.sh exports `EPICS_CA_ADDR_LIST` from `.env.production` before `compose up` so podman/docker passes it through to the host-networked container.
+- No special pre-deploy steps for the dispatcher itself. The compose pull + up (inside `osprey deploy up`) handles everything.
+- If `epics_ca.enabled: true`: `EPICS_CA_ADDR_LIST` reaches the host-networked container the same way as every other env var — via the service's `env_file: .env` — no separate export step needed.
 
 ### scripts/verify.sh
 
@@ -298,8 +298,8 @@ The `result.transcript` field has the full text + tool call sequence.
 To remove the module from a running facility:
 
 1. Set `modules.event_dispatcher.enabled: false` in `facility-config.yml` (and remove the sub-block contents to keep the file clean).
-2. Re-run scaffolding — compose loses the dispatcher + sidecar services, CI loses the build jobs, deploy.sh loses the dispatcher-specific env exports.
-3. Re-deploy: `ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ./scripts/deploy.sh --clean"` to ensure stopped containers are removed.
+2. Re-run scaffolding — compose loses the dispatcher + sidecar services, CI loses the build jobs.
+3. Re-deploy: `ssh ${config.deploy.host} "cd ${config.deploy.project_path} && osprey deploy down && osprey deploy up"` to ensure stopped containers are removed.
 4. Optionally delete `triggers.yml` from the repo and the dispatcher token entries from `.env`.
 
 In-flight dispatches are dropped on shutdown; if a long-running agent is mid-tool-call, it will be SIGTERM'd by compose. Re-enabling later is symmetric: re-edit config, re-scaffold, re-deploy. `triggers.yml` is preserved across enable/disable cycles unless the user deletes it explicitly.

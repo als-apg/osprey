@@ -847,6 +847,61 @@ jobs:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: uv run pytest tests/e2e/test_dockerfile_e2e.py -v --tb=short
 
+  multi-user-deploy-lifecycle-e2e:
+    name: Multi-User Deploy Lifecycle E2E (epic→main only, real container runtime)
+    runs-on: ubuntu-latest
+    # Deliberately NOT gated like deploy-e2e/scan-deploy-e2e/etc. (which run on
+    # every same-repo PR). This job drives REAL, destructive container/volume
+    # lifecycle operations (decommission/prune/nuke) against the runtime, so it
+    # only runs at the epic-integration-branch -> main boundary, not on every
+    # per-phase PR into an epic/* branch — matching how the epic workflow
+    # already scopes its own heavier gates. It is intentionally NOT part of
+    # every epic-phase PR's checks; be honest about that scoping rather than
+    # implying this runs on every PR the way the jobs above do.
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Run multi-user deploy lifecycle E2E
+      run: |
+        uv run pytest tests/e2e/test_deploy_lifecycle.py -v --tb=short
+
+    # Belt-and-suspenders on top of the test's own try/finally teardown: every
+    # resource named here is exact (never a prune/-a/wildcard), matching
+    # tests/e2e/test_deploy_lifecycle.py's own container-ops safety guardrail.
+    - name: Clean up any stranded lifecycle-e2e resources
+      if: always()
+      run: |
+        for user in alice bob carol dave erin; do
+          docker rm -f "e2e-web-${user}" || true
+          docker volume rm "osprey-e2e-mus-p3_${user}-claude-config" || true
+          docker volume rm "osprey-e2e-mus-p3_${user}-agent-data" || true
+        done
+        docker rm -f e2e-nginx || true
+        docker rm -f osprey-e2e-mus-p3-registry || true
+        docker compose -p osprey-e2e-mus-p3 down || true
+
   all-checks-passed:
     name: All CI Checks Passed
     needs: [test, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, scan-deploy-e2e, va-substrate-equivalence-e2e, tiled-roundtrip-e2e, dockerfile-e2e, agentic-per-preset]

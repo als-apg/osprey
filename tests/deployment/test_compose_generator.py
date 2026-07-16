@@ -19,7 +19,7 @@ import yaml
 from ruamel.yaml import YAML
 
 from osprey.cli.build_cmd import _copy_service_templates
-from osprey.deployment.compose_generator import prepare_compose_files
+from osprey.deployment.compose_generator import prepare_compose_files, resolve_user_volume_names
 
 
 def _write_config(project_path: Path, deployed_services: list[str]) -> Path:
@@ -1327,3 +1327,46 @@ def test_multi_worker_dispatch_container_names_are_each_namespaced() -> None:
         "dispatch-worker-1": "proj-a-dispatch-worker-1",
         "dispatch-worker-2": "proj-a-dispatch-worker-2",
     }, names
+
+
+# ---------------------------------------------------------------------------
+# resolve_user_volume_names
+#
+# Web terminal per-user volumes are declared bare in the compose template, so
+# compose namespaces them with COMPOSE_PROJECT_NAME. runtime_helper.runtime_env
+# pins COMPOSE_PROJECT_NAME to resolve_project_name(config), so the real
+# runtime volume name is always "<resolve_project_name(config)>_<bare-name>".
+# resolve_user_volume_names must compute that same value so volume-targeting
+# code (inspect/rm/archive) doesn't have to shell out to discover it.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_user_volume_names_uses_explicit_project_name() -> None:
+    """An explicit project_name wins over any project_root fallback."""
+    config = {"project_name": "proj-a", "project_root": "/somewhere/else"}
+    claude_config, agent_data = resolve_user_volume_names(config, "alice")
+    assert claude_config == "proj-a_alice-claude-config"
+    assert agent_data == "proj-a_alice-agent-data"
+
+
+def test_resolve_user_volume_names_falls_back_to_project_root_basename() -> None:
+    """Without project_name, the project comes from basename(project_root)."""
+    config = {"project_root": "/home/user/my-facility-project"}
+    claude_config, agent_data = resolve_user_volume_names(config, "bob")
+    assert claude_config == "my-facility-project_bob-claude-config"
+    assert agent_data == "my-facility-project_bob-agent-data"
+
+
+def test_resolve_user_volume_names_default_project_name() -> None:
+    """With neither project_name nor project_root, the default project name applies."""
+    claude_config, agent_data = resolve_user_volume_names({}, "carol")
+    assert claude_config == "unnamed-project_carol-claude-config"
+    assert agent_data == "unnamed-project_carol-agent-data"
+
+
+def test_resolve_user_volume_names_none_config_uses_default_project_name() -> None:
+    """A ``None`` config is treated as empty (resolving to ``unnamed-project``),
+    symmetric with ``runtime_helper.runtime_env`` — it must not raise."""
+    claude_config, agent_data = resolve_user_volume_names(None, "dave")
+    assert claude_config == "unnamed-project_dave-claude-config"
+    assert agent_data == "unnamed-project_dave-agent-data"

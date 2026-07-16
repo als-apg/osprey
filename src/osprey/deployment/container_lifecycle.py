@@ -4,8 +4,10 @@ Manages the lifecycle of containerized service deployments using
 Docker or Podman compose.
 """
 
+import getpass
 import os
 import secrets
+import shutil
 import string
 import subprocess
 from collections.abc import Callable
@@ -20,8 +22,11 @@ from osprey.deployment.compose_generator import (
 )
 from osprey.deployment.runtime_helper import (
     get_runtime_command,
+    runtime_env,
     verify_runtime_is_running,
 )
+from osprey.deployment.web_terminals.artifacts import write_web_terminal_artifacts
+from osprey.deployment.web_terminals.seeding import seed_user_containers
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.dotenv import parse_dotenv_file
 from osprey.utils.log_filter import quiet_logger
@@ -305,9 +310,8 @@ def _raise_invalid_var(var: str) -> None:
 # world (_SERVICE_TOKEN_VARS / find_service_config's compose templates) ever
 # requires it: ARIEL_DSN is provisioned by the separate osprey-build-deploy
 # skill's facility-scaffolding pipeline (its own generated
-# docker-compose.yml/.env.template, brought up by the facility's own
-# scripts/deploy.sh via a raw `docker compose`/`podman compose` call — never
-# through `osprey deploy up` or this module), so no _SERVICE_TOKEN_VARS entry
+# docker-compose.yml/.env.template for that facility's ARIEL stack) — not
+# minted by this deploy system's token path, so no _SERVICE_TOKEN_VARS entry
 # will ever declare it. This is defense-in-depth, not enforcement: if an
 # operator or other tooling nonetheless places ARIEL_DSN into *this*
 # project's effective env, it is validated like any other var — never
@@ -623,8 +627,262 @@ def _build_project_image(config: dict, dev_mode: bool, env: dict) -> None:
                 logger.warning("Could not remove staged dev wheel %s", whl)
 
 
+def _env_file_args() -> list[str]:
+    """``["--env-file", ".env"]`` if ``.env`` exists in the cwd, else ``[]``.
+
+    Shared by :func:`deploy_up`'s plain-services compose invocation and
+    :func:`_deploy_up_web_terminals`'s two invocations, so the "no .env" warning
+    (and the fallback-to-defaults behavior it describes) is only defined once.
+    """
+    if Path(".env").exists():
+        return ["--env-file", ".env"]
+    logger.warning(
+        "No .env file found - services will start with default/empty environment variables"
+    )
+    logger.info("To configure API keys: cp .env.example .env && edit .env")
+    return []
+
+
+def _web_terminals_enabled(config: dict) -> bool:
+    """True if ``modules.web_terminals.enabled`` is set on ``config``.
+
+    Same read as :func:`osprey.deployment.web_terminals.lint.lint_web_terminals`'s
+    own enabled-gate — the one place ``deploy_up`` decides whether a
+    web-terminal reconcile is part of this deploy. Coerces a present-but-null
+    ``modules`` or ``modules.web_terminals`` stanza (e.g. a bare ``web_terminals:``
+    key in YAML, which parses to ``None``) to an empty dict rather than letting
+    ``.get`` on ``None`` raise ``AttributeError`` — mirroring lint's own
+    ``_as_dict`` coercion, which treats that same null stanza as disabled.
+    """
+    modules = config.get("modules") or {}
+    web_terminals = modules.get("web_terminals") or {}
+    return bool(web_terminals.get("enabled"))
+
+
+def _enable_linger(config: dict, run_env: dict[str, str]) -> None:
+    """Enable rootless-podman linger so web-terminal containers survive logout.
+
+    Rootless podman runs containers under the deploy user's ``systemd --user``
+    session, which systemd-logind tears down (along with everything under it)
+    the moment that user's last login session ends. ``loginctl enable-linger
+    <user>`` asks logind to keep the session alive across logout and reboot
+    instead, which is what makes a rootless-podman web-terminal deploy survive
+    the operator closing their SSH session. Docker containers run under the
+    docker daemon rather than a per-user systemd session, so there is nothing
+    to enable there.
+
+    This is a best-effort persistence step, not a deploy precondition: every
+    way it can fail to apply (wrong runtime, no ``loginctl`` on ``PATH``, no
+    systemd, no permission) is logged and swallowed rather than raised, so a
+    host that can't support linger still completes its deploy.
+
+    :param config: Raw deploy config, used only to detect podman vs. docker
+        via :func:`get_runtime_command`.
+    :param run_env: The ``COMPOSE_PROJECT_NAME``-pinned environment the caller
+        already built via :func:`runtime_helper.runtime_env`; reused here so
+        the ``loginctl`` subprocess sees the same ``PATH`` as the compose
+        calls around it.
+    """
+    if get_runtime_command(config)[0] != "podman":
+        return  # linger is a rootless-podman/systemd concept; docker has no analog
+
+    if shutil.which("loginctl") is None:
+        logger.warning("loginctl not found on PATH — skipping podman linger enable")
+        return
+
+    try:
+        deploy_user = getpass.getuser()
+    except (KeyError, OSError) as exc:
+        # getuser() falls back to pwd.getpwuid(os.getuid()) when USER/LOGNAME
+        # etc. are all unset, which raises KeyError (3.12 and earlier) or
+        # OSError (3.13+) for a uid with no passwd entry -- e.g. an LDAP/NSS
+        # user under a stripped-env systemd/cron context. Best-effort means
+        # best-effort: give up on linger rather than aborting the deploy.
+        logger.warning(f"Could not determine deploy user for linger: {exc}")
+        return
+
+    try:
+        status = subprocess.run(
+            ["loginctl", "show-user", deploy_user, "--property=Linger"],
+            env=run_env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if status.returncode == 0 and status.stdout.strip() == "Linger=yes":
+            logger.debug(f"Linger already enabled for {deploy_user} — nothing to do")
+            return
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.warning(f"Could not check linger status for {deploy_user}: {exc}")
+        # Fall through -- a failed status check doesn't mean enabling would fail.
+
+    try:
+        enable = subprocess.run(
+            ["loginctl", "enable-linger", deploy_user],
+            env=run_env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        if enable.returncode == 0:
+            logger.info(f"Enabled systemd linger for {deploy_user} (podman persistence)")
+        else:
+            logger.warning(
+                f"loginctl enable-linger {deploy_user} failed (exit {enable.returncode}): "
+                f"{enable.stderr.strip()}"
+            )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.warning(f"Could not enable linger for {deploy_user}: {exc}")
+
+
+def _deploy_up_web_terminals(
+    config: dict, compose_files: list[str], dev_mode: bool, env: dict[str, str]
+) -> None:
+    """Reconcile the web-terminal stack (plus any co-deployed backend services).
+
+    Renders and writes the web-terminal artifacts (``docker-compose.web.yml``,
+    ``nginx/nginx.conf``, ``nginx/landing.html``) under the project root via
+    :func:`write_web_terminal_artifacts`, then reconciles TWO INDEPENDENT
+    compose invocations rather than merging everything behind one ``-f`` list:
+
+    1. The backend-services stack (``compose_files``, possibly just the
+       network-only top-level file when no service is actually deployed —
+       see the ``deployed_services`` guard below), exactly as the plain
+       non-web path would run it (``up`` (``--build`` under ``dev_mode``)
+       ``-d``, no ``pull``).
+    2. The web-terminal stack (``docker-compose.web.yml`` alone): ``pull``
+       then ``up -d``.
+
+    WHY TWO INVOCATIONS, NOT ONE ``-f a -f b -f docker-compose.web.yml``:
+    compose resolves every *relative* path in *every* merged ``-f`` file
+    (bind-mount sources, ``build:`` contexts, ``env_file:``) against the
+    directory of the FIRST ``-f`` file — the "compose project directory" —
+    never against the file's own directory. ``compose_files`` are written
+    under ``build/services/`` and their own templates already lean on that
+    rule (see the comment atop ``event_dispatcher/docker-compose.yml.j2``);
+    ``docker-compose.web.yml`` is written to the project ROOT by
+    :func:`write_web_terminal_artifacts` and its relative paths
+    (``env_file: .env.production``, ``./nginx/nginx.conf``, ``./nginx/
+    landing.html``) are project-root-relative. Merging both behind one
+    ``-f`` list makes compose resolve the web file's paths against
+    ``build/services/`` instead — real deploys failed immediately with
+    ``env file .../build/services/.env.production not found``.
+
+    A single merged invocation with ``--project-directory <project_root>``
+    was considered and rejected: pinning the project directory to the root
+    fixes the web file but breaks EVERY service template's own relative
+    paths the same way in the other direction (verified with a real
+    ``compose ... --project-directory . config``: ``event-dispatcher``'s
+    ``build.context`` resolved to ``<root>/event_dispatcher`` instead of the
+    real ``build/services/event_dispatcher``). Two invocations sidestep the
+    conflict entirely — each compose file gets the project directory (its
+    own) it was actually written to resolve against — and cost nothing
+    functionally: the web stack runs every service under
+    ``network_mode: host`` (see ``docker-compose.web.yml.j2``), so it never
+    needed to join ``osprey-network`` from the services file anyway.
+
+    The services sub-invocation only runs when a real service is deployed
+    (``config["deployed_services"]`` non-empty): ``compose_files`` always
+    includes the top-level ``build/services/docker-compose.yml`` (a bare
+    network declaration, no ``services:`` key) even for a web-terminals-only
+    deploy, and ``compose up`` on a file with zero services fails outright
+    with ``no service selected`` — this is exactly why the *plain* non-web
+    path's own early-return guards on ``deployed_services`` before ever
+    reaching ``up``. It also never runs ``pull``: unlike the web stack's
+    images (always registry-hosted — ``nginx:*-alpine`` and
+    ``<registry>/web-terminal:latest``), a deployed service like
+    ``event_dispatcher`` may declare only a ``build:`` block with no
+    published upstream tag, and ``compose pull`` hard-fails (exit 1) on a
+    buildable service compose can't find remotely — ``compose up`` builds it
+    locally instead, exactly like the plain non-web path already relies on.
+
+    This path always runs detached, regardless of the caller's ``--detached``
+    flag: ``deploy_up``'s non-detached path ``os.execvpe``-replaces the current
+    process (see below), which would make it impossible for a caller to run
+    anything — e.g. the post-up hook this function ends with — after
+    ``compose up`` returns. A web-terminal deploy needs that hook, so it can
+    never take the execvpe path.
+
+    Idempotency comes from compose's own reconciliation (``pull`` + ``up -d``
+    for the web stack; plain ``up -d`` for the services stack, mirroring the
+    non-web path): no bespoke digest/state diffing, and deliberately no
+    ``--force-recreate`` on either invocation, so a no-op second run
+    recreates zero containers. Under ``dev_mode`` the services ``up -d`` also
+    carries ``--build``, mirroring the non-web path's dev-mode ``--build``:
+    without it, a co-deployed backend service's cached image tag would keep
+    running the stale code from its first build. The web stack never needs
+    ``--build`` — none of its images have a ``build:`` block.
+
+    :param config: Raw deploy config.
+    :param compose_files: Compose files ``prepare_compose_files`` already
+        resolved — always at least the top-level network-only file, even for
+        a web-terminals-only deploy (see the ``deployed_services`` guard
+        above for why that alone doesn't get an ``up`` invocation).
+    :param dev_mode: Whether ``--dev`` was passed; appends ``--build`` to the
+        services stack's ``up -d`` invocation when set.
+    :param env: Base environment for the pull/up subprocesses (already has
+        ``DEV_MODE`` applied by the caller when relevant); pinned with
+        ``COMPOSE_PROJECT_NAME`` via :func:`runtime_env` before use here so
+        both invocations share one project namespace — and so the volume
+        namespace compose derives matches the project name baked into
+        container labels.
+    """
+    write_web_terminal_artifacts(config)
+
+    run_env = runtime_env(config, env)
+    env_file_args = _env_file_args()
+
+    # ---- backend services (own compose project directory: build/services/) --
+    # Skipped when no real service is deployed -- see docstring for why
+    # `up` on the network-only top-level file alone would fail outright.
+    if config.get("deployed_services"):
+        services_cmd = get_runtime_command(config)
+        for compose_file in compose_files:
+            services_cmd.extend(("-f", compose_file))
+        services_cmd.extend(env_file_args)
+        services_cmd.append("up")
+        if dev_mode:
+            # Mirrors the plain non-web path's dev-mode --build (see deploy_up):
+            # without it, a co-deployed service's cached image tag keeps running
+            # the stale code from its first build.
+            services_cmd.append("--build")
+        services_cmd.append("-d")
+        logger.info(f"Running command:\n    {' '.join(services_cmd)}")
+        subprocess.run(services_cmd, env=run_env, check=True)
+
+    # ---- web-terminal stack (own compose project directory: project root) --
+    web_cmd = get_runtime_command(config)
+    web_cmd.extend(("-f", "docker-compose.web.yml"))
+    web_cmd.extend(env_file_args)
+
+    pull_cmd = web_cmd + ["pull"]
+    logger.info(f"Running command:\n    {' '.join(pull_cmd)}")
+    subprocess.run(pull_cmd, env=run_env, check=True)
+
+    up_cmd = web_cmd + ["up", "-d"]
+    logger.info(f"Running command:\n    {' '.join(up_cmd)}")
+    subprocess.run(up_cmd, env=run_env, check=True)
+
+    # -----------------------------------------------------------------------
+    # POST-UP HOOK — web-terminal reconcile complete (`compose up -d`
+    # succeeded, containers running). Linger runs first so a rootless-podman
+    # host survives the deploy operator's session ending before seeding's
+    # (longer-running, per-user) exec calls are attempted; seeding itself
+    # tolerates per-user failures and logs rather than aborting the deploy.
+    # -----------------------------------------------------------------------
+    _enable_linger(config, run_env)
+    seed_user_containers(config, env=run_env)
+
+
 def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False):
     """Start services using container runtime (Docker or Podman).
+
+    When ``modules.web_terminals.enabled`` is set, the web-terminal stack is
+    reconciled too (rendering its artifacts and including
+    ``docker-compose.web.yml`` in the compose invocation) — see
+    :func:`_deploy_up_web_terminals`. That reconcile always runs detached,
+    independent of ``detached``, and takes over from the plain services path
+    below.
 
     :param config_path: Path to the configuration file
     :type config_path: str
@@ -637,7 +895,11 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     """
     config, compose_files = prepare_compose_files(config_path, dev_mode, expose_network)
 
-    if not config.get("deployed_services"):
+    web_terminals_enabled = _web_terminals_enabled(config)
+
+    # A web-terminals-only deploy (no backend services) is valid, so the
+    # early-return below must not fire on empty deployed_services in that case.
+    if not config.get("deployed_services") and not web_terminals_enabled:
         logger.key_info(
             "No services configured for this project — deployed_services is empty in "
             "config.yml. Skipping osprey deploy up."
@@ -670,19 +932,14 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     # `compose up` (which, non-detached, os.execvpe-replaces this process).
     _build_project_image(config, dev_mode, env)
 
+    if web_terminals_enabled:
+        _deploy_up_web_terminals(config, compose_files, dev_mode, env)
+        return
+
     cmd = get_runtime_command(config)
     for compose_file in compose_files:
         cmd.extend(("-f", compose_file))
-
-    # Only add --env-file if .env exists, otherwise let docker-compose use defaults
-    env_file = Path(".env")
-    if env_file.exists():
-        cmd.extend(["--env-file", ".env"])
-    else:
-        logger.warning(
-            "No .env file found - services will start with default/empty environment variables"
-        )
-        logger.info("To configure API keys: cp .env.example .env && edit .env")
+    cmd.extend(_env_file_args())
 
     cmd.append("up")
     if dev_mode:

@@ -33,7 +33,7 @@ modules:
 
 - compose: nothing if the search server runs as a stdio subprocess inside the web terminal (default). If the facility opts to run it as an HTTP service, a `${config.facility.prefix}-mcp-wiki-search` block is added on `${config.ports.wiki_search}` (allocate this port if needed).
 - .gitlab-ci.yml: adds a `build-wiki-search` job only if running as an HTTP container; otherwise nothing.
-- scripts/deploy.sh: nothing.
+- `osprey deploy`: nothing.
 - scripts/verify.sh: a check that calls the wiki API's "current user" endpoint with the configured auth method and expects a 200 response. Advisory only.
 - .env.template: adds an entry for `${config.modules.wiki_search.token_env_var}` with a placeholder value and a comment pointing at the relevant section of the wiki's user-settings page for token generation.
 
