@@ -103,12 +103,11 @@ class PhysicsFault:
     ``lattice/inventory.py::pyat_coupled_device_ids`` produces), NOT by EPICS
     channel name, and NOT a mock-channel override: it never touches the
     ``overrides``/``channels`` validation path. A render step resolves this
-    into VA env (``VA_QUAD_MISALIGN``/``VA_BPM_ERRORS``/``VA_CORR_GAIN``)
+    into VA env (``VA_BPM_ERRORS``/``VA_CORR_GAIN``)
     before ``deploy up``; the VA applies it once at boot (hot-swapping a
     physics fault requires a restart, unlike ``overrides``/``archiver``).
     """
 
-    quad_misalign: dict[str, float] = field(default_factory=dict)
     bpm_errors: dict[str, BpmErrorSpec] = field(default_factory=dict)
     corrector_gain: dict[str, float] = field(default_factory=dict)
 
@@ -353,26 +352,18 @@ def _parse_physics_fault(scenario_name: str, raw: Any) -> PhysicsFault | None:
 
     prefix = f"Scenario {scenario_name!r} physics"
     return PhysicsFault(
-        quad_misalign=_parse_quad_misalign(prefix, raw.get("quad_misalign", {})),
         bpm_errors=_parse_bpm_errors(prefix, raw.get("bpm_errors", {})),
         corrector_gain=_parse_corrector_gain(prefix, raw.get("corrector_gain", {})),
     )
 
 
 def _parse_device_number(prefix: str, block: str, device: Any, value: Any) -> tuple[str, float]:
-    """Validate one ``device id -> number`` entry shared by quad_misalign/corrector_gain."""
+    """Validate one ``device id -> number`` entry shared by corrector_gain."""
     if not isinstance(device, str) or not device:
         raise ValueError(f"{prefix}: {block!r} keys must be non-empty device id strings")
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{prefix}: {block}[{device!r}] must be a number, got {value!r}")
     return device, float(value)
-
-
-def _parse_quad_misalign(prefix: str, raw: Any) -> dict[str, float]:
-    """Parse 'quad_misalign': device id -> transverse offset dx, in meters."""
-    if not isinstance(raw, dict):
-        raise ValueError(f"{prefix}: 'quad_misalign' must be a mapping of device id to dx (meters)")
-    return dict(_parse_device_number(prefix, "quad_misalign", d, v) for d, v in raw.items())
 
 
 def _parse_corrector_gain(prefix: str, raw: Any) -> dict[str, float]:

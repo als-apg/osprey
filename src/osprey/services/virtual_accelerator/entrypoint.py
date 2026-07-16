@@ -39,7 +39,6 @@ ENGINE_POLL_INTERVAL_S = 1.0
 # magnitudes, so real faults always parse, but tight enough to reject a
 # fat-fingered/unit-confused entry (e.g. millimeters typed where meters were
 # meant) before it ever reaches PhysicsBridge.
-MAX_QUAD_MISALIGN_DX_M = 1e-2  # 1 cm, vs. the ring's ~0.3 m drift spacing
 MAX_BPM_OFFSET_M = 1e-2
 MIN_BPM_GAIN = 0.1
 MAX_BPM_GAIN = 10.0
@@ -154,27 +153,17 @@ def main() -> None:
     if stuck_setpoints:
         print(f"VA apply-fault active: {sorted(stuck_setpoints)}", flush=True)
 
-    # VA_QUAD_MISALIGN is dx-only by spec (this env surface never parses
-    # dy/roll). PhysicsBridge's FR12 boot guard still checks the full
-    # dx/dy/roll misalignment for a stable closed orbit, defending
-    # programmatic/future dy/roll seeds -- unreachable from here today since
-    # dx alone doesn't destabilize this lattice (only roll does).
-    quad_misalign = _parse_device_float_map("VA_QUAD_MISALIGN", bound=MAX_QUAD_MISALIGN_DX_M)
-    element_misalignments = {device: {"dx": dx} for device, dx in quad_misalign.items()}
     bpm_errors = _parse_bpm_errors("VA_BPM_ERRORS")
     # VA_CORR_GAIN feeds PhysicsBridge's magnet_cal, which is family-agnostic
     # (any magnet, not just correctors) despite the "CORR" name here.
     corr_gain = _parse_device_float_map("VA_CORR_GAIN", bound=MAX_CORR_GAIN_FACTOR)
     corrector_gains = {device: {"factor": factor} for device, factor in corr_gain.items()}
-    if element_misalignments:
-        print(f"VA apply-fault active: element_misalignments={element_misalignments}", flush=True)
     if bpm_errors:
         print(f"VA apply-fault active: bpm_errors={bpm_errors}", flush=True)
     if corrector_gains:
         print(f"VA apply-fault active: corrector_gains={corrector_gains}", flush=True)
 
     bridge = PhysicsBridge(
-        element_misalignments=element_misalignments or None,
         bpm_errors=bpm_errors or None,
         corrector_gains=corrector_gains or None,
     )

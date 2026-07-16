@@ -14,20 +14,20 @@ from osprey.services.virtual_accelerator import entrypoint
 
 
 class TestParseDeviceFloatMap:
-    """Backs both VA_QUAD_MISALIGN and VA_CORR_GAIN."""
+    """Backs VA_CORR_GAIN."""
 
     def test_absent_env_var_yields_empty_map(self, monkeypatch):
-        monkeypatch.delenv("VA_QUAD_MISALIGN", raising=False)
-        assert entrypoint._parse_device_float_map("VA_QUAD_MISALIGN", bound=1e-2) == {}
+        monkeypatch.delenv("VA_CORR_GAIN", raising=False)
+        assert entrypoint._parse_device_float_map("VA_CORR_GAIN", bound=1e-2) == {}
 
     def test_empty_env_var_yields_empty_map(self, monkeypatch):
-        monkeypatch.setenv("VA_QUAD_MISALIGN", "")
-        assert entrypoint._parse_device_float_map("VA_QUAD_MISALIGN", bound=1e-2) == {}
+        monkeypatch.setenv("VA_CORR_GAIN", "")
+        assert entrypoint._parse_device_float_map("VA_CORR_GAIN", bound=1e-2) == {}
 
     def test_parses_a_single_entry(self, monkeypatch):
-        monkeypatch.setenv("VA_QUAD_MISALIGN", "QF07=300e-6")
-        result = entrypoint._parse_device_float_map("VA_QUAD_MISALIGN", bound=1e-2)
-        assert result == {"QF07": pytest.approx(300e-6)}
+        monkeypatch.setenv("VA_CORR_GAIN", "QF07=0.9")
+        result = entrypoint._parse_device_float_map("VA_CORR_GAIN", bound=5.0)
+        assert result == {"QF07": pytest.approx(0.9)}
 
     def test_parses_multiple_comma_separated_entries(self, monkeypatch):
         monkeypatch.setenv("VA_CORR_GAIN", "HCM01=0.9,VCM03=-1")
@@ -35,19 +35,19 @@ class TestParseDeviceFloatMap:
         assert result == {"HCM01": pytest.approx(0.9), "VCM03": pytest.approx(-1.0)}
 
     def test_tolerates_incidental_whitespace(self, monkeypatch):
-        monkeypatch.setenv("VA_QUAD_MISALIGN", " QF07 = 300e-6 , QD03=-150e-6 ")
-        result = entrypoint._parse_device_float_map("VA_QUAD_MISALIGN", bound=1e-2)
-        assert result == {"QF07": pytest.approx(300e-6), "QD03": pytest.approx(-150e-6)}
+        monkeypatch.setenv("VA_CORR_GAIN", " HCM01 = 0.9 , VCM03=-1 ")
+        result = entrypoint._parse_device_float_map("VA_CORR_GAIN", bound=5.0)
+        assert result == {"HCM01": pytest.approx(0.9), "VCM03": pytest.approx(-1.0)}
 
     def test_magnitude_within_bound_is_accepted(self, monkeypatch):
-        monkeypatch.setenv("VA_QUAD_MISALIGN", "QF07=1e-2")
-        result = entrypoint._parse_device_float_map("VA_QUAD_MISALIGN", bound=1e-2)
-        assert result == {"QF07": pytest.approx(1e-2)}
+        monkeypatch.setenv("VA_CORR_GAIN", "HCM01=5.0")
+        result = entrypoint._parse_device_float_map("VA_CORR_GAIN", bound=5.0)
+        assert result == {"HCM01": pytest.approx(5.0)}
 
     def test_magnitude_beyond_bound_is_rejected(self, monkeypatch):
-        monkeypatch.setenv("VA_QUAD_MISALIGN", "QF07=5e-2")
-        with pytest.raises(SystemExit, match="QF07"):
-            entrypoint._parse_device_float_map("VA_QUAD_MISALIGN", bound=1e-2)
+        monkeypatch.setenv("VA_CORR_GAIN", "HCM01=10")
+        with pytest.raises(SystemExit, match="HCM01"):
+            entrypoint._parse_device_float_map("VA_CORR_GAIN", bound=5.0)
 
     def test_negative_magnitude_beyond_bound_is_rejected(self, monkeypatch):
         monkeypatch.setenv("VA_CORR_GAIN", "HCM01=-10")
@@ -55,14 +55,14 @@ class TestParseDeviceFloatMap:
             entrypoint._parse_device_float_map("VA_CORR_GAIN", bound=5.0)
 
     def test_non_numeric_value_is_rejected(self, monkeypatch):
-        monkeypatch.setenv("VA_QUAD_MISALIGN", "QF07=not-a-number")
+        monkeypatch.setenv("VA_CORR_GAIN", "HCM01=not-a-number")
         with pytest.raises(SystemExit, match="non-numeric"):
-            entrypoint._parse_device_float_map("VA_QUAD_MISALIGN", bound=1e-2)
+            entrypoint._parse_device_float_map("VA_CORR_GAIN", bound=5.0)
 
     def test_missing_equals_sign_is_rejected(self, monkeypatch):
-        monkeypatch.setenv("VA_QUAD_MISALIGN", "QF07")
-        with pytest.raises(SystemExit, match="QF07"):
-            entrypoint._parse_device_float_map("VA_QUAD_MISALIGN", bound=1e-2)
+        monkeypatch.setenv("VA_CORR_GAIN", "HCM01")
+        with pytest.raises(SystemExit, match="HCM01"):
+            entrypoint._parse_device_float_map("VA_CORR_GAIN", bound=5.0)
 
 
 class TestParseBpmErrors:

@@ -221,7 +221,7 @@ def render_scenario_physics_env(
     :class:`~osprey.simulation.machine.PhysicsFault`) is deploy-time-only -- a
     physics fault applies once at VA container boot, and hot-swapping it needs
     a restart, unlike ``overrides``/``archiver`` -- so it is rendered here into
-    the project ``.env`` as ``VA_QUAD_MISALIGN``/``VA_BPM_ERRORS``/
+    the project ``.env`` as ``VA_BPM_ERRORS``/
     ``VA_CORR_GAIN``, the exact env vars
     ``virtual_accelerator/entrypoint.py`` parses, rather than applied live.
     Call this before ``deploy up`` so the VA container picks up the rendered
@@ -241,7 +241,7 @@ def render_scenario_physics_env(
         The ``VA_*`` vars written. Empty if no active scenario declares a
         ``physics`` block -- backward compatible: a project whose ``.env``
         never had a rendered fault gets no ``.env`` write at all. Every call
-        reconciles the full ``VA_QUAD_MISALIGN``/``VA_BPM_ERRORS``/
+        reconciles the full ``VA_BPM_ERRORS``/
         ``VA_CORR_GAIN`` block to exactly the active set, so switching to a
         scenario with no (or a different) ``physics`` block clears a prior
         render's stale values rather than leaving them to leak into the next
@@ -294,7 +294,6 @@ def _render_physics_vars(scenarios: dict[str, Scenario], active: list[str]) -> d
     for ``overrides``/``archiver`` -- a device faulted by two active scenarios
     at once would compose order-dependently and silently wrong.
     """
-    quad_misalign: dict[str, float] = {}
     corrector_gain: dict[str, float] = {}
     bpm_errors: dict[str, BpmErrorSpec] = {}
     owner: dict[tuple[str, str], str] = {}  # (field, device) -> owning scenario name
@@ -313,9 +312,6 @@ def _render_physics_vars(scenarios: dict[str, Scenario], active: list[str]) -> d
         physics = scenarios[name].physics
         if physics is None:
             continue
-        for device, dx in physics.quad_misalign.items():
-            claim("quad_misalign", device, name)
-            quad_misalign[device] = dx
         for device, factor in physics.corrector_gain.items():
             claim("corrector_gain", device, name)
             corrector_gain[device] = factor
@@ -330,9 +326,6 @@ def _render_physics_vars(scenarios: dict[str, Scenario], active: list[str]) -> d
     # render" all the way through, matching the docstring's "empty if no
     # active scenario declares a physics block" contract.
     rendered: dict[str, str] = {}
-    quad_misalign_str = _render_device_value_map(quad_misalign)
-    if quad_misalign_str:
-        rendered["VA_QUAD_MISALIGN"] = quad_misalign_str
     corrector_gain_str = _render_device_value_map(corrector_gain)
     if corrector_gain_str:
         rendered["VA_CORR_GAIN"] = corrector_gain_str
@@ -382,7 +375,7 @@ def _bpm_error_env_fields(spec: BpmErrorSpec) -> dict[str, float]:
 
 # The full set of keys `_write_physics_env` owns -- reconciled on every call
 # (set if rendered, removed if not), never left stale from a prior scenario.
-_PHYSICS_ENV_VARS = ("VA_QUAD_MISALIGN", "VA_BPM_ERRORS", "VA_CORR_GAIN")
+_PHYSICS_ENV_VARS = ("VA_BPM_ERRORS", "VA_CORR_GAIN")
 
 
 def _write_physics_env(env_path: Path, rendered: dict[str, str]) -> None:

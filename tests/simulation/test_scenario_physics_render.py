@@ -2,16 +2,17 @@
 
 Tests two things per bundle: the ``physics`` block parses into the ``Scenario``
 (task 4.1's schema), and :func:`render_scenario_physics_env` (task 4.2) emits
-the exact ``VA_QUAD_MISALIGN``/``VA_BPM_ERRORS``/``VA_CORR_GAIN`` strings the
+the exact ``VA_BPM_ERRORS``/``VA_CORR_GAIN`` strings the
 VA entrypoint parses -- round-tripped through the entrypoint's own parse
 helpers (not just asserted as a string) so the two-party contract actually
 holds, not merely "looks right". Also covers backward compatibility: a bundle
 with no ``physics`` block still parses and renders nothing.
 
-Uses the two shipped discovery scenarios (``errant-quad``, ``bpm-polarity``)
-as real fixtures, and ``rf-thermal`` (no ``physics`` block) for the
-backward-compat case -- the same shipped ``control_assistant`` bundle tree
-``test_apply_timezone.py`` stages into a temp project.
+Uses the shipped ``bpm-polarity`` discovery scenario as a real fixture, and
+``rf-thermal`` (no ``physics`` block) for the backward-compat case -- the same
+shipped ``control_assistant`` bundle tree ``test_apply_timezone.py`` stages
+into a temp project. ``corrector_gain`` has no shipped scenario fixture, so
+its coverage uses ``_make_inline_project``.
 """
 
 from __future__ import annotations
@@ -69,40 +70,6 @@ def _make_inline_project(tmp_path: Path, scenarios: dict) -> Path:
     return tmp_path
 
 
-class TestErrantQuadScenario:
-    """physics.quad_misalign -> VA_QUAD_MISALIGN, round-tripped through the entrypoint."""
-
-    def test_physics_block_parses_into_scenario(self, tmp_path):
-        project = _make_project(tmp_path)
-        engine = SimulationEngine.from_file(project / "data/simulation/machine.json")
-        engine.set_active_scenario("errant-quad")
-        scenario = engine._scenarios[
-            "errant-quad"
-        ]  # private: no public accessor for a scenario's parsed physics block
-        assert scenario.physics is not None
-        assert scenario.physics.quad_misalign == {"QF07": pytest.approx(3.0e-4)}
-        assert scenario.physics.bpm_errors == {}
-        assert scenario.physics.corrector_gain == {}
-
-    def test_render_emits_va_quad_misalign(self, tmp_path):
-        project = _make_project(tmp_path)
-        rendered = render_scenario_physics_env(project, ["errant-quad"])
-
-        assert set(rendered) == {"VA_QUAD_MISALIGN"}
-        env_text = (project / ".env").read_text()
-        assert f"VA_QUAD_MISALIGN={rendered['VA_QUAD_MISALIGN']}" in env_text
-
-    def test_rendered_value_round_trips_through_entrypoint_parser(self, tmp_path, monkeypatch):
-        project = _make_project(tmp_path)
-        rendered = render_scenario_physics_env(project, ["errant-quad"])
-
-        monkeypatch.setenv("VA_QUAD_MISALIGN", rendered["VA_QUAD_MISALIGN"])
-        parsed = entrypoint._parse_device_float_map(  # exercising the entrypoint's own parse helper directly
-            "VA_QUAD_MISALIGN", bound=entrypoint.MAX_QUAD_MISALIGN_DX_M
-        )
-        assert parsed == {"QF07": pytest.approx(3.0e-4)}
-
-
 class TestBpmPolarityScenario:
     """physics.bpm_errors -> VA_BPM_ERRORS, round-tripped through the entrypoint."""
 
@@ -116,7 +83,6 @@ class TestBpmPolarityScenario:
         assert scenario.physics is not None
         assert scenario.physics.bpm_errors["BPM17"].polarity == -1
         assert scenario.physics.bpm_errors["BPM17"].offset == 0.0
-        assert scenario.physics.quad_misalign == {}
         assert scenario.physics.corrector_gain == {}
 
     def test_render_emits_va_bpm_errors_isotropic_fanout(self, tmp_path):
@@ -169,39 +135,46 @@ class TestBackwardCompatibility:
         assert not (project / ".env").is_file()
 
 
+_RECONCILIATION_SCENARIOS = {
+    "corr-fault": {"physics": {"corrector_gain": {"HCM01": 1.15}}},
+    "bpm-fault": {"physics": {"bpm_errors": {"BPM17": {"polarity": -1}}}},
+    "no-fault": {},
+}
+
+
 class TestEnvReconciliation:
     """Re-rendering after a scenario switch clears a prior render's stale VA_* vars."""
 
     def test_unrelated_env_content_is_preserved(self, tmp_path):
-        project = _make_project(tmp_path)
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
         (project / ".env").write_text("SOME_OTHER_VAR=keep-me\n")
 
-        render_scenario_physics_env(project, ["errant-quad"])
+        render_scenario_physics_env(project, ["corr-fault"])
 
         env_text = (project / ".env").read_text()
         assert "SOME_OTHER_VAR=keep-me" in env_text
-        assert "VA_QUAD_MISALIGN=" in env_text
+        assert "VA_CORR_GAIN=" in env_text
 
     def test_switching_to_a_physics_free_scenario_clears_the_prior_fault(self, tmp_path):
-        project = _make_project(tmp_path)
-        render_scenario_physics_env(project, ["errant-quad"])
-        assert "VA_QUAD_MISALIGN=" in (project / ".env").read_text()
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+        render_scenario_physics_env(project, ["corr-fault"])
+        assert "VA_CORR_GAIN=" in (project / ".env").read_text()
 
-        rendered = render_scenario_physics_env(project, ["rf-thermal"])
+        rendered = render_scenario_physics_env(project, ["no-fault"])
 
         assert rendered == {}
         env_text = (project / ".env").read_text()
-        assert "VA_QUAD_MISALIGN" not in env_text
+        assert "VA_CORR_GAIN" not in env_text
 
     def test_switching_to_a_different_fault_replaces_not_accumulates(self, tmp_path):
-        project = _make_project(tmp_path)
-        render_scenario_physics_env(project, ["errant-quad"])
+        project = _make_inline_project(tmp_path, _RECONCILIATION_SCENARIOS)
+        render_scenario_physics_env(project, ["corr-fault"])
 
-        rendered = render_scenario_physics_env(project, ["bpm-polarity"])
+        rendered = render_scenario_physics_env(project, ["bpm-fault"])
 
         assert set(rendered) == {"VA_BPM_ERRORS"}
         env_text = (project / ".env").read_text()
-        assert "VA_QUAD_MISALIGN" not in env_text
+        assert "VA_CORR_GAIN" not in env_text
         assert env_text.count("VA_BPM_ERRORS=") == 1
 
 
@@ -221,8 +194,8 @@ class TestErrors:
         project = _make_inline_project(
             tmp_path,
             {
-                "scenario-a": {"physics": {"quad_misalign": {"QF07": 1.0e-4}}},
-                "scenario-b": {"physics": {"quad_misalign": {"QF07": 2.0e-4}}},
+                "scenario-a": {"physics": {"corrector_gain": {"HCM01": 1.1}}},
+                "scenario-b": {"physics": {"corrector_gain": {"HCM01": 1.2}}},
             },
         )
         with pytest.raises(ValueError, match="disjoint"):
