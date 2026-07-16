@@ -75,6 +75,17 @@
           <p id="session-note" class="muted" hidden>
             Session plans are in-memory; lost on bridge restart.
           </p>
+          <div id="draft-unknown-banner" class="banner banner-warn" hidden></div>
+          <div class="draft-status">
+            <span id="draft-indicator" class="draft-indicator" hidden>
+              <span class="dot ok"></span>
+              <span>Draft bound</span>
+              <button type="button" id="draft-discard-btn" class="draft-discard-btn">Discard</button>
+            </span>
+            <button type="button" id="draft-affordance" class="draft-affordance" hidden></button>
+            <span id="draft-agent-note" class="draft-agent-note" hidden></span>
+          </div>
+          <div id="draft-rejected-banner" class="banner banner-err" hidden></div>
           <div class="tabs" role="tablist" aria-label="Plan views">
             <button type="button" id="tab-params" class="tab active" role="tab"
                     aria-selected="true" aria-controls="panel-params" data-tab="params">

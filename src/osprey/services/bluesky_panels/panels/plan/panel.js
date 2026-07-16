@@ -40,6 +40,13 @@
  */
 
 import { renderSchemaForm } from './schema-form.js';
+import {
+  createDraftClient,
+  resolvePinnedRevision,
+  generateClientId,
+  buildExecuteRequestBody,
+  classifyExecuteResponse,
+} from './draft-client.js';
 
 /**
  * @typedef {object} PlanSummary
@@ -72,6 +79,28 @@ const PREFIX = (location.pathname.match(/^\/panel\/[^/]+/) || [''])[0];
  */
 function api(path) {
   return PREFIX + path;
+}
+
+/**
+ * Fetch a sidecar route and parse its JSON body, tolerating a non-JSON body
+ * (returned as `null`) so callers branch on `{ok, status, body}` without
+ * their own try/catch around `response.json()`. Network failures still
+ * reject — callers that must distinguish "unreachable" keep their catch.
+ *
+ * @param {string} path
+ * @param {RequestInit} [init]
+ * @returns {Promise<{ok: boolean, status: number, body: any}>}
+ */
+async function fetchJson(path, init) {
+  const response = await fetch(api(path), init);
+  /** @type {any} */
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+  return { ok: response.ok, status: response.status, body };
 }
 
 /**
@@ -174,11 +203,14 @@ let plans = [];
 let selectedName = null;
 /** @type {PlanSource|null} */
 let selectedSource = null;
-/** @type {(() => Record<string, unknown>)|null} */
+/** @type {import('./schema-form.js').PlanArgsCollector|null} */
 let collectPlanArgs = null;
 let filterText = '';
 let confirmArmed = false;
 let executing = false;
+/** @type {ReturnType<typeof setTimeout>|null} */
+let draftRejectedTimer = null;
+const DRAFT_REJECTED_NOTE_TIMEOUT_MS = 5000;
 
 // ---- element lookups ----
 
@@ -205,6 +237,20 @@ const tabParamsEl = /** @type {HTMLButtonElement} */ (document.getElementById('t
 const tabSourceEl = /** @type {HTMLButtonElement} */ (document.getElementById('tab-source'));
 const panelParamsEl = /** @type {HTMLElement} */ (document.getElementById('panel-params'));
 const panelSourceEl = /** @type {HTMLElement} */ (document.getElementById('panel-source'));
+const draftUnknownBannerEl = /** @type {HTMLElement} */ (
+  document.getElementById('draft-unknown-banner')
+);
+const draftIndicatorEl = /** @type {HTMLElement} */ (document.getElementById('draft-indicator'));
+const draftDiscardBtnEl = /** @type {HTMLButtonElement} */ (
+  document.getElementById('draft-discard-btn')
+);
+const draftAffordanceEl = /** @type {HTMLButtonElement} */ (
+  document.getElementById('draft-affordance')
+);
+const draftAgentNoteEl = /** @type {HTMLElement} */ (document.getElementById('draft-agent-note'));
+const draftRejectedBannerEl = /** @type {HTMLElement} */ (
+  document.getElementById('draft-rejected-banner')
+);
 
 // ---- status presentation ----
 
@@ -440,7 +486,29 @@ function showExecBanner(kind, message) {
 
 // ---- data loading ----
 
-async function loadPlans() {
+/** @type {Promise<void>|null} */
+let loadPlansInFlight = null;
+
+/**
+ * Fetch and render the plan catalog. Single-flight: the draft client's
+ * unknown-plan check also calls this (as `refetchPlans`), and a boot-time
+ * SSE hello can arrive concurrently with the initial boot call — without
+ * coalescing, two overlapping fetches could each independently observe
+ * `!selectedName` and both auto-select (a redundant, racy double
+ * `selectPlan`). A caller that arrives while a fetch is already in flight
+ * gets that same in-flight promise instead of starting a second one.
+ *
+ * @returns {Promise<void>}
+ */
+function loadPlans() {
+  if (loadPlansInFlight) return loadPlansInFlight;
+  loadPlansInFlight = loadPlansOnce().finally(() => {
+    loadPlansInFlight = null;
+  });
+  return loadPlansInFlight;
+}
+
+async function loadPlansOnce() {
   try {
     const response = await fetch(api('/plans'));
     if (!response.ok) {
@@ -517,6 +585,10 @@ async function selectPlan(name) {
     selectedSource = source;
     const plan = plans.find((candidate) => candidate.name === name);
     renderDetail(plan, source);
+    // Draft-binding check: only ever a consequence of this explicit
+    // selection (or the affordance click below) — never of a frame alone
+    // (PROPOSAL.md "Selection/binding precedence").
+    await draftClient.onPlanSelected(name);
   } catch {
     selectedSource = null;
     confirmArmed = false;
@@ -531,35 +603,62 @@ async function selectPlan(name) {
 
 async function doExecute() {
   if (!selectedName || !selectedSource || !selectedSource.validated) return;
+  // Captured now (a `const`, never reassigned) rather than read again after
+  // the `await`s below — `selectedName` is a module-level `let` that another
+  // concurrent selection could reassign, and re-reading it would both risk
+  // acting on the wrong plan and widen back to `string|null` for tsc.
+  const planName = selectedName;
   executing = true;
   updateExecuteButton();
   try {
-    const planArgs = collectPlanArgs ? collectPlanArgs() : {};
-    const response = await fetch(api('/runs/execute'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ plan_name: selectedName, plan_args: planArgs }),
-    });
-    /** @type {any} */
-    let body = null;
-    try {
-      body = await response.json();
-    } catch {
-      body = null;
+    const bound = draftClient.isBound();
+    /** @type {Record<string, unknown>} */
+    let requestBody;
+    if (bound) {
+      // Flush pending edits first, then pin the revision from that flush's
+      // PATCH response — falling back to the last-applied frame/hello
+      // baseline when nothing was pending (PROPOSAL.md "Execute revision
+      // gate"). The launched plan_name/plan_args come from the bridge's own
+      // pinned-revision snapshot, never from this request body.
+      const flushResult = await draftClient.flushNow();
+      const pinned = resolvePinnedRevision(flushResult, draftClient.getLastAppliedRevision());
+      requestBody = buildExecuteRequestBody({ bound, pinnedRevision: pinned, planName, planArgs: {} });
+    } else {
+      const planArgs = collectPlanArgs ? collectPlanArgs() : {};
+      requestBody = buildExecuteRequestBody({ bound, pinnedRevision: null, planName, planArgs });
     }
 
-    if (response.status === 200 && body && body.status === 'writes_not_armed') {
-      showExecBanner('info', 'writes not armed on this deployment');
-    } else if (response.status === 200 && body && body.run_id) {
-      showExecBanner('ok', `run started: ${String(body.run_id)}`);
-    } else if (response.status === 409) {
-      const detail = (body && body.detail) || 'the bridge reported a conflict';
-      showExecBanner('err', `conflict: ${String(detail)}`);
-    } else if (response.status === 502) {
-      showExecBanner('err', 'bridge unreachable');
-    } else {
-      const detail = (body && body.detail) || `HTTP ${response.status}`;
-      showExecBanner('err', `execute failed: ${String(detail)}`);
+    const { status, body } = await fetchJson('/runs/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+    });
+
+    const outcome = classifyExecuteResponse(status, body);
+    switch (outcome.type) {
+      case 'writes_not_armed':
+        showExecBanner('info', 'writes not armed on this deployment');
+        break;
+      case 'run_started':
+        showExecBanner('ok', `run started: ${outcome.runId}`);
+        break;
+      case 'stale_draft_revision':
+        // The draft moved on since the pinned snapshot; resync and make the
+        // operator look again before retrying (PROPOSAL.md "Execute revision
+        // gate": "handles the stale-revision 409 by resyncing and asking
+        // again").
+        await draftClient.resync();
+        showExecBanner('err', 'the draft changed since you last saw it — refreshed, review and execute again');
+        break;
+      case 'conflict':
+        showExecBanner('err', `conflict: ${outcome.detail}`);
+        break;
+      case 'bridge_unreachable':
+        showExecBanner('err', 'bridge unreachable');
+        break;
+      case 'error':
+        showExecBanner('err', `execute failed: ${outcome.detail}`);
+        break;
     }
   } catch {
     showExecBanner('err', 'bridge unreachable');
@@ -569,6 +668,105 @@ async function doExecute() {
     updateExecuteButton();
   }
 }
+
+// ---- plan draft (live view of the server-held shared draft) ----
+
+/**
+ * Show a note/banner element with `text`, or hide and clear it when `text`
+ * is empty — the shared shape of every draft-client DOM callback below.
+ *
+ * @param {HTMLElement} el
+ * @param {string} text
+ */
+function setNote(el, text) {
+  el.hidden = !text;
+  el.textContent = text;
+}
+
+// Per-tab id: the frame `origin`/PATCH `client_id` other subscribers use for
+// echo suppression (PROPOSAL.md "Echo loops" risk mitigation).
+const draftClientId = generateClientId();
+
+/** @param {Record<string, unknown>} body */
+function patchDraft(body) {
+  return fetchJson('/draft', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * @returns {Promise<import('./draft-client.js').DraftGetResponse>}
+ */
+async function getDraft() {
+  const response = await fetch(api('/draft'));
+  if (!response.ok) {
+    // A non-2xx body (e.g. a 502 bridge-unreachable relay) does not parse as
+    // a `{draft, revision}` snapshot — feeding it to reduceReset would set
+    // `lastAppliedRevision` to `undefined` and disable the drop/gap
+    // machinery. Throwing leaves draft-client's state untouched (the rejected
+    // promise self-heals: the next frame/resync attempt starts clean).
+    throw new Error(`GET /draft failed: HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+async function deleteDraft() {
+  const response = await fetch(api(`/draft?client_id=${encodeURIComponent(draftClientId)}`), {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    // A 502 (bridge-unreachable relay) or any other non-2xx: the discard did
+    // NOT actually happen server-side. Throwing lets draft-client.js's
+    // onDiscardClick keep the panel's bound state consistent with reality
+    // instead of optimistically unbinding a draft that's still there.
+    throw new Error(`DELETE /draft failed: HTTP ${response.status}`);
+  }
+}
+
+const draftClient = createDraftClient({
+  formEl: paramFormEl,
+  api,
+  clientId: draftClientId,
+  getCollector: () => collectPlanArgs,
+  getPlanNames: () => plans.map((plan) => plan.name),
+  selectPlan,
+  refetchPlans: loadPlans,
+  getDraft,
+  patchDraft,
+  deleteDraft,
+  onBoundChange(bound) {
+    draftIndicatorEl.hidden = !bound;
+  },
+  onAffordance(planName) {
+    setNote(
+      draftAffordanceEl,
+      planName === null ? '' : `Draft is now on ${planName} — click to view`
+    );
+  },
+  onUnknownPlanBanner(planName) {
+    setNote(
+      draftUnknownBannerEl,
+      planName === null ? '' : `draft references unavailable plan "${planName}"`
+    );
+  },
+  onAgentEditNote(keys) {
+    setNote(draftAgentNoteEl, keys.length === 0 ? '' : `agent edited: ${keys.join(', ')}`);
+  },
+  onPatchRejected(detail) {
+    const message =
+      detail && typeof detail === 'object' && detail.field
+        ? `${String(detail.field)}: ${String(detail.error)}`
+        : String(detail || 'the bridge rejected that value');
+    if (draftRejectedTimer !== null) clearTimeout(draftRejectedTimer);
+    setNote(draftRejectedBannerEl, message);
+    draftRejectedTimer = setTimeout(() => {
+      setNote(draftRejectedBannerEl, '');
+      draftRejectedTimer = null;
+    }, DRAFT_REJECTED_NOTE_TIMEOUT_MS);
+  },
+});
 
 // ---- event wiring (delegation, reading data-* attributes) ----
 
@@ -608,6 +806,14 @@ executeBtnEl.addEventListener('click', () => {
 
 paramFormEl.addEventListener('submit', (event) => {
   event.preventDefault();
+});
+
+draftDiscardBtnEl.addEventListener('click', () => {
+  void draftClient.onDiscardClick();
+});
+
+draftAffordanceEl.addEventListener('click', () => {
+  void draftClient.onAffordanceClick();
 });
 
 // ---- boot ----

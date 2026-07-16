@@ -254,6 +254,89 @@ body.embedded .panel-chrome { display: none; }
 }
 #session-note { margin: 4px 0 0; }
 
+/* ---- Plan draft: bound indicator, bind affordance, agent-edit note ---- */
+.draft-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+  min-height: 0;
+}
+.draft-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-success);
+  background: var(--success-tint-08);
+  border: 1px solid var(--color-success);
+  border-radius: 5px;
+  padding: 3px 8px;
+}
+.draft-discard-btn {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  padding: 1px 7px;
+  cursor: pointer;
+}
+.draft-discard-btn:hover,
+.draft-discard-btn:focus-visible {
+  color: var(--color-error);
+  border-color: var(--color-error);
+  outline: none;
+}
+.draft-affordance {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-accent-light);
+  background: var(--accent-tint-10);
+  border: 1px solid var(--border-accent);
+  border-radius: 5px;
+  padding: 3px 9px;
+  cursor: pointer;
+}
+.draft-affordance:hover,
+.draft-affordance:focus-visible {
+  background: var(--accent-tint-20);
+  outline: none;
+}
+.draft-agent-note {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-amber);
+}
+
+/* Field-level flash: a server-held draft edit (agent or another tab) landed
+ * on this field. Reflow-restarted by draft-client.js on every application
+ * (classList.remove -> offsetWidth read -> classList.add) so two rapid
+ * edits to the same field re-fire the animation rather than being a no-op
+ * on the second `add`. Whole-value containers (chip wells, the axes table,
+ * nested objects) flash the same way — `fields[name].el` is already their
+ * outer wrapper, so no separate "container flash" rule is needed. Token-only
+ * so it reads correctly in both themes. */
+@keyframes draft-flash-glow {
+  0% {
+    background-color: var(--accent-tint-20);
+    box-shadow: 0 0 0 3px var(--accent-tint-25);
+  }
+  100% {
+    background-color: transparent;
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+.draft-flash {
+  animation: draft-flash-glow 900ms ease-out;
+  border-radius: 6px;
+}
+
 /* Tab strip */
 .tabs {
   display: flex;

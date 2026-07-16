@@ -38,10 +38,26 @@
  * listen on the form container (alongside native ``input``/``change``) to
  * recompute live summaries.
  *
- * Each builder returns a ``{ el, collect }`` pair: ``el`` is the DOM node to
- * mount, and ``collect()`` returns that field's current value — or the
- * ``OMIT`` sentinel when the field is blank, so plan-side defaults apply for
- * anything the operator left untouched.
+ * Each builder returns a ``{ el, collect, setValue }`` triple: ``el`` is the
+ * DOM node to mount, ``collect()`` returns that field's current value — or
+ * the ``OMIT`` sentinel when the field is blank, so plan-side defaults apply
+ * for anything the operator left untouched — and ``setValue(value)`` applies
+ * a value programmatically (no native ``input``/``change`` events), for a
+ * server-held draft to be reflected into a rendered form.
+ *
+ * ``renderSchemaForm`` keys every top-level field's ``{el, setValue}`` into a
+ * field registry and attaches it, plus an ``applyValues(values)`` method, to
+ * the returned collector function (the callable return contract is
+ * unchanged — it is still ``collectPlanArgs()`` to a caller that only calls
+ * it). ``applyValues`` composes recursively the same way ``collect()``
+ * does — a nested object's ``setValue`` fans out to its children's
+ * ``setValue`` — but containers with a dynamic row count (the chip/
+ * channel-list editors, the axes table, array-of-object rows) treat their
+ * value as a whole-value replacement: they rebuild their internal state from
+ * the incoming array rather than patch existing rows, since a static
+ * per-row registry would go stale across add/remove-row edits. Only one
+ * ``form-change`` event fires per ``applyValues`` call (documented at the
+ * call site as programmatic, so a host can tell it apart from a user edit).
  *
  * @module schema-form
  */
@@ -81,6 +97,41 @@ export const OMIT = Symbol('omit');
  * @typedef {object} Field
  * @property {HTMLElement} el       The DOM node to mount for this field.
  * @property {() => unknown} collect Current value, or ``OMIT`` if blank.
+ * @property {(value: unknown) => void} setValue Apply ``value`` programmatically:
+ *   replaces the control's displayed/internal state without firing native
+ *   ``input``/``change`` events. Containers (chips, channel-list, the axes
+ *   table, array-of-object rows, nested objects) treat this as whole-value
+ *   replacement — they rebuild internal rows/children from ``value`` rather
+ *   than patch individual cells.
+ */
+
+/**
+ * One entry in the top-level field registry that ``renderSchemaForm``
+ * exposes via the returned collector's ``.fields`` property — the DOM node
+ * plus the programmatic setter, keyed by top-level schema property name.
+ *
+ * @typedef {object} RegisteredField
+ * @property {HTMLElement} el
+ * @property {(value: unknown) => void} setValue
+ */
+
+/**
+ * The callable ``renderSchemaForm`` returns: a zero-arg function that reads
+ * the whole form into a ``plan_args`` object (unchanged contract — this is
+ * what ``panel.js`` calls as ``collectPlanArgs()``), plus two properties
+ * layered on top for programmatic draft application:
+ * ``applyValues(values)`` sets every field present in ``values`` (keys
+ * absent from ``values`` are left untouched) and dispatches one
+ * ``form-change`` event; ``fields`` is the top-level field registry.
+ * ``applyValues`` accepts ``unknown`` (not just ``Record<string, unknown>``)
+ * because a missing/malformed server-held draft (``undefined``/``null``/a
+ * non-object) is a safe no-op rather than a caller error — see its
+ * implementation in ``withFieldRegistry``.
+ *
+ * @typedef {(() => Record<string, unknown>) & {
+ *   applyValues: (values: unknown) => void,
+ *   fields: Record<string, RegisteredField>
+ * }} PlanArgsCollector
  */
 
 /**
@@ -345,6 +396,9 @@ function buildString(node, seed) {
   return {
     el: input,
     collect: () => (input.value === '' ? OMIT : input.value),
+    setValue: (value) => {
+      input.value = value === undefined || value === null ? '' : String(value);
+    },
   };
 }
 
@@ -377,6 +431,9 @@ function buildNumber(node, seed, integer) {
       const parsed = parseScalar(input.value, integer ? 'integer' : 'number');
       return parsed ? parsed.value : OMIT;
     },
+    setValue: (value) => {
+      input.value = value === undefined || value === null ? '' : String(value);
+    },
   };
 }
 
@@ -388,8 +445,13 @@ function buildNumber(node, seed, integer) {
  * @returns {Field}
  */
 function buildBoolean(seed) {
+  // `seed` already folds in the schema default (buildControl resolves an
+  // undefined `value` to `node.default` before calling in), so the
+  // constructor's own resolved state *is* the schema default — capture it so
+  // setValue(undefined) can reset to it instead of hard-resetting to false.
+  const defaultChecked = Boolean(seed);
   const input = /** @type {HTMLInputElement} */ (
-    h('input', { class: 'switch-input', type: 'checkbox', checked: Boolean(seed) })
+    h('input', { class: 'switch-input', type: 'checkbox', checked: defaultChecked })
   );
   const el = h(
     'label',
@@ -398,7 +460,17 @@ function buildBoolean(seed) {
     h('span', { class: 'switch-track' }, h('span', { class: 'switch-thumb' }))
   );
   // A checkbox always has a definite state, so it always contributes.
-  return { el, collect: () => input.checked };
+  return {
+    el,
+    collect: () => input.checked,
+    // `undefined` means "this key was absent from the applied value" (e.g. a
+    // partial nested-object apply) — reset to the constructor-seeded default
+    // rather than coercing straight to false; any other value is a real
+    // boolean the caller intends.
+    setValue: (value) => {
+      input.checked = value === undefined ? defaultChecked : Boolean(value);
+    },
+  };
 }
 
 /**
@@ -407,8 +479,17 @@ function buildBoolean(seed) {
  * @returns {Field}
  */
 function buildEnum(node, seed) {
-  const options = (node.enum || []).map((opt) =>
-    h('option', { value: String(opt), selected: seed !== undefined && opt === seed }, String(opt))
+  const members = node.enum || [];
+  // The option actually selected at construction time: the seed's matching
+  // member, or (mirroring plain HTML `<select>` semantics when no `<option>`
+  // carries `selected`) the first member. This is the "constructor-seed
+  // state" that setValue falls back to below, so a cleared/non-matching
+  // apply lands on a reachable option instead of the blank `selectedIndex
+  // -1` state a bare `select.value = ''` would produce.
+  const matchedSeed = members.find((opt) => seed !== undefined && opt === seed);
+  const initialSelected = matchedSeed === undefined ? members[0] : matchedSeed;
+  const options = members.map((opt) =>
+    h('option', { value: String(opt), selected: opt === initialSelected }, String(opt))
   );
   const select = /** @type {HTMLSelectElement} */ (
     h('select', { class: 'field-input', 'aria-label': node.title || 'value' }, ...options)
@@ -416,8 +497,20 @@ function buildEnum(node, seed) {
   return {
     el: select,
     collect: () => {
-      const chosen = (node.enum || []).find((opt) => String(opt) === select.value);
+      const chosen = members.find((opt) => String(opt) === select.value);
       return chosen === undefined ? OMIT : chosen;
+    },
+    // `undefined` (key absent from an applied value) or a value matching no
+    // member both fall back to `initialSelected` — the same constructor-seed
+    // state buildSegmented's setValue uses — rather than the unreachable
+    // blank `<select>` state.
+    setValue: (value) => {
+      let chosen = initialSelected;
+      if (value !== undefined) {
+        const matched = members.find((opt) => String(opt) === String(value));
+        if (matched !== undefined) chosen = matched;
+      }
+      select.value = String(chosen);
     },
   };
 }
@@ -505,6 +598,17 @@ function buildChips(node, itemSchema, seed) {
   return {
     el,
     collect: () => (values.length > 0 ? values.slice() : OMIT),
+    // Whole-value replacement: an incoming array is a full new chip list, not
+    // a per-chip patch — a per-chip registry would go stale across chip
+    // add/remove edits, so this rebuilds `values` from scratch and re-renders.
+    // Also discards any not-yet-committed text in the add-input: leaving it
+    // would let a later blur commit stale text on top of the applied chips.
+    setValue: (value) => {
+      values.length = 0;
+      if (Array.isArray(value)) values.push(...value);
+      input.value = '';
+      render();
+    },
   };
 }
 
@@ -601,6 +705,14 @@ function buildChannelList(node, itemSchema, seed) {
   return {
     el,
     collect: () => (values.length > 0 ? values.slice() : OMIT),
+    // Whole-value replacement, same rationale as buildChips.setValue —
+    // including discarding any not-yet-committed add-input text.
+    setValue: (value) => {
+      values.length = 0;
+      if (Array.isArray(value)) values.push(...value);
+      input.value = '';
+      render();
+    },
   };
 }
 
@@ -620,7 +732,11 @@ function buildChannelList(node, itemSchema, seed) {
  */
 function buildSegmented(node, seed) {
   const options = (node.enum || []).map((opt) => String(opt));
-  let selected = seed !== undefined && options.includes(String(seed)) ? String(seed) : options[0];
+  // The option actually active at construction time (the seed's matching
+  // option, else the first) — the "constructor-seed state" setValue falls
+  // back to below, both for an absent value and a non-matching one.
+  const initialSelected = seed !== undefined && options.includes(String(seed)) ? String(seed) : options[0];
+  let selected = initialSelected;
 
   const el = h('div', {
     class: 'segmented',
@@ -658,6 +774,21 @@ function buildSegmented(node, seed) {
     collect: () => {
       const chosen = (node.enum || []).find((opt) => String(opt) === selected);
       return chosen === undefined ? OMIT : chosen;
+    },
+    // Always contributes (see module note above), so setValue always selects
+    // a concrete option: the matching member, or `initialSelected` (the
+    // constructor-seed state) when `value` is absent or doesn't match any —
+    // an absent key must reset to the schema default, not hard-fall to the
+    // first option regardless of what was originally seeded. Updates the
+    // buttons' active state directly rather than via `.click()`, so no
+    // click/emitChange fires.
+    setValue: (value) => {
+      selected = options.includes(String(value)) ? String(value) : initialSelected;
+      buttons.forEach((btn, index) => {
+        const on = options[index] === selected;
+        btn.classList.toggle('active', on);
+        btn.setAttribute('aria-checked', on ? 'true' : 'false');
+      });
     },
   };
 }
@@ -729,6 +860,12 @@ function buildTable(root, node, itemSchema, seed) {
     tbody.appendChild(tr);
   }
 
+  /** Remove every row (used by setValue for whole-table replacement). */
+  function clearRows() {
+    for (const row of rows) row.tr.remove();
+    rows.length = 0;
+  }
+
   const addBtn = h('button', {
     type: 'button',
     class: 'table-add',
@@ -765,6 +902,18 @@ function buildTable(root, node, itemSchema, seed) {
         if (Object.keys(item).length > 0) out.push(item);
       }
       return out.length > 0 ? out : OMIT;
+    },
+    // Whole-table replacement: clear every row and rebuild from `value`,
+    // mirroring the constructor's own seeding rule (one blank starter row for
+    // a required table left empty) — a static per-row registry would go
+    // stale the moment a row is added or removed.
+    setValue: (value) => {
+      clearRows();
+      if (Array.isArray(value) && value.length > 0) {
+        for (const item of value) addRow(item);
+      } else if ((node.minItems || 0) >= 1) {
+        addRow(undefined);
+      }
     },
   };
 }
@@ -810,6 +959,12 @@ function buildArrayRows(root, node, itemSchema, seed) {
     rowsEl.appendChild(rowEl);
   }
 
+  /** Remove every row (used by setValue for whole-array replacement). */
+  function clearRows() {
+    for (const row of rows) row.rowEl.remove();
+    rows.length = 0;
+  }
+
   const addBtn = h('button', {
     type: 'button',
     class: 'table-add',
@@ -829,6 +984,11 @@ function buildArrayRows(root, node, itemSchema, seed) {
       const out = rows.map((row) => row.collect()).filter((v) => v !== OMIT);
       return out.length > 0 ? out : OMIT;
     },
+    // Whole-array replacement, same rationale as buildTable.setValue.
+    setValue: (value) => {
+      clearRows();
+      if (Array.isArray(value)) for (const item of value) addRow(item);
+    },
   };
 }
 
@@ -846,12 +1006,12 @@ function buildObject(root, node, seed) {
   const seedObj = seed && typeof seed === 'object' ? /** @type {any} */ (seed) : {};
 
   const el = h('div', { class: 'object-field' });
-  /** @type {Array<{name: string, collect: () => unknown}>} */
+  /** @type {Array<{name: string, collect: () => unknown, setValue: (value: unknown) => void}>} */
   const children = [];
 
   for (const [name, childNode] of Object.entries(properties)) {
     const labeled = buildLabeledField(root, name, childNode, required.has(name), seedObj[name]);
-    children.push({ name, collect: labeled.collect });
+    children.push({ name, collect: labeled.collect, setValue: labeled.setValue });
     el.appendChild(labeled.el);
   }
 
@@ -866,6 +1026,15 @@ function buildObject(root, node, seed) {
       }
       return Object.keys(out).length === 0 ? OMIT : out;
     },
+    // The object's shape (its child names) is static, so whole-value
+    // replacement composes recursively — each child's own setValue is
+    // authoritative for its slice of `value` (or clears to blank/default
+    // when `value` doesn't carry that key), rather than this rebuilding the
+    // sub-fields from scratch.
+    setValue: (value) => {
+      const obj = value && typeof value === 'object' ? /** @type {any} */ (value) : {};
+      for (const child of children) child.setValue(obj[child.name]);
+    },
   };
 }
 
@@ -878,7 +1047,7 @@ function buildObject(root, node, seed) {
  * @param {JsonSchemaNode} rawNode
  * @param {boolean} required
  * @param {unknown} value
- * @returns {{ el: HTMLElement, collect: () => unknown }}
+ * @returns {{ el: HTMLElement, collect: () => unknown, setValue: (value: unknown) => void }}
  */
 function buildLabeledField(root, name, rawNode, required, value) {
   const node = resolveNode(root, rawNode);
@@ -899,7 +1068,42 @@ function buildLabeledField(root, name, rawNode, required, value) {
   }
   row.appendChild(h('div', { class: 'field-control' }, control.el));
 
-  return { el: row, collect: control.collect };
+  return { el: row, collect: control.collect, setValue: control.setValue };
+}
+
+/**
+ * Attach ``applyValues``/``fields`` onto a bare ``collect`` function, turning
+ * it into the ``PlanArgsCollector`` this module returns — shared by the
+ * empty-schema early return and the full render path so both apply the exact
+ * same casting and event-dispatch logic. ``applyValues`` sets every field
+ * present in ``values`` (a key absent from ``values`` leaves that field
+ * untouched) via that field's ``setValue`` — which never fires native
+ * ``input``/``change`` events — then dispatches exactly one ``form-change``
+ * for the whole pass, documented here as programmatic so a host (and the
+ * pending-key rule a caller layers on top) can tell it apart from a user
+ * edit. A missing/non-object ``values`` (``undefined``, ``null``, a scalar)
+ * is a safe no-op — no field is touched and no ``form-change`` fires — rather
+ * than throwing on ``hasOwnProperty`` or silently emitting an empty pass.
+ *
+ * @param {() => Record<string, unknown>} collect
+ * @param {Record<string, RegisteredField>} fieldRegistry
+ * @param {HTMLElement} formEl
+ * @returns {PlanArgsCollector}
+ */
+function withFieldRegistry(collect, fieldRegistry, formEl) {
+  const collector = /** @type {PlanArgsCollector} */ (/** @type {any} */ (collect));
+  collector.fields = fieldRegistry;
+  collector.applyValues = (values) => {
+    if (!values || typeof values !== 'object') return;
+    const obj = /** @type {Record<string, unknown>} */ (values);
+    for (const [name, field] of Object.entries(fieldRegistry)) {
+      if (Object.prototype.hasOwnProperty.call(obj, name)) {
+        field.setValue(obj[name]);
+      }
+    }
+    emitChange(formEl);
+  };
+  return collector;
 }
 
 /**
@@ -913,10 +1117,15 @@ function buildLabeledField(root, name, rawNode, required, value) {
  * the schema are ignored; schema fields not in the layout are auto-flowed
  * after it (scalars packed up to three per row, wide editors full-width).
  *
+ * The returned collector also carries ``applyValues(values)`` (apply a
+ * server-held draft's values programmatically, one field per top-level
+ * schema property) and ``fields`` (that same top-level field registry, keyed
+ * by name) — see ``withFieldRegistry`` and the module docstring.
+ *
  * @param {HTMLElement} formEl  The (emptied-and-refilled) form container.
  * @param {JsonSchemaNode|undefined} schema  A plan's ``model_json_schema()``.
  * @param {{layout?: string[][]}} [opts]
- * @returns {() => Record<string, unknown>}
+ * @returns {PlanArgsCollector}
  */
 export function renderSchemaForm(formEl, schema, opts) {
   formEl.replaceChildren();
@@ -927,7 +1136,7 @@ export function renderSchemaForm(formEl, schema, opts) {
 
   if (names.length === 0) {
     formEl.appendChild(h('p', { class: 'param-empty', text: 'This plan takes no parameters.' }));
-    return () => ({});
+    return withFieldRegistry(() => ({}), {}, formEl);
   }
 
   const required = new Set(root.required || []);
@@ -968,24 +1177,31 @@ export function renderSchemaForm(formEl, schema, opts) {
 
   /** @type {Array<{ name: string, collect: () => unknown }>} */
   const fields = [];
+  /** @type {Record<string, RegisteredField>} */
+  const fieldRegistry = {};
   for (const rowNames of rowPlan) {
     const rowEl = h('div', { class: 'form-row' });
     rowEl.style.setProperty('--cols', String(rowNames.length));
     for (const name of rowNames) {
       const labeled = buildLabeledField(root, name, properties[name], required.has(name), undefined);
       fields.push({ name, collect: labeled.collect });
+      fieldRegistry[name] = { el: labeled.el, setValue: labeled.setValue };
       rowEl.appendChild(labeled.el);
     }
     formEl.appendChild(rowEl);
   }
 
-  return () => {
-    /** @type {Record<string, unknown>} */
-    const args = {};
-    for (const field of fields) {
-      const v = field.collect();
-      if (v !== OMIT) args[field.name] = v;
-    }
-    return args;
-  };
+  return withFieldRegistry(
+    () => {
+      /** @type {Record<string, unknown>} */
+      const args = {};
+      for (const field of fields) {
+        const v = field.collect();
+        if (v !== OMIT) args[field.name] = v;
+      }
+      return args;
+    },
+    fieldRegistry,
+    formEl
+  );
 }

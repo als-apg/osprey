@@ -412,3 +412,336 @@ describe('empty schema', () => {
     expect(typeof OMIT).toBe('symbol');
   });
 });
+
+describe('applyValues (field registry / programmatic draft application)', () => {
+  const SCALAR_SCHEMA = {
+    properties: {
+      label: { title: 'Label', type: 'string' },
+    },
+    required: ['label'],
+    title: 'PARAMS',
+    type: 'object',
+  };
+
+  const ENUM_SCHEMA = {
+    properties: {
+      mode: {
+        default: 'a',
+        enum: ['a', 'b', 'c'],
+        title: 'Mode',
+        type: 'string',
+      },
+    },
+    title: 'PARAMS',
+    type: 'object',
+  };
+
+  // An integer-membered enum (Pydantic emits these for `IntEnum` params) —
+  // exercises buildEnum's `String(opt) === String(value)` matching against
+  // non-string members.
+  const INT_ENUM_SCHEMA = {
+    properties: {
+      level: {
+        enum: [1, 2, 3],
+        title: 'Level',
+        type: 'integer',
+      },
+    },
+    title: 'PARAMS',
+    type: 'object',
+  };
+
+  // A nested-object field (`options`) and an array of non-flat objects
+  // (`items`, whose item schema mixes a scalar with a nested sub-object, so
+  // it fails `isFlatObject` and falls to the generic buildArrayRows/
+  // buildObject stack rather than the axes table) — exercises two levels of
+  // recursive setValue composition through buildArrayRows → buildObject →
+  // buildObject.
+  const NESTED_SCHEMA = {
+    $defs: {
+      Sub: {
+        properties: {
+          rate: { title: 'Rate', type: 'number' },
+          active: { title: 'Active', type: 'boolean' },
+        },
+        required: ['rate'],
+        title: 'Sub',
+        type: 'object',
+      },
+      Item: {
+        properties: {
+          name: { title: 'Name', type: 'string' },
+          sub: { $ref: '#/$defs/Sub', title: 'Sub' },
+        },
+        required: ['name'],
+        title: 'Item',
+        type: 'object',
+      },
+    },
+    properties: {
+      options: { $ref: '#/$defs/Sub', title: 'Options' },
+      items: {
+        items: { $ref: '#/$defs/Item' },
+        title: 'Items',
+        type: 'array',
+      },
+    },
+    required: ['items'],
+    title: 'PARAMS',
+    type: 'object',
+  };
+
+  /**
+   * Attach `input`/`change` counters to `root` and return a getter for the
+   * combined count — `applyValues` must never trip either, since it is a
+   * programmatic apply, not a user edit.
+   * @param {any} root
+   */
+  function countNativeEvents(root) {
+    let count = 0;
+    root.addEventListener('input', () => {
+      count += 1;
+    });
+    root.addEventListener('change', () => {
+      count += 1;
+    });
+    return () => count;
+  }
+
+  test('applies a plain string scalar and round-trips through collect()', () => {
+    const collect = renderSchemaForm(form, SCALAR_SCHEMA);
+    const nativeCount = countNativeEvents(form);
+    collect.applyValues({ label: 'HCM1' });
+    expect(nativeCount()).toBe(0);
+    expect(collect()).toEqual({ label: 'HCM1' });
+  });
+
+  test('applies a number field and an integer field, coercing display text', () => {
+    const collect = renderSchemaForm(form, ORM_SCHEMA);
+    const nativeCount = countNativeEvents(form);
+    collect.applyValues({ span_a: 4, num: 6 });
+    expect(nativeCount()).toBe(0);
+    const spanA = $$(form, 'input[type="number"]').find((i) => i.step === 'any');
+    const num = $$(form, 'input[type="number"]').find((i) => i.step === '1');
+    expect(spanA.value).toBe('4');
+    expect(num.value).toBe('6');
+    expect(collect()).toEqual({ span_a: 4, num: 6, sweep: 'bidirectional' });
+  });
+
+  test('applies a boolean toggle without a click/change event', () => {
+    const collect = renderSchemaForm(form, GRID_SCAN_SCHEMA);
+    const nativeCount = countNativeEvents(form);
+    collect.applyValues({ snake_axes: true });
+    expect(nativeCount()).toBe(0);
+    expect($(form, '.switch-input').checked).toBe(true);
+    expect(collect().snake_axes).toBe(true);
+  });
+
+  test('applies an enum select', () => {
+    const collect = renderSchemaForm(form, ENUM_SCHEMA);
+    const nativeCount = countNativeEvents(form);
+    collect.applyValues({ mode: 'c' });
+    expect(nativeCount()).toBe(0);
+    expect(collect()).toEqual({ mode: 'c' });
+  });
+
+  test('applies chip lists as a whole-value replacement', () => {
+    const collect = renderSchemaForm(form, GRID_SCAN_SCHEMA);
+    const nativeCount = countNativeEvents(form);
+    collect.applyValues({ detectors: ['BPM1', 'BPM2'] });
+    expect(nativeCount()).toBe(0);
+    expect($$(form, '.chip').length).toBe(2);
+    expect(collect().detectors).toEqual(['BPM1', 'BPM2']);
+  });
+
+  test('applies channel-list and segmented fields via the orm fixture', () => {
+    const collect = renderSchemaForm(form, ORM_SCHEMA);
+    const nativeCount = countNativeEvents(form);
+    collect.applyValues({
+      correctors: ['HCM1', 'HCM2'],
+      detectors: ['BPM1'],
+      sweep: 'monodirectional',
+    });
+    expect(nativeCount()).toBe(0);
+
+    const [correctors, detectors] = $$(form, '.channel-list');
+    expect($$(correctors, '.channel-item').length).toBe(2);
+    expect($$(detectors, '.channel-item').length).toBe(1);
+
+    const options = $$(form, '.segmented-option');
+    expect(options[0].getAttribute('aria-checked')).toBe('false');
+    expect(options[1].getAttribute('aria-checked')).toBe('true');
+
+    expect(collect()).toEqual({
+      correctors: ['HCM1', 'HCM2'],
+      detectors: ['BPM1'],
+      sweep: 'monodirectional',
+    });
+  });
+
+  test('applies the axes table as a whole-value replacement (row count follows the incoming array)', () => {
+    const collect = renderSchemaForm(form, GRID_SCAN_SCHEMA);
+    // Seeded with one blank starter row (minItems: 1) before any apply.
+    expect($$(form, '.obj-table tbody tr').length).toBe(1);
+
+    const nativeCount = countNativeEvents(form);
+    collect.applyValues({
+      axes: [
+        { setpoint: 'QF1', start: -1, stop: 1, num_points: 5 },
+        { setpoint: 'QD2', start: 0, stop: 2, num_points: 7 },
+      ],
+    });
+    expect(nativeCount()).toBe(0);
+    expect($$(form, '.obj-table tbody tr').length).toBe(2);
+    expect(collect().axes).toEqual([
+      { setpoint: 'QF1', start: -1, stop: 1, num_points: 5 },
+      { setpoint: 'QD2', start: 0, stop: 2, num_points: 7 },
+    ]);
+  });
+
+  test('applies a nested object (buildObject) by delegating recursively to its children', () => {
+    const collect = renderSchemaForm(form, NESTED_SCHEMA);
+    const nativeCount = countNativeEvents(form);
+    collect.applyValues({ options: { rate: 2.5, active: true } });
+    expect(nativeCount()).toBe(0);
+    expect(collect().options).toEqual({ rate: 2.5, active: true });
+  });
+
+  test('applies an array of non-flat objects (buildArrayRows), rebuilding rows with their nested sub-objects', () => {
+    const collect = renderSchemaForm(form, NESTED_SCHEMA);
+    const nativeCount = countNativeEvents(form);
+    collect.applyValues({
+      items: [
+        { name: 'first', sub: { rate: 1, active: false } },
+        { name: 'second', sub: { rate: 2, active: true } },
+      ],
+    });
+    expect(nativeCount()).toBe(0);
+    expect($$(form, '.array-row').length).toBe(2);
+    expect(collect().items).toEqual([
+      { name: 'first', sub: { rate: 1, active: false } },
+      { name: 'second', sub: { rate: 2, active: true } },
+    ]);
+  });
+
+  test('dispatches exactly one form-change event per applyValues pass', () => {
+    const collect = renderSchemaForm(form, ORM_SCHEMA);
+    const listener = vi.fn();
+    form.addEventListener('form-change', listener);
+    collect.applyValues({ span_a: 1, num: 3, sweep: 'monodirectional' });
+    expect(listener).toHaveBeenCalledTimes(1);
+  });
+
+  test('keys absent from values are left untouched across separate applyValues calls', () => {
+    const collect = renderSchemaForm(form, ORM_SCHEMA);
+    collect.applyValues({ span_a: 5 });
+    expect(collect()).toEqual({ span_a: 5, sweep: 'bidirectional' });
+
+    // A disjoint second call must not clobber the field set by the first.
+    collect.applyValues({ num: 4 });
+    expect(collect()).toEqual({ span_a: 5, num: 4, sweep: 'bidirectional' });
+  });
+
+  test('exposes a top-level field registry keyed by schema property name', () => {
+    const collect = renderSchemaForm(form, ORM_SCHEMA);
+    expect(Object.keys(collect.fields).sort()).toEqual(
+      ['correctors', 'detectors', 'num', 'span_a', 'sweep'].sort()
+    );
+    expect(typeof collect.fields.span_a.setValue).toBe('function');
+    expect(collect.fields.span_a.el).toBeTruthy();
+  });
+
+  test('the returned collector is still callable directly — the collectPlanArgs() contract is unchanged', () => {
+    const collect = renderSchemaForm(form, SCALAR_SCHEMA);
+    expect(typeof collect).toBe('function');
+    const label = $(form, 'input[type="text"]');
+    label.value = 'direct-call';
+    expect(collect()).toEqual({ label: 'direct-call' });
+  });
+
+  test('applying the axes table follows the incoming row count down to zero, leaving the blank starter row', () => {
+    const collect = renderSchemaForm(form, GRID_SCAN_SCHEMA);
+
+    collect.applyValues({
+      axes: [
+        { setpoint: 'QF1', start: -1, stop: 1, num_points: 5 },
+        { setpoint: 'QD2', start: 0, stop: 2, num_points: 7 },
+      ],
+    });
+    expect($$(form, '.obj-table tbody tr').length).toBe(2);
+    expect(collect().axes).toEqual([
+      { setpoint: 'QF1', start: -1, stop: 1, num_points: 5 },
+      { setpoint: 'QD2', start: 0, stop: 2, num_points: 7 },
+    ]);
+
+    collect.applyValues({ axes: [{ setpoint: 'QF1', start: -1, stop: 1, num_points: 5 }] });
+    expect($$(form, '.obj-table tbody tr').length).toBe(1);
+    expect(collect().axes).toEqual([{ setpoint: 'QF1', start: -1, stop: 1, num_points: 5 }]);
+
+    // An empty array is a whole-value replacement too: minItems: 1 means the
+    // table falls back to its one blank starter row, which collects as
+    // scaffolding, not data — matching a fresh render of an empty/required
+    // table, not a zero-row table.
+    collect.applyValues({ axes: [] });
+    expect($$(form, '.obj-table tbody tr').length).toBe(1);
+    expect(collect().axes).toBeUndefined();
+  });
+
+  test('applying a channel-list discards pending uncommitted input text and supports clearing back to empty', () => {
+    const collect = renderSchemaForm(form, ORM_SCHEMA);
+    const [correctors] = $$(form, '.channel-list');
+    const addInput = $(correctors, '.channel-add');
+
+    // Typed but not yet committed (no Enter/blur) when the apply lands.
+    addInput.value = 'PENDING';
+    collect.applyValues({ correctors: ['HCM9'] });
+
+    expect(addInput.value).toBe('');
+    expect($$(correctors, '.channel-item').map((li) => $(li, '.channel-name').textContent)).toEqual([
+      'HCM9',
+    ]);
+    expect(collect().correctors).toEqual(['HCM9']);
+
+    // A subsequent apply-to-empty clears the list entirely.
+    collect.applyValues({ correctors: [] });
+    expect($$(correctors, '.channel-item').length).toBe(0);
+    expect($(correctors, '.channel-count').textContent).toBe('0 channels');
+    expect(collect().correctors).toBeUndefined();
+  });
+
+  test('a partial nested-object apply resets its omitted always-contributing child to its schema default', () => {
+    const collect = renderSchemaForm(form, NESTED_SCHEMA);
+
+    // Set both children first, `active` explicitly true.
+    collect.applyValues({ options: { rate: 1, active: true } });
+    expect(collect().options).toEqual({ rate: 1, active: true });
+
+    // A second apply omitting `active` must reset it to its schema default
+    // (no `default` on the boolean field, so the constructor-seed state is
+    // `false`) rather than leaving the previous `true` in place.
+    collect.applyValues({ options: { rate: 2 } });
+    expect(collect().options).toEqual({ rate: 2, active: false });
+  });
+
+  test('applies an integer-membered enum and round-trips the numeric member', () => {
+    const collect = renderSchemaForm(form, INT_ENUM_SCHEMA);
+    const nativeCount = countNativeEvents(form);
+    collect.applyValues({ level: 2 });
+    expect(nativeCount()).toBe(0);
+    expect(collect()).toEqual({ level: 2 });
+    expect(typeof collect().level).toBe('number');
+  });
+
+  test('applyValues(null/undefined/non-object) is a safe no-op that fires no form-change', () => {
+    const collect = renderSchemaForm(form, SCALAR_SCHEMA);
+    const listener = vi.fn();
+    form.addEventListener('form-change', listener);
+
+    expect(() => collect.applyValues(null)).not.toThrow();
+    expect(() => collect.applyValues(undefined)).not.toThrow();
+    expect(() => collect.applyValues('not-an-object')).not.toThrow();
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(collect()).toEqual({}); // untouched — label is still blank
+  });
+});
