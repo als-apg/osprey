@@ -11,6 +11,7 @@ import subprocess
 from rich.table import Table
 
 from osprey.deployment.compose_generator import resolve_user_volume_names
+from osprey.deployment.facility_config import normalize_facility_config
 from osprey.deployment.runtime_helper import get_ps_command, get_runtime_command
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.log_filter import quiet_logger
@@ -106,7 +107,7 @@ def show_status(config_path, *, console=None, styles=None):
     try:
         with quiet_logger(["registry", "CONFIG"]):
             config = ConfigBuilder(config_path)
-            config = config.raw_config
+            config = normalize_facility_config(config.raw_config)
     except Exception as e:
         raise RuntimeError(f"Could not load config file {config_path}: {e}") from e
 
