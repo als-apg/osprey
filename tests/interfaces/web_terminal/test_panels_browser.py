@@ -18,6 +18,7 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
+import asyncio
 import threading
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, HTTPServer
@@ -98,6 +99,7 @@ def _live_server(
     custom_panels=None,
     allow_runtime: bool = False,
     artifact_url: str | None = "http://127.0.0.1:8086",
+    artifact_config_delay: float = 0.0,
 ):
     """Launch a real web terminal server on a free port in a background thread.
 
@@ -110,6 +112,11 @@ def _live_server(
     ``activeTabId`` null: a panel with ``healthEndpoint: null`` is marked healthy
     unconditionally on load, so pointing it at a dead port would NOT keep it
     unhealthy — only withholding the URL does.
+
+    ``artifact_config_delay`` holds /api/artifact-server open for that many
+    seconds, so the default panel settles *after* another panel's health poll.
+    That ordering decides which panel gets the empty slot, and it is the order a
+    loaded CI runner produces naturally while a fast dev box hides it.
 
     Yields:
         (base_url: str, app: FastAPI) — live server address and the FastAPI app
@@ -136,6 +143,15 @@ def _live_server(
         from osprey.interfaces.web_terminal.app import create_app
 
         app = create_app(shell_command=["echo", "hello"])
+
+        if artifact_config_delay:
+
+            @app.middleware("http")
+            async def _delay_artifact_config(request, call_next):
+                if request.url.path == "/api/artifact-server":
+                    await asyncio.sleep(artifact_config_delay)
+                return await call_next(request)
+
         # _run_app_server yields only after the port accepts connections (lifespan
         # done), so app.state is safe to mutate here; and it joins the server
         # thread while the patches above are still live, avoiding timing races.
@@ -761,7 +777,64 @@ def test_hidden_default_panel_falls_back_to_visible_panel(tmp_path, chromium_bro
 
 
 # ---------------------------------------------------------------------------
-# Test 13: a hidden panel never auto-activates itself
+# Test 13: the slot is filled even when the default settles last
+# ---------------------------------------------------------------------------
+
+
+def test_hidden_default_settling_late_still_yields_slot(tmp_path, chromium_browser):
+    """A panel that polls healthy before the default settles must still get the slot.
+
+    Auto-activation cannot be a one-shot per health transition. data-viz's FIRST
+    healthy transition lands while the default panel is still fetching its
+    config; at that instant nothing may take the slot, because the default might
+    still claim it. The default then turns out to be hidden and is refused — and
+    data-viz has no second transition to retry with. The decision has to be
+    re-evaluated when the default settles, or the pane stays blank forever.
+
+    This ordering is what a loaded CI runner produces naturally; a fast dev box
+    resolves the config first and hides the bug, so the delay is forced here.
+
+    Arrange: hold /api/artifact-server open past data-viz's first health poll,
+    with artifacts healthy-but-hidden.
+    Act: load the page.
+    Assert: data-viz still ends up active.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _stub_backend() as backend_url:
+        visible_panel = {
+            "id": "data-viz",
+            "label": "DATA VIZ",
+            "url": backend_url,
+            "healthEndpoint": "/health",
+            "path": "/",
+        }
+
+        with _live_server(
+            workspace,
+            enabled_panels={"artifacts"},
+            custom_panels=[visible_panel],
+            # Long enough that data-viz's first health poll definitively wins.
+            artifact_config_delay=3.0,
+        ) as (base_url, app):
+            app.state.visible_panels = ["data-viz"]
+
+            page = chromium_browser.new_page()
+            page.goto(base_url, wait_until="domcontentloaded")
+            expect(page.locator('button[data-panel-id="data-viz"]')).to_be_attached(timeout=10_000)
+            page.evaluate("document.getElementById('welcome-overlay')?.remove()")
+
+            expect(
+                page.locator('button.header-tab[data-panel-id="data-viz"].active')
+            ).to_have_count(1, timeout=15_000)
+            expect(page.locator('button.header-tab[data-panel-id="artifacts"]')).not_to_be_visible()
+
+            page.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 14: a hidden panel never auto-activates itself
 # ---------------------------------------------------------------------------
 
 

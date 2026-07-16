@@ -457,15 +457,36 @@ async function initPanel(panel) {
       state.healthy = true;
       enableTab(panel.id);
       updateTabState(panel);
-      if (panel.id === DEFAULT_PANEL) {
-        activateTab(panel.id, { auto: true });
-      } else if (!activeTabId) {
-        activateTab(panel.id, { auto: true });
-      }
     } else {
       startHealthPolling(panel);
     }
   }
+  // Re-evaluate on every settle, including the no-url case: this panel may be
+  // the default that another panel's health poll was waiting on.
+  ensureActivePanel();
+}
+
+/**
+ * Give the empty slot to the best panel available, if any.
+ *
+ * Health-driven, so {auto: true} keeps it from ever surfacing a hidden panel.
+ * Safe to call on every settle: it no-ops once something is active.
+ *
+ * This is deliberately re-entrant rather than a one-shot at each health
+ * transition. A panel's FIRST healthy transition can land while the default is
+ * still loading its config — decline then and that panel never gets another
+ * transition to try again, stranding the pane blank.
+ */
+function ensureActivePanel() {
+  if (activeTabId) return;
+  const ds = panelState[DEFAULT_PANEL];
+  if (!ds?.configLoaded) return;  // default may still claim the slot — wait
+  // Hidden disqualifies the default exactly as unhealthy does; activateTab
+  // would refuse it anyway, and the slot must not sit empty behind it.
+  const target = ds.healthy && visiblePanels.has(DEFAULT_PANEL)
+    ? DEFAULT_PANEL
+    : PANELS.find(p => visiblePanels.has(p.id) && panelState[p.id]?.healthy)?.id;
+  if (target) activateTab(target, { auto: true });
 }
 
 // ---- Health Polling ----
@@ -510,25 +531,11 @@ async function pollHealth(panel) {
     updateTabState(panel);
     updateStatusBar(panel);
 
-    // First time healthy — enable tab and auto-activate
+    // First time healthy — enable the tab, then let the shared policy decide
+    // whether this newly-healthy panel should take an empty slot.
     if (state.healthy && !wasHealthy) {
       enableTab(panel.id);
-      // Auto-activate: prefer the DEFAULT_PANEL. Only activate a non-default
-      // panel if nothing is active yet and the default panel has settled and
-      // can't take the slot itself. Every call here is {auto: true}, so a
-      // hidden panel is never surfaced — see activateTab.
-      if (panel.id === DEFAULT_PANEL) {
-        activateTab(panel.id, { auto: true });
-      } else if (!activeTabId) {
-        const defaultState = panelState[DEFAULT_PANEL];
-        // Fall back once the default panel has settled and can't take the slot
-        // itself. Hidden counts the same as unhealthy here: activateTab refuses
-        // to auto-surface a hidden default, so without the visibility term the
-        // pane would stay blank while a visible healthy panel sits unopened.
-        if (defaultState?.configLoaded && !(defaultState.healthy && visiblePanels.has(DEFAULT_PANEL))) {
-          activateTab(panel.id, { auto: true });
-        }
-      }
+      ensureActivePanel();
     }
   } catch {
     state.healthy = false;
