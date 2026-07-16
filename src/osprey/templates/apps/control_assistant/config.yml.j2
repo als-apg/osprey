@@ -715,6 +715,22 @@ web:
 {%- else %}
   panels: {}  # No builtin panels enabled; custom panels (if any) added via config overrides
 {%- endif %}
+{%- if panel_presets is defined and panel_presets %}
+  # Panel layouts ("Layouts"): named sets of panels a human applies in one click
+  # from the web terminal "+" popover. The key is the menu label; the value is
+  # the exact set of panels to show (non-member panels close). Members must be
+  # enabled built-in or custom panel ids.
+  presets:
+{%- for preset_name, preset_panels in panel_presets.items() %}
+    {{ preset_name | tojson }}: [{{ preset_panels | join(", ") }}]
+{%- endfor %}
+{%- else %}
+  # Panel layouts ("Layouts"): named sets of panels a human applies in one click
+  # from the "+" popover (non-member panels close). Uncomment to define some:
+  # presets:
+  #   "Machine setup": [channel-finder, lattice, artifacts, okf]
+  #   "Logbook review": [ariel, artifacts]
+{%- endif %}
 
 # ──────────────────────────────────────────────────────────────────────
 # User-Owned Build Artifacts

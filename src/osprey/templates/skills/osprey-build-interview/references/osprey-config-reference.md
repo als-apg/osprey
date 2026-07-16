@@ -512,6 +512,26 @@ are rejected if they resolve to loopback / link-local / cloud-metadata addresses
 but a proxied panel renders same-origin (like every custom panel) — so only enable
 it together with an allowlist of hosts you trust.
 
+### Panel presets ("Layouts")
+
+`web.presets` declares named panel layouts an operator applies in one click from
+the panel `+` menu's **Layouts** section. Each key is the display label; each value
+is the exact set of panels to show (applying a preset closes every non-member panel):
+
+```yaml
+web:
+  presets:
+    "Machine setup": [channel-finder, lattice, artifacts, okf]
+    "Logbook review": [ariel, artifacts]
+```
+
+Members must be enabled built-in panels or declared custom panel ids; unknown ids
+are dropped with a warning, and a preset with no valid members is skipped. Config
+order is menu order. When no `web.presets` are defined (the default) the `+` menu
+is unchanged. In a build profile, use the `panel_presets:` field (a
+`{label: [ids]}` map) — its members are typo-validated at build time, like
+`default_panel`.
+
 ### Enabling built-in panels alongside custom ones
 
 ```yaml

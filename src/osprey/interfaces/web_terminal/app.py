@@ -348,6 +348,60 @@ def _load_panel_runtime_config(
     )
 
 
+def _load_panel_presets(enabled_panels: set[str], custom_panels: list[dict]) -> list[dict]:
+    """Read ``web.presets`` and resolve each named layout against the live panel set.
+
+    A preset is a facility-curated, named list of panel ids a human applies in one
+    click (the "Layouts" section of the "+" popover). This resolves the raw config
+    into the shape the frontend consumes, mirroring how :func:`_load_panel_config`
+    turns ``web.panels`` into concrete ids.
+
+    Each preset's members are intersected with the set of known ids (enabled
+    built-ins plus custom panel ids); unknown members are dropped with a warning
+    (a typo or a disabled panel must not strand the user), and a preset that
+    resolves to no known members is dropped entirely. Config insertion order is
+    preserved (pyyaml keeps mapping order on 3.7+), so config order == menu order.
+
+    Args:
+        enabled_panels: Enabled built-in panel ids (from :func:`_load_panel_config`).
+        custom_panels: Custom panel dicts (from :func:`_load_panel_config`).
+
+    Returns:
+        A list of ``{"name": str, "panels": [id, ...]}`` dicts in config order — a
+        list (not a dict) so JSON serialization preserves ordering in the
+        ``GET /api/panels`` payload. Fails open to ``[]`` on any config-read error.
+    """
+    known: set[str] = set(enabled_panels) | {cp["id"] for cp in custom_panels}
+    presets: list[dict] = []
+    try:
+        from osprey.utils.workspace import load_osprey_config
+
+        raw_presets = load_osprey_config().get("web", {}).get("presets", {})
+    except Exception:
+        return []
+
+    if not isinstance(raw_presets, dict):
+        return []
+
+    for name, members in raw_presets.items():
+        if not isinstance(members, list):
+            logger.warning("web.presets[%r] is not a list of panel ids; skipping.", name)
+            continue
+        resolved: list[str] = []
+        for member in members:
+            if member in known:
+                resolved.append(member)
+            else:
+                logger.warning(
+                    "web.presets[%r] references unknown panel id %r; dropping it.", name, member
+                )
+        if resolved:
+            presets.append({"name": str(name), "panels": resolved})
+        else:
+            logger.warning("web.presets[%r] has no known panel members; dropping the preset.", name)
+    return presets
+
+
 def _load_web_config(config_path: str | Path | None = None) -> dict:
     """Load web_terminal config section from config.yml."""
     config_paths = [
@@ -560,6 +614,13 @@ def _create_lifespan(
         app.state.allow_runtime_panels = panel_runtime.allow_runtime_panels
         app.state.runtime_panel_allowlist = panel_runtime.runtime_panel_allowlist
         app.state.visible_panels = panel_runtime.visible_panels
+
+        # Config-defined panel presets ("Layouts"): named sets of panel ids a
+        # human applies in one click. Immutable config-derived state — the only
+        # new server state this feature adds. Empty (the default) → the "+" menu
+        # renders exactly as before.
+        app.state.panel_presets = _load_panel_presets(enabled_panels, custom_panels)
+
         if panel_runtime.allow_runtime_panels and not panel_runtime.runtime_panel_allowlist:
             logger.warning(
                 "web.allow_runtime_panels is enabled without a runtime_panel_allowlist — "

@@ -58,9 +58,13 @@ async def list_panels() -> str:
 
     Returns:
         JSON with ``status``, ``active`` (id of the currently visible panel,
-        or null), and ``panels`` list.  Each panel entry has ``id``,
-        ``label``, and ``visible`` (bool — whether the tab is shown in the
-        tab bar).
+        or null), ``panels`` list, and ``presets`` (config-defined layouts —
+        each ``{name, panels: [id, ...]}``; empty unless the deployment defines
+        any).  Each panel entry has ``id``, ``label``, and ``visible`` (bool —
+        whether the tab is shown in the tab bar).  To honor a request like "set
+        up for machine setup," look up the named preset and compose the result
+        with ``show_panel``/``hide_panel`` — the same primitive a human's click
+        resolves to.
     """
     base = web_terminal_url()
     data = _fetch_panels(base)
@@ -94,7 +98,14 @@ async def list_panels() -> str:
             }
         )
 
-    return json.dumps({"status": "success", "active": data.get("active"), "panels": panels})
+    return json.dumps(
+        {
+            "status": "success",
+            "active": data.get("active"),
+            "panels": panels,
+            "presets": data.get("presets", []),
+        }
+    )
 
 
 def _fetch_known_panel_ids(base: str) -> set[str] | None:

@@ -352,6 +352,8 @@ def build(
             context["channel_finder_mode"] = build_profile.channel_finder_mode
         if build_profile.default_panel:
             context["default_panel"] = build_profile.default_panel
+        if build_profile.panel_presets:
+            context["panel_presets"] = build_profile.panel_presets
         if build_profile.claude_md_template:
             context["claude_md_template"] = build_profile.claude_md_template
 
