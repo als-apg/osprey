@@ -42,7 +42,7 @@
               "_pattern": "{:02d}",
               "_range": [
                 1,
-                24
+                36
               ]
             },
             "CURRENT": {
@@ -79,7 +79,7 @@
               "_pattern": "{:02d}",
               "_range": [
                 1,
-                16
+                24
               ]
             },
             "CURRENT": {
@@ -116,7 +116,7 @@
               "_pattern": "{:02d}",
               "_range": [
                 1,
-                16
+                24
               ]
             },
             "CURRENT": {
@@ -153,7 +153,7 @@
               "_pattern": "{:02d}",
               "_range": [
                 1,
-                20
+                72
               ]
             },
             "CURRENT": {
@@ -187,7 +187,7 @@
               "_pattern": "{:02d}",
               "_range": [
                 1,
-                20
+                72
               ]
             },
             "CURRENT": {
@@ -221,7 +221,7 @@
               "_pattern": "{:02d}",
               "_range": [
                 1,
-                12
+                24
               ]
             },
             "CURRENT": {
@@ -258,7 +258,7 @@
               "_pattern": "{:02d}",
               "_range": [
                 1,
-                12
+                24
               ]
             },
             "CURRENT": {
@@ -283,6 +283,117 @@
               },
               "FAULT": {
                 "_description": "Fault (read-only): Fault condition detected."
+              }
+            }
+          }
+        },
+        "QFA": {
+          "_description": "Achromat Focusing Quadrupoles (QFA): ALS-U Accumulator Ring achromat focusing quadrupole magnets.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "{:02d}",
+              "_range": [
+                1,
+                24
+              ]
+            },
+            "CURRENT": {
+              "_description": "Achromat Focusing Quadrupole Current (Amperes): current through QFA coil windings.",
+              "SP": {
+                "_description": "setpoint"
+              },
+              "RB": {
+                "_description": "readback"
+              },
+              "GOLDEN": {
+                "_description": "golden setpoint"
+              }
+            },
+            "STATUS": {
+              "_description": "Operational status for achromat focusing quadrupole.",
+              "READY": {
+                "_description": "ready"
+              },
+              "ON": {
+                "_description": "on"
+              },
+              "FAULT": {
+                "_description": "fault"
+              }
+            }
+          }
+        },
+        "SHF": {
+          "_description": "Harmonic Focusing Sextupoles (SHF): ALS-U Accumulator Ring harmonic focusing sextupole magnets.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "{:02d}",
+              "_range": [
+                1,
+                24
+              ]
+            },
+            "CURRENT": {
+              "_description": "Harmonic Focusing Sextupole Current (Amperes): current through SHF coil windings.",
+              "SP": {
+                "_description": "setpoint"
+              },
+              "RB": {
+                "_description": "readback"
+              },
+              "GOLDEN": {
+                "_description": "golden setpoint"
+              }
+            },
+            "STATUS": {
+              "_description": "Operational status for harmonic focusing sextupole.",
+              "READY": {
+                "_description": "ready"
+              },
+              "ON": {
+                "_description": "on"
+              },
+              "FAULT": {
+                "_description": "fault"
+              }
+            }
+          }
+        },
+        "SHD": {
+          "_description": "Harmonic Defocusing Sextupoles (SHD): ALS-U Accumulator Ring harmonic defocusing sextupole magnets.",
+          "DEVICE": {
+            "_expansion": {
+              "_type": "range",
+              "_pattern": "{:02d}",
+              "_range": [
+                1,
+                24
+              ]
+            },
+            "CURRENT": {
+              "_description": "Harmonic Defocusing Sextupole Current (Amperes): current through SHD coil windings.",
+              "SP": {
+                "_description": "setpoint"
+              },
+              "RB": {
+                "_description": "readback"
+              },
+              "GOLDEN": {
+                "_description": "golden setpoint"
+              }
+            },
+            "STATUS": {
+              "_description": "Operational status for harmonic defocusing sextupole.",
+              "READY": {
+                "_description": "ready"
+              },
+              "ON": {
+                "_description": "on"
+              },
+              "FAULT": {
+                "_description": "fault"
               }
             }
           }
@@ -526,7 +637,7 @@
               "_pattern": "{:02d}",
               "_range": [
                 1,
-                20
+                72
               ]
             },
             "POSITION": {

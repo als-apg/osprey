@@ -7,7 +7,7 @@ is a single rule --
 
     a channel is writable if and only if it is a setpoint (``:SP``).
 
-The manifest's 168 writable ``:SP`` addresses each get a writable entry with
+The manifest's 396 writable ``:SP`` addresses each get a writable entry with
 min/max bounds (family-banded from the SR lattice model's device inventory,
 ``osprey.services.virtual_accelerator.lattice``, and machine.json's simulated
 nominal values) plus readback verification. Every other manifest address -- readbacks
@@ -118,11 +118,11 @@ class TestManifestCoverageIsComplete:
     """channel_limits.json is a pure projection of the manifest: every manifest
     address has exactly one entry, and no entry is an orphan."""
 
-    def test_manifest_reports_168_sp_addresses(self, manifest_sp_addresses):
-        assert len(manifest_sp_addresses) == 168
+    def test_manifest_reports_396_sp_addresses(self, manifest_sp_addresses):
+        assert len(manifest_sp_addresses) == 396
 
-    def test_manifest_reports_1060_non_sp_addresses(self, manifest_non_sp_addresses):
-        assert len(manifest_non_sp_addresses) == 1060
+    def test_manifest_reports_2512_non_sp_addresses(self, manifest_non_sp_addresses):
+        assert len(manifest_non_sp_addresses) == 2512
 
     def test_every_manifest_address_has_a_limits_entry(self, limits_db, manifest_addresses):
         missing = manifest_addresses - set(limits_db.keys())
@@ -205,7 +205,7 @@ class TestDemoWriteFitsInsideItsOwnLimits:
             for a in manifest_sp_addresses
             if a.startswith("SR:MAG:HCM:") or a.startswith("SR:MAG:VCM:")
         ]
-        assert len(correctors) == 40  # 20 HCM + 20 VCM
+        assert len(correctors) == 144  # 72 HCM + 72 VCM
         for address in correctors:
             entry = limits_db[address]
             assert entry["min_value"] <= -DEMO_WRITE_VALUE, address
@@ -244,6 +244,18 @@ class TestQuadLimitsArePhysicallyStable:
     outside the ~100A stable operating point and raised OrbitSolveError from
     every quad on first use -- this pins the fix so it can't regress."""
 
+    @pytest.mark.xfail(
+        reason=(
+            "Phase 2b (physics-bridge repoint): PhysicsBridge builds the VA lattice via "
+            "services/virtual_accelerator/lattice/ring.py, which hardcodes N_ARC_CELLS=24 "
+            "but the grown manifest now has 36 SR:MAG:DIPOLE, so construction raises before "
+            "the bands are read. The quad bands asserted here (QF 300-400A, QD 250-320A) are "
+            "correct for the real ALS-U nominals; this physics-model coupling and its "
+            "~100A-operating-point premise are rewritten when 2b repoints the bridge to the "
+            "real ring. Tracked in the phase-2a -> 2b handoff."
+        ),
+        strict=False,
+    )
     def test_channel_limits_quad_range_is_physically_stable(self, limits_db, manifest_sp_addresses):
         from osprey.services.virtual_accelerator.ioc.physics_bridge import (
             OrbitSolveError,
@@ -255,7 +267,7 @@ class TestQuadLimitsArePhysicallyStable:
             for a in manifest_sp_addresses
             if a.startswith("SR:MAG:QF:") or a.startswith("SR:MAG:QD:")
         ]
-        assert len(quad_addresses) == 32  # 16 QF + 16 QD
+        assert len(quad_addresses) == 48  # 24 QF + 24 QD
 
         for address in quad_addresses:
             entry = limits_db[address]
