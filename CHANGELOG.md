@@ -62,6 +62,8 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- A Web Terminal panel closed with its "×" no longer reappears on its own. A panel's backend coming back online was treated as a reason to bring the panel to the front, so a hidden panel could surface itself — most visibly when the Workspace panel was unavailable and a closed panel was the only healthy one left. Health checks now only ever affect a panel's enabled state; showing a panel remains something only you or the agent can ask for.
+
 - A stale `CLAUDE_CODE_USE_BEDROCK` (or other backend/model selector) in the operator's shell no longer reroutes the agent away from the configured provider — these are now scrubbed before launch (#356).
 - `env.example` no longer ships uncommented placeholder proxy values. Copying it to `.env` exported an unparseable `HTTP_PROXY`, which broke Claude Code launches and OSPREY's own HTTP clients.
 - The `InContextBackend` benchmark test (the sole real-LLM test outside `tests/e2e/`) moved into `tests/e2e/`, so the fast lane (`pytest tests/ --ignore=tests/e2e`) stays hermetic even when a provider key is exported — previously it made a live LLM call and failed with an unrelated gateway auth error on a blocked/expired key. A placement guard prevents recurrence for the whole credentialed `requires_*` marker family.

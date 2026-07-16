@@ -458,9 +458,9 @@ async function initPanel(panel) {
       enableTab(panel.id);
       updateTabState(panel);
       if (panel.id === DEFAULT_PANEL) {
-        activateTab(panel.id);
+        activateTab(panel.id, { auto: true });
       } else if (!activeTabId) {
-        activateTab(panel.id);
+        activateTab(panel.id, { auto: true });
       }
     } else {
       startHealthPolling(panel);
@@ -513,16 +513,20 @@ async function pollHealth(panel) {
     // First time healthy — enable tab and auto-activate
     if (state.healthy && !wasHealthy) {
       enableTab(panel.id);
-      // Auto-activate: prefer the DEFAULT_PANEL. Only activate a
-      // non-default panel if nothing is active yet and the default
-      // panel has already been polled and isn't healthy.
+      // Auto-activate: prefer the DEFAULT_PANEL. Only activate a non-default
+      // panel if nothing is active yet and the default panel has settled and
+      // can't take the slot itself. Every call here is {auto: true}, so a
+      // hidden panel is never surfaced — see activateTab.
       if (panel.id === DEFAULT_PANEL) {
-        activateTab(panel.id);
+        activateTab(panel.id, { auto: true });
       } else if (!activeTabId) {
         const defaultState = panelState[DEFAULT_PANEL];
-        // Only fall back if default panel finished loading config and isn't healthy
-        if (defaultState?.configLoaded && !defaultState.healthy) {
-          activateTab(panel.id);
+        // Fall back once the default panel has settled and can't take the slot
+        // itself. Hidden counts the same as unhealthy here: activateTab refuses
+        // to auto-surface a hidden default, so without the visibility term the
+        // pane would stay blank while a visible healthy panel sits unopened.
+        if (defaultState?.configLoaded && !(defaultState.healthy && visiblePanels.has(DEFAULT_PANEL))) {
+          activateTab(panel.id, { auto: true });
         }
       }
     }
@@ -619,11 +623,15 @@ function sendSessionToIframe(iframe) {
 
 /**
  * @param {string} panelId
- * @param {{ userInitiated?: boolean }} [options]
+ * @param {{ userInitiated?: boolean, auto?: boolean }} [options]
  */
-function activateTab(panelId, { userInitiated = false } = {}) {
+function activateTab(panelId, { userInitiated = false, auto = false } = {}) {
   const state = panelState[panelId];
   if (!state || !state.healthy) return;
+  // A panel becoming healthy is not a request to show it. The server owns the
+  // visible set, so health-driven activation must never surface a hidden panel
+  // — otherwise a panel closed with "×" reappears on its own.
+  if (auto && !visiblePanels.has(panelId)) return;
 
   activeTabId = panelId;
 
