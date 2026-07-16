@@ -10,6 +10,8 @@
 import { fetchJSON } from './api.js';
 import { getTheme } from '/design-system/js/theme-manager.js';
 import { getCurrentSessionId } from './terminal.js';
+import { initPanelAddMenu } from './panel-add-menu.js';
+import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
 
 // ---- Types ----
 
@@ -120,6 +122,10 @@ const visiblePanels = new Set();
 const DEFAULT_PANEL_FALLBACK = 'artifacts';
 let DEFAULT_PANEL = DEFAULT_PANEL_FALLBACK;
 
+// Whether the server permits runtime URL-panel registration (web.allow_runtime_panels).
+// Read from /api/panels at init; gates the "new panel from URL" row in the add menu.
+let allowRuntimePanels = false;
+
 // ---- Public API ----
 
 /**
@@ -200,8 +206,38 @@ export async function initPanelManager(panelId) {
     for (const panel of PANELS) visiblePanels.add(panel.id);
   }
 
+  // Whether the human "+" menu may register URL panels (server config gate).
+  allowRuntimePanels = !!panelConfig?.allow_runtime_panels;
+
   // Render tab buttons
   renderTabs();
+
+  // Wire the add-panel "+" menu (browser-tab-style). The menu is a dumb view;
+  // it reads current hidden panels / the URL gate through these closures and
+  // calls back into the same visibility/register paths the agent uses.
+  const addRoot = document.getElementById('panel-add');
+  const addBtn = document.getElementById('panel-add-btn');
+  const addMenu = document.getElementById('panel-add-menu');
+  if (addRoot && addBtn && addMenu) {
+    initPanelAddMenu({
+      rootEl: addRoot,
+      buttonEl: /** @type {HTMLButtonElement} */ (addBtn),
+      menuEl: addMenu,
+      getHiddenPanels: () => PANELS.filter(p => !visiblePanels.has(p.id)).map(p => ({ id: p.id, label: p.label })),
+      allowUrlPanels: () => allowRuntimePanels,
+      onShowPanel: showPanel,
+      onRegisterUrl: registerUrlPanel,
+    });
+  }
+
+  // Keyboard close: Delete/Backspace on a focused tab hides that panel (the "×"
+  // is mouse-only/decorative). Delegated — one listener rather than one per tab.
+  tabsEl.addEventListener('keydown', (e) => {
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+    if (!(e.target instanceof HTMLElement)) return;
+    const id = e.target.closest('.header-tab')?.getAttribute('data-panel-id');
+    if (id) { e.preventDefault(); setPanelVisibility(id, false); }
+  });
 
   // Fetch config and start health polling for all panels
   for (const panel of PANELS) {
@@ -312,6 +348,19 @@ function buildTabButton(panel) {
   tab.appendChild(led);
   tab.appendChild(document.createTextNode(panel.label));
   tab.addEventListener('click', () => activateTab(panel.id, { userInitiated: true }));
+  // Per-tab close "×" (browser-tab style, revealed on hover via CSS). Decorative
+  // (aria-hidden) so it is not an interactive control nested inside the tab
+  // button; keyboard users close via Delete on the focused tab (see init).
+  const close = document.createElement('span');
+  close.className = 'tab-close';
+  close.setAttribute('aria-hidden', 'true');
+  close.title = `Close ${panel.label}`;
+  close.textContent = '×';
+  close.addEventListener('click', (e) => {
+    e.stopPropagation();  // don't activate the tab we're closing
+    setPanelVisibility(panel.id, false);
+  });
+  tab.appendChild(close);
   if (!visiblePanels.has(panel.id)) {
     tab.classList.add('tab-hidden');
   }
@@ -592,10 +641,13 @@ function activateTab(panelId, { userInitiated = false } = {}) {
     }
   }
 
-  // Show or create the selected iframe
-  if (state.iframe) {
+  // Show or create the selected iframe. isConnected guards a cached ref that was
+  // detached by renderEmptyState's innerHTML wipe — rebuild (and clear the stale
+  // empty-state placeholder) rather than re-showing a node no longer in the DOM.
+  if (state.iframe && state.iframe.isConnected) {
     state.iframe.classList.remove('hidden');
   } else {
+    contentEl.querySelector('.artifacts-empty-state')?.remove();
     createIframe(panelId);
   }
 
@@ -605,13 +657,26 @@ function activateTab(panelId, { userInitiated = false } = {}) {
   sendSessionToIframe(state.iframe);
 
   // Report user-initiated tab switches to the server (avoids SSE feedback loop)
-  if (userInitiated) {
-    fetch('/api/panel-focus', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ panel: panelId }),
-    }).catch(() => {});
-  }
+  if (userInitiated) setPanelFocus(panelId);
+}
+
+// ---- Panel Visibility Actions (human "+" / "×") ----
+//
+// These back the human add/remove controls. The command POSTs live in
+// panel-commands.js and the server's SSE echo drives the DOM, so a human
+// action and an agent MCP call are indistinguishable downstream. The per-tab
+// "×" calls setPanelVisibility(id, false) directly (see buildTabButton); the
+// "+" menu's reveal path needs a local focus too, so it goes through showPanel.
+
+/**
+ * Reveal a hidden panel and focus it (a "Show panel" menu pick). The visibility
+ * POST un-hides the tab for every client via SSE; activateTab focuses it here
+ * when it's healthy (and no-ops otherwise, leaving the tab visible but unfocused).
+ * @param {string} panelId
+ */
+function showPanel(panelId) {
+  setPanelVisibility(panelId, true);
+  activateTab(panelId, { userInitiated: true });
 }
 
 // ---- Panel Navigation ----

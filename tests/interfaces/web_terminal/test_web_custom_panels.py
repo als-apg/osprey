@@ -260,6 +260,20 @@ class TestPanelsAPI:
         assert len(data["custom"]) == 2
         assert data["custom"][0]["id"] == "my-dashboard"
 
+    def test_panels_api_reports_runtime_disabled(self, client):
+        """GET /api/panels reports allow_runtime_panels=False by default.
+
+        The frontend reads this flag to decide whether to offer the human
+        'new panel from URL' input, so it must mirror the register-route gate.
+        """
+        data = client.get("/api/panels").json()
+        assert data["allow_runtime_panels"] is False
+
+    def test_panels_api_reports_runtime_enabled(self, client_runtime_panels):
+        """GET /api/panels reports allow_runtime_panels=True when configured."""
+        data = client_runtime_panels.get("/api/panels").json()
+        assert data["allow_runtime_panels"] is True
+
     def test_panel_focus_enabled_panel(self, client_all_panels):
         """POST /api/panel-focus accepts enabled panel IDs."""
         resp = client_all_panels.post(

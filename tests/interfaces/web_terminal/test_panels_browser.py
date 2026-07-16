@@ -119,6 +119,9 @@ def _open_page(browser, base_url: str) -> Page:
     # should appear quickly after the async init path completes.
     # Iframes also carry data-panel-id, so target the button element specifically.
     expect(page.locator('button[data-panel-id="artifacts"]')).to_be_attached(timeout=10_000)
+    # The first-visit welcome overlay intercepts pointer events; remove it so
+    # tests that click header controls get a genuinely interactable starting DOM.
+    page.evaluate("document.getElementById('welcome-overlay')?.remove()")
     return page
 
 
@@ -283,5 +286,266 @@ def test_register_adds_tab_non_destructively(tmp_path, chromium_browser):
         expect(page.locator('button[data-panel-id="monitor"]:not(.active)')).to_be_attached(
             timeout=2_000
         )
+
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 4: the "+" menu lists a hidden panel and reveals it (human add)
+# ---------------------------------------------------------------------------
+
+
+def test_add_menu_reveals_hidden_panel(tmp_path, chromium_browser):
+    """Clicking a panel in the "+" menu un-hides its tab.
+
+    Arrange: data-viz starts visible, then is hidden via the API so it becomes a
+    known-but-hidden panel — exactly what the "+" menu offers under "Show panel".
+    Act: open the "+" menu and click the DATA VIZ entry.
+    Assert: the tab is visible again (the menu drove POST /api/panel-visibility).
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[_CUSTOM_DATA_VIZ],
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        # Scope to the tab strip: once the "+" menu opens, its menu item also
+        # carries data-panel-id="data-viz", so target the header tab specifically.
+        data_viz_tab = page.locator('button.header-tab[data-panel-id="data-viz"]')
+        expect(data_viz_tab).to_be_visible(timeout=10_000)
+
+        # Hide it so it becomes a known-but-hidden panel the "+" menu can offer.
+        r = requests.post(
+            f"{base_url}/api/panel-visibility",
+            json={"panel": "data-viz", "visible": False},
+        )
+        assert r.status_code == 200
+        expect(data_viz_tab).not_to_be_visible(timeout=5_000)
+
+        # Act — open the "+" menu; the hidden panel is listed as an add target.
+        page.locator("#panel-add-btn").click()
+        menu_item = page.locator('.panel-add-item[data-panel-id="data-viz"]')
+        expect(menu_item).to_be_visible(timeout=5_000)
+        menu_item.click()
+
+        # Assert — the tab is revealed again.
+        expect(data_viz_tab).to_be_visible(timeout=5_000)
+
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 5: the per-tab "×" hides a panel (human remove)
+# ---------------------------------------------------------------------------
+
+
+def test_close_button_hides_panel(tmp_path, chromium_browser):
+    """Clicking a tab's "×" hides it without activating the tab.
+
+    Act: hover the data-viz tab to reveal its "×", then click it.
+    Assert: the tab becomes hidden (the "×" drove POST /api/panel-visibility).
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[_CUSTOM_DATA_VIZ],
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        data_viz_tab = page.locator('button[data-panel-id="data-viz"]')
+        expect(data_viz_tab).to_be_visible(timeout=10_000)
+
+        # Act — reveal and click the "×" inside the tab.
+        data_viz_tab.hover()
+        page.locator('button[data-panel-id="data-viz"] .tab-close').click()
+
+        # Assert — SSE echo added .tab-hidden, so the tab is gone.
+        expect(data_viz_tab).not_to_be_visible(timeout=5_000)
+
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 6: the URL row is gated by web.allow_runtime_panels
+# ---------------------------------------------------------------------------
+
+
+def test_add_menu_url_row_hidden_when_disabled(tmp_path, chromium_browser):
+    """With allow_runtime_panels off (default), the "+" menu shows no URL input."""
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[],
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        page.locator("#panel-add-btn").click()
+        expect(page.locator(".panel-add-menu.open")).to_be_visible(timeout=5_000)
+        # No "new panel from URL" affordance when runtime registration is disabled.
+        expect(page.locator(".panel-add-input")).to_have_count(0)
+        page.close()
+
+
+def test_add_menu_url_row_shown_when_enabled(tmp_path, chromium_browser):
+    """With allow_runtime_panels on, the "+" menu offers the URL input."""
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[],
+        allow_runtime=True,
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        page.locator("#panel-add-btn").click()
+        expect(page.locator('.panel-add-menu input[name="url"]')).to_be_visible(timeout=5_000)
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 7: submitting the URL form registers a panel end-to-end (human add-URL)
+# ---------------------------------------------------------------------------
+
+
+def test_add_menu_registers_url_panel(tmp_path, chromium_browser):
+    """Filling the URL form and clicking Add appends a new tab.
+
+    SSRF validation is patched to pass (URL validation is unit-tested elsewhere);
+    this exercises the human form → POST /api/panels/register → SSE → DOM path.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[],
+        allow_runtime=True,
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+
+        with patch(
+            "osprey.interfaces.web_terminal.routes.panels._validate_panel_url",
+            new=AsyncMock(return_value=None),
+        ):
+            page.locator("#panel-add-btn").click()
+            page.locator('.panel-add-menu input[name="url"]').fill("http://grafana.internal:3000")
+            page.locator('.panel-add-menu input[name="label"]').fill("Monitor")
+            page.locator(".panel-add-submit").click()
+
+            # id derives from the label → "monitor"; the register SSE adds the tab.
+            monitor_tab = page.locator('button[data-panel-id="monitor"]')
+            expect(monitor_tab).to_be_visible(timeout=5_000)
+
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 8: re-showing a panel after the empty state rebuilds its iframe
+# ---------------------------------------------------------------------------
+
+
+def test_reshow_after_empty_state_rebuilds_iframe(tmp_path, chromium_browser):
+    """Closing the only panel then reopening it must not leave a blank pane.
+
+    Regression: renderEmptyState does contentEl.innerHTML=... which detaches the
+    cached iframe; activateTab must rebuild it (isConnected guard) rather than
+    re-show the orphaned node, otherwise the pane is stuck on the empty state.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[],
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        artifacts_tab = page.locator('button.header-tab[data-panel-id="artifacts"]')
+        expect(artifacts_tab).to_be_visible(timeout=10_000)
+
+        # Close the only panel → empty state.
+        artifacts_tab.hover()
+        page.locator('button[data-panel-id="artifacts"] .tab-close').click()
+        expect(page.locator("#panel-content").get_by_text("No panels visible")).to_be_visible(
+            timeout=5_000
+        )
+
+        # Reopen it from the "+" menu.
+        page.locator("#panel-add-btn").click()
+        page.locator('.panel-add-item[data-panel-id="artifacts"]').click()
+
+        # The content iframe is rebuilt and the empty state is gone (not blank).
+        expect(page.locator('iframe.panel-iframe[data-panel-id="artifacts"]')).to_be_attached(
+            timeout=5_000
+        )
+        expect(page.locator("#panel-content").get_by_text("No panels visible")).to_have_count(0)
+
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 9: Delete on a focused tab closes it (keyboard parity for the "×")
+# ---------------------------------------------------------------------------
+
+
+def test_keyboard_delete_closes_focused_tab(tmp_path, chromium_browser):
+    """Pressing Delete on a focused tab hides it (the "×" is mouse-only)."""
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[_CUSTOM_DATA_VIZ],
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        data_viz_tab = page.locator('button.header-tab[data-panel-id="data-viz"]')
+        expect(data_viz_tab).to_be_visible(timeout=10_000)
+
+        data_viz_tab.focus()
+        data_viz_tab.press("Delete")
+
+        expect(data_viz_tab).not_to_be_visible(timeout=5_000)
+
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 10: a rejected URL registration surfaces the server's reason
+# ---------------------------------------------------------------------------
+
+
+def test_add_menu_shows_register_error(tmp_path, chromium_browser):
+    """A register 4xx (here: built-in id collision) is shown inline in the menu."""
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[],
+        allow_runtime=True,
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+
+        page.locator("#panel-add-btn").click()
+        page.locator('.panel-add-menu input[name="url"]').fill("http://x.internal:3000")
+        # Label "Lattice" derives id "lattice", which collides with a built-in →
+        # the server 422s and the menu must display the reason, not fail silently.
+        page.locator('.panel-add-menu input[name="label"]').fill("Lattice")
+        page.locator(".panel-add-submit").click()
+
+        error = page.locator(".panel-add-url-error")
+        expect(error).to_be_visible(timeout=5_000)
+        expect(error).to_contain_text("built-in")
 
         page.close()
