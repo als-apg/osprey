@@ -106,6 +106,73 @@ class TestBpmPolarityScenario:
         }
 
 
+class TestOrmDualFaultScenario:
+    """physics.bpm_errors + physics.corrector_gain together on disjoint devices.
+
+    ``orm-dual-fault`` is the combined-fault bundle the ORM agentic e2e
+    activates: a BPM 17 polarity flip (reusing ``bpm-polarity``'s shape) plus
+    a bounded HCM01 gain deficit, on two distinct devices so the disjoint-
+    device claim in ``_render_physics_vars`` never trips within one scenario.
+    """
+
+    def test_physics_block_parses_both_faults(self, tmp_path):
+        project = _make_project(tmp_path)
+        engine = SimulationEngine.from_file(project / "data/simulation/machine.json")
+        engine.set_active_scenario("orm-dual-fault")
+        scenario = engine._scenarios[
+            "orm-dual-fault"
+        ]  # private: no public accessor for a scenario's parsed physics block
+        assert scenario.physics is not None
+        assert scenario.physics.bpm_errors["BPM17"].polarity == -1
+        assert scenario.physics.corrector_gain == {"HCM01": 0.5}
+
+    def test_render_emits_both_va_vars_on_disjoint_devices(self, tmp_path):
+        project = _make_project(tmp_path)
+        rendered = render_scenario_physics_env(project, ["orm-dual-fault"])
+
+        assert set(rendered) == {"VA_BPM_ERRORS", "VA_CORR_GAIN"}
+        assert rendered["VA_BPM_ERRORS"] == "BPM17:polarity_x=-1.0,polarity_y=-1.0"
+        assert rendered["VA_CORR_GAIN"] == "HCM01=0.5"
+
+    def test_rendered_values_round_trip_through_entrypoint_parsers(self, tmp_path, monkeypatch):
+        project = _make_project(tmp_path)
+        rendered = render_scenario_physics_env(project, ["orm-dual-fault"])
+
+        monkeypatch.setenv("VA_BPM_ERRORS", rendered["VA_BPM_ERRORS"])
+        monkeypatch.setenv("VA_CORR_GAIN", rendered["VA_CORR_GAIN"])
+        bpm_errors = (
+            entrypoint._parse_bpm_errors()
+        )  # exercising the entrypoint's own parse helpers directly
+        corr_gain = entrypoint._parse_device_float_map(
+            "VA_CORR_GAIN", bound=entrypoint.MAX_CORR_GAIN_FACTOR
+        )
+        assert bpm_errors == {
+            "BPM17": {"polarity_x": pytest.approx(-1.0), "polarity_y": pytest.approx(-1.0)}
+        }
+        assert corr_gain == {"HCM01": pytest.approx(0.5)}
+
+    def test_disjoint_devices_satisfy_the_claim_guard_alongside_another_fault(self, tmp_path):
+        """A second active scenario faulting different devices doesn't trip
+        ``_render_physics_vars``'s disjoint-device claim -- mirrors
+        ``TestErrors``'s same-device negative case, but disjoint."""
+        project = _make_inline_project(
+            tmp_path,
+            {
+                "orm-dual-fault": {
+                    "physics": {
+                        "bpm_errors": {"BPM17": {"polarity": -1}},
+                        "corrector_gain": {"HCM01": 0.5},
+                    }
+                },
+                "other-fault": {"physics": {"corrector_gain": {"HCM02": 0.8}}},
+            },
+        )
+        rendered = render_scenario_physics_env(project, ["orm-dual-fault", "other-fault"])
+
+        assert rendered["VA_BPM_ERRORS"] == "BPM17:polarity_x=-1.0,polarity_y=-1.0"
+        assert rendered["VA_CORR_GAIN"] == "HCM01=0.5,HCM02=0.8"
+
+
 class TestBackwardCompatibility:
     """A bundle without a ``physics`` block still parses, and renders nothing."""
 
