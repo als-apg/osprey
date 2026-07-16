@@ -32,7 +32,7 @@ from fastapi import FastAPI
 from starlette.staticfiles import StaticFiles
 
 from osprey.interfaces._app_setup import configure_interface_app
-from osprey.services.bluesky_panels import execute, read_proxy
+from osprey.services.bluesky_panels import draft_relay, execute, read_proxy
 from osprey.services.bluesky_panels import health as health_routes
 
 _DEFAULT_BRIDGE_URL = "http://127.0.0.1:8090"
@@ -110,10 +110,12 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-# Wire the bridge read-proxy, the deterministic execute route, and the
-# health-rollup router onto the app. Each router reads the shared httpx
-# client + bridge URL from ``app.state`` at request time (set in _lifespan).
+# Wire the bridge read-proxy, the plan-draft relay, the deterministic execute
+# route, and the health-rollup router onto the app. Each router reads the
+# shared httpx client + bridge URL from ``app.state`` at request time (set in
+# _lifespan).
 app.include_router(read_proxy.router)
+app.include_router(draft_relay.router)
 app.include_router(execute.router)
 app.include_router(health_routes.router)
 

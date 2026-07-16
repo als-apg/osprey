@@ -210,3 +210,159 @@ def test_execute_request_body_promote_token_is_ignored_when_armed(
     assert response.json()["run_id"] == RUN_ID
     assert len(calls) == 2
     assert calls[1].headers["x-promote-token"] == TOKEN
+
+
+# ---------------------------------------------------------------------------
+# (d) draft-revision XOR shape violations (task 3.2: execute-revision-gate)
+#
+# ``ExecuteRequest`` is ``draft_revision`` XOR (``plan_name`` + optional
+# ``plan_args``): exactly one launch mode. Both modes, or neither, must 422
+# before the bridge is ever contacted -- there is no "ignored but present"
+# body field that could act as a second, silently-dropped source of launched
+# args.
+# ---------------------------------------------------------------------------
+
+
+def _refusing_handler(request: httpx.Request) -> httpx.Response:
+    raise AssertionError(
+        f"bridge must not be called for a 422 XOR violation: {request.method} {request.url}"
+    )
+
+
+def test_execute_xor_both_draft_revision_and_plan_name_is_422(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", TOKEN)
+    app = _make_app(httpx.AsyncClient(transport=httpx.MockTransport(_refusing_handler)))
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/runs/execute",
+            json={"draft_revision": 5, "plan_name": "orm", "plan_args": {}},
+        )
+
+    assert response.status_code == 422
+    assert "exactly one" in str(response.json()).lower()
+
+
+def test_execute_xor_neither_draft_revision_nor_plan_name_is_422(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", TOKEN)
+    app = _make_app(httpx.AsyncClient(transport=httpx.MockTransport(_refusing_handler)))
+
+    with TestClient(app) as client:
+        response = client.post("/runs/execute", json={})
+
+    assert response.status_code == 422
+    assert "exactly one" in str(response.json()).lower()
+
+
+def test_execute_xor_plan_args_alone_does_not_establish_manual_mode(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # plan_args alone (no plan_name, no draft_revision) does not complete
+    # either arm -- plan_name is what completes the manual arm.
+    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", TOKEN)
+    app = _make_app(httpx.AsyncClient(transport=httpx.MockTransport(_refusing_handler)))
+
+    with TestClient(app) as client:
+        response = client.post("/runs/execute", json={"plan_args": {"foo": 1}})
+
+    assert response.status_code == 422
+
+
+def test_execute_xor_draft_revision_with_stray_plan_args_is_422(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A stray plan_args alongside draft_revision (with no plan_name) is still
+    # a second source of launch args and must be rejected outright, not
+    # silently dropped -- this is what guarantees request-body args can never
+    # leak into a draft-mode launch.
+    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", TOKEN)
+    app = _make_app(httpx.AsyncClient(transport=httpx.MockTransport(_refusing_handler)))
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/runs/execute",
+            json={"draft_revision": 5, "plan_args": {"stale": "value"}},
+        )
+
+    assert response.status_code == 422
+
+
+def test_execute_xor_draft_revision_with_explicit_null_plan_name_is_422(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Review remediation (task 3.2 follow-up): an explicitly-present
+    # ``plan_name: null`` alongside ``draft_revision`` looked identical by
+    # value to plain draft mode (both are "no plan_name"), so the XOR check
+    # missed it when it only value-checked plan_name instead of also
+    # consulting model_fields_set the way the plan_args check does. This
+    # must 422 just like the stray-plan_args case above.
+    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", TOKEN)
+    app = _make_app(httpx.AsyncClient(transport=httpx.MockTransport(_refusing_handler)))
+
+    with TestClient(app) as client:
+        response = client.post(
+            "/runs/execute",
+            json={"draft_revision": 5, "plan_name": None},
+        )
+
+    assert response.status_code == 422
+    assert "exactly one" in str(response.json()).lower()
+
+
+def test_execute_xor_draft_revision_omitting_plan_name_entirely_still_valid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Companion to the explicit-null case above: a body that omits
+    # plan_name entirely (never present in model_fields_set) alongside
+    # draft_revision must keep validating -- only an explicitly-present
+    # plan_name (null or not) should trip the XOR check.
+    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", TOKEN)
+    draft_body = {
+        "draft": {"plan_name": "grid_scan", "plan_args": {}},
+        "revision": 5,
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET" and request.url.path == "/draft":
+            return httpx.Response(200, json=draft_body)
+        if request.method == "POST" and request.url.path == "/runs":
+            return httpx.Response(200, json={"id": RUN_ID, "status": "intent"})
+        if request.method == "POST" and request.url.path == f"/runs/{RUN_ID}/promote":
+            return httpx.Response(200, json={"id": RUN_ID, "status": "running"})
+        raise AssertionError(f"unexpected bridge call: {request.method} {request.url}")
+
+    app = _make_app(httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+
+    with TestClient(app) as client:
+        response = client.post("/runs/execute", json={"draft_revision": 5})
+
+    assert response.status_code == 200
+    assert response.json()["run_id"] == RUN_ID
+
+
+def test_execute_xor_manual_mode_plan_name_only_still_valid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Manual mode's plan_args stays optional: plan_name alone (no plan_args,
+    # no draft_revision) must still be accepted -- this is the pre-task-3.2
+    # shape of a manual-mode request and must keep working unchanged.
+    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", TOKEN)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and request.url.path == "/runs":
+            return httpx.Response(200, json={"id": RUN_ID, "status": "intent"})
+        if request.method == "POST" and request.url.path == f"/runs/{RUN_ID}/promote":
+            assert request.headers.get("x-promote-token") == TOKEN
+            return httpx.Response(200, json={"id": RUN_ID, "status": "running"})
+        raise AssertionError(f"unexpected bridge call: {request.method} {request.url}")
+
+    app = _make_app(httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    with TestClient(app) as client:
+        response = client.post("/runs/execute", json={"plan_name": "orm"})
+
+    assert response.status_code == 200
+    assert response.json()["run_id"] == RUN_ID

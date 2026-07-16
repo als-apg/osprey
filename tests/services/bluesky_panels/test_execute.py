@@ -10,6 +10,7 @@ accepted from the request, never echoed back, and an unarmed deployment
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import httpx
@@ -256,3 +257,237 @@ def test_router_execute_route_shape() -> None:
         for route in execute.router.routes
     ]
     assert ("/runs/execute", {"POST"}) in paths_and_methods
+
+
+# ---------------------------------------------------------------------------
+# (f) draft-mode revision gate (task 3.2: execute-revision-gate)
+# ---------------------------------------------------------------------------
+
+DRAFT_PLAN_NAME = "grid_scan"
+DRAFT_PLAN_ARGS = {
+    "detectors": ["bpm1"],
+    "axes": [{"channel": "SR01C:BEND:SP", "start": 0, "stop": 1, "num": 3}],
+}
+
+
+def _draft_armed_transport(
+    expected_token: str,
+    *,
+    draft_body: dict,
+    promote_status: int = 200,
+    promote_body: dict | None = None,
+) -> tuple[httpx.MockTransport, list[httpx.Request]]:
+    """A mock bridge transport that also serves ``GET /draft`` for draft-mode tests."""
+    calls: list[httpx.Request] = []
+    body = promote_body if promote_body is not None else {"id": RUN_ID, "status": "running"}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.method == "GET" and request.url.path == "/draft":
+            return httpx.Response(200, json=draft_body)
+        if request.method == "POST" and request.url.path == "/runs":
+            return httpx.Response(200, json={"id": RUN_ID, "status": "intent"})
+        if request.method == "POST" and request.url.path == f"/runs/{RUN_ID}/promote":
+            assert request.headers.get("x-promote-token") == expected_token
+            return httpx.Response(promote_status, json=body)
+        raise AssertionError(f"unexpected bridge call: {request.method} {request.url}")
+
+    return httpx.MockTransport(handler), calls
+
+
+def test_execute_draft_mode_match_launches_snapshot_args_never_body(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", TOKEN)
+    draft_body = {
+        "draft": {
+            "plan_name": DRAFT_PLAN_NAME,
+            "plan_args": DRAFT_PLAN_ARGS,
+            "updated_by": "mcp-agent",
+            "updated_at": "2026-07-16T00:00:00+00:00",
+        },
+        "revision": 5,
+    }
+    transport, calls = _draft_armed_transport(TOKEN, draft_body=draft_body)
+    app = _make_app(httpx.AsyncClient(transport=transport))
+
+    with TestClient(app) as client:
+        response = client.post("/runs/execute", json={"draft_revision": 5})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["run_id"] == RUN_ID
+    assert data["status"] == "running"
+
+    # Exactly GET /draft, then POST /runs, then POST promote -- in that order.
+    assert [(call.method, call.url.path) for call in calls] == [
+        ("GET", "/draft"),
+        ("POST", "/runs"),
+        ("POST", f"/runs/{RUN_ID}/promote"),
+    ]
+    create_payload = json.loads(calls[1].content)
+    assert create_payload == {"plan_name": DRAFT_PLAN_NAME, "plan_args": DRAFT_PLAN_ARGS}
+
+
+def test_execute_draft_mode_stale_revision_returns_409_with_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", TOKEN)
+    draft_body = {
+        "draft": {
+            "plan_name": DRAFT_PLAN_NAME,
+            "plan_args": DRAFT_PLAN_ARGS,
+            "updated_by": "mcp-agent",
+            "updated_at": "2026-07-16T00:00:00+00:00",
+        },
+        "revision": 9,
+    }
+    transport, calls = _draft_armed_transport(TOKEN, draft_body=draft_body)
+    app = _make_app(httpx.AsyncClient(transport=transport))
+
+    with TestClient(app) as client:
+        response = client.post("/runs/execute", json={"draft_revision": 5})
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "stale_draft_revision"
+    # Only the snapshot read happened -- create/promote never attempted
+    # against a stale pin.
+    assert [(call.method, call.url.path) for call in calls] == [("GET", "/draft")]
+
+
+def test_execute_draft_mode_stale_after_clear_returns_409_with_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The draft was cleared since the panel's revision was pinned: the
+    # bridge's GET /draft now reports {draft: null, revision: <bumped>} --
+    # PROPOSAL.md's "a pinned revision from a cleared draft must 409 against
+    # {draft: null, revision}".
+    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", TOKEN)
+    draft_body = {"draft": None, "revision": 12}
+    transport, calls = _draft_armed_transport(TOKEN, draft_body=draft_body)
+    app = _make_app(httpx.AsyncClient(transport=transport))
+
+    with TestClient(app) as client:
+        response = client.post("/runs/execute", json={"draft_revision": 11})
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "stale_draft_revision"
+    assert [(call.method, call.url.path) for call in calls] == [("GET", "/draft")]
+
+
+def test_execute_draft_mode_null_draft_at_matching_revision_still_409(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Defensive case: even if a null draft's revision happened to numerically
+    # match the pinned draft_revision, there is no plan_name/plan_args to
+    # launch -- this must still 409, never proceed with a null snapshot.
+    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", TOKEN)
+    draft_body = {"draft": None, "revision": 0}
+    transport, calls = _draft_armed_transport(TOKEN, draft_body=draft_body)
+    app = _make_app(httpx.AsyncClient(transport=transport))
+
+    with TestClient(app) as client:
+        response = client.post("/runs/execute", json={"draft_revision": 0})
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "stale_draft_revision"
+    assert [(call.method, call.url.path) for call in calls] == [("GET", "/draft")]
+
+
+def test_execute_draft_mode_bridge_unreachable_on_snapshot_returns_502(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", TOKEN)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    app = _make_app(httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+
+    with TestClient(app) as client:
+        response = client.post("/runs/execute", json={"draft_revision": 1})
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "bluesky bridge unreachable"}
+
+
+def test_execute_draft_mode_unarmed_locally_never_contacts_bridge() -> None:
+    # The same "no bridge call at all when unarmed" invariant extends to
+    # draft mode: the arming check happens strictly before the draft
+    # snapshot read, so an unarmed deployment never even reads the draft.
+    app = _make_app(httpx.AsyncClient(transport=_refusing_transport()))
+
+    with TestClient(app) as client:
+        response = client.post("/runs/execute", json={"draft_revision": 1})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "writes_not_armed",
+        "detail": "writes are not armed on this deployment",
+    }
+
+
+# ---------------------------------------------------------------------------
+# (g) review remediation (task 3.2 follow-up): GET /draft non-200 must be
+# relayed as a bridge error, never misread as a stale-revision 409.
+# ---------------------------------------------------------------------------
+def test_execute_draft_mode_bridge_500_on_draft_is_not_stale_revision(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", TOKEN)
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.method == "GET" and request.url.path == "/draft":
+            return httpx.Response(500, json={"detail": "draft store unavailable"})
+        raise AssertionError(f"unexpected bridge call: {request.method} {request.url}")
+
+    app = _make_app(httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+
+    with TestClient(app) as client:
+        response = client.post("/runs/execute", json={"draft_revision": 5})
+
+    # The bridge's own 500 must be relayed, not misreported as a 409
+    # stale_draft_revision -- a non-200 GET /draft parses (via _safe_json)
+    # to a dict with no "draft" key, which looks identical to a cleared
+    # draft unless the status is checked first.
+    assert response.status_code == 500
+    assert response.json().get("code") != "stale_draft_revision"
+    assert response.json()["detail"] == "draft store unavailable"
+    # Only the snapshot read happened -- create/promote never attempted.
+    assert [(call.method, call.url.path) for call in calls] == [("GET", "/draft")]
+
+
+def test_execute_draft_mode_snapshot_missing_plan_name_is_bridge_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A non-null draft snapshot that matches the pinned revision but lacks a
+    # plan_name is malformed bridge data -- it must not be forwarded to
+    # create-intent as {"plan_name": null, ...}, nor treated as a stale
+    # revision (the revision DID match).
+    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", TOKEN)
+    draft_body = {
+        "draft": {"plan_name": None, "plan_args": {}, "updated_by": "mcp-agent"},
+        "revision": 5,
+    }
+    calls: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        if request.method == "GET" and request.url.path == "/draft":
+            return httpx.Response(200, json=draft_body)
+        raise AssertionError(
+            f"create/promote must never be called for an unlaunchable snapshot: "
+            f"{request.method} {request.url}"
+        )
+
+    app = _make_app(httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+
+    with TestClient(app) as client:
+        response = client.post("/runs/execute", json={"draft_revision": 5})
+
+    assert response.status_code == 502
+    assert response.json().get("code") != "stale_draft_revision"
+    assert "plan_name" in response.json()["detail"]
+    assert [(call.method, call.url.path) for call in calls] == [("GET", "/draft")]

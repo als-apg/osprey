@@ -159,9 +159,7 @@ def test_execute_armed_end_to_end_on_composed_app(monkeypatch: pytest.MonkeyPatc
 
     with TestClient(app) as client:
         _wire_mock_bridge(handler)
-        response = client.post(
-            "/runs/execute", json={"plan_name": "orm", "plan_args": {}}
-        )
+        response = client.post("/runs/execute", json={"plan_name": "orm", "plan_args": {}})
 
     assert response.status_code == 200
     data = response.json()
@@ -179,9 +177,7 @@ def test_execute_armed_end_to_end_on_composed_app(monkeypatch: pytest.MonkeyPatc
 def test_execute_unarmed_on_composed_app_is_inert() -> None:
     with TestClient(app) as client:
         _wire_mock_bridge(_refusing_handler)
-        response = client.post(
-            "/runs/execute", json={"plan_name": "orm", "plan_args": {}}
-        )
+        response = client.post("/runs/execute", json={"plan_name": "orm", "plan_args": {}})
 
     assert response.status_code == 200
     assert response.json() == {
@@ -265,6 +261,10 @@ def test_no_route_ends_with_stop() -> None:
 
 
 def test_only_post_under_runs_is_execute() -> None:
+    # PATCH/DELETE /draft are draft-scratch edits, not run launches, so they
+    # deliberately live outside /runs and are exempt from this check; see
+    # test_write_surface_is_exactly_execute_and_draft below for the full
+    # cross-router write-surface invariant.
     post_run_paths = {
         path
         for path, methods in _served_routes().items()
@@ -274,6 +274,36 @@ def test_only_post_under_runs_is_execute() -> None:
         "composed app must expose exactly one POST route under /runs "
         f"(/runs/execute), found: {post_run_paths}"
     )
+
+
+def test_draft_routes_registered_on_composed_app() -> None:
+    # Task 3.1 (sidecar-draft-relay): GET/PATCH/DELETE /draft plus the SSE
+    # relay at /draft/events must be wired onto the composed app.
+    paths = app.openapi()["paths"]
+    assert "/draft" in paths
+    assert "/draft/events" in paths
+    assert {"get", "patch", "delete"} <= set(paths["/draft"].keys())
+    assert set(paths["/draft/events"].keys()) == {"get"}
+
+
+def test_write_surface_is_exactly_execute_and_draft() -> None:
+    # The full non-GET/HEAD/OPTIONS route surface across every router
+    # composed onto the sidecar app. /runs/execute is the sole run-launch
+    # path (gated by the promote token + writes-enabled, see test_execute.py);
+    # PATCH/DELETE /draft are draft-scratch writes relayed verbatim to the
+    # bridge -- they never arm or launch a run. No other write verb may exist
+    # anywhere in the composed app.
+    write_paths = {
+        (path, method)
+        for path, operations in app.openapi()["paths"].items()
+        for method in operations
+        if method not in ("get", "head", "options")
+    }
+    assert write_paths == {
+        ("/runs/execute", "post"),
+        ("/draft", "patch"),
+        ("/draft", "delete"),
+    }, f"unexpected write surface: {write_paths}"
 
 
 # ---------------------------------------------------------------------------
