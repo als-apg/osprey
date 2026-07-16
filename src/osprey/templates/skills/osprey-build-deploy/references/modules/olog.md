@@ -54,9 +54,9 @@ If `modules.ariel.sync_source: olog`, the ARIEL ingestion pipeline reads from th
 
 Nothing.
 
-### scripts/deploy.sh
+### `osprey deploy`
 
-Nothing. The OLOG endpoint is external; deploy.sh doesn't touch it.
+Nothing. The OLOG endpoint is external; `osprey deploy` doesn't touch it.
 
 ### scripts/verify.sh
 
@@ -112,7 +112,7 @@ Production writes (real operator-authored entries triggered by an agent action) 
    ${config.modules.olog.username_env_var}=newuser
    ${config.modules.olog.password_env_var}=newpass
    ```
-3. Restart any container that holds the credentials in process memory. The integration-tests container reads `.env.production` on each `/checks` invocation, so a new check will use the new creds; long-running MCP servers that cached credentials at startup need a `${config.runtime.compose_command} restart <service>`.
+3. Restart any container that holds the credentials in process memory. The integration-tests container reads `.env` on each `/checks` invocation, so a new check will use the new creds; long-running MCP servers that cached credentials at startup need a `${config.runtime.compose_command} restart <service>`.
 4. Verify: `./scripts/verify.sh olog`.
 
 ### Test read access manually

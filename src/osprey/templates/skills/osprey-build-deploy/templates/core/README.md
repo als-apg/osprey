@@ -13,36 +13,44 @@ in GitLab CI/CD and pushed to `${config.registry.url}`. The deploy server
 (`${config.deploy.host}`) only pulls pre-built images — it never builds.
 
 ```
-  git push ──▶ CI builds N images ──▶ manual `release` re-tags as :latest ──▶ server: scripts/deploy.sh
+  git push ──▶ CI builds N images ──▶ manual `release` re-tags as :latest ──▶ server: git pull, registry login, osprey deploy up
                                                                                          │
                                                                                          ▼
-                                                                                 login → pull → up → verify
+                                                                                 pull → up → reconcile/seed web terminals
 ```
 
 ### One-line deploy
 
-After CI has passed and the manual `release` job has run:
+After CI has passed and the manual `release` job has run, and the server is
+logged in to the registry (see "What the server needs" below):
 
 ```bash
-ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ./scripts/deploy.sh"
+ssh ${config.deploy.host} "cd ${config.deploy.project_path} && git pull && osprey deploy up"
 ```
 
-`deploy.sh` is idempotent — run it as many times as you want. It updates the
-checkout, logs in to the registry, pulls images, restarts changed containers,
-and runs `verify.sh` (advisory).
+`osprey deploy up` is idempotent — run it as many times as you want. It pulls
+images, brings up (or reconciles) the compose stack, and — if web terminals
+are enabled — seeds every live per-user container's CLAUDE.md and skills.
+Run `./scripts/verify.sh` afterward for the advisory health report; it is not
+run automatically.
 
-### Modes
+### `osprey deploy` verbs
 
 | Command | Effect |
 |---------|--------|
-| `./scripts/deploy.sh` | git pull → registry login → pull images → restart changed containers → verify |
-| `./scripts/deploy.sh --clean` | Same as above, but `compose down` first — guaranteed full restart |
-| `./scripts/deploy.sh --nuke` | Destroys all containers, images, volumes, networks before redeploying. Use only when recovering from a broken state |
+| `osprey deploy up` | Pulls images, brings up (or reconciles) the stack, seeds web terminals |
+| `osprey deploy down` | Stops the stack without removing images or volumes |
+| `osprey deploy status` | Service + per-user web-terminal health, and volume presence |
+| `osprey deploy decommission <user> [--archive\|--purge]` | Remove one user's web-terminal workspace (volumes retained by default) |
+| `osprey deploy prune [--dry-run] [--archive\|--purge]` | Remove containers/volumes for users no longer on the roster |
+| `osprey deploy nuke` | Destroys all of this project's containers, images, volumes, networks before you redeploy. Use only when recovering from a broken state |
+| `osprey deploy seed [user]` | (Re)seed CLAUDE.md + skills into one or all web-terminal containers |
 
-`--nuke` is the "when in doubt, start over" mode. It pulls everything fresh
-from the registry, so nothing on the server is required to survive. Named
-volumes (ARIEL postgres, web-terminal claude-config) ARE destroyed — back up
-anything you need to keep first.
+`nuke` is the "when in doubt, start over" mode. It pulls everything fresh
+from the registry on the next `up`, so nothing on the server is required to
+survive. Named volumes (ARIEL postgres, web-terminal claude-config) ARE
+destroyed — back up anything you need to keep first. It gates on a typed
+confirmation (or `--yes`) for exactly this reason.
 
 ### What the server needs
 
@@ -50,9 +58,10 @@ anything you need to keep first.
 |-----------|-----------------|
 | `${config.runtime.engine}` | Container runtime |
 | `${config.runtime.compose_command}` | Compose orchestrator |
-| `git` | For `git pull` inside deploy.sh |
+| `git` | Pulling the profile repo before each deploy |
+| `osprey` (`pip install osprey-framework`) | Provides `osprey deploy` — the on-server deploy lifecycle command |
 | SSH access for operators | `${config.deploy.user}@${config.deploy.host}` must be in their `~/.ssh/config` |
-| `.env.production` | Copied from `.env.template`, filled in with real secrets, `chmod 600`. NEVER committed. |
+| `.env` | Copied from `.env.template`, filled in with real secrets, `chmod 600`. NEVER committed. |
 
 If `${config.runtime.engine}` is rootless podman, make sure `/etc/subuid` and
 `/etc/subgid` have an entry for `${config.deploy.user}`. Without it, NFS-backed
@@ -63,31 +72,31 @@ aren't NFS, you can skip this.)
 
 ```bash
 # First time on a new server:
-cp .env.template .env.production
-chmod 600 .env.production
-$EDITOR .env.production          # fill in every secret
-./scripts/deploy.sh              # will fail until all required values are set
+cp .env.template .env
+chmod 600 .env
+$EDITOR .env              # fill in every secret
+osprey deploy up          # will fail until all required values are set
 ```
 
 Whenever this facility's `facility-config.yml` changes, `.env.template` is
-regenerated with any new variables. Diff it against your `.env.production`
+regenerated with any new variables. Diff it against your `.env`
 to learn what's new:
 
 ```bash
 diff <(grep -oE '^[A-Z_]+=' .env.template | sort) \
-     <(grep -oE '^[A-Z_]+=' .env.production | sort)
+     <(grep -oE '^[A-Z_]+=' .env | sort)
 ```
 
 ### Common operations
 
 ```bash
-# Check container status
-ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ${config.runtime.compose_command} ps"
+# Check container status, plus per-user web-terminal health if enabled
+ssh ${config.deploy.host} "cd ${config.deploy.project_path} && osprey deploy status"
 
 # Tail logs for one service
 ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ${config.runtime.compose_command} logs -f integration-tests"
 
-# Run the full health report standalone (same report deploy.sh prints at the end)
+# Run the full health report standalone (advisory; not run automatically by `osprey deploy up`)
 ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ./scripts/verify.sh"
 
 # Restart one service
@@ -148,7 +157,7 @@ Do NOT:
 - SSH in to "see what's there" before running the deploy. The deploy is
   idempotent — just run it.
 - Hand-edit generated files (`docker-compose.yml`, `.gitlab-ci.yml`,
-  `scripts/deploy.sh`, `scripts/verify.sh`, `.env.template`). Changes are
+  `scripts/verify.sh`, `.env.template`). Changes are
   overwritten on the next scaffolding run. Add what you need to
   `facility-config.yml` and regenerate instead.
 - Build images on the deploy server. That's CI's job. If you're tempted to,

@@ -37,7 +37,7 @@ A web terminal container has all three. It also runs with `bypassPermissions` fo
 
 - compose: nothing new — uses the existing web terminal container. Adds a bind mount of `benchmarks/` into the container if it isn't already overlaid by the web-terminal Dockerfile.
 - .gitlab-ci.yml: optionally a `benchmarks` job in a `nightly` stage that triggers via scheduled pipeline. Off by default — most facilities run benchmarks on demand, not every push.
-- scripts/deploy.sh: nothing — benchmarks are operator-driven, not part of the deploy pipeline.
+- `osprey deploy`: nothing — benchmarks are operator-driven, not part of the deploy pipeline.
 - scripts/verify.sh: nothing — verify is fast and advisory; benchmarks are slow and expensive.
 - .env.template: nothing — uses the same LLM credentials as the rest of the deploy.
 

@@ -1,6 +1,6 @@
 # `facility-config.yml` — Schema Reference
 
-`facility-config.yml` is the durable contract between this skill and the facility profile repo. It captures every site-specific value once, so generated files (`docker-compose.yml`, `.gitlab-ci.yml`, `scripts/deploy.sh`, `.env.template`) can derive everything from it without hardcoding.
+`facility-config.yml` is the durable contract between this skill and the facility profile repo. It captures every site-specific value once, so generated files (`docker-compose.yml`, `.gitlab-ci.yml`, `.env.template`) and `osprey deploy` itself (which reads `config.yml`, derived from this file) can derive everything from it without hardcoding.
 
 **Treat this file like a Terraform state file:** version-controlled, source of truth, never lost. Re-running the deploy interview merges new answers into the existing file rather than overwriting it.
 
@@ -83,7 +83,7 @@ gitlab:
 | `default_branch` | string | yes | Usually `main`; CI release job is restricted to this branch |
 | `project_id` | int | yes | Find at GitLab project Settings → General → Project ID |
 | `project_path` | string | yes | The URL path after the host: `<group>/<subgroup>/<project>` |
-| `token_env_var` | string | yes | Name of the env var that holds the PAT/deploy token; the value lives in `.env` and is loaded by deploy.sh |
+| `token_env_var` | string | yes | Name of the env var that holds the PAT/deploy token; the value lives in `.env`, read via `osprey deploy`'s compose `--env-file` and by the operator's manual registry login before it |
 
 The token must have at minimum: `api` and `read_registry` scopes (`write_registry` if CI pushes images). Document this in the `.env.template`.
 
@@ -103,7 +103,7 @@ registry:
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| `url` | string | yes | Where CI pushes built images and deploy.sh pulls from. For GitLab projects, this is `<gitlab-host>:5050/<project_path>` |
+| `url` | string | yes | Where CI pushes built images and `osprey deploy up` pulls from. For GitLab projects, this is `<gitlab-host>:5050/<project_path>` |
 | `external_projects` | list | no | Other GitLab projects whose images this deploy also pulls (e.g., a sibling team's service); each needs its own deploy token |
 
 ---
@@ -140,7 +140,7 @@ runtime:
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| `engine` | enum | yes | Affects login/pull command syntax in deploy.sh |
+| `engine` | enum | yes | Affects login/pull command syntax for the operator's registry login and for `osprey deploy` |
 | `compose_command` | string | yes | The actual command name on the deploy server |
 | `compose_files` | list | yes | Order matters — later files override earlier ones |
 

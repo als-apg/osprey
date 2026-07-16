@@ -57,7 +57,7 @@ services:
     image: ${config.registry.url}/web-terminal:latest
     container_name: ${config.facility.prefix}-ariel-sync
     command: osprey ariel sync
-    env_file: .env.production
+    env_file: .env
     networks:
       - ${config.facility.prefix}-net
     depends_on:
@@ -118,7 +118,7 @@ services:
     environment:
       - MCP_TRANSPORT=http
       - MCP_PORT=${each.port}
-    env_file: .env.production
+    env_file: .env
     ports:
       - "0.0.0.0:${each.port}:${each.port}"
     networks:
@@ -149,7 +149,7 @@ services:
     environment:
       - MCP_TRANSPORT=http
       - MCP_PORT=${config.ports.integration_tests}
-    env_file: .env.production
+    env_file: .env
     ports:
       - "0.0.0.0:${config.ports.integration_tests}:${config.ports.integration_tests}"
     networks:
@@ -185,7 +185,7 @@ services:
       - MCP_PORT=${config.modules.event_dispatcher.port}
       - ${config.modules.event_dispatcher.token_env_var}=${env.${config.modules.event_dispatcher.token_env_var}}
       - ${config.modules.event_dispatcher.sidecar_token_env_var}=${env.${config.modules.event_dispatcher.sidecar_token_env_var}}
-    env_file: .env.production
+    env_file: .env
     volumes:
       - ./${config.modules.event_dispatcher.triggers_file}:/app/${config.modules.event_dispatcher.triggers_file}:ro
 
@@ -213,7 +213,7 @@ services:
     ports:
       - "0.0.0.0:${config.modules.event_dispatcher.sidecar_port_base + i}:9100"
     # END IF
-    env_file: .env.production
+    env_file: .env
     environment:
       # On host networking the sidecar binds the host-visible port directly;
       # on bridge networking it binds :9100 inside the container and compose
@@ -232,7 +232,7 @@ services:
   # FOR each in registry.external_projects
   # ---------------------------------------------------------------------------
   # External project image: ${each.name}
-  # Pulled explicitly in scripts/deploy.sh using its dedicated deploy token
+  # Pulled explicitly by the operator (or CI) before `osprey deploy up`, using its dedicated deploy token
   # because the main registry login doesn't have access to sibling projects.
   # ---------------------------------------------------------------------------
   ${each.name}:
