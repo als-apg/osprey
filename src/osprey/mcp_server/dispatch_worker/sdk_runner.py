@@ -10,7 +10,9 @@ import asyncio
 import logging
 import os
 import time
+import uuid
 from collections.abc import Iterable
+from datetime import UTC, datetime
 from typing import Any
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker.sdk_runner")
@@ -137,6 +139,10 @@ async def run_dispatch(
             duration_sec: wall-clock seconds
             cost_usd: API cost (from ResultMessage, if available)
             num_turns: agentic turn count (from ResultMessage, if available)
+            session_id: the forced telemetry session UUID for this run — the
+                value the OTEL emitter tags records with as session.id, so a
+                consumer can locate this run's full provenance in the telemetry
+                store (None if the SDK was unavailable and no run started).
     """
     if not HAS_SDK:
         return {
@@ -147,6 +153,7 @@ async def run_dispatch(
             "duration_sec": 0.0,
             "cost_usd": None,
             "num_turns": None,
+            "session_id": None,
         }
 
     project_dir = os.environ.get("OSPREY_PROJECT_DIR", _DEFAULT_PROJECT_DIR)
@@ -196,6 +203,18 @@ async def run_dispatch(
     if run_id:
         sdk_env["OSPREY_DISPATCH_RUN_ID"] = run_id
 
+    # Force a known session UUID for THIS run and hand it to the workspace
+    # provenance_locator tool via env, so a filed issue can point back to this
+    # run's telemetry. build_clean_env() strips CLAUDE_CODE_* (so the harness's
+    # own session id never reaches the MCP subprocess headless); instead OSPREY
+    # owns the id: the same value is forced onto the SDK session below
+    # (ClaudeAgentOptions.session_id) so the OTEL emitter tags records with it,
+    # making the returned locator resolve. Race-free — fixed per run at spawn,
+    # never a shared-directory mtime pick.
+    telemetry_session_id = str(uuid.uuid4())
+    sdk_env["OSPREY_TELEMETRY_SESSION_ID"] = telemetry_session_id
+    sdk_env["OSPREY_TELEMETRY_SESSION_START"] = datetime.now(UTC).isoformat()
+
     # Declared subagent tool surfaces from the provisioned .claude/agents/ —
     # each subagent is held to exactly its declared tools (web-terminal parity)
     # without the trigger having to enumerate them.
@@ -242,6 +261,9 @@ async def run_dispatch(
         max_turns=max_turns,
         stderr=lambda line: stderr_lines.append(line),
         setting_sources=["project"],
+        # Force the session id = the value injected above so the OTEL emitter's
+        # session.id matches what provenance_locator returns for this run.
+        session_id=telemetry_session_id,
     )
 
     text_parts: list[str] = []
@@ -312,6 +334,7 @@ async def run_dispatch(
                         "duration_sec": round(duration_sec, 2),
                         "cost_usd": cost_usd,
                         "num_turns": num_turns,
+                        "session_id": telemetry_session_id,
                     }
                 )
 
@@ -397,6 +420,7 @@ async def run_dispatch(
                 "duration_sec": round(duration_sec, 2),
                 "cost_usd": cost_usd,
                 "num_turns": num_turns,
+                "session_id": telemetry_session_id,
             }
         )
 
@@ -429,5 +453,6 @@ async def run_dispatch(
                 "duration_sec": round(duration_sec, 2),
                 "cost_usd": cost_usd,
                 "num_turns": num_turns,
+                "session_id": telemetry_session_id,
             }
         )
