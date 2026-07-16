@@ -1,15 +1,9 @@
-"""File-based exemplar plan: ``response_matrix``, an orbit-response-matrix sweep.
+"""Shipped plan: ``orm``, an orbit-response-matrix sweep.
 
-Representative reference plan; not a physics-validated procedure. It exists to
-show authors the layered directory catalog's file contract (``PLAN_METADATA``
-+ ``PARAMS`` + ``build_plan``) end to end, using the same physics the built-in
-``orm`` plan (``plans.py``) covers programmatically — sweep each corrector,
-one at a time, over a bounded current range, reading every BPM detector at
-each point.
-
-Registered as ``response_matrix`` (not ``orm``) so it never shadows the
-built-in of the same physics at the ``GET /plans`` merge — see the layered
-loader's trust-collision rules in ``plan_loader.py``.
+Discovered via the layered directory catalog's ``shipped`` tier (a folder
+scan of this package's ``plans_core/`` dir — see ``plan_loader.py``): sweep
+each corrector, one at a time, over a bounded current range, reading every
+BPM detector at each point.
 
 Device-agnostic: ``correctors``/``detectors`` are resolved by string name
 against whatever ``devices`` dict the bridge passes in; nothing here names a
@@ -25,10 +19,10 @@ from bluesky import plan_stubs as bps
 from bluesky import preprocessors as bpp
 from pydantic import BaseModel, Field, model_validator
 
-logger = logging.getLogger("osprey.services.bluesky_bridge.plans_core.response_matrix")
+logger = logging.getLogger("osprey.services.bluesky_bridge.plans_core.orm")
 
 PLAN_METADATA = {
-    "name": "response_matrix",
+    "name": "orm",
     "description": (
         "Sweep each corrector over a bounded current range, reading all BPM "
         "detectors at every point, to measure an orbit-response matrix."
@@ -40,7 +34,7 @@ PLAN_METADATA = {
 
 
 class PARAMS(BaseModel):
-    """Parameters for ``response_matrix``: correctors to sweep, BPMs to read.
+    """Parameters for ``orm``: correctors to sweep, BPMs to read.
 
     Sweeps each corrector in ``correctors``, one at a time, over ``num``
     evenly-spaced currents spanning ``[-span_a, +span_a]``, reading every
@@ -106,7 +100,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
                     yield from bps.mv(corrector, 0.0)
                 except Exception:
                     logger.warning(
-                        "response_matrix plan: failed to restore corrector %s to 0 A "
+                        "orm plan: failed to restore corrector %s to 0 A "
                         "during cleanup; preserving the original error",
                         name,
                         exc_info=True,

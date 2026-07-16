@@ -40,12 +40,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("osprey.services.bluesky_bridge.app")
 
-# Root package names `plans.py`'s `from .plans import BUILTIN_PLANS` (and the
-# demo-runner lifespan hook below) are allowed to fail on — i.e. the bridge
-# running without the `bluesky-bridge` extra installed. An ImportError naming
-# anything else (e.g. a module missing an expected attribute, or an unrelated
-# third-party import broke) is a genuine bug and must not be swallowed as
-# "bluesky is just absent".
+# Root package names the demo-runner lifespan hook below is allowed to fail
+# on — i.e. the bridge running without the `bluesky-bridge` extra installed.
+# An ImportError naming anything else (e.g. a module missing an expected
+# attribute, or an unrelated third-party import broke) is a genuine bug and
+# must not be swallowed as "bluesky is just absent".
 _BRIDGE_ONLY_MODULES = {"bluesky", "ophyd", "ophyd_async", "tiled"}
 
 # Opt-in flag (task 2.14a): when truthy (see `_is_demo_runner_enabled`) AND
@@ -425,14 +424,13 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 # connector-mediated (`read_channel`/`write_channel_checked`) —
                 # there is no raw Channel Access anywhere in this path.
                 #
-                # `plans` is left unset (`None`) rather than pinned to
-                # `BUILTIN_PLANS`, so `BlueskyPlanRunner.reinitialize` resolves
-                # plan names through `_default_plan_registry()` — built-ins
-                # merged with `get_facility_plans().plans` (task 2.4), which
-                # re-scans and re-gates the session/facility layers on every
-                # call. A validated session or facility plan is therefore
-                # launchable on this connector-mediated path exactly like the
-                # demo runner factory below; an unvalidated (or
+                # `plans` is left unset (`None`), so `BlueskyPlanRunner.reinitialize`
+                # resolves plan names through `_default_plan_registry()` —
+                # `get_facility_plans().plans` (task 2.4), which re-scans and
+                # re-gates the session/facility layers on every call. A
+                # validated session or facility plan is therefore launchable
+                # on this connector-mediated path exactly like the demo
+                # runner factory below; an unvalidated (or
                 # validated-then-edited) one is simply absent from the
                 # registry the next time this factory's runner resolves it —
                 # fail-closed, with no separate gate needed here.
@@ -668,39 +666,22 @@ def stop_run(run_id: str) -> dict:
 
 @app.get("/plans")
 def list_plans() -> list:
-    """Registered scan plans: built-ins merged with any facility-injected plans.
+    """Registered scan plans: `plan_loader.get_facility_plans()`'s trust-resolved set.
 
-    A facility plan overrides a built-in of the same name. `plans.py` (the
-    built-in set) imports bluesky, so it's a guarded/lazy import — this route
-    degrades to facility-only (or `[]`) rather than 500ing when bluesky isn't
-    installed. `plan_loader.py` (facility injection, task 2.4) is import-clean
-    of bluesky, so facility-injected plans are always served regardless — see
-    that module for how the plan module path is resolved.
+    `plan_loader.py` is the sole plan registry — a layered directory scan
+    (`shipped`/`preset`/`facility`/`session`) plus the legacy single-module
+    facility-injection contract, merged fail-closed by trust tier (see that
+    module's docstring). It is import-clean of bluesky, so this route never
+    needs a guarded import.
 
     Each entry (`PlanSpec.to_dict()`) carries `metadata` (the plan's
-    authoring-declared `PLAN_METADATA`, or `None` for a built-in that doesn't
-    author one) and `provenance` (its loader-assigned trust tier) alongside
+    authoring-declared `PLAN_METADATA`, or `None` if it doesn't author one)
+    and `provenance` (its loader-assigned trust tier) alongside
     `name`/`description`/`schema` — see `plan_types.py`.
     """
     from .plan_loader import get_facility_plans
 
-    merged: dict[str, Any] = {}
-    try:
-        from .plans import BUILTIN_PLANS
-
-        merged.update(BUILTIN_PLANS)
-    except ImportError as exc:
-        root_name = (getattr(exc, "name", None) or "").split(".")[0]
-        if root_name not in _BRIDGE_ONLY_MODULES:
-            raise
-        logger.info(
-            "GET /plans: built-in plan set unavailable (%s not installed); "
-            "serving facility-injected plans only",
-            exc.name,
-        )
-    merged.update(get_facility_plans().plans)
-
-    return [spec.to_dict() for spec in merged.values()]
+    return [spec.to_dict() for spec in get_facility_plans().plans.values()]
 
 
 # ---------------------------------------------------------------------------
@@ -872,10 +853,9 @@ def _find_layer_source_path(name: str) -> tuple[Any, Provenance] | None:
     """Best-effort locate the on-disk file behind a shipped/preset/facility plan.
 
     Directory-layer files are keyed by their declared ``PLAN_METADATA["name"]``,
-    not necessarily their filename (``plans_core/grid_scan.py`` declares
-    ``"grid_scan_nd"``) — so this parses each candidate file's source with
-    ``ast`` (never execs it) purely to read the literal ``name`` off its
-    ``PLAN_METADATA`` dict. Returns `None` for a built-in with no backing
+    not necessarily their filename — so this parses each candidate file's
+    source with ``ast`` (never execs it) purely to read the literal ``name``
+    off its ``PLAN_METADATA`` dict. Returns `None` for a plan with no backing
     file at all, or a name this scan can't locate; the route degrades to a
     404 either way.
     """
@@ -927,8 +907,7 @@ def get_plan_source(name: str) -> dict:
     tiers carry no validation-record gate; they are operator-trusted by
     construction, not by a passing record.
 
-    Raises 404 if no file can be located for ``name`` in any tier (including
-    a built-in with no backing file at all).
+    Raises 404 if no file can be located for ``name`` in any tier.
     """
     name = _sanitize_plan_name(name)
     session_path = resolve_session_plan_dir() / f"{name}.py"

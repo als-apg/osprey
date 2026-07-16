@@ -68,7 +68,7 @@ async def write_plan(
             that is governed entirely by ``control_system.writes_enabled``.
         body: Your plan's own source: a `PARAMS` pydantic model (optional)
             and a `build_plan(devices, params)` callable, exactly as a
-            directory-layer plan file needs — see the response_matrix
+            directory-layer plan file needs — see the orm
             exemplar plan for the expected shape.
         description: Human-readable summary of what the plan does.
 

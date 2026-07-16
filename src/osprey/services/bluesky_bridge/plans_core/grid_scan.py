@@ -1,14 +1,9 @@
-"""File-based exemplar plan: ``grid_scan_nd``, an n-dimensional rectangular grid scan.
+"""Shipped plan: ``grid_scan``, an n-dimensional rectangular grid scan.
 
-Representative reference plan; not a physics-validated procedure. It exists to
-show authors the layered directory catalog's file contract (``PLAN_METADATA``
-+ ``PARAMS`` + ``build_plan``) end to end for a multi-axis scan — step a set
-of setpoint devices over a rectangular grid, reading a set of detectors at
-every grid point, wrapping ``bluesky.plans.grid_scan``.
-
-Registered as ``grid_scan_nd`` (not ``grid_scan``) so it never shadows the
-built-in ``grid_scan`` plan (``plans.py``) at the ``GET /plans`` merge — see
-the layered loader's trust-collision rules in ``plan_loader.py``.
+Discovered via the layered directory catalog's ``shipped`` tier (a folder
+scan of this package's ``plans_core/`` dir — see ``plan_loader.py``): step a
+set of setpoint devices over a rectangular grid, reading a set of detectors
+at every grid point, wrapping ``bluesky.plans.grid_scan``.
 
 Device-agnostic: ``setpoints``/``detectors`` are resolved by string name
 against whatever ``devices`` dict the bridge passes in; nothing here names a
@@ -23,7 +18,7 @@ from bluesky import plans as bp
 from pydantic import BaseModel, Field, model_validator
 
 PLAN_METADATA = {
-    "name": "grid_scan_nd",
+    "name": "grid_scan",
     "description": (
         "Scan a rectangular grid of setpoint devices, reading all detectors at "
         "every grid point (bluesky bp.grid_scan)."
@@ -44,7 +39,7 @@ class GridAxis(BaseModel):
 
 
 class PARAMS(BaseModel):
-    """Parameters for ``grid_scan_nd``: one `GridAxis` per grid dimension.
+    """Parameters for ``grid_scan``: one `GridAxis` per grid dimension.
 
     Steps each axis's setpoint device over its own ``[start, stop]`` range in
     ``num_points`` evenly-spaced steps, reading every device in ``detectors``

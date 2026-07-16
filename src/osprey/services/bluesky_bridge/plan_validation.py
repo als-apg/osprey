@@ -368,7 +368,7 @@ def _collect_device_names(value: Any, *, key: str | None = None) -> tuple[set[st
 
     A plan file's `PLAN_METADATA["required_devices"]` names PARAMS *fields*
     (e.g. ``"correctors"``, ``"detectors"``), not a fixed shape all plans
-    share — `grid_scan_nd`'s setpoints, for instance, are nested under
+    share — `grid_scan`'s setpoints, for instance, are nested under
     ``axes[].setpoint`` rather than a flat field. Rather than hard-coding a
     per-plan device-field shape, this walks ``sample_args`` itself and
     buckets every string leaf by the nearest enclosing field name: a field
@@ -439,7 +439,7 @@ try:
     module = importlib.util.module_from_spec(spec)
     # Registered in sys.modules BEFORE exec (mirrors plan_loader.py's own
     # module loader): a plan body with two pydantic models referencing each
-    # other by name (e.g. `grid_scan_nd`'s `PARAMS.axes: list[GridAxis]`)
+    # other by name (e.g. `grid_scan`'s `PARAMS.axes: list[GridAxis]`)
     # relies on `from __future__ import annotations` postponed-evaluation
     # forward refs resolving against `sys.modules[cls.__module__].__dict__`
     # -- skip this and pydantic raises "class not fully defined" the moment
@@ -581,7 +581,7 @@ async def validate_plan(
     Args:
         body: The plan file's full source text (``PLAN_METADATA`` + ``PARAMS``
             + ``build_plan``, per the layered directory catalog's file
-            contract — see ``plans_core/response_matrix.py``).
+            contract — see ``plans_core/orm.py``).
         plan_name: Name to register the body's plan under for the stage-3
             dry-run only; unrelated to any name the body's own
             ``PLAN_METADATA`` declares.

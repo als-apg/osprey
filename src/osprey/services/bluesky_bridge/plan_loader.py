@@ -57,9 +57,7 @@ principled tie-breaker beyond scan order.
 Deliberately free of bluesky/ophyd/tiled imports — this module only execs
 plan files and reads pydantic metadata; only a loaded module itself needs
 bluesky. That keeps `plan_loader.py` importable in any bridge process
-regardless of whether the `bluesky-bridge` extra is installed (see
-``plans.py``'s built-in registry, which does need bluesky and degrades
-separately in ``app.py``'s `/plans` route).
+regardless of whether the `bluesky-bridge` extra is installed.
 """
 
 from __future__ import annotations
@@ -414,34 +412,12 @@ def load_facility_plans(module_path: str | None = None) -> FacilityPlans:
         len(devices),
         path_str,
     )
-    _warn_if_shadowing_builtins(plans)
 
     normalized_plans = {
         name: (spec if spec.provenance == "facility" else replace(spec, provenance="facility"))
         for name, spec in plans.items()
     }
     return FacilityPlans(plans=normalized_plans, devices=dict(devices))
-
-
-def _warn_if_shadowing_builtins(facility_plans: dict[str, PlanSpec[Any]]) -> None:
-    """Log once, at load time, if a legacy facility plan overrides a built-in of the same name.
-
-    Silent shadowing here would be a surprising way for an operator to lose a
-    built-in plan (e.g. `count`) to a same-named facility plan without any
-    trace in the logs. Guarded/lazy import of `plans.py` (which needs
-    bluesky) so this check itself never forces `plan_loader.py` to depend on
-    bluesky — absent bluesky, there's no built-in set to shadow anyway.
-    """
-    try:
-        from .plans import BUILTIN_PLANS
-    except ImportError:
-        return
-    shadowed = sorted(set(BUILTIN_PLANS) & set(facility_plans))
-    if shadowed:
-        logger.warning(
-            "plan_loader: facility plan(s) %s override built-in plan(s) of the same name",
-            shadowed,
-        )
 
 
 @dataclass

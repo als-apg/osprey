@@ -9,9 +9,9 @@ bluesky-capable test imports this module directly.
 
 Plan resolution happens entirely inside ``reinitialize()``: ``exec_config``
 (the bridge's ``RunRequest`` — ``plan_name`` + ``plan_args``, or an equivalent
-mapping) is resolved against a plan registry (by default the same built-ins +
-facility-injected merge ``app.py``'s ``GET /plans`` route serves), its
-``plan_args`` validated against that plan's pydantic schema, and the
+mapping) is resolved against a plan registry (by default the same registry
+``app.py``'s ``GET /plans`` route serves — see ``plan_loader.get_facility_plans``),
+its ``plan_args`` validated against that plan's pydantic schema, and the
 resulting bluesky plan generator built and stored — all *before*
 ``start_run_thread()`` ever touches a thread. That is what makes
 ``start_run_thread()`` effectively all-or-nothing: the only way it can fail
@@ -68,7 +68,7 @@ async def _await(awaitable: Awaitable[Mapping[str, Any]]) -> Mapping[str, Any]:
 
 
 def _default_plan_registry() -> dict[str, PlanSpec[Any]]:
-    """Built-ins merged with facility-injected plans (mirrors app.py's `/plans` merge).
+    """The bridge's sole plan registry (mirrors app.py's `/plans` route).
 
     Duplicated locally rather than imported from `app.py` (this module must
     never be imported by the lifecycle core, and `app.py` must never import
@@ -77,15 +77,7 @@ def _default_plan_registry() -> dict[str, PlanSpec[Any]]:
     """
     from .plan_loader import get_facility_plans
 
-    merged: dict[str, PlanSpec[Any]] = {}
-    try:
-        from .plans import BUILTIN_PLANS
-
-        merged.update(BUILTIN_PLANS)
-    except ImportError:
-        pass
-    merged.update(get_facility_plans().plans)
-    return merged
+    return dict(get_facility_plans().plans)
 
 
 def _plan_name_and_args(exec_config: Any) -> tuple[str | None, dict[str, Any]]:
