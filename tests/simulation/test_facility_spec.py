@@ -29,7 +29,7 @@ EXPECTED_COUNTS = {
     "QF": 24,
     "QD": 24,
     "QFA": 24,
-    "BEND": 36,
+    "DIPOLE": 36,
     "SF": 24,
     "SD": 24,
     "SHF": 24,
@@ -39,8 +39,8 @@ EXPECTED_COUNTS = {
     "VCM": 72,
 }
 
-# Matches the ``AR:{sup}:{fam}:{id}`` device-naming scheme.
-_NAME_RE = re.compile(r"^AR:([^:]+):([^:]+):([^:]+)$")
+# Matches the flat ``{fam}{id:02d}`` device-naming scheme.
+_NAME_RE = re.compile(r"^(HCM|VCM|QF|QD|QFA|DIPOLE|SF|SD|SHF|SHD|BPM)(\d{2,})$")
 
 
 # ── Accessor tests (task 1.1: pytest tests/simulation/test_facility_spec.py) ──
@@ -57,14 +57,14 @@ def test_family_kinds():
 
 
 def test_device_name():
-    assert ALS_U_AR.device_name("01C", "BPM", 3) == "AR:01C:BPM:3"
+    assert ALS_U_AR.device_name("01C", "BPM", 3) == "BPM03"
 
 
 def test_machine_constants():
     assert ALS_U_AR.name == "ALS-U-AR"
     assert ALS_U_AR.energy_ev == 2.0e9
     assert ALS_U_AR.harmonic == 304
-    assert ALS_U_AR.naming == "AR:{sup}:{fam}:{id}"
+    assert ALS_U_AR.naming == "{fam}{id:02d}"
 
 
 def test_family_missing_raises_keyerror():
@@ -90,13 +90,13 @@ def test_ring_spec_consistency():
     for element in ring:
         match = _NAME_RE.match(getattr(element, "FamName", ""))
         if match is not None:
-            tally[match.group(2)] += 1
+            tally[match.group(1)] += 1
         if isinstance(element, at.Monitor):
             monitors += 1
             assert match is not None, (
                 f"Monitor {element.FamName!r} is not scheme-named"
             )
-            assert match.group(2) == "BPM", (
+            assert match.group(1) == "BPM", (
                 f"Monitor {element.FamName!r} is not a BPM"
             )
 

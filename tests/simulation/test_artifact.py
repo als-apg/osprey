@@ -8,6 +8,8 @@ committed one.
 
 from __future__ import annotations
 
+import re
+
 import at
 import numpy as np
 
@@ -17,9 +19,11 @@ from osprey.simulation.lattice import (
     save_canonical_mat,
 )
 
-# Family-type components (third ':'-delimited field of ``AR:<sector>:<type>:<n>``)
-# whose ``PolynomB`` we assert preserved.
+# Flat-naming family prefixes (``{fam}{id:02d}``) whose ``PolynomB`` we assert
+# preserved. DIPOLE is excluded here — dipoles are ``at.Dipole`` and already
+# checked separately by ``_dipoles``.
 _AR_MAGNET_TYPES = frozenset({"QF", "QD", "QFA", "SF", "SD", "SHF", "SHD"})
+_MAGNET_FAM_RE = re.compile(r"^([A-Z]+)\d{2,}$")
 
 
 def _fam_names(ring):
@@ -45,11 +49,8 @@ def _dipoles(ring):
 def _is_ar_magnet(e):
     if not hasattr(e, "PolynomB"):
         return False
-    name = e.FamName
-    if not name.startswith("AR:"):
-        return False
-    parts = name.split(":")
-    return len(parts) >= 3 and parts[2] in _AR_MAGNET_TYPES
+    match = _MAGNET_FAM_RE.match(e.FamName)
+    return match is not None and match.group(1) in _AR_MAGNET_TYPES
 
 
 def _ar_magnets(ring):

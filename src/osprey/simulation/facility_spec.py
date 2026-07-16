@@ -26,7 +26,7 @@ class Family:
     """One device family declared by a :class:`FacilitySpec`.
 
     Attributes:
-        name: Family token as it appears in the ``AR:{sup}:{fam}:{id}`` device
+        name: Family token as it appears in the ``{fam}{id:02d}`` device
             name (e.g. ``"QF"``, ``"BPM"``, ``"HCM"``).
         count: Number of devices of this family in the whole ring.
         kind: Coarse device role — one of ``"magnet"``, ``"monitor"``, or
@@ -47,7 +47,8 @@ class FacilitySpec:
         energy_ev: Design beam energy in electron-volts.
         harmonic: RF harmonic number.
         naming: Device naming-scheme template (``str.format`` fields
-            ``sup`` / ``fam`` / ``id``).
+            ``fam`` / ``id``; flat stack-native convention, ``sup`` is
+            accepted by :meth:`device_name` but not rendered).
         families: The declared device families (order-insensitive).
     """
 
@@ -77,17 +78,21 @@ class FacilitySpec:
         return tuple(fam.name for fam in self.families)
 
     def device_name(self, sup: str, fam: str, ident: int | str) -> str:
-        """Render a device name for family ``fam`` in superperiod ``sup``.
+        """Render a device name for family ``fam``, flat stack-native scheme.
+
+        ``sup`` is accepted for API stability (superperiod-scoped callers
+        still pass it) but is not part of the rendered name — ids are
+        family-scoped across the whole ring, not per-superperiod.
 
         Args:
-            sup: Superperiod token (e.g. ``"01C"``).
+            sup: Superperiod token (e.g. ``"01C"``); unused in rendering.
             fam: Family token (e.g. ``"BPM"``).
-            ident: Per-superperiod device index (1-based).
+            ident: Family-scoped device index, zero-padded to ≥2 digits.
 
         Returns:
-            The formatted name, e.g. ``"AR:01C:BPM:3"``.
+            The formatted name, e.g. ``"BPM03"``.
         """
-        return self.naming.format(sup=sup, fam=fam, id=ident)
+        return self.naming.format(fam=fam, id=int(ident))
 
 
 # ── The ALS-U Accumulator Ring instance ──────────────────────────────────────
@@ -97,16 +102,21 @@ class FacilitySpec:
 # promoted to ``at.Monitor`` and named by the port; HCM/VCM correctors are the
 # synthetic steerers the source omits (one of each co-located per BPM). See
 # PROPOSAL.md FR3/FR4.
+# Naming contract (consumed by ring.py and the tier-DB generator): rendered
+# names match ``^(HCM|VCM|QF|QD|QFA|DIPOLE|SF|SD|SHF|SHD|BPM)\d{2,}$``; ids are
+# zero-padded to >=2 digits and family-scoped, assigned by ascending
+# s-position within each family (ring.py owns the s-ordering — this spec only
+# declares the rendering template).
 ALS_U_AR = FacilitySpec(
     name="ALS-U-AR",
     energy_ev=2.0e9,
     harmonic=304,
-    naming="AR:{sup}:{fam}:{id}",
+    naming="{fam}{id:02d}",
     families=(
         Family("QF", 24, "magnet"),
         Family("QD", 24, "magnet"),
         Family("QFA", 24, "magnet"),
-        Family("BEND", 36, "magnet"),
+        Family("DIPOLE", 36, "magnet"),
         Family("SF", 24, "magnet"),
         Family("SD", 24, "magnet"),
         Family("SHF", 24, "magnet"),

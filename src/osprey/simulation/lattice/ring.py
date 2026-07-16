@@ -26,11 +26,17 @@ Divergences from a verbatim import, all intended (PROPOSAL.md FR2/FR3/FR4):
   dropped; ``SEPTUM`` kept as a drift; ``SECT1..12`` / ``INJ`` markers and the
   ``CAV`` kept.
 * BPMs promoted from bare ``IdentityPass`` markers to :class:`at.Monitor` and
-  **named** ``AR:{sup}:BPM:{id}`` (the source's 72 BPMs all share one FamName).
+  **named** ``BPM{id:02d}`` (the source's 72 BPMs all share one FamName).
 * Synthetic orbit correctors added — one horizontal (HCM) + one vertical (VCM)
   :class:`at.Corrector` co-located with each BPM (thin, zero-kick), named
-  ``AR:{sup}:HCM:{id}`` / ``AR:{sup}:VCM:{id}``. The source ships no steerers; a
+  ``HCM{id:02d}`` / ``VCM{id:02d}``. The source ships no steerers; a
   control-room ring must be steerable.
+
+Element construction uses the source's per-superperiod ``AR:{sup}:{fam}:{id}``
+tokens internally (see :func:`superperiod`), then :func:`build_ring` renames
+every scheme element to the flat, family-scoped ``{fam}{id:02d}`` naming
+declared by :data:`osprey.simulation.facility_spec.ALS_U_AR` — ids ascend by
+s-position within each family, ring-wide (``BEND`` renamed to ``DIPOLE``).
 
 Family names / counts are declared by
 :data:`osprey.simulation.facility_spec.ALS_U_AR`; a drift-guard test binds the
@@ -197,6 +203,30 @@ def _injection_drift(name: str, length: float) -> Drift:
     return Drift(name, length)
 
 
+# Source token -> flat naming-contract family token (see facility_spec.py).
+_FAM_RENAME = {"BEND": "DIPOLE"}
+
+
+def _flatten_names(elements: list) -> None:
+    """Rename every ``AR:{sup}:{fam}:{id}`` element to the flat naming scheme, in place.
+
+    Walks ``elements`` in order (= ascending s-position) and assigns a
+    per-family, ring-wide counter — ``BEND`` mapped to ``DIPOLE`` — so ids are
+    zero-padded and ascend by s-position within each family, matching
+    :data:`osprey.simulation.facility_spec.ALS_U_AR`. Non-scheme elements
+    (Drift, Marker, RFCavity) are left untouched.
+    """
+    counters: dict[str, int] = {}
+    for el in elements:
+        name = el.FamName
+        if not name.startswith("AR:"):
+            continue
+        _, _, fam, _ = name.split(":")
+        fam = _FAM_RENAME.get(fam, fam)
+        counters[fam] = counters.get(fam, 0) + 1
+        el.FamName = ALS_U_AR.device_name("", fam, counters[fam])
+
+
 def build_ring() -> Lattice:
     """Build the full ALS-U AR ring as an :class:`at.Lattice`.
 
@@ -285,6 +315,10 @@ def build_ring() -> Lattice:
 
     # Insert synthetic orbit correctors co-located with every BPM.
     elements = _with_correctors(elements)
+
+    # Rename every scheme element from the per-superperiod source token to the
+    # flat, family-scoped naming contract declared by facility_spec.ALS_U_AR.
+    _flatten_names(elements)
 
     # RF frequency from the *ported* summed circumference (RF/circumference
     # self-consistent for later 6D optics). Correctors/markers are zero-length.
