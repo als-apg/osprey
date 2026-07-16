@@ -1,0 +1,62 @@
+# Facility config fixture for tests/e2e/test_deploy_lifecycle.py.
+#
+# Exercises the multi-user web-terminal deploy lifecycle (up / idempotent
+# reconcile / seed / decommission / prune / nuke) against a REAL container
+# runtime. The shipped `hello-world` deploy-e2e fixture declares no
+# `modules.web_terminals.users`, so it can never reach any of these verbs —
+# this fixture exists specifically to give the lifecycle CLI something to
+# operate on.
+#
+# Every resource this config produces is exact-named and obviously throwaway
+# (project_name/facility.prefix below), per the container-ops safety
+# guardrail in tests/e2e/test_deploy_lifecycle.py's module docstring:
+#   - containers: e2e-web-<user>, e2e-nginx
+#   - volumes:    osprey-e2e-mus-p3_<user>-claude-config / -agent-data
+#
+# The test copies this file into a throwaway tmp project directory (never
+# runs it in place) and extends `modules.web_terminals.users` beyond the two
+# users declared here (via the same config_writer.config_replace_list helper
+# the decommission verb itself uses) to get enough users to exercise
+# retain/purge/archive/prune-orphan in one pass. See that test's module
+# docstring for the full scenario.
+project_name: osprey-e2e-mus-p3
+
+# Pinned rather than auto-detected: this host may have both Docker and
+# Podman available, and the test's local throwaway registry (spun up by the
+# test itself) is only proven to work against Docker's "pull access denied"
+# behavior for a local-only image tag — see that test's registry fixture.
+container_runtime: docker
+
+facility:
+  name: E2E Deploy Lifecycle Fixture
+  prefix: e2e
+  timezone: UTC
+
+# Points at the throwaway local registry the test starts on this fixed port
+# (container name osprey-e2e-mus-p3-registry) and pushes the stub image
+# (Dockerfile.web_terminal_stub) into — so `docker compose pull` genuinely
+# pulls a real, locally-resolvable image instead of failing against a
+# nonexistent registry.
+registry:
+  url: "localhost:19081"
+
+deploy:
+  fqdn: localhost
+
+# No backend services — this fixture exercises the web-terminal lifecycle in
+# isolation, the same way the `deployed_services: []` + `web_terminals`
+# combination is a valid, documented deploy_up path (see
+# container_lifecycle.deploy_up's early-return guard).
+deployed_services: []
+
+modules:
+  web_terminals:
+    enabled: true
+    nginx_port: 19080
+    web_base_port: 19100
+    artifact_base_port: 19200
+    ariel_base_port: 19300
+    lattice_base_port: 19400
+    users:
+      - alice
+      - bob
