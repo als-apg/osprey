@@ -297,10 +297,21 @@ web:
 {%- else %}
   panels: {}
 {%- endif %}
+{%- if panel_presets is defined and panel_presets %}
+  # Panel layouts ("Layouts"): named sets of panels a human applies in one click
+  # from the web terminal "+" popover. The key is the menu label; the value is
+  # the exact set of panels to show (non-member panels close).
+  presets:
+{%- for preset_name, preset_panels in panel_presets.items() %}
+    {{ preset_name | tojson }}: [{{ preset_panels | join(", ") }}]
+{%- endfor %}
+{%- endif %}
   # Optional panel controls (off by default; uncomment to use):
   #   web.panels.<id>.hidden: true                          # launch the panel but keep its tab hidden until shown
   #   web.allow_runtime_panels: true                        # let the agent register ad-hoc URL panels at runtime
   #   web.runtime_panel_allowlist: ["dashboard.local:3000"] # restrict registration targets to these host[:port]
+  #   web.presets:                                          # named "Layouts" a human applies from the "+" popover
+  #     "Logbook review": [ariel, artifacts]
 
 # ──────────────────────────────────────────────────────────────────────
 # User-Owned Prompt Artifacts

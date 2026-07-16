@@ -46,6 +46,32 @@ ones are skipped and logged, so one bad panel never breaks the others.
    facility that exposes the terminal more widely should put its own
    authentication in front of it.
 
+Panel layouts ("presets")
+-------------------------
+
+A **layout** is a named set of panels an operator applies in one click — "the
+machine-setup view is these four panels." Define them under ``web.presets``, where
+each key is the menu label and each value is the exact set of panels to show:
+
+.. code-block:: yaml
+
+   web:
+     presets:
+       "Machine setup": [channel-finder, lattice, artifacts, okf]
+       "Logbook review": [ariel, artifacts]
+
+Each layout appears under a **Layouts** section at the top of the panel ``+``
+menu. Picking one is *exclusive*: its panels open and every other panel closes.
+Members must be enabled built-in panels or custom panels you have declared; an
+unknown id is dropped with a warning, and a layout with no valid members is
+skipped. When no ``web.presets`` are configured — the default — the ``+`` menu is
+unchanged, so layouts never add clutter to a deployment that has not opted in.
+
+Layouts are just a shortcut over the ordinary show/hide of panels, so the OSPREY
+agent can achieve the same result with its ``show_panel`` / ``hide_panel`` tools;
+``list_panels`` reports the configured layouts so the agent can honor a request
+like "set up for machine setup."
+
 .. dropdown:: Going deeper — how panels work
    :icon: package
 

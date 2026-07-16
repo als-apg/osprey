@@ -38,6 +38,8 @@
  * @property {() => boolean} allowUrlPanels          - whether runtime URL registration is on
  * @property {(id: string) => void} onShowPanel      - reveal + focus a hidden panel
  * @property {(fields: {id: string, label: string, url: string}) => Promise<RegisterResult>} onRegisterUrl
+ * @property {() => {name: string, panels: string[]}[]} getPresets - config-defined layouts, in config order
+ * @property {(panels: string[]) => void} onApplyPreset - apply a layout (show members, hide the rest)
  */
 
 /**
@@ -119,6 +121,34 @@ export function initPanelAddMenu(opts) {
   /** Rebuild the menu body from the parent's current state. */
   function render() {
     menuEl.replaceChildren();
+
+    // ---- Section 0: apply a layout (rendered ONLY when presets are configured) ----
+    // Absent by default, so a deployment with no web.presets sees the popover
+    // exactly as it was before this feature — the feature cannot clutter until a
+    // facility opts in. Applying a preset is one click, then the menu closes,
+    // matching the "Show panel" interaction grammar one altitude up.
+    const presets = opts.getPresets();
+    if (presets.length > 0) {
+      const layouts = document.createElement('div');
+      layouts.className = 'panel-add-section';
+      layouts.appendChild(heading('Layouts'));
+      for (const preset of presets) {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'panel-add-item';
+        // textContent — preset.name is config-supplied JSON (never innerHTML).
+        item.textContent = preset.name;
+        item.addEventListener('click', () => {
+          opts.onApplyPreset(preset.panels);
+          closeMenu();
+        });
+        layouts.appendChild(item);
+      }
+      menuEl.appendChild(layouts);
+      const divider = document.createElement('div');
+      divider.className = 'panel-add-divider';
+      menuEl.appendChild(divider);
+    }
 
     // ---- Section 1: reveal a hidden panel ----
     const hidden = opts.getHiddenPanels();

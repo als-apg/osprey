@@ -11,6 +11,7 @@ from osprey.interfaces.web_terminal.app import (
     BUILTIN_PANELS,
     UNIVERSAL_PANELS,
     _load_panel_config,
+    _load_panel_presets,
     create_app,
 )
 from osprey.profiles.web_panels import BUILTIN_PANEL_LABELS
@@ -229,6 +230,63 @@ class TestLoadPanelConfig:
             enabled, custom, _default = _load_panel_config()
         assert enabled == UNIVERSAL_PANELS
         assert custom == []
+
+
+# ---- Unit tests for _load_panel_presets ----
+
+
+class TestLoadPanelPresets:
+    def test_fail_open_on_config_error(self):
+        """Any config-read error resolves to an empty preset list (fail open)."""
+        with patch(
+            "osprey.utils.workspace.load_osprey_config",
+            side_effect=RuntimeError("no config"),
+        ):
+            assert _load_panel_presets({"artifacts"}, []) == []
+
+    def test_no_presets_returns_empty(self):
+        """A config with no web.presets yields an empty list (the default)."""
+        with patch(
+            "osprey.utils.workspace.load_osprey_config",
+            return_value={"web": {}},
+        ):
+            assert _load_panel_presets({"artifacts"}, []) == []
+
+    def test_drops_unknown_members_keeps_known(self):
+        """Unknown member ids are dropped; the known members are kept in order."""
+        cfg = {"web": {"presets": {"Setup": ["artifacts", "ghost", "ariel"]}}}
+        with patch("osprey.utils.workspace.load_osprey_config", return_value=cfg):
+            presets = _load_panel_presets({"artifacts", "ariel"}, [])
+        assert presets == [{"name": "Setup", "panels": ["artifacts", "ariel"]}]
+
+    def test_drops_preset_that_resolves_empty(self):
+        """A preset whose members are all unknown is dropped entirely."""
+        cfg = {"web": {"presets": {"Empty": ["ghost"], "Good": ["artifacts"]}}}
+        with patch("osprey.utils.workspace.load_osprey_config", return_value=cfg):
+            presets = _load_panel_presets({"artifacts"}, [])
+        assert presets == [{"name": "Good", "panels": ["artifacts"]}]
+
+    def test_preserves_config_order(self):
+        """Preset order follows config insertion order (pyyaml preserves it)."""
+        cfg = {"web": {"presets": {"B": ["artifacts"], "A": ["ariel"]}}}
+        with patch("osprey.utils.workspace.load_osprey_config", return_value=cfg):
+            presets = _load_panel_presets({"artifacts", "ariel"}, [])
+        assert [p["name"] for p in presets] == ["B", "A"]
+
+    def test_custom_panel_ids_are_known_members(self):
+        """Custom panel ids (not just built-ins) count as known preset members."""
+        cfg = {"web": {"presets": {"Dash": ["my-dash", "artifacts"]}}}
+        custom = [{"id": "my-dash", "label": "DASH", "url": "http://x:9000"}]
+        with patch("osprey.utils.workspace.load_osprey_config", return_value=cfg):
+            presets = _load_panel_presets({"artifacts"}, custom)
+        assert presets == [{"name": "Dash", "panels": ["my-dash", "artifacts"]}]
+
+    def test_non_list_preset_value_skipped(self):
+        """A preset whose value is not a list is skipped, not crashed on."""
+        cfg = {"web": {"presets": {"Bad": "artifacts", "Good": ["artifacts"]}}}
+        with patch("osprey.utils.workspace.load_osprey_config", return_value=cfg):
+            presets = _load_panel_presets({"artifacts"}, [])
+        assert presets == [{"name": "Good", "panels": ["artifacts"]}]
 
 
 # ---- API endpoint tests ----
@@ -456,6 +514,29 @@ class TestPanelsAPIShape:
         # Assert
         assert resp.status_code == 200
         assert resp.json()["active"] is None
+
+
+# ---- Panel presets in the /api/panels payload ----
+
+
+class TestPanelPresetsAPI:
+    def test_presets_key_present_and_is_a_list(self, client):
+        """GET /api/panels always carries a 'presets' key (a list)."""
+        data = client.get("/api/panels").json()
+        assert "presets" in data
+        assert isinstance(data["presets"], list)
+
+    def test_presets_payload_carries_name_and_panels(self, client):
+        """The 'presets' key echoes app.state.panel_presets as [{name, panels}]."""
+        client.app.state.panel_presets = [
+            {"name": "Machine setup", "panels": ["artifacts", "ariel"]},
+            {"name": "Logbook review", "panels": ["ariel"]},
+        ]
+        data = client.get("/api/panels").json()
+        assert data["presets"] == [
+            {"name": "Machine setup", "panels": ["artifacts", "ariel"]},
+            {"name": "Logbook review", "panels": ["ariel"]},
+        ]
 
 
 # ---- Hidden panel visibility ----

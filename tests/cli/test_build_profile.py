@@ -111,6 +111,58 @@ def test_bluesky_panels_parse_defaults_when_empty_mapping() -> None:
     assert profile.bluesky_panels.port == 8095
 
 
+# ── panel_presets ("Layouts") ────────────────────────────────────────────────
+
+
+def test_panel_presets_builtin_members_validate(tmp_path: Path) -> None:
+    """A preset whose members are built-in panel ids validates without raising."""
+    profile = BuildProfile(name="x", panel_presets={"Machine setup": ["artifacts", "ariel"]})
+    profile.validate(tmp_path)  # must not raise
+
+
+def test_panel_presets_unknown_member_raises(tmp_path: Path) -> None:
+    """A preset member that is not a known panel id fails validation."""
+    profile = BuildProfile(name="x", panel_presets={"Setup": ["artifacts", "ghost"]})
+    with pytest.raises(BuildProfileError, match="ghost"):
+        profile.validate(tmp_path)
+
+
+def test_panel_presets_url_backed_member_validates(tmp_path: Path) -> None:
+    """A member backed by a web.panels.<id>.url override is a known id."""
+    profile = BuildProfile(
+        name="x",
+        panel_presets={"Dash": ["grafana"]},
+        config={"web.panels.grafana.url": "http://grafana.local:3000"},
+    )
+    profile.validate(tmp_path)  # must not raise
+
+
+def test_panel_presets_web_panels_member_validates(tmp_path: Path) -> None:
+    """A member declared in web_panels is a known id."""
+    profile = BuildProfile(name="x", web_panels=["ariel"], panel_presets={"L": ["ariel"]})
+    profile.validate(tmp_path)  # must not raise
+
+
+def test_panel_presets_non_list_value_raises(tmp_path: Path) -> None:
+    """A preset whose value is not a list of ids is rejected."""
+    profile = BuildProfile(name="x", panel_presets={"Bad": "artifacts"})  # type: ignore[dict-item]
+    with pytest.raises(BuildProfileError, match="must be a list"):
+        profile.validate(tmp_path)
+
+
+def test_is_known_panel_id_shared_predicate(tmp_path: Path) -> None:
+    """_is_known_panel_id covers built-in / web_panels / url-backed for both callers."""
+    profile = BuildProfile(
+        name="x",
+        web_panels=["ariel"],
+        config={"web.panels.grafana.url": "http://x:3000"},
+    )
+    assert profile._is_known_panel_id("artifacts")  # built-in
+    assert profile._is_known_panel_id("ariel")  # web_panels entry
+    assert profile._is_known_panel_id("grafana")  # url-backed custom
+    assert not profile._is_known_panel_id("nope")
+
+
 def test_control_assistant_profile_validates() -> None:
     """The shipped control-assistant preset/profile validates cleanly.
 

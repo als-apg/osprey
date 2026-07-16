@@ -549,3 +549,109 @@ def test_add_menu_shows_register_error(tmp_path, chromium_browser):
         expect(error).to_contain_text("built-in")
 
         page.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 11: applying a preset ("Layout") is exclusive — show members, hide rest
+# ---------------------------------------------------------------------------
+
+
+def test_apply_preset_shows_members_hides_rest(tmp_path, chromium_browser):
+    """Clicking a Layout shows exactly its members, hides non-members, focuses first.
+
+    Arrange: artifacts + data-viz both visible; a "Just viz" preset lists only
+    data-viz. app.state.panel_presets is seeded before page load so /api/panels
+    carries it.
+    Act: open the "+" menu, click the "Just viz" Layout item.
+    Assert: data-viz becomes the sole visible+active tab, artifacts is hidden,
+    and NO blank "No panels visible" state appears — the show-before-hide ordering
+    focuses the member before the non-member is hidden (a blank-state flash here
+    is the documented trigger to escalate to a batch endpoint).
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[_CUSTOM_DATA_VIZ],
+    ) as (base_url, app):
+        # Seed presets before the page loads so panel-manager reads them at init.
+        app.state.panel_presets = [
+            {"name": "Just viz", "panels": ["data-viz"]},
+            {"name": "Both", "panels": ["artifacts", "data-viz"]},
+        ]
+        page = _open_page(chromium_browser, base_url)
+
+        artifacts_tab = page.locator('button.header-tab[data-panel-id="artifacts"]')
+        data_viz_tab = page.locator('button.header-tab[data-panel-id="data-viz"]')
+        expect(artifacts_tab).to_be_visible(timeout=10_000)
+        expect(data_viz_tab).to_be_visible(timeout=10_000)
+
+        # Act — open the "+" menu and click the "Just viz" Layout.
+        page.locator("#panel-add-btn").click()
+        page.locator('.panel-add-menu button.panel-add-item:has-text("Just viz")').click()
+
+        # Assert — data-viz is the sole visible tab and is active; artifacts hidden.
+        expect(data_viz_tab).to_be_visible(timeout=5_000)
+        expect(page.locator('button.header-tab[data-panel-id="data-viz"].active')).to_be_attached(
+            timeout=5_000
+        )
+        expect(artifacts_tab).not_to_be_visible(timeout=5_000)
+
+        # Assert — no blank state was left behind (show-before-hide ordering).
+        expect(page.locator("#panel-content").get_by_text("No panels visible")).to_have_count(0)
+
+        page.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 12: a preset whose first member is offline focuses a healthy member
+# ---------------------------------------------------------------------------
+
+
+def test_apply_preset_offline_first_member_focuses_healthy(tmp_path, chromium_browser):
+    """A preset primary that is unreachable must not strand focus or blank the pane.
+
+    The first member's backend is down (health poll fails → its tab stays
+    disabled), so a blind focus on it would no-op. applyPreset falls through to
+    the first HEALTHY member (data-viz); 'No panels visible' must never appear.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    offline = {
+        "id": "offline-panel",
+        "label": "OFFLINE",
+        "url": "http://127.0.0.1:59999",  # nothing listening → health poll fails
+        "healthEndpoint": "/health",
+        "path": "/",
+    }
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[offline, _CUSTOM_DATA_VIZ],
+    ) as (base_url, app):
+        # Primary member is the offline panel; data-viz is the healthy fallback.
+        app.state.panel_presets = [
+            {"name": "Diag", "panels": ["offline-panel", "data-viz"]},
+        ]
+        page = _open_page(chromium_browser, base_url)
+
+        data_viz_tab = page.locator('button.header-tab[data-panel-id="data-viz"]')
+        expect(data_viz_tab).to_be_visible(timeout=10_000)
+
+        page.locator("#panel-add-btn").click()
+        page.locator('.panel-add-menu button.panel-add-item:has-text("Diag")').click()
+
+        # The healthy member becomes active (the offline primary cannot), and the
+        # non-member artifacts tab is hidden — with no blank pane in between.
+        expect(page.locator('button.header-tab[data-panel-id="data-viz"].active')).to_be_attached(
+            timeout=5_000
+        )
+        expect(page.locator('button.header-tab[data-panel-id="artifacts"]')).not_to_be_visible(
+            timeout=5_000
+        )
+        expect(page.locator("#panel-content").get_by_text("No panels visible")).to_have_count(0)
+
+        page.close()

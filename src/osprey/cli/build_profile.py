@@ -17,6 +17,7 @@ from typing import Any, Literal
 import yaml
 
 from osprey.errors import BuildProfileError
+from osprey.profiles.web_panels import BUILTIN_PANELS
 
 VALID_CHANNEL_FINDER_MODES: tuple[str, ...] = (
     "in_context",
@@ -312,6 +313,14 @@ class BuildProfile:
     output_styles: list[str] = field(default_factory=list)
     web_panels: list[str] = field(default_factory=list)
     default_panel: str | None = None
+    panel_presets: dict[str, list[str]] = field(default_factory=dict)
+    """Named panel layouts ("presets") rendered into ``web.presets``. Each key is
+    the display label, each value a list of member panel ids (built-ins or
+    custom ``web.panels.<id>.url``-backed ids). A human applies one from the
+    Web Terminal "+" popover's "Layouts" section. Empty (the default) renders no
+    ``web.presets`` block. Members are typo-validated at build time, mirroring
+    :attr:`default_panel`.
+    """
     claude_md_template: str | None = None
     """Bundled `templates/claude_code/<filename>` to render as CLAUDE.md
     (default: "CLAUDE.md.j2"). Lets a preset pick an alternate persona
@@ -336,6 +345,22 @@ class BuildProfile:
         if self.tier is not None:
             return self.tier
         return 1 if self.channel_finder_mode == "in_context" else 3
+
+    def _is_known_panel_id(self, pid: str) -> bool:
+        """Return True if ``pid`` names a panel this profile could render.
+
+        A panel id is known when it is a framework built-in, a declared
+        ``web_panels`` entry, or a custom panel backed by a
+        ``web.panels.<id>.url`` config override. Shared by the ``default_panel``
+        and ``panel_presets`` member validation so both reject the same typos
+        with the same predicate (a single source of truth, not two drifting
+        membership checks).
+        """
+        if pid in BUILTIN_PANELS:
+            return True
+        if pid in self.web_panels:
+            return True
+        return f"web.panels.{pid}.url" in self.config
 
     def validate(self, profile_dir: Path) -> None:
         """Validate profile consistency. Raises BuildProfileError with all issues."""
@@ -440,8 +465,6 @@ class BuildProfile:
         # by the framework) or a custom panel backed by a ``web.panels.<id>.url``
         # config override (rendered as an iframe by the web terminal). Catches
         # typos in shipped presets and missing URL backing for facility panels.
-        from osprey.profiles.web_panels import BUILTIN_PANELS
-
         for panel in self.web_panels:
             if panel in BUILTIN_PANELS:
                 continue
@@ -469,22 +492,31 @@ class BuildProfile:
         # entry, or a custom panel backed by a `web.panels.<id>.url` override.
         # Catches typos like `default_panel: areil` that would otherwise
         # silently fall back to the frontend DEFAULT_PANEL_FALLBACK at runtime.
-        if self.default_panel is not None:
-            known_custom_urls = {
-                key.split(".")[2]
-                for key in self.config
-                if key.startswith("web.panels.") and key.endswith(".url")
-            }
-            if (
-                self.default_panel not in BUILTIN_PANELS
-                and self.default_panel not in self.web_panels
-                and self.default_panel not in known_custom_urls
-            ):
+        if self.default_panel is not None and not self._is_known_panel_id(self.default_panel):
+            errors.append(
+                f"Unknown default_panel {self.default_panel!r}: not in BUILTIN_PANELS "
+                f"({sorted(BUILTIN_PANELS)}), not in web_panels, and no "
+                f"'web.panels.{self.default_panel}.url' config override"
+            )
+
+        # Validate panel_presets: each member id must resolve the same way a
+        # default_panel does (built-in, declared web_panels, or url-backed
+        # custom). Catches typos in a preset's member list at build time so a
+        # facility author gets the same fail-fast feedback as default_panel.
+        for preset_name, members in self.panel_presets.items():
+            if not isinstance(members, list):
                 errors.append(
-                    f"Unknown default_panel {self.default_panel!r}: not in BUILTIN_PANELS "
-                    f"({sorted(BUILTIN_PANELS)}), not in web_panels, and no "
-                    f"'web.panels.{self.default_panel}.url' config override"
+                    f"panel_presets[{preset_name!r}] must be a list of panel ids "
+                    f"(got {type(members).__name__})"
                 )
+                continue
+            for member in members:
+                if not self._is_known_panel_id(member):
+                    errors.append(
+                        f"Unknown panel_presets[{preset_name!r}] member {member!r}: not in "
+                        f"BUILTIN_PANELS ({sorted(BUILTIN_PANELS)}), not in web_panels, and no "
+                        f"'web.panels.{member}.url' config override"
+                    )
 
         # Validate custom category definitions
         import re
@@ -646,6 +678,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "output_styles",
         "web_panels",
         "default_panel",
+        "panel_presets",
         "claude_md_template",
         "categories",
         "dispatch",
@@ -816,6 +849,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
         output_styles=raw.get("output_styles", []),
         web_panels=raw.get("web_panels", []),
         default_panel=raw.get("default_panel"),
+        panel_presets=raw.get("panel_presets", {}),
         claude_md_template=raw.get("claude_md_template"),
         categories=raw.get("categories", {}),
         dispatch=dispatch,

@@ -10,7 +10,7 @@
 import { fetchJSON } from './api.js';
 import { getTheme } from '/design-system/js/theme-manager.js';
 import { getCurrentSessionId } from './terminal.js';
-import { initPanelAddMenu } from './panel-add-menu.js';
+import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
 
 // ---- Types ----
@@ -126,6 +126,11 @@ let DEFAULT_PANEL = DEFAULT_PANEL_FALLBACK;
 // Read from /api/panels at init; gates the "new panel from URL" row in the add menu.
 let allowRuntimePanels = false;
 
+// Config-defined panel presets ("Layouts") from /api/panels (web.presets), in
+// config order. Empty unless a facility opts in; feeds the "+" menu's Layouts section.
+/** @type {{name: string, panels: string[]}[]} */
+let panelPresets = [];
+
 // ---- Public API ----
 
 /**
@@ -209,26 +214,24 @@ export async function initPanelManager(panelId) {
   // Whether the human "+" menu may register URL panels (server config gate).
   allowRuntimePanels = !!panelConfig?.allow_runtime_panels;
 
+  // Config-defined layouts for the "+" menu's Layouts section (empty by default).
+  panelPresets = panelConfig?.presets || [];
+
   // Render tab buttons
   renderTabs();
 
-  // Wire the add-panel "+" menu (browser-tab-style). The menu is a dumb view;
-  // it reads current hidden panels / the URL gate through these closures and
-  // calls back into the same visibility/register paths the agent uses.
-  const addRoot = document.getElementById('panel-add');
-  const addBtn = document.getElementById('panel-add-btn');
-  const addMenu = document.getElementById('panel-add-menu');
-  if (addRoot && addBtn && addMenu) {
-    initPanelAddMenu({
-      rootEl: addRoot,
-      buttonEl: /** @type {HTMLButtonElement} */ (addBtn),
-      menuEl: addMenu,
-      getHiddenPanels: () => PANELS.filter(p => !visiblePanels.has(p.id)).map(p => ({ id: p.id, label: p.label })),
-      allowUrlPanels: () => allowRuntimePanels,
-      onShowPanel: showPanel,
-      onRegisterUrl: registerUrlPanel,
-    });
-  }
+  // Wire the header "+" control (add menu + Layouts). wirePanelHeaderControls
+  // owns the getElementById lookups and the initPanelAddMenu call; the menu is a
+  // dumb view reading state through these closures and calling back into the same
+  // visibility/register paths the agent uses.
+  wirePanelHeaderControls({
+    getHiddenPanels: () => PANELS.filter(p => !visiblePanels.has(p.id)).map(p => ({ id: p.id, label: p.label })),
+    allowUrlPanels: () => allowRuntimePanels,
+    onShowPanel: showPanel,
+    onRegisterUrl: registerUrlPanel,
+    getPresets: () => panelPresets,
+    onApplyPreset: applyMenuPreset,
+  });
 
   // Keyboard close: Delete/Backspace on a focused tab hides that panel (the "×"
   // is mouse-only/decorative). Delegated — one listener rather than one per tab.
@@ -361,9 +364,7 @@ function buildTabButton(panel) {
     setPanelVisibility(panel.id, false);
   });
   tab.appendChild(close);
-  if (!visiblePanels.has(panel.id)) {
-    tab.classList.add('tab-hidden');
-  }
+  if (!visiblePanels.has(panel.id)) tab.classList.add('tab-hidden');
   return tab;
 }
 
@@ -539,9 +540,7 @@ async function pollHealth(panel) {
 /** @param {string} panelId */
 function enableTab(panelId) {
   const tab = tabsEl.querySelector(`[data-panel-id="${panelId}"]`);
-  if (tab) {
-    tab.classList.remove('disabled');
-  }
+  if (tab) tab.classList.remove('disabled');
 }
 
 /** @param {Panel} panel */
@@ -636,9 +635,7 @@ function activateTab(panelId, { userInitiated = false } = {}) {
   // Hide all iframes
   for (const panel of PANELS) {
     const ps = panelState[panel.id];
-    if (ps.iframe) {
-      ps.iframe.classList.add('hidden');
-    }
+    if (ps.iframe) ps.iframe.classList.add('hidden');
   }
 
   // Show or create the selected iframe. isConnected guards a cached ref that was
@@ -677,6 +674,24 @@ function activateTab(panelId, { userInitiated = false } = {}) {
 function showPanel(panelId) {
   setPanelVisibility(panelId, true);
   activateTab(panelId, { userInitiated: true });
+}
+
+/**
+ * Apply a config-defined preset ("Layout") exclusively: show its members, hide
+ * every visible non-member, focus the first healthy member locally. Feeds
+ * panel-manager's live state into the pure applyPreset() orchestrator; each
+ * show/hide rides the same setPanelVisibility POST + SSE echo the "+"/"×" use.
+ * focus is a purely-local activateTab (no visibility re-POST for the primary).
+ * @param {string[]} panels
+ */
+function applyMenuPreset(panels) {
+  applyPreset(panels, {
+    getVisible: () => visiblePanels,
+    getKnown: () => new Set(PANELS.map(p => p.id)),
+    isHealthy: (id) => !!panelState[id]?.healthy,
+    setVisibility: setPanelVisibility,
+    focus: (id) => activateTab(id, { userInitiated: true }),
+  });
 }
 
 // ---- Panel Navigation ----
