@@ -18,13 +18,16 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
+import asyncio
+import threading
 from contextlib import contextmanager
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from unittest.mock import AsyncMock, patch
 
 import pytest
 import requests
 
-from tests.interfaces.conftest import _run_app_server
+from tests.interfaces.conftest import _free_port, _run_app_server
 
 # ---------------------------------------------------------------------------
 # Playwright availability guard
@@ -57,12 +60,63 @@ _CUSTOM_DATA_VIZ: dict = {
 
 
 @contextmanager
-def _live_server(workspace_dir, enabled_panels, custom_panels=None, allow_runtime: bool = False):
+def _stub_backend():
+    """Serve 200 on every path, for a custom panel that must become healthy.
+
+    Panels with a ``healthEndpoint`` are the only ones that reach the
+    auto-activate branch in ``pollHealth``, and that branch needs a real
+    unhealthy→healthy transition — so it needs a real backend to poll.
+
+    Yields:
+        base URL of the stub, e.g. ``"http://127.0.0.1:54321"``.
+    """
+
+    class _Handler(BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler API
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain")
+            self.end_headers()
+            self.wfile.write(b"ok")
+
+        def log_message(self, *args):  # silence per-request stderr logging
+            pass
+
+    server = HTTPServer(("127.0.0.1", _free_port()), _Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join(timeout=5)
+
+
+@contextmanager
+def _live_server(
+    workspace_dir,
+    enabled_panels,
+    custom_panels=None,
+    allow_runtime: bool = False,
+    artifact_url: str | None = "http://127.0.0.1:8086",
+    artifact_config_delay: float = 0.0,
+):
     """Launch a real web terminal server on a free port in a background thread.
 
     Companion backends (artifact server, ARIEL, etc.) are bypassed via patches
     so no external process dependencies are required.  The artifacts panel
     reports its URL as http://127.0.0.1:8086 (the standard fallback).
+
+    Pass ``artifact_url=None`` to make /api/artifact-server report no URL, which
+    leaves the default panel loaded-but-unhealthy.  That is the only way to keep
+    ``activeTabId`` null: a panel with ``healthEndpoint: null`` is marked healthy
+    unconditionally on load, so pointing it at a dead port would NOT keep it
+    unhealthy — only withholding the URL does.
+
+    ``artifact_config_delay`` holds /api/artifact-server open for that many
+    seconds, so the default panel settles *after* another panel's health poll.
+    That ordering decides which panel gets the empty slot, and it is the order a
+    loaded CI runner produces naturally while a fast dev box hides it.
 
     Yields:
         (base_url: str, app: FastAPI) — live server address and the FastAPI app
@@ -83,12 +137,21 @@ def _live_server(workspace_dir, enabled_panels, custom_panels=None, allow_runtim
         patch(
             "osprey.interfaces.web_terminal.app._launch_artifact_server",
             # Set the artifact URL without actually spawning a server process.
-            side_effect=lambda a: setattr(a.state, "artifact_server_url", "http://127.0.0.1:8086"),
+            side_effect=lambda a: setattr(a.state, "artifact_server_url", artifact_url),
         ),
     ):
         from osprey.interfaces.web_terminal.app import create_app
 
         app = create_app(shell_command=["echo", "hello"])
+
+        if artifact_config_delay:
+
+            @app.middleware("http")
+            async def _delay_artifact_config(request, call_next):
+                if request.url.path == "/api/artifact-server":
+                    await asyncio.sleep(artifact_config_delay)
+                return await call_next(request)
+
         # _run_app_server yields only after the port accepts connections (lifespan
         # done), so app.state is safe to mutate here; and it joins the server
         # thread while the patches above are still live, avoiding timing races.
@@ -655,3 +718,190 @@ def test_apply_preset_offline_first_member_focuses_healthy(tmp_path, chromium_br
         expect(page.locator("#panel-content").get_by_text("No panels visible")).to_have_count(0)
 
         page.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 12: a hidden default panel does not strand the pane blank
+# ---------------------------------------------------------------------------
+
+
+def test_hidden_default_panel_falls_back_to_visible_panel(tmp_path, chromium_browser):
+    """A hidden DEFAULT_PANEL must hand off to a visible healthy panel.
+
+    `web.panels: {artifacts: {hidden: true}}` is a supported config, so the
+    default panel can be healthy yet hidden.  Suppressing its auto-activation is
+    only half the job: something visible has to take its place, or the operator
+    gets a blank pane while a perfectly good panel sits unopened.
+
+    Arrange: artifacts is healthy but hidden before the page loads; data-viz is
+    visible and polls a live stub backend.
+    Act: load the page and let the health poll run.
+    Assert: data-viz becomes the active tab, and artifacts stays hidden.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _stub_backend() as backend_url:
+        visible_panel = {
+            "id": "data-viz",
+            "label": "DATA VIZ",
+            "url": backend_url,
+            "healthEndpoint": "/health",
+            "path": "/",
+        }
+
+        with _live_server(
+            workspace,
+            enabled_panels={"artifacts"},
+            custom_panels=[visible_panel],
+        ) as (base_url, app):
+            # Hide the DEFAULT_PANEL itself — artifacts still reports a URL, so it
+            # is healthy; it is only hidden.
+            app.state.visible_panels = ["data-viz"]
+
+            page = chromium_browser.new_page()
+            page.goto(base_url, wait_until="domcontentloaded")
+            expect(page.locator('button[data-panel-id="data-viz"]')).to_be_attached(timeout=10_000)
+            page.evaluate("document.getElementById('welcome-overlay')?.remove()")
+
+            # The visible, healthy panel must be the one on screen.
+            expect(
+                page.locator('button.header-tab[data-panel-id="data-viz"].active')
+            ).to_have_count(1, timeout=10_000)
+            expect(page.locator('iframe[data-panel-id="data-viz"]')).to_be_visible(timeout=5_000)
+
+            # ...and the hidden default must NOT have surfaced itself.
+            expect(page.locator('button.header-tab[data-panel-id="artifacts"]')).not_to_be_visible()
+
+            page.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 13: the slot is filled even when the default settles last
+# ---------------------------------------------------------------------------
+
+
+def test_hidden_default_settling_late_still_yields_slot(tmp_path, chromium_browser):
+    """A panel that polls healthy before the default settles must still get the slot.
+
+    Auto-activation cannot be a one-shot per health transition. data-viz's FIRST
+    healthy transition lands while the default panel is still fetching its
+    config; at that instant nothing may take the slot, because the default might
+    still claim it. The default then turns out to be hidden and is refused — and
+    data-viz has no second transition to retry with. The decision has to be
+    re-evaluated when the default settles, or the pane stays blank forever.
+
+    This ordering is what a loaded CI runner produces naturally; a fast dev box
+    resolves the config first and hides the bug, so the delay is forced here.
+
+    Arrange: hold /api/artifact-server open past data-viz's first health poll,
+    with artifacts healthy-but-hidden.
+    Act: load the page.
+    Assert: data-viz still ends up active.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _stub_backend() as backend_url:
+        visible_panel = {
+            "id": "data-viz",
+            "label": "DATA VIZ",
+            "url": backend_url,
+            "healthEndpoint": "/health",
+            "path": "/",
+        }
+
+        with _live_server(
+            workspace,
+            enabled_panels={"artifacts"},
+            custom_panels=[visible_panel],
+            # Long enough that data-viz's first health poll definitively wins.
+            artifact_config_delay=3.0,
+        ) as (base_url, app):
+            app.state.visible_panels = ["data-viz"]
+
+            page = chromium_browser.new_page()
+            page.goto(base_url, wait_until="domcontentloaded")
+            expect(page.locator('button[data-panel-id="data-viz"]')).to_be_attached(timeout=10_000)
+            page.evaluate("document.getElementById('welcome-overlay')?.remove()")
+
+            expect(
+                page.locator('button.header-tab[data-panel-id="data-viz"].active')
+            ).to_have_count(1, timeout=15_000)
+            expect(page.locator('button.header-tab[data-panel-id="artifacts"]')).not_to_be_visible()
+
+            page.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 14: a hidden panel never auto-activates itself
+# ---------------------------------------------------------------------------
+
+
+def test_hidden_panel_does_not_auto_activate(tmp_path, chromium_browser):
+    """A hidden panel must not surface itself when no tab is active.
+
+    Health-driven activation is not a user action: the server owns the visible
+    set, so a panel the operator (or config) hid must stay hidden even when it
+    is the only healthy panel left.
+
+    Arrange: artifacts — the DEFAULT_PANEL — reports no URL, so it finishes loading
+    unhealthy and never activates; that keeps activeTabId null, which is what the
+    buggy fallback branch keys on.  data-viz polls a live stub backend, so it makes
+    a real unhealthy→healthy transition, but is hidden before the page opens.
+    Act: load the page and let the health poll run to completion.
+    Assert: data-viz stays hidden, never active, and its iframe is never mounted.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _stub_backend() as backend_url:
+        # A health endpoint is what routes this panel through pollHealth — the
+        # only auto-activate branch a custom panel can actually reach.
+        hidden_panel = {
+            "id": "data-viz",
+            "label": "DATA VIZ",
+            "url": backend_url,
+            "healthEndpoint": "/health",
+            "path": "/",
+        }
+
+        with _live_server(
+            workspace,
+            enabled_panels={"artifacts"},
+            custom_panels=[hidden_panel],
+            artifact_url=None,
+        ) as (base_url, app):
+            # Hide data-viz server-side before the browser ever fetches /api/panels.
+            app.state.visible_panels = ["artifacts"]
+
+            page = chromium_browser.new_page()
+            page.goto(base_url, wait_until="domcontentloaded")
+            expect(page.locator('button[data-panel-id="artifacts"]')).to_be_attached(timeout=10_000)
+            page.evaluate("document.getElementById('welcome-overlay')?.remove()")
+
+            # Give the async init + health poll time to do the wrong thing.
+            page.wait_for_timeout(3_000)
+
+            # Guard: the arrangement only tests anything if data-viz really did
+            # go healthy.  Without this, a stub that never came up would make
+            # every assertion below pass for the wrong reason.
+            expect(
+                page.locator('button.header-tab[data-panel-id="data-viz"]:not(.disabled)')
+            ).to_have_count(1, timeout=10_000)
+
+            data_viz_tab = page.locator('button.header-tab[data-panel-id="data-viz"]')
+            # It stays hidden...
+            expect(data_viz_tab).not_to_be_visible(timeout=5_000)
+            # ...never becomes the active tab...
+            expect(
+                page.locator('button.header-tab[data-panel-id="data-viz"].active')
+            ).to_have_count(0)
+            # ...and its iframe is never mounted-and-shown.  activateTab is what
+            # creates the iframe and clears .hidden, so a visible data-viz iframe
+            # is the unambiguous signature of the panel having surfaced itself.
+            expect(page.locator('iframe[data-panel-id="data-viz"]')).not_to_be_visible(
+                timeout=5_000
+            )
+
+            page.close()

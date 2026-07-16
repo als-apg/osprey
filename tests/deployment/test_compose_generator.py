@@ -11,6 +11,7 @@ deployed_services. Two failure modes have to stay fixed:
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -992,6 +993,81 @@ def test_host_python_env_path_would_bake_host_interpreter_into_mcp_command() -> 
 # ---------------------------------------------------------------------------
 
 _OPENOBSERVE_IMAGE_REF = "public.ecr.aws/zinclabs/openobserve"
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_CI_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "ci.yml"
+_OPENOBSERVE_TEMPLATE = (
+    _REPO_ROOT
+    / "src"
+    / "osprey"
+    / "templates"
+    / "services"
+    / "openobserve"
+    / "docker-compose.yml.j2"
+)
+
+
+def _pinned_openobserve_tag() -> str:
+    """Return the openobserve tag the compose template pins."""
+    text = _OPENOBSERVE_TEMPLATE.read_text(encoding="utf-8")
+    match = re.search(
+        r"\$\{OSPREY_OPENOBSERVE_IMAGE:-" + re.escape(_OPENOBSERVE_IMAGE_REF) + r":([^}\s]+)\}",
+        text,
+    )
+    assert match, "compose template no longer pins the openobserve image in the expected form"
+    return match.group(1)
+
+
+def test_ci_openobserve_override_tag_matches_compose_pin() -> None:
+    """CI's ghcr mirror override must pin the same tag as the compose template.
+
+    CI overrides the image because ECR Public rate-limits anonymous pulls per
+    source IP and GitHub-hosted runners share egress IPs. The ghcr mirror is
+    populated by hand (mirror-openobserve.yml) for one tag at a time, so moving
+    the template's pin without moving CI's would leave every deploy lane pulling
+    a tag that was never mirrored — a hard, confusing failure far from the line
+    that caused it.
+    """
+    pinned = _pinned_openobserve_tag()
+    overrides = re.findall(
+        r"OSPREY_OPENOBSERVE_IMAGE:\s*(\S+)", _CI_WORKFLOW.read_text(encoding="utf-8")
+    )
+    assert overrides, "no CI lane overrides OSPREY_OPENOBSERVE_IMAGE"
+    for ref in overrides:
+        assert ref.endswith(f":{pinned}"), (
+            f"CI pins {ref!r} but the compose template pins :{pinned}. Bump both "
+            "together, and run the mirror workflow for the new tag first."
+        )
+
+
+def test_ci_openobserve_override_lanes_can_authenticate() -> None:
+    """Any lane overriding the image to the ghcr mirror must be able to pull it.
+
+    The mirrored package is private (making it public would be AGPL
+    redistribution), so a lane needs both `packages: read` and a ghcr login.
+    Copying the env override into a new lane without those turns an
+    intermittent rate-limit into a deterministic auth failure.
+    """
+    workflow = yaml.safe_load(_CI_WORKFLOW.read_text(encoding="utf-8"))
+    for name, job in workflow["jobs"].items():
+        image = (job.get("env") or {}).get("OSPREY_OPENOBSERVE_IMAGE", "")
+        if "ghcr.io" not in str(image):
+            continue
+        perms = job.get("permissions") or {}
+        assert perms.get("packages") == "read", (
+            f"{name} pulls the ghcr mirror but lacks packages: read"
+        )
+        assert perms.get("contents") == "read", (
+            f"{name} sets a permissions block without contents: read — a job-level "
+            "block replaces the default, so actions/checkout would lose access"
+        )
+        logins = [
+            s
+            for s in job.get("steps", [])
+            if str(s.get("uses", "")).startswith("docker/login-action")
+            and (s.get("with") or {}).get("registry") == "ghcr.io"
+        ]
+        assert logins, f"{name} pulls the private ghcr mirror but never logs in to ghcr.io"
 
 
 def _write_openobserve_config(
