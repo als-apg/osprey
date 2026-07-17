@@ -271,7 +271,7 @@ function renderAdvancedPanel() {
 
   if (allParams.length === 0) {
     container.innerHTML = `
-      <div class="empty-state" style="padding: var(--space-6);">
+      <div class="empty-state" style="padding: var(--ariel-space-6);">
         <p class="empty-state-text">No advanced options for this mode.</p>
       </div>
     `;

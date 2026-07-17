@@ -34,7 +34,7 @@ export function mountExplore(container) {
   const hasSchema = (pt === 'hierarchical' || pt === 'middle_layer');
 
   const descToggle = hasSchema
-    ? `<label class="miller-toggle" style="margin-top: var(--space-1)">
+    ? `<label class="miller-toggle" style="margin-top: var(--cf-space-1)">
          <input type="checkbox" id="show-desc-toggle"> Show full descriptions
        </label>`
     : '';

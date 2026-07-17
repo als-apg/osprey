@@ -139,7 +139,7 @@ export function _renderChannelList(channels, visibleCount = 3) {
  */
 export function _renderSelections(selections) {
   if (!selections || Object.keys(selections).length === 0) {
-    return '<span style="color: var(--text-muted); font-size: var(--text-xs);">(empty)</span>';
+    return '<span style="color: var(--text-muted); font-size: var(--cf-text-xs);">(empty)</span>';
   }
   return Object.entries(selections).map(([k, v]) => {
     const val = Array.isArray(v) ? v.join(', ') : String(v);

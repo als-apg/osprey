@@ -46,7 +46,7 @@ export function renderSchema(container, pipelineType, metadata) {
     }).join('');
     container.innerHTML = `
       <div class="schema-row">${rows}</div>
-      ${metadata.naming_pattern ? `<div style="margin-top: var(--space-3); color: var(--text-muted); font-size: var(--text-sm);">
+      ${metadata.naming_pattern ? `<div style="margin-top: var(--cf-space-3); color: var(--text-muted); font-size: var(--cf-text-sm);">
         <strong>Naming pattern:</strong> <code class="pv-name">${esc(metadata.naming_pattern)}</code>
       </div>` : ''}
     `;
