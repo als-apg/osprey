@@ -79,7 +79,6 @@ osprey-build:
     - |
       cat > .env.production << ENVEOF
       ${config.llm.api_key_env_var}=${env.${config.llm.api_key_env_var}}
-      ${config.ci.token_env_var}=${env.${config.ci.token_env_var}}
       # IF MODULE olog.enabled
       ${config.modules.olog.username_env_var}=${env.${config.modules.olog.username_env_var}}
       ${config.modules.olog.password_env_var}=${env.${config.modules.olog.password_env_var}}
@@ -89,7 +88,6 @@ osprey-build:
       # END IF
       # IF MODULE event_dispatcher.enabled
       ${config.modules.event_dispatcher.token_env_var}=${env.${config.modules.event_dispatcher.token_env_var}}
-      ${config.modules.event_dispatcher.sidecar_token_env_var}=${env.${config.modules.event_dispatcher.sidecar_token_env_var}}
       # END IF
       # IF MODULE ariel.enabled
       ARIEL_DSN=${config.modules.ariel.dsn}

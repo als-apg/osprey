@@ -19,7 +19,11 @@ import yaml
 from ruamel.yaml import YAML
 
 from osprey.cli.build_cmd import _copy_service_templates
-from osprey.deployment.compose_generator import prepare_compose_files, resolve_user_volume_names
+from osprey.deployment.compose_generator import (
+    prepare_compose_files,
+    resolve_project_name,
+    resolve_user_volume_names,
+)
 
 
 def _write_config(project_path: Path, deployed_services: list[str]) -> Path:
@@ -1370,3 +1374,58 @@ def test_resolve_user_volume_names_none_config_uses_default_project_name() -> No
     claude_config, agent_data = resolve_user_volume_names(None, "dave")
     assert claude_config == "unnamed-project_dave-claude-config"
     assert agent_data == "unnamed-project_dave-agent-data"
+
+
+# ---------------------------------------------------------------------------
+# resolve_project_name normalizes its result to a valid docker-compose project
+# name (lowercase; only [a-z0-9_-]; must start with a letter or number), so the
+# value OSPREY pins as COMPOSE_PROJECT_NAME matches what compose would derive on
+# its own. Already-valid lowercase names must pass through byte-unchanged.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_project_name_valid_lowercase_unchanged() -> None:
+    """An already-valid lowercase name passes through byte-for-byte."""
+    assert resolve_project_name({"project_name": "my-facility-project"}) == "my-facility-project"
+    assert resolve_project_name({"project_name": "als_beamline-7"}) == "als_beamline-7"
+
+
+def test_resolve_project_name_lowercases_mixed_case() -> None:
+    """Mixed-case names are lowercased, matching compose normalization."""
+    assert resolve_project_name({"project_name": "MyProject"}) == "myproject"
+    assert resolve_project_name({"project_name": "ALS-Booster"}) == "als-booster"
+
+
+def test_resolve_project_name_drops_spaces() -> None:
+    """Whitespace is dropped (not replaced), matching compose normalization."""
+    assert resolve_project_name({"project_name": "my project"}) == "myproject"
+    assert resolve_project_name({"project_name": "  Spaced  Name  "}) == "spacedname"
+
+
+def test_resolve_project_name_drops_invalid_characters() -> None:
+    """Characters outside [a-z0-9_-] are dropped."""
+    assert resolve_project_name({"project_name": "proj@2024!"}) == "proj2024"
+    assert resolve_project_name({"project_name": "a.b/c:d"}) == "abcd"
+
+
+def test_resolve_project_name_strips_leading_invalid_chars() -> None:
+    """Leading ``_``/``-`` are stripped so the name starts with a letter or number."""
+    assert resolve_project_name({"project_name": "-leading-dash"}) == "leading-dash"
+    assert resolve_project_name({"project_name": "__underscored"}) == "underscored"
+    assert resolve_project_name({"project_name": "-_-mixed"}) == "mixed"
+
+
+def test_resolve_project_name_normalizes_project_root_fallback() -> None:
+    """The basename(project_root) fallback is normalized just like project_name."""
+    assert resolve_project_name({"project_root": "/home/user/My Facility"}) == "myfacility"
+
+
+def test_resolve_project_name_all_invalid_falls_back_to_default() -> None:
+    """A candidate with no valid characters falls back to ``unnamed-project``."""
+    assert resolve_project_name({"project_name": "@#$%"}) == "unnamed-project"
+    assert resolve_project_name({"project_name": "---"}) == "unnamed-project"
+
+
+def test_resolve_project_name_empty_config_uses_default() -> None:
+    """With neither project_name nor project_root, the default name applies."""
+    assert resolve_project_name({}) == "unnamed-project"
