@@ -137,9 +137,9 @@ class TestOperatingBlueskyScansSkillStructure:
         do not false-positive."""
         assert not re.search(r"(?i)\bpromot", skill_text), "purged tier word 'promote' leaked"
         assert not re.search(r"(?i)\bintent\b", skill_text), "purged run-state word 'intent' leaked"
-        assert not re.search(
-            r"\bexecut(?:e|es|ing)\b", skill_text
-        ), "purged launch-synonym verb 'execute' leaked (the 'Execute' button label is fine)"
+        assert not re.search(r"\bexecut(?:e|es|ing)\b", skill_text), (
+            "purged launch-synonym verb 'execute' leaked (the 'Execute' button label is fine)"
+        )
 
 
 class TestOperatingBlueskyScansInstall:

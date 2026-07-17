@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pytest
 
-from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
 from osprey.services.bluesky_bridge.contribution import (
     ContributionRequest,
     UnknownSessionPlanError,
@@ -22,6 +21,7 @@ from osprey.services.bluesky_bridge.contribution import (
     prepare_contribution,
     stage_contribution,
 )
+from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
 from osprey.services.bluesky_bridge.session_dir import resolve_session_plan_dir
 from osprey.services.bluesky_bridge.validation_record import validation_records
 

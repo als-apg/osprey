@@ -1031,9 +1031,7 @@ def _find_layer_source_path(name: str) -> tuple[Any, Provenance] | None:
 @app.get("/plans/{name}/source")
 def get_plan_source(
     name: str,
-    max_chars: int = Query(
-        default=_SOURCE_TRUNCATE_CHARS, ge=1, le=_SOURCE_TRUNCATE_CHARS_MAX
-    ),
+    max_chars: int = Query(default=_SOURCE_TRUNCATE_CHARS, ge=1, le=_SOURCE_TRUNCATE_CHARS_MAX),
 ) -> dict:
     """Truncated source text for one plan — the launch-approval hook's data
     source for rendering what a `launch_run` call would actually run.

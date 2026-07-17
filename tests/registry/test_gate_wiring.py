@@ -41,9 +41,7 @@ from osprey.registry.mcp import resolve_servers
 # Helpers
 # ---------------------------------------------------------------------------
 
-_HOOKS_DIR = (
-    Path(osprey.__file__).parent / "templates" / "claude_code" / "claude" / "hooks"
-)
+_HOOKS_DIR = Path(osprey.__file__).parent / "templates" / "claude_code" / "claude" / "hooks"
 
 
 def _resolve_bluesky() -> dict:
@@ -284,7 +282,9 @@ def test_launch_run_carries_both_gates_stop_run_approval_only() -> None:
 
     launch = by_matcher[bsky.matcher(bsky.LAUNCH_RUN)]
     launch_cmds = [h["command"] for h in launch["hooks"]]
-    assert any("osprey_writes_check.py" in c for c in launch_cmds), "launch_run must be kill-switched"
+    assert any("osprey_writes_check.py" in c for c in launch_cmds), (
+        "launch_run must be kill-switched"
+    )
     assert any("osprey_approval.py" in c for c in launch_cmds), "launch_run must be approval-gated"
 
     stop = by_matcher[bsky.matcher(bsky.STOP_RUN)]

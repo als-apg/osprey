@@ -159,9 +159,9 @@ async def test_patch_re_arms_launch_after_record(client: TestClient) -> None:
 
     # The draft persists after launch; a PATCH bumps its revision and re-arms.
     new_revision = int(
-        client.patch(
-            "/draft", json={"plan_args_patch": {"num": 5}, "client_id": "agent-1"}
-        ).json()["revision"]
+        client.patch("/draft", json={"plan_args_patch": {"num": 5}, "client_id": "agent-1"}).json()[
+            "revision"
+        ]
     )
     assert new_revision == revision + 1
 

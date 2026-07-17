@@ -125,9 +125,7 @@ def test_concurrent_second_launch_returns_409_while_active(
     assert "already launched" in second.json()["detail"]
 
 
-def test_launch_after_stop_returns_409(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_launch_after_stop_returns_409(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     # Stopping an intent that was never launched still permanently forecloses
     # launch — do_launch's `stopped` guard fires regardless.
     monkeypatch.setenv(_ENV_VAR, _TOKEN)

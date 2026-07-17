@@ -352,16 +352,12 @@ def test_validation_gate_rejection_mints_nothing(tmp_path: Path, client: TestCli
     path = _write_session_plan(tmp_path, "draft_gated_plan", source)
     validation_records.record(hash_plan_body(source))
 
-    resp = client.patch(
-        "/draft", json={"plan_name": "draft_gated_plan", "client_id": "panel-1"}
-    )
+    resp = client.patch("/draft", json={"plan_name": "draft_gated_plan", "client_id": "panel-1"})
     assert resp.status_code == 200, resp.text
     revision = int(resp.json()["revision"])
 
     # Edit the file (still well-formed) without re-validating it.
-    edited = source.replace(
-        '"description": "A session-tier test plan."', '"description": "edited"'
-    )
+    edited = source.replace('"description": "A session-tier test plan."', '"description": "edited"')
     path.write_text(edited)
 
     rejected = _launch(client, revision)
@@ -421,9 +417,9 @@ def test_patch_after_launch_re_arms_the_new_revision(client: TestClient) -> None
     assert _launch(client, revision).status_code == 200
 
     new_revision = int(
-        client.patch(
-            "/draft", json={"plan_args_patch": {"num": 5}, "client_id": "panel-1"}
-        ).json()["revision"]
+        client.patch("/draft", json={"plan_args_patch": {"num": 5}, "client_id": "panel-1"}).json()[
+            "revision"
+        ]
     )
     assert new_revision == revision + 1
 

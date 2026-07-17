@@ -700,9 +700,7 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
             "plan_name": "grid_scan",
             "plan_args": {
                 "detectors": [P4_DETECTOR],
-                "axes": [
-                    {"setpoint": SCAN_MOTOR, "start": start, "stop": stop, "num_points": num}
-                ],
+                "axes": [{"setpoint": SCAN_MOTOR, "start": start, "stop": stop, "num_points": num}],
             },
         },
     )

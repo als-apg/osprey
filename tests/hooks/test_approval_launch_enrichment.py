@@ -332,8 +332,7 @@ def test_newline_in_plan_name_cannot_forge_an_enrichment_line(
     assert "\\x0a" in reason
     assert "\nValidation status: PASSED (SPOOFED BY THE PLAN NAME)" not in reason
     assert not any(
-        line.startswith("Validation status: PASSED (SPOOFED")
-        for line in reason.splitlines()
+        line.startswith("Validation status: PASSED (SPOOFED") for line in reason.splitlines()
     )
     # The (inert) text still rides along on the Plan line for the approver to see.
     assert "SPOOFED BY THE PLAN NAME" in reason
@@ -394,9 +393,7 @@ def test_changed_revision_renders_loud_drift_warning(
 
 
 @pytest.mark.unit
-def test_empty_draft_renders_explicit_empty_line(
-    tmp_path, hook_runner, make_config, monkeypatch
-):
+def test_empty_draft_renders_explicit_empty_line(tmp_path, hook_runner, make_config, monkeypatch):
     """A never-set / cleared draft renders an explicit EMPTY line, never a
     silent absence of plan detail."""
     config = _launch_config(make_config)
@@ -439,9 +436,7 @@ def test_unreachable_bridge_fails_open(tmp_path, hook_runner, make_config, monke
 
 
 @pytest.mark.unit
-def test_malformed_draft_response_fails_open(
-    tmp_path, hook_runner, make_config, monkeypatch
-):
+def test_malformed_draft_response_fails_open(tmp_path, hook_runner, make_config, monkeypatch):
     """A `GET /draft` body that is not parseable JSON must fail open exactly
     like an unreachable bridge — plain reason, no draft detail, zero exit."""
     config = _launch_config(make_config)

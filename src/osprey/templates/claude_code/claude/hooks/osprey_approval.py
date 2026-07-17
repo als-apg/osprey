@@ -242,7 +242,8 @@ def _sanitize_label(text) -> str:
     delimited) so the approver sees the real, possibly multi-line, plan body.
     """
     return "".join(
-        ch if (ch >= " " and ch != "\x7f" and ch not in _UNICODE_LINE_BREAKS)
+        ch
+        if (ch >= " " and ch != "\x7f" and ch not in _UNICODE_LINE_BREAKS)
         else f"\\x{ord(ch):02x}"
         for ch in str(text)
     )

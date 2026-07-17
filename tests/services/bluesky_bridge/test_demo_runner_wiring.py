@@ -165,9 +165,7 @@ def test_flag_set_with_bluesky_present_wires_and_completes_a_real_scan(
                 "plan_name": "grid_scan",
                 "plan_args": {
                     "detectors": ["det1"],
-                    "axes": [
-                        {"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 3}
-                    ],
+                    "axes": [{"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 3}],
                 },
             },
         )
