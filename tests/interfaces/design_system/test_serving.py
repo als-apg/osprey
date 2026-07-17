@@ -70,6 +70,15 @@ class TestDesignSystemMountedInEveryApp:
         assert "text/css" in resp.headers["content-type"]
         assert resp.text.strip()
 
+    def test_reference_page(self):
+        """GET /design-system/reference.html serves the live token reference page."""
+        from osprey.interfaces.web_terminal.app import create_app
+
+        app = create_app(shell_command="echo")
+        resp = TestClient(app).get("/design-system/reference.html")
+        assert resp.status_code == 200
+        assert "Design tokens" in resp.text
+
 
 class TestDesignSystemProxyRewrite:
     """/panel/{id}/... proxy rewrites /design-system/... references."""
