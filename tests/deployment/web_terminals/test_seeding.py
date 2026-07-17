@@ -282,9 +282,7 @@ def test_non_default_persona_drives_skills_target_from_its_own_project(
     assert skills_calls[0][11] == "/app/beamline-ops-app/.claude/skills"
 
 
-def test_default_persona_skills_target_follows_its_project(
-    tmp_path, monkeypatch, fake_runtime
-):
+def test_default_persona_skills_target_follows_its_project(tmp_path, monkeypatch, fake_runtime):
     """The default persona's skills target follows its own catalog project uniformly,
     like every other persona — `/app/<persona.project>/.claude/skills` with no
     facility-prefix special case. Uses a project (`ops-app`) that does not coincide
