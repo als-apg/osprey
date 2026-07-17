@@ -51,11 +51,11 @@ three independent kinds of drift:
     emits (see the ``feat(design-system): emit type/spacing/radius/weight/
     leading/z/duration scales`` commit). Unlike (a)-(c) this is not
     fleet-wide: it is scoped per-interface by ``SCALE_ENFORCED_INTERFACES``,
-    which is empty as of this commit (this task only adds the scanner and
-    its self-tests) and gets flipped to name the migrated interfaces once
-    their CSS actually moves onto the scale variables — the same
-    ratchet-then-flip shape checks (a)/(c) went through, just starting from
-    an empty rather than a baseline-file ratchet. Spacing (margin/padding/
+    which names the interfaces that have completed their CSS migration onto
+    the scale variables (currently web_terminal and design_system; others join
+    the set as they finish their respective migrations). An interface migrates
+    its CSS onto the emitted scales, then adds its directory name to lock the
+    migration in place and prevent new scale literals. Spacing (margin/padding/
     gap) and z-index are deliberately excluded from this check even for an
     enforced interface: spacing literals are far denser throughout existing
     CSS than the other five properties, and z-index frequently encodes
@@ -433,7 +433,7 @@ def test_no_token_defining_blocks_outside_design_system() -> None:
     )
 
 
-# --- Check (d): scale-literal ratchet (SCALE_ENFORCED_INTERFACES starts empty) -----
+# --- Check (d): scale-literal ratchet (per-interface enforcement) ------------------
 
 #: Commented allowlist mechanism, mirroring `hygiene-allow-color` above: a
 #: genuine, deliberate exception (a literal that predates the scale and is
@@ -537,12 +537,12 @@ def test_scale_literal_scanner() -> None:
     assert _count_scale_literals("a { font-size: 7px; } /* hygiene-allow-scale: x */") == []
 
 
-#: Interfaces where check (d) is enforced with zero tolerance. Empty as of
-#: this commit — this task ships only the scanner and its self-tests, not
-#: a CSS migration; a later task (web-terminal scale migration) flips this
-#: to {"web_terminal", "design_system"} once their CSS actually moves onto
-#: the scale variables.
-SCALE_ENFORCED_INTERFACES: frozenset[str] = frozenset()
+#: Interfaces where check (d) is enforced with zero tolerance. An interface
+#: migrates its CSS onto the emitted scales (--text-*, --weight-*, --leading-*,
+#: --radius-*, --duration-*), then adds its directory name to this set to lock
+#: the migration in place and prevent new scale literals. Interfaces not yet
+#: listed are subject to the color-hygiene check (a) only.
+SCALE_ENFORCED_INTERFACES: frozenset[str] = frozenset({"web_terminal", "design_system"})
 
 
 def test_scale_literal_zero_tolerance() -> None:
@@ -551,8 +551,8 @@ def test_scale_literal_zero_tolerance() -> None:
     counts and why spacing/z-index are excluded from enforcement).
 
     A ratchet, not a fleet-wide rule (unlike checks (a)-(c)): scoped by
-    ``SCALE_ENFORCED_INTERFACES``, empty until the interfaces it will name
-    finish their scale migration.
+    ``SCALE_ENFORCED_INTERFACES``. An interface is added to the set once its
+    CSS migration onto the scale variables is complete.
     """
     offenders = []
     for path in _in_scope_files():

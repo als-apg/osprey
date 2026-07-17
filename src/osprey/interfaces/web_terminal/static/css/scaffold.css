@@ -1906,7 +1906,7 @@
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--text-muted);
-  animation: mcp-pulse 1.5s ease-in-out infinite; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
+  animation: mcp-pulse 1.5s ease-in-out infinite; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
 }
 
 @keyframes mcp-pulse {
@@ -2032,7 +2032,7 @@
 }
 
 .config-edit-perm-row.config-edit-flash {
-  animation: perm-flash 600ms ease; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
+  animation: perm-flash 600ms ease; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
 }
 
 @keyframes perm-flash {
@@ -2247,7 +2247,7 @@
 
 /* Duplicate-flash */
 .config-perm-entry-interactive.config-perm-flash {
-  animation: perm-col-flash 600ms ease; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
+  animation: perm-col-flash 600ms ease; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
 }
 
 @keyframes perm-col-flash {

@@ -60,7 +60,7 @@
 /* Each line fades in */
 .welcome-ascii .wl {
   opacity: 0;
-  animation: lineReveal 0.08s ease forwards; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
+  animation: lineReveal 0.08s ease forwards; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
 }
 
 /* Box content lines: flex to pin right ║ border */
@@ -125,7 +125,7 @@
   height: 14px;
   background: var(--wt-welcome-cursor);
   vertical-align: text-bottom;
-  animation: cursorBlink 1s step-end infinite; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
+  animation: cursorBlink 1s step-end infinite; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
 }
 
 @keyframes cursorBlink {
@@ -496,7 +496,7 @@
 
 .session-led.active {
   background: var(--color-accent-light);
-  animation: ledPulse 3s ease-in-out infinite; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
+  animation: ledPulse 3s ease-in-out infinite; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
 }
 
 .terminal-label {

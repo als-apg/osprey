@@ -114,7 +114,7 @@
     }
     .refresh-dot.pulse {
       opacity: 1;
-      animation: dotPulse 600ms ease forwards; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
+      animation: dotPulse 600ms ease forwards; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
     }
     @keyframes dotPulse {
       0% { opacity: 1; }

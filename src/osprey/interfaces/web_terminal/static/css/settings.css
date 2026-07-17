@@ -448,7 +448,7 @@
   font-size: var(--text-sm);
   color: var(--color-accent-light);
   margin-left: var(--space-3);
-  animation: hookToastFade 2.5s ease-out forwards; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
+  animation: hookToastFade 2.5s ease-out forwards; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
 }
 
 .hook-debug-toast.error {
