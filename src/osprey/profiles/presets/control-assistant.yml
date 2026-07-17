@@ -53,6 +53,7 @@ skills:
   - session-report  # Summarise session actions and outcomes to the logbook
   - demo-gallery    # Launch guided capability demonstrations
   - writing-bluesky-plans  # Author, validate, and launch a session-tier plan (requires the Bluesky MCP server)
+  - operating-bluesky-scans  # Stage, launch, and watch a registered scan through the shared draft (requires the Bluesky MCP server)
 
 agents:
   - channel-finder          # Semantic search over channel databases (hierarchical)
@@ -114,7 +115,7 @@ config:
   # hardware.
   control_system.type: mock
   # Required for arming: a local-exec posture withholds the auto-minted
-  # BLUESKY_PROMOTE_TOKEN (see container_lifecycle.py's
+  # BLUESKY_LAUNCH_TOKEN (see container_lifecycle.py's
   # _local_exec_arming_unsafe) — container execution is what lets `osprey
   # deploy up` mint the token safely.
   execution.execution_method: container
