@@ -73,6 +73,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 - Web-terminal seeding now chowns each user's `CLAUDE.md` and skills to the container's actual runtime user (queried per container) instead of a hardcoded `dispatch` user, which the persona images don't define.
 - The `control-assistant` preset now ships `docker/web-terminal-context/base.md` and sets `deploy.fqdn`, so `osprey deploy up` completes without hand-added config (both were hard requirements that aborted the deploy).
+- Persona auto-rendering (and the interactive deploy menu) now re-enter the CLI via the running interpreter (`python -m osprey`, newly supported) instead of whatever `osprey` is first on `PATH`, which could resolve to a different install with different presets.
 - The scaffolded GitLab CI template no longer writes CI/registry/sidecar tokens into `.env.production`, aligning the CI path with the local-mode environment allowlist.
 - `resolve_project_name` now normalizes to a valid docker-compose project name (lowercase, invalid characters replaced, valid leading character) at its single source, so `COMPOSE_PROJECT_NAME`, labels, image tags, and volume names all agree for mixed-case or spaced project roots.
 - Every persona container now mounts its agent data at `/app/<persona project>` — the default persona was previously pinned to a facility-derived path that could diverge from its image's `WORKDIR`.

@@ -9,6 +9,7 @@ without a container runtime.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -1245,7 +1246,9 @@ _AUTO_RENDER_USERS = [{"name": "alice", "index": 0, "persona": "ops", "project":
 def test_auto_render_renders_when_project_path_missing(monkeypatch, tmp_path):
     """No directory at project_path -> exactly one `osprey build` render, argv
     verbatim: <project> --preset <build_profile> -o <parent(project_path)>
-    --skip-deps (rendered into the parent so it lands AT project_path)."""
+    --skip-deps (rendered into the parent so it lands AT project_path). The CLI
+    is re-entered via the RUNNING interpreter (`python -m osprey`), never a
+    bare `osprey` that PATH could resolve to a different install."""
     config = _auto_render_config(tmp_path)  # <tmp_path>/ops-app does not exist
     calls = []
     monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda cmd, **k: calls.append(cmd))
@@ -1254,6 +1257,8 @@ def test_auto_render_renders_when_project_path_missing(monkeypatch, tmp_path):
 
     assert calls == [
         [
+            sys.executable,
+            "-m",
             "osprey",
             "build",
             "ops-app",

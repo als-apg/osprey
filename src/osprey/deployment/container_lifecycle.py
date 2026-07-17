@@ -10,6 +10,7 @@ import secrets
 import shutil
 import string
 import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import cast
@@ -862,7 +863,12 @@ def _auto_render_missing_personas(
                 "`osprey build`."
             )
 
+        # Re-enter the CLI through the RUNNING interpreter, never a bare
+        # "osprey": PATH may resolve to a different install whose bundled
+        # presets diverge from (or predate) this one's.
         cmd = [
+            sys.executable,
+            "-m",
             "osprey",
             "build",
             project,

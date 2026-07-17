@@ -6,6 +6,7 @@ and configuration management actions invoked from the TUI menu.
 
 import os
 import socket
+import sys
 from pathlib import Path
 
 from osprey.cli.styles import (
@@ -186,9 +187,9 @@ def handle_deploy_action(project_path: Path | None = None):
                             pass
                     continue  # Return to menu
 
-            # Build the osprey deploy command
-            # Use 'osprey' command directly to avoid module import warnings
-            cmd = ["osprey", "deploy", action]
+            # Re-enter the CLI through the running interpreter (a bare
+            # "osprey" could resolve to a different install on PATH).
+            cmd = [sys.executable, "-m", "osprey", "deploy", action]
 
             if action in ["up", "restart", "rebuild"]:
                 cmd.append("-d")  # Run in detached mode
