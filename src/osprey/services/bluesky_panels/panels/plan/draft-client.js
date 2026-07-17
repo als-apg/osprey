@@ -1,9 +1,9 @@
 // @ts-check
 /**
  * draft-client — the plan panel's live view of the server-held shared plan
- * draft (PROPOSAL.md "Plan panel integration" + "Execute revision gate").
+ * draft (the plan-panel integration and the launch revision gate).
  *
- * Split out of panel.js to keep panel.js focused on plan browsing/execute
+ * Split out of panel.js to keep panel.js focused on plan browsing/launch
  * chrome, and — more importantly — so the revision/binding/pending-key rules
  * are a pure, DOM-light state machine that vitest can drive with plain frame
  * objects, without a real `EventSource` (happy-dom does not implement one;
@@ -44,11 +44,13 @@
 
 /**
  * @typedef {object} DraftFrame
- * @property {'hello'|'change'|'clear'|'plan-change'} type
+ * @property {'hello'|'change'|'clear'|'plan-change'|'launched'} type
  * @property {DraftSnapshot|null} draft
  * @property {string[]} [changed]
  * @property {number} revision
  * @property {string|null} [origin]
+ * @property {string} [run_id]  Present only on a `launched` frame: the id of
+ *   the run the (now-launched) revision started.
  */
 
 /**
@@ -83,6 +85,10 @@
  * @property {Record<string, unknown>|null} draftArgs
  * @property {boolean} bound
  * @property {string|null} selectedName
+ * @property {{runId: string, revision: number}|null} launchBanner  The last
+ *   observed `launched` frame's run — the fact behind the "revision N
+ *   launched -> run <id>" banner (FR8: the launch moment is visible whether
+ *   the panel or the agent triggered it). `null` until the first launch.
  */
 
 /**
@@ -97,6 +103,7 @@ export function createInitialState(clientId) {
     draftArgs: null,
     bound: false,
     selectedName: null,
+    launchBanner: null,
   };
 }
 
@@ -124,7 +131,8 @@ export function reduceReset(state, snapshot) {
  *   | {type: 'resync'}
  *   | {type: 'reset'}
  *   | {type: 'apply', frame: DraftFrame}
- *   | {type: 'echo', frame: DraftFrame}} FrameAction
+ *   | {type: 'echo', frame: DraftFrame}
+ *   | {type: 'launched', frame: DraftFrame}} FrameAction
  */
 
 /**
@@ -147,6 +155,22 @@ export function reduceReset(state, snapshot) {
 export function reduceFrame(state, frame) {
   if (frame.type === 'hello') {
     return { state: reduceReset(state, frame), action: { type: 'reset' } };
+  }
+
+  if (frame.type === 'launched') {
+    // A launch is an EVENT on the shared draft stream, not a draft mutation:
+    // it records the banner fact only and never advances the revision
+    // baseline or touches draftPlanName/draftArgs (the launched revision is
+    // whatever this client already holds — the launch didn't change it). A
+    // frame with no usable run_id is dropped: a banner that can't link to a
+    // run is worse than no banner (keeps the reducer total against a
+    // malformed frame).
+    const runId = frame.run_id;
+    if (typeof runId !== 'string' || runId === '') {
+      return { state, action: { type: 'drop' } };
+    }
+    const nextState = { ...state, launchBanner: { runId, revision: frame.revision } };
+    return { state: nextState, action: { type: 'launched', frame } };
   }
 
   if (state.lastAppliedRevision === null || frame.revision > state.lastAppliedRevision + 1) {
@@ -206,9 +230,9 @@ export function computeDelta(fullArgs, pendingKeys) {
 }
 
 /**
- * Resolve the `draft_revision` to pin for Execute: the just-flushed PATCH's
+ * Resolve the `draft_revision` to pin for Launch: the just-flushed PATCH's
  * own response revision when a flush actually happened, else the last
- * applied frame/hello baseline (PROPOSAL.md "Execute revision gate").
+ * applied frame/hello baseline (the launch revision gate).
  *
  * @param {{patched: boolean, revision: number|null}} flushResult
  * @param {number|null} lastAppliedRevision
@@ -235,8 +259,8 @@ export function generateClientId() {
 }
 
 /**
- * The panel's own Execute request body for the two mutually-exclusive launch
- * modes (PROPOSAL.md "Execute revision gate"): bound mode sends only
+ * The panel's own Launch request body for the two mutually-exclusive launch
+ * modes (the launch revision gate): bound mode sends only
  * `{draft_revision}` — never `plan_name`/`plan_args` alongside, so the
  * launched args always come from the bridge's pinned-revision snapshot, not
  * this body; unbound (manual) mode sends the collected form args exactly as
@@ -245,7 +269,7 @@ export function generateClientId() {
  * @param {{bound: boolean, pinnedRevision: number|null, planName: string, planArgs: Record<string, unknown>}} input
  * @returns {Record<string, unknown>}
  */
-export function buildExecuteRequestBody({ bound, pinnedRevision, planName, planArgs }) {
+export function buildLaunchRequestBody({ bound, pinnedRevision, planName, planArgs }) {
   return bound ? { draft_revision: pinnedRevision } : { plan_name: planName, plan_args: planArgs };
 }
 
@@ -253,30 +277,97 @@ export function buildExecuteRequestBody({ bound, pinnedRevision, planName, planA
  * @typedef {{type: 'writes_not_armed'}
  *   | {type: 'run_started', runId: string}
  *   | {type: 'stale_draft_revision'}
+ *   | {type: 'draft_revision_already_launched'}
  *   | {type: 'conflict', detail: string}
  *   | {type: 'bridge_unreachable'}
- *   | {type: 'error', detail: string}} ExecuteOutcome
+ *   | {type: 'error', detail: string}} LaunchOutcome
  */
 
 /**
- * Classify `POST /runs/execute`'s response into a display-ready outcome —
+ * Classify `POST /runs/launch`'s response into a display-ready outcome —
  * pure and DOM/fetch-free, so the status/`code` branching (in particular
- * distinguishing the machine-readable `stale_draft_revision` discriminator
- * from a bare bridge-relayed 409) is unit-testable without a real panel.
+ * distinguishing the machine-readable `stale_draft_revision` and
+ * `draft_revision_already_launched` discriminators from a bare bridge-relayed
+ * 409) is unit-testable without a real panel.
  *
  * @param {number} status
  * @param {any} body
- * @returns {ExecuteOutcome}
+ * @returns {LaunchOutcome}
  */
-export function classifyExecuteResponse(status, body) {
+export function classifyLaunchResponse(status, body) {
   if (status === 200 && body && body.status === 'writes_not_armed') return { type: 'writes_not_armed' };
   if (status === 200 && body && body.run_id) return { type: 'run_started', runId: String(body.run_id) };
   if (status === 409 && body && body.code === 'stale_draft_revision') return { type: 'stale_draft_revision' };
+  if (status === 409 && body && body.code === 'draft_revision_already_launched') {
+    // Distinct from stale: the draft did NOT change — this exact revision was
+    // already launched (a double-fire / re-click). The remedy is not a
+    // resync (there's nothing new to see) but to edit the draft, which mints
+    // a fresh revision the bridge will accept.
+    return { type: 'draft_revision_already_launched' };
+  }
   if (status === 409) {
     return { type: 'conflict', detail: (body && body.detail) || 'the bridge reported a conflict' };
   }
   if (status === 502) return { type: 'bridge_unreachable' };
   return { type: 'error', detail: (body && body.detail) || `HTTP ${status}` };
+}
+
+// ---------------------------------------------------------------------------
+// Launch banner (FR8) — a launched-frame becomes a visible "revision N
+// launched -> run <id>" note that deep-links to the sibling results panel.
+// Both pieces below are pure (a URL builder and a detached-DOM builder) so
+// the link target and the sink-hardened rendering are unit-testable without
+// the live panel, exactly like the reducers/classify above.
+// ---------------------------------------------------------------------------
+
+const RESULTS_PANEL_ID = 'scan-results';
+
+/**
+ * The URL of the sibling results panel, deep-linked to `runId`. The plan and
+ * results panels are served as siblings under the web terminal's
+ * `/panel/<id>/` reverse-proxy mount, so swap the plan panel's own trailing
+ * id segment for the results panel's and hang the run on the `?run_id=` deep
+ * link the results panel already honors (results/panel.js
+ * `initialRunIdFromUrl`). `prefix` is the plan panel's mount prefix
+ * (`/panel/plan`), or `''` when the panel is served directly with no shell —
+ * in which case a best-effort absolute `/panel/<results>` is still produced.
+ *
+ * @param {string} prefix
+ * @param {string} runId
+ * @returns {string}
+ */
+export function resultsPanelUrl(prefix, runId) {
+  const base = prefix ? prefix.replace(/[^/]+$/, RESULTS_PANEL_ID) : `/panel/${RESULTS_PANEL_ID}`;
+  return `${base}/?run_id=${encodeURIComponent(runId)}`;
+}
+
+/**
+ * Build the launch banner's detached content: a text prefix plus an anchor
+ * to the results panel. Rendered with createElement/textContent only — this
+ * panel keeps a strict no-innerHTML posture (see panel.js's module
+ * docstring), so an agent/other-tab-supplied `run_id` reaches the DOM only as
+ * a text node and inside a URL-encoded `href`, never as parsed markup. The
+ * anchor navigates natively (no inline handler, no delegated script needed);
+ * `data-run-id` is carried for parity with the panel's other data-* rows and
+ * for test assertions.
+ *
+ * @param {Document} doc
+ * @param {{runId: string, revision: number}} banner
+ * @param {(runId: string) => string} resultsUrlFor
+ * @returns {DocumentFragment}
+ */
+export function buildLaunchBanner(doc, banner, resultsUrlFor) {
+  const frag = doc.createDocumentFragment();
+  frag.appendChild(doc.createTextNode(`revision ${banner.revision} launched → `));
+  const link = doc.createElement('a');
+  link.className = 'launch-run-link';
+  link.textContent = `run ${banner.runId}`;
+  link.setAttribute('href', resultsUrlFor(banner.runId));
+  link.dataset.runId = banner.runId;
+  link.target = '_blank';
+  link.rel = 'noopener';
+  frag.appendChild(link);
+  return frag;
 }
 
 // ---------------------------------------------------------------------------
@@ -370,6 +461,10 @@ const AGENT_NOTE_TIMEOUT_MS = 4000;
  * @property {(planName: string|null) => void} onAffordance
  * @property {(planName: string|null) => void} onUnknownPlanBanner
  * @property {(keys: string[]) => void} onAgentEditNote
+ * @property {(banner: {runId: string, revision: number}|null) => void} onLaunchBanner
+ *   A `launched` frame landed — surface the "revision N launched -> run <id>"
+ *   banner (or clear it on `null`). Fires for every launch on the shared
+ *   draft, whichever surface (panel or agent) triggered it.
  * @property {(detail: any) => void} onPatchRejected  A 422 from the flush
  *   PATCH — a field-scoped validation error (`{field, error}`, relayed
  *   verbatim from the bridge). The value stays exactly as the operator typed
@@ -390,7 +485,7 @@ const AGENT_NOTE_TIMEOUT_MS = 4000;
  *   `draft.plan_name`; there is no fresh "selection" event to hook this to).
  * @property {() => Promise<{patched: boolean, revision: number|null}>} flushNow
  * @property {() => Promise<void>} resync  Force a `GET /draft` resync (e.g.
- *   after Execute's own `stale_draft_revision` 409).
+ *   after Launch's own `stale_draft_revision` 409).
  * @property {() => boolean} isBound
  * @property {() => number|null} getLastAppliedRevision
  * @property {() => void} destroy
@@ -626,6 +721,13 @@ export function createDraftClient(deps) {
 
     if (action.type === 'drop') return;
 
+    if (action.type === 'launched') {
+      // Independent of bound/selected state and of the revision baseline —
+      // reduceFrame already recorded the fact; just surface it.
+      deps.onLaunchBanner(state.launchBanner);
+      return;
+    }
+
     if (action.type === 'resync') {
       const applied = await fetchAndApplyReset();
       if (!applied) return;
@@ -797,7 +899,7 @@ export function createDraftClient(deps) {
   /**
    * Flush pending edits, looping while new keys accumulate mid-flight — a
    * user edit landing between this call's PATCH request and response must
-   * not be silently dropped, since Execute pins whatever this ultimately
+   * not be silently dropped, since Launch pins whatever this ultimately
    * returns.
    *
    * @returns {Promise<{patched: boolean, revision: number|null}>}

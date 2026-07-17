@@ -15,7 +15,7 @@
  *     (PLAN_LAYOUTS) with a live readout (PLAN_SUMMARIES) that recomputes on
  *     every edit, e.g. "2 correctors × 7 points = 14 sweep points".
  *   - Source: the plan's source code.
- * plus the deterministic Execute action in the footer.
+ * plus the deterministic Launch action in the footer.
  *
  * Plans absent from the two registries still render fully — the schema-driven
  * form auto-flows their fields — so facility/session plans need no panel-side
@@ -25,9 +25,9 @@
  * fetch is derived from this panel's own URL prefix and issued prefix-relative
  * — never an absolute `/plans` path (the proxy does not rewrite those).
  *
- * Execution is deterministic: no agent/LLM in this path. The sidecar's sole
- * write route (`POST /runs/execute`) composes create-intent + promote
- * server-side; the browser never sees or sends a promote token. `Execute`
+ * Launching is deterministic: no agent/LLM in this path. The sidecar's sole
+ * write route (`POST /runs/launch`) composes the pending-run create + launch
+ * server-side; the browser never sees or sends a launch token. `Launch`
  * requires a two-step in-panel confirm and is enabled only when the selected
  * plan's `validated` flag (from the source response) is `true`.
  *
@@ -44,8 +44,10 @@ import {
   createDraftClient,
   resolvePinnedRevision,
   generateClientId,
-  buildExecuteRequestBody,
-  classifyExecuteResponse,
+  buildLaunchRequestBody,
+  classifyLaunchResponse,
+  buildLaunchBanner,
+  resultsPanelUrl,
 } from './draft-client.js';
 
 /**
@@ -207,7 +209,7 @@ let selectedSource = null;
 let collectPlanArgs = null;
 let filterText = '';
 let confirmArmed = false;
-let executing = false;
+let launching = false;
 /** @type {ReturnType<typeof setTimeout>|null} */
 let draftRejectedTimer = null;
 const DRAFT_REJECTED_NOTE_TIMEOUT_MS = 5000;
@@ -230,9 +232,11 @@ const sessionNoteEl = /** @type {HTMLElement} */ (document.getElementById('sessi
 const detailSourceEl = /** @type {HTMLElement} */ (document.getElementById('detail-source'));
 const paramFormEl = /** @type {HTMLFormElement} */ (document.getElementById('param-form'));
 const paramSummaryEl = /** @type {HTMLElement} */ (document.getElementById('param-summary'));
-const execBannerEl = /** @type {HTMLElement} */ (document.getElementById('exec-banner'));
+const launchOutcomeBannerEl = /** @type {HTMLElement} */ (
+  document.getElementById('launch-outcome-banner')
+);
 const unvalidatedNoteEl = /** @type {HTMLElement} */ (document.getElementById('unvalidated-note'));
-const executeBtnEl = /** @type {HTMLButtonElement} */ (document.getElementById('execute-btn'));
+const launchBtnEl = /** @type {HTMLButtonElement} */ (document.getElementById('launch-btn'));
 const tabParamsEl = /** @type {HTMLButtonElement} */ (document.getElementById('tab-params'));
 const tabSourceEl = /** @type {HTMLButtonElement} */ (document.getElementById('tab-source'));
 const panelParamsEl = /** @type {HTMLElement} */ (document.getElementById('panel-params'));
@@ -251,6 +255,16 @@ const draftAgentNoteEl = /** @type {HTMLElement} */ (document.getElementById('dr
 const draftRejectedBannerEl = /** @type {HTMLElement} */ (
   document.getElementById('draft-rejected-banner')
 );
+// The launched-banner (FR8) has no static markup in index.html — it is a
+// transient, SSE-driven note, so build it once here and hang it beside the
+// launch-outcome banner (both live in the detail footer). Created via `h`
+// (createElement/textContent) like everything else in this panel.
+const launchBannerEl = h('div', {
+  id: 'draft-launched-banner',
+  class: 'banner banner-ok',
+  hidden: true,
+});
+launchOutcomeBannerEl.insertAdjacentElement('afterend', launchBannerEl);
 
 // ---- status presentation ----
 
@@ -448,29 +462,29 @@ function renderDetail(plan, source) {
   });
 
   // A freshly-selected plan always opens on Parameters — the operator's
-  // primary task — and resets the transient execute gate + banner.
+  // primary task — and resets the transient launch gate + banner.
   setActiveTab('params');
-  execBannerEl.hidden = true;
-  execBannerEl.textContent = '';
-  execBannerEl.className = 'banner';
+  launchOutcomeBannerEl.hidden = true;
+  launchOutcomeBannerEl.textContent = '';
+  launchOutcomeBannerEl.className = 'banner';
   confirmArmed = false;
   unvalidatedNoteEl.hidden = source.validated;
   updateSummary();
-  updateExecuteButton();
+  updateLaunchButton();
 }
 
-function updateExecuteButton() {
+function updateLaunchButton() {
   const validated = Boolean(selectedSource && selectedSource.validated);
-  executeBtnEl.disabled = !validated || executing;
-  if (executing) {
-    executeBtnEl.textContent = 'Executing…';
-    executeBtnEl.classList.remove('confirm');
+  launchBtnEl.disabled = !validated || launching;
+  if (launching) {
+    launchBtnEl.textContent = 'Launching…';
+    launchBtnEl.classList.remove('confirm');
   } else if (confirmArmed) {
-    executeBtnEl.textContent = 'Confirm execute';
-    executeBtnEl.classList.add('confirm');
+    launchBtnEl.textContent = 'Confirm launch';
+    launchBtnEl.classList.add('confirm');
   } else {
-    executeBtnEl.textContent = 'Execute plan';
-    executeBtnEl.classList.remove('confirm');
+    launchBtnEl.textContent = 'Launch plan';
+    launchBtnEl.classList.remove('confirm');
   }
 }
 
@@ -478,10 +492,10 @@ function updateExecuteButton() {
  * @param {'ok'|'warn'|'err'|'info'} kind
  * @param {string} message
  */
-function showExecBanner(kind, message) {
-  execBannerEl.hidden = false;
-  execBannerEl.className = `banner banner-${kind}`;
-  execBannerEl.textContent = message;
+function showLaunchOutcome(kind, message) {
+  launchOutcomeBannerEl.hidden = false;
+  launchOutcomeBannerEl.className = `banner banner-${kind}`;
+  launchOutcomeBannerEl.textContent = message;
 }
 
 // ---- data loading ----
@@ -543,15 +557,15 @@ async function loadPlansOnce() {
  */
 async function selectPlan(name) {
   selectedName = name;
-  // Reset the transient execute gate synchronously, before the await below,
+  // Reset the transient launch gate synchronously, before the await below,
   // so a still-in-flight source fetch for a newly-selected plan can never
-  // leave the Execute button/detail reflecting the PREVIOUS plan's
+  // leave the Launch button/detail reflecting the PREVIOUS plan's
   // validated+armed state (the server/connector remain the authoritative
   // write gate; this is a client-side consistency fix).
   selectedSource = null;
   collectPlanArgs = null;
   confirmArmed = false;
-  updateExecuteButton();
+  updateLaunchButton();
   renderPlanTree();
   try {
     // Ask for the bridge's max source allowance: the default (4000 chars) is
@@ -574,10 +588,10 @@ async function selectPlan(name) {
       paramFormEl.replaceChildren();
       collectPlanArgs = null;
       setActiveTab('params');
-      showExecBanner('err', `could not load plan source (HTTP ${response.status})`);
+      showLaunchOutcome('err', `could not load plan source (HTTP ${response.status})`);
       unvalidatedNoteEl.hidden = true;
       updateSummary();
-      updateExecuteButton();
+      updateLaunchButton();
       return;
     }
     /** @type {PlanSource} */
@@ -594,22 +608,22 @@ async function selectPlan(name) {
     confirmArmed = false;
     detailEmptyEl.hidden = true;
     detailBodyEl.hidden = false;
-    showExecBanner('err', 'could not reach the bluesky panels sidecar');
-    updateExecuteButton();
+    showLaunchOutcome('err', 'could not reach the bluesky panels sidecar');
+    updateLaunchButton();
   }
 }
 
-// ---- execute flow ----
+// ---- launch flow ----
 
-async function doExecute() {
+async function doLaunch() {
   if (!selectedName || !selectedSource || !selectedSource.validated) return;
   // Captured now (a `const`, never reassigned) rather than read again after
   // the `await`s below — `selectedName` is a module-level `let` that another
   // concurrent selection could reassign, and re-reading it would both risk
   // acting on the wrong plan and widen back to `string|null` for tsc.
   const planName = selectedName;
-  executing = true;
-  updateExecuteButton();
+  launching = true;
+  updateLaunchButton();
   try {
     const bound = draftClient.isBound();
     /** @type {Record<string, unknown>} */
@@ -617,55 +631,60 @@ async function doExecute() {
     if (bound) {
       // Flush pending edits first, then pin the revision from that flush's
       // PATCH response — falling back to the last-applied frame/hello
-      // baseline when nothing was pending (PROPOSAL.md "Execute revision
-      // gate"). The launched plan_name/plan_args come from the bridge's own
+      // baseline when nothing was pending (the launch revision gate). The
+      // launched plan_name/plan_args come from the bridge's own
       // pinned-revision snapshot, never from this request body.
       const flushResult = await draftClient.flushNow();
       const pinned = resolvePinnedRevision(flushResult, draftClient.getLastAppliedRevision());
-      requestBody = buildExecuteRequestBody({ bound, pinnedRevision: pinned, planName, planArgs: {} });
+      requestBody = buildLaunchRequestBody({ bound, pinnedRevision: pinned, planName, planArgs: {} });
     } else {
       const planArgs = collectPlanArgs ? collectPlanArgs() : {};
-      requestBody = buildExecuteRequestBody({ bound, pinnedRevision: null, planName, planArgs });
+      requestBody = buildLaunchRequestBody({ bound, pinnedRevision: null, planName, planArgs });
     }
 
-    const { status, body } = await fetchJson('/runs/execute', {
+    const { status, body } = await fetchJson('/runs/launch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(requestBody),
     });
 
-    const outcome = classifyExecuteResponse(status, body);
+    const outcome = classifyLaunchResponse(status, body);
     switch (outcome.type) {
       case 'writes_not_armed':
-        showExecBanner('info', 'writes not armed on this deployment');
+        showLaunchOutcome('info', 'writes not armed on this deployment');
         break;
       case 'run_started':
-        showExecBanner('ok', `run started: ${outcome.runId}`);
+        showLaunchOutcome('ok', `run started: ${outcome.runId}`);
         break;
       case 'stale_draft_revision':
         // The draft moved on since the pinned snapshot; resync and make the
-        // operator look again before retrying (PROPOSAL.md "Execute revision
-        // gate": "handles the stale-revision 409 by resyncing and asking
-        // again").
+        // operator look again before retrying (the launch revision gate
+        // handles the stale-revision 409 by resyncing and asking again).
         await draftClient.resync();
-        showExecBanner('err', 'the draft changed since you last saw it — refreshed, review and execute again');
+        showLaunchOutcome('err', 'the draft changed since you last saw it — refreshed, review and launch again');
+        break;
+      case 'draft_revision_already_launched':
+        // Not a stale draft — this exact revision already ran (a re-click or
+        // a race with the agent). No resync (nothing changed); the operator
+        // must edit the draft to mint a new revision before relaunching.
+        showLaunchOutcome('err', 'this revision was already launched — edit the draft to launch a new run');
         break;
       case 'conflict':
-        showExecBanner('err', `conflict: ${outcome.detail}`);
+        showLaunchOutcome('err', `conflict: ${outcome.detail}`);
         break;
       case 'bridge_unreachable':
-        showExecBanner('err', 'bridge unreachable');
+        showLaunchOutcome('err', 'bridge unreachable');
         break;
       case 'error':
-        showExecBanner('err', `execute failed: ${outcome.detail}`);
+        showLaunchOutcome('err', `launch failed: ${outcome.detail}`);
         break;
     }
   } catch {
-    showExecBanner('err', 'bridge unreachable');
+    showLaunchOutcome('err', 'bridge unreachable');
   } finally {
-    executing = false;
+    launching = false;
     confirmArmed = false;
-    updateExecuteButton();
+    updateLaunchButton();
   }
 }
 
@@ -686,6 +705,17 @@ function setNote(el, text) {
 // Per-tab id: the frame `origin`/PATCH `client_id` other subscribers use for
 // echo suppression (PROPOSAL.md "Echo loops" risk mitigation).
 const draftClientId = generateClientId();
+
+/**
+ * The results-panel deep link for a run, resolved against this panel's own
+ * proxy mount prefix (see resultsPanelUrl).
+ *
+ * @param {string} runId
+ * @returns {string}
+ */
+function launchResultsUrl(runId) {
+  return resultsPanelUrl(PREFIX, runId);
+}
 
 /** @param {Record<string, unknown>} body */
 function patchDraft(body) {
@@ -754,6 +784,15 @@ const draftClient = createDraftClient({
   onAgentEditNote(keys) {
     setNote(draftAgentNoteEl, keys.length === 0 ? '' : `agent edited: ${keys.join(', ')}`);
   },
+  onLaunchBanner(banner) {
+    if (banner === null) {
+      launchBannerEl.hidden = true;
+      launchBannerEl.replaceChildren();
+      return;
+    }
+    launchBannerEl.replaceChildren(buildLaunchBanner(document, banner, launchResultsUrl));
+    launchBannerEl.hidden = false;
+  },
   onPatchRejected(detail) {
     const message =
       detail && typeof detail === 'object' && detail.field
@@ -794,14 +833,14 @@ paramFormEl.addEventListener('input', updateSummary);
 paramFormEl.addEventListener('change', updateSummary);
 paramFormEl.addEventListener('form-change', updateSummary);
 
-executeBtnEl.addEventListener('click', () => {
-  if (executeBtnEl.disabled) return;
+launchBtnEl.addEventListener('click', () => {
+  if (launchBtnEl.disabled) return;
   if (!confirmArmed) {
     confirmArmed = true;
-    updateExecuteButton();
+    updateLaunchButton();
     return;
   }
-  void doExecute();
+  void doLaunch();
 });
 
 paramFormEl.addEventListener('submit', (event) => {

@@ -94,7 +94,7 @@ def test_list_runs_round_trips() -> None:
     assert response.json() == [{"run_id": "abc123", "status": "completed"}]
 
 
-def test_get_run_status_round_trips() -> None:
+def test_get_run_round_trips() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/runs/abc123"
         return _json_response(
@@ -109,7 +109,7 @@ def test_get_run_status_round_trips() -> None:
     assert response.json()["run_id"] == "abc123"
 
 
-def test_read_run_data_round_trips() -> None:
+def test_get_run_data_round_trips() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/runs/abc123/data"
         return _json_response(
@@ -194,7 +194,7 @@ def test_list_runs_forwards_limit_param() -> None:
     assert seen[0].url.params["limit"] == "5"
 
 
-def test_read_run_data_forwards_max_rows_offset_tail_params() -> None:
+def test_get_run_data_forwards_max_rows_offset_tail_params() -> None:
     seen: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:

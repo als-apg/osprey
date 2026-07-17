@@ -27,8 +27,10 @@ import {
   createDraftClient,
   createSSEConnection,
   generateClientId,
-  buildExecuteRequestBody,
-  classifyExecuteResponse,
+  buildLaunchRequestBody,
+  classifyLaunchResponse,
+  resultsPanelUrl,
+  buildLaunchBanner,
 } from '../../../src/osprey/services/bluesky_panels/panels/plan/draft-client.js';
 import { renderSchemaForm } from '../../../src/osprey/services/bluesky_panels/panels/plan/schema-form.js';
 
@@ -209,6 +211,40 @@ describe('reduceFrame — revision rules', () => {
     expect(next.lastAppliedRevision).toBe(6);
     expect(next.draftArgs).toEqual({ num: 9 });
   });
+
+  test('a launched frame records the banner without touching the revision baseline', () => {
+    let state = createInitialState('tab-1');
+    state = reduceReset(state, { draft: { plan_name: 'orm', plan_args: { num: 3 } }, revision: 5 });
+    const { state: next, action } = reduceFrame(state, {
+      type: 'launched',
+      draft: null,
+      revision: 5,
+      run_id: 'run-abc',
+    });
+    expect(action).toEqual({ type: 'launched', frame: expect.objectContaining({ run_id: 'run-abc' }) });
+    expect(next.launchBanner).toEqual({ runId: 'run-abc', revision: 5 });
+    // A launch is an event, not a draft mutation: baseline and draft are
+    // untouched, so a later change frame still applies against revision 5.
+    expect(next.lastAppliedRevision).toBe(5);
+    expect(next.draftPlanName).toBe('orm');
+    expect(next.draftArgs).toEqual({ num: 3 });
+  });
+
+  test('a launched frame with a missing/blank run_id is dropped (no banner, no crash)', () => {
+    let state = createInitialState('tab-1');
+    state = reduceReset(state, { draft: null, revision: 5 });
+    for (const bad of [
+      { type: 'launched', draft: null, revision: 6 },
+      { type: 'launched', draft: null, revision: 6, run_id: '' },
+      { type: 'launched', draft: null, revision: 6, run_id: 42 },
+      { type: 'launched', draft: null },
+    ]) {
+      const { state: next, action } = reduceFrame(state, /** @type {any} */ (bad));
+      expect(action).toEqual({ type: 'drop' });
+      expect(next.launchBanner).toBeNull();
+      expect(next.lastAppliedRevision).toBe(5);
+    }
+  });
 });
 
 describe('shouldShowAffordance', () => {
@@ -302,6 +338,7 @@ function makeHarness(overrides = {}, schema = ORM_SCHEMA) {
     onUnknownPlanBanner: vi.fn(),
     onAgentEditNote: vi.fn(),
     onPatchRejected: vi.fn(),
+    onLaunchBanner: vi.fn(),
     sseFactory,
     ...overrides,
   };
@@ -643,7 +680,7 @@ describe('createDraftClient — pending-key rule and PATCH-back', () => {
   });
 });
 
-describe('createDraftClient — execute pin resolution via flushNow', () => {
+describe('createDraftClient — launch pin resolution via flushNow', () => {
   test('a flush with pending edits pins the PATCH response revision', async () => {
     vi.useFakeTimers();
     const harness = makeHarness();
@@ -1219,9 +1256,9 @@ describe('generateClientId', () => {
   });
 });
 
-describe('buildExecuteRequestBody', () => {
+describe('buildLaunchRequestBody', () => {
   test('bound mode sends only draft_revision, never plan_name/plan_args', () => {
-    const body = buildExecuteRequestBody({
+    const body = buildLaunchRequestBody({
       bound: true,
       pinnedRevision: 7,
       planName: 'orm',
@@ -1231,7 +1268,7 @@ describe('buildExecuteRequestBody', () => {
   });
 
   test('unbound (manual) mode sends the collected plan_name/plan_args', () => {
-    const body = buildExecuteRequestBody({
+    const body = buildLaunchRequestBody({
       bound: false,
       pinnedRevision: null,
       planName: 'orm',
@@ -1241,35 +1278,124 @@ describe('buildExecuteRequestBody', () => {
   });
 });
 
-describe('classifyExecuteResponse', () => {
+describe('classifyLaunchResponse', () => {
   test('200 writes_not_armed', () => {
-    expect(classifyExecuteResponse(200, { status: 'writes_not_armed' })).toEqual({ type: 'writes_not_armed' });
+    expect(classifyLaunchResponse(200, { status: 'writes_not_armed' })).toEqual({ type: 'writes_not_armed' });
   });
 
   test('200 with a run_id', () => {
-    expect(classifyExecuteResponse(200, { run_id: 'run-123' })).toEqual({ type: 'run_started', runId: 'run-123' });
+    expect(classifyLaunchResponse(200, { run_id: 'run-123' })).toEqual({ type: 'run_started', runId: 'run-123' });
   });
 
   test('409 with code stale_draft_revision is distinguished from a bare 409', () => {
-    expect(classifyExecuteResponse(409, { code: 'stale_draft_revision' })).toEqual({
+    expect(classifyLaunchResponse(409, { code: 'stale_draft_revision' })).toEqual({
+      type: 'stale_draft_revision',
+    });
+  });
+
+  test('409 with code draft_revision_already_launched is its own outcome, distinct from stale', () => {
+    expect(classifyLaunchResponse(409, { code: 'draft_revision_already_launched' })).toEqual({
+      type: 'draft_revision_already_launched',
+    });
+    // The two 409 discriminators must never collapse into each other.
+    expect(classifyLaunchResponse(409, { code: 'stale_draft_revision' })).toEqual({
       type: 'stale_draft_revision',
     });
   });
 
   test('409 without a code is a generic conflict', () => {
-    expect(classifyExecuteResponse(409, { detail: 'already running' })).toEqual({
+    expect(classifyLaunchResponse(409, { detail: 'already running' })).toEqual({
       type: 'conflict',
       detail: 'already running',
     });
   });
 
   test('502 is bridge_unreachable', () => {
-    expect(classifyExecuteResponse(502, null)).toEqual({ type: 'bridge_unreachable' });
+    expect(classifyLaunchResponse(502, null)).toEqual({ type: 'bridge_unreachable' });
   });
 
   test('any other status is a generic error carrying the detail or status', () => {
-    expect(classifyExecuteResponse(500, { detail: 'boom' })).toEqual({ type: 'error', detail: 'boom' });
-    expect(classifyExecuteResponse(500, null)).toEqual({ type: 'error', detail: 'HTTP 500' });
+    expect(classifyLaunchResponse(500, { detail: 'boom' })).toEqual({ type: 'error', detail: 'boom' });
+    expect(classifyLaunchResponse(500, null)).toEqual({ type: 'error', detail: 'HTTP 500' });
+  });
+});
+
+describe('createDraftClient — launched banner', () => {
+  /** @type {any} */
+  let harness;
+
+  beforeEach(() => {
+    harness = makeHarness();
+  });
+
+  afterEach(() => {
+    harness.client.destroy();
+    document.body.replaceChildren();
+  });
+
+  test('a launched frame surfaces the banner via onLaunchBanner', async () => {
+    harness.push({ type: 'hello', draft: { plan_name: 'orm', plan_args: {} }, revision: 1 });
+    await flushMicrotasks();
+    harness.push({ type: 'launched', draft: null, revision: 1, run_id: 'run-xyz' });
+    await flushMicrotasks();
+    expect(harness.deps.onLaunchBanner).toHaveBeenCalledWith({ runId: 'run-xyz', revision: 1 });
+  });
+
+  test('a malformed launched frame (no run_id) is dropped — onLaunchBanner never fires', async () => {
+    harness.push({ type: 'hello', draft: null, revision: 1 });
+    await flushMicrotasks();
+    harness.push({ type: 'launched', draft: null, revision: 2 });
+    await flushMicrotasks();
+    expect(harness.deps.onLaunchBanner).not.toHaveBeenCalled();
+  });
+});
+
+describe('resultsPanelUrl', () => {
+  test('swaps the plan panel segment for the results panel and deep-links the run', () => {
+    expect(resultsPanelUrl('/panel/plan', 'run-1')).toBe('/panel/scan-results/?run_id=run-1');
+  });
+
+  test('falls back to an absolute results path when served without a proxy prefix', () => {
+    expect(resultsPanelUrl('', 'run-1')).toBe('/panel/scan-results/?run_id=run-1');
+  });
+
+  test('URL-encodes the run id', () => {
+    expect(resultsPanelUrl('/panel/plan', 'a b/c?d')).toBe('/panel/scan-results/?run_id=a%20b%2Fc%3Fd');
+  });
+});
+
+describe('buildLaunchBanner', () => {
+  test('renders the revision prefix and a results-panel link (run_id via textContent)', () => {
+    const frag = buildLaunchBanner(
+      document,
+      { runId: 'run-77', revision: 9 },
+      (id) => `/panel/scan-results/?run_id=${id}`
+    );
+    const host = document.createElement('div');
+    host.appendChild(frag);
+    expect(host.textContent).toBe('revision 9 launched → run run-77');
+    const link = /** @type {HTMLAnchorElement|null} */ (host.querySelector('a.launch-run-link'));
+    expect(link).not.toBeNull();
+    if (!link) throw new Error('unreachable: link asserted non-null');
+    expect(link.getAttribute('href')).toBe('/panel/scan-results/?run_id=run-77');
+    expect(link.dataset.runId).toBe('run-77');
+    expect(link.target).toBe('_blank');
+  });
+
+  test('an HTML-bearing run_id never becomes markup — only a text node and an encoded href', () => {
+    const evil = '<img src=x onerror=alert(1)>';
+    const frag = buildLaunchBanner(document, { runId: evil, revision: 1 }, (id) =>
+      resultsPanelUrl('/panel/plan', id)
+    );
+    const host = document.createElement('div');
+    host.appendChild(frag);
+    // Nothing was parsed from the payload; it survives verbatim as text.
+    expect(host.querySelector('img')).toBeNull();
+    const link = /** @type {HTMLAnchorElement|null} */ (host.querySelector('a.launch-run-link'));
+    expect(link).not.toBeNull();
+    if (!link) throw new Error('unreachable: link asserted non-null');
+    expect(link.textContent).toBe(`run ${evil}`);
+    expect(link.getAttribute('href')).toBe(`/panel/scan-results/?run_id=${encodeURIComponent(evil)}`);
   });
 });
 

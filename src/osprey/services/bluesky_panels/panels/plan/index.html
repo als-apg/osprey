@@ -45,7 +45,7 @@
     detail header). RIGHT: the selected plan under a Parameters / Source tab
     strip; Parameters is a 2-D schema-driven GUI (see schema-form.js) with a
     live readout, and the footer carries the deterministic, connector-gated
-    Execute action. Everything dynamic is built via createElement/textContent
+    Launch action. Everything dynamic is built via createElement/textContent
     in panel.js — no innerHTML sink anywhere in this panel.
   -->
   <div class="browser">
@@ -107,19 +107,19 @@
         </div>
 
         <div class="detail-foot">
-          <div id="exec-banner" class="banner" hidden></div>
+          <div id="launch-outcome-banner" class="banner" hidden></div>
           <div class="foot-row">
             <div class="foot-info">
               <span id="param-summary" class="readout" hidden></span>
               <span id="unvalidated-note" class="muted" hidden>
-                not validated — cannot execute
+                not validated — cannot launch
               </span>
               <span class="footnote">
-                Execution is gated by the same arming as the agent path; the
+                Launching is gated by the same arming as the agent path; the
                 connector is the sole write gate.
               </span>
             </div>
-            <button type="button" id="execute-btn" class="btn" disabled>Execute plan</button>
+            <button type="button" id="launch-btn" class="btn" disabled>Launch plan</button>
           </div>
         </div>
       </div>

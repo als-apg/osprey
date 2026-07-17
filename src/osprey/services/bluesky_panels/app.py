@@ -5,7 +5,7 @@ This is task 1.1 (sidecar-app-skeleton) of the Phase-6 "Operator Interfaces"
 plan — it only wires the app shell: healthcheck, a shared ``httpx.AsyncClient``
 resolved against the bridge, and static mounts for the three panel bundles.
 The panel content itself (plan authoring, results, health) and the
-read-proxy/execute routes onto the bridge are added by later tasks.
+read-proxy/launch routes onto the bridge are added by later tasks.
 
 Panel mounts (task 3.2/3.3 must agree with this mapping — see
 ``_PANEL_MOUNTS`` below):
@@ -32,7 +32,7 @@ from fastapi import FastAPI
 from starlette.staticfiles import StaticFiles
 
 from osprey.interfaces._app_setup import configure_interface_app
-from osprey.services.bluesky_panels import draft_relay, execute, read_proxy
+from osprey.services.bluesky_panels import draft_relay, launch, read_proxy
 from osprey.services.bluesky_panels import health as health_routes
 
 _DEFAULT_BRIDGE_URL = "http://127.0.0.1:8090"
@@ -110,13 +110,13 @@ def health() -> dict:
     return {"status": "ok"}
 
 
-# Wire the bridge read-proxy, the plan-draft relay, the deterministic execute
+# Wire the bridge read-proxy, the plan-draft relay, the deterministic launch
 # route, and the health-rollup router onto the app. Each router reads the
 # shared httpx client + bridge URL from ``app.state`` at request time (set in
 # _lifespan).
 app.include_router(read_proxy.router)
 app.include_router(draft_relay.router)
-app.include_router(execute.router)
+app.include_router(launch.router)
 app.include_router(health_routes.router)
 
 

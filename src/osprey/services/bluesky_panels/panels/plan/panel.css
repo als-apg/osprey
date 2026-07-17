@@ -5,7 +5,7 @@
  *
  * Aesthetic: control-room instrument. Dense name-first sidebar (status is a
  * single dot), a dominant detail pane, mono identifiers/values, hairline
- * separators, and a live mono "readout" next to the execute action. The
+ * separators, and a live mono "readout" next to the launch action. The
  * parameter surface is two-dimensional: .form-row lays fields out in columns
  * (count set per-row via the --cols custom property), chip wells hold device
  * lists, and array-of-object parameters render as an editable table.
@@ -772,7 +772,7 @@ select.field-input { cursor: pointer; }
   gap: 10px;
 }
 
-/* ---- Detail footer: readout + execute ---- */
+/* ---- Detail footer: readout + launch ---- */
 .detail-foot {
   padding: 10px 16px 12px;
   border-top: 1px solid var(--border-default);

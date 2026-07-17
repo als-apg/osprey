@@ -2,7 +2,7 @@
 
 Task 3.1 (sidecar-draft-relay) of the agent-plan-draft plan. This module only
 defines ``router``; ``osprey.services.bluesky_panels.app`` mounts it alongside
-``read_proxy``/``execute``/``health``, so every route here reads the shared
+``read_proxy``/``launch``/``health``, so every route here reads the shared
 ``httpx.AsyncClient`` and resolved bridge base URL from ``request.app.state``
 at request time (set in the app's lifespan) -- exactly the ``read_proxy``
 pattern.
