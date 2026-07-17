@@ -31,7 +31,7 @@
 {%- set _ = allow_entries.append('"' ~ entry ~ '"') -%}
 {%- endfor -%}
 {%- endfor -%}
-{%- set _ = allow_entries.append('"NotebookEdit(_agent_data/artifacts/**)"') -%}
+{%- set _ = allow_entries.append('"Edit(_agent_data/artifacts/**)"') -%}
 {#- Per-agent Task() permissions -#}
 {%- for a in agents if a.enabled -%}
 {%- set _ = allow_entries.append('"Task(' ~ a.name ~ ')"') -%}
