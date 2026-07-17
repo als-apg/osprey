@@ -14,6 +14,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from osprey import bluesky_tool_names as bsky
+
 logger = logging.getLogger(__name__)
 
 
@@ -297,28 +299,29 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
             "OSPREY_CONFIG": "{project_root}/config.yml",
             "CONFIG_FILE": "{project_root}/config.yml",
             "BLUESKY_BRIDGE_URL": "${BLUESKY_BRIDGE_URL:-http://127.0.0.1:8090}",
-            "BLUESKY_PROMOTE_TOKEN": "${BLUESKY_PROMOTE_TOKEN:-}",
+            "BLUESKY_LAUNCH_TOKEN": "${BLUESKY_LAUNCH_TOKEN:-}",
         },
+        # Tool names resolve from osprey.bluesky_tool_names (the single source of
+        # truth) so a rename there follows through every gate here by construction.
         permissions_allow=[
-            "create_run_intent",
-            "run_status",
-            "list_plans",
-            "list_runs",
-            "read_run_data",
+            bsky.GET_RUN,
+            bsky.LIST_PLANS,
+            bsky.LIST_RUNS,
+            bsky.GET_RUN_DATA,
             # Draft tools (task 2.1) never touch hardware — editing the shared
-            # plan draft only stages what a future launch_run/Execute click
+            # plan draft only stages what a future launch_run/Launch plan click
             # might run, so like the read tools above they need no approval
-            # prompt and carry no _WRITES_CHECK hook. clear_plan_draft is
+            # prompt and carry no _WRITES_CHECK hook. clear_draft is
             # nonetheless auto-classified side-effecting by
-            # agent_runner.write_tools._DESTRUCTIVE_MARKERS (matches
+            # agent_runner.write_tools (matches bsky.DESTRUCTIVE_MARKERS'
             # "clear") and blocked under the headless read-only floor
             # regardless of this allow-listing — acceptable, expected
             # posture; do not rename the tool to dodge it.
-            "get_plan_draft",
-            "set_plan_draft",
-            "clear_plan_draft",
+            bsky.GET_DRAFT,
+            bsky.SET_DRAFT,
+            bsky.CLEAR_DRAFT,
         ],
-        # launch_run starts a real scan (promote); stop_run is the safe direction
+        # launch_run starts a real scan; stop_run is the safe direction
         # and must never be kill-switch-blocked, so it carries approval only.
         # write_plan/validate_plan (task 2.3) reach NO hardware
         # either way: write_plan only writes a file (never imports/execs
@@ -329,22 +332,27 @@ FRAMEWORK_SERVERS: dict[str, ServerDefinition] = {
         # allowlistable) short-names rather than reusing launch_run/stop_run's
         # tier, since an operator may want to permit authoring/validating plan
         # bodies without also auto-approving launch_run/stop_run, or vice versa.
-        permissions_ask=["launch_run", "stop_run", "write_plan", "validate_plan"],
+        permissions_ask=[
+            bsky.LAUNCH_RUN,
+            bsky.STOP_RUN,
+            bsky.WRITE_PLAN,
+            bsky.VALIDATE_PLAN,
+        ],
         hooks_pre=[
             HookRule(
-                matcher="mcp__bluesky__launch_run",
+                matcher=bsky.matcher(bsky.LAUNCH_RUN),
                 hooks=[_WRITES_CHECK, _APPROVAL],
             ),
             HookRule(
-                matcher="mcp__bluesky__stop_run",
+                matcher=bsky.matcher(bsky.STOP_RUN),
                 hooks=[_APPROVAL],
             ),
             HookRule(
-                matcher="mcp__bluesky__write_plan",
+                matcher=bsky.matcher(bsky.WRITE_PLAN),
                 hooks=[_APPROVAL],
             ),
             HookRule(
-                matcher="mcp__bluesky__validate_plan",
+                matcher=bsky.matcher(bsky.VALIDATE_PLAN),
                 hooks=[_APPROVAL],
             ),
         ],

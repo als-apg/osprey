@@ -16,6 +16,8 @@ from pathlib import Path
 
 import yaml  # type: ignore[import-untyped]
 
+from osprey.bluesky_tool_names import DESTRUCTIVE_MARKERS
+
 logger = logging.getLogger(__name__)
 
 # Replica of _FALLBACK_WRITE_TOOLS from osprey_writes_check.py.
@@ -126,8 +128,10 @@ def load_write_tools(project_dir: Path) -> list[str]:
 # auto-detect destructive tools that sit in an auto-approve (``allow``) list —
 # e.g. the workspace server's data_delete/artifact_delete/artifact_delete_all,
 # which are safe-to-auto-approve *interactively* (a human drives) but must not
-# run in a headless read-only query.
-_DESTRUCTIVE_MARKERS = ("delete", "remove", "clear", "wipe", "purge", "destroy")
+# run in a headless read-only query. Sourced from the shared Bluesky tool-name
+# module so the marker vocabulary has a single home: a rename there (e.g.
+# clear_plan_draft → clear_draft) cannot silently detach a tool from this floor.
+_DESTRUCTIVE_MARKERS = DESTRUCTIVE_MARKERS
 
 # Side-effecting MCP tools the registry walk below cannot see because they are
 # in NO registry permission list at all: the python server registers both

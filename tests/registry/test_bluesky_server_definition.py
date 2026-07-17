@@ -50,7 +50,7 @@ def test_bluesky_server_env():
     assert bluesky["env"]["CONFIG_FILE"] == "/tmp/test-project/config.yml"
     # Shell variable references pass through untouched for runtime expansion.
     assert bluesky["env"]["BLUESKY_BRIDGE_URL"] == "${BLUESKY_BRIDGE_URL:-http://127.0.0.1:8090}"
-    assert bluesky["env"]["BLUESKY_PROMOTE_TOKEN"] == "${BLUESKY_PROMOTE_TOKEN:-}"
+    assert bluesky["env"]["BLUESKY_LAUNCH_TOKEN"] == "${BLUESKY_LAUNCH_TOKEN:-}"
 
 
 def test_bluesky_server_disabled_by_default():
@@ -72,15 +72,24 @@ def test_bluesky_server_enabled_via_config_override():
 def test_bluesky_permissions_allow():
     bluesky = _resolve_bluesky()
     assert bluesky["permissions_allow"] == [
-        "create_run_intent",
-        "run_status",
+        "get_run",
         "list_plans",
         "list_runs",
-        "read_run_data",
-        "get_plan_draft",
-        "set_plan_draft",
-        "clear_plan_draft",
+        "get_run_data",
+        "get_draft",
+        "set_draft",
+        "clear_draft",
     ]
+
+
+def test_bluesky_surface_is_eleven_tools_without_create_run_intent():
+    """The agent-facing surface is exactly 11 tools and no longer exposes the
+    ``create_run_intent`` bypass — every agent launch now flows through the
+    panel-visible draft, so the intent-composing read tool is deleted."""
+    bluesky = _resolve_bluesky()
+    surface = [*bluesky["permissions_allow"], *bluesky["permissions_ask"]]
+    assert "create_run_intent" not in surface
+    assert len(surface) == 11
 
 
 def test_bluesky_permissions_ask():
@@ -166,14 +175,13 @@ def test_bluesky_authoring_tools_never_writes_check_gated():
     # The read tiers are unchanged by task 2.3's authoring additions (task
     # 2.1's draft tools are silent-allow too, added separately below).
     assert bluesky_def.permissions_allow == [
-        "create_run_intent",
-        "run_status",
+        "get_run",
         "list_plans",
         "list_runs",
-        "read_run_data",
-        "get_plan_draft",
-        "set_plan_draft",
-        "clear_plan_draft",
+        "get_run_data",
+        "get_draft",
+        "set_draft",
+        "clear_draft",
     ]
 
 
@@ -225,7 +233,7 @@ def test_hook_config_template_derives_write_tools_and_approval_prefix():
 
 def test_bluesky_can_be_extended_like_other_framework_servers():
     """Drift guard: bluesky has no `condition`, so build_extended_server() (used
-    for a second bridge instance, one per BLUESKY_BRIDGE_URL/BLUESKY_PROMOTE_TOKEN
+    for a second bridge instance, one per BLUESKY_BRIDGE_URL/BLUESKY_LAUNCH_TOKEN
     per the plan) must accept it exactly like phoebus's extends path."""
     from osprey.registry.mcp import build_extended_server
 
