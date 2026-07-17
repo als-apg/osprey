@@ -54,6 +54,14 @@ two-persona product, so no extra flags or configuration are needed.
    the dispatcher's bearer tokens into the same ``.env`` for you, so a fresh
    deploy is otherwise secure by default with nothing else to edit.
 
+.. note::
+
+   Running from a **source checkout** of the OSPREY repository rather than a
+   released install? Add ``--dev`` to ``osprey deploy up``. The images install
+   the framework from PyPI by default, and a source tree's version isn't
+   published there; ``--dev`` bakes your local checkout into the images
+   instead.
+
 What ``osprey deploy up`` does
 ==============================
 
@@ -89,6 +97,18 @@ covered below.
 
 Stop the stack again with ``osprey deploy down``; check on it with
 ``osprey deploy status``.
+
+.. note::
+
+   The web stack runs with host networking. On Linux, ``http://127.0.0.1:9080``
+   is reachable as-is. On **macOS**, a container's "host" is Docker Desktop's
+   Linux VM — enable *host networking* in Docker Desktop (Settings → Resources
+   → Network) so the stack's ports reach your browser.
+
+   If another OSPREY deployment already occupies a service port on this host
+   (the event dispatcher's default ``8020`` is the usual collision), change it
+   in the project's ``config.yml`` (``services.event_dispatcher.port``) before
+   ``osprey deploy up``.
 
 The landing page
 ================
