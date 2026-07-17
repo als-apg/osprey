@@ -348,3 +348,59 @@ class TestFacilityPrefix:
         ]
         for name in container_names:
             assert DOCKER_NAME_RE.match(name), f"invalid Docker container name: {name!r}"
+
+
+# ---------------------------------------------------------------------------
+# Deploy target (landing URL origin)
+# ---------------------------------------------------------------------------
+
+
+class TestDeployFqdn:
+    """The base preset sets ``deploy.fqdn`` so the web-terminals render step
+    can build the landing URL (``OSPREY_TERMINAL_LANDING_URL``) without manual
+    config edits — ``_landing_url`` raises without it, aborting
+    ``osprey deploy up`` for the otherwise zero-config demo."""
+
+    def test_base_config_sets_deploy_fqdn(self) -> None:
+        """Carried as the literal ``deploy.fqdn`` dotted key (never a nested
+        ``deploy:`` mapping) with a non-empty string value."""
+        base = resolve_preset("control-assistant")
+        assert "deploy.fqdn" in base.config
+        assert "deploy" not in base.config
+        fqdn = base.config["deploy.fqdn"]
+        assert isinstance(fqdn, str) and fqdn != ""
+
+    def test_rendered_config_satisfies_landing_url(self, tmp_path: Path) -> None:
+        """The rendered config passes the exact check ``deploy up`` runs."""
+        from osprey.deployment.web_terminals.render import _landing_url
+
+        rendered = _render_config_overrides(tmp_path, {"system": {}})
+        fqdn = rendered["deploy"]["fqdn"]
+        nginx_port = rendered["modules"]["web_terminals"]["nginx_port"]
+        assert _landing_url(rendered, nginx_port) == f"http://{fqdn}:{nginx_port}"
+
+
+# ---------------------------------------------------------------------------
+# Web-terminal context overlay (seeding's base.md requirement)
+# ---------------------------------------------------------------------------
+
+
+class TestWebTerminalContextShipped:
+    """A project built from the ``control_assistant`` bundle carries the
+    ``docker/web-terminal-context/base.md`` that seeding requires — without
+    it, ``osprey deploy up`` brings up the whole stack and then aborts at the
+    seed step."""
+
+    def test_built_project_ships_base_md(self, tmp_path: Path) -> None:
+        from osprey.cli.templates.manager import TemplateManager
+        from osprey.deployment.web_terminals import seeding
+
+        project_dir = TemplateManager().create_project(
+            project_name="ctx-ship-test",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "hierarchical"},
+        )
+        base_md = project_dir / seeding._CONTEXT_DIR / "base.md"
+        assert base_md.is_file()
+        assert base_md.read_text(encoding="utf-8").strip() != ""

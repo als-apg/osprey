@@ -83,6 +83,11 @@ config:
   # and distinct from the project name (used for image tags). Set to your own
   # facility abbreviation when you copy this preset.
   facility.prefix: ca
+  # Landing-URL origin for the multi-user web stack: render refuses to build
+  # OSPREY_TERMINAL_LANDING_URL without deploy.fqdn once users are configured.
+  # 127.0.0.1 matches the single-trusted-host demo posture; set your
+  # browser-reachable hostname when deploying anywhere else.
+  deploy.fqdn: 127.0.0.1
   # EVENTS panel — surfaces the event-dispatcher dashboard as an in-terminal tab.
   # URL defaults to the host-run dispatcher (127.0.0.1:8020); override
   # EVENT_DISPATCHER_URL for containerized/remote web terminals.
