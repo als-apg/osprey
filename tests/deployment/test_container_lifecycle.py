@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -39,20 +40,28 @@ def captured_argv(monkeypatch, tmp_path):
 
     def _fake_run(cmd, env=None, check=False):
         captured["cmd"] = cmd
+        captured["env"] = env
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
     return captured
 
 
-def test_deploy_up_dev_mode_adds_build(captured_argv, tmp_path):
+def test_deploy_up_dev_mode_ups_no_build(captured_argv, tmp_path):
+    """--dev builds in a separate step, so the final `up` carries --no-build,
+    never --build in the same invocation (see the Defect A split tests for the
+    full build-then-up assertion)."""
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=True)
-    assert "--build" in captured_argv["cmd"]
     assert "up" in captured_argv["cmd"]
+    assert "--no-build" in captured_argv["cmd"]
+    assert "--build" not in captured_argv["cmd"]
 
 
 def test_deploy_up_non_dev_omits_build(captured_argv, tmp_path):
+    """Non-dev leaves a plain `up` (neither --build nor --no-build) so compose's
+    implicit build-on-up still covers a build-only service with no upstream tag."""
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
     assert "--build" not in captured_argv["cmd"]
+    assert "--no-build" not in captured_argv["cmd"]
     assert "up" in captured_argv["cmd"]
 
 
@@ -441,14 +450,24 @@ def test_combined_services_and_web_deploy_two_detached_up_calls(captured_combine
 
 
 def test_combined_services_up_gets_dev_build_web_up_never_does(captured_combined_runs, tmp_path):
+    """Under --dev the services stack builds in its OWN step then `up --no-build`
+    (never `up --build` in one call, per Defect A); the web stack never builds."""
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False, dev_mode=True)
 
-    up_calls = [c for c in captured_combined_runs["calls"] if "up" in c["cmd"]]
-    services_up = next(c["cmd"] for c in up_calls if "docker-compose.yml" in c["cmd"])
-    web_up = next(c["cmd"] for c in up_calls if "docker-compose.web.yml" in c["cmd"])
+    cmds = [c["cmd"] for c in captured_combined_runs["calls"]]
+    up_calls = [c for c in cmds if "up" in c]
+    services_up = next(c for c in up_calls if "docker-compose.yml" in c)
+    web_up = next(c for c in up_calls if "docker-compose.web.yml" in c)
 
-    assert "--build" in services_up
+    # A standalone services `build` ran (services compose file, no `up`).
+    services_build = [c for c in cmds if c[-1] == "build" and "docker-compose.yml" in c]
+    assert len(services_build) == 1
+
+    # No `up --build` anywhere; the services `up` is explicitly --no-build.
+    assert not any("up" in c and "--build" in c for c in cmds)
+    assert "--no-build" in services_up
     assert "--build" not in web_up
+    assert "--no-build" not in web_up
 
 
 def test_combined_services_and_web_deploy_build_and_tokens_called_once(
@@ -1891,4 +1910,252 @@ def test_web_deploy_raises_before_any_compose_call_when_shared_disk_missing(
     with pytest.raises(RuntimeError, match="does not exist on this server"):
         container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
-    assert not captured_web_runs["calls"]
+
+# ---------------------------------------------------------------------------
+# COMPOSE_PROJECT_NAME pinning on the plain (non-web) deploy paths
+#
+# The web path already pins it (see test_web_deploy_pins_compose_project_name).
+# These lock in that deploy_up's plain branch, deploy_down, deploy_restart, and
+# rebuild_deployment route their runtime env through runtime_env() too. Without
+# the pin, compose derives the project from the first -f file's directory (the
+# shared "services" project), so one deploy's up/down adopts and destroys a
+# sibling deploy's containers and volumes.
+# ---------------------------------------------------------------------------
+
+
+def test_deploy_up_plain_pins_compose_project_name(captured_argv, tmp_path):
+    """deploy_up's plain (non-web) branch runs compose under a pinned project."""
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+    assert captured_argv["env"] is not None
+    # captured_argv's config carries no project_name/project_root -> the
+    # resolve_project_name fallback, but crucially it is PINNED, not inherited.
+    assert captured_argv["env"]["COMPOSE_PROJECT_NAME"] == "unnamed-project"
+
+
+def _mock_down_config(monkeypatch, project_name):
+    """Wire deploy_down's config load to a fixed, normalized config dict."""
+    monkeypatch.setattr(
+        container_lifecycle,
+        "ConfigBuilder",
+        lambda p: types.SimpleNamespace(raw_config={"project_name": project_name}),
+    )
+    monkeypatch.setattr(
+        container_lifecycle,
+        "normalize_facility_config",
+        lambda raw: {"project_name": project_name, "deployed_services": ["event_dispatcher"]},
+    )
+    monkeypatch.setattr(
+        "osprey.deployment.compose_generator.find_existing_compose_files",
+        lambda *a, **k: ["docker-compose.yml"],
+    )
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+
+
+def test_deploy_down_pins_compose_project_name(monkeypatch, tmp_path):
+    """deploy_down must target the same project it brought up — pinned, and via
+    execvpe (env-carrying), not the bare-env execvp."""
+    monkeypatch.chdir(tmp_path)
+    _mock_down_config(monkeypatch, "myproj")
+    captured: dict = {}
+    # Guard BOTH exec variants: the fix flips execvp -> execvpe, and an
+    # unpatched real execvp would replace the test process.
+    monkeypatch.setattr(
+        container_lifecycle.os, "execvp", lambda file, args: captured.update(args=args, env=None)
+    )
+    monkeypatch.setattr(
+        container_lifecycle.os,
+        "execvpe",
+        lambda file, args, env: captured.update(file=file, args=args, env=env),
+    )
+    container_lifecycle.deploy_down(str(tmp_path / "config.yml"))
+    assert captured["env"]["COMPOSE_PROJECT_NAME"] == "myproj"
+    assert "down" in captured["args"]
+
+
+def test_deploy_restart_pins_compose_project_name(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: (
+            {"project_name": "myproj", "deployed_services": ["event_dispatcher"]},
+            ["docker-compose.yml"],
+        ),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    captured: dict = {}
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "run",
+        lambda cmd, env=None, **k: captured.update(cmd=cmd, env=env),
+    )
+    container_lifecycle.deploy_restart(str(tmp_path / "config.yml"))
+    assert captured["env"]["COMPOSE_PROJECT_NAME"] == "myproj"
+    assert "restart" in captured["cmd"]
+
+
+def test_rebuild_deployment_pins_compose_project_name(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: (
+            {"project_name": "myproj", "deployed_services": ["event_dispatcher"]},
+            ["docker-compose.yml"],
+        ),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "clean_deployment", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    # The pre-up `compose build` split (Defect A) lands on subprocess.run; swallow it.
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda *a, **k: None)
+    captured: dict = {}
+    monkeypatch.setattr(
+        container_lifecycle.os,
+        "execvpe",
+        lambda file, args, env: captured.update(file=file, args=args, env=env),
+    )
+    container_lifecycle.rebuild_deployment(str(tmp_path / "config.yml"))
+    assert captured["env"]["COMPOSE_PROJECT_NAME"] == "myproj"
+    assert "up" in captured["args"]
+
+
+def test_clean_deployment_pins_compose_project_name(monkeypatch, tmp_path):
+    """compose_generator.clean_deployment's down/rmi invocations must also be
+    pinned — an unpinned `down --volumes` would target the shared project."""
+    monkeypatch.chdir(tmp_path)
+    from osprey.deployment import compose_generator
+
+    monkeypatch.setattr(
+        compose_generator, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    envs: list = []
+    monkeypatch.setattr(
+        compose_generator.subprocess, "run", lambda cmd, env=None, **k: envs.append(env)
+    )
+    compose_generator.clean_deployment(["docker-compose.yml"], {"project_name": "myproj"})
+    assert envs, "clean_deployment ran no compose commands"
+    for env in envs:
+        assert env is not None and env["COMPOSE_PROJECT_NAME"] == "myproj"
+
+
+# ---------------------------------------------------------------------------
+# Defect A: build/create split — never `up --build` in one invocation
+#
+# Under Docker's containerd image store, `compose up --build` can build a
+# local-only tag and then fail container-create with "No such image" in the same
+# call. Wherever a build is intended, run `compose build` first, then
+# `up --no-build`. The non-dev services path is deliberately left on a plain
+# `up` (no --no-build) so compose's implicit build-on-up still covers a
+# build-only service with no published upstream tag.
+# ---------------------------------------------------------------------------
+
+
+def test_deploy_up_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
+    """--dev must not produce a single `up --build`; it must be `build` then
+    `up --no-build`."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: ({"deployed_services": ["event_dispatcher"]}, ["docker-compose.yml"]),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    runs: list = []
+    monkeypatch.setattr(
+        container_lifecycle.subprocess, "run", lambda cmd, env=None, **k: runs.append(cmd)
+    )
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=True)
+
+    joined = [" ".join(c) for c in runs]
+    # No single invocation combines `up` with `--build`.
+    assert not any("up" in c and "--build" in c for c in runs)
+    # A standalone `build` ran, and a subsequent `up --no-build`.
+    assert any(c[-1] == "build" for c in runs), joined
+    assert any("up" in c and "--no-build" in c for c in runs), joined
+
+
+def test_rebuild_deployment_splits_build_from_up(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: ({"deployed_services": ["event_dispatcher"]}, ["docker-compose.yml"]),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "clean_deployment", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    runs: list = []
+    monkeypatch.setattr(
+        container_lifecycle.subprocess, "run", lambda cmd, env=None, **k: runs.append(cmd)
+    )
+    execd: dict = {}
+    monkeypatch.setattr(
+        container_lifecycle.os,
+        "execvpe",
+        lambda file, args, env: execd.update(args=args),
+    )
+    container_lifecycle.rebuild_deployment(str(tmp_path / "config.yml"))
+    # `build` ran as its own subprocess; the exec'd `up` carries --no-build.
+    assert any(c[-1] == "build" for c in runs), [" ".join(c) for c in runs]
+    assert "up" in execd["args"] and "--no-build" in execd["args"]
+    assert "--build" not in execd["args"]
+
+
+def test_web_services_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
+    """The web path's backend-services stack: --dev builds then ups --no-build,
+    never `up --build` in one call. Needs a non-empty deployed_services (the
+    services block is guarded on it), which captured_web_runs lacks."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env.production").write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: (
+            {
+                "deployed_services": ["event_dispatcher"],
+                "modules": {"web_terminals": {"enabled": True}},
+            },
+            ["build/services/docker-compose.yml"],
+        ),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "write_web_terminal_artifacts", lambda *a, **k: [])
+    monkeypatch.setattr(container_lifecycle, "_enable_linger", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "seed_user_containers", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_run_verify_script", lambda *a, **k: None)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    runs: list = []
+    monkeypatch.setattr(
+        container_lifecycle.subprocess, "run", lambda cmd, env=None, **k: runs.append(list(cmd))
+    )
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=True)
+
+    # The services-stack invocations (the ones carrying the services compose file).
+    svc = [c for c in runs if "build/services/docker-compose.yml" in c]
+    assert not any("up" in c and "--build" in c for c in svc)
+    assert any(c[-1] == "build" for c in svc), [" ".join(c) for c in svc]
+    assert any("up" in c and "--no-build" in c for c in svc), [" ".join(c) for c in svc]
