@@ -1531,16 +1531,22 @@ def _deploy_up_web_terminals(
     # Skipped when no real service is deployed -- see docstring for why
     # `up` on the network-only top-level file alone would fail outright.
     if config.get("deployed_services"):
-        services_cmd = get_runtime_command(config)
+        services_base = get_runtime_command(config)
         for compose_file in compose_files:
-            services_cmd.extend(("-f", compose_file))
-        services_cmd.extend(env_file_args)
-        services_cmd.append("up")
+            services_base.extend(("-f", compose_file))
+        services_base.extend(env_file_args)
         if dev_mode:
-            # Mirrors the plain non-web path's dev-mode --build (see deploy_up):
-            # without it, a co-deployed service's cached image tag keeps running
-            # the stale code from its first build.
-            services_cmd.append("--build")
+            # Mirrors the plain non-web path's dev-mode build (see deploy_up):
+            # without a rebuild, a co-deployed service's cached image tag keeps
+            # running the stale code from its first build. Build in its own step,
+            # then `up --no-build`, to dodge the `up --build` containerd
+            # image-store race.
+            services_build = services_base + ["build"]
+            logger.info(f"Running command:\n    {' '.join(services_build)}")
+            subprocess.run(services_build, env=run_env, check=True)
+        services_cmd = services_base + ["up"]
+        if dev_mode:
+            services_cmd.append("--no-build")
         services_cmd.append("-d")
         logger.info(f"Running command:\n    {' '.join(services_cmd)}")
         subprocess.run(services_cmd, env=run_env, check=True)
@@ -1647,26 +1653,41 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
         _deploy_up_web_terminals(config, compose_files, dev_mode, env)
         return
 
-    cmd = get_runtime_command(config)
-    for compose_file in compose_files:
-        cmd.extend(("-f", compose_file))
-    cmd.extend(_env_file_args())
+    # Pin COMPOSE_PROJECT_NAME so this deploy owns its own compose project (and
+    # volume namespace); without it compose derives the project from the first
+    # -f file's directory, collapsing every deploy on the host into the shared
+    # "services" project whose up/down cross-adopts sibling stacks.
+    run_env = runtime_env(config, env)
 
-    cmd.append("up")
+    base_cmd = get_runtime_command(config)
+    for compose_file in compose_files:
+        base_cmd.extend(("-f", compose_file))
+    base_cmd.extend(_env_file_args())
+
     if dev_mode:
         # `osprey deploy up --dev` re-bakes the local osprey checkout into a fresh
         # wheel on every run, but compose reuses the cached image tag (e.g.
-        # osprey-dispatch:local) unless a rebuild is forced — so without --build
-        # the container keeps running the stale code from the first build.
-        cmd.append("--build")
+        # osprey-dispatch:local) unless it is rebuilt — so a dev deploy must build.
+        # Build in its OWN step, then `up --no-build`: a single `up --build` can
+        # build a local-only tag and then fail container-create with
+        # "No such image" under Docker's containerd image store. Non-dev stays a
+        # plain `up` so compose's implicit build-on-up still covers a build-only
+        # service that has no published upstream tag to pull.
+        build_cmd = base_cmd + ["build"]
+        logger.info(f"Running command:\n    {' '.join(build_cmd)}")
+        subprocess.run(build_cmd, env=run_env, check=True)
+
+    cmd = base_cmd + ["up"]
+    if dev_mode:
+        cmd.append("--no-build")
     if detached:
         cmd.append("-d")
 
     logger.info(f"Running command:\n    {' '.join(cmd)}")
     if detached:
-        subprocess.run(cmd, env=env, check=True)
+        subprocess.run(cmd, env=run_env, check=True)
     else:
-        os.execvpe(cmd[0], cmd, env)
+        os.execvpe(cmd[0], cmd, run_env)
 
 
 def deploy_down(config_path, dev_mode=False):
@@ -1713,7 +1734,10 @@ def deploy_down(config_path, dev_mode=False):
     cmd.append("down")
 
     logger.info(f"Running command:\n    {' '.join(cmd)}")
-    os.execvp(cmd[0], cmd)
+    # execvpe (not execvp) so the COMPOSE_PROJECT_NAME pin reaches compose:
+    # `down` must target the same project `up` created, or it either misses this
+    # deploy's containers or (unpinned) tears down the shared "services" project.
+    os.execvpe(cmd[0], cmd, runtime_env(config, os.environ.copy()))
 
 
 def deploy_restart(config_path, detached=False, expose_network=False):
@@ -1743,7 +1767,7 @@ def deploy_restart(config_path, detached=False, expose_network=False):
     cmd.extend(["--env-file", ".env", "restart"])
 
     logger.info(f"Running command:\n    {' '.join(cmd)}")
-    subprocess.run(cmd)
+    subprocess.run(cmd, env=runtime_env(config, os.environ.copy()))
 
     # If detached mode requested, detach after restart
     if detached:
@@ -1784,24 +1808,33 @@ def rebuild_deployment(config_path, detached=False, dev_mode=False, expose_netwo
     # Rebuild the dispatch worker's <project>:local image too (see deploy_up).
     _build_project_image(config, dev_mode, env)
 
-    # Then start up
-    cmd = get_runtime_command(config)
+    # Then start up. Pin COMPOSE_PROJECT_NAME (see deploy_up) so the rebuild
+    # reconciles this deploy's own project, not the shared "services" one.
+    run_env = runtime_env(config, env)
+
+    base_cmd = get_runtime_command(config)
     for compose_file in compose_files:
-        cmd.extend(("-f", compose_file))
+        base_cmd.extend(("-f", compose_file))
 
     # Only add --env-file if .env exists
     env_file = Path(".env")
     if env_file.exists():
-        cmd.extend(["--env-file", ".env"])
+        base_cmd.extend(["--env-file", ".env"])
     else:
         logger.warning(
             "No .env file found - services will start with default/empty environment variables"
         )
         logger.info("To configure API keys: cp .env.example .env && edit .env")
 
-    cmd.extend(["up", "--build"])
+    # Build in its own step, then `up --no-build` (see deploy_up for the
+    # containerd image-store race a single `up --build` can hit).
+    build_cmd = base_cmd + ["build"]
+    logger.info(f"Running command:\n    {' '.join(build_cmd)}")
+    subprocess.run(build_cmd, env=run_env, check=True)
+
+    cmd = base_cmd + ["up", "--no-build"]
     if detached:
         cmd.append("-d")
 
     logger.info(f"Running command:\n    {' '.join(cmd)}")
-    os.execvpe(cmd[0], cmd, env)
+    os.execvpe(cmd[0], cmd, run_env)

@@ -14,7 +14,7 @@ import yaml
 from jinja2 import Environment, FileSystemLoader
 
 from osprey.deployment.facility_config import normalize_facility_config
-from osprey.deployment.runtime_helper import get_runtime_command
+from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.log_filter import quiet_logger
 from osprey.utils.logger import get_logger
@@ -973,6 +973,11 @@ def clean_deployment(compose_files, config=None):
     """
     logger.key_info("Cleaning up deployment...")
 
+    # Pin COMPOSE_PROJECT_NAME so `down --volumes` targets THIS deploy's project
+    # and volumes; unpinned it derives the shared "services" project and would
+    # destroy a sibling deploy's data volumes.
+    run_env = runtime_env(config, os.environ.copy())
+
     # Stop and remove containers, networks, volumes
     cmd_down = get_runtime_command(config)
     for compose_file in compose_files:
@@ -980,7 +985,7 @@ def clean_deployment(compose_files, config=None):
     cmd_down.extend(["--env-file", ".env", "down", "--volumes", "--remove-orphans"])
 
     logger.info(f"Running: {' '.join(cmd_down)}")
-    subprocess.run(cmd_down)
+    subprocess.run(cmd_down, env=run_env)
 
     # Remove images built by the compose files
     cmd_rmi = get_runtime_command(config)
@@ -989,7 +994,7 @@ def clean_deployment(compose_files, config=None):
     cmd_rmi.extend(["--env-file", ".env", "down", "--rmi", "all"])
 
     logger.info(f"Running: {' '.join(cmd_rmi)}")
-    subprocess.run(cmd_rmi)
+    subprocess.run(cmd_rmi, env=run_env)
 
     logger.success("Cleanup completed")
 
