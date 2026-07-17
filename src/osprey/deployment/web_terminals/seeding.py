@@ -27,6 +27,7 @@ Contract:
 from __future__ import annotations
 
 import io
+import re
 import subprocess
 import tarfile
 from pathlib import Path
@@ -48,12 +49,16 @@ _CLAUDE_MD_TARGET = "/data/claude-config/CLAUDE.md"
 
 # Container-side script the concatenated CLAUDE.md content is piped into.
 # Runs as root (-u 0): the claude-config volume is root-owned until its first
-# chown, and only root can chown it to dispatch.
+# chown, and only root can chown it to the runtime user. $1 = the "uid:gid"
+# owner :func:`_container_seed_owner` queried from the container — images name
+# their runtime user differently (osprey, dispatch, ...), so ownership is
+# always passed in, never hardcoded.
 _CLAUDE_MD_SH = (
     "set -e\n"
-    "chown dispatch:dispatch /data/claude-config\n"
+    'owner="$1"\n'
+    'chown "$owner" /data/claude-config\n'
     f"cat > {_CLAUDE_MD_TARGET}\n"
-    f"chown dispatch:dispatch {_CLAUDE_MD_TARGET}\n"
+    f'chown "$owner" {_CLAUDE_MD_TARGET}\n'
 )
 
 # Container-side script the skills tar stream is piped into. Implements the
@@ -63,10 +68,12 @@ _CLAUDE_MD_SH = (
 #      inside an already-managed skill land too)
 #   3. re-stamp .deploy-managed on each
 # $1 = space-separated skill names this overlay currently ships (possibly
-# empty); $2 = the target project_skills_dir.
+# empty); $2 = the target project_skills_dir; $3 = the "uid:gid" owner (see
+# _CLAUDE_MD_SH).
 _SKILLS_RECONCILE_SH = (
     "set -e\n"
     'target="$2"\n'
+    'owner="$3"\n'
     'mkdir -p "$target"\n'
     'cd "$target"\n'
     'names="$1"\n'
@@ -86,7 +93,7 @@ _SKILLS_RECONCILE_SH = (
     "for name in $names; do\n"
     '  [ -d "$name" ] && touch "$name/.deploy-managed"\n'
     "done\n"
-    'chown -R dispatch:dispatch "$target"\n'
+    'chown -R "$owner" "$target"\n'
 )
 
 
@@ -126,8 +133,8 @@ def seed_user_containers(
     single ready container whose seed fails, so long as at least one *other*
     ready container in this run succeeds. But when every container this run
     actually attempted (i.e. every container that existed and was execed into)
-    fails, that is treated as a systemic misconfiguration — e.g. the container
-    image is missing the ``dispatch`` user every seed step chowns to — rather
+    fails, that is treated as a systemic misconfiguration — e.g. an image
+    whose runtime user cannot be determined for the ownership handoff — rather
     than an isolated per-user issue, and raised so ``deploy up``/``deploy seed``
     surfaces it instead of silently reporting success with nothing seeded.
 
@@ -247,10 +254,11 @@ def _seed_one_user(
         logger.info(f"  (skipped {user}: container not ready)")
         return None
     try:
+        owner = _container_seed_owner(runtime, container, env=env)
         extra_content = _resolve_extra_md(user)
-        _seed_claude_md(runtime, container, base_content + extra_content, env=env)
+        _seed_claude_md(runtime, container, base_content + extra_content, owner, env=env)
         skills_src = _CONTEXT_DIR / user / "skills"
-        _seed_skills(runtime, container, skills_src, project_skills_dir, env=env)
+        _seed_skills(runtime, container, skills_src, project_skills_dir, owner, env=env)
         logger.info(f"  seeded {user}")
         return True
     except Exception as exc:
@@ -311,12 +319,47 @@ def _container_exists(runtime: str, name: str, *, env: dict[str, str] | None) ->
     return result.returncode == 0
 
 
+_OWNER_RE = re.compile(r"^\d+:\d+$")
+
+
+def _container_seed_owner(runtime: str, container: str, *, env: dict[str, str] | None) -> str:
+    """``uid:gid`` of ``container``'s configured runtime user.
+
+    Runs ``id`` as the container's own default user (no ``-u`` override), so
+    the answer is whatever user the image (or a compose ``user:`` key) actually
+    starts processes as — the user that must own ``/data/claude-config`` for
+    the harness inside to read/write it. Numeric ``uid:gid`` deliberately, so
+    the follow-up ``chown`` works even for a user with no name in the image's
+    ``/etc/passwd``.
+
+    Raises:
+        RuntimeError: If the container's answer doesn't look like ``uid:gid``
+            (e.g. an entrypoint banner polluting stdout) — better to fail this
+            user's seed than to chown to garbage.
+        subprocess.CalledProcessError: If the exec itself fails.
+    """
+    result = subprocess.run(
+        [runtime, "exec", container, "sh", "-c", 'echo "$(id -u):$(id -g)"'],
+        capture_output=True,
+        text=True,
+        check=True,
+        env=env,
+    )
+    owner = result.stdout.strip()
+    if not _OWNER_RE.match(owner):
+        raise RuntimeError(
+            f"unexpected `id` output {owner!r} from container {container!r} — "
+            "cannot determine the uid:gid to own the seeded files"
+        )
+    return owner
+
+
 def _seed_claude_md(
-    runtime: str, container: str, payload: str, *, env: dict[str, str] | None
+    runtime: str, container: str, payload: str, owner: str, *, env: dict[str, str] | None
 ) -> None:
-    """Pipe ``payload`` into ``container``'s ``/data/claude-config/CLAUDE.md``."""
+    """Pipe ``payload`` into ``container``'s ``/data/claude-config/CLAUDE.md``, owned by ``owner``."""
     subprocess.run(
-        [runtime, "exec", "-u", "0", "-i", container, "sh", "-c", _CLAUDE_MD_SH],
+        [runtime, "exec", "-u", "0", "-i", container, "sh", "-c", _CLAUDE_MD_SH, "sh", owner],
         input=payload.encode("utf-8"),
         check=True,
         env=env,
@@ -329,6 +372,7 @@ def _seed_skills(
     container: str,
     skills_src: Path,
     project_skills_dir: str,
+    owner: str,
     *,
     env: dict[str, str] | None,
 ) -> None:
@@ -356,6 +400,7 @@ def _seed_skills(
             "sh",
             " ".join(names),
             project_skills_dir,
+            owner,
         ],
         input=tar_bytes,
         check=True,
