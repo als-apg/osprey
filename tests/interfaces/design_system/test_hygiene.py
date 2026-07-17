@@ -43,12 +43,36 @@ three independent kinds of drift:
     this check — it's the act of *defining a custom property* in one of
     these blocks that's disallowed, not the selector itself.
 
+(d) Scale-literal drift: bare numeric/keyword literals for font-size,
+    font-weight, line-height, the border-radius family, and
+    transition/animation durations that should instead be expressed as
+    ``var(--text-*``/``--weight-*``/``--leading-*``/``--radius-*``/
+    ``--duration-*)`` references into the scales the token generator now
+    emits (see the ``feat(design-system): emit type/spacing/radius/weight/
+    leading/z/duration scales`` commit). Unlike (a)-(c) this is not
+    fleet-wide: it is scoped per-interface by ``SCALE_ENFORCED_INTERFACES``,
+    which is empty as of this commit (this task only adds the scanner and
+    its self-tests) and gets flipped to name the migrated interfaces once
+    their CSS actually moves onto the scale variables — the same
+    ratchet-then-flip shape checks (a)/(c) went through, just starting from
+    an empty rather than a baseline-file ratchet. Spacing (margin/padding/
+    gap) and z-index are deliberately excluded from this check even for an
+    enforced interface: spacing literals are far denser throughout existing
+    CSS than the other five properties, and z-index frequently encodes
+    legitimate intra-component micro-stacking (a dropdown one layer above
+    its trigger, a tooltip above both) that a shared scale can't cleanly
+    express. Both may still migrate opportunistically, and the emitted
+    ``--space-*``/``--z-*`` scales remain the preferred spelling for new
+    code — they're just not enforced here.
+
 Checks (a) and (c) share the same allowlist idea in spirit — a literal,
 commented exception list — but check (a)'s allowlist is *in the scanned
 files themselves* (an inline marker comment, since ownership of those
 files belongs to the migration tasks, not this one) while check (b)'s
 lives in this module (there is nothing sensible to "comment out" in a way
-that survives a source edit for a missing declaration).
+that survives a source edit for a missing declaration). Check (d) follows
+check (a)'s in-file convention, with its own ``hygiene-allow-scale``
+marker (see below) distinct from ``hygiene-allow-color``.
 """
 
 from __future__ import annotations
@@ -406,4 +430,138 @@ def test_no_token_defining_blocks_outside_design_system() -> None:
         "tokens.css, with theme-varying local extensions expressed as a "
         "color-mix() composite instead of a per-theme override block: "
         + ", ".join(sorted(offenders))
+    )
+
+
+# --- Check (d): scale-literal ratchet (SCALE_ENFORCED_INTERFACES starts empty) -----
+
+#: Commented allowlist mechanism, mirroring `hygiene-allow-color` above: a
+#: genuine, deliberate exception (a literal that predates the scale and is
+#: out of scope for the interface's current migration step, or a scanner
+#: false positive) goes on this marker instead of a token. A line
+#: containing this marker is never counted; `-start`/`-end` variants
+#: bracket a multi-line span (both boundary lines are themselves exempt) —
+#: same semantics as the color check's markers, just a distinct name so a
+#: color exception and a scale exception can't be mistaken for each other.
+_ALLOW_SCALE_LINE_MARKER = "hygiene-allow-scale"
+_ALLOW_SCALE_BLOCK_START_MARKER = "hygiene-allow-scale-start"
+_ALLOW_SCALE_BLOCK_END_MARKER = "hygiene-allow-scale-end"
+
+#: Declaration properties whose values encode a typography/radius/timing
+#: scale value: font-size, font-weight, line-height, the border-radius
+#: family (border-radius plus any physical or logical corner longhand, e.g.
+#: border-top-left-radius/border-start-end-radius), and the
+#: duration-bearing transition/animation properties. Spacing
+#: (margin/padding/gap) and z-index are deliberately absent — see the
+#: module docstring for why.
+_SCALE_DECLARATION_RE = re.compile(
+    r"\b(font-size|font-weight|line-height|"
+    r"border(?:-\w+-\w+)?-radius|"
+    r"transition-duration|animation-duration|animation-delay|transition|animation)"
+    r"\s*:\s*([^;{}]+)"
+)
+
+
+def _is_scale_literal(prop: str, value: str) -> bool:
+    """Whether the already-stripped ``value`` is a bare scale literal for ``prop``.
+
+    Each property has its own notion of "bare literal" versus a legitimate
+    pass-through (a ``var()`` reference, a keyword, an outright ``0``, a
+    percentage for radius, ...) — see the PLAN task and the module
+    docstring's check (d) paragraph for the rationale behind the
+    per-property split.
+    """
+    if prop == "font-size":
+        return bool(re.search(r"\d", value)) and not value.startswith("var(")
+    if prop == "font-weight":
+        return bool(re.match(r"\s*(\d{3}|bold|normal)\b", value))
+    if prop == "line-height":
+        return bool(re.search(r"\d", value)) and "var(" not in value
+    if prop.endswith("radius"):
+        return any(
+            re.match(r"^\d+(\.\d+)?px$", component) and component != "0px"
+            for component in value.split()
+        )
+    # transition, animation, transition-duration, animation-duration, animation-delay:
+    # strip actual var() calls first so a var()-supplied duration mixed with
+    # other shorthand keywords (color, ease, ...) still passes, then look for
+    # a bare mN/s literal in whatever's left.
+    without_var_calls = re.sub(r"var\([^)]*\)", "", value)
+    return bool(re.search(r"\d+(\.\d+)?m?s\b", without_var_calls))
+
+
+def _count_scale_literals(text: str) -> list[str]:
+    """Every non-allowlisted scale-literal declaration in one file's text.
+
+    Line-based, mirroring :func:`_count_hardcoded_colors`: honors both the
+    single-line ``hygiene-allow-scale`` marker and the
+    ``hygiene-allow-scale-start``/``-end`` block markers. Returns the
+    matched ``"property: value"`` text for each hit (not just a count) so a
+    failing assertion can list the actual offending declarations.
+    """
+    hits: list[str] = []
+    in_allowed_block = False
+    for line in text.splitlines():
+        if _ALLOW_SCALE_BLOCK_START_MARKER in line:
+            in_allowed_block = True
+            continue
+        if _ALLOW_SCALE_BLOCK_END_MARKER in line:
+            in_allowed_block = False
+            continue
+        if in_allowed_block or _ALLOW_SCALE_LINE_MARKER in line:
+            continue
+        for prop, raw_value in _SCALE_DECLARATION_RE.findall(line):
+            value = raw_value.strip()
+            if _is_scale_literal(prop, value):
+                hits.append(f"{prop}: {value}")
+    return hits
+
+
+def test_scale_literal_scanner() -> None:
+    assert _count_scale_literals("a { font-size: 11px; }") == ["font-size: 11px"]
+    assert _count_scale_literals("a { font-size: var(--text-base); }") == []
+    assert _count_scale_literals("a { font-size: inherit; }") == []
+    assert _count_scale_literals("a { font-weight: 600; }") == ["font-weight: 600"]
+    assert _count_scale_literals("a { font-weight: bold; }") == ["font-weight: bold"]
+    assert _count_scale_literals("a { line-height: 1.5; }") == ["line-height: 1.5"]
+    assert _count_scale_literals("a { border-radius: 3px; }") == ["border-radius: 3px"]
+    assert _count_scale_literals("a { border-radius: 50%; }") == []
+    assert _count_scale_literals("a { border-radius: 0; }") == []
+    assert (
+        _count_scale_literals("a { border-radius: var(--radius-sm) 0 0 var(--radius-sm); }") == []
+    )
+    assert _count_scale_literals("a { transition: color 0.15s ease; }") == [
+        "transition: color 0.15s ease"
+    ]
+    assert _count_scale_literals("a { transition: color var(--duration-fast) ease; }") == []
+    assert _count_scale_literals("a { font-size: 7px; } /* hygiene-allow-scale: x */") == []
+
+
+#: Interfaces where check (d) is enforced with zero tolerance. Empty as of
+#: this commit — this task ships only the scanner and its self-tests, not
+#: a CSS migration; a later task (web-terminal scale migration) flips this
+#: to {"web_terminal", "design_system"} once their CSS actually moves onto
+#: the scale variables.
+SCALE_ENFORCED_INTERFACES: frozenset[str] = frozenset()
+
+
+def test_scale_literal_zero_tolerance() -> None:
+    """No ``.css`` file in a scale-enforced interface may contain a bare
+    scale literal (see the module docstring's check (d) paragraph for what
+    counts and why spacing/z-index are excluded from enforcement).
+
+    A ratchet, not a fleet-wide rule (unlike checks (a)-(c)): scoped by
+    ``SCALE_ENFORCED_INTERFACES``, empty until the interfaces it will name
+    finish their scale migration.
+    """
+    offenders = []
+    for path in _in_scope_files():
+        if path.suffix != ".css" or _interface_group(path) not in SCALE_ENFORCED_INTERFACES:
+            continue
+        for hit in _count_scale_literals(path.read_text(encoding="utf-8")):
+            offenders.append(f"{_relpath(path)}: {hit}")
+    assert not offenders, (
+        "Scale literal(s) in a scale-enforced interface — use var(--text-*/"
+        "--weight-*/--leading-*/--radius-*/--duration-*) or mark a deliberate "
+        "exception with `/* hygiene-allow-scale: <reason> */`:\n" + "\n".join(offenders)
     )
