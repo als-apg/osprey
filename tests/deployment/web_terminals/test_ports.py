@@ -234,8 +234,9 @@ def test_resolve_personas_no_catalog_empty_registry_url_matches_template_concat(
 
 def test_resolve_personas_default_persona_keeps_unsuffixed_registry_image() -> None:
     """The default persona's registry-mode image stays un-suffixed even once a
-    catalog is introduced, and its container dir stays pinned to the pre-persona
-    path so existing per-user volume data survives the catalog's introduction."""
+    catalog is introduced; its container dir follows its own catalog project
+    uniformly, like every other persona (here coinciding with the facility
+    prefix path because the fixture's project is `als-assistant`)."""
     # Arrange
     web_terminals = {
         "users": ["alice"],
@@ -257,6 +258,27 @@ def test_resolve_personas_default_persona_keeps_unsuffixed_registry_image() -> N
             "container_project_dir": "/app/als-assistant",
         }
     ]
+
+
+def test_resolve_personas_default_persona_container_dir_follows_its_project() -> None:
+    """The default persona's container dir is derived from its own catalog
+    project, not the facility prefix — proven with a project name that does not
+    coincide with the pre-persona `/app/<prefix>-assistant` path. The image stays
+    un-suffixed, which is the only remaining default-persona special case."""
+    # Arrange
+    web_terminals = {
+        "users": ["alice"],
+        "default_persona": "cli",
+        "personas": {"cli": {"project": "control-room", "project_path": "profiles/cli"}},
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["project"] == "control-room"
+    assert result[0]["container_project_dir"] == "/app/control-room"
+    assert result[0]["image"] == "registry.example.org/osprey/web-terminal:latest"
 
 
 def test_resolve_personas_non_default_persona_registry_mode_suffixes_image() -> None:
@@ -311,7 +333,8 @@ def test_resolve_personas_local_mode_suffixes_every_persona_including_default() 
         "alice": "als-assistant-cli:local",
         "gmartino": "als-gui-assistant-gui:local",
     }
-    # Default persona's container dir still pins to the facility-prefix path.
+    # Default persona's container dir follows its own catalog project, like every
+    # other persona — no facility-prefix special case (here `als-assistant`).
     default_entry = next(entry for entry in result if entry["name"] == "alice")
     assert default_entry["container_project_dir"] == "/app/als-assistant"
 

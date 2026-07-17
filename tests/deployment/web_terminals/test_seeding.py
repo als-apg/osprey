@@ -282,12 +282,13 @@ def test_non_default_persona_drives_skills_target_from_its_own_project(
     assert skills_calls[0][11] == "/app/beamline-ops-app/.claude/skills"
 
 
-def test_default_persona_keeps_default_container_dir_for_skills(
+def test_default_persona_skills_target_follows_its_project(
     tmp_path, monkeypatch, fake_runtime
 ):
-    """The default persona's skills target stays pinned to `/app/<facility_prefix>-assistant`
-    even though a personas catalog is configured, matching resolve_personas' contract that the
-    existing per-user agent-data volume keeps resolving to the same in-container path."""
+    """The default persona's skills target follows its own catalog project uniformly,
+    like every other persona — `/app/<persona.project>/.claude/skills` with no
+    facility-prefix special case. Uses a project (`ops-app`) that does not coincide
+    with the pre-persona `/app/<facility_prefix>-assistant` path to prove it."""
     calls, inputs, ready = fake_runtime
     monkeypatch.chdir(tmp_path)
     _write_base_md(tmp_path)
@@ -307,7 +308,7 @@ def test_default_persona_keeps_default_container_dir_for_skills(
 
     skills_calls = _skills_calls(calls)
     assert len(skills_calls) == 1
-    assert skills_calls[0][11] == f"/app/{_FACILITY_PREFIX}-assistant/.claude/skills"
+    assert skills_calls[0][11] == "/app/ops-app/.claude/skills"
 
 
 def test_unresolvable_persona_raises_before_touching_runtime(tmp_path, monkeypatch, fake_runtime):

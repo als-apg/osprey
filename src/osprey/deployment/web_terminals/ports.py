@@ -267,7 +267,7 @@ def resolve_personas(
         else:
             image = f"{registry_url}/web-terminal-{persona_ref}:latest"
 
-        container_project_dir = default_container_dir if is_default else f"/app/{project}"
+        container_project_dir = f"/app/{project}"
 
         resolved.append(
             {
