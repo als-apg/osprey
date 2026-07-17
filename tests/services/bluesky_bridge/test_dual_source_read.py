@@ -1,4 +1,4 @@
-"""Tests for `read_run_data`'s dual-source branching (task 3.3).
+"""Tests for `get_run_data`'s dual-source branching (task 3.3).
 
 `GET /runs/{run_id}/data` now has two data sources: the live-row buffer
 (`live_rows.py`, task 2.2) and Tiled (`_from_tiled`, task 3.2). This file
@@ -25,7 +25,7 @@ Exercised here:
   empty scan).
 - Schema parity: a completed live-sourced response and a Tiled-sourced
   response carry the identical key set.
-- The pre-existing 409 (run known, never promoted) still short-circuits
+- The pre-existing 409 (run known, never launched) still short-circuits
   before Tiled is ever consulted — there's provably nothing to read from
   either source in that case.
 """
@@ -42,7 +42,7 @@ from osprey.services.bluesky_bridge import live_rows
 from osprey.services.bluesky_bridge.app import app, set_runner_factory
 from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
 from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
-from osprey.services.bluesky_bridge.runs import Run, do_promote, registry
+from osprey.services.bluesky_bridge.runs import Run, do_launch, registry
 
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
@@ -74,10 +74,10 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def _promoted_run_with_uid(run_uid: str) -> Run:
-    """A run promoted with a FakePlanRunner pre-seeded with `run_uid`."""
+def _launched_run_with_uid(run_uid: str) -> Run:
+    """A run launched with a FakePlanRunner pre-seeded with `run_uid`."""
     run = registry.add(request={"plan_name": "orm"})
-    do_promote(run, lambda: FakePlanRunner(run_uid=run_uid))
+    do_launch(run, lambda: FakePlanRunner(run_uid=run_uid))
     return run
 
 
@@ -104,7 +104,7 @@ def test_live_buffer_present_serves_live_and_skips_tiled(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(app_module, "_from_tiled", _refusing_from_tiled)
-    run = _promoted_run_with_uid("uid-live")
+    run = _launched_run_with_uid("uid-live")
     _feed("uid-live", [{"x": 1.0}, {"x": 2.0}], stop=True)
 
     resp = client.get(f"/runs/{run.id}/data")
@@ -126,7 +126,7 @@ def test_in_flight_empty_buffer_stays_on_live_path_not_tiled(
     the stop doc) on every poll until its first event arrives.
     """
     monkeypatch.setattr(app_module, "_from_tiled", _refusing_from_tiled)
-    run = _promoted_run_with_uid("uid-empty-partial")
+    run = _launched_run_with_uid("uid-empty-partial")
     _feed("uid-empty-partial", [], stop=False)
 
     resp = client.get(f"/runs/{run.id}/data")
@@ -150,7 +150,7 @@ def test_evicted_live_buffer_falls_back_to_tiled(
     buffer is long gone.
     """
     monkeypatch.setattr(live_rows, "_MAX_RUNS", 1)
-    run_a = _promoted_run_with_uid("uid-evicted-a")
+    run_a = _launched_run_with_uid("uid-evicted-a")
     _feed("uid-evicted-a", [{"x": 1.0}], stop=True)
     # A second run's start doc evicts run A's buffer (_MAX_RUNS=1).
     _feed("uid-evicted-b", [{"x": 9.0}], stop=True)
@@ -270,7 +270,7 @@ def test_registry_hit_never_had_a_buffer_and_no_tiled_match_returns_404(
     existing — same `buf is None` branch, different one of the two reasons it
     can be `None`, both landing on 404 when Tiled has nothing either.
     """
-    run = _promoted_run_with_uid("uid-gone")
+    run = _launched_run_with_uid("uid-gone")
     monkeypatch.setattr(app_module, "_from_tiled", lambda *a, **kw: None)
 
     resp = client.get(f"/runs/{run.id}/data")
@@ -283,7 +283,7 @@ def test_registry_hit_never_had_a_buffer_and_no_tiled_match_returns_404(
 # =========================================================================
 
 
-def test_unpromoted_run_returns_409_without_consulting_tiled(
+def test_unlaunched_run_returns_409_without_consulting_tiled(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(app_module, "_from_tiled", _refusing_from_tiled)
@@ -303,7 +303,7 @@ def test_unpromoted_run_returns_409_without_consulting_tiled(
 def test_schema_parity_between_live_and_tiled_sourced_responses(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    live_run = _promoted_run_with_uid("uid-schema-live")
+    live_run = _launched_run_with_uid("uid-schema-live")
     _feed("uid-schema-live", [{"x": 1.0}], stop=True)
     live_body = client.get(f"/runs/{live_run.id}/data").json()
 

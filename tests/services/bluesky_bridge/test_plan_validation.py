@@ -410,7 +410,7 @@ class TestHashPlanBody:
     def test_normalizes_trailing_newline_variants_and_bom(self):
         """`hash_plan_body("x")`, `("x\\n")`, `("x\\n\\n\\n")`, and a
         BOM-prefixed `("\\ufeffx\\n")` must all hash IDENTICALLY: this is the
-        cross-task key (2.2's store / 2.4's load gate / 2.5's promote gate
+        cross-task key (2.2's store / 2.4's load gate / 2.5's launch gate
         match an in-memory body against an on-disk re-hash), so any of these
         harmless round-trip variations silently diverging would be a real
         mismatch, not a cosmetic one.

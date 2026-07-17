@@ -13,7 +13,7 @@ bluesky installed at all. To actually run this file:
 Proves the full chain end to end: a real bluesky `RunEngine` running a plan
 against mock ophyd-async devices (`devices/mock.py`) produces documents, the
 run reaches `completed`, its `error_message` stays unset, and
-`read_run_data` (via the real bridge route, not a patched one) returns the
+`get_run_data` (via the real bridge route, not a patched one) returns the
 buffered rows.
 
 The v1 hand-built plan set that used to carry `scan`/`count` is gone (see
@@ -48,7 +48,7 @@ from osprey.services.bluesky_bridge.devices.mock import build_devices  # noqa: E
 from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner  # noqa: E402
 from osprey.services.bluesky_bridge.plan_runner_bluesky import BlueskyPlanRunner  # noqa: E402
 from osprey.services.bluesky_bridge.plan_types import PlanSpec  # noqa: E402
-from osprey.services.bluesky_bridge.runs import do_promote, registry  # noqa: E402
+from osprey.services.bluesky_bridge.runs import do_launch, registry  # noqa: E402
 
 
 class _CountParams(BaseModel):
@@ -241,15 +241,15 @@ def test_reinitialize_returns_false_for_an_unknown_device_name(mock_devices: dic
 
 
 # =========================================================================
-# Full lifecycle: do_promote + the real GET /runs/{id}/data route
+# Full lifecycle: do_launch + the real GET /runs/{id}/data route
 # =========================================================================
 
 
-def test_promoted_run_read_run_data_returns_the_buffered_rows(
+def test_launched_run_get_run_data_returns_the_buffered_rows(
     mock_devices: dict, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """End-to-end through the real bridge route, not a patched buffer."""
-    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", "s3cr3t")
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "s3cr3t")
     set_runner_factory(lambda: BlueskyPlanRunner(devices=mock_devices, plans=_TEST_PLANS))
 
     client = TestClient(app)
@@ -263,13 +263,13 @@ def test_promoted_run_read_run_data_returns_the_buffered_rows(
     assert create_resp.status_code == 200, create_resp.text
     run_id = create_resp.json()["id"]
 
-    promote_resp = client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": "s3cr3t"})
-    assert promote_resp.status_code == 200, promote_resp.text
+    launch_resp = client.post(f"/runs/{run_id}/launch", headers={"X-Launch-Token": "s3cr3t"})
+    assert launch_resp.status_code == 200, launch_resp.text
 
     deadline = time.monotonic() + 15.0
     while client.get(f"/runs/{run_id}").json()["status"] == "running":
         if time.monotonic() > deadline:
-            raise AssertionError("promoted run did not complete within the timeout")
+            raise AssertionError("launched run did not complete within the timeout")
         time.sleep(0.05)
 
     status_body = client.get(f"/runs/{run_id}").json()
@@ -284,8 +284,8 @@ def test_promoted_run_read_run_data_returns_the_buffered_rows(
     assert "partial" not in data_body
 
 
-def test_do_promote_stamps_osprey_run_id_onto_the_start_doc(mock_devices: dict) -> None:
-    """`do_promote` (runs.py) sets `runner.osprey_run_id = run.id`, and `_run`
+def test_do_launch_stamps_osprey_run_id_onto_the_start_doc(mock_devices: dict) -> None:
+    """`do_launch` (runs.py) sets `runner.osprey_run_id = run.id`, and `_run`
     (plan_runner_bluesky.py) must thread it onto the RunEngine start doc as
     metadata — not nested under an `md` key — so a Tiled-persisted run can be
     found again by `run.id` after the in-memory registry (and `run_uid` with
@@ -302,7 +302,7 @@ def test_do_promote_stamps_osprey_run_id_onto_the_start_doc(mock_devices: dict) 
         request={"plan_name": "buffer_probe", "plan_args": {"detectors": ["det1"], "num": 2}}
     )
 
-    do_promote(run, runner_factory)
+    do_launch(run, runner_factory)
     _wait_until_idle(run.runner)
 
     assert run.runner.osprey_run_id == run.id  # type: ignore[union-attr]

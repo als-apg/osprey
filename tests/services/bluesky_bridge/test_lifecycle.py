@@ -13,11 +13,11 @@ import threading
 import pytest
 from fastapi.testclient import TestClient
 
-from osprey.services.bluesky_bridge.app import app, promote_run, set_runner_factory, stop_run
+from osprey.services.bluesky_bridge.app import app, launch_run, set_runner_factory, stop_run
 from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
 from osprey.services.bluesky_bridge.runs import registry
 
-_ENV_VAR = "BLUESKY_PROMOTE_TOKEN"
+_ENV_VAR = "BLUESKY_LAUNCH_TOKEN"
 _TOKEN = "s3cr3t"
 
 
@@ -45,7 +45,7 @@ def _create_run(client: TestClient) -> str:
     resp = client.post("/runs", json={"plan_name": "grid_scan", "plan_args": {"num": 3}})
     assert resp.status_code == 200, resp.text
     body = resp.json()
-    assert body["status"] == "intent"
+    assert body["status"] == "pending"
     return body["id"]
 
 
@@ -54,7 +54,7 @@ def _create_run(client: TestClient) -> str:
 # =========================================================================
 
 
-def test_promote_without_token_returns_503_and_touches_no_scanner(
+def test_launch_without_token_returns_503_and_touches_no_scanner(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv(_ENV_VAR, raising=False)
@@ -62,15 +62,15 @@ def test_promote_without_token_returns_503_and_touches_no_scanner(
     set_runner_factory(lambda: runner)
 
     run_id = _create_run(client)
-    resp = client.post(f"/runs/{run_id}/promote")
+    resp = client.post(f"/runs/{run_id}/launch")
 
     assert resp.status_code == 503
     assert runner.reinitialize_calls == 0
     assert runner.start_calls == 0
-    assert client.get(f"/runs/{run_id}").json()["status"] == "intent"
+    assert client.get(f"/runs/{run_id}").json()["status"] == "pending"
 
 
-def test_promote_with_invalid_token_returns_403_and_touches_no_scanner(
+def test_launch_with_invalid_token_returns_403_and_touches_no_scanner(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(_ENV_VAR, _TOKEN)
@@ -78,15 +78,15 @@ def test_promote_with_invalid_token_returns_403_and_touches_no_scanner(
     set_runner_factory(lambda: runner)
 
     run_id = _create_run(client)
-    resp = client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": "wrong"})
+    resp = client.post(f"/runs/{run_id}/launch", headers={"X-Launch-Token": "wrong"})
 
     assert resp.status_code == 403
     assert runner.reinitialize_calls == 0
     assert runner.start_calls == 0
-    assert client.get(f"/runs/{run_id}").json()["status"] == "intent"
+    assert client.get(f"/runs/{run_id}").json()["status"] == "pending"
 
 
-def test_promote_with_valid_token_starts_the_scan(
+def test_launch_with_valid_token_starts_the_scan(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(_ENV_VAR, _TOKEN)
@@ -94,7 +94,7 @@ def test_promote_with_valid_token_starts_the_scan(
     set_runner_factory(lambda: runner)
 
     run_id = _create_run(client)
-    resp = client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
+    resp = client.post(f"/runs/{run_id}/launch", headers={"X-Launch-Token": _TOKEN})
 
     assert resp.status_code == 200, resp.text
     body = resp.json()
@@ -106,30 +106,30 @@ def test_promote_with_valid_token_starts_the_scan(
 
 
 # =========================================================================
-# Concurrency / re-promotion guards: 409
+# Concurrency / re-launch guards: 409
 # =========================================================================
 
 
-def test_concurrent_second_promote_returns_409_while_active(
+def test_concurrent_second_launch_returns_409_while_active(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(_ENV_VAR, _TOKEN)
     set_runner_factory(FakePlanRunner)
 
     run_id = _create_run(client)
-    first = client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
+    first = client.post(f"/runs/{run_id}/launch", headers={"X-Launch-Token": _TOKEN})
     assert first.status_code == 200
 
-    second = client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
+    second = client.post(f"/runs/{run_id}/launch", headers={"X-Launch-Token": _TOKEN})
     assert second.status_code == 409
-    assert "already promoted" in second.json()["detail"]
+    assert "already launched" in second.json()["detail"]
 
 
-def test_promote_after_stop_returns_409(
+def test_launch_after_stop_returns_409(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # Stopping an intent that was never promoted still permanently forecloses
-    # promotion — do_promote's `stopped` guard fires regardless.
+    # Stopping an intent that was never launched still permanently forecloses
+    # launch — do_launch's `stopped` guard fires regardless.
     monkeypatch.setenv(_ENV_VAR, _TOKEN)
     set_runner_factory(FakePlanRunner)
 
@@ -138,27 +138,27 @@ def test_promote_after_stop_returns_409(
     assert stop_resp.status_code == 200
     assert stop_resp.json()["status"] == "stopped"
 
-    promote_resp = client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
-    assert promote_resp.status_code == 409
-    assert "stopped" in promote_resp.json()["detail"]
+    launch_resp = client.post(f"/runs/{run_id}/launch", headers={"X-Launch-Token": _TOKEN})
+    assert launch_resp.status_code == 409
+    assert "stopped" in launch_resp.json()["detail"]
 
 
-def test_promote_after_stopping_an_already_promoted_run_returns_409(
+def test_launch_after_stopping_an_already_launched_run_returns_409(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(_ENV_VAR, _TOKEN)
     set_runner_factory(FakePlanRunner)
 
     run_id = _create_run(client)
-    first_promote = client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
-    assert first_promote.status_code == 200
+    first_launch = client.post(f"/runs/{run_id}/launch", headers={"X-Launch-Token": _TOKEN})
+    assert first_launch.status_code == 200
 
     stop_resp = client.post(f"/runs/{run_id}/stop")
     assert stop_resp.status_code == 200
     assert stop_resp.json()["status"] == "stopped"
 
-    promote_resp = client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
-    assert promote_resp.status_code == 409
+    launch_resp = client.post(f"/runs/{run_id}/launch", headers={"X-Launch-Token": _TOKEN})
+    assert launch_resp.status_code == 409
 
 
 # =========================================================================
@@ -166,19 +166,19 @@ def test_promote_after_stopping_an_already_promoted_run_returns_409(
 # =========================================================================
 
 
-def test_state_machine_intent_before_promotion(client: TestClient) -> None:
+def test_state_machine_intent_before_launch(client: TestClient) -> None:
     run_id = _create_run(client)
-    assert client.get(f"/runs/{run_id}").json()["status"] == "intent"
+    assert client.get(f"/runs/{run_id}").json()["status"] == "pending"
 
 
-def test_state_machine_running_after_promotion(
+def test_state_machine_running_after_launch(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(_ENV_VAR, _TOKEN)
     set_runner_factory(FakePlanRunner)
 
     run_id = _create_run(client)
-    client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
+    client.post(f"/runs/{run_id}/launch", headers={"X-Launch-Token": _TOKEN})
     assert client.get(f"/runs/{run_id}").json()["status"] == "running"
 
 
@@ -190,7 +190,7 @@ def test_state_machine_completed_once_scan_finishes_cleanly(
     set_runner_factory(lambda: runner)
 
     run_id = _create_run(client)
-    client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
+    client.post(f"/runs/{run_id}/launch", headers={"X-Launch-Token": _TOKEN})
     runner.simulate_completion()
 
     body = client.get(f"/runs/{run_id}").json()
@@ -206,7 +206,7 @@ def test_state_machine_stopped_via_stop_route(
     set_runner_factory(lambda: runner)
 
     run_id = _create_run(client)
-    client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
+    client.post(f"/runs/{run_id}/launch", headers={"X-Launch-Token": _TOKEN})
     stop_resp = client.post(f"/runs/{run_id}/stop")
 
     assert stop_resp.status_code == 200
@@ -223,7 +223,7 @@ def test_state_machine_error_when_scanner_ends_in_error_state(
     set_runner_factory(lambda: runner)
 
     run_id = _create_run(client)
-    client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
+    client.post(f"/runs/{run_id}/launch", headers={"X-Launch-Token": _TOKEN})
     runner.simulate_error("device timeout")
 
     body = client.get(f"/runs/{run_id}").json()
@@ -231,14 +231,14 @@ def test_state_machine_error_when_scanner_ends_in_error_state(
     assert "error" in body
 
 
-def test_state_machine_error_when_reinitialize_fails_at_promote_time(
+def test_state_machine_error_when_reinitialize_fails_at_launch_time(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(_ENV_VAR, _TOKEN)
     set_runner_factory(lambda: FakePlanRunner(reinitialize_fails=True))
 
     run_id = _create_run(client)
-    resp = client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
+    resp = client.post(f"/runs/{run_id}/launch", headers={"X-Launch-Token": _TOKEN})
 
     assert resp.status_code == 500
     assert client.get(f"/runs/{run_id}").json()["status"] == "error"
@@ -254,11 +254,11 @@ def test_get_unknown_run_returns_404(client: TestClient) -> None:
     assert resp.status_code == 404
 
 
-def test_promote_unknown_run_returns_404(
+def test_launch_unknown_run_returns_404(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv(_ENV_VAR, _TOKEN)
-    resp = client.post("/runs/does-not-exist/promote", headers={"X-Promote-Token": _TOKEN})
+    resp = client.post("/runs/does-not-exist/launch", headers={"X-Launch-Token": _TOKEN})
     assert resp.status_code == 404
 
 
@@ -281,19 +281,19 @@ def test_list_runs_returns_newest_first(client: TestClient) -> None:
 
 
 # =========================================================================
-# Race: stop() landing during do_promote's unlocked runner-build window
+# Race: stop() landing during do_launch's unlocked runner-build window
 # =========================================================================
 
 
 def test_stop_during_unlocked_build_window_never_leaves_a_live_untracked_scan(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Deterministically interleave promote and stop around the unlocked window.
+    """Deterministically interleave launch and stop around the unlocked window.
 
-    `do_promote` sets `promoting=True` under the lock, then builds/starts the
+    `do_launch` sets `launching=True` under the lock, then builds/starts the
     runner OUTSIDE the lock (it may be slow) before re-acquiring the lock to
-    publish `runner`/`promoted`. A `stop()` landing in that unlocked window
-    used to see `promoted=False`/`runner=None`, skip stopping anything, and
+    publish `runner`/`launched`. A `stop()` landing in that unlocked window
+    used to see `launched=False`/`runner=None`, skip stopping anything, and
     just record `stopped=True` — after which the just-started runner got
     published anyway: a live running behind a run reporting "stopped".
 
@@ -310,8 +310,8 @@ def test_stop_during_unlocked_build_window_never_leaves_a_live_untracked_scan(
 
     class BlockingBuildScanner(FakePlanRunner):
         def reinitialize(self, exec_config: object) -> bool:
-            # Signal that do_promote has reached the unlocked build phase
-            # (past the `promoting=True` lock section), then hold here —
+            # Signal that do_launch has reached the unlocked build phase
+            # (past the `launching=True` lock section), then hold here —
             # simulating a slow runner build — until stop() has landed.
             reinitialize_started.set()
             assert stop_landed.wait(timeout=5), "stop() never landed during the build window"
@@ -325,23 +325,23 @@ def test_stop_during_unlocked_build_window_never_leaves_a_live_untracked_scan(
     set_runner_factory(factory)
     run_id = _create_run(client)
 
-    promote_result: dict[str, object] = {}
+    launch_result: dict[str, object] = {}
 
-    def run_promote() -> None:
-        promote_result["response"] = promote_run(run_id, x_promote_token=_TOKEN)
+    def run_launch() -> None:
+        launch_result["response"] = launch_run(run_id, x_launch_token=_TOKEN)
 
-    promoter = threading.Thread(target=run_promote)
-    promoter.start()
+    launchr = threading.Thread(target=run_launch)
+    launchr.start()
     try:
-        assert reinitialize_started.wait(timeout=5), "promote never reached the build phase"
+        assert reinitialize_started.wait(timeout=5), "launch never reached the build phase"
 
-        # The promote thread is now blocked inside the unlocked build window
-        # (promoting=True, runner/promoted not yet published). Stop lands here.
+        # The launch thread is now blocked inside the unlocked build window
+        # (launching=True, runner/launched not yet published). Stop lands here.
         stop_run(run_id)
         stop_landed.set()
 
-        promoter.join(timeout=5)
-        assert not promoter.is_alive(), "promote thread did not finish"
+        launchr.join(timeout=5)
+        assert not launchr.is_alive(), "launch thread did not finish"
     finally:
         # Always unblock the background thread even if an assertion above failed.
         stop_landed.set()

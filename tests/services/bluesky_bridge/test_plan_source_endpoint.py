@@ -6,7 +6,7 @@ obfuscation residual (see `plan_validation.py`'s module docstring): an
 approver who can actually SEE a plan's source has a chance to refuse an
 obfuscated body even where the earlier automated stages could not catch it.
 
-Mirrors `test_promote_validation_gate.py`'s isolation fixture and session-plan
+Mirrors `test_launch_validation_gate.py`'s isolation fixture and session-plan
 helpers — every plan file here is pure pydantic/stdlib (no bluesky import).
 """
 
@@ -213,7 +213,7 @@ def test_re_authored_session_plan_re_reflects_unvalidated_after_edit(
     tmp_path: Path, client: TestClient
 ) -> None:
     """A previously-validated session file, edited afterward, is honestly
-    reported as unvalidated again — mirrors the load/promote gates' own
+    reported as unvalidated again — mirrors the load/launch gates' own
     re-hash-on-every-check behavior (never a stale cached verdict)."""
     original = _session_plan_source("edited_plan")
     path = _write_session_plan(tmp_path, "edited_plan", original)
