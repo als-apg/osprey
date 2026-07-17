@@ -57,15 +57,13 @@ still leaves nothing stranded; the web-container names (whose prefix is a shared
 preset default, not unique per run) are exact-name pre-cleaned before deploy so a
 crashed prior run can never be adopted.
 
-HAZARD — DO NOT run this on a host that already has another live osprey
-*services* deploy (VA / bridge / OpenObserve / Postgres from any other project).
-osprey renders every project's backend services into a ``build/services/``
-directory that compose treats as ONE shared project, so a second ``osprey deploy
-up`` ADOPTS and recreates the other deploy's service containers regardless of
-unique project name or remapped ports — it will tear down a stranger's stack.
-Until that osprey deploy-isolation gap is fixed, the ``demo_stack`` fixture
-fail-safes by SKIPPING (never deploying) when it detects a foreign osprey
-backend-service container running (see ``_foreign_osprey_services``).
+Coexistence with other osprey deploys on the same host is safe by design:
+every ``osprey deploy`` compose invocation pins ``COMPOSE_PROJECT_NAME`` to its
+own resolved project name, so this deploy's backend services live under the
+``castdemo-e2e`` compose project and can never adopt or recreate another
+deployment's containers or volumes. Together with the remapped ports above,
+this test runs alongside live foreign osprey stacks; only the web containers
+collide (shared preset ``facility.prefix``) and are exact-name pre-cleaned.
 
 Gating: needs a container runtime whose daemon is actually responding (``docker``
 by default; ``OSPREY_E2E_RUNTIME=podman`` opt-in, matching the sibling deploy
@@ -286,39 +284,6 @@ def _va_container() -> str:
 
 def _bridge_container() -> str:
     return f"{PROJECT_NAME}-bluesky-bridge"
-
-
-# Backend-service container-name suffixes osprey deploys under its (shared,
-# per-host) build/services compose project. If any of these is running and is
-# NOT this project's, a foreign osprey deploy is live and deploying here would
-# clobber it — see the module docstring's HAZARD note.
-_OSPREY_SERVICE_SUFFIXES = (
-    "-openobserve",
-    "-ariel-postgres",
-    "-virtual-accelerator",
-    "-bluesky-bridge",
-)
-
-
-def _foreign_osprey_services() -> list[str]:
-    """Running backend-service containers belonging to a DIFFERENT osprey deploy.
-
-    Names ending in a known osprey backend-service suffix (``-openobserve`` etc.)
-    that are not this project's own. A non-empty result means another osprey
-    services deploy is live on the host; because osprey's backend-services compose
-    project is shared per-host (not namespaced per project), a deploy here would
-    adopt and recreate those containers — so the fixture skips instead.
-    """
-    result = _runtime_cli("ps", "--format", "{{.Names}}", timeout=15)
-    if result.returncode != 0:
-        return []
-    return sorted(
-        name
-        for name in (line.strip() for line in result.stdout.splitlines())
-        if name
-        and any(name.endswith(sfx) for sfx in _OSPREY_SERVICE_SUFFIXES)
-        and not name.startswith(f"{PROJECT_NAME}-")
-    )
 
 
 def _facility_prefix(project_dir: Path) -> str:
@@ -569,19 +534,6 @@ def demo_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DemoStack]:
         pytest.skip(f"{RUNTIME} not available")
     if _runtime_cli("ps", timeout=10).returncode != 0:
         pytest.skip(f"{RUNTIME} daemon not responding")
-
-    # Fail-safe for osprey's shared backend-services compose project (see the
-    # module docstring's HAZARD note): if another osprey deploy's service
-    # containers are live, deploying here would adopt and tear them down. Skip
-    # rather than clobber a stranger's stack.
-    foreign = _foreign_osprey_services()
-    if foreign:
-        pytest.skip(
-            "a foreign osprey backend-services deploy is live on this host "
-            f"({', '.join(foreign)}); osprey's build/services compose project is "
-            "shared per-host, so deploying here would adopt and recreate those "
-            "containers. Run on a clean host, or after that deploy is torn down."
-        )
 
     osprey_bin = _find_osprey_console_script()
     base = tmp_path_factory.mktemp("cast_demo_build")
