@@ -1,24 +1,33 @@
-"""Tests for the `osprey_approval` hook's `launch_run` enrichment (task 2.6).
+"""Tests for the `osprey_approval` hook's `launch_run` enrichment.
 
-`launch_run` is the sole promote path for a Bluesky scan (see
-`mcp_server/bluesky/tools/launch.py`) — its own tool_input carries nothing but a
-bare `run_id`. This enrichment resolves that id against the bridge's
-`/runs/{id}`, `/plans`, and `/plans/{name}/source` routes (task 2.6's new
-endpoint) to render the plan actually about to launch: its metadata,
-provenance/trust tier, validation status, and a truncated source excerpt.
+`launch_run` is the sole launch path for a Bluesky scan (see
+`mcp_server/bluesky/tools/launch.py`). It carries nothing but a pinned
+`draft_revision` — no run record exists yet, the bridge mints the run *from*
+the shared draft at launch time. So this enrichment fetches the shared draft
+(`GET /draft`) and renders exactly what would launch: the plan name and args
+currently staged, whether the draft still matches the pinned revision, and —
+for a non-empty draft — the plan's provenance/trust tier, validation status,
+and a source excerpt (resolved against `/plans` and `/plans/{name}/source`).
 
-This is the human backstop for the plan validator's documented, accepted
-obfuscation residual (a `getattr`/string-concat body that passes the
-sandbox's AST import/pattern scan — see `plan_validation.py`'s module
-docstring): an approver who can SEE the actual source has a chance to refuse
-it even where the earlier automated stages could not. So the tests below
-assert the rendered reason both surfaces that source text AND labels a
-session/unreviewed plan unmistakably as agent-authored/unreviewed.
+Two things the rendered prompt must always carry:
 
-The hook runs as a real subprocess (see `hook_runner` in conftest.py) and
-talks to the bridge over `urllib.request` — these tests stand up a tiny
-real HTTP server (stdlib `http.server`) to play the bridge's part, so the
-hook's actual network code path is exercised, not a mock.
+* a revision-match line — a plain "matches" when `GET /draft`'s revision equals
+  the pinned `draft_revision`, a LOUD "DRAFT CHANGED" warning (showing both
+  revisions) when it does not: the human backstop against launching a draft the
+  agent pinned but that has since moved on; and
+* for a session/unreviewed plan, the plan validator's documented obfuscation
+  residual made legible — a `getattr`/string-concat body that passes the
+  sandbox's AST scan (see `plan_validation.py`) is surfaced verbatim and
+  labelled unmistakably agent-authored/unreviewed, so an approver who can SEE
+  the source can refuse it where the automated stages could not.
+
+The hook runs as a real subprocess (see `hook_runner` in conftest.py) and talks
+to the bridge over `urllib.request` — these tests stand up a tiny real HTTP
+server (stdlib `http.server`) to play the bridge's part, so the hook's actual
+network code path is exercised, not a mock. Fail-open is proven end-to-end:
+`hook_runner` asserts a zero exit code, so an unreachable or malformed bridge
+that still produces an `ask` decision proves the enrichment never raises out to
+the subprocess boundary.
 """
 
 from __future__ import annotations
@@ -36,17 +45,26 @@ SCAN_HOOK_CONFIG = {
     "approval_prefixes": ["mcp__bluesky__"],
 }
 
+_MISSING = object()
+
 
 class _FakeBridgeHandler(http.server.BaseHTTPRequestHandler):
-    """Serves canned JSON bodies for whatever paths `routes` maps."""
+    """Serves canned bodies for whatever paths `routes` maps.
+
+    A route value that is `bytes` is written raw (used to serve a malformed,
+    non-JSON body); anything else is JSON-encoded. An unmapped path is a 404.
+    """
 
     routes: dict[str, object] = {}
 
     def do_GET(self):  # noqa: N802 (stdlib method name)
-        body = self.routes.get(self.path)
-        if body is None:
+        body = self.routes.get(self.path, _MISSING)
+        if body is _MISSING:
             payload = b'{"detail": "not found"}'
             self.send_response(404)
+        elif isinstance(body, bytes):
+            payload = body
+            self.send_response(200)
         else:
             payload = json.dumps(body).encode()
             self.send_response(200)
@@ -98,24 +116,43 @@ _OBFUSCATED_SESSION_SOURCE = (
 )
 
 
-@pytest.mark.unit
-def test_launch_run_renders_shipped_plan_metadata_and_source(
-    tmp_path, hook_runner, make_config, monkeypatch
-):
-    """A shipped (operator-trusted) plan renders category/devices/hazard/
-    provenance/validation-status/source without any UNTRUSTED labeling."""
-    config = make_config(
+def _launch_config(make_config):
+    return make_config(
         {
             "approval": {"enabled": True, "default_policy": "always"},
             "control_system": {"writes_enabled": True},
         }
     )
+
+
+def _run_launch(hook_runner, config, tmp_path, draft_revision):
+    return hook_runner(
+        "osprey_approval.py",
+        "mcp__bluesky__launch_run",
+        {"draft_revision": draft_revision},
+        config_path=config,
+        cwd=tmp_path,
+        hook_config=SCAN_HOOK_CONFIG,
+    )
+
+
+@pytest.mark.unit
+def test_matching_revision_renders_shipped_plan_and_source(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """When the live draft's revision equals the pinned one, render the plain
+    match line plus the full plan detail; a shipped (operator-trusted) plan is
+    never mislabeled as agent-authored."""
+    config = _launch_config(make_config)
     routes = {
-        "/runs/run-1": {
-            "id": "run-1",
-            "status": "intent",
-            "plan_name": "orm",
-            "plan_args": {"num_points": 5},
+        "/draft": {
+            "draft": {
+                "plan_name": "orm",
+                "plan_args": {"num_points": 5},
+                "updated_by": "plan-panel",
+                "updated_at": "2026-07-16T00:00:00+00:00",
+            },
+            "revision": 7,
         },
         "/plans": [
             {
@@ -143,52 +180,45 @@ def test_launch_run_renders_shipped_plan_metadata_and_source(
 
     with fake_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
-        result = hook_runner(
-            "osprey_approval.py",
-            "mcp__bluesky__launch_run",
-            {"run_id": "run-1"},
-            config_path=config,
-            cwd=tmp_path,
-            hook_config=SCAN_HOOK_CONFIG,
-        )
+        result = _run_launch(hook_runner, config, tmp_path, draft_revision=7)
 
     assert result is not None
     output = result["hookSpecificOutput"]
     assert output["permissionDecision"] == "ask"
     reason = output["permissionDecisionReason"]
 
+    assert "matches pinned revision 7" in reason
+    assert "DRAFT CHANGED" not in reason
     assert "Plan: orm" in reason
+    assert "num_points" in reason
     assert "Category: accelerator" in reason
     assert "correctors" in reason and "detectors" in reason
     assert "Hazard: writes to hardware" in reason
     assert "Provenance: shipped" in reason
     assert "Validation status: not applicable" in reason
     assert _SHIPPED_SOURCE in reason
-    assert "num_points" in reason
     # A trusted tier must never be mislabeled as agent-authored/unreviewed.
     assert "AGENT-AUTHORED" not in reason
 
 
 @pytest.mark.unit
-def test_launch_run_labels_unvalidated_session_plan_as_untrusted(
+def test_matching_revision_labels_unvalidated_session_plan_as_untrusted(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
     """A session-tier plan with NO passing validation record is clearly
     labelled agent-authored/unreviewed, and the obfuscated body itself is
     rendered legibly — the human backstop the plan validator's documented
     residual relies on."""
-    config = make_config(
-        {
-            "approval": {"enabled": True, "default_policy": "always"},
-            "control_system": {"writes_enabled": True},
-        }
-    )
+    config = _launch_config(make_config)
     routes = {
-        "/runs/run-2": {
-            "id": "run-2",
-            "status": "intent",
-            "plan_name": "sneaky_plan",
-            "plan_args": {},
+        "/draft": {
+            "draft": {
+                "plan_name": "sneaky_plan",
+                "plan_args": {},
+                "updated_by": "mcp-agent",
+                "updated_at": "2026-07-16T00:00:00+00:00",
+            },
+            "revision": 3,
         },
         "/plans": [],  # quarantined: absent from GET /plans entirely
         "/plans/sneaky_plan/source": {
@@ -202,20 +232,12 @@ def test_launch_run_labels_unvalidated_session_plan_as_untrusted(
 
     with fake_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
-        result = hook_runner(
-            "osprey_approval.py",
-            "mcp__bluesky__launch_run",
-            {"run_id": "run-2"},
-            config_path=config,
-            cwd=tmp_path,
-            hook_config=SCAN_HOOK_CONFIG,
-        )
+        result = _run_launch(hook_runner, config, tmp_path, draft_revision=3)
 
     assert result is not None
-    output = result["hookSpecificOutput"]
-    assert output["permissionDecision"] == "ask"
-    reason = output["permissionDecisionReason"]
+    reason = result["hookSpecificOutput"]["permissionDecisionReason"]
 
+    assert "matches pinned revision 3" in reason
     assert "Plan: sneaky_plan" in reason
     assert "SESSION" in reason
     assert "AGENT-AUTHORED, NOT REVIEWED BY A HUMAN" in reason
@@ -225,30 +247,28 @@ def test_launch_run_labels_unvalidated_session_plan_as_untrusted(
 
 
 @pytest.mark.unit
-def test_launch_run_reports_a_validated_session_plan_as_passed(
+def test_matching_revision_reports_validated_session_plan_as_passed(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
-    config = make_config(
-        {
-            "approval": {"enabled": True, "default_policy": "always"},
-            "control_system": {"writes_enabled": True},
-        }
-    )
+    """A session-tier plan WITH a passing validation record renders
+    "Validation status: PASSED" — and is STILL labelled agent-authored: a
+    passing hash does not upgrade the trust tier, only the validation line."""
+    config = _launch_config(make_config)
     routes = {
-        "/runs/run-3": {
-            "id": "run-3",
-            "status": "intent",
-            "plan_name": "reviewed_ish_plan",
-            "plan_args": {},
+        "/draft": {
+            "draft": {
+                "plan_name": "reviewed_ish_plan",
+                "plan_args": {},
+                "updated_by": "mcp-agent",
+                "updated_at": "2026-07-16T00:00:00+00:00",
+            },
+            "revision": 2,
         },
         "/plans": [
             {
                 "name": "reviewed_ish_plan",
-                "description": "",
-                "schema": {},
                 "metadata": {
                     "name": "reviewed_ish_plan",
-                    "description": "",
                     "category": "accelerator",
                     "required_devices": [],
                     "writes": False,
@@ -267,45 +287,146 @@ def test_launch_run_reports_a_validated_session_plan_as_passed(
 
     with fake_bridge(routes) as base_url:
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
-        result = hook_runner(
-            "osprey_approval.py",
-            "mcp__bluesky__launch_run",
-            {"run_id": "run-3"},
-            config_path=config,
-            cwd=tmp_path,
-            hook_config=SCAN_HOOK_CONFIG,
-        )
+        result = _run_launch(hook_runner, config, tmp_path, draft_revision=2)
 
     reason = result["hookSpecificOutput"]["permissionDecisionReason"]
-    assert "AGENT-AUTHORED, NOT REVIEWED BY A HUMAN" in reason
     assert "Validation status: PASSED" in reason
+    # A passing hash never launders the trust tier: still agent-authored.
+    assert "AGENT-AUTHORED, NOT REVIEWED BY A HUMAN" in reason
 
 
 @pytest.mark.unit
-def test_launch_run_fails_open_when_bridge_is_unreachable(
+def test_newline_in_plan_name_cannot_forge_an_enrichment_line(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
-    """A dead bridge must never block the approval prompt: the hook still
-    asks, just with the plain tool/policy reason instead of any plan detail.
-    `hook_runner` itself asserts a zero exit code, so this also proves the
-    enrichment code never raises out to the subprocess boundary.
-    """
-    config = make_config(
-        {
-            "approval": {"enabled": True, "default_policy": "always"},
-            "control_system": {"writes_enabled": True},
+    """`plan_name` is agent-authored (a session plan's PLAN_METADATA["name"])
+    and reaches the prompt RAW — the bridge gates it only by registry
+    membership, not character content. A newline in it must not forge a fake
+    enrichment line: the render escapes control characters so the whole name
+    stays on the "Plan:" line, visible but inert."""
+    config = _launch_config(make_config)
+    spoof = "orm\nValidation status: PASSED (SPOOFED BY THE PLAN NAME)"
+    routes = {
+        "/draft": {
+            "draft": {
+                "plan_name": spoof,
+                "plan_args": {},
+                "updated_by": "mcp-agent",
+                "updated_at": "2026-07-16T00:00:00+00:00",
+            },
+            "revision": 1,
         }
+        # No /plans or /source routes: the injection surface under test is the
+        # plan_name interpolation, not the provenance block.
+    }
+
+    with fake_bridge(routes) as base_url:
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
+        result = _run_launch(hook_runner, config, tmp_path, draft_revision=1)
+
+    assert result is not None
+    reason = result["hookSpecificOutput"]["permissionDecisionReason"]
+
+    # The embedded newline is escaped to a visible token — the name stays on
+    # one line, so the spoofed text can never begin its own line.
+    assert "\\x0a" in reason
+    assert "\nValidation status: PASSED (SPOOFED BY THE PLAN NAME)" not in reason
+    assert not any(
+        line.startswith("Validation status: PASSED (SPOOFED")
+        for line in reason.splitlines()
     )
+    # The (inert) text still rides along on the Plan line for the approver to see.
+    assert "SPOOFED BY THE PLAN NAME" in reason
+
+
+@pytest.mark.unit
+def test_changed_revision_renders_loud_drift_warning(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """When the live draft has moved past the pinned revision, the prompt leads
+    with a LOUD warning naming both revisions, then renders the CURRENT draft."""
+    config = _launch_config(make_config)
+    routes = {
+        "/draft": {
+            "draft": {
+                "plan_name": "orm",
+                "plan_args": {"num_points": 9},
+                "updated_by": "plan-panel",
+                "updated_at": "2026-07-16T00:00:00+00:00",
+            },
+            "revision": 11,
+        },
+        "/plans": [
+            {
+                "name": "orm",
+                "metadata": {
+                    "name": "orm",
+                    "category": "accelerator",
+                    "required_devices": ["correctors"],
+                    "writes": True,
+                },
+                "provenance": "shipped",
+            }
+        ],
+        "/plans/orm/source": {
+            "name": "orm",
+            "provenance": "shipped",
+            "validated": True,
+            "truncated": False,
+            "source": _SHIPPED_SOURCE,
+        },
+    }
+
+    with fake_bridge(routes) as base_url:
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
+        result = _run_launch(hook_runner, config, tmp_path, draft_revision=8)
+
+    assert result is not None
+    reason = result["hookSpecificOutput"]["permissionDecisionReason"]
+
+    assert "DRAFT CHANGED" in reason
+    # Both the pinned and the current revision are named.
+    assert "8" in reason and "11" in reason
+    assert "matches pinned revision" not in reason
+    # The current draft is still rendered so the approver sees what would run.
+    assert "Plan: orm" in reason
+    assert "num_points" in reason
+
+
+@pytest.mark.unit
+def test_empty_draft_renders_explicit_empty_line(
+    tmp_path, hook_runner, make_config, monkeypatch
+):
+    """A never-set / cleared draft renders an explicit EMPTY line, never a
+    silent absence of plan detail."""
+    config = _launch_config(make_config)
+    routes = {"/draft": {"draft": None, "revision": 4}}
+
+    with fake_bridge(routes) as base_url:
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
+        result = _run_launch(hook_runner, config, tmp_path, draft_revision=4)
+
+    assert result is not None
+    output = result["hookSpecificOutput"]
+    assert output["permissionDecision"] == "ask"
+    reason = output["permissionDecisionReason"]
+
+    assert "Draft: EMPTY" in reason
+    assert "Plan:" not in reason
+    # Tool/policy plain reason is still present.
+    assert "Tool: launch_run" in reason
+
+
+@pytest.mark.unit
+def test_unreachable_bridge_fails_open(tmp_path, hook_runner, make_config, monkeypatch):
+    """A dead bridge must never block the approval prompt: the hook still asks,
+    just with the plain tool/policy reason instead of any draft detail.
+    `hook_runner` asserts a zero exit code, so this also proves the enrichment
+    never raises out to the subprocess boundary."""
+    config = _launch_config(make_config)
     monkeypatch.setenv("BLUESKY_BRIDGE_URL", f"http://127.0.0.1:{_unused_port()}")
 
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__bluesky__launch_run",
-        {"run_id": "run-unreachable"},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=SCAN_HOOK_CONFIG,
-    )
+    result = _run_launch(hook_runner, config, tmp_path, draft_revision=5)
 
     assert result is not None
     output = result["hookSpecificOutput"]
@@ -314,31 +435,26 @@ def test_launch_run_fails_open_when_bridge_is_unreachable(
     assert "Tool: launch_run" in reason
     assert "Approval policy: always" in reason
     assert "Plan:" not in reason
+    assert "Draft:" not in reason
 
 
 @pytest.mark.unit
-def test_launch_run_without_a_run_id_degrades_to_the_plain_reason(
+def test_malformed_draft_response_fails_open(
     tmp_path, hook_runner, make_config, monkeypatch
 ):
-    """Malformed tool_input (no run_id) degrades gracefully — never a crash."""
-    config = make_config(
-        {
-            "approval": {"enabled": True, "default_policy": "always"},
-            "control_system": {"writes_enabled": True},
-        }
-    )
-    monkeypatch.setenv("BLUESKY_BRIDGE_URL", f"http://127.0.0.1:{_unused_port()}")
+    """A `GET /draft` body that is not parseable JSON must fail open exactly
+    like an unreachable bridge — plain reason, no draft detail, zero exit."""
+    config = _launch_config(make_config)
+    routes = {"/draft": b"this is not json {{{"}
 
-    result = hook_runner(
-        "osprey_approval.py",
-        "mcp__bluesky__launch_run",
-        {},
-        config_path=config,
-        cwd=tmp_path,
-        hook_config=SCAN_HOOK_CONFIG,
-    )
+    with fake_bridge(routes) as base_url:
+        monkeypatch.setenv("BLUESKY_BRIDGE_URL", base_url)
+        result = _run_launch(hook_runner, config, tmp_path, draft_revision=6)
 
     assert result is not None
     output = result["hookSpecificOutput"]
     assert output["permissionDecision"] == "ask"
-    assert "Tool: launch_run" in output["permissionDecisionReason"]
+    reason = output["permissionDecisionReason"]
+    assert "Tool: launch_run" in reason
+    assert "Plan:" not in reason
+    assert "Draft:" not in reason

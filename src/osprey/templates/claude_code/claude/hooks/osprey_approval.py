@@ -220,8 +220,54 @@ def _bridge_get_json(base_url: str, path: str, timeout: float = 3.0):
         return None
 
 
-def _describe_launch_run(tool_input: dict, config: dict) -> list[str]:
-    """Render the launch-approval prompt's plan detail lines.
+# Unicode code points that render as a line/paragraph break in some terminals
+# in addition to the C0 control range (< 0x20) and DEL (0x7f) escaped below.
+_UNICODE_LINE_BREAKS = ("\x85", "\u2028", "\u2029")
+
+
+def _sanitize_label(text) -> str:
+    """Escape control characters in an agent-influenced single-line label.
+
+    `plan_name` (and the `category` / `required_devices` metadata beside it)
+    originate from a plan file's ``PLAN_METADATA`` — an unconstrained string for
+    a session-tier, agent-authored plan — and reach this prompt RAW: the
+    bridge's `PATCH /draft` gates `plan_name` only by registry membership, never
+    by character content, and `PlanMetadata.name` carries no character
+    constraint. An embedded newline would otherwise forge a fake enrichment line
+    (e.g. a spoofed "Validation status: PASSED") on the human approval prompt.
+    Escaping the C0 range, DEL, and the unicode line breaks to a visible
+    ``\\xNN`` token keeps every label on one line and makes any tampering legible
+    to the approver rather than silently dropped. The `Plan source` block is
+    deliberately NOT run through this — it is rendered verbatim (and clearly
+    delimited) so the approver sees the real, possibly multi-line, plan body.
+    """
+    return "".join(
+        ch if (ch >= " " and ch != "\x7f" and ch not in _UNICODE_LINE_BREAKS)
+        else f"\\x{ord(ch):02x}"
+        for ch in str(text)
+    )
+
+
+def _revision_match_line(pinned, current_revision) -> str:
+    """One line stating whether the live draft still matches the pinned revision.
+
+    `launch_run` pins the `draft_revision` the agent staged; the human
+    approving the launch must see whether the shared draft has moved on since
+    then. A match is stated plainly; any mismatch (including a missing pin)
+    renders LOUD and warns that what follows is the *current* draft, not
+    necessarily what the agent saw.
+    """
+    if pinned is not None and current_revision == pinned:
+        return f"Draft revision {current_revision} — matches pinned revision {pinned}."
+    return (
+        f"⚠️  DRAFT CHANGED since the agent pinned revision {pinned} "
+        f"— the shared draft is now at revision {current_revision}. What follows "
+        f"is the CURRENT draft, not necessarily what the agent staged."
+    )
+
+
+def _describe_plan_provenance(base_url: str, plan_name: str) -> list[str]:
+    """Render a plan's authoring metadata, provenance/trust tier, validation, and source.
 
     This is the human backstop for the plan-validator's documented, accepted
     residual (a `getattr`/string-concat obfuscated body that passes the
@@ -229,31 +275,20 @@ def _describe_launch_run(tool_input: dict, config: dict) -> list[str]:
     docstring): an approver who can actually SEE the plan's source has a
     chance to refuse it even where the earlier automated stages could not.
     Every bridge call goes through `_bridge_get_json`, so any fetch/parse
-    failure just yields a shorter (or empty) line list — never an exception.
+    failure just yields a shorter line list — never an exception.
     """
-    run_id = tool_input.get("run_id")
-    if not run_id:
-        return []
-
-    base_url = _resolve_bridge_url(config)
-    run = _bridge_get_json(base_url, f"/runs/{run_id}")
-    plan_name = run.get("plan_name") if run else None
-    if not plan_name:
-        return []
-
-    lines = [f"Plan: {plan_name}"]
-
-    plan_args = run.get("plan_args") if run else None
-    if plan_args:
-        lines.append(f"Plan args: {json.dumps(plan_args)}")
+    lines: list[str] = []
 
     plans = _bridge_get_json(base_url, "/plans") or []
-    plan_entry = next((p for p in plans if p.get("name") == plan_name), None)
+    plan_entry = next(
+        (p for p in plans if isinstance(p, dict) and p.get("name") == plan_name), None
+    )
     metadata = (plan_entry or {}).get("metadata")
     if metadata:
-        lines.append(f"Category: {metadata.get('category', 'unknown')}")
+        lines.append(f"Category: {_sanitize_label(metadata.get('category', 'unknown'))}")
         devices = metadata.get("required_devices") or []
-        lines.append(f"Required devices: {', '.join(devices) if devices else 'none declared'}")
+        rendered_devices = ", ".join(_sanitize_label(d) for d in devices) if devices else None
+        lines.append(f"Required devices: {rendered_devices or 'none declared'}")
         lines.append(
             "Hazard: writes to hardware"
             if metadata.get("writes")
@@ -288,6 +323,54 @@ def _describe_launch_run(tool_input: dict, config: dict) -> list[str]:
             note = " (truncated)" if source_info.get("truncated") else ""
             lines.append(f"\nPlan source{note}:\n{source_text}")
 
+    return lines
+
+
+def _describe_launch_run(tool_input: dict, config: dict) -> list[str]:
+    """Render the launch-approval prompt's draft/plan detail lines.
+
+    `launch_run` carries only a pinned `draft_revision` (no run record exists
+    yet — the bridge mints the run *from* the draft at launch). So this fetches
+    the shared plan draft (`GET /draft`) and renders exactly what would launch:
+    the plan name and args currently staged, whether the draft still matches
+    the pinned revision, and — for a non-empty draft — the plan's
+    provenance/validation/source (see :func:`_describe_plan_provenance`).
+
+    Fail-open is guaranteed three ways: every bridge call goes through
+    `_bridge_get_json` (any fetch/parse failure → `None`), a valid-but-misshaped
+    `GET /draft` body is caught by the `isinstance` guard here (→ empty list,
+    plain reason), and `main` wraps the whole call in a final try/except. The
+    launch-approval prompt must always render, degraded if need be, never
+    blocked.
+    """
+    base_url = _resolve_bridge_url(config)
+    snapshot = _bridge_get_json(base_url, "/draft")
+    if not isinstance(snapshot, dict):
+        # Bridge unreachable, a malformed body, or an unexpected shape — fail
+        # open with no draft detail; the plain tool/policy reason still asks.
+        return []
+
+    pinned = tool_input.get("draft_revision")
+    current_revision = snapshot.get("revision")
+    draft = snapshot.get("draft")
+
+    lines: list[str] = [_revision_match_line(pinned, current_revision)]
+
+    if not isinstance(draft, dict) or not draft.get("plan_name"):
+        lines.append(
+            "Draft: EMPTY — no plan is staged in the shared draft; there is "
+            "nothing to launch (the bridge would refuse this launch)."
+        )
+        return lines
+
+    plan_name = draft["plan_name"]
+    lines.append(f"Plan: {_sanitize_label(plan_name)}")
+
+    plan_args = draft.get("plan_args")
+    if plan_args:
+        lines.append(f"Plan args: {json.dumps(plan_args)}")
+
+    lines.extend(_describe_plan_provenance(base_url, plan_name))
     return lines
 
 
