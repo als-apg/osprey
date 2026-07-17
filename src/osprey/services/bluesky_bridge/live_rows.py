@@ -2,7 +2,7 @@
 
 Task 2.2's ``GET /runs/{id}/data`` route needs a source of truth for run data
 before (or in place of) a Tiled server: the scan itself runs inside this
-bridge process (``runs.do_promote`` owns the runner/RunEngine), so this
+bridge process (``runs.do_launch`` owns the runner/RunEngine), so this
 module subscribes a plain-dict document callback to that same RunEngine and
 keeps translated rows in a bounded, run_uid-keyed buffer. Real RunEngine
 wiring lands in task 2.7 (``real-runengine-integration``) — this module is
@@ -91,7 +91,7 @@ def _clear() -> None:
 class LiveRowRecorder:
     """Bluesky document callback recording rows into the bounded live buffer.
 
-    One instance per promoted run (mirrors BELLA's contract): subscribe it to
+    One instance per launched run (mirrors BELLA's contract): subscribe it to
     the RunEngine between ``reinitialize()`` and ``start_run_thread()``
     (task 2.7) so the start doc is never missed.
     """

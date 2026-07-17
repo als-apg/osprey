@@ -4,7 +4,7 @@ An agent authoring a new plan (task 2.3's ``write_plan``/
 ``validate_plan`` MCP tools) never gets its file exec'd directly —
 that would hand arbitrary code execution to whatever produced the body. This
 module is the gate a body must pass before anything downstream (the session
-directory layer's LOAD gate, task 2.4; the promote gate, task 2.5) will treat
+directory layer's LOAD gate, task 2.4; the launch gate, task 2.5) will treat
 it as real: :func:`validate_plan` runs three ordered stages, each of
 which can reject outright before the next ever runs:
 
@@ -32,7 +32,7 @@ which can reject outright before the next ever runs:
    (:mod:`osprey.services.bluesky_bridge.devices.mock`). This is an
    **authoring-quality gate** ("does the body actually run"), not a
    containment boundary — containment comes from stages 1-2 above and the
-   downstream load/promote gates that key off this module's validation
+   downstream load/launch gates that key off this module's validation
    record, not from anything the dry-run subprocess itself prevents.
 
 Every :class:`ValidationResult` (pass or fail) carries a ``content_hash``
@@ -306,7 +306,7 @@ def hash_plan_body(body: str) -> str:
     BOM, or adds/drops trailing blank lines still hashes identically. This is
     the one place that normalization happens; every caller that needs to
     check "does this file content have a passing validation record"
-    (task 2.2's store, task 2.4's load gate, task 2.5's promote gate) must
+    (task 2.2's store, task 2.4's load gate, task 2.5's launch gate) must
     hash through this function rather than re-deriving its own encoding.
     """
     normalized = body.replace("\r\n", "\n").replace("\r", "\n")
@@ -368,7 +368,7 @@ def _collect_device_names(value: Any, *, key: str | None = None) -> tuple[set[st
 
     A plan file's `PLAN_METADATA["required_devices"]` names PARAMS *fields*
     (e.g. ``"correctors"``, ``"detectors"``), not a fixed shape all plans
-    share — `grid_scan_nd`'s setpoints, for instance, are nested under
+    share — `grid_scan`'s setpoints, for instance, are nested under
     ``axes[].setpoint`` rather than a flat field. Rather than hard-coding a
     per-plan device-field shape, this walks ``sample_args`` itself and
     buckets every string leaf by the nearest enclosing field name: a field
@@ -439,7 +439,7 @@ try:
     module = importlib.util.module_from_spec(spec)
     # Registered in sys.modules BEFORE exec (mirrors plan_loader.py's own
     # module loader): a plan body with two pydantic models referencing each
-    # other by name (e.g. `grid_scan_nd`'s `PARAMS.axes: list[GridAxis]`)
+    # other by name (e.g. `grid_scan`'s `PARAMS.axes: list[GridAxis]`)
     # relies on `from __future__ import annotations` postponed-evaluation
     # forward refs resolving against `sys.modules[cls.__module__].__dict__`
     # -- skip this and pydantic raises "class not fully defined" the moment
@@ -581,7 +581,7 @@ async def validate_plan(
     Args:
         body: The plan file's full source text (``PLAN_METADATA`` + ``PARAMS``
             + ``build_plan``, per the layered directory catalog's file
-            contract — see ``plans_core/response_matrix.py``).
+            contract — see ``plans_core/orm.py``).
         plan_name: Name to register the body's plan under for the stage-3
             dry-run only; unrelated to any name the body's own
             ``PLAN_METADATA`` declares.

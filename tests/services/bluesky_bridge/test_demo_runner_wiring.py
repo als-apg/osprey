@@ -20,7 +20,7 @@ Exercised here:
   main venv, no bluesky.
 - Flag truthy (both "1" and "true", the two production-relevant spellings)
   AND bluesky present: the app wires `BlueskyPlanRunner`, and a full
-  promote -> scan -> read_run_data round trip returns real buffered rows.
+  launch -> scan -> get_run_data round trip returns real buffered rows.
   Guarded with `pytest.importorskip` so these are skipped (not failed) when
   bluesky isn't installed, keeping `ci_check` green.
 - Task 2.5: `BLUESKY_TILED_URI` wires a `TiledWriter` subscription onto the
@@ -42,7 +42,7 @@ from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
 from osprey.services.bluesky_bridge.runs import registry
 
 _ENV_VAR = "BLUESKY_DEMO_RUNNER"
-_TOKEN_VAR = "BLUESKY_PROMOTE_TOKEN"
+_TOKEN_VAR = "BLUESKY_LAUNCH_TOKEN"
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 
@@ -161,13 +161,19 @@ def test_flag_set_with_bluesky_present_wires_and_completes_a_real_scan(
 
         create_resp = client.post(
             "/runs",
-            json={"plan_name": "count", "plan_args": {"detectors": ["det1"], "num": 3}},
+            json={
+                "plan_name": "grid_scan",
+                "plan_args": {
+                    "detectors": ["det1"],
+                    "axes": [{"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 3}],
+                },
+            },
         )
         assert create_resp.status_code == 200, create_resp.text
         run_id = create_resp.json()["id"]
 
-        promote_resp = client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": "s3cr3t"})
-        assert promote_resp.status_code == 200, promote_resp.text
+        launch_resp = client.post(f"/runs/{run_id}/launch", headers={"X-Launch-Token": "s3cr3t"})
+        assert launch_resp.status_code == 200, launch_resp.text
 
         deadline = time.monotonic() + 15.0
         while client.get(f"/runs/{run_id}").json()["status"] == "running":

@@ -135,7 +135,7 @@ def test_tiled_degraded_is_false_for_a_healthy_wired_writer():
 def test_tiled_degraded_is_true_when_the_factory_raises_at_construction(
     caplog: pytest.LogCaptureFixture,
 ):
-    """A Tiled server down at promote time must leave the runner degraded,
+    """A Tiled server down at launch time must leave the runner degraded,
     not silently continue with `tiled_degraded=False`.
     """
 
@@ -172,7 +172,7 @@ def test_tiled_degraded_is_true_when_subscribe_raises_after_successful_construct
     Pre-2.2-fix, `RE.subscribe(self._tiled_writer)` lived in the `else:`
     clause of the construction `try` — outside the exception guard — so a
     raising `subscribe()` would escape `BlueskyPlanRunner.__init__` entirely,
-    turning a Tiled outage into a failed `do_promote` (FR4 violation). The
+    turning a Tiled outage into a failed `do_launch` (FR4 violation). The
     inner writer factory here succeeds; only `RE.subscribe` is made to fail,
     and only on its *second* call (the first, inside `__init__`, wires
     `_on_document` and must keep working) — so this exercises exactly the
@@ -192,7 +192,7 @@ def test_tiled_degraded_is_true_when_subscribe_raises_after_successful_construct
     monkeypatch.setattr(RunEngine, "subscribe", _flaky_subscribe)
 
     inner = _RecordingWriter()
-    # Must not raise: a Tiled outage degrades the runner, never the promote.
+    # Must not raise: a Tiled outage degrades the runner, never the launch.
     runner = BlueskyPlanRunner(devices={}, tiled_writer_factory=lambda: inner)
 
     assert runner.tiled_degraded is True

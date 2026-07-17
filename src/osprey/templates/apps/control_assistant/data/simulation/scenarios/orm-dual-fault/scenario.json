@@ -1,0 +1,13 @@
+{
+  "description": "Two independent faults live at once, each invisible to single-channel telemetry: BPM 17's horizontal readback has an inverted polarity (wiring/cabling fault), and corrector HCM01 is desensitized to half its nominal gain (a stuck/degraded driver). Neither shows up as an out-of-range channel -- both only surface as an orbit-response measurement (ORM) that fails to converge, or converges to a lattice-inconsistent model. Physics faults apply at VA boot (real ORM measurement resolves both affected devices).",
+  "physics": {
+    "bpm_errors": {
+      "BPM17": {
+        "polarity": -1
+      }
+    },
+    "corrector_gain": {
+      "HCM01": 0.5
+    }
+  }
+}

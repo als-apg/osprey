@@ -1,4 +1,4 @@
-"""Unit tests for the `read_run_data` MCP tool's bounded-read semantics (task 2.12).
+"""Unit tests for the `get_run_data` MCP tool's bounded-read semantics (task 2.12).
 
 Complements `test_read_run_tools.py`'s basic success/error-envelope coverage
 by focusing specifically on the bounded-read shape the bridge's
@@ -41,7 +41,7 @@ async def test_max_rows_caps_the_returned_row_window():
         "truncated": True,
     }
     with patch(f"{_MOD}._http_get_json", return_value=(200, body)) as m:
-        result = await _fn("read_run_data")(run_id="abc123", max_rows=2)
+        result = await _fn("get_run_data")(run_id="abc123", max_rows=2)
 
     assert "max_rows=2" in m.call_args.args[0]
     data = extract_response_dict(result)
@@ -62,7 +62,7 @@ async def test_row_count_reflects_true_total_not_window_size():
         "truncated": True,
     }
     with patch(f"{_MOD}._http_get_json", return_value=(200, body)):
-        result = await _fn("read_run_data")(run_id="abc123", max_rows=2)
+        result = await _fn("get_run_data")(run_id="abc123", max_rows=2)
 
     data = extract_response_dict(result)
     assert data["row_count"] == 500
@@ -83,7 +83,7 @@ async def test_truncated_false_when_window_covers_every_row():
         "truncated": False,
     }
     with patch(f"{_MOD}._http_get_json", return_value=(200, body)):
-        result = await _fn("read_run_data")(run_id="abc123", max_rows=100)
+        result = await _fn("get_run_data")(run_id="abc123", max_rows=100)
 
     assert extract_response_dict(result)["truncated"] is False
 
@@ -97,7 +97,7 @@ async def test_truncated_true_when_window_omits_rows():
         "truncated": True,
     }
     with patch(f"{_MOD}._http_get_json", return_value=(200, body)):
-        result = await _fn("read_run_data")(run_id="abc123", max_rows=2)
+        result = await _fn("get_run_data")(run_id="abc123", max_rows=2)
 
     assert extract_response_dict(result)["truncated"] is True
 
@@ -109,7 +109,7 @@ async def test_truncated_true_when_window_omits_rows():
 
 async def test_offset_is_passed_through_as_a_forward_page():
     with patch(f"{_MOD}._http_get_json", return_value=(200, {"columns": [], "rows": []})) as m:
-        await _fn("read_run_data")(run_id="abc123", max_rows=10, offset=20)
+        await _fn("get_run_data")(run_id="abc123", max_rows=10, offset=20)
 
     url = m.call_args.args[0]
     assert "max_rows=10" in url
@@ -119,7 +119,7 @@ async def test_offset_is_passed_through_as_a_forward_page():
 
 async def test_tail_is_passed_through_without_an_offset():
     with patch(f"{_MOD}._http_get_json", return_value=(200, {"columns": [], "rows": []})) as m:
-        await _fn("read_run_data")(run_id="abc123", max_rows=10, tail=True)
+        await _fn("get_run_data")(run_id="abc123", max_rows=10, tail=True)
 
     url = m.call_args.args[0]
     assert "tail=true" in url
@@ -128,7 +128,7 @@ async def test_tail_is_passed_through_without_an_offset():
 
 async def test_tail_with_offset_are_both_passed_through():
     with patch(f"{_MOD}._http_get_json", return_value=(200, {"columns": [], "rows": []})) as m:
-        await _fn("read_run_data")(run_id="abc123", max_rows=10, offset=5, tail=True)
+        await _fn("get_run_data")(run_id="abc123", max_rows=10, offset=5, tail=True)
 
     url = m.call_args.args[0]
     assert "max_rows=10" in url
@@ -138,7 +138,7 @@ async def test_tail_with_offset_are_both_passed_through():
 
 async def test_offset_defaults_to_omitted_from_the_query_string():
     with patch(f"{_MOD}._http_get_json", return_value=(200, {"columns": [], "rows": []})) as m:
-        await _fn("read_run_data")(run_id="abc123")
+        await _fn("get_run_data")(run_id="abc123")
 
     url = m.call_args.args[0]
     assert "offset=" not in url
@@ -156,7 +156,7 @@ async def test_paginated_rows_surface_unmodified_from_the_bridge_body():
         "truncated": True,
     }
     with patch(f"{_MOD}._http_get_json", return_value=(200, body)):
-        result = await _fn("read_run_data")(run_id="abc123", max_rows=2, offset=2)
+        result = await _fn("get_run_data")(run_id="abc123", max_rows=2, offset=2)
 
     data = extract_response_dict(result)
     assert data["rows"] == [[2.0], [3.0]]
@@ -169,7 +169,7 @@ async def test_paginated_rows_surface_unmodified_from_the_bridge_body():
 
 async def test_empty_stream_returns_the_minimal_shape():
     with patch(f"{_MOD}._http_get_json", return_value=(200, {"columns": [], "rows": []})):
-        result = await _fn("read_run_data")(run_id="abc123")
+        result = await _fn("get_run_data")(run_id="abc123")
 
     assert extract_response_dict(result) == {"columns": [], "rows": []}
 
@@ -189,7 +189,7 @@ async def test_mid_run_surfaces_partial_true():
         "partial": True,
     }
     with patch(f"{_MOD}._http_get_json", return_value=(200, body)):
-        result = await _fn("read_run_data")(run_id="abc123")
+        result = await _fn("get_run_data")(run_id="abc123")
 
     assert extract_response_dict(result)["partial"] is True
 
@@ -203,7 +203,7 @@ async def test_completed_run_omits_partial_key():
         "truncated": False,
     }
     with patch(f"{_MOD}._http_get_json", return_value=(200, body)):
-        result = await _fn("read_run_data")(run_id="abc123")
+        result = await _fn("get_run_data")(run_id="abc123")
 
     assert "partial" not in extract_response_dict(result)
 
@@ -219,6 +219,6 @@ async def test_no_run_uid_yet_returns_a_distinct_error_type():
         return_value=(409, {"detail": "run 'abc123' has not started; no data yet"}),
     ):
         with assert_raises_error(error_type="run_data_not_ready") as ctx:
-            await _fn("read_run_data")(run_id="abc123")
+            await _fn("get_run_data")(run_id="abc123")
 
     assert "has not started" in ctx["envelope"]["error_message"]

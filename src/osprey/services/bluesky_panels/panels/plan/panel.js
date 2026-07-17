@@ -1,29 +1,60 @@
 // @ts-check
 /**
- * Plan panel — browse registered plans, inspect source/provenance,
- * set parameters from the plan's JSON schema, and execute a validated plan.
+ * Plan panel — a two-pane operator console for the registered scan plans.
  *
- * Reached through the web-terminal reverse proxy at `/panel/plan/…`, so
- * every fetch is derived from this panel's own URL prefix and issued
- * prefix-relative — never an absolute `/plans` path (the proxy does not
- * rewrite those).
+ * LEFT (sidebar): a dense, file-browser-style selector. Plans are grouped
+ * under collapsible provenance folders and filterable; each row is name-first
+ * with trust/validation compressed into a single status dot (full detail in
+ * the tooltip and the detail header). The first plan is auto-selected on load
+ * so the panel never opens onto an empty pane.
  *
- * Execution is deterministic: no agent/LLM in this path. The sidecar's sole
- * write route (`POST /runs/execute`) composes create-intent + promote
- * server-side; the browser never sees or sends a promote token. `Execute`
- * requires a two-step in-panel confirm and is enabled only when the
- * selected plan's `validated` flag (from the source response) is `true`.
+ * RIGHT (detail): the selected plan under a two-tab strip —
+ *   - Parameters: a 2-D GUI generated from the plan's JSON Schema
+ *     (schema-form.js): chip editors for device lists, an editable table for
+ *     grid axes, typed inputs for scalars — arranged by a per-plan layout
+ *     (PLAN_LAYOUTS) with a live readout (PLAN_SUMMARIES) that recomputes on
+ *     every edit, e.g. "2 correctors × 7 points = 14 sweep points".
+ *   - Source: the plan's source code.
+ * plus the deterministic Launch action in the footer.
+ *
+ * Plans absent from the two registries still render fully — the schema-driven
+ * form auto-flows their fields — so facility/session plans need no panel-side
+ * code to be usable.
+ *
+ * Reached through the web-terminal reverse proxy at `/panel/plan/…`, so every
+ * fetch is derived from this panel's own URL prefix and issued prefix-relative
+ * — never an absolute `/plans` path (the proxy does not rewrite those).
+ *
+ * Launching is deterministic: no agent/LLM in this path. The sidecar's sole
+ * write route (`POST /runs/launch`) composes the pending-run create + launch
+ * server-side; the browser never sees or sends a launch token. `Launch`
+ * requires a two-step in-panel confirm and is enabled only when the selected
+ * plan's `validated` flag (from the source response) is `true`.
+ *
+ * The whole UI is built with createElement/textContent (see schema-form.js
+ * and the local `h` helper) — no innerHTML sink anywhere — so plan-authored
+ * strings (names, descriptions, source, enum values) are never interpreted as
+ * markup.
  *
  * @module panel
  */
 
-import { escapeHtml } from '/design-system/js/dom.js';
+import { renderSchemaForm } from './schema-form.js';
+import {
+  createDraftClient,
+  resolvePinnedRevision,
+  generateClientId,
+  buildLaunchRequestBody,
+  classifyLaunchResponse,
+  buildLaunchBanner,
+  resultsPanelUrl,
+} from './draft-client.js';
 
 /**
  * @typedef {object} PlanSummary
  * @property {string} name
  * @property {string} [description]
- * @property {{properties?: Record<string, {type?: string, title?: string, default?: unknown}>}} [schema]
+ * @property {import('./schema-form.js').JsonSchemaNode} [schema]
  * @property {unknown} [metadata]
  * @property {string} provenance
  */
@@ -52,70 +83,222 @@ function api(path) {
   return PREFIX + path;
 }
 
+/**
+ * Fetch a sidecar route and parse its JSON body, tolerating a non-JSON body
+ * (returned as `null`) so callers branch on `{ok, status, body}` without
+ * their own try/catch around `response.json()`. Network failures still
+ * reject — callers that must distinguish "unreachable" keep their catch.
+ *
+ * @param {string} path
+ * @param {RequestInit} [init]
+ * @returns {Promise<{ok: boolean, status: number, body: any}>}
+ */
+async function fetchJson(path, init) {
+  const response = await fetch(api(path), init);
+  /** @type {any} */
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    body = null;
+  }
+  return { ok: response.ok, status: response.status, body };
+}
+
+/**
+ * Tiny hyperscript helper (mirrors schema-form's) so this module builds DOM
+ * without any innerHTML. Strings become text nodes.
+ *
+ * @param {string} tag
+ * @param {Record<string, unknown>} [props]
+ * @param {...(Node|string|number|null|undefined)} children
+ * @returns {HTMLElement}
+ */
+function h(tag, props, ...children) {
+  const node = document.createElement(tag);
+  if (props) {
+    for (const [key, value] of Object.entries(props)) {
+      if (value === null || value === undefined || value === false) continue;
+      if (key === 'class') node.className = String(value);
+      else if (key === 'text') node.textContent = String(value);
+      else if (key in node) /** @type {any} */ (node)[key] = value;
+      else node.setAttribute(key, String(value));
+    }
+  }
+  for (const child of children) {
+    if (child === null || child === undefined) continue;
+    node.appendChild(typeof child === 'object' ? child : document.createTextNode(String(child)));
+  }
+  return node;
+}
+
+// Provenance folders, in trust order. Any provenance the bridge reports that
+// isn't listed here falls into a trailing "other" group so nothing is dropped.
+const PROVENANCE_ORDER = ['shipped', 'preset', 'facility', 'session', 'unreviewed'];
+
+/**
+ * Per-plan 2-D field placement: rows of side-by-side field names, passed to
+ * renderSchemaForm as its layout option. Names not in the plan's schema are
+ * ignored; schema fields missing here are auto-flowed after these rows —
+ * so this is a presentation hint, never a gate.
+ *
+ * @type {Record<string, string[][]>}
+ */
+const PLAN_LAYOUTS = {
+  orm: [
+    ['correctors', 'detectors'],
+    ['span_a', 'num'],
+    ['sweep'],
+  ],
+  grid_scan: [['axes'], ['detectors', 'snake_axes']],
+};
+
+/**
+ * Per-plan live readout, computed from the currently-collected plan_args on
+ * every edit. Returns '' when there is nothing meaningful to show yet.
+ * Plans without an entry fall back to a generic "N parameters set".
+ *
+ * @type {Record<string, (args: Record<string, any>) => string>}
+ */
+const PLAN_SUMMARIES = {
+  orm(args) {
+    const c = Array.isArray(args.correctors) ? args.correctors.length : 0;
+    const d = Array.isArray(args.detectors) ? args.detectors.length : 0;
+    const n = typeof args.num === 'number' ? args.num : 0;
+    const span = typeof args.span_a === 'number' ? args.span_a : null;
+    /** @type {string[]} */
+    const parts = [];
+    const sweep = typeof args.sweep === 'string' ? args.sweep : null;
+    if (c) parts.push(`${c} corrector${c === 1 ? '' : 's'}`);
+    if (d) parts.push(`${d} BPM${d === 1 ? '' : 's'}`);
+    if (span !== null) {
+      // Monodirectional sweeps [0, +span]; bidirectional the symmetric ±span.
+      parts.push(sweep === 'monodirectional' ? `0…${span} A` : `±${span} A`);
+    }
+    if (c && n) parts.push(`${c} × ${n} = ${c * n} sweep points`);
+    else if (n) parts.push(`${n} points`);
+    return parts.join(' · ');
+  },
+  grid_scan(args) {
+    const axes = Array.isArray(args.axes) ? args.axes : [];
+    const d = Array.isArray(args.detectors) ? args.detectors.length : 0;
+    /** @type {string[]} */
+    const parts = [];
+    if (axes.length) {
+      const nums = axes.map((axis) =>
+        axis && typeof axis.num_points === 'number' ? axis.num_points : 0
+      );
+      parts.push(`${axes.length} ax${axes.length === 1 ? 'is' : 'es'}`);
+      if (nums.every((v) => v > 0)) {
+        const total = nums.reduce((product, v) => product * v, 1);
+        parts.push(`${nums.join(' × ')} = ${total} grid points`);
+      }
+    }
+    if (d) parts.push(`${d} detector${d === 1 ? '' : 's'}`);
+    return parts.join(' · ');
+  },
+};
+
 /** @type {PlanSummary[]} */
 let plans = [];
 /** @type {string|null} */
 let selectedName = null;
 /** @type {PlanSource|null} */
 let selectedSource = null;
+/** @type {import('./schema-form.js').PlanArgsCollector|null} */
+let collectPlanArgs = null;
+let filterText = '';
 let confirmArmed = false;
-let executing = false;
+let launching = false;
+/** @type {ReturnType<typeof setTimeout>|null} */
+let draftRejectedTimer = null;
+const DRAFT_REJECTED_NOTE_TIMEOUT_MS = 5000;
 
 // ---- element lookups ----
 
 const rootErrorEl = /** @type {HTMLElement} */ (document.getElementById('root-error'));
-const planListEl = /** @type {HTMLUListElement} */ (document.getElementById('plan-list'));
+const planTreeEl = /** @type {HTMLElement} */ (document.getElementById('plan-tree'));
 const plansEmptyEl = /** @type {HTMLElement} */ (document.getElementById('plans-empty'));
-const detailCardEl = /** @type {HTMLElement} */ (document.getElementById('detail-card'));
+const plansFilteredEmptyEl = /** @type {HTMLElement} */ (
+  document.getElementById('plans-filtered-empty')
+);
+const searchEl = /** @type {HTMLInputElement} */ (document.getElementById('plan-search'));
+const detailEmptyEl = /** @type {HTMLElement} */ (document.getElementById('detail-empty'));
+const detailBodyEl = /** @type {HTMLElement} */ (document.getElementById('detail-body'));
 const detailTitleEl = /** @type {HTMLElement} */ (document.getElementById('detail-title'));
-const detailBadgesEl = /** @type {HTMLElement} */ (document.getElementById('detail-badges'));
+const detailStatusEl = /** @type {HTMLElement} */ (document.getElementById('detail-status'));
+const detailDescEl = /** @type {HTMLElement} */ (document.getElementById('detail-desc'));
 const sessionNoteEl = /** @type {HTMLElement} */ (document.getElementById('session-note'));
 const detailSourceEl = /** @type {HTMLElement} */ (document.getElementById('detail-source'));
 const paramFormEl = /** @type {HTMLFormElement} */ (document.getElementById('param-form'));
-const execBannerEl = /** @type {HTMLElement} */ (document.getElementById('exec-banner'));
+const paramSummaryEl = /** @type {HTMLElement} */ (document.getElementById('param-summary'));
+const launchOutcomeBannerEl = /** @type {HTMLElement} */ (
+  document.getElementById('launch-outcome-banner')
+);
 const unvalidatedNoteEl = /** @type {HTMLElement} */ (document.getElementById('unvalidated-note'));
-const executeBtnEl = /** @type {HTMLButtonElement} */ (document.getElementById('execute-btn'));
+const launchBtnEl = /** @type {HTMLButtonElement} */ (document.getElementById('launch-btn'));
+const tabParamsEl = /** @type {HTMLButtonElement} */ (document.getElementById('tab-params'));
+const tabSourceEl = /** @type {HTMLButtonElement} */ (document.getElementById('tab-source'));
+const panelParamsEl = /** @type {HTMLElement} */ (document.getElementById('panel-params'));
+const panelSourceEl = /** @type {HTMLElement} */ (document.getElementById('panel-source'));
+const draftUnknownBannerEl = /** @type {HTMLElement} */ (
+  document.getElementById('draft-unknown-banner')
+);
+const draftIndicatorEl = /** @type {HTMLElement} */ (document.getElementById('draft-indicator'));
+const draftDiscardBtnEl = /** @type {HTMLButtonElement} */ (
+  document.getElementById('draft-discard-btn')
+);
+const draftAffordanceEl = /** @type {HTMLButtonElement} */ (
+  document.getElementById('draft-affordance')
+);
+const draftAgentNoteEl = /** @type {HTMLElement} */ (document.getElementById('draft-agent-note'));
+const draftRejectedBannerEl = /** @type {HTMLElement} */ (
+  document.getElementById('draft-rejected-banner')
+);
+// The launched-banner (FR8) has no static markup in index.html — it is a
+// transient, SSE-driven note, so build it once here and hang it beside the
+// launch-outcome banner (both live in the detail footer). Created via `h`
+// (createElement/textContent) like everything else in this panel.
+const launchBannerEl = h('div', {
+  id: 'draft-launched-banner',
+  class: 'banner banner-ok',
+  hidden: true,
+});
+launchOutcomeBannerEl.insertAdjacentElement('afterend', launchBannerEl);
 
-// ---- rendering helpers ----
+// ---- status presentation ----
 
 /**
- * @param {string} provenance
- * @returns {{cls: string, label: string}}
- */
-function provenanceBadge(provenance) {
-  const label = `provenance: ${provenance}`;
-  if (provenance === 'shipped' || provenance === 'preset' || provenance === 'facility') {
-    return { cls: 'ok', label };
-  }
-  if (provenance === 'unreviewed') {
-    return { cls: 'err', label };
-  }
-  // 'session' or any unrecognized tier.
-  return { cls: 'warn', label };
-}
-
-/**
- * A best-effort "validated" badge for a list item. `GET /plans` does not
- * carry a `validated` field — only `GET /plans/{name}/source` does (see
- * `selectPlan`). For `shipped`/`preset`/`facility` provenance the bridge
- * reports `validated=True` unconditionally (those tiers carry no
- * validation-record gate), so that much is knowable up front; for
- * `session`/`unreviewed` the true state is only known once the plan is
- * selected and its source fetched.
+ * The status-dot class for a provenance tier. Trust tiers with unconditional
+ * bridge-side validation read as OK; session is caution; unreviewed (or any
+ * unknown tier) is danger.
  *
  * @param {string} provenance
- * @returns {{cls: string, label: string}}
+ * @returns {string}
  */
-function listValidatedBadge(provenance) {
+function dotClass(provenance) {
   if (provenance === 'shipped' || provenance === 'preset' || provenance === 'facility') {
-    return { cls: 'ok', label: 'validated' };
+    return 'ok';
   }
-  return { cls: 'info', label: 'select to verify' };
+  if (provenance === 'session') return 'warn';
+  return 'err';
 }
 
 /**
- * @param {string} message
+ * Tooltip for a sidebar row: description plus the trust tier, so the row
+ * itself stays name-only.
+ *
+ * @param {PlanSummary} plan
+ * @returns {string}
  */
+function rowTooltip(plan) {
+  const desc = plan.description ? `${plan.description} — ` : '';
+  return `${desc}${plan.provenance}`;
+}
+
+// ---- root error ----
+
+/** @param {string} message */
 function showRootError(message) {
   rootErrorEl.textContent = message;
   rootErrorEl.hidden = false;
@@ -126,146 +309,182 @@ function clearRootError() {
   rootErrorEl.textContent = '';
 }
 
-function renderPlanList() {
+// ---- sidebar (plan browser) ----
+
+/**
+ * Group the (filtered) plans by provenance, preserving trust order and
+ * appending any unknown tiers under "other".
+ *
+ * @param {PlanSummary[]} list
+ * @returns {Array<{provenance: string, items: PlanSummary[]}>}
+ */
+function groupByProvenance(list) {
+  /** @type {Map<string, PlanSummary[]>} */
+  const groups = new Map();
+  for (const plan of list) {
+    const key = PROVENANCE_ORDER.includes(plan.provenance) ? plan.provenance : 'other';
+    const bucket = groups.get(key);
+    if (bucket) bucket.push(plan);
+    else groups.set(key, [plan]);
+  }
+  /** @type {Array<{provenance: string, items: PlanSummary[]}>} */
+  const ordered = [];
+  for (const key of [...PROVENANCE_ORDER, 'other']) {
+    const items = groups.get(key);
+    if (items && items.length) ordered.push({ provenance: key, items });
+  }
+  return ordered;
+}
+
+/**
+ * @param {PlanSummary} plan
+ * @returns {boolean}
+ */
+function matchesFilter(plan) {
+  if (!filterText) return true;
+  const needle = filterText.toLowerCase();
+  return (
+    plan.name.toLowerCase().includes(needle) ||
+    (plan.description || '').toLowerCase().includes(needle)
+  );
+}
+
+function renderPlanTree() {
+  planTreeEl.replaceChildren();
+
   if (plans.length === 0) {
-    planListEl.innerHTML = '';
     plansEmptyEl.hidden = false;
+    plansFilteredEmptyEl.hidden = true;
     return;
   }
   plansEmptyEl.hidden = true;
 
-  planListEl.innerHTML = plans
-    .map((plan) => {
-      const prov = provenanceBadge(plan.provenance);
-      const validated = listValidatedBadge(plan.provenance);
+  const visible = plans.filter(matchesFilter);
+  if (visible.length === 0) {
+    plansFilteredEmptyEl.hidden = false;
+    return;
+  }
+  plansFilteredEmptyEl.hidden = true;
+
+  for (const group of groupByProvenance(visible)) {
+    const summary = h(
+      'summary',
+      { class: 'folder-summary' },
+      h('span', { class: 'folder-name', text: group.provenance }),
+      h('span', { class: 'folder-count', text: String(group.items.length) })
+    );
+    const folder = h('details', { class: 'folder', open: true }, summary);
+    const items = h('div', { class: 'folder-items', role: 'group' });
+    for (const plan of group.items) {
       const isSelected = plan.name === selectedName;
-      const description = plan.description || '(no description)';
-      return `
-        <li>
-          <button type="button" class="plan-item${isSelected ? ' selected' : ''}"
-                  data-plan-name="${escapeHtml(plan.name)}">
-            <div class="plan-item-name">${escapeHtml(plan.name)}</div>
-            <div class="plan-item-desc">${escapeHtml(description)}</div>
-            <div class="badges">
-              <span class="badge ${prov.cls}">${escapeHtml(prov.label)}</span>
-              <span class="badge ${validated.cls}">${escapeHtml(validated.label)}</span>
-            </div>
-          </button>
-        </li>
-      `;
-    })
-    .join('');
+      items.appendChild(
+        h(
+          'button',
+          {
+            type: 'button',
+            class: `plan-row${isSelected ? ' selected' : ''}`,
+            role: 'treeitem',
+            'aria-selected': isSelected ? 'true' : 'false',
+            'data-plan-name': plan.name,
+            title: rowTooltip(plan),
+          },
+          h('span', { class: `dot ${dotClass(plan.provenance)}` }),
+          h('span', { class: 'plan-row-name', text: plan.name })
+        )
+      );
+    }
+    folder.appendChild(items);
+    planTreeEl.appendChild(folder);
+  }
 }
+
+// ---- tabs ----
+
+/** @param {string} tab */
+function setActiveTab(tab) {
+  const paramsActive = tab === 'params';
+  tabParamsEl.setAttribute('aria-selected', paramsActive ? 'true' : 'false');
+  tabSourceEl.setAttribute('aria-selected', paramsActive ? 'false' : 'true');
+  tabParamsEl.classList.toggle('active', paramsActive);
+  tabSourceEl.classList.toggle('active', !paramsActive);
+  panelParamsEl.hidden = !paramsActive;
+  panelSourceEl.hidden = paramsActive;
+}
+
+// ---- live readout ----
+
+function updateSummary() {
+  if (!collectPlanArgs || !selectedName) {
+    paramSummaryEl.hidden = true;
+    return;
+  }
+  const args = collectPlanArgs();
+  const custom = PLAN_SUMMARIES[selectedName];
+  let text = custom ? custom(args) : '';
+  if (!text) {
+    const count = Object.keys(args).length;
+    text = count > 0 ? `${count} parameter${count === 1 ? '' : 's'} set` : '';
+  }
+  paramSummaryEl.textContent = text;
+  paramSummaryEl.hidden = !text;
+}
+
+// ---- detail ----
 
 /**
  * @param {PlanSummary|undefined} plan
  * @param {PlanSource} source
  */
 function renderDetail(plan, source) {
-  detailCardEl.hidden = false;
+  detailEmptyEl.hidden = true;
+  detailBodyEl.hidden = false;
   detailTitleEl.textContent = source.name;
 
-  const prov = provenanceBadge(source.provenance);
-  const validatedBadge = source.validated
-    ? { cls: 'ok', label: 'validated: true' }
-    : { cls: 'err', label: 'validated: false' };
-  detailBadgesEl.innerHTML = `
-    <span class="badge ${prov.cls}">${escapeHtml(prov.label)}</span>
-    <span class="badge ${validatedBadge.cls}">${escapeHtml(validatedBadge.label)}</span>
-    ${source.truncated ? '<span class="badge warn">source truncated</span>' : ''}
-  `;
+  const statusText = [
+    source.provenance,
+    source.validated ? 'validated' : 'not validated',
+    ...(source.truncated ? ['source truncated'] : []),
+  ].join(' · ');
+  detailStatusEl.replaceChildren(
+    h('span', {
+      class: `dot ${source.validated ? dotClass(source.provenance) : 'err'}`,
+    }),
+    h('span', { text: statusText })
+  );
 
+  detailDescEl.textContent = (plan && plan.description) || '';
+  detailDescEl.hidden = !(plan && plan.description);
   sessionNoteEl.hidden = source.provenance !== 'session';
-
   detailSourceEl.textContent = source.source;
 
-  renderParamForm(plan && plan.schema ? plan.schema : undefined);
+  collectPlanArgs = renderSchemaForm(paramFormEl, plan && plan.schema ? plan.schema : undefined, {
+    layout: PLAN_LAYOUTS[source.name],
+  });
 
-  execBannerEl.hidden = true;
-  execBannerEl.textContent = '';
-  execBannerEl.className = 'banner';
+  // A freshly-selected plan always opens on Parameters — the operator's
+  // primary task — and resets the transient launch gate + banner.
+  setActiveTab('params');
+  launchOutcomeBannerEl.hidden = true;
+  launchOutcomeBannerEl.textContent = '';
+  launchOutcomeBannerEl.className = 'banner';
   confirmArmed = false;
   unvalidatedNoteEl.hidden = source.validated;
-  updateExecuteButton();
+  updateSummary();
+  updateLaunchButton();
 }
 
-/**
- * @param {{properties?: Record<string, {type?: string, title?: string, default?: unknown}>}|undefined} schema
- */
-function renderParamForm(schema) {
-  const properties = (schema && schema.properties) || {};
-  const names = Object.keys(properties);
-  if (names.length === 0) {
-    paramFormEl.innerHTML = '<p class="param-empty">This plan takes no parameters.</p>';
-    return;
-  }
-
-  paramFormEl.innerHTML = names
-    .map((name) => {
-      const prop = properties[name] || {};
-      const inputType = prop.type === 'integer' || prop.type === 'number' ? 'number' : 'text';
-      const label = prop.title || name;
-      const defaultValue = prop.default === undefined || prop.default === null ? '' : String(prop.default);
-      const step = prop.type === 'integer' ? '1' : 'any';
-      return `
-        <div class="param-row">
-          <label for="param-${escapeHtml(name)}">${escapeHtml(label)}</label>
-          <input id="param-${escapeHtml(name)}" name="${escapeHtml(name)}"
-                 type="${inputType}" ${inputType === 'number' ? `step="${step}"` : ''}
-                 data-param-name="${escapeHtml(name)}" data-param-type="${escapeHtml(prop.type || 'string')}"
-                 value="${escapeHtml(defaultValue)}">
-        </div>
-      `;
-    })
-    .join('');
-}
-
-/**
- * Collect the current parameter form into a `plan_args` object, converting
- * number/integer fields and omitting empty fields so plan-side defaults
- * apply for anything the operator left blank.
- *
- * @returns {Record<string, unknown>}
- */
-function collectPlanArgs() {
-  /** @type {Record<string, unknown>} */
-  const args = {};
-  const inputs = /** @type {NodeListOf<HTMLInputElement>} */ (
-    paramFormEl.querySelectorAll('input[data-param-name]')
-  );
-  for (const input of inputs) {
-    const name = input.dataset.paramName;
-    const type = input.dataset.paramType;
-    if (!name) continue;
-    const raw = input.value;
-    if (raw === '') continue;
-    if (type === 'integer') {
-      // Reject fractional/garbage input rather than silently truncating it
-      // (parseInt('3.7', 10) === 3) on a path that ends in a write.
-      const value = Number(raw);
-      if (Number.isInteger(value)) args[name] = value;
-    } else if (type === 'number') {
-      const value = parseFloat(raw);
-      if (!Number.isNaN(value)) args[name] = value;
-    } else {
-      args[name] = raw;
-    }
-  }
-  return args;
-}
-
-function updateExecuteButton() {
+function updateLaunchButton() {
   const validated = Boolean(selectedSource && selectedSource.validated);
-  executeBtnEl.disabled = !validated || executing;
-  if (executing) {
-    executeBtnEl.textContent = 'Executing…';
-    executeBtnEl.classList.remove('confirm');
+  launchBtnEl.disabled = !validated || launching;
+  if (launching) {
+    launchBtnEl.textContent = 'Launching…';
+    launchBtnEl.classList.remove('confirm');
   } else if (confirmArmed) {
-    executeBtnEl.textContent = 'Confirm execute';
-    executeBtnEl.classList.add('confirm');
+    launchBtnEl.textContent = 'Confirm launch';
+    launchBtnEl.classList.add('confirm');
   } else {
-    executeBtnEl.textContent = 'Execute plan';
-    executeBtnEl.classList.remove('confirm');
+    launchBtnEl.textContent = 'Launch plan';
+    launchBtnEl.classList.remove('confirm');
   }
 }
 
@@ -273,31 +492,63 @@ function updateExecuteButton() {
  * @param {'ok'|'warn'|'err'|'info'} kind
  * @param {string} message
  */
-function showExecBanner(kind, message) {
-  execBannerEl.hidden = false;
-  execBannerEl.className = `banner banner-${kind}`;
-  execBannerEl.textContent = message;
+function showLaunchOutcome(kind, message) {
+  launchOutcomeBannerEl.hidden = false;
+  launchOutcomeBannerEl.className = `banner banner-${kind}`;
+  launchOutcomeBannerEl.textContent = message;
 }
 
 // ---- data loading ----
 
-async function loadPlans() {
+/** @type {Promise<void>|null} */
+let loadPlansInFlight = null;
+
+/**
+ * Fetch and render the plan catalog. Single-flight: the draft client's
+ * unknown-plan check also calls this (as `refetchPlans`), and a boot-time
+ * SSE hello can arrive concurrently with the initial boot call — without
+ * coalescing, two overlapping fetches could each independently observe
+ * `!selectedName` and both auto-select (a redundant, racy double
+ * `selectPlan`). A caller that arrives while a fetch is already in flight
+ * gets that same in-flight promise instead of starting a second one.
+ *
+ * @returns {Promise<void>}
+ */
+function loadPlans() {
+  if (loadPlansInFlight) return loadPlansInFlight;
+  loadPlansInFlight = loadPlansOnce().finally(() => {
+    loadPlansInFlight = null;
+  });
+  return loadPlansInFlight;
+}
+
+async function loadPlansOnce() {
   try {
     const response = await fetch(api('/plans'));
     if (!response.ok) {
       showRootError(`could not load plans (HTTP ${response.status})`);
       plans = [];
-      renderPlanList();
+      renderPlanTree();
+      detailEmptyEl.hidden = false;
       return;
     }
     const body = await response.json();
     plans = Array.isArray(body) ? body : [];
     clearRootError();
-    renderPlanList();
+    renderPlanTree();
+    if (plans.length === 0) {
+      detailEmptyEl.hidden = false;
+    } else if (!selectedName) {
+      // Auto-select the first plan (trust-order first group) so the detail
+      // pane is never a dead "select something" placeholder.
+      const grouped = groupByProvenance(plans);
+      void selectPlan(grouped[0].items[0].name);
+    }
   } catch {
     showRootError('could not reach the bluesky panels sidecar');
     plans = [];
-    renderPlanList();
+    renderPlanTree();
+    detailEmptyEl.hidden = false;
   }
 }
 
@@ -306,29 +557,41 @@ async function loadPlans() {
  */
 async function selectPlan(name) {
   selectedName = name;
-  // Reset the transient execute gate synchronously, before the await below,
+  // Reset the transient launch gate synchronously, before the await below,
   // so a still-in-flight source fetch for a newly-selected plan can never
-  // leave the Execute button/detail reflecting the PREVIOUS plan's
+  // leave the Launch button/detail reflecting the PREVIOUS plan's
   // validated+armed state (the server/connector remain the authoritative
   // write gate; this is a client-side consistency fix).
   selectedSource = null;
+  collectPlanArgs = null;
   confirmArmed = false;
-  updateExecuteButton();
-  renderPlanList();
+  updateLaunchButton();
+  renderPlanTree();
   try {
-    const response = await fetch(api(`/plans/${encodeURIComponent(name)}/source`));
+    // Ask for the bridge's max source allowance: the default (4000 chars) is
+    // sized for the approval hook's skim excerpt, but this tab exists to let
+    // the operator read the WHOLE plan. The sidecar proxy forwards the query
+    // param verbatim; the bridge clamps it server-side.
+    const response = await fetch(
+      api(`/plans/${encodeURIComponent(name)}/source?max_chars=200000`)
+    );
     if (!response.ok) {
       selectedSource = null;
       confirmArmed = false;
-      detailCardEl.hidden = false;
+      detailEmptyEl.hidden = true;
+      detailBodyEl.hidden = false;
       detailTitleEl.textContent = name;
-      detailBadgesEl.innerHTML = '';
+      detailStatusEl.replaceChildren();
+      detailDescEl.hidden = true;
       sessionNoteEl.hidden = true;
       detailSourceEl.textContent = '';
-      paramFormEl.innerHTML = '';
-      showExecBanner('err', `could not load plan source (HTTP ${response.status})`);
+      paramFormEl.replaceChildren();
+      collectPlanArgs = null;
+      setActiveTab('params');
+      showLaunchOutcome('err', `could not load plan source (HTTP ${response.status})`);
       unvalidatedNoteEl.hidden = true;
-      updateExecuteButton();
+      updateSummary();
+      updateLaunchButton();
       return;
     }
     /** @type {PlanSource} */
@@ -336,60 +599,217 @@ async function selectPlan(name) {
     selectedSource = source;
     const plan = plans.find((candidate) => candidate.name === name);
     renderDetail(plan, source);
+    // Draft-binding check: only ever a consequence of this explicit
+    // selection (or the affordance click below) — never of a frame alone
+    // (PROPOSAL.md "Selection/binding precedence").
+    await draftClient.onPlanSelected(name);
   } catch {
     selectedSource = null;
     confirmArmed = false;
-    detailCardEl.hidden = false;
-    showExecBanner('err', 'could not reach the bluesky panels sidecar');
-    updateExecuteButton();
+    detailEmptyEl.hidden = true;
+    detailBodyEl.hidden = false;
+    showLaunchOutcome('err', 'could not reach the bluesky panels sidecar');
+    updateLaunchButton();
   }
 }
 
-// ---- execute flow ----
+// ---- launch flow ----
 
-async function doExecute() {
+async function doLaunch() {
   if (!selectedName || !selectedSource || !selectedSource.validated) return;
-  executing = true;
-  updateExecuteButton();
+  // Captured now (a `const`, never reassigned) rather than read again after
+  // the `await`s below — `selectedName` is a module-level `let` that another
+  // concurrent selection could reassign, and re-reading it would both risk
+  // acting on the wrong plan and widen back to `string|null` for tsc.
+  const planName = selectedName;
+  launching = true;
+  updateLaunchButton();
   try {
-    const response = await fetch(api('/runs/execute'), {
+    const bound = draftClient.isBound();
+    /** @type {Record<string, unknown>} */
+    let requestBody;
+    if (bound) {
+      // Flush pending edits first, then pin the revision from that flush's
+      // PATCH response — falling back to the last-applied frame/hello
+      // baseline when nothing was pending (the launch revision gate). The
+      // launched plan_name/plan_args come from the bridge's own
+      // pinned-revision snapshot, never from this request body.
+      const flushResult = await draftClient.flushNow();
+      const pinned = resolvePinnedRevision(flushResult, draftClient.getLastAppliedRevision());
+      requestBody = buildLaunchRequestBody({ bound, pinnedRevision: pinned, planName, planArgs: {} });
+    } else {
+      const planArgs = collectPlanArgs ? collectPlanArgs() : {};
+      requestBody = buildLaunchRequestBody({ bound, pinnedRevision: null, planName, planArgs });
+    }
+
+    const { status, body } = await fetchJson('/runs/launch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ plan_name: selectedName, plan_args: collectPlanArgs() }),
+      body: JSON.stringify(requestBody),
     });
-    /** @type {any} */
-    let body = null;
-    try {
-      body = await response.json();
-    } catch {
-      body = null;
-    }
 
-    if (response.status === 200 && body && body.status === 'writes_not_armed') {
-      showExecBanner('info', 'writes not armed on this deployment');
-    } else if (response.status === 200 && body && body.run_id) {
-      showExecBanner('ok', `run started: ${String(body.run_id)}`);
-    } else if (response.status === 409) {
-      const detail = (body && body.detail) || 'the bridge reported a conflict';
-      showExecBanner('err', `conflict: ${String(detail)}`);
-    } else if (response.status === 502) {
-      showExecBanner('err', 'bridge unreachable');
-    } else {
-      const detail = (body && body.detail) || `HTTP ${response.status}`;
-      showExecBanner('err', `execute failed: ${String(detail)}`);
+    const outcome = classifyLaunchResponse(status, body);
+    switch (outcome.type) {
+      case 'writes_not_armed':
+        showLaunchOutcome('info', 'writes not armed on this deployment');
+        break;
+      case 'run_started':
+        showLaunchOutcome('ok', `run started: ${outcome.runId}`);
+        break;
+      case 'stale_draft_revision':
+        // The draft moved on since the pinned snapshot; resync and make the
+        // operator look again before retrying (the launch revision gate
+        // handles the stale-revision 409 by resyncing and asking again).
+        await draftClient.resync();
+        showLaunchOutcome('err', 'the draft changed since you last saw it — refreshed, review and launch again');
+        break;
+      case 'draft_revision_already_launched':
+        // Not a stale draft — this exact revision already ran (a re-click or
+        // a race with the agent). No resync (nothing changed); the operator
+        // must edit the draft to mint a new revision before relaunching.
+        showLaunchOutcome('err', 'this revision was already launched — edit the draft to launch a new run');
+        break;
+      case 'conflict':
+        showLaunchOutcome('err', `conflict: ${outcome.detail}`);
+        break;
+      case 'bridge_unreachable':
+        showLaunchOutcome('err', 'bridge unreachable');
+        break;
+      case 'error':
+        showLaunchOutcome('err', `launch failed: ${outcome.detail}`);
+        break;
     }
   } catch {
-    showExecBanner('err', 'bridge unreachable');
+    showLaunchOutcome('err', 'bridge unreachable');
   } finally {
-    executing = false;
+    launching = false;
     confirmArmed = false;
-    updateExecuteButton();
+    updateLaunchButton();
   }
 }
+
+// ---- plan draft (live view of the server-held shared draft) ----
+
+/**
+ * Show a note/banner element with `text`, or hide and clear it when `text`
+ * is empty — the shared shape of every draft-client DOM callback below.
+ *
+ * @param {HTMLElement} el
+ * @param {string} text
+ */
+function setNote(el, text) {
+  el.hidden = !text;
+  el.textContent = text;
+}
+
+// Per-tab id: the frame `origin`/PATCH `client_id` other subscribers use for
+// echo suppression (PROPOSAL.md "Echo loops" risk mitigation).
+const draftClientId = generateClientId();
+
+/**
+ * The results-panel deep link for a run, resolved against this panel's own
+ * proxy mount prefix (see resultsPanelUrl).
+ *
+ * @param {string} runId
+ * @returns {string}
+ */
+function launchResultsUrl(runId) {
+  return resultsPanelUrl(PREFIX, runId);
+}
+
+/** @param {Record<string, unknown>} body */
+function patchDraft(body) {
+  return fetchJson('/draft', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+/**
+ * @returns {Promise<import('./draft-client.js').DraftGetResponse>}
+ */
+async function getDraft() {
+  const response = await fetch(api('/draft'));
+  if (!response.ok) {
+    // A non-2xx body (e.g. a 502 bridge-unreachable relay) does not parse as
+    // a `{draft, revision}` snapshot — feeding it to reduceReset would set
+    // `lastAppliedRevision` to `undefined` and disable the drop/gap
+    // machinery. Throwing leaves draft-client's state untouched (the rejected
+    // promise self-heals: the next frame/resync attempt starts clean).
+    throw new Error(`GET /draft failed: HTTP ${response.status}`);
+  }
+  return response.json();
+}
+
+async function deleteDraft() {
+  const response = await fetch(api(`/draft?client_id=${encodeURIComponent(draftClientId)}`), {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    // A 502 (bridge-unreachable relay) or any other non-2xx: the discard did
+    // NOT actually happen server-side. Throwing lets draft-client.js's
+    // onDiscardClick keep the panel's bound state consistent with reality
+    // instead of optimistically unbinding a draft that's still there.
+    throw new Error(`DELETE /draft failed: HTTP ${response.status}`);
+  }
+}
+
+const draftClient = createDraftClient({
+  formEl: paramFormEl,
+  api,
+  clientId: draftClientId,
+  getCollector: () => collectPlanArgs,
+  getPlanNames: () => plans.map((plan) => plan.name),
+  selectPlan,
+  refetchPlans: loadPlans,
+  getDraft,
+  patchDraft,
+  deleteDraft,
+  onBoundChange(bound) {
+    draftIndicatorEl.hidden = !bound;
+  },
+  onAffordance(planName) {
+    setNote(
+      draftAffordanceEl,
+      planName === null ? '' : `Draft is now on ${planName} — click to view`
+    );
+  },
+  onUnknownPlanBanner(planName) {
+    setNote(
+      draftUnknownBannerEl,
+      planName === null ? '' : `draft references unavailable plan "${planName}"`
+    );
+  },
+  onAgentEditNote(keys) {
+    setNote(draftAgentNoteEl, keys.length === 0 ? '' : `agent edited: ${keys.join(', ')}`);
+  },
+  onLaunchBanner(banner) {
+    if (banner === null) {
+      launchBannerEl.hidden = true;
+      launchBannerEl.replaceChildren();
+      return;
+    }
+    launchBannerEl.replaceChildren(buildLaunchBanner(document, banner, launchResultsUrl));
+    launchBannerEl.hidden = false;
+  },
+  onPatchRejected(detail) {
+    const message =
+      detail && typeof detail === 'object' && detail.field
+        ? `${String(detail.field)}: ${String(detail.error)}`
+        : String(detail || 'the bridge rejected that value');
+    if (draftRejectedTimer !== null) clearTimeout(draftRejectedTimer);
+    setNote(draftRejectedBannerEl, message);
+    draftRejectedTimer = setTimeout(() => {
+      setNote(draftRejectedBannerEl, '');
+      draftRejectedTimer = null;
+    }, DRAFT_REJECTED_NOTE_TIMEOUT_MS);
+  },
+});
 
 // ---- event wiring (delegation, reading data-* attributes) ----
 
-planListEl.addEventListener('click', (event) => {
+planTreeEl.addEventListener('click', (event) => {
   const target = /** @type {HTMLElement} */ (event.target);
   const button = target.closest('button[data-plan-name]');
   if (!(button instanceof HTMLElement)) return;
@@ -398,18 +818,41 @@ planListEl.addEventListener('click', (event) => {
   void selectPlan(name);
 });
 
-executeBtnEl.addEventListener('click', () => {
-  if (executeBtnEl.disabled) return;
+searchEl.addEventListener('input', () => {
+  filterText = searchEl.value.trim();
+  renderPlanTree();
+});
+
+tabParamsEl.addEventListener('click', () => setActiveTab('params'));
+tabSourceEl.addEventListener('click', () => setActiveTab('source'));
+
+// Live readout: native input/change cover typed edits; the bubbling
+// form-change CustomEvent (from schema-form.js) covers structural edits
+// (chip or table-row added/removed).
+paramFormEl.addEventListener('input', updateSummary);
+paramFormEl.addEventListener('change', updateSummary);
+paramFormEl.addEventListener('form-change', updateSummary);
+
+launchBtnEl.addEventListener('click', () => {
+  if (launchBtnEl.disabled) return;
   if (!confirmArmed) {
     confirmArmed = true;
-    updateExecuteButton();
+    updateLaunchButton();
     return;
   }
-  void doExecute();
+  void doLaunch();
 });
 
 paramFormEl.addEventListener('submit', (event) => {
   event.preventDefault();
+});
+
+draftDiscardBtnEl.addEventListener('click', () => {
+  void draftClient.onDiscardClick();
+});
+
+draftAffordanceEl.addEventListener('click', () => {
+  void draftClient.onAffordanceClick();
 });
 
 // ---- boot ----

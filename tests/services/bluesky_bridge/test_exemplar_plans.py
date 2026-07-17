@@ -1,5 +1,5 @@
-"""Coverage for the shipped exemplar accelerator plans (task 1.5):
-``plans_core/response_matrix.py`` and ``plans_core/grid_scan.py``.
+"""Coverage for the shipped accelerator plans (task 1.5):
+``plans_core/orm.py`` and ``plans_core/grid_scan.py``.
 
 Runs ONLY in a bluesky-capable environment — `bluesky`/`ophyd-async` are
 never installed in the main worktree venv, so every test here is skipped via
@@ -11,13 +11,15 @@ bluesky installed at all. To actually run this file:
     /tmp/bluesky-exemplar-scratch/bin/python -m pytest \
         tests/services/bluesky_bridge/test_exemplar_plans.py -q
 
-Two things are proven for each exemplar: (1) it registers through the real
+Two things are proven for each plan: (1) it registers through the real
 layered-directory loader (`plan_loader.get_facility_plans`) with valid
 metadata and `provenance == "shipped"` — i.e. the file satisfies the catalog
 contract, not a hand-built `PlanSpec`; and (2) its `build_plan` drives a real
 bluesky `RunEngine` (via `BlueskyPlanRunner`, mirroring
-`test_orm_plan_integration.py`/`test_runengine_integration.py`'s harness) to
-completion against mock devices, emitting documents.
+`test_runengine_integration.py`'s harness) to completion against mock
+devices, emitting documents. `orm`'s own restore-in-`finally` abort-safety
+(the FAILURE path) is covered separately by `test_builtin_plans.py`, which
+drives its generator directly rather than through this registration path.
 """
 
 from __future__ import annotations
@@ -33,7 +35,6 @@ ophyd_async = pytest.importorskip("ophyd_async")
 from osprey.services.bluesky_bridge import live_rows, plan_loader  # noqa: E402
 from osprey.services.bluesky_bridge.devices.mock import build_devices  # noqa: E402
 from osprey.services.bluesky_bridge.plan_runner_bluesky import BlueskyPlanRunner  # noqa: E402
-from osprey.services.bluesky_bridge.plans_core import grid_scan, response_matrix  # noqa: E402
 
 
 def _wait_until_idle(runner: BlueskyPlanRunner, timeout: float = 15.0) -> None:
@@ -58,33 +59,25 @@ def _isolated_state():
 # =========================================================================
 
 
-def test_response_matrix_and_grid_scan_nd_register_as_shipped_with_valid_metadata() -> None:
+def test_orm_and_grid_scan_register_as_shipped_with_valid_metadata() -> None:
     facility = plan_loader.get_facility_plans()
 
-    assert "response_matrix" in facility.plans
-    assert "grid_scan_nd" in facility.plans
+    assert "orm" in facility.plans
+    assert "grid_scan" in facility.plans
 
-    rm_spec = facility.plans["response_matrix"]
-    gs_spec = facility.plans["grid_scan_nd"]
+    orm_spec = facility.plans["orm"]
+    gs_spec = facility.plans["grid_scan"]
 
-    assert rm_spec.provenance == "shipped"
+    assert orm_spec.provenance == "shipped"
     assert gs_spec.provenance == "shipped"
 
-    assert rm_spec.metadata is not None
+    assert orm_spec.metadata is not None
     assert gs_spec.metadata is not None
-    assert rm_spec.metadata.writes is True
+    assert orm_spec.metadata.writes is True
     assert gs_spec.metadata.writes is True
 
-    # Distinct from the built-in `orm`/`grid_scan` names -- no same-name shadow
-    # at the app.py BUILTIN_PLANS + catalog merge.
-    assert rm_spec.name == "response_matrix"
-    assert gs_spec.name == "grid_scan_nd"
-    assert gs_spec.name != "grid_scan"
-
-
-def test_exemplar_docstrings_carry_the_representative_not_validated_caveat() -> None:
-    assert "not a physics-validated" in response_matrix.__doc__
-    assert "not a physics-validated" in grid_scan.__doc__
+    assert orm_spec.name == "orm"
+    assert gs_spec.name == "grid_scan"
 
 
 # =========================================================================
@@ -93,7 +86,7 @@ def test_exemplar_docstrings_carry_the_representative_not_validated_caveat() -> 
 
 
 @pytest.fixture
-def rm_devices() -> dict:
+def orm_devices() -> dict:
     return asyncio.run(
         build_devices(
             motor_names=["hcm1", "hcm2"],
@@ -102,11 +95,11 @@ def rm_devices() -> dict:
     )
 
 
-def test_response_matrix_plan_runs_to_completion_and_buffers_rows(rm_devices: dict) -> None:
+def test_orm_plan_runs_to_completion_and_buffers_rows(orm_devices: dict) -> None:
     facility = plan_loader.get_facility_plans()
-    runner = BlueskyPlanRunner(devices=rm_devices, plans=facility.plans)
+    runner = BlueskyPlanRunner(devices=orm_devices, plans=facility.plans)
     exec_config = {
-        "plan_name": "response_matrix",
+        "plan_name": "orm",
         "plan_args": {
             "correctors": ["hcm1", "hcm2"],
             "detectors": ["bpm1", "bpm2"],
@@ -134,8 +127,8 @@ def test_response_matrix_plan_runs_to_completion_and_buffers_rows(rm_devices: di
         assert all(value is not None for value in row)
 
     # Each corrector restored to 0 A after its own sweep.
-    assert asyncio.run(rm_devices["hcm1"].readback.get_value()) == 0.0
-    assert asyncio.run(rm_devices["hcm2"].readback.get_value()) == 0.0
+    assert asyncio.run(orm_devices["hcm1"].readback.get_value()) == 0.0
+    assert asyncio.run(orm_devices["hcm2"].readback.get_value()) == 0.0
 
 
 @pytest.fixture
@@ -148,11 +141,11 @@ def gs_devices() -> dict:
     )
 
 
-def test_grid_scan_nd_plan_runs_to_completion_and_buffers_rows(gs_devices: dict) -> None:
+def test_grid_scan_plan_runs_to_completion_and_buffers_rows(gs_devices: dict) -> None:
     facility = plan_loader.get_facility_plans()
     runner = BlueskyPlanRunner(devices=gs_devices, plans=facility.plans)
     exec_config = {
-        "plan_name": "grid_scan_nd",
+        "plan_name": "grid_scan",
         "plan_args": {
             "detectors": ["det1"],
             "axes": [

@@ -18,7 +18,7 @@ bridge-owned field. This mirrors the read side of the bridge contract at
 - ``GET /runs/{run_id}``
 - ``GET /runs/{run_id}/data`` (``max_rows``/``offset``/``tail`` query params)
 
-No write verbs are exposed here (no ``POST /runs``, no ``/promote``, no
+No write verbs are exposed here (no ``POST /runs``, no ``/launch``, no
 ``/stop``) -- this router is GET-only by construction.
 
 A connection-level failure to reach the bridge (refused connection, DNS
@@ -88,10 +88,10 @@ async def list_runs(request: Request) -> JSONResponse:
 
 
 @router.get("/runs/{run_id}")
-async def get_run_status(request: Request, run_id: str) -> JSONResponse:
+async def get_run(request: Request, run_id: str) -> JSONResponse:
     return await _forward_get(request, f"/runs/{quote(run_id, safe='')}")
 
 
 @router.get("/runs/{run_id}/data")
-async def read_run_data(request: Request, run_id: str) -> JSONResponse:
+async def get_run_data(request: Request, run_id: str) -> JSONResponse:
     return await _forward_get(request, f"/runs/{quote(run_id, safe='')}/data")

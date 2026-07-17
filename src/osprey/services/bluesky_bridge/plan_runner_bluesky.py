@@ -1,7 +1,7 @@
 """The real bluesky-backed ``PlanRunner``: a RunEngine in a daemon thread.
 
-Implements the injected ``PlanRunner`` seam (``plan_runner.py``) that ``do_promote``
-builds per promoted run. Imports bluesky, so this module lives behind the
+Implements the injected ``PlanRunner`` seam (``plan_runner.py``) that ``do_launch``
+builds per launched run. Imports bluesky, so this module lives behind the
 optional ``osprey-framework[bluesky-bridge]`` extra — it must never be
 imported from the lifecycle core's import path (``app.py``, ``runs.py``,
 ``plan_runner.py``, ``security.py`` stay import-clean); only a deploy wiring or a
@@ -9,18 +9,18 @@ bluesky-capable test imports this module directly.
 
 Plan resolution happens entirely inside ``reinitialize()``: ``exec_config``
 (the bridge's ``RunRequest`` — ``plan_name`` + ``plan_args``, or an equivalent
-mapping) is resolved against a plan registry (by default the same built-ins +
-facility-injected merge ``app.py``'s ``GET /plans`` route serves), its
-``plan_args`` validated against that plan's pydantic schema, and the
+mapping) is resolved against a plan registry (by default the same registry
+``app.py``'s ``GET /plans`` route serves — see ``plan_loader.get_facility_plans``),
+its ``plan_args`` validated against that plan's pydantic schema, and the
 resulting bluesky plan generator built and stored — all *before*
 ``start_run_thread()`` ever touches a thread. That is what makes
 ``start_run_thread()`` effectively all-or-nothing: the only way it can fail
 is daemon-thread creation itself, not plan/device resolution (see
-``runs.py``'s ``do_promote``, which also stops a partially-started runner
+``runs.py``'s ``do_launch``, which also stops a partially-started runner
 defensively on any exception, as a second line of defense).
 
 Live data: this runner subscribes its own ``live_rows.LiveRowRecorder`` to
-the RunEngine, so ``read_run_data`` returns real buffered rows for a real
+the RunEngine, so ``get_run_data`` returns real buffered rows for a real
 run with no Tiled server needed. A ``TiledWriter`` subscription is optional
 (best-effort — its absence, or failure to connect, never blocks a run).
 
@@ -68,7 +68,7 @@ async def _await(awaitable: Awaitable[Mapping[str, Any]]) -> Mapping[str, Any]:
 
 
 def _default_plan_registry() -> dict[str, PlanSpec[Any]]:
-    """Built-ins merged with facility-injected plans (mirrors app.py's `/plans` merge).
+    """The bridge's sole plan registry (mirrors app.py's `/plans` route).
 
     Duplicated locally rather than imported from `app.py` (this module must
     never be imported by the lifecycle core, and `app.py` must never import
@@ -77,15 +77,7 @@ def _default_plan_registry() -> dict[str, PlanSpec[Any]]:
     """
     from .plan_loader import get_facility_plans
 
-    merged: dict[str, PlanSpec[Any]] = {}
-    try:
-        from .plans import BUILTIN_PLANS
-
-        merged.update(BUILTIN_PLANS)
-    except ImportError:
-        pass
-    merged.update(get_facility_plans().plans)
-    return merged
+    return dict(get_facility_plans().plans)
 
 
 def _plan_name_and_args(exec_config: Any) -> tuple[str | None, dict[str, Any]]:
@@ -108,7 +100,7 @@ class _FaultIsolatedTiledWriter:
     documents short-circuit without touching the inner writer again.
 
     Latch semantics are per-instance: `BlueskyPlanRunner` builds a fresh writer
-    (and fresh wrapper) per promotion, so there is no cross-run state to reset.
+    (and fresh wrapper) per launch, so there is no cross-run state to reset.
     """
 
     def __init__(self, inner: Callable[[str, dict[str, Any]], Any]) -> None:
@@ -130,9 +122,9 @@ class _FaultIsolatedTiledWriter:
 
 
 class BlueskyPlanRunner:
-    """One promoted run's real bluesky RunEngine handle.
+    """One launched run's real bluesky RunEngine handle.
 
-    A fresh instance is built per promotion (`do_promote`'s `runner_factory`).
+    A fresh instance is built per launch (`do_launch`'s `runner_factory`).
     ``devices``/``plans`` are injected rather than resolved from global state
     by default, so contract tests can supply mock devices (`devices/mock.py`)
     and the real built-in plan set without any facility injection wiring.
@@ -170,11 +162,11 @@ class BlueskyPlanRunner:
             self._tiled_writer = _FaultIsolatedTiledWriter(lambda name, doc: None)
             try:
                 # BOTH construction and subscription are inside this guard: a
-                # Tiled server down at promote time can fail either call, and
+                # Tiled server down at launch time can fail either call, and
                 # either failure must degrade persistence, never abort the
-                # promotion (FR4) — a raising `subscribe()` outside the guard
+                # launch (FR4) — a raising `subscribe()` outside the guard
                 # would propagate out of `__init__` -> `runner_factory()` ->
-                # `do_promote`, turning a Tiled outage into a failed promote.
+                # `do_launch`, turning a Tiled outage into a failed launch.
                 inner_writer = tiled_writer_factory()
                 self._tiled_writer = _FaultIsolatedTiledWriter(inner_writer)
                 self.RE.subscribe(self._tiled_writer)
@@ -234,7 +226,7 @@ class BlueskyPlanRunner:
         loop*, not a throwaway one, or the devices it builds end up bound to a
         loop the run itself never touches.
         `asyncio.run_coroutine_threadsafe` schedules the await onto `self.RE.loop`
-        from whichever thread calls `reinitialize()` (the promote HTTP request
+        from whichever thread calls `reinitialize()` (the launch HTTP request
         thread) and blocks that thread for the result — the sync-`Mapping`
         branch below needs none of this, since there's nothing to connect.
         """
@@ -312,7 +304,7 @@ class BlueskyPlanRunner:
         what distinguishes an intentional stop from a genuine plan failure —
         not the exception's presence.
 
-        `osprey_run_id` (set by `do_promote`, `runs.py`, after `reinitialize`
+        `osprey_run_id` (set by `do_launch`, `runs.py`, after `reinitialize`
         and before `start_run_thread`) is not part of the `PlanRunner` Protocol,
         so it is read defensively via `getattr` — absent for any caller that
         doesn't set it (contract tests constructing a `BlueskyPlanRunner`

@@ -255,7 +255,7 @@ def test_plan_dir_absent_omits_mount_and_env(tmp_path: Path) -> None:
 
 def test_loopback_bind_and_failclosed_token_survive_plan_dir_wiring(tmp_path: Path) -> None:
     """Regression guard for the two invariants this task must not touch:
-    the port bind stays loopback-only and BLUESKY_PROMOTE_TOKEN keeps no
+    the port bind stays loopback-only and BLUESKY_LAUNCH_TOKEN keeps no
     ``:-`` default (an unset token must fail closed, never boot with a
     guessable secret)."""
     project_path = tmp_path / "project"
@@ -270,8 +270,8 @@ def test_loopback_bind_and_failclosed_token_survive_plan_dir_wiring(tmp_path: Pa
         "{{ services.bluesky.port | default(8090) }}:"
         '{{ services.bluesky.port | default(8090) }}"' in template_text
     )
-    assert "BLUESKY_PROMOTE_TOKEN: ${BLUESKY_PROMOTE_TOKEN}" in template_text
-    assert "BLUESKY_PROMOTE_TOKEN: ${BLUESKY_PROMOTE_TOKEN:-" not in template_text
+    assert "BLUESKY_LAUNCH_TOKEN: ${BLUESKY_LAUNCH_TOKEN}" in template_text
+    assert "BLUESKY_LAUNCH_TOKEN: ${BLUESKY_LAUNCH_TOKEN:-" not in template_text
 
 
 # ---------------------------------------------------------------------------

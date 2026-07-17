@@ -3,7 +3,7 @@
 Builds the shipped deploy config that brings up the Virtual Accelerator +
 Bluesky bridge + co-deployed Tiled catalog with
 ``control_system.type=virtual_accelerator``, ``execution.execution_method=
-container`` (so ``BLUESKY_PROMOTE_TOKEN`` mints safely and the agent can arm
+container`` (so ``BLUESKY_LAUNCH_TOKEN`` mints safely and the agent can arm
 -- see ``container_lifecycle.py``'s ``_local_exec_arming_unsafe``), and the
 ``scan`` MCP server enabled (``default_enabled=False`` in the framework
 registry; opted in here via ``claude_code.servers.bluesky.enabled``). Corrector
@@ -325,17 +325,17 @@ def write_scan_env(
     *,
     correctors: dict[str, tuple[str, str]],
     bpms: dict[str, str],
-    promote_token: str | None = None,
+    launch_token: str | None = None,
 ) -> None:
     """Wire correctors + BPMs into ``BLUESKY_EPICS_MOTORS``/``_DETECTORS``
     and set ``BLUESKY_EPICS_SUBSTRATE=1``, appended to the project ``.env``
     BEFORE ``osprey deploy up`` (the bridge compose template passes these
     through from the project ``.env``, same mechanism as
-    ``BLUESKY_PROMOTE_TOKEN``).
+    ``BLUESKY_LAUNCH_TOKEN``).
 
-    ``promote_token``, if given, is also written. The container-exec path
+    ``launch_token``, if given, is also written. The container-exec path
     normally auto-mints one on ``deploy up``; callers that need a
-    deterministic value for a scripted promote call supply their own (the
+    deterministic value for a scripted launch call supply their own (the
     same operator-provides-a-token path used elsewhere in this e2e suite).
 
     Formatting delegates to the canonical
@@ -353,8 +353,8 @@ def write_scan_env(
         "BLUESKY_EPICS_MOTORS": format_motors_env(correctors),
         "BLUESKY_EPICS_DETECTORS": format_detectors_env(bpms),
     }
-    if promote_token:
-        values["BLUESKY_PROMOTE_TOKEN"] = promote_token
+    if launch_token:
+        values["BLUESKY_LAUNCH_TOKEN"] = launch_token
 
     env_path = project_dir / ".env"
     existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""

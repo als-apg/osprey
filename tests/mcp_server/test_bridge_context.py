@@ -48,30 +48,30 @@ def test_bridge_url_from_env(tmp_path, monkeypatch):
     assert context.bridge_url == "http://127.0.0.1:8123"
 
 
-def test_promote_token_from_env(tmp_path, monkeypatch):
-    """BLUESKY_PROMOTE_TOKEN env var wins outright over config.yml."""
+def test_launch_token_from_env(tmp_path, monkeypatch):
+    """BLUESKY_LAUNCH_TOKEN env var wins outright over config.yml."""
     monkeypatch.chdir(tmp_path)
-    _write_config(tmp_path, {"bluesky": {"promote_token": "config-token"}})
-    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", "env-token")
+    _write_config(tmp_path, {"bluesky": {"launch_token": "config-token"}})
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "env-token")
 
     context = BridgeContext()
     context.initialize()
 
-    assert context.promote_token == "env-token"
+    assert context.launch_token == "env-token"
 
 
 def test_env_absent_no_config_uses_defaults(tmp_path, monkeypatch):
     """With no env vars and no config.yml, sane fail-closed defaults apply."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("BLUESKY_BRIDGE_URL", raising=False)
-    monkeypatch.delenv("BLUESKY_PROMOTE_TOKEN", raising=False)
+    monkeypatch.delenv("BLUESKY_LAUNCH_TOKEN", raising=False)
     monkeypatch.delenv("OSPREY_CONFIG", raising=False)
 
     context = BridgeContext()
     context.initialize()
 
     assert context.bridge_url == "http://127.0.0.1:8090"
-    assert context.promote_token is None
+    assert context.launch_token is None
 
 
 # ---------------------------------------------------------------------------
@@ -91,16 +91,16 @@ def test_bridge_url_config_fallback(tmp_path, monkeypatch):
     assert context.bridge_url == "http://192.168.1.10:8090"
 
 
-def test_promote_token_config_fallback(tmp_path, monkeypatch):
-    """bluesky.promote_token in config.yml is used when the env var is unset."""
+def test_launch_token_config_fallback(tmp_path, monkeypatch):
+    """bluesky.launch_token in config.yml is used when the env var is unset."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.delenv("BLUESKY_PROMOTE_TOKEN", raising=False)
-    _write_config(tmp_path, {"bluesky": {"promote_token": "dev-token"}})
+    monkeypatch.delenv("BLUESKY_LAUNCH_TOKEN", raising=False)
+    _write_config(tmp_path, {"bluesky": {"launch_token": "dev-token"}})
 
     context = BridgeContext()
     context.initialize()
 
-    assert context.promote_token == "dev-token"
+    assert context.launch_token == "dev-token"
 
 
 # ---------------------------------------------------------------------------
@@ -181,7 +181,7 @@ def test_http_post_json_unreachable_raises_error_envelope(tmp_path, monkeypatch)
 
     with patch("httpx.post", side_effect=httpx.ConnectError("connection refused")):
         with pytest.raises(ToolError) as exc_info:
-            _http_post_json("/runs/abc/promote", {}, headers={"X-Promote-Token": "t"})
+            _http_post_json("/runs/abc/launch", {}, headers={"X-Launch-Token": "t"})
 
     assert "bluesky_bridge_unreachable" in str(exc_info.value)
 

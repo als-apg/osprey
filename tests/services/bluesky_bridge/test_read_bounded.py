@@ -6,7 +6,7 @@ Two layers:
    live-row buffer via `LiveRowRecorder` (no bluesky import, no Tiled server)
    to exercise the route's pagination/truncation/partial logic.
 2. A MANDATORY non-patched integration test (Phase 1 handoff item): a real
-   HTTP server hosting this app, hit by the *actual* `read_run_data` MCP
+   HTTP server hosting this app, hit by the *actual* `get_run_data` MCP
    tool over a real socket — `_http_get_json` is never mocked here, so a
    missing/renamed bridge route can never hide behind a patched primitive
    again.
@@ -28,7 +28,7 @@ from osprey.services.bluesky_bridge import live_rows
 from osprey.services.bluesky_bridge.app import app, set_runner_factory
 from osprey.services.bluesky_bridge.live_rows import LiveRowRecorder
 from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
-from osprey.services.bluesky_bridge.runs import Run, do_promote, registry
+from osprey.services.bluesky_bridge.runs import Run, do_launch, registry
 
 _TILED_URI_ENV = "BLUESKY_TILED_URI"
 _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
@@ -37,7 +37,7 @@ _TILED_API_KEY_ENV = "BLUESKY_TILED_API_KEY"
 @pytest.fixture(autouse=True)
 def _isolated_state(monkeypatch: pytest.MonkeyPatch):
     """Every test also gets Tiled unconfigured: several tests below (any run
-    with no live buffer) fall through `read_run_data` to the real
+    with no live buffer) fall through `get_run_data` to the real
     `_from_tiled`, not a mock. Left to ambient env, an exported
     `BLUESKY_TILED_URI` would make those tests attempt a real Tiled
     connection instead of exercising the "not configured" branch they claim
@@ -60,10 +60,10 @@ def client() -> TestClient:
     return TestClient(app)
 
 
-def _promoted_run_with_uid(run_uid: str) -> Run:
-    """A run promoted with a FakePlanRunner pre-seeded with `run_uid`."""
-    run = registry.add(request={"plan_name": "count"})
-    do_promote(run, lambda: FakePlanRunner(run_uid=run_uid))
+def _launched_run_with_uid(run_uid: str) -> Run:
+    """A run launched with a FakePlanRunner pre-seeded with `run_uid`."""
+    run = registry.add(request={"plan_name": "orm"})
+    do_launch(run, lambda: FakePlanRunner(run_uid=run_uid))
     return run
 
 
@@ -82,8 +82,8 @@ def _feed(run_uid: str, rows: list[dict], *, stop: bool = False) -> None:
 # =========================================================================
 
 
-def test_read_data_before_promotion_returns_409(client: TestClient) -> None:
-    run = registry.add(request={"plan_name": "count"})
+def test_read_data_before_launch_returns_409(client: TestClient) -> None:
+    run = registry.add(request={"plan_name": "orm"})
     resp = client.get(f"/runs/{run.id}/data")
     assert resp.status_code == 409
 
@@ -99,20 +99,20 @@ def test_read_data_unknown_run_returns_404(client: TestClient) -> None:
 
 
 def test_read_data_with_no_buffer_and_no_tiled_returns_404(client: TestClient) -> None:
-    """Task 3.3: a promoted run with no live buffer falls back to `_from_tiled`,
+    """Task 3.3: a launched run with no live buffer falls back to `_from_tiled`,
     which returns `None` here (BLUESKY_TILED_URI unset in this test env) — so
     this is a 404, not the old Phase-1 200-empty shape. A 200-empty would make
     a run whose data genuinely can't be found look like a valid empty scan;
     see `test_dual_source_read.py` for the full dual-source branching matrix
     (evicted-buffer fallback, schema parity, registry-miss handling).
     """
-    run = _promoted_run_with_uid("uid-empty")
+    run = _launched_run_with_uid("uid-empty")
     resp = client.get(f"/runs/{run.id}/data")
     assert resp.status_code == 404
 
 
 def test_read_data_started_but_zero_events_reports_full_shape(client: TestClient) -> None:
-    run = _promoted_run_with_uid("uid-2")
+    run = _launched_run_with_uid("uid-2")
     _feed("uid-2", [])
     body = client.get(f"/runs/{run.id}/data").json()
     assert body["run_uid"] == "uid-2"
@@ -129,7 +129,7 @@ def test_read_data_started_but_zero_events_reports_full_shape(client: TestClient
 
 
 def test_read_data_returns_all_rows_when_under_max_rows(client: TestClient) -> None:
-    run = _promoted_run_with_uid("uid-3")
+    run = _launched_run_with_uid("uid-3")
     _feed("uid-3", [{"x": 1.0}, {"x": 2.0}], stop=True)
     body = client.get(f"/runs/{run.id}/data").json()
     assert body["columns"] == ["x"]
@@ -140,7 +140,7 @@ def test_read_data_returns_all_rows_when_under_max_rows(client: TestClient) -> N
 
 
 def test_read_data_caps_at_max_rows_and_flags_truncated(client: TestClient) -> None:
-    run = _promoted_run_with_uid("uid-4")
+    run = _launched_run_with_uid("uid-4")
     _feed("uid-4", [{"x": float(i)} for i in range(5)], stop=True)
     body = client.get(f"/runs/{run.id}/data?max_rows=2").json()
     assert body["rows"] == [[0.0], [1.0]]
@@ -149,7 +149,7 @@ def test_read_data_caps_at_max_rows_and_flags_truncated(client: TestClient) -> N
 
 
 def test_read_data_offset_paginates_forward(client: TestClient) -> None:
-    run = _promoted_run_with_uid("uid-5")
+    run = _launched_run_with_uid("uid-5")
     _feed("uid-5", [{"x": float(i)} for i in range(5)], stop=True)
     body = client.get(f"/runs/{run.id}/data?max_rows=2&offset=2").json()
     assert body["rows"] == [[2.0], [3.0]]
@@ -157,7 +157,7 @@ def test_read_data_offset_paginates_forward(client: TestClient) -> None:
 
 
 def test_read_data_tail_returns_most_recent_rows(client: TestClient) -> None:
-    run = _promoted_run_with_uid("uid-6")
+    run = _launched_run_with_uid("uid-6")
     _feed("uid-6", [{"x": float(i)} for i in range(5)], stop=True)
     body = client.get(f"/runs/{run.id}/data?max_rows=2&tail=true").json()
     assert body["rows"] == [[3.0], [4.0]]
@@ -165,7 +165,7 @@ def test_read_data_tail_returns_most_recent_rows(client: TestClient) -> None:
 
 
 def test_read_data_tail_with_offset_skips_from_the_end(client: TestClient) -> None:
-    run = _promoted_run_with_uid("uid-7")
+    run = _launched_run_with_uid("uid-7")
     _feed("uid-7", [{"x": float(i)} for i in range(5)], stop=True)
     body = client.get(f"/runs/{run.id}/data?max_rows=2&tail=true&offset=1").json()
     # Skip the very last row (index 4), then take the 2 rows before that.
@@ -178,14 +178,14 @@ def test_read_data_tail_with_offset_skips_from_the_end(client: TestClient) -> No
 
 
 def test_read_data_mid_run_reports_partial_true(client: TestClient) -> None:
-    run = _promoted_run_with_uid("uid-8")
+    run = _launched_run_with_uid("uid-8")
     _feed("uid-8", [{"x": 1.0}], stop=False)
     body = client.get(f"/runs/{run.id}/data").json()
     assert body["partial"] is True
 
 
 def test_read_data_after_stop_omits_partial(client: TestClient) -> None:
-    run = _promoted_run_with_uid("uid-9")
+    run = _launched_run_with_uid("uid-9")
     _feed("uid-9", [{"x": 1.0}], stop=True)
     body = client.get(f"/runs/{run.id}/data").json()
     assert "partial" not in body
@@ -200,7 +200,7 @@ def test_read_data_row_count_is_true_total_even_past_storage_cap(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(live_rows, "_MAX_ROWS_PER_RUN", 3)
-    run = _promoted_run_with_uid("uid-10")
+    run = _launched_run_with_uid("uid-10")
     _feed("uid-10", [{"x": float(i)} for i in range(5)], stop=True)
     body = client.get(f"/runs/{run.id}/data").json()
     assert len(body["rows"]) == 3
@@ -252,13 +252,13 @@ def _live_bridge() -> Iterator[str]:
         t.join(timeout=5)
 
 
-async def test_read_run_data_tool_end_to_end_over_real_http(
+async def test_get_run_data_tool_end_to_end_over_real_http(
     tmp_path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The actual MCP tool, unpatched, talking to the actual bridge route over a real socket.
 
     Guards against the exact gap flagged at the Phase 1 handoff: every other
-    `read_run_data` test patches `_http_get_json`, so a renamed/missing
+    `get_run_data` test patches `_http_get_json`, so a renamed/missing
     bridge route could pass every unit test while being unreachable in
     production. This test never touches `_http_get_json` — it runs the real
     bridge, seeds its real run registry + live-row buffer, points the scan
@@ -268,7 +268,7 @@ async def test_read_run_data_tool_end_to_end_over_real_http(
     from osprey.mcp_server.bluesky.tools import read_tools
     from tests.mcp_server.conftest import extract_response_dict, get_tool_fn
 
-    run = _promoted_run_with_uid("uid-e2e")
+    run = _launched_run_with_uid("uid-e2e")
     _feed("uid-e2e", [{"x": float(i)} for i in range(5)], stop=True)
 
     monkeypatch.chdir(tmp_path)  # no config.yml in scope -> env var + defaults only
@@ -278,7 +278,7 @@ async def test_read_run_data_tool_end_to_end_over_real_http(
         server_context.reset_server_context()
         server_context.initialize_server_context()
         try:
-            result = await get_tool_fn(read_tools.read_run_data)(run_id=run.id, max_rows=2)
+            result = await get_tool_fn(read_tools.get_run_data)(run_id=run.id, max_rows=2)
         finally:
             server_context.reset_server_context()
 

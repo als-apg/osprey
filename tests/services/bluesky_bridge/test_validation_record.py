@@ -1,6 +1,6 @@
 """Unit tests for `validation_record.py` (task 2.2): the content-hash-keyed
 store of PASSING plan-validation records that task 2.4's session-layer load
-gate and task 2.5's promote gate query after re-hashing a file's on-disk
+gate and task 2.5's launch gate query after re-hashing a file's on-disk
 content.
 
 Each test builds its own `ValidationRecordStore` rather than reaching for the

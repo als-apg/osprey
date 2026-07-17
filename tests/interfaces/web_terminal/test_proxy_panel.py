@@ -246,3 +246,43 @@ class TestEventsPanelTokenInjection:
         resp = client.get("/panel/events/dashboard/state")
         assert resp.status_code == 200
         assert "authorization" not in {k.lower() for k in captured}
+
+
+class TestProxyCacheControlDefault:
+    """The proxy-wide caching default (_DEFAULT_NO_CACHE): a proxied response
+    whose upstream set no Cache-Control gets no-cache stamped (unversioned
+    panel assets must never survive a redeploy in a browser cache), while an
+    upstream's own explicit caching decision passes through untouched."""
+
+    def test_headerless_upstream_gets_no_cache_default(self, app_and_client):
+        app, client = app_and_client
+
+        async def fake_request(*, method, url, headers, content):
+            return httpx.Response(
+                status_code=200,
+                text="body { color: red; }",
+                headers={"content-type": "text/css"},
+            )
+
+        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
+
+        resp = client.get("/panel/my-dash/panel.css")
+        assert resp.status_code == 200
+        assert resp.headers["cache-control"] == "no-cache, no-store, must-revalidate"
+
+    def test_explicit_upstream_cache_header_is_preserved(self, app_and_client):
+        app, client = app_and_client
+        immutable = "public, max-age=31536000, immutable"
+
+        async def fake_request(*, method, url, headers, content):
+            return httpx.Response(
+                status_code=200,
+                text="var x = 1;",
+                headers={"content-type": "application/javascript", "cache-control": immutable},
+            )
+
+        app.state.proxy_client.request = AsyncMock(side_effect=fake_request)
+
+        resp = client.get("/panel/my-dash/static/js/vendor/plotly-3.3.1.min.js")
+        assert resp.status_code == 200
+        assert resp.headers["cache-control"] == immutable

@@ -7,7 +7,7 @@ there is no shared substrate two callers could observe each other mutating.
 That makes this module suitable ONLY for:
 
 - lifecycle/contract unit tests (e.g. task 2.7's RunEngine integration test),
-  where the point is to exercise the bridge's own plumbing (``do_promote``,
+  where the point is to exercise the bridge's own plumbing (``do_launch``,
   the live-row buffer, plan resolution) against *some* bluesky-shaped device,
   not to validate real device behavior; and
 - the ``osprey deploy`` smoke demo, where the goal is "does a run at
