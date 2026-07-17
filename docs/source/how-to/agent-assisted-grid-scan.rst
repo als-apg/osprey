@@ -4,7 +4,7 @@ Agent-Assisted Grid Scan Tutorial
 
 How to ask the OSPREY agent to set up an n-dimensional ``grid_scan``, watch
 the **PLAN** panel fill in live as it works, review and adjust the result by
-hand, then Execute and watch points land in **SCAN RESULTS** — all on the
+hand, then Launch and watch points land in **SCAN RESULTS** — all on the
 Virtual Accelerator.
 
 .. dropdown:: What You'll Learn
@@ -16,7 +16,7 @@ Virtual Accelerator.
    - How the PLAN panel binds to the agent's shared draft and flashes the
      fields it fills
    - Adjusting a field by hand mid-draft — and why that's safe with no arming
-   - What Execute actually launches, and where points show up
+   - What launching actually runs, and where points show up
 
    **Prerequisites:** the Control Assistant tutorial project (see
    :doc:`/getting-started/control-assistant`) with the bluesky scan stack
@@ -27,11 +27,11 @@ Overview
 ========
 
 The agent composes a Bluesky scan plan through three MCP tools
-(``get_plan_draft`` / ``set_plan_draft`` / ``clear_plan_draft``) against a
+(``get_draft`` / ``set_draft`` / ``clear_draft``) against a
 single **shared draft** held on the Bluesky bridge. The human's PLAN panel
 binds to that same draft: every field the agent sets is broadcast over SSE
 and glows in the panel as it lands, and any field the human edits by hand
-flows back into the same draft the agent sees. Pressing **Execute plan**
+flows back into the same draft the agent sees. Pressing **Launch plan**
 launches exactly the draft revision the panel last showed — nothing the
 agent or the human can't see.
 
@@ -67,9 +67,9 @@ setpoint and orbit terms, not plan-parameter terms:
 The agent resolves this into a ``grid_scan`` plan draft — two
 ``axes`` entries (one per corrector, each with its own ``start``/``stop``/
 ``num_points``) and a ``detectors`` list naming the two BPM readbacks — and
-calls ``set_plan_draft`` to stage it. This is staging only: composing the
-draft never touches hardware, never requires arming, and never triggers an
-approval prompt.
+stages the whole thing in a single ``set_draft`` call, noting the ``revision``
+it returns. This is staging only: composing the draft never touches hardware,
+never requires arming, and never triggers an approval prompt.
 
 Watch it fill
 =============
@@ -95,13 +95,13 @@ note — so only genuine changes draw your eye.
 You can adjust any field yourself: change an axis's step count, swap a
 detector, anything the form allows. Your edit is sent back into the same
 shared draft (a small delta patch, not a full replace), so the agent's next
-``get_plan_draft`` sees exactly what you changed. Draft editing — by either
+``get_draft`` sees exactly what you changed. Draft editing — by either
 side — never requires arming.
 
-Execute
-=======
+Launch
+======
 
-Once the plan validates, click **Execute plan**, then **Confirm execute**.
+Once the plan validates, click **Launch plan**, then **Confirm launch**.
 This launches the *exact draft revision the panel just showed you* — the
 sidecar re-reads the draft once more first, and if it has moved on since
 (someone else edited it, or it was cleared) you get a clear "stale, please
@@ -109,8 +109,8 @@ resync" message instead of a mismatched launch.
 
 .. note::
 
-   Draft editing needs no arming, but Execute still does: the same
-   promote-token and ``writes_enabled`` gates that guard the agent's own
+   Draft editing needs no arming, but launching still does: the same
+   launch-token and ``writes_enabled`` gates that guard the agent's own
    ``launch_run`` guard this click too. The connector is the sole write
    gate, on both paths.
 
@@ -121,7 +121,7 @@ Switch to the **SCAN RESULTS** tab. Points appear as the scan runs, one per
 grid position, with a table and a live chart of each detector's readings
 against row order. A 5×5 grid over two correctors settles quickly on the
 Virtual Accelerator — you should see all 25 points land within a few
-seconds of confirming Execute.
+seconds of confirming the launch.
 
 .. seealso::
 
