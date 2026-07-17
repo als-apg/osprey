@@ -89,7 +89,6 @@ def render_web_terminals(config: Any) -> dict[str, str]:
     _check_mcp_topology(web_terminals)
 
     resolved_users = resolve_personas(web_terminals, registry, facility_prefix, strict=True)
-    users = [entry["name"] for entry in resolved_users]
 
     base_ports = base_ports_from_config(web_terminals)
     services = [
@@ -137,7 +136,7 @@ def render_web_terminals(config: Any) -> dict[str, str]:
     }
     landing_ctx = {
         "facility_name": facility.get("name") or "",
-        "groups": _build_groups(_as_dict(web_terminals.get("landing")), users),
+        "groups": _build_groups(_as_dict(web_terminals.get("landing")), resolved_users),
     }
 
     template_dir = files("osprey").joinpath(_TEMPLATE_PACKAGE_PATH)
@@ -181,7 +180,32 @@ def _landing_url(root: dict[str, Any], nginx_port: int) -> str:
     return f"http://{host}:{nginx_port}"
 
 
-def _build_groups(landing_cfg: dict[str, Any], users: list[str]) -> list[dict[str, Any]]:
+def _user_card(resolved_user: dict[str, Any]) -> dict[str, Any]:
+    """Build one auto-populated ``users``-group landing card from a resolved roster entry.
+
+    The base shape is unchanged (``{label, url}``); a ``sublabel`` key is added
+    only when the entry resolved to a persona, so a no-persona roster keeps
+    producing exactly the same two-key items landing.html.j2 rendered before.
+
+    Args:
+        resolved_user: One :func:`osprey.deployment.web_terminals.ports.resolve_personas`
+            entry (``name`` and ``persona`` are read).
+
+    Returns:
+        ``{"label", "url"}`` for a persona-less user, plus ``"sublabel"`` (the
+        persona name) when ``persona`` is a non-empty string.
+    """
+    name = resolved_user["name"]
+    card: dict[str, Any] = {"label": name, "url": f"/u/{name}/"}
+    persona = resolved_user.get("persona")
+    if isinstance(persona, str) and persona:
+        card["sublabel"] = persona
+    return card
+
+
+def _build_groups(
+    landing_cfg: dict[str, Any], resolved_users: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
     """Transform config ``landing.groups`` (Task 1.2 shape) into template ``groups``
     (Task 1.6 shape): plain dicts with a ``label`` and an ``items`` key, since
     landing.html.j2 uses bracket subscript (``group["items"]``) throughout.
@@ -189,11 +213,25 @@ def _build_groups(landing_cfg: dict[str, Any], users: list[str]) -> list[dict[st
     ``{type: "users"}`` auto-populates one card per configured user, using the
     relative ``/u/<user>/`` path that nginx.conf.j2 (bind-nginx-reverse-proxy)
     reverse-proxies to that user's loopback upstream — so, unlike ``landing_url``,
-    no deploy-host needs baking into the landing cards themselves. ``{type:
-    "links", label, links}`` passes ``links`` straight through as ``items``.
-    Unrecognized/malformed group entries are dropped rather than raising: the
-    lint (Task 1.5) is the authoritative gate on schema well-formedness, this is
-    just the render-time adapter.
+    no deploy-host needs baking into the landing cards themselves. When a user
+    resolves to a persona (:func:`resolve_personas` returns a non-``None``
+    ``persona``), that card also carries an optional ``sublabel`` holding the
+    persona name, shown as a secondary badge on the card; users with no persona
+    in effect (every pre-persona bare-string roster) omit the key entirely, so
+    landing.html.j2's ``{% if item["sublabel"] %}`` guard renders them exactly as
+    before. ``{type: "links", label, links}`` passes ``links`` straight through as
+    ``items`` (link cards never carry a ``sublabel``). Unrecognized/malformed
+    group entries are dropped rather than raising: the lint (Task 1.5) is the
+    authoritative gate on schema well-formedness, this is just the render-time
+    adapter.
+
+    Args:
+        landing_cfg: The already-dict-coerced ``modules.web_terminals.landing``
+            section (only ``groups`` is read).
+        resolved_users: :func:`osprey.deployment.web_terminals.ports.resolve_personas`
+            output, in roster order — each entry's ``name`` becomes the card label
+            and ``/u/<name>/`` url, and its ``persona`` (when not ``None``) the
+            optional ``sublabel``.
     """
     groups_raw = landing_cfg.get("groups")
     if not isinstance(groups_raw, list) or not groups_raw:
@@ -204,7 +242,7 @@ def _build_groups(landing_cfg: dict[str, Any], users: list[str]) -> list[dict[st
         entry = _as_dict(entry)
         group_type = entry.get("type")
         if group_type == "users":
-            items = [{"label": user, "url": f"/u/{user}/"} for user in users]
+            items = [_user_card(user) for user in resolved_users]
             groups.append({"label": "Terminals", "items": items})
         elif group_type == "links":
             links = entry.get("links")

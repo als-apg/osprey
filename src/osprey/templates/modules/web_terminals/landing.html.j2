@@ -14,15 +14,21 @@
       Ordered list of groups to render:
         {
           "label": str,            # group heading, e.g. "Terminals" or "Dashboards"
-          "items": list[dict],     # [{"label": str, "url": str}, ...]
+          "items": list[dict],     # [{"label": str, "url": str, "sublabel"?: str}, ...]
         }
       ONE shared loop renders every group in this list — the `users` group is not
       special-cased beyond how its data arrives:
         - The `users` group is auto-populated by the caller from facility-config
           `users[]`: one item per user, `{label: <username>, url: <that user's
-          terminal origin>}`.
+          terminal origin>}`, plus an OPTIONAL `sublabel` holding that user's
+          persona name when one is in effect (a bare-string roster with no persona
+          omits the key entirely).
         - All other groups are operator-supplied `{label, url}` lists straight out of
           facility-config.
+      `sublabel` is optional on every item: when present it renders as a secondary
+      persona badge on the card; when absent the card renders exactly as a plain
+      `{label, url}` card (bracket-subscripting a missing key yields Jinja
+      `Undefined`, which is falsy — see the `{% if item["sublabel"] %}` guard).
       A group whose `items` list is empty renders nothing — no heading, no empty
       section. This is the ONLY suppression rule, and it is generic to every group:
       it's what makes the 0-user case disappear cleanly (an empty/omitted `users`
@@ -180,6 +186,22 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    .landing-card-sublabel {
+      align-self: flex-start;
+      max-width: 100%;
+      margin: 0.05rem 0 0.1rem;
+      padding: 0.12rem 0.55rem;
+      border: 1px solid var(--border-accent);
+      border-radius: 999px;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      color: var(--color-accent);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
     .landing-card-url {
       font-family: ui-monospace, "JetBrains Mono", monospace;
       font-size: 0.78rem;
@@ -240,11 +262,17 @@
           {% if safe_url %}
           <a class="landing-card" href="{{ safe_url|e }}">
             <span class="landing-card-label">{{ item["label"]|e }}</span>
+            {%- if item["sublabel"] %}
+            <span class="landing-card-sublabel">{{ item["sublabel"]|e }}</span>
+            {%- endif %}
             <span class="landing-card-url">{{ safe_url|e }}</span>
           </a>
           {% else %}
           <div class="landing-card landing-card-inert" title="Unsupported link scheme">
             <span class="landing-card-label">{{ item["label"]|e }}</span>
+            {%- if item["sublabel"] %}
+            <span class="landing-card-sublabel">{{ item["sublabel"]|e }}</span>
+            {%- endif %}
             <span class="landing-card-url">unsupported link</span>
           </div>
           {% endif %}

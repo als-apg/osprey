@@ -35,6 +35,7 @@ config every real facility profile's web-terminals section is patterned on.
 
 from __future__ import annotations
 
+import copy
 from pathlib import Path
 
 import yaml
@@ -122,3 +123,53 @@ def test_golden_compose_is_valid_yaml_with_expected_services() -> None:
     the byte-equality checks above by accident (e.g. both sides empty)."""
     compose = yaml.safe_load(_read_golden("docker-compose.web.yml"))
     assert set(compose["services"].keys()) == {"nginx", "web-alice", "web-bob"}
+
+
+def _persona_config() -> dict:
+    """EXAMPLE_CONFIG reshaped into the demo's two-persona roster: alice=operator,
+    bob=physicist. Each user carries an explicit ``persona`` reference resolved
+    against a matching ``personas`` catalog, so resolve_personas() returns a
+    non-``None`` persona for both — the case that produces sublabel badges."""
+    config = copy.deepcopy(EXAMPLE_CONFIG)
+    web_terminals = config["modules"]["web_terminals"]
+    web_terminals["personas"] = {
+        "operator": {
+            "project": "dls-operator",
+            "project_path": "../dls-operator",
+            "build_profile": "profiles/operator.yml",
+        },
+        "physicist": {
+            "project": "dls-physicist",
+            "project_path": "../dls-physicist",
+            "build_profile": "profiles/physicist.yml",
+        },
+    }
+    web_terminals["users"] = [
+        {"name": "alice", "index": 0, "persona": "operator"},
+        {"name": "bob", "index": 1, "persona": "physicist"},
+    ]
+    return config
+
+
+def test_persona_users_render_persona_sublabel_badge() -> None:
+    """A roster whose users resolve to personas renders each user card with its
+    persona name as a sublabel badge (the demo's alice=operator / bob=physicist
+    shape). The badge span is distinct from the `.landing-card-sublabel` CSS rule,
+    so counting `class="landing-card-sublabel"` counts only rendered badges."""
+    artifacts = render_web_terminals(_persona_config())
+    landing = artifacts["nginx/landing.html"]
+
+    assert landing.count('class="landing-card-sublabel"') == 2
+    assert '<span class="landing-card-sublabel">operator</span>' in landing
+    assert '<span class="landing-card-sublabel">physicist</span>' in landing
+
+
+def test_bare_string_users_render_no_persona_sublabel() -> None:
+    """The no-personas EXAMPLE_CONFIG (bare-string roster) renders user cards with
+    NO persona sublabel badge — resolve_personas() returns ``persona=None``, the
+    caller omits the ``sublabel`` key, and the template's guard skips the span so
+    the card stays a plain {label, url} card, unchanged from pre-persona output."""
+    artifacts = render_web_terminals(EXAMPLE_CONFIG)
+    landing = artifacts["nginx/landing.html"]
+
+    assert 'class="landing-card-sublabel"' not in landing
