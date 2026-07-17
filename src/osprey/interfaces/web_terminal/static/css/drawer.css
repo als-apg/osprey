@@ -9,10 +9,10 @@
   right: 0;
   bottom: 0;
   background: var(--overlay-black-50);
-  z-index: 100;
+  z-index: var(--z-dropdown);
   opacity: 0;
   pointer-events: none;
-  transition: opacity 200ms ease;
+  transition: opacity var(--duration-base) ease;
 }
 
 .drawer-backdrop[open] {
@@ -36,7 +36,7 @@
   display: flex;
   flex-direction: column;
   transform: translateX(100%);
-  transition: transform 250ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: transform 250ms cubic-bezier(0.4, 0, 0.2, 1); /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
 }
 
 .drawer[open] {
@@ -96,7 +96,7 @@ body.drawer-resizing {
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .drawer-header-left {
@@ -107,14 +107,14 @@ body.drawer-resizing {
 }
 
 .drawer-icon {
-  font-size: 16px;
-  line-height: 1;
+  font-size: var(--text-2xl);
+  line-height: var(--leading-none);
 }
 
 .drawer-title {
   font-family: var(--font-display);
-  font-weight: 600;
-  font-size: 14px;
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-xl);
   color: var(--text-primary);
 }
 
@@ -123,21 +123,21 @@ body.drawer-resizing {
 .drawer-tabs {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-1);
   flex: 1;
   justify-content: center;
 }
 
 .drawer-tab {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
   background: transparent;
   border: 1px solid var(--border-default);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 3px 12px;
   cursor: pointer;
   transition: all var(--wt-transition-fast);
@@ -174,7 +174,7 @@ body.drawer-resizing {
 .drawer-close-btn {
   background: transparent;
   border: 1px solid var(--border-default);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
   width: 28px;
   height: 28px;
@@ -183,7 +183,7 @@ body.drawer-resizing {
   justify-content: center;
   cursor: pointer;
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: var(--text-xl);
   transition: all var(--wt-transition-fast);
   flex-shrink: 0;
 }
@@ -212,15 +212,15 @@ body.drawer-resizing {
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
-  margin-left: 12px;
+  gap: var(--space-1);
+  margin-left: var(--space-3);
   flex: 0 0 auto;
 }
 
 .header-icon-btn {
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
   width: 32px;
   height: 32px;
@@ -228,7 +228,7 @@ body.drawer-resizing {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  font-size: 16px;
+  font-size: var(--text-2xl);
   transition: all var(--wt-transition-fast);
 }
 
@@ -253,7 +253,7 @@ body.drawer-resizing {
 .mcp-server-card {
   margin: 2px 0;
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   background: var(--neutral-tint-03);
   overflow: hidden;
 }
@@ -265,12 +265,12 @@ body.drawer-resizing {
 .mcp-server-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 8px 12px;
   cursor: pointer;
   font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
   color: var(--text-primary);
   background: var(--bg-secondary);
   border-bottom: 1px solid transparent;
@@ -292,7 +292,7 @@ body.drawer-resizing {
 
 .mcp-server-header::before {
   content: '\25B6';
-  font-size: 8px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
   transition: transform var(--wt-transition-fast);
   flex-shrink: 0;
@@ -329,7 +329,7 @@ body.drawer-resizing {
 .mcp-row {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 4px 0;
   border-bottom: 1px solid var(--neutral-tint-06);
 }
@@ -340,8 +340,8 @@ body.drawer-resizing {
 
 .mcp-row-label {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
@@ -354,15 +354,15 @@ body.drawer-resizing {
   flex: 1;
   min-width: 0;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-primary);
 }
 
 .mcp-row-value code {
   background: var(--neutral-tint-08);
   padding: 1px 4px;
-  border-radius: 2px;
-  font-size: 11px;
+  border-radius: var(--radius-xs);
+  font-size: var(--text-base);
   color: var(--color-amber-light);
   word-break: break-all;
 }
@@ -370,17 +370,17 @@ body.drawer-resizing {
 .mcp-args-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .mcp-arg {
   display: inline-block;
   background: var(--neutral-tint-08);
   border: 1px solid var(--border-default);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 1px 6px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   word-break: break-all;
 }
@@ -394,13 +394,13 @@ body.drawer-resizing {
 .mcp-env-row {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  font-size: 11px;
+  gap: var(--space-2);
+  font-size: var(--text-base);
 }
 
 .mcp-env-key {
   color: var(--color-amber);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   flex-shrink: 0;
 }
 
@@ -413,20 +413,20 @@ body.drawer-resizing {
   display: inline-block;
   background: var(--accent-tint-10);
   border: 1px solid var(--border-accent);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 1px 6px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   color: var(--color-accent-light);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
 .mcp-empty {
-  padding: 24px;
+  padding: var(--space-5);
   text-align: center;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 
@@ -439,7 +439,7 @@ body.drawer-resizing {
 .json-section {
   margin: 6px 0;
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   background: var(--neutral-tint-03);
   overflow: hidden;
 }
@@ -451,12 +451,12 @@ body.drawer-resizing {
 .json-section-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 8px 12px;
   cursor: pointer;
   font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
   color: var(--text-primary);
   background: var(--bg-secondary);
   list-style: none;
@@ -469,7 +469,7 @@ body.drawer-resizing {
 
 .json-section-header::before {
   content: '\25B6';
-  font-size: 8px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
   transition: transform var(--wt-transition-fast);
   flex-shrink: 0;
@@ -484,12 +484,12 @@ body.drawer-resizing {
 }
 
 .json-count {
-  font-size: 9px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
   background: var(--neutral-tint-10);
-  border-radius: 8px;
+  border-radius: var(--radius-xl);
   padding: 0 6px;
-  margin-left: 4px;
+  margin-left: var(--space-1);
 }
 
 .json-section-body {
@@ -499,8 +499,8 @@ body.drawer-resizing {
 
 .json-bool {
   font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 500;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
 }
 
 .json-bool:not(:empty) {
@@ -510,11 +510,11 @@ body.drawer-resizing {
 .json-nested {
   display: block;
   white-space: pre;
-  font-size: 10px;
-  line-height: 1.5;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
   color: var(--text-secondary);
   background: var(--overlay-black-20);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 4px 8px;
   margin-top: 2px;
 }
@@ -528,12 +528,12 @@ body.drawer-resizing {
   right: 0;
   bottom: 0;
   background: var(--overlay-black-70);
-  z-index: 200;
+  z-index: var(--z-sticky);
   display: flex;
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: opacity 200ms ease;
+  transition: opacity var(--duration-base) ease;
 }
 
 .settings-warning-overlay.visible {
@@ -543,14 +543,14 @@ body.drawer-resizing {
 .settings-warning-dialog {
   background: var(--bg-primary);
   border: 1px solid var(--error-tint-40);
-  border-radius: 8px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-error-dialog);
   max-width: 420px;
   width: 90vw;
-  padding: 24px;
+  padding: var(--space-5);
   text-align: center;
   transform: scale(0.95);
-  transition: transform 200ms ease;
+  transition: transform var(--duration-base) ease;
 }
 
 .settings-warning-overlay.visible .settings-warning-dialog {
@@ -558,23 +558,23 @@ body.drawer-resizing {
 }
 
 .settings-warning-icon {
-  font-size: 32px;
-  margin-bottom: 8px;
+  font-size: var(--text-4xl);
+  margin-bottom: var(--space-2);
   filter: grayscale(0.3);
 }
 
 .settings-warning-title {
   font-family: var(--font-display);
-  font-size: 16px;
-  font-weight: 600;
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
   color: var(--color-error);
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 
 .settings-warning-body {
   font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.7;
+  font-size: var(--text-base);
+  line-height: var(--leading-loose);
   color: var(--text-secondary);
   text-align: left;
   margin-bottom: 20px;
@@ -597,11 +597,11 @@ body.drawer-resizing {
 .settings-warning-cancel,
 .settings-warning-proceed {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 6px 14px;
   cursor: pointer;
   transition: all var(--wt-transition-fast);

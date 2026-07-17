@@ -7,9 +7,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 32px;
+  padding: var(--space-6);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 
@@ -30,10 +30,10 @@
   box-sizing: border-box;
   background: var(--bg-elevated);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-primary);
   border: 1px solid var(--border-default);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 6px 10px;
   outline: none;
   transition: border-color var(--wt-transition-fast);
@@ -51,18 +51,18 @@
 
 .prompts-filter-chips {
   display: flex;
-  gap: 4px;
+  gap: var(--space-1);
   margin-top: 6px;
   flex-wrap: wrap;
 }
 
 .prompts-chip {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 2px 10px;
-  border-radius: 10px;
+  border-radius: 10px /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */;
   border: 1px solid var(--border-default);
   background: transparent;
   color: var(--text-muted);
@@ -105,7 +105,7 @@
 
 .prompts-summary {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--text-muted);
@@ -117,13 +117,13 @@
 /* ---- Category Sections ---- */
 
 .prompts-categories {
-  padding-bottom: 12px;
+  padding-bottom: var(--space-3);
 }
 
 .prompts-category-header {
   font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--color-amber);
@@ -135,10 +135,10 @@
 }
 
 .prompts-category-count {
-  font-size: 8px;
+  font-size: var(--text-2xs);
   color: var(--text-muted);
   background: var(--neutral-tint-10);
-  border-radius: 8px;
+  border-radius: var(--radius-xl);
   padding: 0 5px;
 }
 
@@ -164,7 +164,7 @@
 }
 
 .prompts-card-icon {
-  font-size: 14px;
+  font-size: var(--text-xl);
   width: 20px;
   text-align: center;
   flex-shrink: 0;
@@ -178,7 +178,7 @@
 
 .prompts-card-name {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -187,7 +187,7 @@
 
 .prompts-card-desc {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -199,12 +199,12 @@
 
 .prompts-badge {
   font-family: var(--font-mono);
-  font-size: 8px;
-  font-weight: 500;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
   white-space: nowrap;
 }
@@ -226,7 +226,7 @@
 .prompts-detail-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 8px 12px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-default);
@@ -236,11 +236,11 @@
 
 .prompts-back-btn {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   color: var(--color-accent-light);
   background: transparent;
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   padding: 3px 8px;
   transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast);
@@ -253,14 +253,14 @@
 
 .prompts-detail-name {
   font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
   color: var(--text-primary);
 }
 
 .prompts-detail-path {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
   flex: 1;
   overflow: hidden;
@@ -270,7 +270,7 @@
 
 .prompts-detail-lang {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
@@ -281,28 +281,28 @@
 .prompts-header-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
 }
 
 .prompts-header-meta {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
-  padding-top: 4px;
+  padding-top: var(--space-1);
 }
 
 /* ---- Detail View — Ownership Button ---- */
 
 .prompts-ownership-btn {
   font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 2px 10px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all var(--wt-transition-fast);
   white-space: nowrap;
@@ -341,8 +341,8 @@
 
 .prompts-mode-btn {
   font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
@@ -354,11 +354,11 @@
 }
 
 .prompts-mode-btn:first-child {
-  border-radius: 3px 0 0 3px;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
 }
 
 .prompts-mode-btn:last-child {
-  border-radius: 0 3px 3px 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
 .prompts-mode-btn:not(:first-child) {
@@ -395,15 +395,15 @@
   flex-direction: column;
   background: var(--bg-terminal);
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
   color: var(--terminal-text);
 }
 
 .prompts-preview-content {
   white-space: pre-wrap;
   word-break: break-word;
-  padding: 12px;
+  padding: var(--space-3);
 }
 
 .prompts-preview-content code {
@@ -420,9 +420,9 @@
 .prompts-frontmatter {
   background: var(--neutral-tint-06);
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   padding: 8px 0;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 
 .prompts-fm-row {
@@ -438,8 +438,8 @@
 
 .prompts-fm-key {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   color: var(--color-accent-light);
   text-transform: lowercase;
   min-width: 100px;
@@ -448,20 +448,20 @@
 
 .prompts-fm-value {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-primary);
   word-break: break-word;
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--space-1);
   align-items: baseline;
 }
 
 .prompts-fm-pill {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: var(--neutral-tint-12);
   border: 1px solid var(--neutral-tint-20);
   color: var(--text-secondary);
@@ -477,11 +477,11 @@
 
 .prompts-diff-stats {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   padding: 6px 12px;
   border-bottom: 1px solid var(--border-default);
   display: flex;
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .prompts-diff-stats .add {
@@ -494,8 +494,8 @@
 
 .prompts-diff-content {
   font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -518,8 +518,8 @@
 .prompts-diff-line.hunk {
   background: var(--accent-tint-06);
   color: var(--color-accent);
-  font-weight: 500;
-  margin-top: 4px;
+  font-weight: var(--weight-medium);
+  margin-top: var(--space-1);
 }
 
 .prompts-diff-line .diff-word-keep {
@@ -529,14 +529,14 @@
 .prompts-diff-line.del .diff-word-del {
   background: var(--diff-word-del-bg);
   color: var(--diff-word-del-text);
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   padding: 0 1px;
 }
 
 .prompts-diff-line.add .diff-word-add {
   background: var(--diff-word-add-bg);
   color: var(--diff-word-add-text);
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   padding: 0 1px;
 }
 
@@ -551,11 +551,11 @@
   background: var(--bg-terminal);
   color: var(--terminal-text);
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
   border: none;
   outline: none;
-  padding: 12px;
+  padding: var(--space-3);
   white-space: pre;
   tab-size: 2;
 }
@@ -575,12 +575,12 @@
 
 .prompts-discard-btn {
   font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 3px 12px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all var(--wt-transition-fast);
   color: var(--text-muted);
@@ -602,12 +602,12 @@
 
 .prompts-save-btn {
   font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   padding: 3px 12px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all var(--wt-transition-fast);
   color: var(--bg-primary);
@@ -634,12 +634,12 @@
 
 .prompts-fm-form-title {
   font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--color-amber);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .prompts-fm-field {
@@ -656,8 +656,8 @@
 
 .prompts-fm-field-label {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   color: var(--color-accent-light);
   text-transform: lowercase;
   min-width: 110px;
@@ -674,11 +674,11 @@
 
 .prompts-action-btn {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 5px 14px;
   cursor: pointer;
   transition: all var(--wt-transition-fast);
@@ -722,9 +722,9 @@
 /* ---- View Source Toggle ---- */
 
 .prompts-source-section {
-  margin-top: 16px;
+  margin-top: var(--space-4);
   border-top: 1px solid var(--border-default);
-  padding-top: 8px;
+  padding-top: var(--space-2);
 }
 
 .prompts-source-toggle {
@@ -733,8 +733,8 @@
   gap: 6px;
   width: 100%;
   font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--text-muted);
@@ -750,13 +750,13 @@
 }
 
 .prompts-source-arrow {
-  font-size: 8px;
+  font-size: var(--text-2xs);
   transition: transform var(--wt-transition-fast);
 }
 
 .prompts-source-content {
   display: none;
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 
 .prompts-source-content.expanded {
@@ -768,10 +768,10 @@
   padding: 10px 12px;
   background: var(--overlay-black-30);
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   overflow-x: auto;
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
 }
 
 .prompts-source-content code {
@@ -787,8 +787,8 @@
 
 .prompts-flow-heading {
   font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
   letter-spacing: 0.1em;
   color: var(--text-muted);
   margin-bottom: 6px;
@@ -799,11 +799,11 @@
   padding: 12px 14px;
   background: var(--overlay-black-30);
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   overflow-x: auto;
   font-family: var(--font-mono);
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
   color: var(--terminal-text);
   white-space: pre;
 }
@@ -822,9 +822,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 32px;
+  padding: var(--space-6);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 
@@ -832,11 +832,11 @@
 
 .prompts-skill-select {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   color: var(--text-secondary);
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 1px 16px 1px 4px;
   margin-top: 2px;
   cursor: pointer;
@@ -867,8 +867,8 @@
   background: transparent;
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-size: 8px;
-  font-weight: 600;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
   cursor: pointer;
   transition: all var(--wt-transition-fast);
   flex-shrink: 0;
@@ -885,15 +885,15 @@
   justify-content: center;
   width: 16px;
   height: 16px;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-default);
   background: transparent;
   color: var(--color-success);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
   cursor: pointer;
   flex-shrink: 0;
-  margin-left: 4px;
+  margin-left: var(--space-1);
   transition: all var(--wt-transition-fast);
 }
 
@@ -906,12 +906,12 @@
 
 .prompts-category-tooltip {
   font-family: var(--font-mono);
-  font-size: 10px;
-  line-height: 1.5;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
   color: var(--text-secondary);
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   padding: 8px 12px;
   margin: 4px 12px 0;
   box-shadow: var(--shadow-dialog);
@@ -957,9 +957,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 32px;
+  padding: var(--space-6);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 
@@ -969,9 +969,9 @@
 }
 
 .memory-loading-inline {
-  padding: 16px;
+  padding: var(--space-4);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 
@@ -986,7 +986,7 @@
 .memory-search-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 10px 16px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-default);
@@ -997,10 +997,10 @@
   flex: 1;
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--text-primary);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   padding: 5px 10px;
   outline: none;
   transition: border-color var(--wt-transition-fast);
@@ -1017,11 +1017,11 @@
 .memory-new-btn {
   background: var(--accent-tint-08);
   border: 1px solid var(--color-accent);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--color-accent-light);
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   padding: 5px 10px;
   cursor: pointer;
   transition: background var(--wt-transition-fast);
@@ -1035,7 +1035,7 @@
 .memory-summary {
   padding: 6px 16px;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   color: var(--text-muted);
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border-default);
@@ -1056,9 +1056,9 @@
   gap: 10px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   padding: 10px 12px;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
   cursor: pointer;
   transition: border-color var(--wt-transition-fast), background var(--wt-transition-fast);
 }
@@ -1079,7 +1079,7 @@
 }
 
 .memory-file-icon {
-  font-size: 16px;
+  font-size: var(--text-2xl);
   color: var(--color-accent);
   flex-shrink: 0;
   width: 20px;
@@ -1097,8 +1097,8 @@
 
 .memory-file-name {
   font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -1107,7 +1107,7 @@
 
 .memory-file-meta {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
   margin-top: 2px;
 }
@@ -1116,11 +1116,11 @@
 
 .memory-file-badge {
   font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 1px 6px;
   flex-shrink: 0;
 }
@@ -1143,7 +1143,7 @@
   width: 48px;
   height: 2px;
   background: var(--neutral-tint-10);
-  border-radius: 1px;
+  border-radius: 1px /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */;
   overflow: hidden;
   flex-shrink: 0;
 }
@@ -1151,7 +1151,7 @@
 .memory-line-gauge-fill {
   height: 100%;
   background: var(--color-accent);
-  border-radius: 1px;
+  border-radius: 1px /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */;
   transition: width var(--wt-transition-normal);
 }
 
@@ -1165,9 +1165,9 @@
 
 .memory-gauge-label {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
-  margin-left: 4px;
+  margin-left: var(--space-1);
 }
 
 /* ---- Detail View ---- */
@@ -1181,7 +1181,7 @@
 .memory-detail-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 10px 16px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-default);
@@ -1191,10 +1191,10 @@
 .memory-back-btn {
   background: none;
   border: 1px solid var(--border-default);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   padding: 3px 8px;
   cursor: pointer;
   transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast);
@@ -1207,8 +1207,8 @@
 
 .memory-detail-name {
   font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
   color: var(--text-primary);
 }
 
@@ -1247,9 +1247,9 @@
   background: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
-  padding: 16px;
+  font-size: var(--text-md);
+  line-height: var(--leading-relaxed);
+  padding: var(--space-4);
   border: none;
   outline: none;
   resize: none;
@@ -1261,11 +1261,11 @@
 .memory-save-btn {
   background: var(--accent-tint-10);
   border: 1px solid var(--color-accent);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--color-accent-light);
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   padding: 3px 10px;
   cursor: pointer;
   transition: background var(--wt-transition-fast);
@@ -1283,10 +1283,10 @@
 .memory-discard-btn {
   background: none;
   border: 1px solid var(--border-default);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--text-muted);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   padding: 3px 10px;
   cursor: pointer;
   transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast);
@@ -1305,10 +1305,10 @@
 .memory-delete-btn {
   background: none;
   border: 1px solid var(--error-tint-15);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--color-error);
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   padding: 3px 10px;
   cursor: pointer;
   transition: background var(--wt-transition-fast);
@@ -1325,51 +1325,51 @@
   padding: 10px 14px;
   background: var(--amber-tint-08);
   border: 1px solid var(--amber-tint-25);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
 }
 
 .prompts-untracked-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
 }
 
 .prompts-untracked-icon {
-  font-size: 13px;
-  line-height: 1;
+  font-size: var(--text-lg);
+  line-height: var(--leading-none);
   color: var(--color-warning);
 }
 
 .prompts-untracked-title {
   font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
   color: var(--color-warning);
 }
 
 .prompts-untracked-desc {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
-  line-height: 1.4;
-  margin-bottom: 8px;
+  line-height: var(--leading-snug);
+  margin-bottom: var(--space-2);
 }
 
 .prompts-untracked-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
 }
 
 .prompts-untracked-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 6px 8px;
   background: var(--amber-tint-04);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 
 .prompts-untracked-info {
@@ -1381,8 +1381,8 @@
 
 .prompts-untracked-name {
   font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -1391,7 +1391,7 @@
 
 .prompts-untracked-path {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -1400,15 +1400,15 @@
 
 .prompts-untracked-actions {
   display: flex;
-  gap: 4px;
+  gap: var(--space-1);
   flex-shrink: 0;
 }
 
 .prompts-untracked-btn {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   padding: 3px 10px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background var(--wt-transition-fast), border-color var(--wt-transition-fast);
 }
@@ -1438,10 +1438,10 @@
    ============================================================ */
 
 .config-structured-view {
-  padding: 12px;
+  padding: var(--space-3);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-4);
   white-space: normal;
   word-break: normal;
 }
@@ -1450,14 +1450,14 @@
 
 .config-section {
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 
 .config-section-header {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.1em;
   color: var(--color-amber);
@@ -1486,13 +1486,13 @@
 
 .config-env-label {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-secondary);
 }
 
 .config-env-value {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--color-accent-light);
   max-width: 60%;
   overflow: hidden;
@@ -1521,8 +1521,8 @@
 
 .config-perm-header {
   font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
   letter-spacing: 0.12em;
   padding: 6px 10px;
   border-bottom: 1px solid var(--border-default);
@@ -1545,19 +1545,19 @@
 
 .config-perm-group-label {
   font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--text-muted);
   padding: 6px 10px 2px;
-  margin-top: 4px;
+  margin-top: var(--space-1);
   border-top: 1px solid var(--neutral-tint-06);
 }
 
 .config-perm-entry {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   padding: 2px 10px;
   overflow: hidden;
@@ -1578,12 +1578,12 @@
 .config-hook-event-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 8px 12px;
   cursor: pointer;
   user-select: none;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-primary);
   transition: background var(--wt-transition-fast);
 }
@@ -1593,7 +1593,7 @@
 }
 
 .config-hook-chevron {
-  font-size: 9px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
   transition: transform var(--wt-transition-fast);
   width: 10px;
@@ -1605,7 +1605,7 @@
 }
 
 .config-hook-count {
-  font-size: 9px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
   margin-left: auto;
 }
@@ -1625,8 +1625,8 @@
 
 .config-hook-matcher-label {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   color: var(--color-accent-light);
   display: block;
   padding: 2px 0;
@@ -1642,13 +1642,13 @@
 
 .config-hook-script {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
 }
 
 .config-hook-timeout {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
 }
 
@@ -1657,13 +1657,13 @@
 .config-mcp-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 8px;
+  gap: var(--space-2);
   padding: 10px;
 }
 
 .config-mcp-card {
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   background: var(--bg-secondary);
   overflow: hidden;
 }
@@ -1679,15 +1679,15 @@
 
 .config-mcp-card-name {
   font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
   color: var(--color-amber);
   flex: 1;
 }
 
 .config-mcp-module {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   color: var(--color-accent-light);
   padding: 6px 10px 2px;
   overflow: hidden;
@@ -1708,14 +1708,14 @@
 
 .config-mcp-env-key {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
   flex-shrink: 0;
 }
 
 .config-mcp-env-val {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1750,11 +1750,11 @@
 
 .config-mcp-tool-count {
   font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
   color: var(--text-secondary);
   background: var(--neutral-tint-12);
-  border-radius: 8px;
+  border-radius: var(--radius-xl);
   padding: 0 5px;
   min-width: 14px;
   text-align: center;
@@ -1765,10 +1765,10 @@
 
 .config-mcp-card-desc {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   color: var(--text-muted);
   padding: 4px 10px 0;
-  line-height: 1.4;
+  line-height: var(--leading-snug);
 }
 
 .config-mcp-card-desc:empty {
@@ -1812,7 +1812,7 @@
 }
 
 .config-mcp-tool-chevron {
-  font-size: 7px;
+  font-size: 7px /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */;
   color: var(--text-muted);
   flex-shrink: 0;
   width: 8px;
@@ -1825,15 +1825,15 @@
 
 .config-mcp-tool-name {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   color: var(--color-accent-light);
   flex-shrink: 0;
 }
 
 .config-mcp-tool-summary {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1854,20 +1854,20 @@
 
 .config-mcp-tool-desc-full {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   color: var(--text-secondary);
-  line-height: 1.4;
-  margin-bottom: 4px;
+  line-height: var(--leading-snug);
+  margin-bottom: var(--space-1);
 }
 
 .config-mcp-tool-section {
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 
 .config-mcp-tool-section-label {
   font-family: var(--font-mono);
-  font-size: 8px;
-  font-weight: 600;
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
   letter-spacing: 0.1em;
   color: var(--text-muted);
   margin-bottom: 2px;
@@ -1875,38 +1875,38 @@
 
 .config-mcp-tool-arg {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 1px 0;
   align-items: baseline;
 }
 
 .config-mcp-tool-arg-name {
   font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 500;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
   color: var(--color-accent-light);
   flex-shrink: 0;
 }
 
 .config-mcp-tool-arg-desc {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
-  line-height: 1.3;
+  line-height: var(--leading-tight);
 }
 
 .config-mcp-tool-returns {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
-  line-height: 1.3;
+  line-height: var(--leading-tight);
 }
 
 .config-mcp-tools-loading {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
-  animation: mcp-pulse 1.5s ease-in-out infinite;
+  animation: mcp-pulse 1.5s ease-in-out infinite; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
 }
 
 @keyframes mcp-pulse {
@@ -1916,7 +1916,7 @@
 
 .config-mcp-tools-fallback {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
   font-style: italic;
 }
@@ -1927,7 +1927,7 @@
   display: block;
   width: 100%;
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: var(--text-xs);
   color: var(--text-muted);
   background: transparent;
   border: none;
@@ -1952,7 +1952,7 @@
    ============================================================ */
 
 .config-editor {
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 /* ---- Model Field ---- */
@@ -1960,14 +1960,14 @@
 .config-edit-field {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 10px 12px;
 }
 
 .config-edit-label {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-secondary);
@@ -1977,11 +1977,11 @@
 .config-edit-input {
   flex: 1;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--text-primary);
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 6px 10px;
   outline: none;
   transition: border-color var(--wt-transition-fast);
@@ -1999,7 +1999,7 @@
 
 .config-edit-note {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   color: var(--text-muted);
   font-style: italic;
   padding: 8px 12px 4px;
@@ -2016,10 +2016,10 @@
 .config-edit-perm-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 4px 12px;
   border-bottom: 1px solid var(--neutral-tint-03);
-  transition: background var(--wt-transition-fast), opacity 200ms ease;
+  transition: background var(--wt-transition-fast), opacity var(--duration-base) ease;
 }
 
 .config-edit-perm-row:hover {
@@ -2032,7 +2032,7 @@
 }
 
 .config-edit-perm-row.config-edit-flash {
-  animation: perm-flash 600ms ease;
+  animation: perm-flash 600ms ease; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
 }
 
 @keyframes perm-flash {
@@ -2043,7 +2043,7 @@
 /* ---- Permission Row Icon ---- */
 
 .config-edit-perm-icon {
-  font-size: 12px;
+  font-size: var(--text-md);
   width: 18px;
   text-align: center;
   flex-shrink: 0;
@@ -2055,7 +2055,7 @@
 .config-edit-perm-label {
   flex: 1;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2067,11 +2067,11 @@
 
 .config-edit-level-select {
   font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 700;
+  font-size: var(--text-xs);
+  font-weight: var(--weight-bold);
   letter-spacing: 0.08em;
   padding: 3px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-default);
   cursor: pointer;
   outline: none;
@@ -2106,14 +2106,14 @@
 
 .config-edit-remove-btn {
   font-family: var(--font-mono);
-  font-size: 14px;
-  line-height: 1;
+  font-size: var(--text-xl);
+  line-height: var(--leading-none);
   color: var(--text-muted);
   background: transparent;
   border: none;
   cursor: pointer;
   padding: 2px 4px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   opacity: 0;
   transition: opacity var(--wt-transition-fast), color var(--wt-transition-fast),
               background var(--wt-transition-fast);
@@ -2133,7 +2133,7 @@
 .config-edit-add-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 8px 12px;
   border-top: 1px solid var(--border-default);
   background: var(--accent-tint-04);
@@ -2146,12 +2146,12 @@
 
 .config-edit-add-btn {
   font-family: var(--font-mono);
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
   color: var(--color-accent);
   background: var(--accent-tint-10);
   border: 1px solid var(--border-accent);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   width: 28px;
   height: 28px;
   display: flex;
@@ -2178,9 +2178,9 @@
   gap: 6px;
   padding: 3px 10px;
   cursor: grab;
-  border-radius: 3px;
-  transition: background var(--wt-transition-fast), opacity 200ms ease,
-              transform 200ms ease;
+  border-radius: var(--radius-sm);
+  transition: background var(--wt-transition-fast), opacity var(--duration-base) ease,
+              transform var(--duration-base) ease;
   user-select: none;
 }
 
@@ -2189,7 +2189,7 @@
 }
 
 .config-perm-entry-interactive .config-perm-entry-icon {
-  font-size: 11px;
+  font-size: var(--text-base);
   width: 16px;
   text-align: center;
   flex-shrink: 0;
@@ -2199,7 +2199,7 @@
 .config-perm-entry-interactive .config-perm-entry-label {
   flex: 1;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2210,14 +2210,14 @@
 /* Delete button — hidden until hover */
 .config-perm-entry-delete {
   font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1;
+  font-size: var(--text-lg);
+  line-height: var(--leading-none);
   color: var(--text-muted);
   background: transparent;
   border: none;
   cursor: pointer;
   padding: 1px 3px;
-  border-radius: 2px;
+  border-radius: var(--radius-xs);
   opacity: 0;
   flex-shrink: 0;
   transition: opacity var(--wt-transition-fast), color var(--wt-transition-fast),
@@ -2247,7 +2247,7 @@
 
 /* Duplicate-flash */
 .config-perm-entry-interactive.config-perm-flash {
-  animation: perm-col-flash 600ms ease;
+  animation: perm-col-flash 600ms ease; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
 }
 
 @keyframes perm-col-flash {
@@ -2274,14 +2274,14 @@
   justify-content: center;
   width: 100%;
   padding: 4px 0;
-  margin-top: 4px;
+  margin-top: var(--space-1);
   font-family: var(--font-mono);
-  font-size: 14px;
-  font-weight: 700;
+  font-size: var(--text-xl);
+  font-weight: var(--weight-bold);
   color: var(--text-muted);
   background: transparent;
   border: 1px dashed var(--border-default);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
               background var(--wt-transition-fast);
@@ -2296,20 +2296,20 @@
 /* Inline add form (replaces + button when active) */
 .config-perm-add-form {
   display: flex;
-  gap: 4px;
+  gap: var(--space-1);
   padding: 4px 6px;
-  margin-top: 4px;
+  margin-top: var(--space-1);
 }
 
 .config-perm-add-form input {
   flex: 1;
   min-width: 0;
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-size: var(--text-sm);
   color: var(--text-primary);
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 4px 6px;
   outline: none;
 }
@@ -2320,10 +2320,10 @@
 
 .config-perm-add-form button {
   font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--text-base);
+  font-weight: var(--weight-bold);
   padding: 2px 8px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   border: none;
   cursor: pointer;
   flex-shrink: 0;
@@ -2374,7 +2374,7 @@
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: opacity 200ms ease;
+  transition: opacity var(--duration-base) ease;
 }
 
 .config-ownership-overlay.visible {
@@ -2384,13 +2384,13 @@
 .config-ownership-dialog {
   background: var(--bg-secondary);
   border: 1px solid var(--amber-tint-25);
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   padding: 28px 32px 24px;
   max-width: 440px;
   width: 90%;
   box-shadow: 0 0 40px var(--amber-tint-12), var(--shadow-dialog);
   transform: scale(0.95);
-  transition: transform 200ms ease;
+  transition: transform var(--duration-base) ease;
 }
 
 .config-ownership-overlay.visible .config-ownership-dialog {
@@ -2398,28 +2398,28 @@
 }
 
 .config-ownership-icon {
-  font-size: 32px;
+  font-size: var(--text-4xl);
   text-align: center;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
   filter: saturate(1.2);
 }
 
 .config-ownership-title {
   font-family: var(--font-display);
-  font-size: 16px;
-  font-weight: 600;
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
   color: var(--color-amber);
   text-align: center;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-3);
 }
 
 .config-ownership-body {
   font-family: var(--font-display);
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: var(--text-lg);
+  line-height: var(--leading-relaxed);
   color: var(--text-secondary);
   text-align: center;
-  margin-bottom: 24px;
+  margin-bottom: var(--space-5);
 }
 
 .config-ownership-actions {
@@ -2430,12 +2430,12 @@
 
 .config-ownership-cancel {
   font-family: var(--font-display);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
   color: var(--text-secondary);
   background: transparent;
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   padding: 8px 20px;
   cursor: pointer;
   transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast);
@@ -2448,12 +2448,12 @@
 
 .config-ownership-confirm {
   font-family: var(--font-display);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
   color: var(--bg-primary);
   background: var(--color-amber);
   border: none;
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   padding: 8px 20px;
   cursor: pointer;
   transition: background var(--wt-transition-fast);
