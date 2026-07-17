@@ -5,6 +5,7 @@ management, and Docker Compose file creation for container deployments.
 """
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -111,6 +112,26 @@ def find_service_config(config, service_name):
     return None, None
 
 
+def _normalize_compose_name(name):
+    """Normalize a string into a valid docker-compose project name.
+
+    Mirrors docker-compose's own normalization so the value OSPREY pins as
+    ``COMPOSE_PROJECT_NAME`` matches what compose would derive on its own:
+    lowercase, keep only ``[a-z0-9_-]`` (dropping everything else, including
+    whitespace), then strip any leading ``_``/``-`` so the result begins with a
+    letter or number. An input that is already a valid lowercase name passes
+    through byte-unchanged.
+
+    :param name: Raw candidate project name
+    :type name: str
+    :return: Compose-valid project name (may be empty if no valid characters
+        remain)
+    :rtype: str
+    """
+    kept = re.findall(r"[a-z0-9_-]", str(name).lower())
+    return "".join(kept).lstrip("_-")
+
+
 def resolve_project_name(config):
     """Derive the project name used for labels and the ``<project>:local`` image tag.
 
@@ -121,6 +142,11 @@ def resolve_project_name(config):
     1. Root-level ``project_name`` attribute (preferred, explicit)
     2. Last component of the ``project_root`` path (smart fallback)
     3. ``"unnamed-project"`` (final fallback)
+
+    The resolved name is normalized to a valid docker-compose project name via
+    :func:`_normalize_compose_name` so it matches the value compose itself would
+    use for volume/network namespacing. If normalization empties the candidate
+    (no valid characters), the ``"unnamed-project"`` fallback is used.
 
     :param config: Configuration dictionary
     :type config: dict
@@ -134,6 +160,8 @@ def resolve_project_name(config):
         project_root = config.get("project_root", "")
         if project_root:
             project_name = os.path.basename(str(project_root).rstrip("/"))
+
+    project_name = _normalize_compose_name(project_name) if project_name else ""
 
     if not project_name:
         # Final fallback: Default
