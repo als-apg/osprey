@@ -8,7 +8,7 @@ Reuses ``tests/e2e/_orm_stack.py`` (the single source for FR11's VA-backed
 turn-key deploy config): ``override_yaml()`` flips the tutorial's default
 ``control_system.type: mock`` to ``virtual_accelerator`` (a connector-mediated
 scan only runs against a setpoint-tracking control system) and sets
-``execution.execution_method: container`` (so ``BLUESKY_PROMOTE_TOKEN`` mints
+``execution.execution_method: container`` (so ``BLUESKY_LAUNCH_TOKEN`` mints
 safely on ``osprey deploy up`` -- see ``container_lifecycle.py``'s
 ``_local_exec_arming_unsafe``); ``build_args``/``find_osprey_console_script``
 build the real project; ``select_correctors``/``select_bpms``/
@@ -161,8 +161,8 @@ def _minted_token(project_dir: Path) -> str:
     env_path = project_dir / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
     env = parse_dotenv_file(env_path)
-    token = env.get("BLUESKY_PROMOTE_TOKEN")
-    assert token, "BLUESKY_PROMOTE_TOKEN missing/empty in the project .env"
+    token = env.get("BLUESKY_LAUNCH_TOKEN")
+    assert token, "BLUESKY_LAUNCH_TOKEN missing/empty in the project .env"
     return token
 
 
@@ -264,7 +264,7 @@ def _bridge_post(path: str, body: dict[str, Any], token: str | None = None) -> t
     data = json.dumps(body).encode("utf-8")
     headers = {"Content-Type": "application/json"}
     if token:
-        headers["X-Promote-Token"] = token
+        headers["X-Launch-Token"] = token
     req = urllib.request.Request(  # noqa: S310
         f"{BRIDGE_URL}{path}", data=data, method="POST", headers=headers
     )
@@ -440,9 +440,9 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     limits = _channel_limits(project_dir)
     correctors = _orm_stack.select_correctors(limits, count=1)
     bpms = _orm_stack.select_bpms(limits, count=2)
-    # promote_token left unset: execution.execution_method=container (from
+    # launch_token left unset: execution.execution_method=container (from
     # override_yaml()) makes _local_exec_arming_unsafe False, so `osprey
-    # deploy up` auto-mints BLUESKY_PROMOTE_TOKEN safely -- no need to supply
+    # deploy up` auto-mints BLUESKY_LAUNCH_TOKEN safely -- no need to supply
     # one ourselves (unlike test_va_substrate_equivalence.py's local-exec
     # posture, which deliberately gates auto-minting off).
     _orm_stack.write_scan_env(project_dir, correctors=correctors, bpms=bpms)
@@ -539,27 +539,27 @@ def test_health_full_rollup_healthy(deployed_stack: DeployedStack) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 4. HEADLINE: scan via the sidecar's execute route
+# 4. HEADLINE: scan via the sidecar's launch route
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.flaky(reruns=1, only_rerun=["AssertionError"])
-def test_plan_via_sidecar_execute_completes(deployed_stack: DeployedStack) -> None:
+def test_plan_via_sidecar_launch_completes(deployed_stack: DeployedStack) -> None:
     token = _minted_token(deployed_stack.project_dir)
 
     status, body = _sidecar_post(
-        "/runs/execute",
+        "/runs/launch",
         {"plan_name": deployed_stack.plan_name, "plan_args": deployed_stack.plan_args},
     )
-    assert status == 200, f"POST /runs/execute failed: {status} {body}"
-    assert token not in json.dumps(body), "promote token leaked into the sidecar execute response"
+    assert status == 200, f"POST /runs/launch failed: {status} {body}"
+    assert token not in json.dumps(body), "launch token leaked into the sidecar launch response"
     assert body.get("status") != "writes_not_armed", (
-        f"execute route reports writes not armed (expected armed): {body}"
+        f"launch route reports writes not armed (expected armed): {body}"
     )
     run_id = body.get("run_id")
-    assert run_id, f"no run_id in execute response: {body}"
+    assert run_id, f"no run_id in launch response: {body}"
     assert body.get("status") in ("running", "started", "completed"), (
-        f"unexpected execute status: {body}"
+        f"unexpected launch status: {body}"
     )
 
     deadline = time.monotonic() + SCAN_TIMEOUT_SEC
@@ -567,7 +567,7 @@ def test_plan_via_sidecar_execute_completes(deployed_stack: DeployedStack) -> No
     while time.monotonic() < deadline:
         _, last_status_body = _sidecar_get(f"/runs/{run_id}")
         assert token not in json.dumps(last_status_body), (
-            "promote token leaked into the sidecar run-status response"
+            "launch token leaked into the sidecar run-status response"
         )
         if last_status_body.get("status") in ("completed", "error", "stopped"):
             break
@@ -579,7 +579,7 @@ def test_plan_via_sidecar_execute_completes(deployed_stack: DeployedStack) -> No
 
     ds, data = _sidecar_get(f"/runs/{run_id}/data")
     assert ds == 200, f"GET /runs/{run_id}/data (via sidecar) failed: {ds} {data}"
-    assert token not in json.dumps(data), "promote token leaked into the sidecar data response"
+    assert token not in json.dumps(data), "launch token leaked into the sidecar data response"
     assert data.get("row_count", 0) > 0, f"expected real rows: {data}"
 
 
@@ -598,8 +598,8 @@ def test_plan_direct_via_bridge(deployed_stack: DeployedStack) -> None:
     assert status == 200, f"POST /runs (bridge) failed: {status} {body}"
     run_id = body["id"]
 
-    status, body = _bridge_post(f"/runs/{run_id}/promote", {}, token=token)
-    assert status == 200, f"promote (bridge) failed: {status} {body}"
+    status, body = _bridge_post(f"/runs/{run_id}/launch", {}, token=token)
+    assert status == 200, f"launch (bridge) failed: {status} {body}"
 
     deadline = time.monotonic() + SCAN_TIMEOUT_SEC
     last_status_body: dict[str, Any] = {}
@@ -641,7 +641,7 @@ def test_sidecar_exposes_no_stop_or_unbounded_create_route(
     # 405 for a matched path/wrong method, not a 404.
     status, body = _sidecar_post("/runs", {"plan_name": "grid_scan", "plan_args": {}})
     assert status == 405, (
-        f"sidecar must not expose unbounded POST /runs (only /runs/execute), got {status}: {body}"
+        f"sidecar must not expose unbounded POST /runs (only /runs/launch), got {status}: {body}"
     )
 
 

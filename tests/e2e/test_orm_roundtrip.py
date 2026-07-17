@@ -4,7 +4,7 @@ Functionality criteria for FR1/FR2/FR10/FR11).
 Deploys the turn-key scan-stack config (task 4.3, ``tests/e2e/_orm_stack.py``
 -- the single source of this deploy shape, also reused by the agentic
 discovery e2e in 5.3/5.4), drives the real ``orm`` plan over the bridge's
-HTTP API (``POST /runs`` -> promote -> poll -> ``GET /runs/{id}/data``), and
+HTTP API (``POST /runs`` -> launch -> poll -> ``GET /runs/{id}/data``), and
 proves two things end to end:
 
   (a) the measured response matrix -- built via the SAME
@@ -108,9 +108,9 @@ def _minted_token(project_dir: Path) -> str:
     env_path = project_dir / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
     env = parse_dotenv_file(env_path)
-    token = env.get("BLUESKY_PROMOTE_TOKEN")
+    token = env.get("BLUESKY_LAUNCH_TOKEN")
     assert token, (
-        "BLUESKY_PROMOTE_TOKEN missing/empty in the project .env — the arming-safe "
+        "BLUESKY_LAUNCH_TOKEN missing/empty in the project .env — the arming-safe "
         "execution.execution_method: container config (FR11) should auto-mint it"
     )
     return token
@@ -294,8 +294,8 @@ def test_orm_roundtrip_matches_model_with_no_corrector_hang(
     run_id = body["id"]
 
     token = _minted_token(deployed_orm_stack.project_dir)
-    status, body = _post(f"/runs/{run_id}/promote", {}, headers={"X-Promote-Token": token})
-    assert status == 200, f"promote failed: {status} {body}"
+    status, body = _post(f"/runs/{run_id}/launch", {}, headers={"X-Launch-Token": token})
+    assert status == 200, f"launch failed: {status} {body}"
 
     # (b) no corrector-step hang: poll to a terminal status within a bounded
     # deadline. A corrector whose :RB never echoes its :SP (the FR10

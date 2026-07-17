@@ -10,7 +10,7 @@ over HTTP. This is the other half: it deploys a real bluesky-bridge container
 and asserts the layered catalog (the shipped plans + an externally-injected
 facility plan) is discoverable via ``GET /plans`` with correct
 provenance/metadata, and that a facility-injected plan file is not just
-discoverable but actually executable end to end (launch -> promote -> read).
+discoverable but actually executable end to end (launch -> read).
 
 Uses the ``hello-world`` preset with ``services.bluesky.demo_runner=true``
 (real bluesky RunEngine, MOCK ophyd-async devices -- ``devices/mock.py``, no
@@ -150,8 +150,8 @@ def _minted_token(project_dir: Path) -> str:
     env_path = project_dir / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
     env = parse_dotenv_file(env_path)
-    token = env.get("BLUESKY_PROMOTE_TOKEN")
-    assert token, "BLUESKY_PROMOTE_TOKEN missing/empty in the project .env"
+    token = env.get("BLUESKY_LAUNCH_TOKEN")
+    assert token, "BLUESKY_LAUNCH_TOKEN missing/empty in the project .env"
     return token
 
 
@@ -320,9 +320,9 @@ def test_plans_endpoint_shows_shipped_and_facility_provenance(
 
 
 @pytest.mark.flaky(reruns=2, only_rerun=["AssertionError"])
-def test_facility_probe_launch_promote_read_round_trip(deployed_catalog_stack: Path) -> None:
+def test_facility_probe_launch_read_round_trip(deployed_catalog_stack: Path) -> None:
     """Drive ``facility_probe`` -- the facility-injected plan (not a
-    built-in) -- through the full deployed launch -> promote -> read path.
+    built-in) -- through the full deployed launch -> read path.
 
     ``motor1``/``det1`` are the demo scanner's fixed mock device names
     (``devices/mock.py``'s ``build_devices()`` defaults), which is exactly
@@ -335,8 +335,8 @@ def test_facility_probe_launch_promote_read_round_trip(deployed_catalog_stack: P
     assert status == 200, f"POST /runs failed: {status} {body}"
     run_id = body["id"]
 
-    status, body = _post(f"/runs/{run_id}/promote", {}, headers={"X-Promote-Token": token})
-    assert status == 200, f"promote failed: {status} {body}"
+    status, body = _post(f"/runs/{run_id}/launch", {}, headers={"X-Launch-Token": token})
+    assert status == 200, f"launch failed: {status} {body}"
 
     deadline = time.monotonic() + SCAN_TIMEOUT_SEC
     status_body: dict = {}

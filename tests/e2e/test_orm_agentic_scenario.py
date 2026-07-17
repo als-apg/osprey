@@ -43,9 +43,9 @@ appears in the prompt below.
 Grading is two-part (see PLAN.md's acceptance gate for this task):
 
   (a) A DETERMINISTIC structural floor -- :func:`_assert_orbit_response_scan_ran`
-      -- asserting the tool trace contains ``create_run_intent`` ->
-      ``launch_run`` -> ``read_run_data`` IN THAT ORDER, and that the
-      launched ``create_run_intent`` call's ``plan_args`` carry both a
+      -- asserting the tool trace contains ``set_draft`` ->
+      ``launch_run`` -> ``get_run_data`` IN THAT ORDER, and that the
+      staged ``set_draft`` call's ``plan_args_patch`` carry both a
       non-empty ``correctors`` list and a non-empty ``detectors`` list (the
       ``orm`` plan's own device-class contract, see ``plans_core/orm.py``'s
       ``PARAMS`` -- checked structurally, never by ``plan_name``).
@@ -134,9 +134,9 @@ DEPLOY_UP_TIMEOUT_SEC = 1200  # first-time native VA source build is slow (minut
 HEALTH_TIMEOUT_SEC = 300.0
 
 # MCP tool names, decoupled from any plan name -- see module docstring.
-CREATE_RUN_INTENT = "mcp__bluesky__create_run_intent"
+SET_DRAFT = "mcp__bluesky__set_draft"
 LAUNCH_RUN = "mcp__bluesky__launch_run"
-READ_RUN_DATA = "mcp__bluesky__read_run_data"
+GET_RUN_DATA = "mcp__bluesky__get_run_data"
 
 
 # ---------------------------------------------------------------------------
@@ -214,21 +214,21 @@ def _first_index_after(traces: list[ToolTrace], after: int, predicate) -> int | 
     return None
 
 
-def _is_orbit_response_create(trace: ToolTrace) -> bool:
-    """True for a ``create_run_intent`` call whose ``plan_args`` carry both a
+def _is_orbit_response_draft(trace: ToolTrace) -> bool:
+    """True for a ``set_draft`` call whose ``plan_args_patch`` carry both a
     non-empty ``correctors`` list and a non-empty ``detectors`` list -- the
     ``orm`` plan's own device-class contract (``plans_core/orm.py``'s
     ``PARAMS``), checked structurally so an agent that legitimately picks a
     differently-named but structurally equivalent plan still satisfies this
     floor. Never compares ``plan_name``.
     """
-    if trace.name != CREATE_RUN_INTENT:
+    if trace.name != SET_DRAFT:
         return False
-    plan_args = trace.input.get("plan_args")
-    if not isinstance(plan_args, dict):
+    plan_args_patch = trace.input.get("plan_args_patch")
+    if not isinstance(plan_args_patch, dict):
         return False
-    correctors = plan_args.get("correctors")
-    detectors = plan_args.get("detectors")
+    correctors = plan_args_patch.get("correctors")
+    detectors = plan_args_patch.get("detectors")
     return (
         isinstance(correctors, list)
         and bool(correctors)
@@ -238,33 +238,33 @@ def _is_orbit_response_create(trace: ToolTrace) -> bool:
 
 
 def _assert_orbit_response_scan_ran(result: SDKWorkflowResult) -> None:
-    """The deterministic tool-trace contract: the agent created an orbit-
-    response-class scan intent, launched it, and read its data back, IN
+    """The deterministic tool-trace contract: the agent staged an orbit-
+    response-class scan draft, launched it, and read its data back, IN
     THAT ORDER. Runs unconditionally (never skip-gated) -- only the judge
     grade in the live test is gated on judge-provider credentials.
 
-    Decoupled from any literal plan name -- see :func:`_is_orbit_response_create`.
+    Decoupled from any literal plan name -- see :func:`_is_orbit_response_draft`.
     """
     traces = result.tool_traces
 
-    create_idx = _first_index_after(traces, -1, _is_orbit_response_create)
-    assert create_idx is not None, (
-        "agent never created an orbit-response-class scan intent (a "
-        "create_run_intent call whose plan_args carry both a non-empty "
+    draft_idx = _first_index_after(traces, -1, _is_orbit_response_draft)
+    assert draft_idx is not None, (
+        "agent never staged an orbit-response-class scan draft (a "
+        "set_draft call whose plan_args_patch carry both a non-empty "
         "'correctors' list and a non-empty 'detectors' list). "
-        f"create_run_intent calls seen: "
-        f"{[t.input for t in traces if t.name == CREATE_RUN_INTENT]}"
+        f"set_draft calls seen: "
+        f"{[t.input for t in traces if t.name == SET_DRAFT]}"
     )
 
-    launch_idx = _first_index_after(traces, create_idx, lambda t: t.name == LAUNCH_RUN)
+    launch_idx = _first_index_after(traces, draft_idx, lambda t: t.name == LAUNCH_RUN)
     assert launch_idx is not None, (
-        "agent created an orbit-response-class scan intent but never called "
+        "agent staged an orbit-response-class scan draft but never called "
         f"launch_run afterward. Tools called: {[t.name for t in traces]}"
     )
 
-    read_idx = _first_index_after(traces, launch_idx, lambda t: t.name == READ_RUN_DATA)
+    read_idx = _first_index_after(traces, launch_idx, lambda t: t.name == GET_RUN_DATA)
     assert read_idx is not None, (
-        "agent launched the scan but never called read_run_data afterward "
+        "agent launched the scan but never called get_run_data afterward "
         f"to read the measurement back. Tools called: {[t.name for t in traces]}"
     )
 
@@ -299,12 +299,12 @@ def _channel_limits(project_dir: Path) -> dict:
     return json.loads((project_dir / "data" / "channel_limits.json").read_text(encoding="utf-8"))
 
 
-def _minted_promote_token(project_dir: Path) -> str:
+def _minted_launch_token(project_dir: Path) -> str:
     env_path = project_dir / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
     env = parse_dotenv_file(env_path)
-    token = env.get("BLUESKY_PROMOTE_TOKEN")
-    assert token, "BLUESKY_PROMOTE_TOKEN missing/empty in the project .env"
+    token = env.get("BLUESKY_LAUNCH_TOKEN")
+    assert token, "BLUESKY_LAUNCH_TOKEN missing/empty in the project .env"
     return token
 
 
@@ -333,9 +333,9 @@ def _deployed_dual_fault_stack(tmp_path: Path, project_name: str) -> Iterator[Pa
     # deploy config (see module docstring).
     correctors = _orm_stack.select_correctors(limits, count=None)
     bpms = _orm_stack.select_bpms(limits, count=None)
-    # No promote_token kwarg: control-assistant's default writes_enabled=true
+    # No launch_token kwarg: control-assistant's default writes_enabled=true
     # + this override's execution.execution_method=container is exactly the
-    # arming-safe combination, so `deploy up` auto-mints BLUESKY_PROMOTE_TOKEN.
+    # arming-safe combination, so `deploy up` auto-mints BLUESKY_LAUNCH_TOKEN.
     _orm_stack.write_scan_env(project_dir, correctors=correctors, bpms=bpms)
 
     # FR5's deploy-time hook -- MUST run before `deploy up`: a physics fault
@@ -423,9 +423,9 @@ async def test_orm_dual_fault_agentic_localizes_both_faults(
     ``ALS_APG_API_KEY``) -- see the module docstring's manual-gate command.
     """
     with _deployed_dual_fault_stack(tmp_path, "orm-dual-fault-agentic") as project_dir:
-        token = _minted_promote_token(project_dir)
+        token = _minted_launch_token(project_dir)
         monkeypatch.setenv("BLUESKY_BRIDGE_URL", f"http://localhost:{_orm_stack.BRIDGE_PORT}")
-        monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", token)
+        monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", token)
 
         result = await run_sdk_query(
             project_dir,
@@ -454,54 +454,65 @@ async def test_orm_dual_fault_agentic_localizes_both_faults(
 
 def _synthetic_dual_fault_trace() -> list[ToolTrace]:
     """A hand-built tool trace shaped like a real dual-fault agentic run:
-    one orbit-response-class create_run_intent (correctors + detectors),
-    then a launch, then a data read -- in order."""
+    one orbit-response-class set_draft (correctors + detectors), then a
+    launch at that revision, then a data read -- in order."""
     return [
         ToolTrace(
-            name=CREATE_RUN_INTENT,
+            name=SET_DRAFT,
             input={
                 "plan_name": "orm",
-                "plan_args": {
+                "plan_args_patch": {
                     "correctors": ["corrector_01", "corrector_02", "corrector_03"],
                     "detectors": ["bpm_01", "bpm_17", "bpm_23"],
                     "span_a": 1.0,
                     "num": 9,
                 },
             },
-            result='{"id": "run-1", "status": "intent"}',
+            result='{"revision": 1, "changed": ["correctors", "detectors"], "plan_name": "orm"}',
         ),
-        ToolTrace(name=LAUNCH_RUN, input={"run_id": "run-1"}, result='{"status": "completed"}'),
-        ToolTrace(name=READ_RUN_DATA, input={"run_id": "run-1"}, result="{...}"),
+        ToolTrace(
+            name=LAUNCH_RUN,
+            input={"draft_revision": 1},
+            result='{"id": "run-1", "status": "completed"}',
+        ),
+        ToolTrace(name=GET_RUN_DATA, input={"run_id": "run-1"}, result="{...}"),
     ]
 
 
 def test_structural_floor_accepts_orbit_response_class_sequence() -> None:
     """Floor is decoupled from any literal plan_name -- only the device-class
-    shape (correctors + detectors) and the create -> launch -> read order
+    shape (correctors + detectors) and the draft -> launch -> read order
     matter."""
     result = SDKWorkflowResult(tool_traces=_synthetic_dual_fault_trace())
     _assert_orbit_response_scan_ran(result)  # must not raise
 
 
 def test_structural_floor_rejects_non_orbit_response_plan() -> None:
-    """A scan whose plan_args carry no correctors/detectors pair (e.g. a
+    """A draft whose plan_args_patch carry no correctors/detectors pair (e.g. a
     generic n-d grid_scan over unrelated axes) must NOT satisfy the floor --
     proving it isn't just "any scan ran"."""
     traces = [
         ToolTrace(
-            name=CREATE_RUN_INTENT,
-            input={"plan_name": "grid_scan", "plan_args": {"axes": ["some_motor"], "num": [5]}},
-            result='{"id": "run-2", "status": "intent"}',
+            name=SET_DRAFT,
+            input={
+                "plan_name": "grid_scan",
+                "plan_args_patch": {"axes": ["some_motor"], "num": [5]},
+            },
+            result='{"revision": 1, "changed": ["axes", "num"], "plan_name": "grid_scan"}',
         ),
-        ToolTrace(name=LAUNCH_RUN, input={"run_id": "run-2"}, result='{"status": "completed"}'),
-        ToolTrace(name=READ_RUN_DATA, input={"run_id": "run-2"}, result="{...}"),
+        ToolTrace(
+            name=LAUNCH_RUN,
+            input={"draft_revision": 1},
+            result='{"id": "run-2", "status": "completed"}',
+        ),
+        ToolTrace(name=GET_RUN_DATA, input={"run_id": "run-2"}, result="{...}"),
     ]
     with pytest.raises(AssertionError):
         _assert_orbit_response_scan_ran(SDKWorkflowResult(tool_traces=traces))
 
 
 def test_structural_floor_rejects_out_of_order_sequence() -> None:
-    """create/launch/read out of trace order (e.g. a read before the scan
+    """draft/launch/read out of trace order (e.g. a read before the scan
     was ever launched) must NOT satisfy the floor."""
     traces = list(reversed(_synthetic_dual_fault_trace()))
     with pytest.raises(AssertionError):

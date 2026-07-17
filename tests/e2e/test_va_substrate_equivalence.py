@@ -102,15 +102,15 @@ P3_DETECTOR = "p3_det"
 P4_DETECTOR = "p4_det"
 P5_DETECTOR = "p5_det"
 
-# The bridge's promote route (POST /runs/{id}/promote) fails closed on an unset
-# BLUESKY_PROMOTE_TOKEN. `osprey deploy up` normally auto-mints one, but the
+# The bridge's launch route (POST /runs/{id}/launch) fails closed on an unset
+# BLUESKY_LAUNCH_TOKEN. `osprey deploy up` normally auto-mints one, but the
 # control-assistant preset deploys with control_system.writes_enabled: true AND
 # execution.execution_method: local, which deliberately gates auto-arming off
 # (container_lifecycle._local_exec_arming_unsafe — a local unsandboxed agent
 # could read the token and bypass the write gate). This e2e is a controlled
 # test, not agent code, so it supplies its own token explicitly (the supported
 # operator-provides-a-token path) rather than exercise that arming policy here.
-PROMOTE_TOKEN = "e2e-substrate-equivalence-promote-token"
+LAUNCH_TOKEN = "e2e-substrate-equivalence-launch-token"
 
 BUILD_TIMEOUT_SEC = 300
 DEPLOY_UP_TIMEOUT_SEC = 1200  # first-time native VA source build is slow (minutes)
@@ -226,16 +226,16 @@ def _select_sp_echo_pairs(channel_limits: dict[str, Any], count: int) -> list[tu
 def _write_scan_env(project_dir: Path, pairs: dict[str, tuple[str, str]]) -> None:
     """Append task 4.2's contract env vars to the project ``.env`` -- BEFORE
     ``osprey deploy up`` (the bridge/VA compose templates pass these through
-    from the project ``.env``, same mechanism as ``BLUESKY_PROMOTE_TOKEN``).
+    from the project ``.env``, same mechanism as ``BLUESKY_LAUNCH_TOKEN``).
     """
     p3_sp, p3_rb = pairs["p3"]
     p4_sp, p4_rb = pairs["p4"]
     p5_sp, p5_rb = pairs["p5"]
 
     values = {
-        # Supply the promote token ourselves — the preset's local-exec+writes
-        # config gates auto-minting off (see PROMOTE_TOKEN above).
-        "BLUESKY_PROMOTE_TOKEN": PROMOTE_TOKEN,
+        # Supply the launch token ourselves — the preset's local-exec+writes
+        # config gates auto-minting off (see LAUNCH_TOKEN above).
+        "BLUESKY_LAUNCH_TOKEN": LAUNCH_TOKEN,
         "BLUESKY_EPICS_SUBSTRATE": "1",
         "BLUESKY_EPICS_MOTORS": f"{SCAN_MOTOR}={p4_sp}|{p4_rb}",
         "BLUESKY_EPICS_DETECTORS": (
@@ -396,8 +396,8 @@ def _minted_token(project_dir: Path) -> str:
     env_path = project_dir / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
     env = parse_dotenv_file(env_path)
-    token = env.get("BLUESKY_PROMOTE_TOKEN")
-    assert token, "BLUESKY_PROMOTE_TOKEN missing/empty in the project .env"
+    token = env.get("BLUESKY_LAUNCH_TOKEN")
+    assert token, "BLUESKY_LAUNCH_TOKEN missing/empty in the project .env"
     return token
 
 
@@ -450,14 +450,14 @@ def _docker_inspect(container: str, fmt: str) -> str:
 async def _run_scan(
     plan_name: str, plan_args: dict, project_dir: Path, timeout: float = SCAN_TIMEOUT_SEC
 ) -> tuple[str, dict]:
-    """POST /runs -> promote -> poll to a terminal status. Returns (run_id, final_status_body)."""
+    """POST /runs -> launch -> poll to a terminal status. Returns (run_id, final_status_body)."""
     token = _minted_token(project_dir)
     status, body = _post("/runs", {"plan_name": plan_name, "plan_args": plan_args})
     assert status == 200, f"POST /runs failed: {status} {body}"
     run_id = body["id"]
 
-    status, body = _post(f"/runs/{run_id}/promote", {}, headers={"X-Promote-Token": token})
-    assert status == 200, f"promote failed: {status} {body}"
+    status, body = _post(f"/runs/{run_id}/launch", {}, headers={"X-Launch-Token": token})
+    assert status == 200, f"launch failed: {status} {body}"
 
     deadline = time.monotonic() + timeout
     last_status_body: dict = {}
@@ -709,10 +709,10 @@ async def test_p4_concurrent_scan_and_read(deployed_stack: DeployedStack) -> Non
     assert status == 200, f"POST /runs failed: {status} {body}"
     run_id = body["id"]
 
-    status, body = _post(f"/runs/{run_id}/promote", {}, headers={"X-Promote-Token": token})
-    assert status == 200, f"promote failed: {status} {body}"
+    status, body = _post(f"/runs/{run_id}/launch", {}, headers={"X-Launch-Token": token})
+    assert status == 200, f"launch failed: {status} {body}"
 
-    # Launch the host read in its OWN process immediately after promote, before
+    # Launch the host read in its OWN process immediately after launch, before
     # any polling sleep, so it genuinely overlaps the bridge's in-flight scan (a
     # wrong-loop/dead-monitor connect on the bridge side would stall the scan;
     # see module docstring and task 2.1). Isolating it in a subprocess is what

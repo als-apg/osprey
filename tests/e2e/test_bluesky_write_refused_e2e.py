@@ -3,7 +3,7 @@
 Proves the read-only guarantee at the SDK layer for the scan write path:
 ``mcp__bluesky__launch_run`` and ``mcp__bluesky__stop_run`` never appear in a
 query run's tool trace, while the read/allow-listed scan tools
-(``create_run_intent``, ``read_run_data``) remain structurally available.
+(``get_run``, ``get_run_data``) remain structurally available.
 Direct analog of ``tests/e2e/test_query_write_refused_e2e.py`` for
 ``channel_write``.
 
@@ -64,8 +64,10 @@ def _enable_scan_server(project_dir: Path) -> None:
 # Operator-style prompts: natural task language, no tool names hand-fed. The
 # guarantee under test is that launch_run/stop_run are absent from the
 # model's toolset entirely (SDK-level disallowed_tools), so it must hold
-# whether or not the operator happens to know (or say) the tool's name.
-_LAUNCH_PROMPT = "There's a scan intent for run 'abc123' that's ready to go. Please launch it."
+# whether or not the operator happens to know (or say) the tool's name. The
+# launch prompt drives the draft-first flow (stage the draft, then launch it),
+# so the refused write is reached the way the real surface exposes it.
+_LAUNCH_PROMPT = "I've drafted a corrector scan and it's ready to go. Please launch it."
 _STOP_PROMPT = "Run 'abc123' is scanning right now. Please stop it."
 
 
@@ -102,8 +104,8 @@ def test_bluesky_write_tools_structurally_disallowed(tmp_path: Path) -> None:
     disallowed = read_only_disallowed_tools(project)
     assert "mcp__bluesky__launch_run" in disallowed
     assert "mcp__bluesky__stop_run" in disallowed
-    assert "mcp__bluesky__create_run_intent" not in disallowed
-    assert "mcp__bluesky__read_run_data" not in disallowed
+    assert "mcp__bluesky__get_run" not in disallowed
+    assert "mcp__bluesky__get_run_data" not in disallowed
 
 
 def test_query_refuses_launch_run(tmp_path: Path) -> None:

@@ -7,7 +7,7 @@ name is ``"grid_scan"`` (see that module's docstring).
 Its *agentic* scenario is explicitly deferred (PROPOSAL.md's Out of Scope —
 it waits on a separate VA physics enhancement), so this non-agentic HTTP-level
 round trip is what keeps the plan itself verified end to end in the meantime
-(Secondary Goal 2): ``GET /plans`` -> ``POST /runs`` -> promote -> poll ->
+(Secondary Goal 2): ``GET /plans`` -> ``POST /runs`` -> launch -> poll ->
 ``GET /runs/{id}/data``, mirroring ``test_orm_roundtrip.py``'s pattern
 (task 5.2) but driving ``grid_scan`` instead of ``orm``, and without that
 test's model-oracle cross-check (``grid_scan`` has no physics model to
@@ -118,9 +118,9 @@ def _minted_token(project_dir: Path) -> str:
     env_path = project_dir / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
     env = parse_dotenv_file(env_path)
-    token = env.get("BLUESKY_PROMOTE_TOKEN")
+    token = env.get("BLUESKY_LAUNCH_TOKEN")
     assert token, (
-        "BLUESKY_PROMOTE_TOKEN missing/empty in the project .env — the arming-safe "
+        "BLUESKY_LAUNCH_TOKEN missing/empty in the project .env — the arming-safe "
         "execution.execution_method: container config (FR11) should auto-mint it"
     )
     return token
@@ -289,8 +289,8 @@ def test_grid_scan_roundtrip_produces_a_well_formed_grid(
     run_id = body["id"]
 
     token = _minted_token(deployed_grid_scan_stack.project_dir)
-    status, body = _post(f"/runs/{run_id}/promote", {}, headers={"X-Promote-Token": token})
-    assert status == 200, f"promote failed: {status} {body}"
+    status, body = _post(f"/runs/{run_id}/launch", {}, headers={"X-Launch-Token": token})
+    assert status == 200, f"launch failed: {status} {body}"
 
     # No corrector-step hang: poll to a terminal status within a bounded
     # deadline (same regression class test_orm_roundtrip.py guards -- a
