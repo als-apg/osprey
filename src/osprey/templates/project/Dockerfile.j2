@@ -26,6 +26,14 @@ ARG CLAUDE_CLI_VERSION={{ claude_code_cli_version }}
 ARG PIP_NO_PROXY=""
 ARG OSPREY_OFFLINE="0"
 
+# Debian apt mirrors over HTTPS (plain-HTTP bulk fetches are throttled or
+# broken by middleboxes on some networks; deb.debian.org supports HTTPS), and
+# bounded apt retries with backoff so a transient network blip mid-build does
+# not fail the whole image.
+RUN find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
+    -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} + \
+ && printf 'Acquire::Retries "5";\n' > /etc/apt/apt.conf.d/80-osprey-retries
+
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl git procps ca-certificates gnupg \
  && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \

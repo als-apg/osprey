@@ -73,6 +73,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ### Fixed
 
+- Generated Dockerfiles (project/persona, virtual accelerator, Bluesky bridge, event dispatcher) switch Debian apt mirrors to HTTPS and set bounded apt retries, so image builds survive networks that throttle or drop plain-HTTP bulk transfers.
 - Web-terminal seeding now chowns each user's `CLAUDE.md` and skills to the container's actual runtime user (queried per container) instead of a hardcoded `dispatch` user, which the persona images don't define.
 - The `control-assistant` preset now ships `docker/web-terminal-context/base.md` and sets `deploy.fqdn`, so `osprey deploy up` completes without hand-added config (both were hard requirements that aborted the deploy).
 - Persona auto-rendering (and the interactive deploy menu) now re-enter the CLI via the running interpreter (`python -m osprey`, newly supported) instead of whatever `osprey` is first on `PATH`, which could resolve to a different install with different presets.

@@ -15,6 +15,14 @@
 
 FROM python:3.11-slim
 
+# Debian apt mirrors over HTTPS (plain-HTTP bulk fetches are throttled or
+# broken by middleboxes on some networks; deb.debian.org supports HTTPS), and
+# bounded apt retries with backoff so a transient network blip mid-build does
+# not fail the whole image.
+RUN find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
+    -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} + \
+ && printf 'Acquire::Retries "5";\n' > /etc/apt/apt.conf.d/80-osprey-retries
+
 # Node.js 20 + the Claude Code CLI (the dispatch-worker shells out to `claude`).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
