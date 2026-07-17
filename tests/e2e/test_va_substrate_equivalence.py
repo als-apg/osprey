@@ -655,16 +655,34 @@ async def test_p3_read_equivalence(deployed_stack: DeployedStack) -> None:
     )
     host_read = host["read_value"]
 
+    # grid_scan is the catalog's minimal acquisition plan (`count` was dropped
+    # with the trust-tiered registry): step the p4 scan motor through a 2-point
+    # sweep and read the p3 detector at each point — the p3 pair itself is
+    # never driven, so both rows sample the settled sp-echo value.
+    m_sp, _ = deployed_stack.pairs["p4"]
+    m_lo, m_hi = deployed_stack.bounds(m_sp)
     run_id, status_body = await _run_scan(
-        "count", {"detectors": [P3_DETECTOR], "num": 1}, deployed_stack.project_dir
+        "grid_scan",
+        {
+            "detectors": [P3_DETECTOR],
+            "axes": [
+                {
+                    "setpoint": SCAN_MOTOR,
+                    "start": m_lo + 0.25 * (m_hi - m_lo),
+                    "stop": m_lo + 0.75 * (m_hi - m_lo),
+                    "num_points": 2,
+                }
+            ],
+        },
+        deployed_stack.project_dir,
     )
     assert status_body.get("status") == "completed", (
-        f"P3 count scan did not complete: {status_body}"
+        f"P3 read-equivalence scan did not complete: {status_body}"
     )
 
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
-    assert data["row_count"] == 1, f"expected exactly 1 row: {data}"
+    assert data["row_count"] == 2, f"expected one row per grid point: {data}"
     col = _find_column(data["columns"], P3_DETECTOR)
     bridge_value = data["rows"][0][col]
     assert bridge_value is not None, f"no value recorded for {P3_DETECTOR}: {data}"
@@ -818,16 +836,33 @@ async def test_p5_honest_divergence_under_stuck_setpoint(deployed_stack: Deploye
         f"VA_STUCK_SETPOINTS, but it read {host_rb} — fault did not take effect"
     )
 
+    # grid_scan replaces the dropped `count` builtin (see P3): drive the p4
+    # scan motor, never the stuck p5 pair, and read the frozen p5 readback at
+    # each of the 2 grid points.
+    m_sp, _ = deployed_stack.pairs["p4"]
+    m_lo, m_hi = deployed_stack.bounds(m_sp)
     run_id, status_body = await _run_scan(
-        "count", {"detectors": [P5_DETECTOR], "num": 1}, deployed_stack.project_dir
+        "grid_scan",
+        {
+            "detectors": [P5_DETECTOR],
+            "axes": [
+                {
+                    "setpoint": SCAN_MOTOR,
+                    "start": m_lo + 0.25 * (m_hi - m_lo),
+                    "stop": m_lo + 0.75 * (m_hi - m_lo),
+                    "num_points": 2,
+                }
+            ],
+        },
+        deployed_stack.project_dir,
     )
     assert status_body.get("status") == "completed", (
-        f"P5 count scan did not complete: {status_body}"
+        f"P5 divergence scan did not complete: {status_body}"
     )
 
     status, data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data failed: {status} {data}"
-    assert data["row_count"] == 1, f"expected exactly 1 row: {data}"
+    assert data["row_count"] == 2, f"expected one row per grid point: {data}"
     col = _find_column(data["columns"], P5_DETECTOR)
     bridge_rb = data["rows"][0][col]
     assert bridge_rb is not None, f"no value recorded for {P5_DETECTOR}: {data}"
