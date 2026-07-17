@@ -51,9 +51,15 @@ _TLS_LISTEN_PORT = 443
 
 @dataclass(frozen=True)
 class Finding:
-    """A single lint result for a facility config."""
+    """A single lint result for a facility config.
 
-    severity: Literal["error", "warn"]
+    ``severity`` is one of ``"error"`` (a config that must be rejected),
+    ``"warn"`` (worth flagging, does not fail the check), or ``"info"`` (a
+    non-blocking note — e.g. a persona whose ``project_path`` does not exist
+    yet but is auto-renderable at deploy time).
+    """
+
+    severity: Literal["error", "warn", "info"]
     code: str
     message: str
 
@@ -93,6 +99,7 @@ def lint_web_terminals(config: Any) -> list[Finding]:
     findings.extend(_check_persona_reserved_names(web_terminals))
     findings.extend(_check_default_persona_exists(web_terminals))
     findings.extend(_check_unknown_persona_reference(root, web_terminals, users))
+    findings.extend(_check_empty_facility_prefix(root, web_terminals, users))
     findings.extend(_check_unknown_image_source(web_terminals))
     findings.extend(_check_registry_url_coherence(root, web_terminals))
     findings.extend(_check_local_mode_requires_catalog(web_terminals))
@@ -527,6 +534,39 @@ def _check_unknown_persona_reference(
     return findings
 
 
+def _check_empty_facility_prefix(
+    root: dict[str, Any], web_terminals: dict[str, Any], users: list[Any]
+) -> list[Finding]:
+    """Every web container name is derived from ``facility.prefix``:
+    ``<prefix>-nginx`` and ``<prefix>-web-<user>`` (see the compose template /
+    :mod:`osprey.deployment.web_terminals.seeding`). An empty prefix renders
+    leading-dash names like ``-nginx``, which Docker rejects — and only at
+    ``deploy up``, which never runs this lint pass. This check pulls that
+    failure forward to lint/build time.
+
+    The effective prefix is derived exactly as ``render.py`` derives it
+    (``facility.get("prefix") or ""``). Scoped to a configured roster — an
+    empty ``users[]`` renders no per-user services and is handled by
+    :func:`_check_empty_users` instead.
+    """
+    if not users:
+        return []
+    facility_prefix = _as_dict(root.get("facility")).get("prefix") or ""
+    if facility_prefix:
+        return []
+    return [
+        Finding(
+            severity="error",
+            code="web_terminals.empty_facility_prefix",
+            message=(
+                "modules.web_terminals has users configured but the effective "
+                "facility.prefix is empty; web container names render as "
+                "'-nginx'/'-web-<user>', which Docker rejects at deploy up"
+            ),
+        )
+    ]
+
+
 # --- Task 2.4: mode-coherence checks ----------------------------------------
 
 # The two recognized `modules.web_terminals.image_source` values (schema rule
@@ -663,12 +703,30 @@ def _read_project_name(config_yml_path: Path) -> str | None:
 
 
 def _check_persona_project_paths(web_terminals: dict[str, Any], users: list[Any]) -> list[Finding]:
-    """Local mode only: every referenced persona's ``project_path`` must exist,
-    contain a ``Dockerfile`` and a ``config.yml``, and that ``config.yml``'s own
-    ``project_name`` must equal the catalog entry's ``project`` — a mismatch
-    silently produces a dead mount/path at runtime (the per-svc
-    ``container_project_dir`` derivation is keyed on the catalog's ``project``,
-    not on anything read from the persona's own ``config.yml``).
+    """Local mode: validate every referenced persona's ``project_path``.
+
+    ``project_path`` names the directory ``osprey deploy up`` builds a persona's
+    image from. Two invariants are enforced here:
+
+    * **Name invariant.** When ``project_path`` is set, its basename must equal
+      the catalog entry's ``project``. Persona auto-render derives its output
+      directory as ``<output_dir>/<project>`` (``build_cmd`` resolves
+      ``output_path / project_name``), so a basename that disagrees with
+      ``project`` would render into one directory while the catalog builds/mounts
+      another — a dead path at runtime. A mismatch is an ERROR regardless of
+      whether the directory exists yet.
+    * **Existence.** The directory must exist and hold a ``Dockerfile`` and a
+      ``config.yml`` whose own ``project_name`` equals the catalog ``project``
+      (a mismatch silently produces a dead mount, since the per-svc
+      ``container_project_dir`` derivation is keyed on the catalog's ``project``,
+      not on anything read from the persona's own ``config.yml``).
+
+    Existence is relaxed for auto-render: a ``project_path`` that does not exist
+    yet but whose entry carries a usable ``build_profile`` is only an
+    informational finding ("missing but auto-renderable"), since ``deploy up``
+    renders it from that profile before building. A *partially* rendered
+    directory that exists but is missing its ``Dockerfile``/``config.yml`` stays
+    an ERROR — auto-render never overwrites an existing directory.
     """
     if effective_image_source(web_terminals) != "local":
         return []
@@ -679,6 +737,11 @@ def _check_persona_project_paths(web_terminals: dict[str, Any], users: list[Any]
         if not isinstance(entry, dict):
             continue  # unresolvable reference — _check_unknown_persona_reference /
             # _check_default_persona_exists already report this
+
+        catalog_project = entry.get("project")
+        has_catalog_project = isinstance(catalog_project, str) and bool(catalog_project)
+        build_profile = entry.get("build_profile")
+        has_build_profile = isinstance(build_profile, str) and bool(build_profile)
 
         project_path_raw = entry.get("project_path")
         if not isinstance(project_path_raw, str) or not project_path_raw:
@@ -696,18 +759,55 @@ def _check_persona_project_paths(web_terminals: dict[str, Any], users: list[Any]
             continue
 
         project_path = Path(project_path_raw)
-        if not project_path.is_dir():
+
+        # Name invariant: auto-render writes into <output_dir>/<project>, so
+        # project_path's basename must equal the catalog `project`. A
+        # disagreement is a hard config error regardless of whether the
+        # directory exists yet, and supersedes every existence check below —
+        # there is nothing else about this persona worth reporting on top of it.
+        if has_catalog_project and project_path.name != catalog_project:
             findings.append(
                 Finding(
                     severity="error",
-                    code="web_terminals.persona_project_path_not_dir",
+                    code="web_terminals.persona_project_path_name_mismatch",
                     message=(
-                        f"modules.web_terminals.personas[{persona_name!r}]."
-                        f"project_path {project_path_raw!r} does not exist or is "
-                        "not a directory"
+                        f"modules.web_terminals.personas[{persona_name!r}].project_path "
+                        f"{project_path_raw!r} has basename {project_path.name!r}, which "
+                        f"does not match its project {catalog_project!r}; auto-render "
+                        "derives the output directory from project, so the two must agree"
                     ),
                 )
             )
+            continue
+
+        if not project_path.is_dir():
+            # Missing directory: only auto-renderable (info) when a build_profile
+            # can render it, otherwise the pre-existing hard error.
+            if has_build_profile:
+                findings.append(
+                    Finding(
+                        severity="info",
+                        code="web_terminals.persona_project_path_auto_renderable",
+                        message=(
+                            f"modules.web_terminals.personas[{persona_name!r}].project_path "
+                            f"{project_path_raw!r} does not exist yet, but the entry has a "
+                            f"build_profile {build_profile!r}; deploy up will render it "
+                            "before building"
+                        ),
+                    )
+                )
+            else:
+                findings.append(
+                    Finding(
+                        severity="error",
+                        code="web_terminals.persona_project_path_not_dir",
+                        message=(
+                            f"modules.web_terminals.personas[{persona_name!r}]."
+                            f"project_path {project_path_raw!r} does not exist or is "
+                            "not a directory"
+                        ),
+                    )
+                )
             continue
 
         if not (project_path / "Dockerfile").is_file():
@@ -738,8 +838,7 @@ def _check_persona_project_paths(web_terminals: dict[str, Any], users: list[Any]
             )
             continue  # nothing to compare `project` against
 
-        catalog_project = entry.get("project")
-        if not isinstance(catalog_project, str) or not catalog_project:
+        if not has_catalog_project:
             continue  # entry.project itself unset — not this check's concern
         rendered_project_name = _read_project_name(config_yml_path)
         if rendered_project_name is not None and rendered_project_name != catalog_project:
