@@ -68,6 +68,12 @@ function initNewSessionButton() {
  * and navigates — the client's own record of "my session" is what matters
  * for this browser, and getting stuck on the page helps no one.
  *
+ * The click handler locks the button (`disabled` + `aria-busy`) once a safe
+ * logout is under way: `disabled` stops a second POST, and `aria-busy`
+ * announces the in-flight state to assistive tech. Neither is reset — every
+ * path out of the handler navigates away, unloading the page. The unsafe
+ * `landing_url` guard returns before the lock, leaving the button usable.
+ *
  * Exported for testability (see app-logout.test.mjs) — the module's
  * DOMContentLoaded bootstrap never fires the button wiring on its own once
  * that event has already passed, e.g. in a test environment.
@@ -85,6 +91,7 @@ export function initLogoutButton() {
       return;
     }
     btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
     try {
       const prefix = window.__OSPREY_PREFIX__ || '';
       await fetch(`${prefix}/api/terminal/logout`, { method: 'POST' });

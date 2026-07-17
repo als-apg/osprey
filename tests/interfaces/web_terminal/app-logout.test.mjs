@@ -75,6 +75,9 @@ describe('initLogoutButton: no-op guards (unchanged from the nav-only version)',
     expect(fetchMock).not.toHaveBeenCalled();
     expect(assign).not.toHaveBeenCalled();
     expect(errSpy).toHaveBeenCalled();
+    // The guard returns before the in-flight lock, so the button stays usable.
+    expect(btn.disabled).toBe(false);
+    expect(btn.hasAttribute('aria-busy')).toBe(false);
   });
 });
 
@@ -128,6 +131,38 @@ describe('initLogoutButton: click flow', () => {
 
     await vi.waitFor(() => expect(assign).toHaveBeenCalled());
     expect(fetchMock).toHaveBeenCalledWith('/u/alice/api/terminal/logout', { method: 'POST' });
+  });
+
+  test('locks the button (disabled + aria-busy) while the request is in flight', async () => {
+    const btn = renderLogoutButton('/landing');
+
+    // Hold the request open so the in-flight window is observable before nav.
+    /** @type {() => void} */
+    let releaseFetch = () => {};
+    const fetchMock = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          releaseFetch = () =>
+            resolve({ ok: true, status: 200, statusText: 'OK', json: async () => ({ status: 'ok' }) });
+        })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const assign = vi.fn();
+    vi.stubGlobal('location', { origin: 'http://localhost:5000', assign });
+
+    initLogoutButton();
+    btn.click();
+
+    // Request dispatched, not yet resolved: button is locked and announced,
+    // and a second click can't fire a second POST.
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(btn.disabled).toBe(true);
+    expect(btn.getAttribute('aria-busy')).toBe('true');
+    expect(assign).not.toHaveBeenCalled();
+
+    releaseFetch();
+    await vi.waitFor(() => expect(assign).toHaveBeenCalledTimes(1));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   test('a failed logout request still clears storage and navigates (best effort)', async () => {
