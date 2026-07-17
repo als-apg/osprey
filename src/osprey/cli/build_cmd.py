@@ -1419,7 +1419,7 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
        ``<project>/services/bluesky/``.
     2. Write ``services.bluesky`` config + register it in ``deployed_services``
        (so ``find_service_config`` resolves it, mirroring ``_inject_dispatch``).
-    3. Print a post-build hint (promote-token env var + image prerequisite).
+    3. Print a post-build hint (launch-token env var + image prerequisite).
 
     Simpler than ``_inject_dispatch``: no triggers file to resolve and no
     multi-instance worker loop — a project deploys exactly one bluesky-bridge
@@ -1488,7 +1488,7 @@ def _inject_bluesky(bluesky: BlueskyConfig, project_path: Path) -> None:
     # 3. Post-build hint.
     logger.info("  ✓ Injected Bluesky scan bridge (port %d)", bluesky.port)
     logger.info(
-        "    Token:      `osprey deploy up` writes BLUESKY_PROMOTE_TOKEN to .env; "
+        "    Token:      `osprey deploy up` writes BLUESKY_LAUNCH_TOKEN to .env; "
         "the `scan` MCP server's launch_run tool reads it automatically."
     )
     logger.info(

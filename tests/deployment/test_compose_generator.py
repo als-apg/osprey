@@ -688,7 +688,7 @@ def test_bluesky_bridge_never_depends_on_tiled(tiled_enabled: bool) -> None:
 #
 # A shipped, tested deploy configuration bringing up VA + bridge + Tiled with
 # control_system.type=virtual_accelerator, execution.execution_method=
-# container (so BLUESKY_PROMOTE_TOKEN mints safely and the agent can arm --
+# container (so BLUESKY_LAUNCH_TOKEN mints safely and the agent can arm --
 # see container_lifecycle.py's _local_exec_arming_unsafe), and the scan MCP
 # server enabled. tests/e2e/_orm_stack.py is the single source of this
 # config, reused by the real-container round-trip e2e (task 5.2) and the
@@ -708,7 +708,7 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
         services (``control_system.type=virtual_accelerator`` +
         ``bluesky.tiled_enabled=true``),
       - ``execution.execution_method: container`` (the arming-safe exec
-        method — a ``local`` exec method gates promote-token auto-minting
+        method — a ``local`` exec method gates launch-token auto-minting
         off, per ``container_lifecycle.py``'s ``_local_exec_arming_unsafe``),
       - the ``scan`` MCP server enabled in the rendered ``.mcp.json`` (it is
         ``default_enabled=False`` in the framework registry — a project must
@@ -729,7 +729,7 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
     with open(project_dir / "config.yml") as fh:
         config = yaml.load(fh)
     assert config["execution"]["execution_method"] == "container", (
-        "FR11 requires execution.execution_method=container so the promote "
+        "FR11 requires execution.execution_method=container so the launch "
         "token mints safely and the agent can arm"
     )
     assert config["control_system"]["type"] == "virtual_accelerator"

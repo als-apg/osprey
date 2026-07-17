@@ -109,7 +109,7 @@ class BlueskyConfig:
 
     Consumed by the build pipeline's bluesky-injection step to deploy the
     single ``bluesky_bridge`` service (see NAMING-ADDENDUM.md: deploy key
-    ``bluesky``, env var ``BLUESKY_PROMOTE_TOKEN``, MCP server name ``scan``).
+    ``bluesky``, env var ``BLUESKY_LAUNCH_TOKEN``, MCP server name ``scan``).
     Ports are validated by :meth:`BuildProfile.validate`.
     """
 

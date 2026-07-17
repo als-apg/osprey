@@ -51,11 +51,11 @@ services:
       - "{{ deployment.bind_address | default('127.0.0.1') }}:{{ services.bluesky.port | default(8090) }}:{{ services.bluesky.port | default(8090) }}"
     environment:
       # No :-default — an unset token must stay EMPTY so the bridge's
-      # POST /runs/{id}/promote route fails closed (HTTP 503) rather than
+      # POST /runs/{id}/launch route fails closed (HTTP 503) rather than
       # booting with a guessable secret. `osprey deploy up` auto-generates a
       # strong random token into the project .env when unset (see
       # container_lifecycle.py's per-service token-mint map).
-      BLUESKY_PROMOTE_TOKEN: ${BLUESKY_PROMOTE_TOKEN}
+      BLUESKY_LAUNCH_TOKEN: ${BLUESKY_LAUNCH_TOKEN}
       # The connector-backed bridge reads control_system.type/writes_enabled
       # and control_system.limits_checking.database_path from config.yml at
       # runtime (Task 3.2). CWD is the image WORKDIR (/app), not the project
