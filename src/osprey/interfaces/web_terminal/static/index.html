@@ -79,7 +79,7 @@
         <a class="header-icon-btn" id="docs-link" href="https://als-apg.github.io/osprey/" title="Documentation" target="_blank" rel="noopener">&#128214;</a>
         <osprey-theme-switcher></osprey-theme-switcher>
         <button class="header-icon-btn" data-drawer-trigger="settings-drawer" title="Settings">&#9881;</button>
-        {% if landing_url %}<button class="header-icon-btn" id="logout-btn" data-landing-url="{{ landing_url }}" title="Log out" aria-label="Log out"><span aria-hidden="true">&#128682;</span></button>{% endif %}
+        {% if landing_url %}<button class="header-icon-btn" id="logout-btn" data-landing-url="{{ landing_url }}" title="Log out{% if terminal_user %} {{ terminal_user }}{% endif %} and return to the landing page" aria-label="Log out{% if terminal_user %} {{ terminal_user }}{% endif %} and return to the landing page"><span aria-hidden="true">&#128682;</span></button>{% endif %}
       </div>
     </div>
   </header>

@@ -8,6 +8,7 @@ overlay files, config overrides, and MCP server definitions.
 from __future__ import annotations
 
 import importlib.resources
+import logging
 import re
 import warnings
 from dataclasses import dataclass, field
@@ -17,6 +18,8 @@ from typing import Any, Literal
 import yaml
 
 from osprey.errors import BuildProfileError
+
+_LOGGER = logging.getLogger("osprey.cli.build_profile")
 
 VALID_CHANNEL_FINDER_MODES: tuple[str, ...] = (
     "in_context",
@@ -194,6 +197,64 @@ def _deep_merge(base: dict, child: dict) -> dict:
     return merged
 
 
+# String-list profile fields that ``exclude:`` may subtract from. Deliberately
+# excludes dict-shaped fields (config, overlay, mcp_servers, services, ...) —
+# list subtraction only makes sense for the plain string collections a child
+# inherits via ``extends``.
+_EXCLUDABLE_FIELDS: frozenset[str] = frozenset(
+    {
+        "skills",
+        "rules",
+        "hooks",
+        "agents",
+        "output_styles",
+        "web_panels",
+        "dependencies",
+    }
+)
+
+
+def _apply_exclude(merged: dict[str, Any], exclude: Any) -> None:
+    """Subtract ``exclude`` entries from the string-list fields of ``merged`` in place.
+
+    ``exclude`` is a mapping of field name (one of :data:`_EXCLUDABLE_FIELDS`) to a
+    list of entries to remove. Excluding an entry that is not present is a silent
+    no-op. Because this runs after each ``_deep_merge`` in :func:`_resolve_extends`,
+    a deeper ``extends`` layer that re-adds an entry merges in afterwards and wins;
+    an entry re-added by an override file or ``--set`` merges *before* extends
+    resolution and is stripped again here, so it cannot win.
+
+    Args:
+        merged: The merged raw profile dict (mutated in place).
+        exclude: The raw ``exclude`` value from a profile layer.
+
+    Raises:
+        BuildProfileError: If ``exclude`` is not a mapping, names an unknown or
+            non-list-shaped field, or maps a field to a non-list value.
+    """
+    if not isinstance(exclude, dict):
+        raise BuildProfileError(
+            f"Profile 'exclude' must be a mapping of field name to list "
+            f"(got {type(exclude).__name__})"
+        )
+    for field_name, entries in exclude.items():
+        if field_name not in _EXCLUDABLE_FIELDS:
+            raise BuildProfileError(
+                f"exclude: unknown or non-list field {field_name!r} "
+                f"(must be one of {sorted(_EXCLUDABLE_FIELDS)})"
+            )
+        if not isinstance(entries, list):
+            raise BuildProfileError(
+                f"exclude.{field_name} must be a list of entries to remove "
+                f"(got {type(entries).__name__})"
+            )
+        current = merged.get(field_name)
+        if not isinstance(current, list):
+            continue
+        removal = set(entries)
+        merged[field_name] = [item for item in current if item not in removal]
+
+
 def _resolve_extends(
     raw: dict[str, Any], profile_path: Path, chain: list[Path] | None = None
 ) -> dict[str, Any]:
@@ -221,6 +282,18 @@ def _resolve_extends(
 
     extends_value = raw.pop("extends", None)
     if extends_value is None:
+        # No base to subtract from — ``exclude`` here can only touch this file's
+        # own declarations, which is an author mistake. Apply-to-self (a no-op in
+        # practice) and log so it's discoverable, matching the recursive path's
+        # "pop exclude before returning" contract.
+        exclude_value = raw.pop("exclude", None)
+        if exclude_value is not None:
+            _LOGGER.debug(
+                "Profile %s declares 'exclude' without 'extends'; it can only "
+                "affect its own declarations (no inherited entries to remove).",
+                resolved,
+            )
+            _apply_exclude(raw, exclude_value)
         return raw
 
     # Try a bundled preset by name first; fall through to filesystem-path
@@ -251,7 +324,14 @@ def _resolve_extends(
     # Recurse: the base may itself extend another profile
     base_raw = _resolve_extends(base_raw, base_path, chain)
 
-    return _deep_merge(base_raw, raw)
+    merged = _deep_merge(base_raw, raw)
+    # Apply this layer's ``exclude`` to the merged result and consume it. The
+    # recursively-resolved ``base_raw`` has already had its own ``exclude``
+    # popped, so the only ``exclude`` present here is this layer's own.
+    exclude_value = merged.pop("exclude", None)
+    if exclude_value is not None:
+        _apply_exclude(merged, exclude_value)
+    return merged
 
 
 @dataclass
@@ -593,6 +673,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
     {
         "name",
         "extends",
+        "exclude",
         "data_bundle",
         "provider",
         "model",

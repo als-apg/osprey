@@ -63,6 +63,7 @@ class _ReadySet(set):
     def __init__(self) -> None:
         super().__init__()
         self.failing: set[str] = set()
+        self.owner: str = "1000:1000"
 
 
 _FAKE_STDERR = b"boom: chown: unknown user dispatch"
@@ -93,6 +94,19 @@ def fake_runtime(monkeypatch):
             name = argv[-1]
             rc = 0 if name in ready else 1
             return subprocess.CompletedProcess(argv, returncode=rc, stdout="", stderr="")
+        if argv[1] == "exec" and "id -u" in argv[-1]:
+            # Owner query: [runtime, "exec", container, "sh", "-c", <id script>],
+            # deliberately WITHOUT -u 0 so it reports the image's configured user.
+            container = argv[2]
+            if container in ready.failing:
+                if check:
+                    raise subprocess.CalledProcessError(
+                        1, argv, output="", stderr=_FAKE_STDERR.decode()
+                    )
+                return subprocess.CompletedProcess(argv, returncode=1, stdout="", stderr="")
+            return subprocess.CompletedProcess(
+                argv, returncode=0, stdout=f"{ready.owner}\n", stderr=""
+            )
         container = argv[5] if len(argv) > 5 else None
         if container in ready.failing:
             if check:
@@ -233,7 +247,9 @@ def test_skills_reconcile_carries_names_and_target_and_sentinel_phases(
     # Phase 1 must run before phase 2/3 clears anything currently shipped, and
     # never touches a dir lacking the sentinel (user-installed skills survive).
     assert script.index(".deploy-managed") < script.index('rm -rf -- "$name"')
-    assert 'chown -R dispatch:dispatch "$target"' in script
+    # Ownership handoff to the queried runtime user ($3), never a fixed username.
+    assert 'chown -R "$owner" "$target"' in script
+    assert argv[12] == "1000:1000"
 
     idx = calls.index(argv)
     assert inputs[idx] is not None and len(inputs[idx]) > 0  # non-empty tar stream
@@ -282,12 +298,11 @@ def test_non_default_persona_drives_skills_target_from_its_own_project(
     assert skills_calls[0][11] == "/app/beamline-ops-app/.claude/skills"
 
 
-def test_default_persona_keeps_default_container_dir_for_skills(
-    tmp_path, monkeypatch, fake_runtime
-):
-    """The default persona's skills target stays pinned to `/app/<facility_prefix>-assistant`
-    even though a personas catalog is configured, matching resolve_personas' contract that the
-    existing per-user agent-data volume keeps resolving to the same in-container path."""
+def test_default_persona_skills_target_follows_its_project(tmp_path, monkeypatch, fake_runtime):
+    """The default persona's skills target follows its own catalog project uniformly,
+    like every other persona — `/app/<persona.project>/.claude/skills` with no
+    facility-prefix special case. Uses a project (`ops-app`) that does not coincide
+    with the pre-persona `/app/<facility_prefix>-assistant` path to prove it."""
     calls, inputs, ready = fake_runtime
     monkeypatch.chdir(tmp_path)
     _write_base_md(tmp_path)
@@ -307,7 +322,7 @@ def test_default_persona_keeps_default_container_dir_for_skills(
 
     skills_calls = _skills_calls(calls)
     assert len(skills_calls) == 1
-    assert skills_calls[0][11] == f"/app/{_FACILITY_PREFIX}-assistant/.claude/skills"
+    assert skills_calls[0][11] == "/app/ops-app/.claude/skills"
 
 
 def test_unresolvable_persona_raises_before_touching_runtime(tmp_path, monkeypatch, fake_runtime):
@@ -538,3 +553,71 @@ def test_seed_web_terminals_no_user_seeds_all(tmp_path, monkeypatch, fake_runtim
         f"{_FACILITY_PREFIX}-web-alice",
         f"{_FACILITY_PREFIX}-web-bob",
     }
+
+
+# =============================================================================
+# Seed ownership follows the container's runtime user
+# =============================================================================
+
+
+def _owner_query_calls(calls):
+    """Filter recorded argvs down to the runtime-user queries (id -u based)."""
+    return [c for c in calls if c[1] == "exec" and "id -u" in c[-1]]
+
+
+def test_seed_chowns_to_container_runtime_user(tmp_path, monkeypatch, fake_runtime):
+    """The chown owner is queried per container, not hardcoded to any username.
+
+    The persona images create their own runtime user (uid:gid), so the seed
+    scripts must receive the queried ``uid:gid`` as an argument and chown to
+    that — a fixed username like ``dispatch`` breaks on any image that names
+    its user differently.
+    """
+    calls, inputs, ready = fake_runtime
+    monkeypatch.chdir(tmp_path)
+    _write_base_md(tmp_path)
+    ready.add(f"{_FACILITY_PREFIX}-web-alice")
+    ready.owner = "1234:5678"
+
+    seeding.seed_user_containers(_config(["alice"]))
+
+    owner_queries = _owner_query_calls(calls)
+    assert len(owner_queries) == 1
+    # The query must run as the image's configured user — no -u override.
+    assert "-u" not in owner_queries[0]
+
+    (md_call,) = _claude_md_calls(calls)
+    assert md_call[-2:] == ["sh", "1234:5678"]
+    assert '"$owner"' in md_call[8]
+
+    (skills_call,) = _skills_calls(calls)
+    assert skills_call[-1] == "1234:5678"
+    assert '"$owner"' in skills_call[8]
+
+
+def test_seed_scripts_never_hardcode_a_username(tmp_path, monkeypatch, fake_runtime):
+    calls, inputs, ready = fake_runtime
+    monkeypatch.chdir(tmp_path)
+    _write_base_md(tmp_path)
+    ready.add(f"{_FACILITY_PREFIX}-web-alice")
+
+    seeding.seed_user_containers(_config(["alice"]))
+
+    for call in calls:
+        for arg in call:
+            assert "dispatch:dispatch" not in arg
+
+
+def test_seed_owner_query_garbage_fails_that_user_only(tmp_path, monkeypatch, fake_runtime):
+    """A non-uid:gid owner answer (e.g. an image printing a banner) must not reach chown."""
+    calls, inputs, ready = fake_runtime
+    monkeypatch.chdir(tmp_path)
+    _write_base_md(tmp_path)
+    ready.add(f"{_FACILITY_PREFIX}-web-alice")
+    ready.add(f"{_FACILITY_PREFIX}-web-bob")
+    ready.owner = "welcome to the container\n1000:1000"
+
+    with pytest.raises(RuntimeError, match="Seeding failed for all 2"):
+        seeding.seed_user_containers(_config(["alice", "bob"]))
+
+    assert _claude_md_calls(calls) == []  # chown never attempted with garbage

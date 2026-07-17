@@ -284,9 +284,18 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Deploye
     # `dispatch: null` drops control-assistant's default event-dispatcher
     # stack (Node + Claude CLI image) -- irrelevant here and far slower to
     # build than the VA image already is.
+    # `modules.web_terminals.enabled: false` scopes this deploy back to the VA +
+    # bridge substrate: the control-assistant preset now ships the multi-user
+    # web-terminal stack on by default, so an unqualified `deploy up` would also
+    # auto-render both persona projects, build two web images, and start
+    # nginx/web containers -- none of which this substrate-equivalence proof
+    # exercises (that topology is covered by test_control_assistant_demo.py).
     override_path = base / "override.yml"
     override_path.write_text(
-        "config:\n  control_system.type: virtual_accelerator\ndispatch: null\n",
+        "config:\n"
+        "  control_system.type: virtual_accelerator\n"
+        "  modules.web_terminals.enabled: false\n"
+        "dispatch: null\n",
         encoding="utf-8",
     )
 

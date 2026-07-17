@@ -302,6 +302,17 @@ class TemplateManager:
                 f"  [success]✓[/success] Copied machine data to [path]{machine_data_dst}[/path]"
             )
 
+        # 6a'. Copy docker/ if bundle provides it — carries the
+        # docker/web-terminal-context/ overlay tree (base.md + per-user
+        # extra.md/skills) that web-terminal seeding requires at deploy time.
+        docker_src = bundle_dir / "docker"
+        if docker_src.exists():
+            docker_dst = project_dir / "docker"
+            shutil.copytree(docker_src, docker_dst, dirs_exist_ok=True)
+            console.print(
+                f"  [success]✓[/success] Copied docker overlay tree to [path]{docker_dst}[/path]"
+            )
+
         # 6b. Flatten the preset's tier-routed channel DBs into the canonical
         # data/channel_databases/<paradigm>.json locations. Must run before the
         # Claude Code hierarchy probe below, which reads the flat path. Only

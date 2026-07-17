@@ -1,0 +1,33 @@
+# control-assistant-operator.yml
+# Operator persona — the restricted control-room tier of the control-assistant demo.
+#
+# This preset inherits everything from `control-assistant` but pares the
+# capability set back to what a control-room operator needs day to day. It drops
+# scan-plan authoring: the `writing-bluesky-plans` skill is excluded and the scan
+# MCP server is explicitly denied, so the operator tier never surfaces scan
+# tooling even if a downstream overlay were to re-enable it by accident.
+#
+# The full-capability counterpart is `control-assistant-physicist`, which keeps
+# the scan skill and opts the scan server back on.
+
+name: Control Assistant (Operator)
+
+extends: control-assistant
+
+# ── Excluded artifacts ───────────────────────────────────────────────────────
+# `exclude:` subtracts entries from the base's inherited string lists (applied
+# after each extends merge). `writing-bluesky-plans` is the only scan-related
+# skill, so removing it takes the operator out of the scan-plan workflow.
+exclude:
+  skills:
+    - writing-bluesky-plans
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY: each entry is a literal `key.path` written into config.yml
+# after the template renders. Nested YAML under `config:` would deep-merge into
+# and clobber the base's rendered config subtree, so keep every override flat.
+config:
+  # Explicitly deny the scan MCP server. The base already ships it off by
+  # default, but stating the denial here documents the operator tier's intent
+  # and keeps it off regardless of the inherited default.
+  claude_code.servers.scan.enabled: false

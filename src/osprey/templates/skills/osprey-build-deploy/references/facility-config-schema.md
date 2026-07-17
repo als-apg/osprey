@@ -279,7 +279,7 @@ modules:
       assistant:                           # persona name — matches users[].persona / default_persona
         project: "als-assistant"           # rendered project name (must equal that project's config.yml project_name)
         project_path: "../als-assistant"   # rendered project dir — local-mode build context
-        build_profile: "profiles/assistant.yml"  # committed build-profile YAML — registry-mode CI input
+        build_profile: "profiles/assistant.yml"  # registry mode: committed profile path (local mode: a bundled preset name)
       analysis:
         project: "als-analysis"
         project_path: "../als-analysis"
@@ -375,14 +375,14 @@ personas:
   assistant:                              # persona name
     project: "als-assistant"              # rendered project name
     project_path: "../als-assistant"      # rendered project dir (local-mode build context)
-    build_profile: "profiles/assistant.yml"  # committed build-profile YAML (registry-mode CI input)
+    build_profile: "profiles/assistant.yml"  # registry mode: committed profile path (local mode: a bundled preset name)
 ```
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
 | `project` | string | yes | The persona's rendered project name. In local mode this must equal that project's own `config.yml` `project_name` — a mismatch is a lint ERROR (otherwise a silently dead mount/path) |
-| `project_path` | path | required if `image_source: local` | Path to the persona's already-rendered project directory. The operator runs `osprey build` for each persona project *before* `deploy up` — `deploy up` never renders a project itself. Lint ERROR if the path, its `Dockerfile`, or its `config.yml` is missing |
-| `build_profile` | path | required if `image_source: registry` and this persona is not `default_persona` | Path to the persona's committed build-profile YAML. Feeds the one `.gitlab-ci.yml` build job generated per non-default persona in registry mode. Lint ERROR if a referenced non-default persona lacks it under `image_source: registry` |
+| `project_path` | path | required if `image_source: local` | Path to the persona's rendered project directory (the local-mode build context). In local mode, `deploy up` **auto-renders** this project from `build_profile` when the directory is absent (see `build_profile` below), so pre-building each persona by hand is optional. An existing render is user-owned and never overwritten; a *partial* render (missing `Dockerfile` or `config.yml`) is an ERROR; a missing directory with no usable `build_profile` cannot be auto-rendered |
+| `build_profile` | path or preset name | see Notes | The source the persona's project is rendered from — consumed differently per mode. **Registry mode:** a path to the persona's committed build-profile YAML, fed as the positional profile to the one `.gitlab-ci.yml` build job generated per non-default persona (required for a non-default persona; lint ERROR if missing). **Local mode:** a **bundled preset name**, passed to `osprey build --preset <build_profile>` by `deploy up`'s auto-render — so it must name a bundled preset (see `--list-presets`), not a file path. Required in local mode for any persona whose `project_path` is not already rendered |
 
 **Image naming** is derived deterministically — never set by hand:
 

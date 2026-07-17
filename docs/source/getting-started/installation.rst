@@ -299,7 +299,7 @@ OSPREY is installed and ready to use. Here's what to do next:
 
 
 Troubleshooting
-~~~~~~~~~~~~~~~~
+---------------
 
 .. dropdown:: Common issues
    :color: warning

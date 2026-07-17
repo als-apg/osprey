@@ -7,6 +7,7 @@ import copy
 from osprey.deployment.web_terminals.lint import Finding, lint_web_terminals
 
 _CLEAN_CONFIG = {
+    "facility": {"prefix": "test"},
     "ports": {
         "matlab": 8001,
         "web_terminal_nginx": 9080,
@@ -38,6 +39,10 @@ def _errors(findings: list[Finding]) -> list[Finding]:
 
 def _warnings(findings: list[Finding]) -> list[Finding]:
     return [f for f in findings if f.severity == "warn"]
+
+
+def _infos(findings: list[Finding]) -> list[Finding]:
+    return [f for f in findings if f.severity == "info"]
 
 
 def test_lint_clean_config_reports_no_error_findings() -> None:
@@ -776,9 +781,11 @@ def test_lint_local_mode_missing_project_path_is_an_error() -> None:
 
 
 def test_lint_local_mode_project_path_not_a_directory_is_an_error(tmp_path) -> None:
-    """A `project_path` that doesn't exist (or isn't a directory) can't be built."""
-    # Arrange
-    missing_path = tmp_path / "does-not-exist"
+    """A `project_path` that doesn't exist (or isn't a directory) can't be built
+    when the entry has no build_profile to auto-render it from."""
+    # Arrange (basename matches `project` so the name invariant passes and we
+    # exercise the existence check itself, not the name-mismatch check)
+    missing_path = tmp_path / "als-assistant"
     config = _persona_config(
         web_terminals={
             "image_source": "local",
@@ -922,6 +929,229 @@ def test_lint_local_mode_unreferenced_persona_project_path_is_not_checked(tmp_pa
     assert _errors(findings) == []
 
 
+# --- Task 3.2: auto-render demotion + project-path name invariant ------------
+
+
+def test_lint_local_mode_missing_project_path_with_build_profile_is_auto_renderable(
+    tmp_path,
+) -> None:
+    """A referenced persona whose project_path does not exist yet but carries a
+    usable build_profile is only an informational finding — deploy up will
+    render it before building, so it must not block a deploy."""
+    # Arrange (project_path basename matches `project`; directory not created)
+    missing_path = tmp_path / "als-assistant"
+    config = _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "personas": {
+                "assistant": {
+                    "project": "als-assistant",
+                    "project_path": str(missing_path),
+                    "build_profile": "profiles/assistant.yml",
+                }
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert _errors(findings) == []
+    infos = _infos(findings)
+    assert any(f.code == "web_terminals.persona_project_path_auto_renderable" for f in infos)
+    # The hard "not a directory" error must not fire alongside the info note.
+    assert not any(f.code == "web_terminals.persona_project_path_not_dir" for f in findings)
+
+
+def test_lint_local_mode_missing_project_path_without_build_profile_stays_an_error(
+    tmp_path,
+) -> None:
+    """Without a build_profile there is nothing to auto-render from, so a
+    non-existent project_path remains the pre-existing hard error."""
+    # Arrange
+    missing_path = tmp_path / "als-assistant"
+    config = _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "personas": {
+                "assistant": {"project": "als-assistant", "project_path": str(missing_path)}
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.persona_project_path_not_dir" for f in errors)
+    assert not any(f.code == "web_terminals.persona_project_path_auto_renderable" for f in findings)
+
+
+def test_lint_local_mode_partial_render_missing_dockerfile_stays_an_error(tmp_path) -> None:
+    """A build_profile does NOT rescue a directory that already exists but is
+    incomplete — auto-render never overwrites an existing directory, so a
+    missing Dockerfile inside it is still a hard error (partial render)."""
+    # Arrange
+    project_dir = tmp_path / "als-assistant"
+    project_dir.mkdir()
+    (project_dir / "config.yml").write_text("project_name: als-assistant\n")
+    config = _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "personas": {
+                "assistant": {
+                    "project": "als-assistant",
+                    "project_path": str(project_dir),
+                    "build_profile": "profiles/assistant.yml",
+                }
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.persona_missing_dockerfile" for f in errors)
+    assert not any(f.code == "web_terminals.persona_project_path_auto_renderable" for f in findings)
+
+
+def test_lint_local_mode_partial_render_missing_config_yml_stays_an_error(tmp_path) -> None:
+    """Same partial-render rule for a missing config.yml inside an existing dir:
+    the build_profile does not demote it."""
+    # Arrange
+    project_dir = tmp_path / "als-assistant"
+    project_dir.mkdir()
+    (project_dir / "Dockerfile").write_text("FROM scratch\n")
+    config = _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "personas": {
+                "assistant": {
+                    "project": "als-assistant",
+                    "project_path": str(project_dir),
+                    "build_profile": "profiles/assistant.yml",
+                }
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.persona_missing_config_yml" for f in errors)
+    assert not any(f.code == "web_terminals.persona_project_path_auto_renderable" for f in findings)
+
+
+def test_lint_local_mode_project_path_basename_not_matching_project_is_an_error(tmp_path) -> None:
+    """The auto-render invariant: project_path's basename must equal the catalog
+    `project`, since auto-render derives its output dir from `project`. A
+    disagreement is an error even with a build_profile present."""
+    # Arrange (basename "wrong-name" != project "als-assistant"; dir absent)
+    project_path = tmp_path / "wrong-name"
+    config = _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "personas": {
+                "assistant": {
+                    "project": "als-assistant",
+                    "project_path": str(project_path),
+                    "build_profile": "profiles/assistant.yml",
+                }
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    mismatch = [f for f in errors if f.code == "web_terminals.persona_project_path_name_mismatch"]
+    assert mismatch
+    assert any("wrong-name" in f.message and "als-assistant" in f.message for f in mismatch)
+    # The name-mismatch supersedes the auto-renderable demotion.
+    assert not any(f.code == "web_terminals.persona_project_path_auto_renderable" for f in findings)
+
+
+def test_lint_local_mode_name_invariant_fires_for_an_otherwise_wellformed_dir(tmp_path) -> None:
+    """The name invariant also fails an existing, otherwise-complete directory
+    whose basename disagrees with `project`, and supersedes the inner
+    Dockerfile/config.yml checks (which never run for it)."""
+    # Arrange
+    project_dir = tmp_path / "wrong-name"
+    project_dir.mkdir()
+    (project_dir / "Dockerfile").write_text("FROM scratch\n")
+    (project_dir / "config.yml").write_text("project_name: als-assistant\n")
+    config = _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "personas": {
+                "assistant": {"project": "als-assistant", "project_path": str(project_dir)}
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.persona_project_path_name_mismatch" for f in errors)
+    assert not any(f.code == "web_terminals.persona_missing_dockerfile" for f in errors)
+
+
+def test_lint_local_mode_matching_basename_reports_no_name_invariant_error(tmp_path) -> None:
+    """A project_path whose basename equals `project` must never trip the name
+    invariant — the well-formed, on-disk case stays clean."""
+    # Arrange
+    project_dir = tmp_path / "als-assistant"
+    project_dir.mkdir()
+    (project_dir / "Dockerfile").write_text("FROM scratch\n")
+    (project_dir / "config.yml").write_text("project_name: als-assistant\n")
+    config = _persona_config(
+        web_terminals={
+            "image_source": "local",
+            "personas": {
+                "assistant": {"project": "als-assistant", "project_path": str(project_dir)}
+            },
+        }
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.persona_project_path_name_mismatch" for f in findings)
+    assert _errors(findings) == []
+
+
+def test_lint_registry_mode_does_not_run_project_path_name_invariant(tmp_path) -> None:
+    """The name invariant is a local-mode build concern; registry mode pulls
+    images and must not evaluate project_path basenames at all."""
+    # Arrange (basename disagrees with project, but image_source is registry)
+    project_path = tmp_path / "wrong-name"
+    config = _persona_config(
+        web_terminals={
+            "personas": {
+                "assistant": {"project": "als-assistant", "project_path": str(project_path)},
+            },
+        },
+        registry={"url": "registry.example.org:5050"},
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.persona_project_path_name_mismatch" for f in findings)
+
+
 def test_lint_registry_mode_non_default_persona_without_build_profile_is_an_error() -> None:
     """In registry mode, a non-default persona has no local project_path to
     build from — `build_profile` is its only route to a CI build job."""
@@ -1020,6 +1250,68 @@ def test_lint_per_container_stdio_topology_reports_no_error() -> None:
     # Assert
     errors = _errors(findings)
     assert not any(f.code == "web_terminals.unknown_mcp_topology" for f in errors)
+
+
+# --- Task 4.5: empty facility.prefix (web container-name prefix) -------------
+
+
+def test_lint_users_with_absent_facility_prefix_is_an_error() -> None:
+    """Web container names are `<facility.prefix>-nginx`/`<...>-web-<user>`, so a
+    configured roster with no facility section at all renders leading-dash names
+    like `-nginx`, which Docker rejects only at `deploy up`. Catch it at lint."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config.pop("facility", None)  # no facility section -> empty effective prefix
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.empty_facility_prefix" for f in errors)
+
+
+def test_lint_users_with_empty_string_facility_prefix_is_an_error() -> None:
+    """An explicit empty-string prefix derives the same broken `-nginx` name as an
+    absent one (`facility.get("prefix") or ""`), so it is equally an error."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["facility"] = {"prefix": ""}
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.empty_facility_prefix" for f in errors)
+
+
+def test_lint_users_with_nonempty_facility_prefix_reports_no_prefix_error() -> None:
+    """A non-empty prefix yields valid `<prefix>-nginx` names, so the check is silent."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config["facility"] = {"prefix": "als"}
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.empty_facility_prefix" for f in findings)
+
+
+def test_lint_no_users_with_absent_facility_prefix_reports_no_prefix_error() -> None:
+    """With no users configured there are no per-user services to name, so an empty
+    prefix is not this check's concern (empty users[] is `_check_empty_users`')."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    config.pop("facility", None)
+    config["modules"]["web_terminals"]["users"] = []
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    assert not any(f.code == "web_terminals.empty_facility_prefix" for f in findings)
 
 
 def test_lint_omitted_mcp_topology_reports_no_error() -> None:
