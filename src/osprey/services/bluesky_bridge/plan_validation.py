@@ -4,7 +4,7 @@ An agent authoring a new plan (task 2.3's ``write_plan``/
 ``validate_plan`` MCP tools) never gets its file exec'd directly —
 that would hand arbitrary code execution to whatever produced the body. This
 module is the gate a body must pass before anything downstream (the session
-directory layer's LOAD gate, task 2.4; the promote gate, task 2.5) will treat
+directory layer's LOAD gate, task 2.4; the launch gate, task 2.5) will treat
 it as real: :func:`validate_plan` runs three ordered stages, each of
 which can reject outright before the next ever runs:
 
@@ -32,7 +32,7 @@ which can reject outright before the next ever runs:
    (:mod:`osprey.services.bluesky_bridge.devices.mock`). This is an
    **authoring-quality gate** ("does the body actually run"), not a
    containment boundary — containment comes from stages 1-2 above and the
-   downstream load/promote gates that key off this module's validation
+   downstream load/launch gates that key off this module's validation
    record, not from anything the dry-run subprocess itself prevents.
 
 Every :class:`ValidationResult` (pass or fail) carries a ``content_hash``
@@ -306,7 +306,7 @@ def hash_plan_body(body: str) -> str:
     BOM, or adds/drops trailing blank lines still hashes identically. This is
     the one place that normalization happens; every caller that needs to
     check "does this file content have a passing validation record"
-    (task 2.2's store, task 2.4's load gate, task 2.5's promote gate) must
+    (task 2.2's store, task 2.4's load gate, task 2.5's launch gate) must
     hash through this function rather than re-deriving its own encoding.
     """
     normalized = body.replace("\r\n", "\n").replace("\r", "\n")

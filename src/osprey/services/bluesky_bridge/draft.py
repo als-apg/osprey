@@ -110,15 +110,84 @@ class _Draft:
         }
 
 
+@dataclass(frozen=True)
+class LaunchSnapshot:
+    """A launchable snapshot of the draft, pinned at `revision`.
+
+    Returned by :func:`check_launchable` when the caller's pinned
+    `draft_revision` both matches the current draft AND names a revision that
+    hasn't already been launched. The caller mints and launches the run
+    *outside* the draft lock from this snapshot, then records the launch (and
+    broadcasts it) via :func:`record_and_broadcast_launch` on success — the
+    draft lock is never held across the launch itself.
+
+    `plan_args` is a defensive copy taken under the lock, so a concurrent
+    `PATCH` mutating the live draft can never alter what the caller launches.
+    """
+
+    plan_name: str
+    plan_args: dict[str, Any]
+    revision: int
+
+
+@dataclass(frozen=True)
+class LaunchRejected:
+    """Why a pinned `draft_revision` can't be launched (a typed refusal).
+
+    Returned by :func:`check_launchable` instead of a snapshot so the caller
+    maps each cause to a distinct `409` without minting or launching
+    anything. `code` is one of:
+
+    - ``"stale_draft_revision"`` — no draft exists, or the pinned revision
+      doesn't equal the current `revision` (someone edited or cleared the
+      draft since the caller last read it).
+    - ``"draft_revision_already_launched"`` — this exact revision was already
+      launched, OR another caller's launch of it is in flight right now (a
+      reservation held in `_launching`, see :func:`check_launchable`); the
+      guard against a replayed or concurrent launch firing a duplicate
+      hardware scan. One code for both on purpose: the caller's remedy is
+      identical (edit the draft to bump the revision, or resync), and clients
+      already branch on exactly two codes — the two situations differ only in
+      wording of `detail`. A later `PATCH` bumps the revision and re-arms
+      launch.
+
+    `revision` is always the *current* server revision, so the caller can
+    hand the client a fresh baseline to resync against.
+    """
+
+    code: str
+    detail: str
+    revision: int
+
+
 # ---------------------------------------------------------------------------
 # Module state: one draft, one process-lifetime monotonic revision counter,
 # one lock guarding both plus the subscriber set. `revision` is intentionally
 # NOT a field on `_Draft` — `GET /draft` must report it even when `draft` is
 # `None` (symmetric with the hello frame), so it lives outside the object
 # that can itself become `None`.
+#
+# `_last_launched_revision` lives alongside `_revision` under the same lock:
+# it is the revision most recently launched via `POST /draft/run` (0 = none
+# launched this process). `check_launchable` refuses to re-launch a revision
+# equal to it, so a replayed launch can't fire a second hardware scan; a
+# `PATCH` that bumps `_revision` past it re-arms launch. Like `_revision` it
+# is monotonic in practice and never reset for real drafts — only `_clear()`
+# (test isolation) resets it.
+#
+# `_launching` holds revisions whose launch is IN FLIGHT: reserved by
+# `check_launchable` in the same critical section that returns the snapshot,
+# and released by exactly one of `record_and_broadcast_launch` (success) or
+# `release_launch` (any failure after the check). Reserving at the HEAD of
+# the unlocked mint/launch window — not committing at its tail — is what
+# makes "exactly one launch per revision" hold for CONCURRENT callers, not
+# just sequential replays: a second `check_launchable` at the same revision
+# finds the reservation and refuses while the first launch is still running.
 # ---------------------------------------------------------------------------
 _draft: _Draft | None = None
 _revision: int = 0
+_last_launched_revision: int = 0
+_launching: set[int] = set()
 _lock = asyncio.Lock()
 _subscribers: set[asyncio.Queue[Any]] = set()
 
@@ -131,9 +200,11 @@ def _clear() -> None:
     test's un-closed stream must never receive frames meant for the next
     test's isolated state.
     """
-    global _draft, _revision
+    global _draft, _revision, _last_launched_revision
     _draft = None
     _revision = 0
+    _last_launched_revision = 0
+    _launching.clear()
     _subscribers.clear()
 
 
@@ -250,6 +321,133 @@ async def _subscribe() -> tuple[asyncio.Queue[Any], dict[str, Any]]:
 async def _unsubscribe(queue: asyncio.Queue[Any]) -> None:
     async with _lock:
         _subscribers.discard(queue)
+
+
+# ---------------------------------------------------------------------------
+# Launch state: the substrate for `POST /draft/run` (the bridge's launch
+# primitive). The draft lock is NEVER held across `registry.add`/`do_launch`,
+# so the launch flow is deliberately split into lock-guarded steps with the
+# mint/launch happening between them, outside the lock:
+#
+#   snapshot = await check_launchable(draft_revision)   # under _lock; RESERVES
+#   ... mint + launch the run in a threadpool ...       # NO lock held
+#   await record_and_broadcast_launch(run_id, rev)      # under _lock; consumes
+#   # ...or, on ANY failure after a successful check:
+#   await release_launch(rev)                           # under _lock; releases
+#
+# `check_launchable` mints nothing on failure — a stale, already-launched, or
+# currently-launching revision returns a typed `LaunchRejected` the caller
+# turns into a `409`. On success it RESERVES the revision in `_launching`
+# within the same critical section, so a concurrent second caller at the same
+# revision is refused while the first launch is still in flight — the
+# exclusivity token is taken at the head of the unlocked window, never
+# committed only at its tail. The caller owes exactly one matching
+# `record_and_broadcast_launch` (success) or `release_launch` (failure).
+# ---------------------------------------------------------------------------
+
+
+async def check_launchable(draft_revision: int) -> LaunchSnapshot | LaunchRejected:
+    """Atomically snapshot the draft — and reserve the launch — at a pinned `draft_revision`.
+
+    Under `_lock`, in one critical section, checks that (a) a draft exists
+    and its revision equals `draft_revision`, (b) that revision hasn't
+    already been launched, and (c) no other caller's launch of it is
+    currently in flight. On success it adds the revision to `_launching`
+    (the in-flight reservation) and returns a :class:`LaunchSnapshot` (with
+    a defensive copy of `plan_args`) the caller launches *outside* the lock;
+    the caller must then settle the reservation with exactly one of
+    :func:`record_and_broadcast_launch` (success) or :func:`release_launch`
+    (failure). On any failure this returns a typed :class:`LaunchRejected`,
+    having minted and reserved nothing.
+
+    Check (c) shares check (b)'s ``draft_revision_already_launched`` code
+    (see :class:`LaunchRejected` for why) with in-flight-specific wording:
+    without the reservation, two concurrent callers pinning the same
+    revision could both pass (b) — neither has recorded yet — and each fire
+    a real hardware scan; the guard would only defeat sequential replays.
+
+    Taking the snapshot, all three checks, and the reservation in the same
+    critical section is what guarantees the caller launches exactly the
+    plan_args that were current at `draft_revision`, exactly once: a
+    concurrent `PATCH` either lands entirely before this call (so the
+    revision it reads already reflects the edit and a caller pinning the old
+    revision gets `stale_draft_revision`) or entirely after it (so this
+    snapshot is untouched), and a concurrent launch either reserved first
+    (so this call is refused) or sees this call's reservation.
+    """
+    async with _lock:
+        if _draft is None or _revision != draft_revision:
+            return LaunchRejected(
+                code="stale_draft_revision",
+                detail=(
+                    f"pinned draft_revision {draft_revision} does not match the "
+                    f"current draft revision {_revision}"
+                ),
+                revision=_revision,
+            )
+        if _revision == _last_launched_revision:
+            return LaunchRejected(
+                code="draft_revision_already_launched",
+                detail=(
+                    f"draft revision {_revision} was already launched; edit the "
+                    "draft (bumping its revision) to launch again"
+                ),
+                revision=_revision,
+            )
+        if _revision in _launching:
+            return LaunchRejected(
+                code="draft_revision_already_launched",
+                detail=(
+                    f"a launch of draft revision {_revision} is already in "
+                    "progress; edit the draft (bumping its revision) to launch "
+                    "a different plan"
+                ),
+                revision=_revision,
+            )
+        _launching.add(_revision)
+        return LaunchSnapshot(
+            plan_name=_draft.plan_name,
+            plan_args=dict(_draft.plan_args),
+            revision=_revision,
+        )
+
+
+async def record_and_broadcast_launch(*, run_id: str, revision: int) -> None:
+    """Record a successful launch and announce it to subscribers, atomically.
+
+    Settles `check_launchable`'s in-flight reservation (``_launching.discard``
+    — tolerant of a caller that never reserved, e.g. white-box tests driving
+    this directly), sets `_last_launched_revision = revision` (arming the
+    duplicate-launch guard for that revision), and broadcasts a ``launched``
+    frame (``{type, run_id, revision}``) to every SSE subscriber — all under
+    `_lock` in one critical section: the "this revision is now launched"
+    state and the frame announcing it can never be observed out of order, and
+    the broadcast reuses the same `_broadcast_locked` mechanism as `change`
+    frames.
+
+    Called only *after* the run was successfully minted and launched outside
+    the lock (see the module comment above); `revision` is the pinned
+    revision from the :class:`LaunchSnapshot` that authorized this launch.
+    """
+    global _last_launched_revision
+    async with _lock:
+        _launching.discard(revision)
+        _last_launched_revision = revision
+        _broadcast_locked({"type": "launched", "run_id": run_id, "revision": revision})
+
+
+async def release_launch(revision: int) -> None:
+    """Release `check_launchable`'s in-flight reservation WITHOUT recording a launch.
+
+    The failure-path counterpart of :func:`record_and_broadcast_launch`: the
+    caller's mint/launch failed after a successful check, so the reservation
+    is dropped and — because `_last_launched_revision` is left untouched —
+    the same revision is immediately launchable again (a failed launch never
+    consumes the revision). Idempotent, and tolerant of a revision that was
+    never reserved.
+    """
+    async with _lock:
+        _launching.discard(revision)
 
 
 class PatchDraftRequest(BaseModel):

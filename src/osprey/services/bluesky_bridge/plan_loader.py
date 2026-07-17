@@ -83,7 +83,7 @@ from .validation_record import validation_records
 logger = logging.getLogger("osprey.services.bluesky_bridge.plan_loader")
 
 # Set per bridge instance by the framework server definition (mirrors
-# BLUESKY_BRIDGE_URL/BLUESKY_PROMOTE_TOKEN); wins outright over config.yml.
+# BLUESKY_BRIDGE_URL/BLUESKY_LAUNCH_TOKEN); wins outright over config.yml.
 _MODULE_PATH_ENV = "BLUESKY_PLAN_MODULE"
 
 # os.pathsep-separated list of directory-layer dirs, set per bridge instance.
