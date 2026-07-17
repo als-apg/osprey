@@ -1,0 +1,514 @@
+/* ============================================================
+   Config Structured Renderers (settings.json / .mcp.json)
+   ============================================================ */
+
+.config-structured-view {
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  white-space: normal;
+  word-break: normal;
+}
+
+/* ---- Sections ---- */
+
+.config-section {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.config-section-header {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--color-amber);
+  background: var(--amber-tint-04);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+/* ---- Environment Grid ---- */
+
+.config-env-grid {
+  padding: 8px 12px;
+}
+
+.config-env-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--neutral-tint-06);
+}
+
+.config-env-row:last-child {
+  border-bottom: none;
+}
+
+.config-env-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  color: var(--text-secondary);
+}
+
+.config-env-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  color: var(--color-accent-light);
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+
+/* ---- Permissions Columns ---- */
+
+.config-permissions-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0;
+}
+
+.config-perm-col {
+  padding: 0;
+  border-right: 1px solid var(--border-default);
+  min-width: 0;
+}
+
+.config-perm-col:last-child {
+  border-right: none;
+}
+
+.config-perm-header {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.12em;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-default);
+}
+
+.config-perm-allow .config-perm-header {
+  color: var(--color-success);
+  background: var(--success-tint-08);
+}
+
+.config-perm-ask .config-perm-header {
+  color: var(--color-warning);
+  background: var(--amber-tint-04);
+}
+
+.config-perm-deny .config-perm-header {
+  color: var(--color-error);
+  background: var(--error-tint-04);
+}
+
+.config-perm-group-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  padding: 6px 10px 2px;
+  margin-top: var(--space-1);
+  border-top: 1px solid var(--neutral-tint-06);
+}
+
+.config-perm-entry {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  padding: 2px 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Hooks ---- */
+
+.config-hook-event {
+  border-bottom: 1px solid var(--border-default);
+}
+
+.config-hook-event:last-child {
+  border-bottom: none;
+}
+
+.config-hook-event-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 8px 12px;
+  cursor: pointer;
+  user-select: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  color: var(--text-primary);
+  transition: background var(--wt-transition-fast);
+}
+
+.config-hook-event-header:hover {
+  background: var(--neutral-tint-06);
+}
+
+.config-hook-chevron {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  transition: transform var(--wt-transition-fast);
+  width: 10px;
+  text-align: center;
+}
+
+.config-hook-event.expanded .config-hook-chevron {
+  transform: rotate(90deg);
+}
+
+.config-hook-count {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.config-hook-event-body {
+  display: none;
+  padding: 0 12px 8px 30px;
+}
+
+.config-hook-event.expanded .config-hook-event-body {
+  display: block;
+}
+
+.config-hook-matcher {
+  margin-bottom: 6px;
+}
+
+.config-hook-matcher-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-accent-light);
+  display: block;
+  padding: 2px 0;
+}
+
+.config-hook-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 0 1px 10px;
+  border-left: 1px solid var(--neutral-tint-10);
+}
+
+.config-hook-script {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.config-hook-timeout {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/* ---- MCP Server Cards ---- */
+
+.config-mcp-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: var(--space-2);
+  padding: 10px;
+}
+
+.config-mcp-card {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.config-mcp-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: var(--amber-tint-04);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.config-mcp-card-name {
+  font-family: var(--font-mono);
+  font-size: var(--text-md);
+  font-weight: var(--weight-semibold);
+  color: var(--color-amber);
+  flex: 1;
+}
+
+.config-mcp-module {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-accent-light);
+  padding: 6px 10px 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.config-mcp-env-list {
+  padding: 4px 10px 8px;
+}
+
+.config-mcp-env-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 2px 0;
+}
+
+.config-mcp-env-key {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.config-mcp-env-val {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.config-mcp-env-ref {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ---- MCP Category Dot ---- */
+
+.config-mcp-category-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.config-mcp-category-osprey {
+  background: var(--color-accent);
+}
+
+.config-mcp-category-external {
+  background: var(--text-muted);
+}
+
+/* ---- MCP Tool Count Badge ---- */
+
+.config-mcp-tool-count {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  color: var(--text-secondary);
+  background: var(--neutral-tint-12);
+  border-radius: var(--radius-xl);
+  padding: 0 5px;
+  min-width: 14px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* ---- MCP Server Description ---- */
+
+.config-mcp-card-desc {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+  padding: 4px 10px 0;
+  line-height: var(--leading-snug);
+}
+
+.config-mcp-card-desc:empty {
+  display: none;
+}
+
+/* ---- MCP Tool List ---- */
+
+.config-mcp-tools {
+  padding: 4px 0;
+  min-height: 24px;
+}
+
+.config-mcp-tool-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.config-mcp-tool-item {
+  border-bottom: 1px solid var(--neutral-tint-06);
+}
+
+.config-mcp-tool-item:last-child {
+  border-bottom: none;
+}
+
+/* Tool header row (clickable) */
+
+.config-mcp-tool-header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--wt-transition-fast);
+}
+
+.config-mcp-tool-header:hover {
+  background: var(--neutral-tint-06);
+}
+
+.config-mcp-tool-chevron {
+  font-size: 7px /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  width: 8px;
+  transition: transform var(--wt-transition-fast);
+}
+
+.config-mcp-tool-item.expanded .config-mcp-tool-chevron {
+  transform: rotate(90deg);
+}
+
+.config-mcp-tool-name {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  color: var(--color-accent-light);
+  flex-shrink: 0;
+}
+
+.config-mcp-tool-summary {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* Tool expandable body */
+
+.config-mcp-tool-body {
+  display: none;
+  padding: 2px 10px 6px 24px;
+}
+
+.config-mcp-tool-item.expanded .config-mcp-tool-body {
+  display: block;
+}
+
+.config-mcp-tool-desc-full {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  line-height: var(--leading-snug);
+  margin-bottom: var(--space-1);
+}
+
+.config-mcp-tool-section {
+  margin-top: var(--space-1);
+}
+
+.config-mcp-tool-section-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-bottom: 2px;
+}
+
+.config-mcp-tool-arg {
+  display: flex;
+  gap: var(--space-2);
+  padding: 1px 0;
+  align-items: baseline;
+}
+
+.config-mcp-tool-arg-name {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  color: var(--color-accent-light);
+  flex-shrink: 0;
+}
+
+.config-mcp-tool-arg-desc {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: var(--leading-tight);
+}
+
+.config-mcp-tool-returns {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  line-height: var(--leading-tight);
+}
+
+.config-mcp-tools-loading {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  animation: mcp-pulse 1.5s ease-in-out infinite; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
+}
+
+@keyframes mcp-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.config-mcp-tools-fallback {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* ---- MCP Config Toggle ---- */
+
+.config-mcp-config-toggle {
+  display: block;
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  border-top: 1px solid var(--border-default);
+  padding: 4px 10px;
+  cursor: pointer;
+  text-align: left;
+  transition: color var(--wt-transition-fast);
+}
+
+.config-mcp-config-toggle:hover {
+  color: var(--color-accent-light);
+}
+
+.config-mcp-config-body {
+  border-top: 1px solid var(--border-default);
+}
+
+
