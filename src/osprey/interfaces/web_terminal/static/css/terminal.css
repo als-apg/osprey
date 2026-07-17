@@ -9,7 +9,7 @@
   justify-content: center;
   background: var(--wt-welcome-bg);
   opacity: 1;
-  transition: opacity 0.5s ease;
+  transition: opacity 0.5s ease; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
 }
 
 .welcome-overlay.hidden {
@@ -48,8 +48,8 @@
 
 .welcome-ascii {
   font-family: var(--font-mono);
-  font-size: 13px;
-  line-height: 1.45;
+  font-size: var(--text-lg);
+  line-height: 1.45 /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */;
   color: var(--wt-welcome-text);
   white-space: pre;
   margin: 0;
@@ -60,7 +60,7 @@
 /* Each line fades in */
 .welcome-ascii .wl {
   opacity: 0;
-  animation: lineReveal 0.08s ease forwards;
+  animation: lineReveal 0.08s ease forwards; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
 }
 
 /* Box content lines: flex to pin right ║ border */
@@ -77,14 +77,14 @@
 /* Safety docs link */
 .welcome-safety-link {
   display: block;
-  margin-top: 4px;
+  margin-top: var(--space-1);
   padding-left: 8ch;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--text-lg);
   color: var(--wt-welcome-link);
   text-decoration: none;
   text-shadow: var(--wt-welcome-text-glow);
-  transition: color 0.15s ease;
+  transition: color var(--duration-fast) ease;
 }
 
 .welcome-safety-link::before {
@@ -98,16 +98,16 @@
 /* Prompt button */
 .welcome-prompt {
   display: block;
-  margin-top: 8px;
+  margin-top: var(--space-2);
   padding: 0 0 0 8ch;
   background: none;
   border: none;
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--text-lg);
   color: var(--wt-welcome-prompt);
   cursor: pointer;
   text-shadow: var(--wt-welcome-text-glow);
-  transition: color 0.15s ease;
+  transition: color var(--duration-fast) ease;
   letter-spacing: 0;
 }
 
@@ -125,7 +125,7 @@
   height: 14px;
   background: var(--wt-welcome-cursor);
   vertical-align: text-bottom;
-  animation: cursorBlink 1s step-end infinite;
+  animation: cursorBlink 1s step-end infinite; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
 }
 
 @keyframes cursorBlink {
@@ -167,8 +167,8 @@
 
 .header-logo {
   font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 16px;
+  font-weight: var(--weight-bold);
+  font-size: var(--text-2xl);
   letter-spacing: -0.02em;
   color: var(--color-accent-light);
 }
@@ -182,8 +182,8 @@
 [data-theme="apex-dark"] .header-logo,
 [data-theme="apex-light"] .header-logo {
   font-family: 'Instrument Serif', serif;
-  font-weight: 400;
-  font-size: 20px;
+  font-weight: var(--weight-regular);
+  font-size: 20px /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */;
   letter-spacing: 0;
 }
 
@@ -191,14 +191,14 @@
    right so otherwise-identical terminals are distinguishable. */
 .header-app-name {
   font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 500;
+  font-size: var(--text-base);
+  font-weight: var(--weight-medium);
   color: var(--text-secondary);
   letter-spacing: 0.04em;
   padding: 3px 10px;
-  margin-right: 8px;
+  margin-right: var(--space-2);
   border: 1px solid var(--border-default);
-  border-radius: 5px;
+  border-radius: 5px /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */;
   background: var(--bg-elevated);
   white-space: nowrap;
   max-width: 240px;
@@ -208,8 +208,8 @@
 
 .header-title {
   font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 400;
+  font-size: var(--text-base);
+  font-weight: var(--weight-regular);
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.08em;
@@ -249,8 +249,8 @@
   background: transparent;
   border-bottom: 2px solid transparent;
   font-family: var(--font-display);
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
   color: var(--text-muted);
   letter-spacing: 0.02em;
   transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast);
@@ -292,9 +292,9 @@
   width: 15px;
   height: 15px;
   margin-left: 1px;
-  border-radius: 3px;
-  font-size: 14px;
-  line-height: 1;
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xl);
+  line-height: var(--leading-none);
   color: var(--text-muted);
   opacity: 0;
   cursor: pointer;
@@ -335,12 +335,12 @@
   width: 22px;
   height: 22px;
   padding: 0;
-  font-size: 18px;
-  line-height: 1;
+  font-size: var(--text-3xl);
+  line-height: var(--leading-none);
   color: var(--text-muted);
   background: transparent;
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
     background var(--wt-transition-fast);
@@ -361,18 +361,18 @@
   min-width: 240px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
-  border-radius: 8px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-dropdown);
-  z-index: 100;
-  padding: 4px;
+  z-index: var(--z-dropdown);
+  padding: var(--space-1);
 }
 
 .panel-add-menu.open { display: block; }
 
 .panel-add-heading {
   padding: 8px 10px 4px;
-  font-size: 11px;
-  font-weight: 600;
+  font-size: var(--text-base);
+  font-weight: var(--weight-semibold);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
@@ -386,11 +386,11 @@
   background: none;
   border: none;
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
   color: var(--text-primary);
   font-family: var(--font-display);
-  font-size: 13px;
+  font-size: var(--text-lg);
   transition: background var(--wt-transition-fast);
 }
 
@@ -401,7 +401,7 @@
   padding: 8px 10px;
   color: var(--text-muted);
   font-style: italic;
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .panel-add-divider {
@@ -421,12 +421,12 @@
   width: 100%;
   box-sizing: border-box;
   padding: 6px 8px;
-  font-size: 12px;
+  font-size: var(--text-md);
   font-family: var(--font-mono);
   color: var(--text-primary);
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
-  border-radius: 5px;
+  border-radius: 5px /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */;
 }
 
 .panel-add-input:focus {
@@ -435,21 +435,21 @@
 }
 
 .panel-add-url-error {
-  font-size: 11px;
+  font-size: var(--text-base);
   color: var(--color-error);
-  line-height: 1.35;
+  line-height: 1.35 /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */;
 }
 
 .panel-add-submit {
   align-self: flex-start;
   padding: 5px 12px;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
   font-family: var(--font-display);
   color: var(--color-accent-light);
   background: var(--accent-tint-08);
   border: 1px solid var(--color-accent-light);
-  border-radius: 5px;
+  border-radius: 5px /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */;
   cursor: pointer;
   transition: color var(--wt-transition-fast), background var(--wt-transition-fast);
 }
@@ -479,7 +479,7 @@
 .terminal-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 6px 12px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-default);
@@ -496,13 +496,13 @@
 
 .session-led.active {
   background: var(--color-accent-light);
-  animation: ledPulse 3s ease-in-out infinite;
+  animation: ledPulse 3s ease-in-out infinite; /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */
 }
 
 .terminal-label {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.1em;
@@ -510,14 +510,14 @@
 
 .new-session-btn {
   font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-muted);
   background: transparent;
   border: 1px solid var(--border-default);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 2px 8px;
   cursor: pointer;
   transition: all var(--wt-transition-fast);
@@ -539,7 +539,7 @@
   flex: 1;
   position: relative;
   overflow: hidden;
-  padding: 8px;
+  padding: var(--space-2);
   box-sizing: border-box;
 }
 
