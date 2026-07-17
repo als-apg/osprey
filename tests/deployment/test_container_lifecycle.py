@@ -1207,6 +1207,151 @@ def test_build_persona_images_no_referenced_personas_runs_no_build(
     assert calls == []
 
 
+# ---------------------------------------------------------------------------
+# _auto_render_missing_personas (Task 3.1) -- render a referenced persona's
+# project on demand when its project_path directory is absent, BEFORE
+# build_persona_images builds its image. Renders network-free (--skip-deps),
+# never overwrites a complete (user-owned) render, and hard-errors on a
+# partial render or a missing build_profile.
+# ---------------------------------------------------------------------------
+
+
+def _auto_render_config(tmp_path, **persona_overrides):
+    """A local-mode config whose single persona 'ops' renders to <tmp_path>/ops-app.
+
+    Defaults to a usable build_profile so the render path is exercised; pass
+    ``build_profile=None`` to drop it.
+    """
+    persona = {
+        "project": "ops-app",
+        "project_path": str(tmp_path / "ops-app"),
+        "build_profile": "control-assistant",
+    }
+    persona.update(persona_overrides)
+    return {
+        "modules": {
+            "web_terminals": {
+                "image_source": "local",
+                "default_persona": "ops",
+                "personas": {"ops": persona},
+            }
+        }
+    }
+
+
+_AUTO_RENDER_USERS = [{"name": "alice", "index": 0, "persona": "ops", "project": "ops-app"}]
+
+
+def test_auto_render_renders_when_project_path_missing(monkeypatch, tmp_path):
+    """No directory at project_path -> exactly one `osprey build` render, argv
+    verbatim: <project> --preset <build_profile> -o <parent(project_path)>
+    --skip-deps (rendered into the parent so it lands AT project_path)."""
+    config = _auto_render_config(tmp_path)  # <tmp_path>/ops-app does not exist
+    calls = []
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+
+    container_lifecycle._auto_render_missing_personas(config, _AUTO_RENDER_USERS, {})
+
+    assert calls == [
+        [
+            "osprey",
+            "build",
+            "ops-app",
+            "--preset",
+            "control-assistant",
+            "-o",
+            str(tmp_path),
+            "--skip-deps",
+        ]
+    ]
+
+
+def test_auto_render_partial_render_raises(monkeypatch, tmp_path):
+    """project_path exists but is missing its Dockerfile -> a partial render;
+    raise (naming the dir) rather than silently rebuild over it."""
+    project_path = tmp_path / "ops-app"
+    project_path.mkdir()
+    (project_path / "config.yml").write_text("project_name: whatever\n", encoding="utf-8")
+    # Dockerfile deliberately absent -> partial render.
+    config = _auto_render_config(tmp_path)
+    calls = []
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+
+    with pytest.raises(ValueError, match="partial render") as excinfo:
+        container_lifecycle._auto_render_missing_personas(config, _AUTO_RENDER_USERS, {})
+
+    assert str(project_path) in str(excinfo.value)
+    assert "Dockerfile" in str(excinfo.value)
+    assert calls == []  # never rendered over the partial tree
+
+
+def test_auto_render_complete_render_is_noop(monkeypatch, tmp_path):
+    """project_path exists with both config.yml and Dockerfile -> user-owned
+    complete render; never overwrite it, run no `osprey build`."""
+    project_path = tmp_path / "ops-app"
+    project_path.mkdir()
+    (project_path / "config.yml").write_text("project_name: whatever\n", encoding="utf-8")
+    (project_path / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+    config = _auto_render_config(tmp_path)
+    calls = []
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+
+    container_lifecycle._auto_render_missing_personas(config, _AUTO_RENDER_USERS, {})
+
+    assert calls == []
+
+
+def test_auto_render_missing_build_profile_raises(monkeypatch, tmp_path):
+    """project_path absent (a render IS needed) but the catalog entry has no
+    build_profile -> raise, since there's nothing to render from."""
+    config = _auto_render_config(tmp_path, build_profile=None)
+    calls = []
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+
+    with pytest.raises(ValueError, match="build_profile"):
+        container_lifecycle._auto_render_missing_personas(config, _AUTO_RENDER_USERS, {})
+
+    assert calls == []  # nothing rendered
+
+
+def test_auto_render_renders_each_distinct_persona_once(monkeypatch, tmp_path):
+    """Two users sharing a persona collapse to one render; a second, distinct
+    persona renders separately -- one `osprey build` per DISTINCT persona."""
+    config = {
+        "modules": {
+            "web_terminals": {
+                "image_source": "local",
+                "default_persona": "ops",
+                "personas": {
+                    "ops": {
+                        "project": "ops-app",
+                        "project_path": str(tmp_path / "ops-app"),
+                        "build_profile": "control-assistant",
+                    },
+                    "sci": {
+                        "project": "sci-app",
+                        "project_path": str(tmp_path / "sci-app"),
+                        "build_profile": "physicist",
+                    },
+                },
+            }
+        }
+    }
+    resolved_users = [
+        {"name": "alice", "index": 0, "persona": "ops", "project": "ops-app"},
+        {"name": "bob", "index": 1, "persona": "ops", "project": "ops-app"},  # shares ops
+        {"name": "carol", "index": 2, "persona": "sci", "project": "sci-app"},
+    ]
+    calls = []
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+
+    container_lifecycle._auto_render_missing_personas(config, resolved_users, {})
+
+    assert len(calls) == 2
+    assert any("ops-app" in c and "control-assistant" in c for c in calls)
+    assert any("sci-app" in c and "physicist" in c for c in calls)
+
+
 def test_web_deploy_calls_enable_linger_in_post_up_hook(monkeypatch, tmp_path):
     """The post-up hook wires _enable_linger(config, run_env) -- the same
     COMPOSE_PROJECT_NAME-pinned env the compose calls around it use."""
@@ -1263,7 +1408,13 @@ def _web_terminals_config(image_source: str, **web_terminals_overrides) -> dict:
         "enabled": True,
         "image_source": image_source,
         "default_persona": "ops",
-        "personas": {"ops": {"project": "ops-app", "project_path": "/nonexistent/ops-app"}},
+        "personas": {
+            "ops": {
+                "project": "ops-app",
+                "project_path": "/nonexistent/ops-app",
+                "build_profile": "control-assistant",
+            }
+        },
     }
     web_terminals.update(web_terminals_overrides)
     return {
@@ -1292,6 +1443,14 @@ def _mode_wiring_collab(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         container_lifecycle, "write_web_terminal_artifacts", lambda config, dest_dir=".": []
+    )
+    # Auto-render is a separate concern with its own dedicated tests below;
+    # keep it inert here so the mode-wiring tests exercise only the local/
+    # registry step ordering, never a real `osprey build` subprocess.
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_auto_render_missing_personas",
+        lambda config, resolved_users, env: None,
     )
 
     def _fake_run(cmd, **kwargs):
@@ -1362,9 +1521,14 @@ def test_local_mode_unresolvable_persona_raises_before_any_compose_call(
     assert _mode_wiring_collab == []  # no compose subprocess ever ran
 
 
-def test_local_mode_calls_ensure_env_production_then_build_persona_images_then_compose(
+def test_local_mode_calls_ensure_env_production_then_auto_render_then_build_then_compose(
     monkeypatch, tmp_path, _mode_wiring_collab
 ):
+    """The local-mode preflight order is load-bearing: ensure_env_production,
+    THEN auto-render any missing persona project, THEN build its image, THEN
+    compose. A spy on _auto_render_missing_personas (overriding the fixture's
+    inert stub) proves the wiring line actually runs it -- and runs it BEFORE
+    build_persona_images, which needs the rendered context to exist."""
     order: list[str] = []
     config = _web_terminals_config("local")
     monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
@@ -1372,6 +1536,11 @@ def test_local_mode_calls_ensure_env_production_then_build_persona_images_then_c
         container_lifecycle,
         "ensure_env_production",
         lambda cfg, root: order.append("ensure_env_production"),
+    )
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_auto_render_missing_personas",
+        lambda cfg, resolved_users, env: order.append("auto_render"),
     )
 
     def _fake_build(cfg, resolved_users, dev_mode, env):
@@ -1387,8 +1556,8 @@ def test_local_mode_calls_ensure_env_production_then_build_persona_images_then_c
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
     # Exactly one compose call (web `up -d`; no deployed_services, no pull in
-    # local mode) after both preflight steps, in this order.
-    assert order == ["ensure_env_production", "build_persona_images", "compose"]
+    # local mode) after all three preflight steps, in this order.
+    assert order == ["ensure_env_production", "auto_render", "build_persona_images", "compose"]
 
 
 def test_local_mode_passes_resolve_personas_output_to_build_persona_images(
@@ -1438,6 +1607,27 @@ def test_registry_mode_never_calls_build_persona_images(monkeypatch, tmp_path, _
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
     assert build_calls == []
+
+
+def test_registry_mode_never_calls_auto_render(monkeypatch, tmp_path, _mode_wiring_collab):
+    """Auto-render is a local-mode-only step (registry mode pulls prebuilt
+    images) -- it must never run on the registry path, mirroring the
+    build_persona_images guard. A recording spy overrides the fixture's inert
+    stub so a stray call would be caught, not swallowed."""
+    (tmp_path / ".env.production").write_text("", encoding="utf-8")
+    config = _web_terminals_config("registry")
+    monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
+
+    render_calls = []
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_auto_render_missing_personas",
+        lambda *a, **k: render_calls.append(a),
+    )
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
+
+    assert render_calls == []
 
 
 def test_registry_mode_calls_ensure_env_production_before_pull_before_up(

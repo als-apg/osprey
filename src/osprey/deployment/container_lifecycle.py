@@ -740,8 +740,10 @@ def _referenced_personas(config: dict, resolved_users: list[dict]) -> list[dict[
     :param config: Raw deploy config (read for ``modules.web_terminals.personas``).
     :param resolved_users: :func:`osprey.deployment.web_terminals.ports.resolve_personas`'s
         output.
-    :return: One ``{"persona", "project", "project_path"}`` dict per distinct
-        referenced persona, in first-seen order.
+    :return: One ``{"persona", "project", "project_path", "build_profile"}``
+        dict per distinct referenced persona, in first-seen order
+        (``build_profile`` is the catalog entry's value, or ``""`` when it has
+        none or a non-string one).
     """
     web_terminals = (config.get("modules") or {}).get("web_terminals") or {}
     personas_raw = web_terminals.get("personas")
@@ -773,10 +775,106 @@ def _referenced_personas(config: dict, resolved_users: list[dict]) -> list[dict[
         # silently diverge from the tag resolve_personas itself resolved
         # (<project>-<persona>:local) if that contract were ever violated.
         project = cast(str, entry.get("project"))
+        # The bundled preset auto-render builds the project from; carried here so
+        # _auto_render_missing_personas need not re-walk the catalog. Normalized
+        # to "" when absent or non-str, which that caller treats as "no usable
+        # build_profile" identically to the raw value.
+        build_profile = catalog_entry.get("build_profile")
         referenced.append(
-            {"persona": persona_name, "project": project, "project_path": project_path}
+            {
+                "persona": persona_name,
+                "project": project,
+                "project_path": project_path,
+                "build_profile": build_profile if isinstance(build_profile, str) else "",
+            }
         )
     return referenced
+
+
+def _auto_render_missing_personas(
+    config: dict, resolved_users: list[dict], env: dict[str, str]
+) -> None:
+    """Render each referenced persona whose project directory is absent (local mode).
+
+    The demo promise is ``osprey build`` + ``osprey deploy up`` = a full
+    two-persona stack with no manual per-persona builds. Every persona
+    :func:`build_persona_images` is about to build needs a rendered project on
+    disk (its ``Dockerfile`` and ``config.yml`` are the build context); this
+    fills the gap by rendering any referenced persona whose ``project_path``
+    directory does not yet exist, running BEFORE :func:`build_persona_images`
+    so the image build finds a complete context.
+
+    Operates on exactly :func:`_referenced_personas`'s distinct set — the same
+    personas that will be built — so render and build never diverge. For each:
+
+    * **Directory absent**: render it with ``osprey build <project> --preset
+      <build_profile> -o <parent(project_path)> --skip-deps``. ``osprey build``
+      writes ``<output_dir>/<project_name>``, so rendering ``<project>`` into
+      ``project_path``'s PARENT lands it exactly at ``project_path`` (the demo
+      keeps ``project_path``'s basename equal to the catalog ``project``).
+      ``--skip-deps`` keeps the render network-free — the persona image installs
+      dependencies itself via ``OSPREY_PIP_SPEC`` at build time. A catalog entry
+      with no usable ``build_profile`` cannot be rendered and raises here.
+    * **Directory present but incomplete** (missing ``config.yml`` OR
+      ``Dockerfile``): a partial/aborted render. Raise rather than silently
+      rebuild over it — the operator must remove it (or finish it) so an
+      auto-render never has to reason about a half-written tree.
+    * **Directory present and complete**: a no-op. A rendered project is
+      user-owned (its ``config.yml`` may carry local edits); auto-render never
+      overwrites one.
+
+    :param config: Raw deploy config, forwarded to :func:`_referenced_personas`
+        (which reads ``modules.web_terminals.personas``).
+    :param resolved_users: :func:`osprey.deployment.web_terminals.ports.resolve_personas`'s
+        output for this deploy.
+    :param env: Environment for the ``osprey build`` subprocess(es).
+    :raises ValueError: A referenced persona whose project_path is a partial
+        render, or one that must be rendered but whose catalog entry lacks a
+        usable ``build_profile``.
+    """
+    for unit in _referenced_personas(config, resolved_users):
+        persona_name = unit["persona"]
+        project = unit["project"]
+        project_path = Path(unit["project_path"])
+
+        if project_path.exists():
+            missing = [
+                name for name in ("config.yml", "Dockerfile") if not (project_path / name).is_file()
+            ]
+            if missing:
+                raise ValueError(
+                    f"Persona {persona_name!r} has a partial render at "
+                    f"{project_path} (missing {', '.join(missing)}). Remove that "
+                    "directory and re-run `osprey deploy up` to re-render it, or "
+                    "rebuild it with `osprey build`."
+                )
+            # Complete render is user-owned -- never overwrite it.
+            continue
+
+        build_profile = unit["build_profile"]
+        if not isinstance(build_profile, str) or not build_profile:
+            raise ValueError(
+                f"Persona {persona_name!r} has no rendered project at "
+                f"{project_path} and its catalog entry has no usable "
+                "build_profile, so it cannot be auto-rendered. Set "
+                f"modules.web_terminals.personas.{persona_name}.build_profile "
+                "to a bundled preset name, or render the project manually with "
+                "`osprey build`."
+            )
+
+        cmd = [
+            "osprey",
+            "build",
+            project,
+            "--preset",
+            build_profile,
+            "-o",
+            str(project_path.parent),
+            "--skip-deps",
+        ]
+        logger.key_info("Auto-rendering persona %r project at %s", persona_name, project_path)
+        logger.info("Running command:\n    %s", " ".join(cmd))
+        subprocess.run(cmd, env=env, check=True)
 
 
 def build_persona_images(
@@ -1414,6 +1512,10 @@ def _deploy_up_web_terminals(
         facility_prefix = (config.get("facility") or {}).get("prefix") or ""
         registry_cfg = config.get("registry") or {}
         resolved_users = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=True)
+        # Render any referenced persona whose project isn't on disk yet, so the
+        # image build below always finds a complete context -- the `osprey build`
+        # + `osprey deploy up` demo promise, no manual per-persona builds.
+        _auto_render_missing_personas(config, resolved_users, env)
         build_persona_images(config, resolved_users, dev_mode, env)
 
     run_env = runtime_env(config, env)
