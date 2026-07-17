@@ -116,7 +116,7 @@ async def validate_plan(
     in-process mock devices only, in a subprocess whose ``EPICS_CA_*``
     variables are neutralized; it never reaches a real device regardless of
     ``control_system.writes_enabled``. A passing validation is recorded by
-    content hash so the plan becomes loadable/promotable (tasks 2.4/2.5);
+    content hash so the plan becomes loadable/launchable (tasks 2.4/2.5);
     editing the file afterward changes its hash and drops the record, so it
     must be re-validated.
 

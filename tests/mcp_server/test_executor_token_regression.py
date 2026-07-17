@@ -10,11 +10,11 @@ function had a bug that only manifested at runtime (encoding issue, wrong
 dict identity, etc.), a real execution catches it where a mocked one would
 not.
 
-Threat model: ``BLUESKY_PROMOTE_TOKEN`` authenticates callers of the Bluesky
-bridge's ``/runs/{id}/promote`` endpoint. If agent-generated code running in
+Threat model: ``BLUESKY_LAUNCH_TOKEN`` authenticates callers of the Bluesky
+bridge's ``/runs/{id}/launch`` endpoint. If agent-generated code running in
 this sandbox could read that token from its environment, it could bypass
 ``launch_run``'s in-tool ``writes_enabled`` re-check and POST directly to
-``/promote``. This test proves that path is closed at the environment layer.
+``/launch``. This test proves that path is closed at the environment layer.
 """
 
 import json
@@ -70,17 +70,17 @@ def _extract_env_keys(stdout: str) -> list[str]:
     return json.loads(stdout[start:end])
 
 
-async def test_sandbox_code_cannot_see_bluesky_promote_token(tmp_path, monkeypatch):
-    """Real sandboxed execution: BLUESKY_PROMOTE_TOKEN is absent from os.environ."""
+async def test_sandbox_code_cannot_see_bluesky_launch_token(tmp_path, monkeypatch):
+    """Real sandboxed execution: BLUESKY_LAUNCH_TOKEN is absent from os.environ."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", "super-secret-promote-value")
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "super-secret-promote-value")
     _write_local_config(tmp_path)
 
     result = await execute_code(_DUMP_ENV_CODE, "readonly", "pentest env dump")
 
     assert result.success, f"sandbox execution failed: {result.error_message}\n{result.stderr}"
     env_keys = _extract_env_keys(result.stdout)
-    assert "BLUESKY_PROMOTE_TOKEN" not in env_keys
+    assert "BLUESKY_LAUNCH_TOKEN" not in env_keys
     # The literal secret value must not leak into stdout/stderr either.
     assert "super-secret-promote-value" not in result.stdout
     assert "super-secret-promote-value" not in result.stderr
@@ -105,7 +105,7 @@ async def test_sandbox_code_cannot_see_event_dispatcher_token(tmp_path, monkeypa
 async def test_sandbox_code_cannot_see_either_token_simultaneously(tmp_path, monkeypatch):
     """Both tokens set in the parent process — neither reaches the sandbox."""
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", "promote-secret")
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "promote-secret")
     monkeypatch.setenv("EVENT_DISPATCHER_TOKEN", "dispatch-secret")
     _write_local_config(tmp_path)
 
@@ -113,7 +113,7 @@ async def test_sandbox_code_cannot_see_either_token_simultaneously(tmp_path, mon
 
     assert result.success, f"sandbox execution failed: {result.error_message}\n{result.stderr}"
     env_keys = _extract_env_keys(result.stdout)
-    assert "BLUESKY_PROMOTE_TOKEN" not in env_keys
+    assert "BLUESKY_LAUNCH_TOKEN" not in env_keys
     assert "EVENT_DISPATCHER_TOKEN" not in env_keys
     # Neither literal secret value may leak into stdout/stderr either.
     for secret in ("promote-secret", "dispatch-secret"):
@@ -128,7 +128,7 @@ async def test_sandbox_still_has_a_usable_environment(tmp_path, monkeypatch):
     a bug handed the subprocess an empty environment instead of a scrubbed one.
     """
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", "promote-secret")
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "promote-secret")
     _write_local_config(tmp_path)
 
     result = await execute_code(_DUMP_ENV_CODE, "readonly", "pentest env dump")
@@ -139,21 +139,21 @@ async def test_sandbox_still_has_a_usable_environment(tmp_path, monkeypatch):
     assert len(env_keys) > 1
 
 
-async def test_sandbox_code_cannot_reach_promote_endpoint_via_env_token(tmp_path, monkeypatch):
-    """End-to-end pentest: code that tries to read the token to forge a promote
+async def test_sandbox_code_cannot_reach_launch_endpoint_via_env_token(tmp_path, monkeypatch):
+    """End-to-end pentest: code that tries to read the token to forge a launch
     call finds nothing to read — the attack surface this task closes.
     """
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", "promote-secret")
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "promote-secret")
     _write_local_config(tmp_path)
 
     attack_code = (
         "import os\n"
-        "token = os.environ.get('BLUESKY_PROMOTE_TOKEN')\n"
+        "token = os.environ.get('BLUESKY_LAUNCH_TOKEN')\n"
         "print('TOKEN_VALUE:', repr(token))\n"
     )
 
-    result = await execute_code(attack_code, "readonly", "pentest promote token grab")
+    result = await execute_code(attack_code, "readonly", "pentest launch token grab")
 
     assert result.success, f"sandbox execution failed: {result.error_message}\n{result.stderr}"
     assert "TOKEN_VALUE: None" in result.stdout

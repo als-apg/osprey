@@ -11,7 +11,7 @@ Two layers are covered:
   FastAPI's `TestClient` against the real routes, proving the write path never
   imports/execs the authored body, the HASH CONTRACT (the bytes validated are
   the exact bytes persisted and later re-hashed), and that neither route is
-  gated on `control_system.writes_enabled` or `BLUESKY_PROMOTE_TOKEN`.
+  gated on `control_system.writes_enabled` or `BLUESKY_LAUNCH_TOKEN`.
 
 The full write-then-validate round trip needs a real bluesky dry run, so
 those tests are guarded by `pytest.importorskip`, matching every other
@@ -357,18 +357,18 @@ def test_validate_unknown_session_plan_is_404(client: TestClient):
     assert resp.status_code == 404
 
 
-def test_session_authoring_routes_ignore_writes_enabled_and_promote_token(
+def test_session_authoring_routes_ignore_writes_enabled_and_launch_token(
     client: TestClient, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     """Neither route is gated on control_system.writes_enabled or
-    BLUESKY_PROMOTE_TOKEN — both must keep working with writes fully off and
-    no promote token configured at all (their protection is the loopback
+    BLUESKY_LAUNCH_TOKEN — both must keep working with writes fully off and
+    no launch token configured at all (their protection is the loopback
     bind + MCP approval hook, not a token or the writes kill switch)."""
     project_dir = tmp_path / "project"
     project_dir.mkdir()
     (project_dir / "config.yml").write_text("control_system:\n  writes_enabled: false\n")
     monkeypatch.chdir(project_dir)
-    monkeypatch.delenv("BLUESKY_PROMOTE_TOKEN", raising=False)
+    monkeypatch.delenv("BLUESKY_LAUNCH_TOKEN", raising=False)
 
     write_resp = client.post(
         "/plans/session",

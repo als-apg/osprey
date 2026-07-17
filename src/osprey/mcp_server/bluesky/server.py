@@ -1,8 +1,8 @@
 """OSPREY Bluesky MCP Server.
 
 FastMCP server exposing Bluesky plan/run control as a thin HTTP client of the
-facility-side Bluesky bridge: list plans, create a run intent, check run
-status, launch (promote) an intent to a running plan, stop a run, and author
+facility-side Bluesky bridge: list plans, check run status, stage a shared
+plan draft, launch a run from that draft, stop a run, and author
 (write_plan) plus validate (validate_plan) a session-tier plan
 file. A Bluesky plan is an arbitrary generator (count, mv, scan, grid_scan,
 custom acquisition routines) — nothing here is scan-specific. This module and
@@ -23,8 +23,8 @@ mcp = FastMCP(
     "bluesky",
     instructions=(
         "Drive Bluesky plans through the facility Bluesky bridge: list available "
-        "plans, create a run intent (validated but not yet running), "
-        "check run status, launch (promote) an intent into a running plan, "
+        "plans, check run status, stage a shared plan draft, "
+        "launch a run from that draft, "
         "and stop a running run. A plan is any Bluesky generator (count, mv, "
         "scan, grid_scan, custom) — not only scans."
     ),

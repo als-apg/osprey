@@ -1,21 +1,20 @@
 """MCP tools: read/allow-listed Bluesky bridge operations.
 
 Each tool is a thin HTTP client of one endpoint of the facility-side Bluesky
-bridge. All five are safe to call without operator approval
+bridge. All four are safe to call without operator approval
 (``permissions_allow``) — none of them can start motion; ``launch_run``
-(Task 1.8) is the sole promote path.
+is the sole write path.
 
 ==========================  =================================================
 Tool                        Bridge endpoint
 ==========================  =================================================
-create_run_intent          POST /runs
-run_status                 GET  /runs/{id}
+get_run                    GET  /runs/{id}
 list_plans             GET  /plans
 list_runs                   GET  /runs
-read_run_data              GET  /runs/{id}/data
+get_run_data               GET  /runs/{id}/data
 ==========================  =================================================
 
-The HTTP primitives (``_http_get_json`` / ``_http_post_json``) and the
+The HTTP primitive (``_http_get_json``) and the
 ``bridge_error_message`` / ``UNKNOWN_RUN_HINTS`` error-envelope helpers live in
 ``osprey.mcp_server.bluesky.server_context`` so tests can patch the network
 boundary and every tool renders identical error shapes. A
@@ -32,63 +31,27 @@ from osprey.mcp_server.bluesky.server import mcp
 from osprey.mcp_server.bluesky.server_context import (
     UNKNOWN_RUN_HINTS,
     _http_get_json,
-    _http_post_json,
     bridge_error_message,
 )
 from osprey.mcp_server.errors import make_error
 
 
 # ---------------------------------------------------------------------------
-# Tool 1: create run intent
+# Tool 1: get run
 # ---------------------------------------------------------------------------
 @mcp.tool()
-async def create_run_intent(plan_name: str, plan_args: dict | None = None) -> str:
-    """Record a run intent on the bridge — validated but NOT started.
-
-    Motion-safe: creating an intent never touches a device or starts the
-    RunEngine. It records a request the operator or agent can inspect via
-    run_status before deciding whether to call launch_run — the sole
-    promote path, which requires both an armed bridge token and
-    ``control_system.writes_enabled``.
-
-    Args:
-        plan_name: Name of a plan registered on the bridge (e.g. "scan",
-            "count", "grid_scan" for the v1 bluesky built-ins — see
-            list_plans for what this bridge actually supports).
-        plan_args: Plan parameters as a JSON-serializable dict (device
-            names, points, exposure time, etc.); shape is plan-specific and
-            validated by the bridge. Defaults to an empty dict.
-
-    Returns:
-        JSON run record, e.g. ``{"id": <run_id>, "status": "intent"}``.
-    """
-    payload = {"plan_name": plan_name, "plan_args": plan_args or {}}
-    status, body = await anyio.to_thread.run_sync(_http_post_json, "/runs", payload)
-    if status not in (200, 201):
-        return make_error(
-            "run_intent_rejected",
-            bridge_error_message(body, status),
-            [
-                "Check plan_name is registered on the bridge (see list_plans).",
-                "Check plan_args matches that plan's parameter schema.",
-            ],
-        )
-    return json.dumps(body)
-
-
-# ---------------------------------------------------------------------------
-# Tool 2: run status
-# ---------------------------------------------------------------------------
-@mcp.tool()
-async def run_status(run_id: str) -> str:
+async def get_run(run_id: str) -> str:
     """Get one run's current lifecycle status.
 
+    A run is the committed record of a launched draft. Its lifecycle runs
+    ``pending`` -> ``running`` -> ``completed`` | ``stopped`` | ``error``.
+
     Args:
-        run_id: Run id returned by create_run_intent or list_runs.
+        run_id: Run id returned by launch_run or list_runs.
 
     Returns:
         JSON run record: ``{"id", "status", "tiled_degraded", ["completion"],
-        ["launched_by"], ["run_uid"], ["error"]}``. ``status`` is one of "intent",
+        ["launched_by"], ["run_uid"], ["error"]}``. ``status`` is one of "pending",
         "running", "completed", "stopped", "error". ``tiled_degraded`` is True when
         durable persistence to Tiled failed for this run; False when healthy or when
         Tiled is not deployed.
@@ -114,7 +77,8 @@ async def list_plans() -> str:
     trust tier: ``shipped``/``preset``/``facility``/``session``/
     ``unreviewed``, ascending ephemerality). Use these to prefer a
     higher-provenance plan and to check ``required_devices``/``writes``
-    before selecting a plan for ``create_run_intent``.
+    before staging a plan into the draft (set_draft) for a future
+    ``launch_run``.
 
     Returns:
         JSON ``{"status": "success", "plans": [...]}``, each entry shaped
@@ -141,7 +105,7 @@ async def list_runs(limit: int = 20) -> str:
 
     Returns:
         JSON ``{"status": "success", "runs": [...]}`` — each entry has the
-        same shape as run_status's response.
+        same shape as get_run's response.
     """
     status, body = await anyio.to_thread.run_sync(_http_get_json, f"/runs?limit={limit}")
     if status != 200:
@@ -150,10 +114,10 @@ async def list_runs(limit: int = 20) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Tool 5: read run data (bounded)
+# Tool 5: get run data (bounded)
 # ---------------------------------------------------------------------------
 @mcp.tool()
-async def read_run_data(
+async def get_run_data(
     run_id: str, max_rows: int = 100, offset: int | None = None, tail: bool = False
 ) -> str:
     """Read a bounded window of a run's data.
@@ -164,7 +128,7 @@ async def read_run_data(
     the run's *true* total vs. what this window actually returned.
 
     Args:
-        run_id: Run id returned by create_run_intent or list_runs.
+        run_id: Run id returned by launch_run or list_runs.
         max_rows: Maximum number of rows to return (bridge-enforced cap).
         offset: Row offset to start from (``None`` = start from the
             beginning, or from the end if ``tail`` is true).
@@ -191,7 +155,7 @@ async def read_run_data(
             bridge_error_message(body, status),
             [
                 "The run has not started yet, so there is no run_uid to read data for.",
-                "Check run_status; data becomes readable once the run is promoted and running.",
+                "Check get_run; data becomes readable once the run is launched and running.",
             ],
         )
     if status != 200:

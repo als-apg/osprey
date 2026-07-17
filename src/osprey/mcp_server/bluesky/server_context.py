@@ -1,6 +1,6 @@
 """Bluesky MCP Server Context — bridge connection resolution and HTTP boundary.
 
-Resolves the facility-side Bluesky bridge's base URL and promote token (env with
+Resolves the facility-side Bluesky bridge's base URL and launch token (env with
 config.yml fallback, mirroring
 ``osprey.mcp_server.control_system.server_context``), and exposes the
 module-level HTTP primitives every tool module uses to talk to the
@@ -63,11 +63,11 @@ class BridgeContext:
 
     def __init__(self) -> None:
         self.bridge_url: str = _DEFAULT_BRIDGE_URL
-        self.promote_token: str | None = None
+        self.launch_token: str | None = None
         self._initialized = False
 
     def initialize(self) -> None:
-        """Resolve bridge_url and promote_token from env with config.yml fallback.
+        """Resolve bridge_url and launch_token from env with config.yml fallback.
 
         Called once during create_server(). Subsequent calls are no-ops.
         """
@@ -75,12 +75,12 @@ class BridgeContext:
             return
 
         self.bridge_url = self._resolve_bridge_url()
-        self.promote_token = self._resolve_promote_token()
+        self.launch_token = self._resolve_launch_token()
         self._initialized = True
         logger.info(
-            "BridgeContext: initialized (bridge_url=%s, promote_token_set=%s)",
+            "BridgeContext: initialized (bridge_url=%s, launch_token_set=%s)",
             self.bridge_url,
-            self.promote_token is not None,
+            self.launch_token is not None,
         )
 
     @staticmethod
@@ -105,24 +105,24 @@ class BridgeContext:
         return str(url).rstrip("/")
 
     @staticmethod
-    def _resolve_promote_token() -> str | None:
-        """Resolve the Bluesky bridge promote token.
+    def _resolve_launch_token() -> str | None:
+        """Resolve the Bluesky bridge launch token.
 
         Resolution order:
 
-        1. ``BLUESKY_PROMOTE_TOKEN`` env var — minted fail-closed per bridge
+        1. ``BLUESKY_LAUNCH_TOKEN`` env var — minted fail-closed per bridge
            instance by the framework server definition; wins outright.
-        2. ``bluesky.promote_token`` in config.yml (local/dev convenience only).
+        2. ``bluesky.launch_token`` in config.yml (local/dev convenience only).
         3. ``None`` — ``launch_run`` refuses client-side when unset.
         """
-        token = os.environ.get("BLUESKY_PROMOTE_TOKEN")
+        token = os.environ.get("BLUESKY_LAUNCH_TOKEN")
         if token:
             return token
 
         from osprey.utils.workspace import load_osprey_config
 
         config = load_osprey_config()
-        token = config.get("bluesky", {}).get("promote_token")
+        token = config.get("bluesky", {}).get("launch_token")
         return str(token) if token else None
 
 

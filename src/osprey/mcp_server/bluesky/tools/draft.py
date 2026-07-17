@@ -1,18 +1,19 @@
 """MCP tools: the agent's side of the shared plan draft.
 
-The bridge holds a single server-side draft (``{plan_name, plan_args,
-revision, ...}``) that the agent and the human's plan panel both edit. These
-three tools are thin HTTP clients of that draft — they never touch hardware,
-never require arming, and never pass through an approval prompt: editing the
-draft only stages what a future ``launch_run`` (or the human's Execute click)
-might run, it does not run anything itself.
+The draft is the ONE shared, live-editable staging surface — a draft of the
+next run. The bridge holds a single server-side draft (``{plan_name,
+plan_args, revision, ...}``) that the agent and the human's plan panel both
+edit. These three tools are thin HTTP clients of that draft — they never touch
+hardware, never require arming, and never pass through an approval prompt:
+editing the draft only stages what a future ``launch_run`` (or the human's
+Launch plan click) might run, it does not run anything itself.
 
 ==========================  =================================================
 Tool                        Bridge endpoint
 ==========================  =================================================
-get_plan_draft              GET    /draft
-set_plan_draft               PATCH  /draft
-clear_plan_draft             DELETE /draft
+get_draft                   GET    /draft
+set_draft                   PATCH  /draft
+clear_draft                 DELETE /draft
 ==========================  =================================================
 
 Same conventions as the other tool modules: ``async def``, JSON string return
@@ -48,7 +49,7 @@ _CLIENT_ID = "mcp-agent"
 # Tool 1: read the current draft
 # ---------------------------------------------------------------------------
 @mcp.tool()
-async def get_plan_draft() -> str:
+async def get_draft() -> str:
     """Read the shared plan draft. Reaches NO hardware.
 
     The draft is the server-held scratch state the agent and the human's plan
@@ -56,7 +57,7 @@ async def get_plan_draft() -> str:
 
     Returns:
         JSON ``{"draft", "revision"}``. ``draft`` is ``null`` when no draft
-        exists yet (call set_plan_draft with a ``plan_name`` to create
+        exists yet (call set_draft with a ``plan_name`` to create
         one); otherwise ``{"plan_name", "plan_args", "revision", "updated_by",
         "updated_at"}``. ``revision`` is a process-monotonic counter, present
         even when ``draft`` is ``null``.
@@ -71,23 +72,30 @@ async def get_plan_draft() -> str:
 # Tool 2: create or edit the draft
 # ---------------------------------------------------------------------------
 @mcp.tool()
-async def set_plan_draft(
+async def set_draft(
     plan_name: str | None = None,
     plan_args_patch: dict | None = None,
     remove: list[str] | None = None,
 ) -> str:
-    """Create or edit the shared plan draft. Reaches NO hardware.
+    """Create or edit the shared plan draft — the staging surface for the next run.
 
-    Every open plan panel reflects this edit within about a second and
-    flashes exactly the fields whose values changed — the bridge computes
-    ``changed[]`` by comparing values, so re-sending an already-current value
-    is a silent no-op (no flash, no revision bump). Setting ``plan_name`` on
-    a draft that already names a different plan replaces ``plan_args``
-    (with ``plan_args_patch``'s contents, if also given); setting
-    ``plan_name`` when no draft exists creates one. This is staging only —
-    it never starts a run and never requires arming or approval; a human
-    still launches via their own Execute click, or the agent via
-    launch_run/create_run_intent afterward.
+    The draft is the ONE shared, live-editable surface both you and the human
+    fill before a run is launched. This edit fills the human's PLAN panel live:
+    every open panel reflects it within about a second and flashes exactly the
+    fields whose values changed — the bridge computes ``changed[]`` by comparing
+    values, so re-sending an already-current value is a silent no-op (no flash,
+    no revision bump). Setting ``plan_name`` on a draft that already names a
+    different plan replaces ``plan_args`` (with ``plan_args_patch``'s contents,
+    if also given); setting ``plan_name`` when no draft exists creates one.
+    Prefer one complete set_draft call (``plan_name`` plus the full
+    ``plan_args_patch``) over a trickle of partial edits, so the human sees a
+    coherent draft rather than a half-filled form.
+
+    This is staging only — it never starts a run and never requires arming or
+    approval. The returned ``revision`` is the launch handle: it identifies this
+    exact draft, and ``launch_run(draft_revision)`` launches precisely the draft
+    this call produced. A human can instead launch it via their own Launch
+    plan click. Nothing runs until one of those launches happens.
 
     Args:
         plan_name: Plan to draft. Required to create a draft that does not
@@ -108,8 +116,8 @@ async def set_plan_draft(
     """
     if plan_name is None and plan_args_patch is None and remove is None:
         return make_error(
-            "set_plan_draft_no_argument",
-            "set_plan_draft called with no argument — nothing to change.",
+            "set_draft_no_argument",
+            "set_draft called with no argument — nothing to change.",
             [
                 "Pass plan_name to create/switch the draft.",
                 "Pass plan_args_patch and/or remove to edit an existing draft.",
@@ -146,12 +154,16 @@ async def set_plan_draft(
 # Tool 3: clear the draft
 # ---------------------------------------------------------------------------
 @mcp.tool()
-async def clear_plan_draft() -> str:
-    """Clear the shared plan draft. Reaches NO hardware. Idempotent.
+async def clear_draft() -> str:
+    """Clear the shared plan draft. Reaches NO hardware. Idempotent. Destructive.
 
-    The sole clear path (there is no ``clear`` flag on set_plan_draft).
-    Either the agent or the human's discard-draft control can clear the
-    draft; calling this when no draft exists is a no-op, not an error.
+    Wipes the ONE shared staging surface — the same draft the human may be
+    reviewing or filling in their plan panel right now — back to empty, and
+    bumps the revision. Use it deliberately; do not clear a draft just to
+    start over when set_draft can replace ``plan_name`` in place. The sole
+    clear path (there is no ``clear`` flag on set_draft). Either the agent or
+    the human's discard-draft control can clear the draft; calling this when no
+    draft exists is a no-op, not an error.
 
     Returns:
         JSON ``{"revision", "cleared"}`` — ``cleared`` is ``false`` when no
