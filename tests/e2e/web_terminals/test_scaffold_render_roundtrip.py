@@ -74,8 +74,11 @@ def _sample_config() -> dict:
     """A facility-config exercising the web_terminals stanza, adapted from the
     shipped ``templates/facility-config.example.yml`` (same base
     ports/users/landing-groups shape as that reference file's
-    ``modules.web_terminals`` stanza, ``:172-189``), plus the
-    deploy/facility/registry sections ``render_web_terminals()`` reads."""
+    ``modules.web_terminals`` stanza), plus the deploy/facility/registry
+    sections ``render_web_terminals()`` reads. The roster uses the explicit
+    ``{name, index}`` form — the lint-clean identity form the
+    ``bare_list_port_drift_risk`` warning steers legacy bare-string lists
+    toward."""
     return {
         "facility": {
             "name": "Demo Light Source",
@@ -92,7 +95,11 @@ def _sample_config() -> dict:
                 "artifact_base_port": 9291,
                 "ariel_base_port": 9391,
                 "lattice_base_port": 9491,
-                "users": ["alice", "bob", "carol"],
+                "users": [
+                    {"name": "alice", "index": 0},
+                    {"name": "bob", "index": 1},
+                    {"name": "carol", "index": 2},
+                ],
                 "landing": {
                     "groups": [
                         {"type": "users"},
@@ -121,7 +128,8 @@ def test_scaffold_render_consistency_across_all_generated_artifacts() -> None:
     # Arrange
     config = _sample_config()
     web_terminals = config["modules"]["web_terminals"]
-    users = web_terminals["users"]
+    roster = web_terminals["users"]
+    users = [entry["name"] for entry in roster]
     base_ports = {
         "web": web_terminals["web_base_port"],
         "artifact": web_terminals["artifact_base_port"],
@@ -167,7 +175,8 @@ def test_scaffold_render_consistency_across_all_generated_artifacts() -> None:
     assert landing_html.count('class="landing-card-label"') == len(users) + extra_links
 
     seen_ports: set[int] = set()
-    for index, user in enumerate(users):
+    for entry in roster:
+        index, user = entry["index"], entry["name"]
         service = compose["services"][f"web-{user}"]
         env = _env_map(service["environment"])
 
@@ -319,7 +328,10 @@ def test_generator_reproduces_als_profiles_topology_shape() -> None:
                 "artifact_base_port": base_ports["artifact"],
                 "ariel_base_port": base_ports["ariel"],
                 "lattice_base_port": base_ports["lattice"],
-                "users": users,
+                # Explicit {name, index} entries (the lint-clean identity form);
+                # _als_profiles_topology() orders users by ascending web port,
+                # so list position IS the port offset the live topology encodes.
+                "users": [{"name": user, "index": i} for i, user in enumerate(users)],
             }
         },
     }
