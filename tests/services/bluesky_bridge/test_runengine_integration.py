@@ -1,12 +1,12 @@
 """RunEngine integration test for `BlueskyPlanRunner` (task 2.7).
 
-Runs ONLY in a bluesky-capable environment — `bluesky`/`ophyd-async` are
-never installed in the main worktree venv, so every test here is skipped via
-`pytest.importorskip` rather than failing, keeping `ci_check` green with no
-bluesky installed at all. To actually run this file:
+The bluesky stack is a core dependency, so `bluesky`/`ophyd-async` are normally
+present and this file runs in the standard unit lane; the `pytest.importorskip`
+guard only skips it (rather than failing) in a slimmed install where the stack
+was stripped out. To run this file in an isolated venv:
 
     uv venv /tmp/bluesky-runengine-scratch
-    /tmp/bluesky-runengine-scratch/bin/pip install -e '.[bluesky-bridge]' --python 3.11
+    /tmp/bluesky-runengine-scratch/bin/pip install -e . --python 3.11
     /tmp/bluesky-runengine-scratch/bin/python -m pytest \
         tests/services/bluesky_bridge/test_runengine_integration.py -q
 

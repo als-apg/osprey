@@ -1,11 +1,11 @@
 """The real bluesky-backed ``PlanRunner``: a RunEngine in a daemon thread.
 
 Implements the injected ``PlanRunner`` seam (``plan_runner.py``) that ``do_launch``
-builds per launched run. Imports bluesky, so this module lives behind the
-optional ``osprey-framework[bluesky-bridge]`` extra — it must never be
-imported from the lifecycle core's import path (``app.py``, ``runs.py``,
-``plan_runner.py``, ``security.py`` stay import-clean); only a deploy wiring or a
-bluesky-capable test imports this module directly.
+builds per launched run. Imports bluesky; the bluesky stack is a core dependency
+now, but this module must still never be imported from the lifecycle core's
+import path (``app.py``, ``runs.py``, ``plan_runner.py``, ``security.py`` stay
+import-clean of the RunEngine) — only a deploy wiring or a bluesky-capable test
+imports this module directly.
 
 Plan resolution happens entirely inside ``reinitialize()``: ``exec_config``
 (the bridge's ``RunRequest`` — ``plan_name`` + ``plan_args``, or an equivalent
