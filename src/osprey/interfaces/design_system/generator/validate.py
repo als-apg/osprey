@@ -20,6 +20,11 @@ system's actual contract is enforced:
 - **Namespace collisions** — an interface extension token's top-level
   namespace (``wt-crt``, ``art-violet``, ...) must not collide with a
   semantic token group name (``bg``, ``text``, ...).
+- **Promoted-primitive collisions** — no theme or interface extension
+  token's emitted CSS name may collide with a promoted primitive scale
+  (``emit_css.py``'s ``_PROMOTED_PRIMITIVE_GROUPS`` — font, text, weight,
+  leading, space, radius, z, duration), which is theme-independent and
+  cannot be overridden.
 - **Theme metadata** — every theme document's root ``$extensions`` must
   declare ``mode`` as ``"dark"`` or ``"light"`` (plus non-empty string
   ``id``/``label``/``family``). ``family`` groups a ``{light, dark}`` pair
@@ -50,6 +55,10 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
+from osprey.interfaces.design_system.generator.emit_css import (
+    _PROMOTED_PRIMITIVE_GROUPS,
+    css_variable_name,
+)
 from osprey.interfaces.design_system.generator.inherits import raw_inherits
 from osprey.interfaces.design_system.generator.model import (
     AliasStatus,
@@ -78,6 +87,7 @@ __all__ = [
     "check_theme_metadata",
     "check_interface_mode_completeness",
     "check_namespace_collisions",
+    "check_promoted_primitive_collisions",
     "check_wcag_gates",
     "validate_token_tree",
     "assert_valid",
@@ -103,6 +113,10 @@ class ValidationRule(StrEnum):
     INVALID_COLOR = "invalid_color"
     #: An extension token's namespace collides with a semantic group name.
     NAMESPACE_COLLISION = "namespace_collision"
+    #: A theme or interface extension token's emitted CSS name collides
+    #: with a promoted primitive scale (see :data:`_PROMOTED_PRIMITIVE_GROUPS`
+    #: in ``emit_css.py``).
+    PROMOTED_PRIMITIVE_COLLISION = "promoted_primitive_collision"
     #: A theme document's ``$extensions`` metadata is missing or invalid.
     INVALID_THEME_METADATA = "invalid_theme_metadata"
     #: A ``terminal.*``/``terminal.ansi.*`` value isn't xterm-safe.
@@ -773,6 +787,71 @@ def check_namespace_collisions(tree: TokenTree) -> list[ValidationError]:
     return errors
 
 
+def check_promoted_primitive_collisions(tree: TokenTree) -> list[ValidationError]:
+    """Reject theme/interface tokens whose emitted CSS name collides with a promoted primitive.
+
+    ``emit_css.py`` promotes an ordered tuple of core.json primitive groups
+    (``_PROMOTED_PRIMITIVE_GROUPS`` — font, text, weight, leading, space,
+    radius, z, duration) directly to root-level CSS custom properties,
+    emitted once in the default ``:root`` block and never per-theme. These
+    scales are theme-independent by construction, so no theme's semantic
+    token and no interface's extension token may emit the same CSS custom
+    property name — a theme can never override them.
+
+    Args:
+        tree: The loaded token tree.
+
+    Returns:
+        One error per theme or interface extension token whose emitted CSS
+        name collides with a promoted primitive.
+    """
+    promoted_names = {
+        f"--{path.replace('.', '-')}"
+        for path in tree.primitives
+        if path.split(".", 1)[0] in _PROMOTED_PRIMITIVE_GROUPS
+    }
+    if not promoted_names:
+        return []
+
+    errors: list[ValidationError] = []
+    for tokens in tree.themes.values():
+        for path, token in tokens.items():
+            name = css_variable_name(path)
+            if name in promoted_names:
+                errors.append(
+                    ValidationError(
+                        rule=ValidationRule.PROMOTED_PRIMITIVE_COLLISION,
+                        message=(
+                            f"theme token {path!r} emits {name!r}, which collides with a "
+                            "promoted primitive scale (theme-independent, cannot be overridden)"
+                        ),
+                        source_file=token.source_file,
+                        path=path,
+                    )
+                )
+
+    for tokens in tree.interfaces.values():
+        for path, token in tokens.items():
+            _mode, separator, rest = path.partition(".")
+            if not separator:
+                continue
+            name = css_variable_name(rest)
+            if name in promoted_names:
+                errors.append(
+                    ValidationError(
+                        rule=ValidationRule.PROMOTED_PRIMITIVE_COLLISION,
+                        message=(
+                            f"extension token {path!r} emits {name!r}, which collides with a "
+                            "promoted primitive scale (theme-independent, cannot be overridden)"
+                        ),
+                        source_file=token.source_file,
+                        path=path,
+                    )
+                )
+
+    return errors
+
+
 def _gate_color(token: ResolvedToken | None) -> RGBColor | None:
     """Extract a usable :class:`RGBColor` from a WCAG gate token, if any."""
     if token is None or not token.has_literal_value:
@@ -855,6 +934,7 @@ def validate_token_tree(tree: TokenTree) -> list[ValidationError]:
     errors.extend(check_theme_metadata(tree))
     errors.extend(check_interface_mode_completeness(tree))
     errors.extend(check_namespace_collisions(tree))
+    errors.extend(check_promoted_primitive_collisions(tree))
     errors.extend(check_wcag_gates(tree))
     return errors
 

@@ -9,8 +9,8 @@ html.theme-transitioning,
 html.theme-transitioning *,
 html.theme-transitioning *::before,
 html.theme-transitioning *::after {
-  transition: background-color 200ms ease, color 200ms ease,
-              border-color 200ms ease, box-shadow 200ms ease !important;
+  transition: background-color var(--duration-base) ease, color var(--duration-base) ease,
+              border-color var(--duration-base) ease, box-shadow var(--duration-base) ease !important;
 }
 
 /* Reset */
@@ -26,8 +26,8 @@ html, body {
   background: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-display);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--text-xl);
+  line-height: var(--leading-normal);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -44,7 +44,7 @@ html, body {
 
 ::-webkit-scrollbar-thumb {
   background: var(--neutral-tint-20);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 
 ::-webkit-scrollbar-thumb:hover {

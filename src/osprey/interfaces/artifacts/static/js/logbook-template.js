@@ -66,7 +66,7 @@ export const LOGBOOK_MODAL_HTML = `
                 </div>
                 <div class="logbook-artifact-picker" id="logbook-artifact-picker" style="display:none">
                   <div class="logbook-artifact-picker-list" id="logbook-artifact-picker-list">
-                    <span style="color:var(--text-muted); font-size:var(--text-xs);">Loading artifacts&hellip;</span>
+                    <span style="color:var(--text-muted); font-size:var(--art-text-xs);">Loading artifacts&hellip;</span>
                   </div>
                 </div>
               </div>
