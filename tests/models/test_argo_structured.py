@@ -78,6 +78,21 @@ class TestCleanJsonResponse:
         assert '"active": true' in result
         assert '"deleted": false' in result
 
+    def test_top_level_array_passes_through(self):
+        """A response that is already a JSON array is returned unchanged (it
+        starts with '[' so no object extraction is attempted)."""
+        raw = "[1, 2, 3]"
+        assert _clean_json_response(raw) == "[1, 2, 3]"
+
+    def test_array_with_leading_text_is_not_extracted(self):
+        """Documents a known asymmetry: the extraction regex only matches JSON
+        objects (r'\\{.*\\}'), so an array preceded by prose is NOT unwrapped the
+        way an object would be. Pinning this guards against silent changes to the
+        (arguably buggy) behavior — see argo._clean_json_response.
+        """
+        raw = "Here you go: [1, 2]"
+        assert _clean_json_response(raw) == "Here you go: [1, 2]"
+
 
 # --- Tests for _execute_argo_structured_output ---
 
@@ -127,8 +142,10 @@ class TestExecuteArgoStructuredOutput:
             is_typed_dict_output=True,
         )
 
-        assert isinstance(result, dict)
-        assert result["name"] == "test"
+        # Assert the full dict, not just one key: this verifies model_dump()
+        # carries the int (value=1) and the JSON 'false' coerced to Python False
+        # through the validate -> dump round-trip on the dict-return path.
+        assert result == {"name": "test", "value": 1, "active": False}
 
     @patch("osprey.models.providers.argo.httpx.post")
     def test_empty_response_raises_value_error(self, mock_post):
@@ -139,6 +156,30 @@ class TestExecuteArgoStructuredOutput:
         mock_post.return_value = mock_response
 
         with pytest.raises(ValueError, match="Empty response"):
+            _execute_argo_structured_output(
+                model_id="gpt5mini",
+                message="Extract info",
+                output_format=SampleOutput,
+                api_key="test-key",
+                base_url="https://test.url",
+            )
+
+    @patch("osprey.models.providers.argo.httpx.post")
+    def test_http_error_propagates(self, mock_post):
+        """An HTTP error status (e.g. 401/500 from Argo) propagates out of
+        raise_for_status() rather than being swallowed or mis-wrapped as a
+        'Failed to parse' ValueError."""
+        import httpx
+
+        mock_response = MagicMock()
+        mock_response.raise_for_status.side_effect = httpx.HTTPStatusError(
+            "500 Server Error",
+            request=httpx.Request("POST", "https://test.url"),
+            response=httpx.Response(500),
+        )
+        mock_post.return_value = mock_response
+
+        with pytest.raises(httpx.HTTPStatusError):
             _execute_argo_structured_output(
                 model_id="gpt5mini",
                 message="Extract info",
@@ -255,7 +296,21 @@ class TestArgoExecuteCompletionStructured:
             output_format=SampleOutput,
         )
 
-        mock_structured.assert_called_once()
+        # Assert the full set of forwarded kwargs, not just that the handler was
+        # called once: a regression that dropped or mis-mapped output_format or
+        # is_typed_dict_output (extracted from **kwargs) would still call the
+        # handler exactly once and return a SampleOutput, passing a presence-only
+        # check.
+        mock_structured.assert_called_once_with(
+            model_id="gpt5mini",
+            message="Extract info",
+            output_format=SampleOutput,
+            api_key="test-key",
+            base_url="https://test.url",
+            max_tokens=1024,
+            temperature=0.0,
+            is_typed_dict_output=False,
+        )
         assert isinstance(result, SampleOutput)
 
     @patch("osprey.models.providers.litellm_adapter.litellm.completion")

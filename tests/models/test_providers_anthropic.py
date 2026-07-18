@@ -207,7 +207,10 @@ class TestAnthropicExecuteCompletion:
             budget_tokens=1000,
         )
 
-        assert result is not None
+        # The string content is extracted verbatim (the content-block branch only
+        # triggers for list content), exercising the value path, not just non-None.
+        assert result == "Thinking response"
         call_kwargs = mock_completion.call_args[1]
-        # Should include thinking configuration
-        assert "thinking" in call_kwargs
+        # Verify the exact thinking config shape, so a regression in how the
+        # budget/type are assembled is caught (not just key presence).
+        assert call_kwargs["thinking"] == {"type": "enabled", "budget_tokens": 1000}
