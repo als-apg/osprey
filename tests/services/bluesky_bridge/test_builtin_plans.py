@@ -10,11 +10,12 @@ covers what that one doesn't: each plan's own `PARAMS` schema in isolation,
 and (task 2.3, CC-1) the `orm` plan's restore-in-`finally` abort safety,
 which only its own generator body can exercise.
 
-Every test here is skipped via `pytest.importorskip` when bluesky is absent,
-keeping the import-clean fast lane green. To run these:
+The bluesky stack is a core dependency, so these run in the normal unit lane;
+the `pytest.importorskip` guard only skips them in a slimmed install where
+bluesky is absent. To run this file in an isolated venv:
 
     uv venv /tmp/bluesky-scratch
-    /tmp/bluesky-scratch/bin/pip install -e '.[bluesky-bridge]'
+    /tmp/bluesky-scratch/bin/pip install -e .
     /tmp/bluesky-scratch/bin/python -m pytest \
         tests/services/bluesky_bridge/test_builtin_plans.py -q
 """

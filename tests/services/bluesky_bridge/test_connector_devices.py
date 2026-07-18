@@ -6,7 +6,7 @@ never installed in the main worktree venv, so every test here is skipped via
 bluesky installed at all. To actually run this file:
 
     uv venv /tmp/bluesky-connector-scratch
-    /tmp/bluesky-connector-scratch/bin/pip install -e '.[bluesky-bridge]' --python 3.11
+    /tmp/bluesky-connector-scratch/bin/pip install -e . --python 3.11
     /tmp/bluesky-connector-scratch/bin/python -m pytest \
         tests/services/bluesky_bridge/test_connector_devices.py -q
 
@@ -190,6 +190,13 @@ async def test_build_devices_with_no_specs_returns_empty_mapping() -> None:
     """An empty settables/readables sequence builds an empty (but valid) device set."""
     devices = await build_devices(connector=FakeConnector())
     assert devices == {}
+
+
+async def test_build_devices_without_connector_raises_at_build_time() -> None:
+    """A missing connector fails here, at the misconfiguration site — not as an
+    ``AttributeError`` deep inside a device's ``set()``/``read()`` at scan time."""
+    with pytest.raises(ValueError, match="requires a connector"):
+        await build_devices(settables=[SettableSpec(name="hcm1", setpoint_pv="HCM1:SP")])
 
 
 def test_module_does_not_import_raw_channel_access() -> None:

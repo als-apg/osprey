@@ -29,10 +29,11 @@ pre-existing process during development of this test.
 Asserts, against the REAL deployed container:
   * the bridge binds to 127.0.0.1 (never 0.0.0.0) — ``docker port`` inspection.
   * BLUESKY_LAUNCH_TOKEN was minted into the project ``.env`` (task 2.10).
-  * the built image contains the unreleased bluesky_bridge modules AND the
-    bluesky-bridge extra (task 2.8's reviewer carry-forward) — NOT merely
-    that the image builds, since a PyPI-based build would silently lack both
-    and this must fail loudly rather than pass on stale code.
+  * the built image contains the unreleased bluesky_bridge modules (task 2.8's
+    reviewer carry-forward) — NOT merely that the image builds, since a
+    PyPI-based build would silently lack them and this must fail loudly rather
+    than pass on stale code. Importing them also exercises the bluesky stack
+    (a core dependency), which must be present for the real PlanRunner.
   * a demo ``grid_scan`` against mock devices (``motor1``/``det1``) launches,
     runs to completion, and ``GET /runs/{id}/data`` returns the buffered rows.
 
@@ -263,12 +264,12 @@ def test_launch_token_was_minted(deployed_bridge: Path) -> None:
 def test_image_contains_unreleased_bluesky_bridge_modules(deployed_bridge: Path) -> None:
     """Carry-forward from the 2.8 reviewer: assert CONTENT, not just "it builds".
 
-    A PyPI-based (non---dev) build would lack both the unreleased
-    bluesky_bridge submodules and the bluesky-bridge extra on the current
-    release — this would still "build" (pip just installs the released
+    A PyPI-based (non---dev) build would lack the unreleased bluesky_bridge
+    submodules — this would still "build" (pip just installs the released
     package), so a green build alone is not proof of anything. Import each
-    module inside the running container to prove the --dev wheel + extra
-    both landed.
+    module inside the running container to prove the --dev wheel landed; the
+    imports also pull in the bluesky stack (a core dependency), proving it is
+    present for the real PlanRunner.
     """
     failures: list[str] = []
     for module in _BLUESKY_BRIDGE_ONLY_MODULES:
@@ -282,7 +283,7 @@ def test_image_contains_unreleased_bluesky_bridge_modules(deployed_bridge: Path)
             failures.append(f"{module}: {proc.stderr.strip()}")
     assert not failures, (
         "built image is missing unreleased bluesky_bridge modules or the "
-        "bluesky-bridge extra deps (bluesky/ophyd-async) — was it built "
+        "bluesky stack (bluesky/ophyd-async) — was it built "
         "with --dev?\n  " + "\n  ".join(failures)
     )
 

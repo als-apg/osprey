@@ -20,9 +20,9 @@ absent or the flag is unset. Exercised here:
   `connector_devices.build_devices(motors, detectors, connector)`, built
   from `BLUESKY_EPICS_MOTORS`/`BLUESKY_EPICS_DETECTORS` and the bridge's
   single long-lived connector.
-- Flag truthy but the bluesky-bridge extra absent: guarded fallback to
+- Flag truthy but the bluesky stack not importable: guarded fallback to
   `FakePlanRunner`, simulated by forcing `ophyd_async` out of `sys.modules` (see
-  `_ophyd_async_absent`) since this environment actually has the extra
+  `_ophyd_async_absent`) since this environment actually has the stack
   installed.
 - Both `BLUESKY_EPICS_SUBSTRATE` and `BLUESKY_DEMO_RUNNER` set: the EPICS
   substrate wins, with a warning logged.
@@ -76,8 +76,8 @@ def _ophyd_async_absent(monkeypatch: pytest.MonkeyPatch):
     """Force `from .devices import connector as connector_devices` to raise
     ImportError(name="ophyd_async...").
 
-    This environment actually has the `bluesky-bridge` extra installed, so
-    the only way to exercise the "extra not installed" fallback branch is to
+    This environment actually has the bluesky stack installed, so
+    the only way to exercise the "stack not importable" fallback branch is to
     simulate it: purge the bridge's `devices` submodules from `sys.modules`
     (so the next import is not served from cache) and set `ophyd_async` to
     `None` there — the documented sentinel that makes the import machinery
@@ -146,7 +146,7 @@ def test_flag_unset_stays_import_clean_and_keeps_fake_scanner_default() -> None:
 
 
 # =========================================================================
-# Flag truthy but the bluesky-bridge extra absent: guarded fallback, no crash
+# Flag truthy but the bluesky stack not importable: guarded fallback, no crash
 # =========================================================================
 
 

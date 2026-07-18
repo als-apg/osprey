@@ -42,10 +42,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger("osprey.services.bluesky_bridge.app")
 
 # Root package names the demo-runner lifespan hook below is allowed to fail
-# on — i.e. the bridge running without the `bluesky-bridge` extra installed.
-# An ImportError naming anything else (e.g. a module missing an expected
-# attribute, or an unrelated third-party import broke) is a genuine bug and
-# must not be swallowed as "bluesky is just absent".
+# on — i.e. the bridge running without the bluesky stack importable. The stack
+# is a core dependency, so this normally succeeds; the guard stays for slimmed
+# images or partial installs. An ImportError naming anything else (e.g. a module
+# missing an expected attribute, or an unrelated third-party import broke) is a
+# genuine bug and must not be swallowed as "bluesky is just absent".
 _BRIDGE_ONLY_MODULES = {"bluesky", "ophyd", "ophyd_async", "tiled"}
 
 # Opt-in flag (task 2.14a): when truthy (see `_is_demo_runner_enabled`) AND
@@ -329,7 +330,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
             if root_name not in _BRIDGE_ONLY_MODULES:
                 raise
             logger.warning(
-                "%s is enabled but the bluesky-bridge extra is not installed "
+                "%s is enabled but the bluesky stack is not importable "
                 "(%s not found); falling back to FakePlanRunner",
                 _EPICS_SUBSTRATE_ENV,
                 exc.name,
@@ -469,7 +470,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
             if root_name not in _BRIDGE_ONLY_MODULES:
                 raise
             logger.warning(
-                "%s is enabled but the bluesky-bridge extra is not installed "
+                "%s is enabled but the bluesky stack is not importable "
                 "(%s not found); falling back to FakePlanRunner",
                 _DEMO_RUNNER_ENV,
                 exc.name,

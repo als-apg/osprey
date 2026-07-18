@@ -20,10 +20,10 @@ from typing import Any
 import pytest
 
 # `plan_runner_bluesky` imports `bluesky.RunEngine` at module scope, so this module
-# cannot even be collected without the `bluesky-bridge` extra. Guard rather than
-# error, matching the sibling bridge tests. CI's unit job installs the extra
-# (pinned by tests/deployment/test_ci_workflow_wiring.py), so these guards run
-# there rather than skipping.
+# cannot even be collected without the bluesky stack. Guard rather than error,
+# matching the sibling bridge tests. The bluesky stack is a core dependency
+# (pinned by tests/deployment/test_ci_workflow_wiring.py), so these guards run in
+# CI's unit job rather than skipping.
 pytest.importorskip("bluesky")
 
 from osprey.services.bluesky_bridge.plan_runner_bluesky import (  # noqa: E402

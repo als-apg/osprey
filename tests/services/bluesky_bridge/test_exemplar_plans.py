@@ -7,7 +7,7 @@ never installed in the main worktree venv, so every test here is skipped via
 bluesky installed at all. To actually run this file:
 
     uv venv /tmp/bluesky-exemplar-scratch
-    /tmp/bluesky-exemplar-scratch/bin/pip install -e '.[bluesky-bridge]' --python 3.11
+    /tmp/bluesky-exemplar-scratch/bin/pip install -e . --python 3.11
     /tmp/bluesky-exemplar-scratch/bin/python -m pytest \
         tests/services/bluesky_bridge/test_exemplar_plans.py -q
 

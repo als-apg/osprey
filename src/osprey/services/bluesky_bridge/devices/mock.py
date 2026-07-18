@@ -25,13 +25,13 @@ Reimplements the shape of ``ophyd_async.sim.SimMotor``/``SimPointDetector``
 (soft position signal with instant "move"; a triggerable soft readout) rather
 than importing ``ophyd_async.sim`` directly: that package's ``__init__``
 eagerly imports ``SimBlobDetector``, which pulls in ``h5py`` — a dependency
-this bridge's ``bluesky-bridge`` extra does not declare and does not need for
+OSPREY's core dependencies do not declare and this bridge does not need for
 a plain motor + detector.
 
-Imports ophyd-async, so this module (like the rest of ``devices/``) lives
-behind the optional ``osprey-framework[bluesky-bridge]`` extra — keep it out
-of the bridge lifecycle core's import path (``app.py``, ``runs.py``,
-``plan_runner.py``, ``security.py``).
+Imports ophyd-async (a core dependency), so this module (like the rest of
+``devices/``) is kept out of the bridge lifecycle core's import path
+(``app.py``, ``runs.py``, ``plan_runner.py``, ``security.py``), which stays
+import-clean of ophyd.
 """
 
 from __future__ import annotations
