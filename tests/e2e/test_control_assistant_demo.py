@@ -728,9 +728,7 @@ def test_t4_physicist_bridge_scan_drives_va(demo_stack: DemoStack) -> None:
         "grid_scan",
         {
             "detectors": [SCAN_DETECTOR],
-            "axes": [
-                {"setpoint": SCAN_MOTOR, "start": start, "stop": stop, "num_points": num}
-            ],
+            "axes": [{"setpoint": SCAN_MOTOR, "start": start, "stop": stop, "num_points": num}],
         },
     )
     assert status_body.get("status") == "completed", f"bridge scan did not complete: {status_body}"
