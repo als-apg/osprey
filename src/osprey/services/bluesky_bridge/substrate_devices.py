@@ -37,7 +37,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeVar
 
 # Env var names the bridge's own substrate-mode parser reads (see
 # osprey.services.bluesky_bridge.devices._specs_from_env for the format).
@@ -47,6 +47,8 @@ from osprey.services.bluesky_bridge.devices._specs_from_env import DETECTORS_ENV
 
 SUBSTRATE_ENV = "BLUESKY_EPICS_SUBSTRATE"
 """Env var that switches the bridge from its demo runner to the EPICS substrate."""
+
+_T = TypeVar("_T")
 
 
 def _address_path(address: str) -> dict[str, str] | None:
@@ -65,6 +67,25 @@ def _address_path(address: str) -> dict[str, str] | None:
         "field": field,
         "subfield": subfield,
     }
+
+
+def _usable_keys(limits: dict[str, Any]) -> set[str]:
+    """Channel-limit keys that name channels (skips ``_``-prefixed metadata
+    entries and the ``defaults`` block)."""
+    return {k for k in limits if not k.startswith("_") and k != "defaults"}
+
+
+def _numbered(prefix: str, items: list[_T], count: int | None, unit_label: str) -> dict[str, _T]:
+    """Name ``items`` as ``{prefix}_NN``. ``count=None`` takes all; an int
+    raises ``AssertionError`` when fewer than ``count`` are available, else
+    slices to exactly ``count``."""
+    if count is not None and len(items) < count:
+        raise AssertionError(
+            f"deployed project's channel_limits.json only yields {len(items)} "
+            f"{unit_label}, need {count}"
+        )
+    take = len(items) if count is None else count
+    return {f"{prefix}_{i + 1:02d}": items[i] for i in range(take)}
 
 
 def select_correctors(
@@ -90,7 +111,7 @@ def select_correctors(
         classify_partition,
     )
 
-    keys = {k for k in limits if not k.startswith("_") and k != "defaults"}
+    keys = _usable_keys(limits)
 
     pairs: list[tuple[str, str]] = []
     for sp in sorted(k for k in keys if k.endswith(":SP")):
@@ -105,15 +126,7 @@ def select_correctors(
         if rb in keys:
             pairs.append((sp, rb))
 
-    if count is None:
-        return {f"corrector_{i + 1:02d}": pairs[i] for i in range(len(pairs))}
-
-    if len(pairs) < count:
-        raise AssertionError(
-            f"deployed project's channel_limits.json only yields {len(pairs)} SR "
-            f"corrector (HCM/VCM) pairs, need {count}"
-        )
-    return {f"corrector_{i + 1:02d}": pairs[i] for i in range(count)}
+    return _numbered("corrector", pairs, count, "SR corrector (HCM/VCM) pairs")
 
 
 def select_bpms(limits: dict[str, Any], count: int | None = None) -> dict[str, str]:
@@ -131,7 +144,7 @@ def select_bpms(limits: dict[str, Any], count: int | None = None) -> dict[str, s
         classify_partition,
     )
 
-    keys = {k for k in limits if not k.startswith("_") and k != "defaults"}
+    keys = _usable_keys(limits)
 
     addresses: list[str] = []
     for addr in sorted(keys):
@@ -144,15 +157,7 @@ def select_bpms(limits: dict[str, Any], count: int | None = None) -> dict[str, s
             continue
         addresses.append(addr)
 
-    if count is None:
-        return {f"bpm_{i + 1:02d}": addresses[i] for i in range(len(addresses))}
-
-    if len(addresses) < count:
-        raise AssertionError(
-            f"deployed project's channel_limits.json only yields {len(addresses)} SR "
-            f"BPM readbacks, need {count}"
-        )
-    return {f"bpm_{i + 1:02d}": addresses[i] for i in range(count)}
+    return _numbered("bpm", addresses, count, "SR BPM readbacks")
 
 
 def format_motors_env(correctors: dict[str, tuple[str, str]]) -> str:

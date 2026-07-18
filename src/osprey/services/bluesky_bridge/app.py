@@ -42,10 +42,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger("osprey.services.bluesky_bridge.app")
 
 # Root package names the demo-runner lifespan hook below is allowed to fail
-# on — i.e. the bridge running without the `bluesky-bridge` extra installed.
-# An ImportError naming anything else (e.g. a module missing an expected
-# attribute, or an unrelated third-party import broke) is a genuine bug and
-# must not be swallowed as "bluesky is just absent".
+# on — i.e. the bridge running without the bluesky stack importable. The stack
+# is a core dependency, so this normally succeeds; the guard stays for slimmed
+# images or partial installs. An ImportError naming anything else (e.g. a module
+# missing an expected attribute, or an unrelated third-party import broke) is a
+# genuine bug and must not be swallowed as "bluesky is just absent".
 _BRIDGE_ONLY_MODULES = {"bluesky", "ophyd", "ophyd_async", "tiled"}
 
 # Opt-in flag (task 2.14a): when truthy (see `_is_demo_runner_enabled`) AND
@@ -272,6 +273,159 @@ def _assert_limits_readable_if_writable() -> None:
         ) from exc
 
 
+async def _wire_epics_substrate_runner() -> Any | None:
+    """Wire the real EPICS-substrate ``BlueskyPlanRunner`` (tasks 2.1/2.2/3.1/3.4).
+
+    The body of ``_lifespan``'s EPICS-substrate branch: guard-import the
+    bluesky extra, run the fail-OPEN limits preflight, construct and connect
+    the bridge's single long-lived OSPREY connector, and register a runner
+    factory whose devices are all connector-mediated.
+
+    Returns the connected connector for ``_lifespan`` to store in the module
+    global ``_connector`` (so shutdown can disconnect it exactly once), or
+    ``None`` when the bluesky stack is not importable — the
+    ``FakePlanRunner`` fallback, mirroring ``list_plans``'s guarded/lazy-import
+    pattern.
+    """
+    try:
+        from .devices import connector as connector_devices
+        from .devices._specs_from_env import specs_from_env
+        from .plan_runner_bluesky import BlueskyPlanRunner
+    except ImportError as exc:
+        root_name = (getattr(exc, "name", None) or "").split(".")[0]
+        if root_name not in _BRIDGE_ONLY_MODULES:
+            raise
+        logger.warning(
+            "%s is enabled but the bluesky stack is not importable "
+            "(%s not found); falling back to FakePlanRunner",
+            _EPICS_SUBSTRATE_ENV,
+            exc.name,
+        )
+        return None
+
+    # Task 3.1: fail-OPEN startup guard, before any connector/CA work
+    # begins — refuses startup only for the one unsafe combination
+    # (writable + limits checking enabled + limits database
+    # unreadable). See `_assert_limits_readable_if_writable`'s
+    # docstring for the full condition and why every other
+    # combination starts normally.
+    _assert_limits_readable_if_writable()
+
+    # Task 3.4: construct the single long-lived OSPREY connector this
+    # bridge holds for its whole process lifetime, built from the
+    # project's `control_system.type` (Connector = the single
+    # control-system interface) rather than a hardcoded
+    # `virtual_accelerator` — one config line now flips the whole
+    # Bluesky stack between the mock connector and real Channel Access.
+    # `osprey.connectors.factory` and `epics_connector` are
+    # import-safe even in a base install (pyepics is imported lazily
+    # inside `EPICSConnector.connect()`), but the import stays inside
+    # this already-guarded path regardless.
+    #
+    # For the EPICS-like types (`virtual_accelerator`/`epics`), the
+    # `type_config` stays gateway-less (no "gateways" key) exactly as
+    # before — this makes `connect()` skip the block that sets
+    # process-wide `EPICS_CA_*` env, so the compose-inherited
+    # `EPICS_CA_NAME_SERVERS` (pointing at the virtual accelerator or
+    # real hardware) survives untouched (FR8/CF-1) — and it needs no
+    # running CA server, so this is safe to do unconditionally at
+    # startup. `control_system.type: virtual_accelerator` therefore
+    # yields the exact same `type_config` this branch always built.
+    #
+    # For `mock`, the connector-mediated devices below (built by
+    # `connector_devices.build_devices` from the real corrector/BPM
+    # channel names) construct fine against the mock connector, but a
+    # scan will NOT complete on it: the mock connector accepts writes,
+    # yet its readbacks simulate a non-tracking base value rather than
+    # tracking the setpoint, so a settle-verified corrector move
+    # (`ConnectorSettable.set`) never sees its target and times out.
+    # This is intentional — mock mode is for browsing/UI only; running
+    # an actual scan requires a setpoint-tracking control system
+    # (`virtual_accelerator` or `epics`), selected via
+    # `control_system.type`.
+    from osprey.connectors.factory import (
+        ConnectorFactory,
+        register_builtin_connectors,
+    )
+
+    control_system_type = _resolve_control_system_type()
+    if control_system_type in _EPICS_LIKE_CONNECTOR_TYPES:
+        connector_type_config: dict[str, Any] = {
+            "type": control_system_type,
+            "connector": {control_system_type: {"timeout": 5.0}},
+        }
+    else:
+        # "mock" (the fail-safe default), or any other resolved type
+        # the bridge doesn't special-case: forward the type name
+        # through with no type-specific config (mock needs none) so
+        # an unrecognized value surfaces as `ConnectorFactory`'s own
+        # clear "Unknown control system type" error rather than being
+        # silently mis-wired to a connector the operator didn't ask for.
+        connector_type_config = {
+            "type": control_system_type,
+            "connector": {control_system_type: {}},
+        }
+
+    register_builtin_connectors()  # idempotent (CF-3); must run before create
+    connector = await ConnectorFactory.create_control_system_connector(connector_type_config)
+    logger.info(
+        "%s is enabled: connected the bridge's single long-lived OSPREY connector "
+        "(control_system.type=%s, %s)",
+        _EPICS_SUBSTRATE_ENV,
+        control_system_type,
+        type(connector).__name__,
+    )
+
+    motors, detectors = specs_from_env(os.environ)
+
+    def _epics_runner_factory() -> BlueskyPlanRunner:
+        # `connector_devices.build_devices` is `async def` (it builds
+        # connector-mediated devices) — `BlueskyPlanRunner._resolve_devices`
+        # bridges that for us; passing the bare lambda here, not its
+        # result. Every read and write these devices perform is
+        # connector-mediated (`read_channel`/`write_channel_checked`) —
+        # there is no raw Channel Access anywhere in this path. The closure
+        # binds THE one long-lived connector constructed above, not a
+        # re-fetch of the (possibly reassigned-on-shutdown) module global.
+        #
+        # `plans` is left unset (`None`), so `BlueskyPlanRunner.reinitialize`
+        # resolves plan names through `_default_plan_registry()` —
+        # `get_facility_plans().plans` (task 2.4), which re-scans and
+        # re-gates the session/facility layers on every call. A
+        # validated session or facility plan is therefore launchable
+        # on this connector-mediated path exactly like the demo
+        # runner factory; an unvalidated (or
+        # validated-then-edited) one is simply absent from the
+        # registry the next time this factory's runner resolves it —
+        # fail-closed, with no separate gate needed here.
+        return BlueskyPlanRunner(
+            devices=lambda: connector_devices.build_devices(motors, detectors, connector),
+            tiled_writer_factory=_build_tiled_writer_factory(),
+        )
+
+    set_runner_factory(_epics_runner_factory)
+    if not motors and not detectors:
+        # Substrate enabled but neither env var yielded a device: the
+        # runner will connect nothing and every scan will have no data.
+        # Almost always a misconfiguration (unset/empty
+        # BLUESKY_EPICS_MOTORS / _DETECTORS), so surface it loudly.
+        logger.warning(
+            "%s is enabled but no devices were configured "
+            "(BLUESKY_EPICS_MOTORS / BLUESKY_EPICS_DETECTORS are empty or unset); "
+            "the substrate runner will connect nothing",
+            _EPICS_SUBSTRATE_ENV,
+        )
+    else:
+        logger.info(
+            "%s is enabled: wired the EPICS substrate BlueskyPlanRunner "
+            "(%d motor(s), %d detector(s))",
+            _EPICS_SUBSTRATE_ENV,
+            len(motors),
+            len(detectors),
+        )
+    return connector
+
+
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """Opt-in guarded startup: wire a real bluesky-backed `BlueskyPlanRunner`.
@@ -320,146 +474,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
         )
 
     if epics_substrate_enabled:
-        try:
-            from .devices import connector as connector_devices
-            from .devices._specs_from_env import specs_from_env
-            from .plan_runner_bluesky import BlueskyPlanRunner
-        except ImportError as exc:
-            root_name = (getattr(exc, "name", None) or "").split(".")[0]
-            if root_name not in _BRIDGE_ONLY_MODULES:
-                raise
-            logger.warning(
-                "%s is enabled but the bluesky-bridge extra is not installed "
-                "(%s not found); falling back to FakePlanRunner",
-                _EPICS_SUBSTRATE_ENV,
-                exc.name,
-            )
-        else:
-            # Task 3.1: fail-OPEN startup guard, before any connector/CA work
-            # begins — refuses startup only for the one unsafe combination
-            # (writable + limits checking enabled + limits database
-            # unreadable). See `_assert_limits_readable_if_writable`'s
-            # docstring for the full condition and why every other
-            # combination starts normally.
-            _assert_limits_readable_if_writable()
-
-            # Task 3.4: construct the single long-lived OSPREY connector this
-            # bridge holds for its whole process lifetime, built from the
-            # project's `control_system.type` (Connector = the single
-            # control-system interface) rather than a hardcoded
-            # `virtual_accelerator` — one config line now flips the whole
-            # Bluesky stack between the mock connector and real Channel Access.
-            # `osprey.connectors.factory` and `epics_connector` are
-            # import-safe even in a base install (pyepics is imported lazily
-            # inside `EPICSConnector.connect()`), but the import stays inside
-            # this already-guarded branch regardless.
-            #
-            # For the EPICS-like types (`virtual_accelerator`/`epics`), the
-            # `type_config` stays gateway-less (no "gateways" key) exactly as
-            # before — this makes `connect()` skip the block that sets
-            # process-wide `EPICS_CA_*` env, so the compose-inherited
-            # `EPICS_CA_NAME_SERVERS` (pointing at the virtual accelerator or
-            # real hardware) survives untouched (FR8/CF-1) — and it needs no
-            # running CA server, so this is safe to do unconditionally at
-            # startup. `control_system.type: virtual_accelerator` therefore
-            # yields the exact same `type_config` this branch always built.
-            #
-            # For `mock`, the connector-mediated devices below (built by
-            # `connector_devices.build_devices` from the real corrector/BPM
-            # channel names) construct fine against the mock connector, but a
-            # scan will NOT complete on it: the mock connector accepts writes,
-            # yet its readbacks simulate a non-tracking base value rather than
-            # tracking the setpoint, so a settle-verified corrector move
-            # (`ConnectorSettable.set`) never sees its target and times out.
-            # This is intentional — mock mode is for browsing/UI only; running
-            # an actual scan requires a setpoint-tracking control system
-            # (`virtual_accelerator` or `epics`), selected via
-            # `control_system.type`.
-            from osprey.connectors.factory import (
-                ConnectorFactory,
-                register_builtin_connectors,
-            )
-
-            control_system_type = _resolve_control_system_type()
-            if control_system_type in _EPICS_LIKE_CONNECTOR_TYPES:
-                connector_type_config: dict[str, Any] = {
-                    "type": control_system_type,
-                    "connector": {control_system_type: {"timeout": 5.0}},
-                }
-            else:
-                # "mock" (the fail-safe default), or any other resolved type
-                # the bridge doesn't special-case: forward the type name
-                # through with no type-specific config (mock needs none) so
-                # an unrecognized value surfaces as `ConnectorFactory`'s own
-                # clear "Unknown control system type" error rather than being
-                # silently mis-wired to a connector the operator didn't ask for.
-                connector_type_config = {
-                    "type": control_system_type,
-                    "connector": {control_system_type: {}},
-                }
-
-            register_builtin_connectors()  # idempotent (CF-3); must run before create
-            _connector = await ConnectorFactory.create_control_system_connector(
-                connector_type_config
-            )
-            logger.info(
-                "%s is enabled: connected the bridge's single long-lived OSPREY connector "
-                "(control_system.type=%s, %s)",
-                _EPICS_SUBSTRATE_ENV,
-                control_system_type,
-                type(_connector).__name__,
-            )
-
-            motors, detectors = specs_from_env(os.environ)
-
-            # Bind the closure to THE one long-lived connector constructed
-            # above, not a re-fetch of the (possibly reassigned-on-shutdown)
-            # module global.
-            connector = _connector
-
-            def _epics_runner_factory() -> BlueskyPlanRunner:
-                # `connector_devices.build_devices` is `async def` (it builds
-                # connector-mediated devices) — `BlueskyPlanRunner._resolve_devices`
-                # bridges that for us; passing the bare lambda here, not its
-                # result. Every read and write these devices perform is
-                # connector-mediated (`read_channel`/`write_channel_checked`) —
-                # there is no raw Channel Access anywhere in this path.
-                #
-                # `plans` is left unset (`None`), so `BlueskyPlanRunner.reinitialize`
-                # resolves plan names through `_default_plan_registry()` —
-                # `get_facility_plans().plans` (task 2.4), which re-scans and
-                # re-gates the session/facility layers on every call. A
-                # validated session or facility plan is therefore launchable
-                # on this connector-mediated path exactly like the demo
-                # runner factory below; an unvalidated (or
-                # validated-then-edited) one is simply absent from the
-                # registry the next time this factory's runner resolves it —
-                # fail-closed, with no separate gate needed here.
-                return BlueskyPlanRunner(
-                    devices=lambda: connector_devices.build_devices(motors, detectors, connector),
-                    tiled_writer_factory=_build_tiled_writer_factory(),
-                )
-
-            set_runner_factory(_epics_runner_factory)
-            if not motors and not detectors:
-                # Substrate enabled but neither env var yielded a device: the
-                # runner will connect nothing and every scan will have no data.
-                # Almost always a misconfiguration (unset/empty
-                # BLUESKY_EPICS_MOTORS / _DETECTORS), so surface it loudly.
-                logger.warning(
-                    "%s is enabled but no devices were configured "
-                    "(BLUESKY_EPICS_MOTORS / BLUESKY_EPICS_DETECTORS are empty or unset); "
-                    "the substrate runner will connect nothing",
-                    _EPICS_SUBSTRATE_ENV,
-                )
-            else:
-                logger.info(
-                    "%s is enabled: wired the EPICS substrate BlueskyPlanRunner "
-                    "(%d motor(s), %d detector(s))",
-                    _EPICS_SUBSTRATE_ENV,
-                    len(motors),
-                    len(detectors),
-                )
+        _connector = await _wire_epics_substrate_runner()
     elif demo_runner_enabled:
         try:
             from .devices.mock import build_devices
@@ -469,7 +484,7 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
             if root_name not in _BRIDGE_ONLY_MODULES:
                 raise
             logger.warning(
-                "%s is enabled but the bluesky-bridge extra is not installed "
+                "%s is enabled but the bluesky stack is not importable "
                 "(%s not found); falling back to FakePlanRunner",
                 _DEMO_RUNNER_ENV,
                 exc.name,
@@ -540,33 +555,32 @@ def list_runs(limit: int = 20) -> list[dict]:
     return [run.to_dict() for run in registry.list(limit=limit)]
 
 
+def _request_field(request: Any, field: str, default: Any = None) -> Any:
+    """Read ``field`` off a stored launch intent, which may be a plain dict
+    (re-hydrated JSON) or a ``RunRequest``-shaped object — the lifecycle core
+    (``runs.py``) treats ``request`` as opaque, so both shapes occur."""
+    if isinstance(request, dict):
+        return request.get(field, default)
+    return getattr(request, field, default)
+
+
 @app.get("/runs/{run_id}")
 def get_run(run_id: str) -> dict:
     """Run status, plus (when present) the intent's ``plan_name``/``plan_args``.
 
-    ``Run.to_dict()`` itself carries neither field — the lifecycle core
-    (``runs.py``) treats ``request`` as opaque (see its own docstring). Both
-    are read straight off the stored intent here, the same
-    dict-or-attribute extraction ``_launch_validation_gate`` already uses,
-    so callers that need to know *what* is being launched (e.g. task 2.6's
-    launch-approval hook, resolving a bare ``run_id`` into a plan to render)
-    don't need a second route.
+    ``Run.to_dict()`` itself carries neither field — both are read straight
+    off the stored intent here via ``_request_field``, so callers that need
+    to know *what* is being launched (e.g. task 2.6's launch-approval hook,
+    resolving a bare ``run_id`` into a plan to render) don't need a second
+    route.
     """
     run = registry.get(run_id)
     out = run.to_dict()
     request = run.request
-    plan_name = (
-        request.get("plan_name")
-        if isinstance(request, dict)
-        else getattr(request, "plan_name", None)
-    )
+    plan_name = _request_field(request, "plan_name")
     if plan_name is not None:
         out["plan_name"] = plan_name
-        out["plan_args"] = (
-            request.get("plan_args", {})
-            if isinstance(request, dict)
-            else getattr(request, "plan_args", {})
-        )
+        out["plan_args"] = _request_field(request, "plan_args", {})
     return out
 
 
@@ -610,11 +624,7 @@ def _validate_launchable_request(request: Any) -> None:
     alone — `PlanRunner.reinitialize`'s own "unknown plan" handling is the right
     place for the latter.
     """
-    plan_name = (
-        request.get("plan_name")
-        if isinstance(request, dict)
-        else getattr(request, "plan_name", None)
-    )
+    plan_name = _request_field(request, "plan_name")
     if not plan_name:
         return
 
