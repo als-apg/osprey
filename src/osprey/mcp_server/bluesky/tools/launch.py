@@ -27,6 +27,7 @@ import json
 
 import anyio
 
+from osprey.bluesky_bridge_connection import unwrap_bridge_conflict_detail
 from osprey.mcp_server.bluesky.server import mcp
 from osprey.mcp_server.bluesky.server_context import (
     _http_post_json,
@@ -159,8 +160,8 @@ def _conflict_error(body: object, status: int) -> str:
     (e.g. a validation-gate rejection) carry a plain-string detail instead — those
     have no code to surface, so fall back to the raw bridge message.
     """
-    detail = body.get("detail") if isinstance(body, dict) else None
-    if isinstance(detail, dict):
+    detail = unwrap_bridge_conflict_detail(body)
+    if detail is not None:
         code = detail.get("code")
         revision = detail.get("revision")
         message = detail.get("detail") or f"The Bluesky bridge refused the launch: {code}."

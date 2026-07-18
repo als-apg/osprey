@@ -17,6 +17,8 @@ import httpx
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
 
+from osprey.utils.http_proxy import HOP_BY_HOP
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -53,22 +55,6 @@ _REWRITABLE_TYPES = {
     "application/javascript",
     "text/css",
 }
-
-# Hop-by-hop headers that must not be forwarded.
-_HOP_BY_HOP = frozenset(
-    {
-        "connection",
-        "keep-alive",
-        "proxy-authenticate",
-        "proxy-authorization",
-        "te",
-        "trailers",
-        "transfer-encoding",
-        "upgrade",
-        "content-encoding",
-        "content-length",
-    }
-)
 
 # The proxy-wide caching default, applied to any proxied response whose
 # upstream set no Cache-Control of its own. Panels ship unversioned asset
@@ -201,7 +187,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
     fwd_headers = {
         k: v
         for k, v in request.headers.items()
-        if k.lower() not in _HOP_BY_HOP and k.lower() not in ("host", "accept-encoding")
+        if k.lower() not in HOP_BY_HOP and k.lower() not in ("host", "accept-encoding")
     }
     fwd_headers["x-forwarded-prefix"] = f"{outer_prefix}/panel/{panel_id}"
 
@@ -242,7 +228,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
                     await upstream.aclose()
 
             resp_headers = {
-                k: v for k, v in upstream.headers.items() if k.lower() not in _HOP_BY_HOP
+                k: v for k, v in upstream.headers.items() if k.lower() not in HOP_BY_HOP
             }
             resp_headers.setdefault("cache-control", _DEFAULT_NO_CACHE)
             return StreamingResponse(
@@ -268,7 +254,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
 
     # Filter response headers; fill in the no-cache default when the upstream
     # made no caching decision of its own (see _DEFAULT_NO_CACHE).
-    resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in _HOP_BY_HOP}
+    resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in HOP_BY_HOP}
     resp_headers.setdefault("cache-control", _DEFAULT_NO_CACHE)
 
     content_type = resp.headers.get("content-type", "")

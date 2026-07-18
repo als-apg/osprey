@@ -39,26 +39,10 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from osprey.services.bluesky_panels._shared import UNREACHABLE_BODY, safe_json
+from osprey.utils.http_proxy import HOP_BY_HOP
+
 router = APIRouter()
-
-_UNREACHABLE_BODY = {"detail": "bluesky bridge unreachable"}
-
-# Hop-by-hop headers that must not be relayed onto the browser-facing SSE
-# response (matches osprey.interfaces.web_terminal.routes.proxy._HOP_BY_HOP).
-_HOP_BY_HOP = frozenset(
-    {
-        "connection",
-        "keep-alive",
-        "proxy-authenticate",
-        "proxy-authorization",
-        "te",
-        "trailers",
-        "transfer-encoding",
-        "upgrade",
-        "content-encoding",
-        "content-length",
-    }
-)
 
 
 async def _relay(request: Request, method: str) -> JSONResponse:
@@ -88,12 +72,9 @@ async def _relay(request: Request, method: str) -> JSONResponse:
             headers=headers,
         )
     except httpx.RequestError:
-        return JSONResponse(content=_UNREACHABLE_BODY, status_code=502)
+        return JSONResponse(content=UNREACHABLE_BODY, status_code=502)
 
-    try:
-        body = response.json()
-    except ValueError:
-        body = None
+    body = safe_json(response)
 
     return JSONResponse(content=body, status_code=response.status_code)
 
@@ -143,7 +124,7 @@ async def draft_events(request: Request) -> Response:
             stream=True,
         )
     except httpx.RequestError:
-        return JSONResponse(content=_UNREACHABLE_BODY, status_code=502)
+        return JSONResponse(content=UNREACHABLE_BODY, status_code=502)
 
     async def _stream() -> AsyncIterator[bytes]:
         try:
@@ -152,7 +133,7 @@ async def draft_events(request: Request) -> Response:
         finally:
             await upstream.aclose()
 
-    resp_headers = {k: v for k, v in upstream.headers.items() if k.lower() not in _HOP_BY_HOP}
+    resp_headers = {k: v for k, v in upstream.headers.items() if k.lower() not in HOP_BY_HOP}
 
     return StreamingResponse(
         _stream(),
