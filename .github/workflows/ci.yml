@@ -15,10 +15,19 @@ on:
           tests/e2e/test_vacuum_burst_scenario.py'
         required: false
         default: ''
+      run_benchmarks:
+        description: >-
+          Run the on-demand benchmark lanes (channel-finder MCP benchmarks)
+          instead of the E2E lane. The home for e2e suites that are useful
+          but too expensive to run on every PR — trigger before a release or
+          after touching the code they exercise.
+        required: false
+        type: boolean
+        default: false
   schedule:
-    # Nightly at 07:00 UTC (midnight Pacific). Scheduled-only lanes
-    # (channel-finder-benchmarks) gate on github.event_name == 'schedule';
-    # the always-on jobs (test, lint, docs, ...; no `if:`) also run nightly.
+    # Nightly at 07:00 UTC (midnight Pacific) for the always-on jobs
+    # (test, lint, docs, ...; no `if:`). Every e2e/benchmark lane is
+    # PR-gated or dispatch-gated and does NOT run on this schedule.
     - cron: '0 7 * * *'
 
 # Note: This workflow runs tests, linting, docs build, and package checks
@@ -453,8 +462,9 @@ jobs:
     name: E2E Tests
     runs-on: ubuntu-latest
     # Only run on PRs (not pushes) to control API costs, and only for non-fork PRs (secrets unavailable on forks).
-    # Also runs on manual workflow_dispatch to enable scoped reruns via the e2e_filter input.
-    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'workflow_dispatch'
+    # Also runs on manual workflow_dispatch to enable scoped reruns via the e2e_filter input —
+    # unless that dispatch asked for the benchmark lanes instead (run_benchmarks).
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && !inputs.run_benchmarks)
     # The lane's healthy runtime is ~20-25min (real-LLM SDK/CLI pipelines —
     # every full-stack docker deploy now lives in its own dedicated job, and
     # the channel-finder benchmarks moved to the nightly schedule); a run past
@@ -542,9 +552,10 @@ jobs:
           # LLM lane," NOT "not tested" — every ignored file below runs in
           # its own job (the deploy-lifecycle jobs run on PRs into main
           # only — see those jobs' comments), except the channel-finder
-          # benchmarks, which run on the nightly schedule
-          # (channel-finder-benchmarks): they are a statistical quality
-          # score with flaky reruns, not a per-PR correctness gate.
+          # benchmarks, which run on demand via the run_benchmarks
+          # dispatch input (channel-finder-benchmarks): they are a
+          # statistical quality score with flaky reruns, not a per-PR
+          # correctness gate.
           uv run pytest tests/e2e/ -v --tb=short \
             --ignore=tests/e2e/test_preset_agentic.py \
             --ignore=tests/e2e/test_dispatch_deploy.py \
@@ -563,16 +574,20 @@ jobs:
         fi
 
   channel-finder-benchmarks:
-    name: Channel-Finder MCP Benchmarks (nightly)
+    name: Channel-Finder MCP Benchmarks (on demand)
     runs-on: ubuntu-latest
-    # Scheduled-only (plus manual workflow_dispatch for debugging): this is a
-    # statistical quality benchmark (F1/perfect-match thresholds over ~30 real
-    # LLM channel-finder queries, flaky-rerun-heavy), not a per-PR correctness
-    # gate. It used to run inside the shared e2e-tests lane on every PR
-    # (~4min of the lane); a nightly signal on main catches the same
-    # regressions without taxing every debug cycle. Deliberately NOT in
-    # all-checks-passed's needs — a scheduled job has no result on PR runs.
-    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    # Manual-only, via the `run_benchmarks` workflow_dispatch input (Actions
+    # tab "Run workflow", or `gh workflow run ci.yml -f run_benchmarks=true`):
+    # this is a statistical quality benchmark (F1/perfect-match thresholds
+    # over ~30 real LLM channel-finder queries, flaky-rerun-heavy), not a
+    # per-PR correctness gate. It used to run inside the shared e2e-tests
+    # lane on every PR (~4min of the lane); like every benchmark in this
+    # repo it is human-babysat — run it deliberately before a release or
+    # after touching the channel-finder/MCP code, and read the scores in the
+    # job log. Deliberately NOT in all-checks-passed's needs — a
+    # dispatch-gated job has no result on PR runs. This job is the intended
+    # home for future too-expensive-per-PR e2e lanes as well.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_benchmarks
     timeout-minutes: 30
 
     steps:

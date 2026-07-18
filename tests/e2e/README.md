@@ -154,9 +154,12 @@ The ``e2e-tests`` job is a hard-fail gate — as is every e2e lane: the
 SDK-driven safety scenario runs plus the SDK workflow/delegation
 pipelines (cheap at als-apg/haiku rates). The channel-finder MCP
 benchmarks (~90 queries from ``test_channel_finder_mcp_benchmarks.py``,
-30 queries × 3 pipelines) no longer run per PR — they run nightly in the
-``channel-finder-benchmarks`` job, so their cost is per-day, not
-per-debug-cycle. Channel-finder thresholds were re-tuned against
+30 queries × 3 pipelines) no longer run per PR — they run on demand in
+the ``channel-finder-benchmarks`` job (Actions tab "Run workflow" with
+``run_benchmarks``, or ``gh workflow run ci.yml -f run_benchmarks=true``);
+trigger it before a release or after touching the channel-finder/MCP
+code, and read the scores in the job log. Channel-finder thresholds were
+re-tuned against
 als-apg/haiku in 2026-04 — if the model or provider changes, re-tune
 (see test docstrings for the calibration date stamp).
 

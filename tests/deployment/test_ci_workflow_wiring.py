@@ -471,19 +471,26 @@ def test_dispatch_overlay_job_declares_llm_secret__mutation_strips_secret() -> N
         assert _job_declares_secret(mutated, OVERLAY_JOB, SECRET_TOKEN)
 
 
-def test_benchmarks_job_is_schedule_gated_and_lane_ignores_it(workflow: dict[str, Any]) -> None:
+def test_benchmarks_job_is_dispatch_gated_and_lane_ignores_it(workflow: dict[str, Any]) -> None:
     """The channel-finder benchmarks are a statistical quality score, not a
     per-PR correctness gate: they must be ignored by the shared e2e-tests
-    lane AND still exist as a scheduled job (otherwise the --ignore silently
-    deletes the only benchmark signal)."""
+    lane AND still exist as a manually-dispatched job behind the
+    ``run_benchmarks`` input (otherwise the --ignore silently deletes the
+    only benchmark signal). The e2e-tests lane must honor the same input in
+    the opposite direction, so the benchmark button doesn't also burn a full
+    ~19-min LLM lane run."""
     assert _run_step_ignores_all(workflow, [BENCHMARKS_TEST_FILE]) == []
-    job = _jobs(workflow)[BENCHMARKS_JOB]
-    assert "schedule" in job["if"], (
-        f"'{BENCHMARKS_JOB}' must gate on the nightly schedule; got: {job['if']!r}"
+    job_if = _jobs(workflow)[BENCHMARKS_JOB]["if"]
+    assert "workflow_dispatch" in job_if and "run_benchmarks" in job_if, (
+        f"'{BENCHMARKS_JOB}' must gate on the run_benchmarks dispatch input; got: {job_if!r}"
+    )
+    lane_if = _jobs(workflow)[E2E_TESTS_JOB]["if"]
+    assert "run_benchmarks" in lane_if, (
+        f"'{E2E_TESTS_JOB}' must exclude run_benchmarks dispatches; got: {lane_if!r}"
     )
 
 
-def test_benchmarks_job_is_schedule_gated__mutation_drops_ignore() -> None:
+def test_benchmarks_job_is_dispatch_gated__mutation_drops_ignore() -> None:
     mutated = copy.deepcopy(_load_workflow())
     step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
     step["run"] = _drop_ignore_line(step["run"], BENCHMARKS_TEST_FILE)
