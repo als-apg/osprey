@@ -7,6 +7,7 @@ and chat command env scrubbing.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from unittest.mock import patch
 
@@ -607,3 +608,182 @@ class TestResolveEnvBlockRegression:
         spec = ClaudeCodeModelResolver.resolve({"provider": "cborg"})
         tier_keys = [k for k in spec.env_block if k in set(TIER_MODEL_ENV_VARS.values())]
         assert tier_keys == list(TIER_MODEL_ENV_VARS.values())
+
+
+# ── Proxy env var warning ────────────────────────────────────────
+
+
+class TestProxyEnvWarning:
+    """``inject_provider_env`` warns on proxy values Claude Code cannot parse.
+
+    Claude Code's runtime rejects any ``*_PROXY`` value lacking a scheme and a
+    host and refuses to start; it accepts any parseable URL, including
+    non-http schemes like ``socks5://``. The warning must match that contract
+    exactly — no false positive on a working SOCKS proxy, no false negative on
+    a placeholder — and must never rewrite the value: other consumers of the
+    proxy vars (httpx, requests, DuckDB) read the same environment, and
+    blanking it would hide the misconfiguration instead of reporting it.
+
+    Every no-warning test also asserts the value landed in ``environ`` — that
+    proves the ``.env`` load actually executed, so a silently-skipped code path
+    cannot masquerade as a passing negative assertion.
+    """
+
+    LOGGER = "osprey.cli.claude_code_resolver"
+
+    def _records(self, caplog):
+        return [r for r in caplog.records if r.name == self.LOGGER]
+
+    @pytest.mark.parametrize("var", ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"])
+    def test_placeholder_from_env_file_warns(self, tmp_path, caplog, var):
+        (tmp_path / ".env").write_text(f"{var}=http-proxy\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123"}
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert any(var in r.getMessage() for r in self._records(caplog))
+        # Pass-through contract: warned about, never rewritten.
+        assert environ[var] == "http-proxy"
+
+    def test_schemeless_host_warns(self, tmp_path, caplog):
+        # urlsplit reads "proxy.corp:3128" as scheme "proxy.corp" with no
+        # netloc — exactly the shape Claude Code rejects.
+        (tmp_path / ".env").write_text("HTTP_PROXY=proxy.corp:3128\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123"}
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert any("proxy.corp:3128" in r.getMessage() for r in self._records(caplog))
+
+    def test_unsplittable_value_warns(self, tmp_path, caplog):
+        # urlsplit raises ValueError on a malformed IPv6 literal; that must
+        # count as invalid, not crash the launch path.
+        (tmp_path / ".env").write_text("HTTP_PROXY=http://[bad\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123"}
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert any("HTTP_PROXY" in r.getMessage() for r in self._records(caplog))
+
+    def test_shell_export_warns_without_env_file(self, caplog):
+        # The check reads environ, not the .env file — a bad value exported in
+        # the shell must be reported even with no project .env at all.
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123", "HTTP_PROXY": "http-proxy"}
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            inject_provider_env(environ, spec)
+
+        assert any("HTTP_PROXY" in r.getMessage() for r in self._records(caplog))
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            # Empty host — WHATWG rejects; urlsplit alone yields a truthy netloc.
+            "http://:8080",
+            # Non-numeric port — urlsplit defers this until .port is accessed.
+            "http://host:notaport",
+            # Whitespace in the URL — urlsplit tolerates it, the runtime does not.
+            "http://a b.com:8080",
+            "http://proxy:8080 trailing garbage",
+            # NO_PROXY-style comma list left in a single-URL var.
+            "http://proxy:8080,http://other:9090",
+            # Protocol-relative — netloc without a scheme; measured rejected
+            # ('Invalid proxy URL in HTTPS_PROXY: "//proxy.corp:3128"'), so the
+            # scheme half of the predicate must fire even when a netloc exists.
+            "//proxy.corp:3128",
+        ],
+    )
+    def test_whatwg_rejected_shapes_warn(self, tmp_path, caplog, value):
+        # Each of these makes Claude Code (2.1.214) exit immediately with
+        # 'Invalid proxy URL', yet plain urlsplit parses them without complaint
+        # — the predicate must stay pinned to the measured runtime behavior.
+        (tmp_path / ".env").write_text(f"HTTP_PROXY={value}\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123"}
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert any("HTTP_PROXY" in r.getMessage() for r in self._records(caplog))
+        # Pass-through contract: warned about, never rewritten.
+        assert environ["HTTP_PROXY"] == value
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            # Userinfo and IPv6 literals are accepted by the runtime and must
+            # stay silent — .port must not choke on either netloc shape.
+            "http://user:pass@host:8080",
+            "http://[::1]:8080",
+            # Scheme-agnostic: the runtime accepts any well-formed URL.
+            "ftp://bogus",
+        ],
+    )
+    def test_whatwg_accepted_shapes_no_warning(self, tmp_path, caplog, value):
+        (tmp_path / ".env").write_text(f"HTTP_PROXY={value}\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123"}
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert environ["HTTP_PROXY"] == value  # load ran
+        assert self._records(caplog) == []
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            # Leading/trailing space — WHATWG strips space/C0 controls before
+            # parsing; a realistic copy-paste artifact in a shell export.
+            " http://proxy:8080",
+            "http://proxy:8080 ",
+            # Internal tab — WHATWG removes tab/CR/LF anywhere before parsing.
+            "http://pro\txy:8080",
+            # Space in the path — WHATWG percent-encodes it; only whitespace
+            # in the scheme/authority is fatal to the runtime.
+            "http://proxy:8080/a b",
+        ],
+    )
+    def test_whatwg_whitespace_tolerated_shapes_no_warning(self, caplog, value):
+        # Set via environ (shell-export style) so the dotenv parser's own
+        # whitespace handling cannot mask what the predicate sees.
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123", "HTTP_PROXY": value}
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            inject_provider_env(environ, spec)
+
+        assert environ["HTTP_PROXY"] == value  # pass-through, never rewritten
+        assert self._records(caplog) == []
+
+    def test_valid_http_url_no_warning(self, tmp_path, caplog):
+        (tmp_path / ".env").write_text("HTTP_PROXY=http://proxy.example.com:8080\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123"}
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert environ["HTTP_PROXY"] == "http://proxy.example.com:8080"  # load ran
+        assert self._records(caplog) == []
+
+    def test_socks5_proxy_no_warning(self, tmp_path, caplog):
+        # Claude Code starts fine with a SOCKS proxy; warning on it would tell
+        # a site with a real socks5 proxy, on every launch, that their agent
+        # will refuse to start.
+        (tmp_path / ".env").write_text("HTTPS_PROXY=socks5://127.0.0.1:1080\n")
+        spec = ClaudeCodeModelResolver.resolve({"provider": "anthropic"})
+        environ = {"ANTHROPIC_API_KEY": "secret-123"}
+
+        with caplog.at_level(logging.WARNING, logger=self.LOGGER):
+            inject_provider_env(environ, spec, project_dir=tmp_path)
+
+        assert environ["HTTPS_PROXY"] == "socks5://127.0.0.1:1080"  # load ran
+        assert self._records(caplog) == []
