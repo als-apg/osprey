@@ -219,7 +219,17 @@ async def build_devices(
 
     Returns:
         Mapping of device name to connected device instance.
+
+    Raises:
+        ValueError: If ``connector`` is None — failing here, at the
+            misconfiguration site, instead of as an ``AttributeError`` deep
+            inside a device's ``set()``/``read()`` at scan time.
     """
+    if connector is None:
+        raise ValueError(
+            "build_devices requires a connector — every built device delegates "
+            "its reads and writes to it"
+        )
     devices: dict[str, Any] = {}
     for settable_spec in settables:
         devices[settable_spec.name] = ConnectorSettable(

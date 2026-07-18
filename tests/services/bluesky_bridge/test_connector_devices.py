@@ -192,6 +192,13 @@ async def test_build_devices_with_no_specs_returns_empty_mapping() -> None:
     assert devices == {}
 
 
+async def test_build_devices_without_connector_raises_at_build_time() -> None:
+    """A missing connector fails here, at the misconfiguration site — not as an
+    ``AttributeError`` deep inside a device's ``set()``/``read()`` at scan time."""
+    with pytest.raises(ValueError, match="requires a connector"):
+        await build_devices(settables=[SettableSpec(name="hcm1", setpoint_pv="HCM1:SP")])
+
+
 def test_module_does_not_import_raw_channel_access() -> None:
     """The whole point of this module is zero direct-CA paths — verify by source scan."""
     source = inspect.getsource(connector_module)
