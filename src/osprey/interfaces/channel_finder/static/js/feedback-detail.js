@@ -57,7 +57,7 @@ export async function _renderDetail() {
           <span>Successes (${successes.length})</span>
           <button class="btn btn-sm btn-secondary" id="fb-add-success">+ Add</button>
         </div>
-        ${successes.length === 0 ? '<div class="empty-state" style="padding: var(--space-4);">No successes</div>' : ''}
+        ${successes.length === 0 ? '<div class="empty-state" style="padding: var(--cf-space-4);">No successes</div>' : ''}
         ${successes.map((/** @type {any} */ s, /** @type {number} */ i) => _renderSuccessCard(s, i)).join('')}
       </div>
 
@@ -66,7 +66,7 @@ export async function _renderDetail() {
           <span>Failures (${failures.length})</span>
           <button class="btn btn-sm btn-secondary" id="fb-add-failure">+ Add</button>
         </div>
-        ${failures.length === 0 ? '<div class="empty-state" style="padding: var(--space-4);">No failures</div>' : ''}
+        ${failures.length === 0 ? '<div class="empty-state" style="padding: var(--cf-space-4);">No failures</div>' : ''}
         ${failures.map((/** @type {any} */ f, /** @type {number} */ i) => _renderFailureCard(f, i)).join('')}
       </div>
     </div>

@@ -7,9 +7,10 @@ injection seam stay on the right side of the import-clean boundary:
 - ``plan_loader.py`` (task 2.4) loads a facility module exposing
   ``PLANS: dict[str, PlanSpec]`` from a config-pointed path *without* itself
   importing bluesky — only the loaded module needs it.
-- ``plans.py`` (this task, 2.3) builds the v1 built-in ``PlanSpec`` set by
-  wrapping ``bluesky.plans`` callables; it imports bluesky, but doing so here
-  in the shared type would force that import onto the loader too.
+- the shipped plan files under ``plans_core/`` (e.g. ``orm.py``, ``grid_scan.py``)
+  build their ``PlanSpec`` by wrapping ``bluesky.plans`` callables; they import
+  bluesky, but doing so here in the shared type would force that import onto the
+  loader too.
 
 A plan's ``plan`` callable is intentionally opaque: ``(devices, params) ->
 Any``, where ``devices`` is whatever ``get_devices()`` returned and ``params``
@@ -40,7 +41,7 @@ self-declared in a plan's own ``PLAN_METADATA``.
 
 @dataclass
 class PlanSpec(Generic[SchemaT]):
-    """One registered scan plan: its name, parameter schema, and implementation.
+    """One registered plan: its name, parameter schema, and implementation.
 
     Generic over its own ``schema`` type so each concrete plan's ``plan``
     callable can be typed against its own pydantic model (e.g. ``CountParams``)

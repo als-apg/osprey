@@ -5,8 +5,10 @@ one ``{ ... }`` block per theme. The theme whose ``$extensions.mode`` is
 ``"dark"`` is combined with ``:root`` — so a bare, un-themed page still
 gets sane defaults — and is emitted first; every other theme follows in
 ``tree.themes`` order. Within a block: ``color-scheme``, then (default
-theme only) the fleet-wide font primitives, then semantic tokens in
-source order, then each interface's extension tokens (interfaces sorted
+theme only) the fleet-wide promoted-primitive scales (see
+:data:`_PROMOTED_PRIMITIVE_GROUPS` — font, type, weight, line-height,
+spacing, radius, z-index, duration), then semantic tokens in source
+order, then each interface's extension tokens (interfaces sorted
 alphabetically, each interface's own tokens in source order).
 
 Dot-path to CSS custom property name is *not* a uniform kebab-join — see
@@ -56,11 +58,20 @@ _NAME_OVERRIDES: dict[str, str] = {
     "status.error-hover": "--color-error-hover",
 }
 
-#: core.json primitive group promoted directly to root-level CSS
-#: variables (``--font-display``, ``--font-mono``, ...). Fonts have no
-#: semantic theme wrapper group of their own, are theme-independent, and
-#: base.css already depends on ``--font-display`` existing.
-_PROMOTED_PRIMITIVE_GROUP = "font"
+#: core.json primitive groups promoted directly to root-level CSS variables
+#: (--font-*, --text-*, --space-*, ...). Theme-independent by construction:
+#: emitted once in the default (:root) block, never per-theme; a theme
+#: cannot override them.
+_PROMOTED_PRIMITIVE_GROUPS: tuple[str, ...] = (
+    "font",
+    "text",
+    "weight",
+    "leading",
+    "space",
+    "radius",
+    "z",
+    "duration",
+)
 
 
 def css_variable_name(path: str) -> str | None:
@@ -144,11 +155,12 @@ def _theme_declarations(tree: TokenTree, stem: str, *, include_fonts: bool) -> l
     lines = [f"  color-scheme: {mode};"]
 
     if include_fonts:
-        prefix = f"{_PROMOTED_PRIMITIVE_GROUP}."
-        for path, token in tree.primitives.items():
-            if not path.startswith(prefix):
-                continue
-            lines.append(f"  --{path.replace('.', '-')}: {_resolved_value(token)};")
+        for group in _PROMOTED_PRIMITIVE_GROUPS:
+            prefix = f"{group}."
+            for path, token in tree.primitives.items():
+                if not path.startswith(prefix):
+                    continue
+                lines.append(f"  --{path.replace('.', '-')}: {_resolved_value(token)};")
 
     for path, token in tree.themes[stem].items():
         name = css_variable_name(path)

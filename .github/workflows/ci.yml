@@ -23,6 +23,19 @@ on:
 # Note: This workflow runs tests, linting, docs build, and package checks
 # For documentation deployment to GitHub Pages, see .github/workflows/docs.yml
 
+# Pull openobserve from our ghcr mirror rather than ECR Public. ECR Public
+# rate-limits anonymous pulls per source IP and GitHub-hosted runners share
+# egress IPs, so E2E deploys intermittently died on
+# "toomanyrequests: Rate exceeded". Set at workflow level because the ref is
+# identical in every deploying job; jobs that don't deploy ignore it.
+#
+# The mirror is PRIVATE, so each deploying job also needs the ghcr login step.
+# Populate/refresh it with .github/workflows/mirror-openobserve.yml, which must
+# be re-run whenever the pin in
+# src/osprey/templates/services/openobserve/docker-compose.yml.j2 moves.
+env:
+  OSPREY_OPENOBSERVE_IMAGE: ghcr.io/als-apg/openobserve:v0.14.4
+
 jobs:
   test:
     name: Test Python ${{ matrix.python-version }} on ${{ matrix.os }}
@@ -54,7 +67,7 @@ jobs:
       #
       # bluesky-bridge: tests/services/bluesky_bridge/* import bluesky,
       # ophyd_async and tiled. Most guard with `pytest.importorskip`, so without
-      # this extra they do not error — they SKIP, and the bridge's scanner,
+      # this extra they do not error — they SKIP, and the bridge's runner,
       # RunEngine integration and Tiled fault-isolation guards silently never
       # run. test_ci_workflow_wiring.py pins this extra for that reason.
       run: uv sync --extra dev --extra virtual-accelerator --extra bluesky-bridge
@@ -375,6 +388,13 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v7
 
+    - name: Log in to ghcr (openobserve mirror)
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -439,6 +459,13 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Log in to ghcr (openobserve mirror)
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -491,25 +518,26 @@ jobs:
         else
           # Tier 3 per-preset agentic flows live in their own matrix job
           # (agentic-per-preset). The full Docker-stack tests
-          # (dispatch-deploy-e2e, scan-deploy-e2e, tiled-roundtrip-e2e,
-          # va-substrate-equivalence-e2e, scan-catalog-e2e,
-          # scan-sandbox-escape-e2e) and the Dockerfile e2e
+          # (dispatch-deploy-e2e, bluesky-deploy-e2e, tiled-roundtrip-e2e,
+          # va-substrate-equivalence-e2e, bluesky-catalog-e2e,
+          # bluesky-sandbox-escape-e2e) and the Dockerfile e2e
           # (dockerfile-e2e) each have their own job because they build
           # container images. Exclude all eight here to avoid
           # double-execution. NOTE: "--ignore" means "not in this
           # secret-gated LLM lane," NOT "not tested" — every ignored file
           # below runs in its own secret-free job on every PR
-          # (scan-catalog-e2e and scan-sandbox-escape-e2e are advisory-only —
+          # (bluesky-catalog-e2e and bluesky-sandbox-escape-e2e are advisory-only —
           # see those jobs' comments).
           uv run pytest tests/e2e/ -v --tb=short \
             --ignore=tests/e2e/test_preset_agentic.py \
             --ignore=tests/e2e/test_dispatch_deploy.py \
-            --ignore=tests/e2e/test_scan_deploy.py \
+            --ignore=tests/e2e/test_bluesky_deploy.py \
             --ignore=tests/e2e/test_dockerfile_e2e.py \
             --ignore=tests/e2e/test_tiled_roundtrip.py \
             --ignore=tests/e2e/test_va_substrate_equivalence.py \
-            --ignore=tests/e2e/test_scan_catalog_e2e.py \
-            --ignore=tests/e2e/test_scan_sandbox_escape_e2e.py
+            --ignore=tests/e2e/test_bluesky_catalog_e2e.py \
+            --ignore=tests/e2e/test_bluesky_sandbox_escape_e2e.py \
+            --ignore=tests/e2e/test_bluesky_panels_deploy.py
         fi
 
   deploy-e2e:
@@ -523,6 +551,13 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
+
+    - name: Log in to ghcr (openobserve mirror)
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -579,6 +614,13 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Log in to ghcr (openobserve mirror)
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -624,8 +666,8 @@ jobs:
       run: |
         uv run pytest tests/e2e/test_dispatch_deploy.py -v --tb=short
 
-  scan-deploy-e2e:
-    name: Scan Deploy E2E (bluesky bridge, full Docker stack)
+  bluesky-deploy-e2e:
+    name: Bluesky Deploy E2E (bluesky bridge, full Docker stack)
     runs-on: ubuntu-latest
     # Only run on PRs from same repo (mirrors dispatch-deploy-e2e/deploy-e2e
     # gating). This job needs no secrets — the bluesky bridge never shells out
@@ -638,6 +680,13 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
+
+    - name: Log in to ghcr (openobserve mirror)
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -653,14 +702,59 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
-    - name: Run scan deploy E2E
+    - name: Run bluesky deploy E2E
       run: |
-        uv run pytest tests/e2e/test_scan_deploy.py -v --tb=short
+        uv run pytest tests/e2e/test_bluesky_deploy.py -v --tb=short
+
+  bluesky-panels-deploy-e2e:
+    name: Bluesky Panels Deploy E2E (VA + bluesky bridge + bluesky-panels sidecar, full Docker stack)
+    runs-on: ubuntu-latest
+    # Only run on PRs from same repo (mirrors bluesky-deploy-e2e/va-substrate-
+    # equivalence-e2e gating). This job needs no secrets — neither the
+    # bridge nor the bluesky-panels sidecar shells out to an LLM.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Co-deploys the VA (native PyAT/softioc build, same cold-cache cost as
+    # va-substrate-equivalence-e2e) alongside the bridge, Tiled, and the
+    # bluesky-panels sidecar, then drives a real plan end to end through the
+    # sidecar's execute route — comparable weight to va-substrate-
+    # equivalence-e2e, not bluesky-deploy-e2e.
+    timeout-minutes: 45
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Log in to ghcr (openobserve mirror)
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Run bluesky panels deploy E2E
+      run: |
+        uv run pytest tests/e2e/test_bluesky_panels_deploy.py -v --tb=short
 
   va-substrate-equivalence-e2e:
     name: VA Substrate Equivalence E2E (virtual accelerator + bluesky bridge, full Docker stack)
     runs-on: ubuntu-latest
-    # Only run on PRs from same repo (mirrors scan-deploy-e2e gating). This
+    # Only run on PRs from same repo (mirrors bluesky-deploy-e2e gating). This
     # job needs no secrets — neither the bridge nor the virtual accelerator
     # shells out to an LLM. Phase-1 bug fix: this test previously had no
     # dedicated job and was only ever swept into e2e-tests' glob (the
@@ -681,6 +775,13 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
+
+    - name: Log in to ghcr (openobserve mirror)
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -703,13 +804,13 @@ jobs:
   tiled-roundtrip-e2e:
     name: Tiled Roundtrip E2E (bluesky bridge + Tiled persistence, full Docker stack)
     runs-on: ubuntu-latest
-    # Only run on PRs from same repo (mirrors scan-deploy-e2e gating). This
+    # Only run on PRs from same repo (mirrors bluesky-deploy-e2e gating). This
     # job needs no secrets — the bridge never shells out to an LLM — but the
     # same-repo restriction is the house policy for any extra
     # Docker-build-and-deploy job, not just secret-gated ones.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     # Builds the bridge image and pulls ghcr.io/bluesky/tiled:0.2.12; ~6.5min
-    # with images cached, ~9-11min cold. scan-deploy-e2e has no explicit
+    # with images cached, ~9-11min cold. bluesky-deploy-e2e has no explicit
     # timeout-minutes; this job gets one for the extra image-pull headroom.
     timeout-minutes: 20
 
@@ -718,6 +819,13 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
+
+    - name: Log in to ghcr (openobserve mirror)
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -737,16 +845,16 @@ jobs:
       run: |
         uv run pytest tests/e2e/test_tiled_roundtrip.py -v --tb=short
 
-  scan-catalog-e2e:
-    name: Scan Catalog E2E (layered plan catalog, full Docker stack)
+  bluesky-catalog-e2e:
+    name: Bluesky Catalog E2E (layered plan catalog, full Docker stack)
     runs-on: ubuntu-latest
     # ADVISORY LANE: deliberately NOT in all-checks-passed's `needs:` list —
     # read this job's own log to see whether it passed. Only run on PRs from
-    # same repo (mirrors scan-deploy-e2e/tiled-roundtrip-e2e gating). This
+    # same repo (mirrors bluesky-deploy-e2e/tiled-roundtrip-e2e gating). This
     # job needs no secrets — the bridge never shells out to an LLM — and no
-    # amd64-emulated Virtual Accelerator image (demo_scanner mode: real
+    # amd64-emulated Virtual Accelerator image (demo_runner mode: real
     # RunEngine, mock devices, no EPICS), so it's comparable in weight to
-    # scan-deploy-e2e rather than va-substrate-equivalence-e2e.
+    # bluesky-deploy-e2e rather than va-substrate-equivalence-e2e.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
@@ -754,6 +862,13 @@ jobs:
       uses: actions/checkout@v7
       with:
         fetch-depth: 0
+
+    - name: Log in to ghcr (openobserve mirror)
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install uv
       uses: astral-sh/setup-uv@v7
@@ -769,22 +884,22 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
-    - name: Run scan catalog E2E
+    - name: Run bluesky catalog E2E
       run: |
-        uv run pytest tests/e2e/test_scan_catalog_e2e.py -v --tb=short
+        uv run pytest tests/e2e/test_bluesky_catalog_e2e.py -v --tb=short
 
-  scan-sandbox-escape-e2e:
-    name: Scan Sandbox Escape E2E (session-plan authoring gates, full Docker stack)
+  bluesky-sandbox-escape-e2e:
+    name: Bluesky Sandbox Escape E2E (session-plan authoring gates, full Docker stack)
     runs-on: ubuntu-latest
     # ADVISORY LANE: deliberately NOT in all-checks-passed's `needs:` list —
     # read this job's own log to see whether it passed (mirrors
-    # scan-catalog-e2e's advisory precedent). Only run on PRs from same repo
-    # (mirrors scan-deploy-e2e/va-substrate-equivalence-e2e gating). This job
+    # bluesky-catalog-e2e's advisory precedent). Only run on PRs from same repo
+    # (mirrors bluesky-deploy-e2e/va-substrate-equivalence-e2e gating). This job
     # needs no secrets — neither the bridge nor the virtual accelerator
     # shells out to an LLM — but DOES need the amd64-emulated Virtual
     # Accelerator image (the negative case's IOC no-write proof reads a real
     # corrector setpoint over Channel Access, independent of the bridge), so
-    # it's as heavy as va-substrate-equivalence-e2e, not scan-catalog-e2e.
+    # it's as heavy as va-substrate-equivalence-e2e, not bluesky-catalog-e2e.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     timeout-minutes: 45
 
@@ -794,6 +909,13 @@ jobs:
       with:
         fetch-depth: 0
 
+    - name: Log in to ghcr (openobserve mirror)
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
     - name: Install uv
       uses: astral-sh/setup-uv@v7
       with:
@@ -808,9 +930,9 @@ jobs:
     - name: Install osprey
       run: uv sync --extra dev
 
-    - name: Run scan sandbox escape E2E
+    - name: Run bluesky sandbox escape E2E
       run: |
-        uv run pytest tests/e2e/test_scan_sandbox_escape_e2e.py -v --tb=short
+        uv run pytest tests/e2e/test_bluesky_sandbox_escape_e2e.py -v --tb=short
 
   dockerfile-e2e:
     name: Dockerfile E2E (generated container image)
@@ -965,7 +1087,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, scan-deploy-e2e, va-substrate-equivalence-e2e, tiled-roundtrip-e2e, dockerfile-e2e, agentic-per-preset]
+    needs: [test, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, tiled-roundtrip-e2e, dockerfile-e2e, agentic-per-preset]
     runs-on: ubuntu-latest
     if: always()
 
@@ -1036,13 +1158,21 @@ jobs:
         else
           echo "✅ Dispatch deploy E2E passed"
         fi
-        # Scan Deploy E2E: advisory (Docker-dependent, no LLM involved)
-        if [[ "${{ needs.scan-deploy-e2e.result }}" == "failure" ]]; then
-          echo "⚠️  Scan deploy E2E failed (non-blocking, Docker-dependent)"
-        elif [[ "${{ needs.scan-deploy-e2e.result }}" == "skipped" ]]; then
-          echo "⏭️  Scan deploy E2E skipped (only run on PRs)"
+        # Bluesky Deploy E2E: advisory (Docker-dependent, no LLM involved)
+        if [[ "${{ needs.bluesky-deploy-e2e.result }}" == "failure" ]]; then
+          echo "⚠️  Bluesky deploy E2E failed (non-blocking, Docker-dependent)"
+        elif [[ "${{ needs.bluesky-deploy-e2e.result }}" == "skipped" ]]; then
+          echo "⏭️  Bluesky deploy E2E skipped (only run on PRs)"
         else
-          echo "✅ Scan deploy E2E passed"
+          echo "✅ Bluesky deploy E2E passed"
+        fi
+        # Bluesky Panels Deploy E2E: advisory (Docker-dependent, no LLM involved)
+        if [[ "${{ needs.bluesky-panels-deploy-e2e.result }}" == "failure" ]]; then
+          echo "⚠️  Bluesky panels deploy E2E failed (non-blocking, Docker-dependent)"
+        elif [[ "${{ needs.bluesky-panels-deploy-e2e.result }}" == "skipped" ]]; then
+          echo "⏭️  Bluesky panels deploy E2E skipped (only run on PRs)"
+        else
+          echo "✅ Bluesky panels deploy E2E passed"
         fi
         # VA Substrate Equivalence E2E: advisory (Docker-dependent, no LLM involved)
         if [[ "${{ needs.va-substrate-equivalence-e2e.result }}" == "failure" ]]; then

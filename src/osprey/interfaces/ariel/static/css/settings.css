@@ -7,20 +7,20 @@
 /* === Mode bar (Form/Raw) === */
 .settings-mode-bar {
   display: flex;
-  gap: var(--space-1);
-  padding: var(--space-2) var(--space-5);
+  gap: var(--ariel-space-1);
+  padding: var(--ariel-space-2) var(--ariel-space-5);
   border-bottom: 1px solid var(--neutral-tint-10);
   flex-shrink: 0;
 }
 
 .settings-mode-btn {
-  padding: var(--space-1) var(--space-3);
-  font-size: var(--text-xs);
+  padding: var(--ariel-space-1) var(--ariel-space-3);
+  font-size: var(--ariel-text-xs);
   font-weight: 500;
   color: var(--text-muted);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--ariel-radius-sm);
   cursor: pointer;
   transition: all var(--transition-fast);
 }
@@ -40,24 +40,24 @@
 .settings-form {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  gap: var(--ariel-space-4);
 }
 
 .settings-section {
   background: var(--bg-primary);
   border: 1px solid var(--neutral-tint-10);
-  border-radius: var(--radius-md);
+  border-radius: var(--ariel-radius-md);
   overflow: hidden;
 }
 
 .settings-section-header {
-  padding: var(--space-2) var(--space-3);
+  padding: var(--ariel-space-2) var(--ariel-space-3);
   background: var(--amber-tint-08);
   border-bottom: 1px solid var(--neutral-tint-10);
 }
 
 .settings-section-header .section-title {
-  font-size: var(--text-xs);
+  font-size: var(--ariel-text-xs);
   font-weight: 600;
   color: var(--color-amber);
   text-transform: uppercase;
@@ -65,21 +65,21 @@
 }
 
 .settings-section-body {
-  padding: var(--space-3);
+  padding: var(--ariel-space-3);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--ariel-space-3);
 }
 
 .settings-field {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
+  gap: var(--ariel-space-3);
 }
 
 .settings-field-label {
-  font-size: var(--text-sm);
+  font-size: var(--ariel-text-sm);
   font-weight: 500;
   color: var(--text-secondary);
   flex-shrink: 0;
@@ -91,22 +91,22 @@
 }
 
 .settings-field-input .input {
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--text-sm);
+  padding: var(--ariel-space-2) var(--ariel-space-3);
+  font-size: var(--ariel-text-sm);
 }
 
 /* === Raw YAML editor === */
 .settings-raw-editor {
   width: 100%;
   min-height: 400px;
-  padding: var(--space-4);
+  padding: var(--ariel-space-4);
   font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  line-height: var(--leading-relaxed);
+  font-size: var(--ariel-text-sm);
+  line-height: var(--ariel-leading-relaxed);
   color: var(--text-primary);
   background: var(--bg-primary);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
+  border-radius: var(--ariel-radius-md);
   resize: vertical;
   tab-size: 2;
 }
@@ -122,14 +122,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-3) var(--space-5);
+  padding: var(--ariel-space-3) var(--ariel-space-5);
   border-top: 1px solid var(--neutral-tint-10);
   background: var(--bg-elevated);
   flex-shrink: 0;
 }
 
 .settings-status {
-  font-size: var(--text-sm);
+  font-size: var(--ariel-text-sm);
   color: var(--text-muted);
 }
 
@@ -146,13 +146,13 @@
 }
 
 .settings-apply-btn {
-  padding: var(--space-2) var(--space-4);
-  font-size: var(--text-sm);
+  padding: var(--ariel-space-2) var(--ariel-space-4);
+  font-size: var(--ariel-text-sm);
   font-weight: 500;
   color: var(--bg-primary);
   background: var(--color-accent);
   border: 1px solid var(--color-accent);
-  border-radius: var(--radius-md);
+  border-radius: var(--ariel-radius-md);
   cursor: pointer;
   transition: all var(--transition-fast);
 }
@@ -185,30 +185,30 @@
 .settings-confirm-dialog {
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
-  padding: var(--space-6);
+  border-radius: var(--ariel-radius-lg);
+  padding: var(--ariel-space-6);
   max-width: 400px;
   width: 90%;
   text-align: center;
 }
 
 .settings-confirm-title {
-  font-size: var(--text-lg);
+  font-size: var(--ariel-text-lg);
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: var(--space-2);
+  margin-bottom: var(--ariel-space-2);
 }
 
 .settings-confirm-text {
-  font-size: var(--text-sm);
+  font-size: var(--ariel-text-sm);
   color: var(--text-secondary);
-  margin-bottom: var(--space-5);
-  line-height: var(--leading-relaxed);
+  margin-bottom: var(--ariel-space-5);
+  line-height: var(--ariel-leading-relaxed);
 }
 
 .settings-confirm-actions {
   display: flex;
-  gap: var(--space-3);
+  gap: var(--ariel-space-3);
   justify-content: center;
 }
 
@@ -219,8 +219,8 @@
   justify-content: center;
   height: 100%;
   color: var(--text-muted);
-  font-size: var(--text-sm);
-  gap: var(--space-2);
+  font-size: var(--ariel-text-sm);
+  gap: var(--ariel-space-2);
 }
 
 .settings-empty svg {

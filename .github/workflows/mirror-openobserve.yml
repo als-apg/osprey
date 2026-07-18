@@ -1,0 +1,76 @@
+name: Mirror openobserve to ghcr
+
+# Manual only. The image tag is PINNED in
+# src/osprey/templates/services/openobserve/docker-compose.yml.j2, so there is
+# nothing for a cron schedule to catch -- it would re-push identical bytes
+# forever. Run this by hand when that pin moves.
+#
+# Why this mirror exists: ECR Public rate-limits anonymous pulls per source IP
+# and GitHub-hosted runners share egress IPs, so E2E jobs intermittently fail
+# with "toomanyrequests: Rate exceeded" pulling openobserve. ghcr has no
+# anonymous pull-rate limit.
+#
+# The mirrored image is AGPL-3.0 (github.com/openobserve/openobserve). The
+# package is PRIVATE -- internal use, which AGPL does not restrict. Making it
+# public would be redistribution and would oblige us to provide corresponding
+# source. Do not flip visibility without reading the design doc.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'openobserve tag to mirror (must match the pin in the openobserve compose template)'
+        required: true
+        default: 'v0.14.4'
+
+jobs:
+  mirror:
+    name: Copy openobserve ${{ inputs.tag }} to ghcr
+    runs-on: ubuntu-latest
+    # packages: write is NOT in the repo's read-only default token, so it must
+    # be granted explicitly. contents: read is restated because a job-level
+    # permissions block REPLACES the default rather than extending it.
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Log in to ghcr
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Copy image registry-to-registry
+      # imagetools copies the manifest LIST server-side. Do not replace this
+      # with docker pull/tag/push: that resolves to the runner's single
+      # architecture and would silently publish an amd64-only image under a
+      # multi-arch tag.
+      run: |
+        docker buildx imagetools create \
+          --tag ghcr.io/als-apg/openobserve:${{ inputs.tag }} \
+          public.ecr.aws/zinclabs/openobserve:${{ inputs.tag }}
+
+    - name: Verify the copy is verbatim
+      # Digest equality proves a byte-for-byte copy. This is a licensing
+      # requirement (AGPL verbatim redistribution), not only a sanity check.
+      # Note: GitHub Actions only interpolates ${{ ... }}. A bare {{ ... }} Go
+      # template passes through untouched, so it needs no escaping here.
+      run: |
+        UPSTREAM=$(docker buildx imagetools inspect \
+          public.ecr.aws/zinclabs/openobserve:${{ inputs.tag }} \
+          --format '{{.Manifest.Digest}}')
+        MIRROR=$(docker buildx imagetools inspect \
+          ghcr.io/als-apg/openobserve:${{ inputs.tag }} \
+          --format '{{.Manifest.Digest}}')
+        echo "upstream: $UPSTREAM"
+        echo "mirror:   $MIRROR"
+        if [ "$UPSTREAM" != "$MIRROR" ]; then
+          echo "::error::Digest mismatch - mirror is NOT a verbatim copy"
+          exit 1
+        fi
+        echo "Digests match."

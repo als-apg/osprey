@@ -1,11 +1,11 @@
 """Authoring-time validator for a session-tier bluesky plan-file BODY.
 
-An agent authoring a new plan (task 2.3's ``write_bluesky_plan``/
-``validate_bluesky_plan`` MCP tools) never gets its file exec'd directly —
+An agent authoring a new plan (task 2.3's ``write_plan``/
+``validate_plan`` MCP tools) never gets its file exec'd directly —
 that would hand arbitrary code execution to whatever produced the body. This
 module is the gate a body must pass before anything downstream (the session
-directory layer's LOAD gate, task 2.4; the promote gate, task 2.5) will treat
-it as real: :func:`validate_bluesky_plan` runs three ordered stages, each of
+directory layer's LOAD gate, task 2.4; the launch gate, task 2.5) will treat
+it as real: :func:`validate_plan` runs three ordered stages, each of
 which can reject outright before the next ever runs:
 
 1. **Static AST allowlist** (:func:`_static_allowlist_check`) — a submodule-
@@ -32,7 +32,7 @@ which can reject outright before the next ever runs:
    (:mod:`osprey.services.bluesky_bridge.devices.mock`). This is an
    **authoring-quality gate** ("does the body actually run"), not a
    containment boundary — containment comes from stages 1-2 above and the
-   downstream load/promote gates that key off this module's validation
+   downstream load/launch gates that key off this module's validation
    record, not from anything the dry-run subprocess itself prevents.
 
 Every :class:`ValidationResult` (pass or fail) carries a ``content_hash``
@@ -306,7 +306,7 @@ def hash_plan_body(body: str) -> str:
     BOM, or adds/drops trailing blank lines still hashes identically. This is
     the one place that normalization happens; every caller that needs to
     check "does this file content have a passing validation record"
-    (task 2.2's store, task 2.4's load gate, task 2.5's promote gate) must
+    (task 2.2's store, task 2.4's load gate, task 2.5's launch gate) must
     hash through this function rather than re-deriving its own encoding.
     """
     normalized = body.replace("\r\n", "\n").replace("\r", "\n")
@@ -320,7 +320,7 @@ class ValidationResult:
 
     ``passed`` is `False` if any stage rejects the body; ``reasons`` lists
     every rejection reported by whichever stage stopped it (later stages
-    never run once an earlier one fails — see `validate_bluesky_plan`).
+    never run once an earlier one fails — see `validate_plan`).
     ``content_hash`` is always populated, computed before any stage runs, so a
     caller can key a validation record (or a rejection) against the exact
     body content regardless of which stage decided the outcome.
@@ -368,7 +368,7 @@ def _collect_device_names(value: Any, *, key: str | None = None) -> tuple[set[st
 
     A plan file's `PLAN_METADATA["required_devices"]` names PARAMS *fields*
     (e.g. ``"correctors"``, ``"detectors"``), not a fixed shape all plans
-    share — `grid_scan_nd`'s setpoints, for instance, are nested under
+    share — `grid_scan`'s setpoints, for instance, are nested under
     ``axes[].setpoint`` rather than a flat field. Rather than hard-coding a
     per-plan device-field shape, this walks ``sample_args`` itself and
     buckets every string leaf by the nearest enclosing field name: a field
@@ -409,7 +409,7 @@ def _render_dry_run_script(
     """Render the subprocess script that drives the dry-run to completion.
 
     Loads the plan body as a standalone module, wraps it in a `PlanSpec`, and
-    drives it through `BlueskyScanner` (the same real bluesky-plan-runner the
+    drives it through `BlueskyPlanRunner` (the same real bluesky-plan-runner the
     bridge itself uses, mirroring its own contract-test usage) against mock
     devices built for the device names found in ``sample_args``. Writes a
     JSON result to ``result_path`` in a ``finally`` so the parent always has
@@ -439,7 +439,7 @@ try:
     module = importlib.util.module_from_spec(spec)
     # Registered in sys.modules BEFORE exec (mirrors plan_loader.py's own
     # module loader): a plan body with two pydantic models referencing each
-    # other by name (e.g. `grid_scan_nd`'s `PARAMS.axes: list[GridAxis]`)
+    # other by name (e.g. `grid_scan`'s `PARAMS.axes: list[GridAxis]`)
     # relies on `from __future__ import annotations` postponed-evaluation
     # forward refs resolving against `sys.modules[cls.__module__].__dict__`
     # -- skip this and pydantic raises "class not fully defined" the moment
@@ -452,7 +452,7 @@ try:
 
     from osprey.services.bluesky_bridge.devices.mock import build_devices
     from osprey.services.bluesky_bridge.plan_types import PlanSpec
-    from osprey.services.bluesky_bridge.scanner_bluesky import BlueskyScanner
+    from osprey.services.bluesky_bridge.plan_runner_bluesky import BlueskyPlanRunner
 
     params_cls = getattr(module, "PARAMS", None)
     if params_cls is None:
@@ -464,20 +464,20 @@ try:
     def _device_source():
         return build_devices(motor_names=_MOTOR_NAMES, detector_names=_DETECTOR_NAMES)
 
-    scanner = BlueskyScanner(devices=_device_source, plans={{_PLAN_NAME: plan_spec}})
-    ok = scanner.reinitialize({{"plan_name": _PLAN_NAME, "plan_args": _SAMPLE_ARGS}})
+    runner = BlueskyPlanRunner(devices=_device_source, plans={{_PLAN_NAME: plan_spec}})
+    ok = runner.reinitialize({{"plan_name": _PLAN_NAME, "plan_args": _SAMPLE_ARGS}})
     if not ok:
-        raise RuntimeError(scanner.error_message or "plan resolution failed")
+        raise RuntimeError(runner.error_message or "plan resolution failed")
 
-    scanner.start_scan_thread()
+    runner.start_run_thread()
     deadline = time.monotonic() + _DEADLINE_S
-    while scanner.is_scanning_active() and time.monotonic() < deadline:
+    while runner.is_run_active() and time.monotonic() < deadline:
         time.sleep(0.02)
 
-    if scanner.is_scanning_active():
+    if runner.is_run_active():
         raise TimeoutError("dry-run plan did not complete within the timeout")
-    if scanner.current_state != "completed":
-        raise RuntimeError(scanner.error_message or f"dry-run ended in state {{scanner.current_state!r}}")
+    if runner.current_state != "completed":
+        raise RuntimeError(runner.error_message or f"dry-run ended in state {{runner.current_state!r}}")
 
     result["success"] = True
 except Exception as exc:
@@ -565,7 +565,7 @@ async def _dry_run(
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
-async def validate_bluesky_plan(
+async def validate_plan(
     body: str,
     *,
     plan_name: str = "session_plan",
@@ -581,7 +581,7 @@ async def validate_bluesky_plan(
     Args:
         body: The plan file's full source text (``PLAN_METADATA`` + ``PARAMS``
             + ``build_plan``, per the layered directory catalog's file
-            contract — see ``plans_core/response_matrix.py``).
+            contract — see ``plans_core/orm.py``).
         plan_name: Name to register the body's plan under for the stage-3
             dry-run only; unrelated to any name the body's own
             ``PLAN_METADATA`` declares.

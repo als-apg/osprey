@@ -275,6 +275,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             output_path=".claude/skills/writing-bluesky-plans/SKILL.md",
             description="Author, validate, and launch a session-tier Bluesky scan plan",
         ),
+        BuildArtifact(
+            canonical_name="skills/operating-bluesky-scans",
+            template_path="claude/skills/operating-bluesky-scans/SKILL.md",
+            output_path=".claude/skills/operating-bluesky-scans/SKILL.md",
+            description="Stage, launch, and watch a registered Bluesky scan through the shared draft",
+        ),
         # ── Output Styles ────────────────────────────────────────────
         BuildArtifact(
             canonical_name="output-styles/control-operator",

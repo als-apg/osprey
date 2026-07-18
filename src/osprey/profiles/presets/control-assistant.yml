@@ -52,7 +52,8 @@ skills:
   - setup-mode      # Toggle between interactive and automated operating modes
   - session-report  # Summarise session actions and outcomes to the logbook
   - demo-gallery    # Launch guided capability demonstrations
-  - writing-bluesky-plans  # Author, validate, and launch a session-tier scan plan (requires the scan MCP server)
+  - writing-bluesky-plans  # Author, validate, and launch a session-tier plan (requires the Bluesky MCP server)
+  - operating-bluesky-scans  # Stage, launch, and watch a registered scan through the shared draft (requires the Bluesky MCP server)
 
 agents:
   - channel-finder          # Semantic search over channel databases (hierarchical)
@@ -68,12 +69,60 @@ web_panels:
   - ariel           # ARIEL search interface (past experiments, papers)
   - channel-finder  # Interactive channel-finder web UI
   - events          # EVENTS dashboard tab (event dispatcher)
+  - plan       # Bluesky plan selection & execute
+  - results    # Live run results viewer
+  - health     # Bluesky-stack health dashboard
+
+# ── Bluesky stack (turn-key, VA-backed) ─────────────────────────────────────────
+# The tutorial ships the FULL Bluesky-mediated Bluesky stack out of the box:
+# a Bluesky bridge (+ co-deployed Tiled catalog), a PyAT Virtual
+# Accelerator soft-IOC standing in for real EPICS hardware, and the
+# bluesky-panels sidecar that serves the three web_panels above. Each top-level
+# block below is an injector trigger (`_inject_bluesky`/`_inject_va`/
+# `_inject_bluesky_panels` in build_cmd.py) — it renders the corresponding
+# `services.<name>` compose service, appends to `deployed_services`, and (for
+# bluesky_panels) registers the `web.panels.<id>` URLs. Remove this section
+# (and the three panel ids above) to ship a Bluesky-free tutorial.
+bluesky:
+  port: 8090
+  tiled_enabled: true      # co-deploys the Tiled catalog sidecar alongside the bridge
+  tiled_port: 8091
+  # demo_runner intentionally omitted: the tutorial drives the bridge against
+  # the real VA soft-IOC over BLUESKY_EPICS_SUBSTRATE, not the mock demo runner.
+
+virtual_accelerator:
+  # MUST stay 5064 — config.yml.j2 hardcodes the VA gateway port at 5064
+  # (control_system.connector.virtual_accelerator.gateways.*.port is not
+  # templated from services.virtual_accelerator.port); changing this here
+  # would desync the connector from the deployed container.
+  port: 5064
+
+bluesky_panels:
+  port: 8095
 
 # ── Config overrides ─────────────────────────────────────────────────────────
 # These key.path entries are written into config.yml after the template renders.
 # Uncomment and set values appropriate for your facility.
 config:
-  control_system.type: mock   # Change to "epics" for live hardware
+  # The VA soft-IOC ships and is deployed as part of the turn-key Bluesky stack
+  # above, but control_system.type defaults to "mock" so a fresh tutorial
+  # project stays safe out of the box: the panels, plan catalog, and health
+  # dashboard all work, and no live/simulated hardware is touched. Note the
+  # mock connector does NOT track setpoints (its readbacks are a non-tracking
+  # simulation), so a settle-verified run will not COMPLETE on mock — mock is
+  # for browsing/UI. Flip this one line to "virtual_accelerator" to drive the
+  # deployed VA end-to-end (correctors move, BPMs read); use "epics" for live
+  # hardware.
+  control_system.type: mock
+  # Required for arming: a local-exec posture withholds the auto-minted
+  # BLUESKY_LAUNCH_TOKEN (see container_lifecycle.py's
+  # _local_exec_arming_unsafe) — container execution is what lets `osprey
+  # deploy up` mint the token safely.
+  execution.execution_method: container
+  # The Bluesky MCP server is off-by-default in the framework registry
+  # (default_enabled=False); opt in here so the tutorial's agent can author
+  # and launch scan plans out of the box.
+  claude_code.servers.bluesky.enabled: true
   # system.timezone: America/Los_Angeles
   # system.facility_name: My Facility
   # Container-name prefix for the multi-user web-terminal stack below. Web
@@ -95,6 +144,20 @@ config:
   web.panels.events.url: "${EVENT_DISPATCHER_URL:-http://localhost:8020}"
   web.panels.events.path: /dashboard
   web.panels.events.health_endpoint: /health
+  # SCAN panels — the operator UI for the mediated Bluesky stack (plan selection &
+  # execute, live results, service health), served by the bluesky-panels sidecar.
+  # URL defaults to the host-published sidecar port; override BLUESKY_PANELS_URL for
+  # a containerized/remote web terminal (same pattern as the EVENTS panel above).
+  web.panels.plan.label: PLAN
+  web.panels.plan.url: "${BLUESKY_PANELS_URL:-http://localhost:8095}"
+  web.panels.plan.path: /plan/
+  web.panels.results.label: RESULTS
+  web.panels.results.url: "${BLUESKY_PANELS_URL:-http://localhost:8095}"
+  web.panels.results.path: /results/
+  web.panels.health.label: HEALTH
+  web.panels.health.url: "${BLUESKY_PANELS_URL:-http://localhost:8095}"
+  web.panels.health.path: /health-panel/
+  web.panels.health.health_endpoint: /health
   # ── Multi-user web-terminal stack ──────────────────────────────────────────
   # Turns this preset into the two-persona multi-user product: an operator tier
   # and a physicist tier, each its own rendered project and container image.
@@ -135,14 +198,6 @@ config:
         project: control-assistant-physicist
         project_path: ../control-assistant-physicist
         build_profile: control-assistant-physicist
-
-# ── Bluesky scan bridge ──────────────────────────────────────────────────────
-# Ships the single bluesky_bridge service (deploy key `bluesky`) on port 8090 so
-# the physicist tier's scan MCP server has a bridge to reach — its
-# BLUESKY_BRIDGE_URL defaults to 127.0.0.1:8090, matching this port. The base
-# keeps the scan MCP server off; the physicist persona opts it on.
-bluesky:
-  port: 8090
 
 # ── Event dispatch (optional) ────────────────────────────────────────────────
 # Turns external events (webhooks) into headless agent runs. This ships a set of

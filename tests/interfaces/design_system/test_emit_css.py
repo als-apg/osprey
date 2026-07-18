@@ -51,6 +51,13 @@ def _small_tree() -> TokenTree:
         "font.display": _token("font.display", "'Outfit', sans-serif", type_="fontFamily"),
         "font.mono": _token("font.mono", "'JetBrains Mono', monospace", type_="fontFamily"),
         "color.teal.300": _token("color.teal.300", "#319795"),
+        "text.base": _token("text.base", "11px", type_="dimension"),
+        "weight.medium": _token("weight.medium", "500", type_="fontWeight"),
+        "leading.normal": _token("leading.normal", "1.5", type_="number"),
+        "space.1": _token("space.1", "4px", type_="dimension"),
+        "radius.sm": _token("radius.sm", "3px", type_="dimension"),
+        "z.modal": _token("z.modal", "400", type_="number"),
+        "duration.fast": _token("duration.fast", "150ms", type_="duration"),
     }
 
     def theme_tokens(bg: str, text: str, accent: str) -> dict[str, ResolvedToken]:
@@ -194,6 +201,23 @@ def test_emit_css_fonts_emitted_once_in_default_block_only() -> None:
     dark_block, light_block = _extract_blocks(css)
     assert "--font-display" in dark_block
     assert "--font-display" not in light_block
+
+
+def test_scale_primitives_emitted_in_default_block_only() -> None:
+    css = emit_css(_small_tree())
+    root_block = css.split("}")[0]  # ':root, [data-theme=...]' block
+
+    assert "--space-1: 4px;" in root_block
+    assert "--radius-sm: 3px;" in root_block
+    assert "--text-base: 11px;" in root_block
+    assert "--weight-medium: 500;" in root_block
+    assert "--leading-normal: 1.5;" in root_block
+    assert "--duration-fast: 150ms;" in root_block
+    assert "--z-modal: 400;" in root_block
+
+    # scales are theme-independent: never re-declared in non-default blocks
+    for block in css.split("}")[1:]:
+        assert "--space-1:" not in block
 
 
 def test_emit_css_excludes_code_group_entirely() -> None:

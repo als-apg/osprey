@@ -1,0 +1,262 @@
+/* OSPREY Scan Panels — Results panel (task 2.2)
+   Every color/border/shadow below resolves through a var(--…) design token
+   — no raw hex literals anywhere in this file (validator-enforced). */
+
+body {
+  margin: 0;
+  padding: 24px;
+  font-family: var(--font-display);
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.6;
+}
+
+.panel {
+  max-width: 900px;
+  margin: 0 auto;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.panel-chrome {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-default);
+}
+body.embedded .panel-chrome { display: none; }
+
+.panel-chrome h1 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.panel-chrome .panel-kicker {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.lead {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0 0 20px;
+}
+
+.card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-panel);
+}
+.card h2 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* ---- Run picker ---- */
+
+.field-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.field-row label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.field-row select {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  padding: 5px 8px;
+  min-width: 220px;
+}
+.field-row select:focus-visible {
+  outline: 2px solid var(--border-accent);
+  outline-offset: 1px;
+}
+
+.run-meta {
+  margin: 10px 0 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.run-meta strong {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+
+/* ---- Badges (mirrors the design-system reference panel) ---- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.badge.ok {
+  color: var(--color-success);
+  background: var(--success-tint-08);
+  border-color: var(--color-success);
+}
+.badge.warn {
+  color: var(--color-amber);
+  background: var(--amber-tint-08);
+  border-color: var(--color-amber);
+}
+.badge.err {
+  color: var(--color-error);
+  background: var(--error-tint-08);
+  border-color: var(--color-error);
+}
+.badge.info {
+  color: var(--color-accent-light);
+  background: var(--accent-tint-06);
+  border-color: var(--border-accent);
+}
+
+/* ---- Degraded-store banner ---- */
+
+.banner {
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+.banner.warn {
+  color: var(--color-amber);
+  background: var(--amber-tint-08);
+  border: 1px solid var(--color-amber);
+}
+
+/* ---- Empty state ---- */
+
+.empty-state {
+  border: 1px dashed var(--border-default);
+  border-radius: 8px;
+  padding: 24px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+.empty-state.error {
+  color: var(--color-error);
+  border-color: var(--color-error);
+}
+
+/* ---- Data table ---- */
+
+.table-note {
+  margin: 0 0 10px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+}
+
+#results-table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 480px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+#results-table th,
+#results-table td {
+  padding: 6px 10px;
+  text-align: right;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border-default);
+}
+#results-table th:first-child,
+#results-table td:first-child {
+  text-align: left;
+  color: var(--text-muted);
+}
+#results-table thead th {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+}
+#results-table tbody tr:last-child td {
+  border-bottom: none;
+}
+#results-table tbody tr:hover {
+  background: var(--neutral-tint-08);
+}
+
+/* ---- Chart ---- */
+
+.chart-caption {
+  margin: 0 0 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.chart-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--chart-plot-bg);
+}
+
+#results-chart {
+  display: block;
+  width: 100%;
+  min-width: 480px;
+  height: 220px;
+}
+
+.chart-legend {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 12px 0 0;
+  padding: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.chart-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.chart-legend .swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}

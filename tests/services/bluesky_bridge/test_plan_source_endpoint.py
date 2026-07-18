@@ -6,7 +6,7 @@ obfuscation residual (see `plan_validation.py`'s module docstring): an
 approver who can actually SEE a plan's source has a chance to refuse an
 obfuscated body even where the earlier automated stages could not catch it.
 
-Mirrors `test_promote_validation_gate.py`'s isolation fixture and session-plan
+Mirrors `test_launch_validation_gate.py`'s isolation fixture and session-plan
 helpers — every plan file here is pure pydantic/stdlib (no bluesky import).
 """
 
@@ -20,6 +20,7 @@ from fastapi.testclient import TestClient
 from osprey.services.bluesky_bridge import plan_loader
 from osprey.services.bluesky_bridge.app import (
     _SOURCE_TRUNCATE_CHARS,
+    _SOURCE_TRUNCATE_CHARS_MAX,
     app,
 )
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
@@ -122,6 +123,38 @@ def test_session_plan_source_is_truncated_beyond_the_bound(
     assert body["source"] == source[:_SOURCE_TRUNCATE_CHARS]
 
 
+def test_max_chars_raises_the_bound_for_full_source_reads(
+    tmp_path: Path, client: TestClient
+) -> None:
+    """The plan panel's Source tab asks for more than the skim default via
+    `?max_chars=` — a source longer than the default but within the ask comes
+    back whole, and the default-bound behavior is unchanged for callers (the
+    approval hook) that don't pass the param."""
+    oversized_body = "\n# padding\n" * (_SOURCE_TRUNCATE_CHARS // 5)
+    source = _session_plan_source("full_read_plan", body=oversized_body)
+    assert _SOURCE_TRUNCATE_CHARS < len(source) < _SOURCE_TRUNCATE_CHARS_MAX
+    _write_session_plan(tmp_path, "full_read_plan", source)
+
+    resp = client.get(f"/plans/full_read_plan/source?max_chars={_SOURCE_TRUNCATE_CHARS_MAX}")
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["truncated"] is False
+    assert body["source"] == source
+
+
+def test_max_chars_beyond_the_ceiling_is_422(tmp_path: Path, client: TestClient) -> None:
+    """The explicit ask is itself capped — the response can never be made
+    unbounded by a client-chosen number."""
+    source = _session_plan_source("capped_plan")
+    _write_session_plan(tmp_path, "capped_plan", source)
+
+    resp = client.get(f"/plans/capped_plan/source?max_chars={_SOURCE_TRUNCATE_CHARS_MAX + 1}")
+    assert resp.status_code == 422
+
+    resp = client.get("/plans/capped_plan/source?max_chars=0")
+    assert resp.status_code == 422
+
+
 def test_unknown_plan_name_is_404(client: TestClient) -> None:
     resp = client.get("/plans/does_not_exist_anywhere/source")
     assert resp.status_code == 404
@@ -158,8 +191,9 @@ def test_shipped_plan_is_located_by_declared_name_not_file_stem(
     tmp_path: Path, client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A shipped-tier file may declare a `PLAN_METADATA["name"]` different
-    from its own filename (e.g. `plans_core/grid_scan.py` -> "grid_scan_nd")
-    — the source route must resolve by the declared name, not the stem."""
+    from its own filename (e.g. a `some_file_stem.py` declaring
+    `"name": "declared_plan_name"`) — the source route must resolve by the
+    declared name, not the stem."""
     shipped_dir = tmp_path / "shipped"
     shipped_dir.mkdir()
     (shipped_dir / "some_file_stem.py").write_text(_session_plan_source("declared_plan_name"))
@@ -179,7 +213,7 @@ def test_re_authored_session_plan_re_reflects_unvalidated_after_edit(
     tmp_path: Path, client: TestClient
 ) -> None:
     """A previously-validated session file, edited afterward, is honestly
-    reported as unvalidated again — mirrors the load/promote gates' own
+    reported as unvalidated again — mirrors the load/launch gates' own
     re-hash-on-every-check behavior (never a stale cached verdict)."""
     original = _session_plan_source("edited_plan")
     path = _write_session_plan(tmp_path, "edited_plan", original)

@@ -5,7 +5,7 @@ one-entry `facility`-tier layer.
 
 Directory layers are exercised by monkeypatching `plan_loader._SHIPPED_PLANS_DIR`
 (the in-image core dir doesn't exist in this checkout yet — task 1.5) and by
-setting `BLUESKY_PLAN_DIRS` (env, `facility` tier) / `scan.plan_dirs` in a
+setting `BLUESKY_PLAN_DIRS` (env, `facility` tier) / `bluesky.plan_dirs` in a
 temp config.yml (`preset` tier). All plan files here are pure pydantic/stdlib
 — no bluesky import — so this suite runs in the bluesky-less lane alongside
 `test_plan_injection.py`.
@@ -72,7 +72,7 @@ def _synthetic_module_name(path: Path) -> str:
 
 def _write_config(tmp_path: Path, plan_dirs: list[str]) -> Path:
     config_file = tmp_path / "config.yml"
-    config_file.write_text(yaml.dump({"scan": {"plan_dirs": plan_dirs}}))
+    config_file.write_text(yaml.dump({"bluesky": {"plan_dirs": plan_dirs}}))
     return config_file
 
 
@@ -338,11 +338,12 @@ def test_equal_trust_collision_lets_the_later_scanned_directory_win(
     )
 
 
-def test_builtin_plans_still_import_and_are_unaffected(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Sanity check: `plans.py`'s programmatic built-in set (registered
-    through `app.py`, not this loader) is untouched by the layered rewrite."""
+def test_shipped_plans_register_through_the_real_shipped_dir() -> None:
+    """Sanity check: `plan_loader.py` is the sole plan registry — the shipped
+    `orm`/`grid_scan` plans (in `plans_core/`) register through the ordinary
+    `shipped`-tier directory scan, same as any other layer."""
     pytest.importorskip("bluesky")
-    from osprey.services.bluesky_bridge.plans import BUILTIN_PLANS
 
-    assert BUILTIN_PLANS
-    assert all(spec.provenance == "shipped" for spec in BUILTIN_PLANS.values())
+    facility = plan_loader.get_facility_plans()
+    assert set(facility.plans) == {"orm", "grid_scan"}
+    assert all(spec.provenance == "shipped" for spec in facility.plans.values())

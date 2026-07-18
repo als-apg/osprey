@@ -2,7 +2,7 @@
 the co-deployed Tiled catalog (PROPOSAL.md's success criterion 11).
 
 Deploys the bridge + Tiled with the mock-devices demo scanner
-(``bluesky.demo_scanner=true``, ``bluesky.tiled_enabled=true`` — no virtual
+(``bluesky.demo_runner=true``, ``bluesky.tiled_enabled=true`` — no virtual
 accelerator, no EPICS, no QEMU: the demo scanner runs a real bluesky
 RunEngine against in-process mock devices), runs a scan to completion,
 restarts ONLY the bridge container, and reads the same run back through the
@@ -14,7 +14,7 @@ and searched for by ``_from_tiled`` (task 3.2/3.3) after the registry lookup
 misses.
 
 This is why the pre-restart poll waits for ``status == "completed"``, not
-merely "promoted" or "running": ``TiledWriter`` caches events and flushes
+merely "launched" or "running": ``TiledWriter`` caches events and flushes
 only at the stop doc (or its own ``batch_size`` cap), so restarting before
 completion would lose every cached event while ``tiled_degraded`` still read
 ``False`` (Landmine 4 in the research brief) — a proof that would pass
@@ -50,7 +50,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Deliberately distinct from test_scan_deploy.py's 18090 and
+# Deliberately distinct from test_bluesky_deploy.py's 18090 and
 # test_va_substrate_equivalence.py's 18099 so all three can run concurrently
 # on a shared dev machine without a port collision.
 BRIDGE_PORT = 18101
@@ -69,8 +69,8 @@ TILED_CONTAINER = f"{PROJECT_NAME}-bluesky-tiled"
 # hook wires it with no explicit motor/detector names.
 DEMO_DETECTOR = "det1"
 
-# The bridge's promote route (POST /runs/{id}/promote) fails closed on an
-# unset BLUESKY_PROMOTE_TOKEN. The control-assistant preset deploys with
+# The bridge's launch route (POST /runs/{id}/launch) fails closed on an
+# unset BLUESKY_LAUNCH_TOKEN. The control-assistant preset deploys with
 # control_system.writes_enabled: true AND execution.execution_method: local,
 # which deliberately gates auto-arming off for that token
 # (container_lifecycle._local_exec_arming_unsafe) — a local unsandboxed agent
@@ -81,7 +81,7 @@ DEMO_DETECTOR = "det1"
 # the local-exec-safe allowlist (it grants catalog access only, no
 # write-capable bridge route) and auto-mints regardless — no need to supply
 # it ourselves.
-PROMOTE_TOKEN = "e2e-tiled-roundtrip-promote-token"
+LAUNCH_TOKEN = "e2e-tiled-roundtrip-launch-token"
 
 BUILD_TIMEOUT_SEC = 300
 DEPLOY_UP_TIMEOUT_SEC = 600
@@ -122,15 +122,15 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
     )
 
 
-def _write_promote_token(project_dir: Path) -> None:
-    """Append BLUESKY_PROMOTE_TOKEN to the project .env BEFORE ``osprey deploy
+def _write_launch_token(project_dir: Path) -> None:
+    """Append BLUESKY_LAUNCH_TOKEN to the project .env BEFORE ``osprey deploy
     up`` -- the bridge compose template passes it through from the project
     .env, same mechanism as task 4.2's substrate-equivalence e2e."""
     env_path = project_dir / ".env"
     existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
     if existing and not existing.endswith("\n"):
         existing += "\n"
-    env_path.write_text(existing + f"BLUESKY_PROMOTE_TOKEN={PROMOTE_TOKEN}\n", encoding="utf-8")
+    env_path.write_text(existing + f"BLUESKY_LAUNCH_TOKEN={LAUNCH_TOKEN}\n", encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
@@ -160,7 +160,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         "dispatch: null\nconfig:\n  services.postgresql.port_host: 15432\n", encoding="utf-8"
     )
 
-    # bluesky.port/demo_scanner/tiled_enabled are all leaf scalars under the
+    # bluesky.port/demo_runner/tiled_enabled are all leaf scalars under the
     # top-level `bluesky:` profile key, so plain --set works (a dotted --set
     # only becomes unsafe for keys nested under an existing block you don't
     # want replaced wholesale, e.g. control_system.type -- not the case
@@ -179,7 +179,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             "--set",
             f"bluesky.port={BRIDGE_PORT}",
             "--set",
-            "bluesky.demo_scanner=true",
+            "bluesky.demo_runner=true",
             "--set",
             "bluesky.tiled_enabled=true",
             "--skip-deps",
@@ -197,7 +197,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             f"--- stdout ---\n{build.stdout}\n--- stderr ---\n{build.stderr}"
         )
 
-    _write_promote_token(project_dir)
+    _write_launch_token(project_dir)
 
     # Force a fresh --dev build so the deployed bridge container runs CURRENT
     # source (osprey deploy up does not pass --build to compose, so it would
@@ -309,15 +309,26 @@ def test_tiled_roundtrip(deployed_stack: Path) -> None:
     # `deployed_stack` is requested for its side effect: it builds the project,
     # brings up bridge + Tiled, and waits for both to report healthy.
 
-    # --- 2. create + promote a scan --------------------------------------
+    # --- 2. create + launch a scan --------------------------------------
+    # Minimal single-axis grid_scan (the demo runner's default mock devices
+    # are motor1/det1) -- shipped registry only has orm/grid_scan; this test
+    # just wants a small, readable buffered stream, so a 3-point 1-axis
+    # sweep stands in for the removed built-in `count` plan.
     status, body = _post(
-        "/runs", {"plan_name": "count", "plan_args": {"detectors": [DEMO_DETECTOR], "num": 3}}
+        "/runs",
+        {
+            "plan_name": "grid_scan",
+            "plan_args": {
+                "detectors": [DEMO_DETECTOR],
+                "axes": [{"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 3}],
+            },
+        },
     )
     assert status == 200, f"POST /runs failed: {status} {body}"
     run_id = body["id"]
 
-    status, body = _post(f"/runs/{run_id}/promote", {}, headers={"X-Promote-Token": PROMOTE_TOKEN})
-    assert status == 200, f"promote failed: {status} {body}"
+    status, body = _post(f"/runs/{run_id}/launch", {}, headers={"X-Launch-Token": LAUNCH_TOKEN})
+    assert status == 200, f"launch failed: {status} {body}"
 
     # --- 3. poll to completion --------------------------------------------
     # Not politeness: TiledWriter caches events and flushes only at the stop
@@ -368,7 +379,7 @@ def test_tiled_roundtrip(deployed_stack: Path) -> None:
     # --- 7. read the SAME run id back through the SAME endpoint -----------
     # The in-memory registry (and run.run_uid with it) died with the bridge
     # process; the only thread back to this run's data is osprey_run_id,
-    # stamped into the RunEngine start doc by do_promote and searched for by
+    # stamped into the RunEngine start doc by do_launch and searched for by
     # _from_tiled via Key("start.osprey_run_id") == run_id.
     status, post_data = _get(f"/runs/{run_id}/data")
     assert status == 200, f"GET /runs/{run_id}/data (post-restart) failed: {status} {post_data}"

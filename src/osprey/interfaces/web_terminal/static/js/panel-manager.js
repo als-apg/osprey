@@ -10,6 +10,8 @@
 import { fetchJSON, createEventSource } from './api.js';
 import { getTheme } from '/design-system/js/theme-manager.js';
 import { getCurrentSessionId } from './terminal.js';
+import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
+import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
 
 // ---- Types ----
 
@@ -120,6 +122,15 @@ const visiblePanels = new Set();
 const DEFAULT_PANEL_FALLBACK = 'artifacts';
 let DEFAULT_PANEL = DEFAULT_PANEL_FALLBACK;
 
+// Whether the server permits runtime URL-panel registration (web.allow_runtime_panels).
+// Read from /api/panels at init; gates the "new panel from URL" row in the add menu.
+let allowRuntimePanels = false;
+
+// Config-defined panel presets ("Layouts") from /api/panels (web.presets), in
+// config order. Empty unless a facility opts in; feeds the "+" menu's Layouts section.
+/** @type {{name: string, panels: string[]}[]} */
+let panelPresets = [];
+
 // ---- Public API ----
 
 /**
@@ -200,8 +211,36 @@ export async function initPanelManager(panelId) {
     for (const panel of PANELS) visiblePanels.add(panel.id);
   }
 
+  // Whether the human "+" menu may register URL panels (server config gate).
+  allowRuntimePanels = !!panelConfig?.allow_runtime_panels;
+
+  // Config-defined layouts for the "+" menu's Layouts section (empty by default).
+  panelPresets = panelConfig?.presets || [];
+
   // Render tab buttons
   renderTabs();
+
+  // Wire the header "+" control (add menu + Layouts). wirePanelHeaderControls
+  // owns the getElementById lookups and the initPanelAddMenu call; the menu is a
+  // dumb view reading state through these closures and calling back into the same
+  // visibility/register paths the agent uses.
+  wirePanelHeaderControls({
+    getHiddenPanels: () => PANELS.filter(p => !visiblePanels.has(p.id)).map(p => ({ id: p.id, label: p.label })),
+    allowUrlPanels: () => allowRuntimePanels,
+    onShowPanel: showPanel,
+    onRegisterUrl: registerUrlPanel,
+    getPresets: () => panelPresets,
+    onApplyPreset: applyMenuPreset,
+  });
+
+  // Keyboard close: Delete/Backspace on a focused tab hides that panel (the "×"
+  // is mouse-only/decorative). Delegated — one listener rather than one per tab.
+  tabsEl.addEventListener('keydown', (e) => {
+    if (e.key !== 'Delete' && e.key !== 'Backspace') return;
+    if (!(e.target instanceof HTMLElement)) return;
+    const id = e.target.closest('.header-tab')?.getAttribute('data-panel-id');
+    if (id) { e.preventDefault(); setPanelVisibility(id, false); }
+  });
 
   // Fetch config and start health polling for all panels
   for (const panel of PANELS) {
@@ -317,9 +356,20 @@ function buildTabButton(panel) {
   tab.appendChild(led);
   tab.appendChild(document.createTextNode(panel.label));
   tab.addEventListener('click', () => activateTab(panel.id, { userInitiated: true }));
-  if (!visiblePanels.has(panel.id)) {
-    tab.classList.add('tab-hidden');
-  }
+  // Per-tab close "×" (browser-tab style, revealed on hover via CSS). Decorative
+  // (aria-hidden) so it is not an interactive control nested inside the tab
+  // button; keyboard users close via Delete on the focused tab (see init).
+  const close = document.createElement('span');
+  close.className = 'tab-close';
+  close.setAttribute('aria-hidden', 'true');
+  close.title = `Close ${panel.label}`;
+  close.textContent = '×';
+  close.addEventListener('click', (e) => {
+    e.stopPropagation();  // don't activate the tab we're closing
+    setPanelVisibility(panel.id, false);
+  });
+  tab.appendChild(close);
+  if (!visiblePanels.has(panel.id)) tab.classList.add('tab-hidden');
   return tab;
 }
 
@@ -412,15 +462,36 @@ async function initPanel(panel) {
       state.healthy = true;
       enableTab(panel.id);
       updateTabState(panel);
-      if (panel.id === DEFAULT_PANEL) {
-        activateTab(panel.id);
-      } else if (!activeTabId) {
-        activateTab(panel.id);
-      }
     } else {
       startHealthPolling(panel);
     }
   }
+  // Re-evaluate on every settle, including the no-url case: this panel may be
+  // the default that another panel's health poll was waiting on.
+  ensureActivePanel();
+}
+
+/**
+ * Give the empty slot to the best panel available, if any.
+ *
+ * Health-driven, so {auto: true} keeps it from ever surfacing a hidden panel.
+ * Safe to call on every settle: it no-ops once something is active.
+ *
+ * This is deliberately re-entrant rather than a one-shot at each health
+ * transition. A panel's FIRST healthy transition can land while the default is
+ * still loading its config — decline then and that panel never gets another
+ * transition to try again, stranding the pane blank.
+ */
+function ensureActivePanel() {
+  if (activeTabId) return;
+  const ds = panelState[DEFAULT_PANEL];
+  if (!ds?.configLoaded) return;  // default may still claim the slot — wait
+  // Hidden disqualifies the default exactly as unhealthy does; activateTab
+  // would refuse it anyway, and the slot must not sit empty behind it.
+  const target = ds.healthy && visiblePanels.has(DEFAULT_PANEL)
+    ? DEFAULT_PANEL
+    : PANELS.find(p => visiblePanels.has(p.id) && panelState[p.id]?.healthy)?.id;
+  if (target) activateTab(target, { auto: true });
 }
 
 // ---- Health Polling ----
@@ -469,21 +540,11 @@ async function pollHealth(panel) {
     updateTabState(panel);
     updateStatusBar(panel);
 
-    // First time healthy — enable tab and auto-activate
+    // First time healthy — enable the tab, then let the shared policy decide
+    // whether this newly-healthy panel should take an empty slot.
     if (state.healthy && !wasHealthy) {
       enableTab(panel.id);
-      // Auto-activate: prefer the DEFAULT_PANEL. Only activate a
-      // non-default panel if nothing is active yet and the default
-      // panel has already been polled and isn't healthy.
-      if (panel.id === DEFAULT_PANEL) {
-        activateTab(panel.id);
-      } else if (!activeTabId) {
-        const defaultState = panelState[DEFAULT_PANEL];
-        // Only fall back if default panel finished loading config and isn't healthy
-        if (defaultState?.configLoaded && !defaultState.healthy) {
-          activateTab(panel.id);
-        }
-      }
+      ensureActivePanel();
     }
   } catch {
     state.healthy = false;
@@ -499,9 +560,7 @@ async function pollHealth(panel) {
 /** @param {string} panelId */
 function enableTab(panelId) {
   const tab = tabsEl.querySelector(`[data-panel-id="${panelId}"]`);
-  if (tab) {
-    tab.classList.remove('disabled');
-  }
+  if (tab) tab.classList.remove('disabled');
 }
 
 /** @param {Panel} panel */
@@ -580,11 +639,15 @@ function sendSessionToIframe(iframe) {
 
 /**
  * @param {string} panelId
- * @param {{ userInitiated?: boolean }} [options]
+ * @param {{ userInitiated?: boolean, auto?: boolean }} [options]
  */
-function activateTab(panelId, { userInitiated = false } = {}) {
+function activateTab(panelId, { userInitiated = false, auto = false } = {}) {
   const state = panelState[panelId];
   if (!state || !state.healthy) return;
+  // A panel becoming healthy is not a request to show it. The server owns the
+  // visible set, so health-driven activation must never surface a hidden panel
+  // — otherwise a panel closed with "×" reappears on its own.
+  if (auto && !visiblePanels.has(panelId)) return;
 
   activeTabId = panelId;
 
@@ -596,15 +659,16 @@ function activateTab(panelId, { userInitiated = false } = {}) {
   // Hide all iframes
   for (const panel of PANELS) {
     const ps = panelState[panel.id];
-    if (ps.iframe) {
-      ps.iframe.classList.add('hidden');
-    }
+    if (ps.iframe) ps.iframe.classList.add('hidden');
   }
 
-  // Show or create the selected iframe
-  if (state.iframe) {
+  // Show or create the selected iframe. isConnected guards a cached ref that was
+  // detached by renderEmptyState's innerHTML wipe — rebuild (and clear the stale
+  // empty-state placeholder) rather than re-showing a node no longer in the DOM.
+  if (state.iframe && state.iframe.isConnected) {
     state.iframe.classList.remove('hidden');
   } else {
+    contentEl.querySelector('.artifacts-empty-state')?.remove();
     createIframe(panelId);
   }
 
@@ -613,18 +677,45 @@ function activateTab(panelId, { userInitiated = false } = {}) {
   sendThemeToIframe(state.iframe);
   sendSessionToIframe(state.iframe);
 
-  // Report user-initiated tab switches to the server (avoids SSE feedback loop).
-  // fetchJSON doesn't support a POST body, so prefix inline here (same pattern
-  // as app.js's initLogoutButton) rather than reaching into api.js's private
-  // withPrefix().
-  if (userInitiated) {
-    const prefix = window.__OSPREY_PREFIX__ || '';
-    fetch(`${prefix}/api/panel-focus`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ panel: panelId }),
-    }).catch(() => {});
-  }
+  // Report user-initiated tab switches to the server (avoids SSE feedback loop)
+  if (userInitiated) setPanelFocus(panelId);
+}
+
+// ---- Panel Visibility Actions (human "+" / "×") ----
+//
+// These back the human add/remove controls. The command POSTs live in
+// panel-commands.js and the server's SSE echo drives the DOM, so a human
+// action and an agent MCP call are indistinguishable downstream. The per-tab
+// "×" calls setPanelVisibility(id, false) directly (see buildTabButton); the
+// "+" menu's reveal path needs a local focus too, so it goes through showPanel.
+
+/**
+ * Reveal a hidden panel and focus it (a "Show panel" menu pick). The visibility
+ * POST un-hides the tab for every client via SSE; activateTab focuses it here
+ * when it's healthy (and no-ops otherwise, leaving the tab visible but unfocused).
+ * @param {string} panelId
+ */
+function showPanel(panelId) {
+  setPanelVisibility(panelId, true);
+  activateTab(panelId, { userInitiated: true });
+}
+
+/**
+ * Apply a config-defined preset ("Layout") exclusively: show its members, hide
+ * every visible non-member, focus the first healthy member locally. Feeds
+ * panel-manager's live state into the pure applyPreset() orchestrator; each
+ * show/hide rides the same setPanelVisibility POST + SSE echo the "+"/"×" use.
+ * focus is a purely-local activateTab (no visibility re-POST for the primary).
+ * @param {string[]} panels
+ */
+function applyMenuPreset(panels) {
+  applyPreset(panels, {
+    getVisible: () => visiblePanels,
+    getKnown: () => new Set(PANELS.map(p => p.id)),
+    isHealthy: (id) => !!panelState[id]?.healthy,
+    setVisibility: setPanelVisibility,
+    focus: (id) => activateTab(id, { userInitiated: true }),
+  });
 }
 
 // ---- Panel Navigation ----

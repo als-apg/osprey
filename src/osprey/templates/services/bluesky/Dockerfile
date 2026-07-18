@@ -9,7 +9,7 @@
 #   * prod builds — no wheel present, so install the pinned release from PyPI.
 # Both paths install the `bluesky-bridge` extra on top of the framework's core
 # FastAPI/uvicorn deps, pulling in bluesky/ophyd-async/tiled for the real
-# (non-Fake) Scanner implementation.
+# (non-Fake) PlanRunner implementation.
 # This image is built locally by `osprey deploy up`; override with
 # OSPREY_BLUESKY_BRIDGE_IMAGE to use a prebuilt/published image.
 

@@ -70,6 +70,15 @@ _HOP_BY_HOP = frozenset(
     }
 )
 
+# The proxy-wide caching default, applied to any proxied response whose
+# upstream set no Cache-Control of its own. Panels ship unversioned asset
+# filenames (panel.js, not panel-<hash>.js), and a header-less response lets
+# the browser cache heuristically — so a panel redeploy silently doesn't
+# reach an operator's already-open browser. Filled in with setdefault, never
+# overridden: an upstream that made a deliberate caching decision (e.g. the
+# artifact gallery's immutable versioned vendor bundles) keeps it.
+_DEFAULT_NO_CACHE = "no-cache, no-store, must-revalidate"
+
 # Panel ID → app.state attribute name
 _PANEL_STATE_MAP = {
     "artifacts": "artifact_server_url",
@@ -93,6 +102,19 @@ def _resolve_panel_url(request: Request, panel_id: str) -> str | None:
             return url if url else None
 
     return None
+
+
+def _panel_is_config_defined(request: Request, panel_id: str) -> bool:
+    """True only if ``panel_id`` resolves to a config-declared custom panel.
+
+    Runtime registrations (POST /api/panels/register) never carry the
+    ``configDefined`` marker, so a registration that squats a config panel's id
+    cannot inherit that panel's server-side credential injection below.
+    """
+    for cp in getattr(request.app.state, "custom_panels", []):
+        if cp.get("id") == panel_id:
+            return bool(cp.get("configDefined"))
+    return False
 
 
 def _panel_json_rewrite_paths(request: Request, panel_id: str) -> tuple[str, ...]:
@@ -187,7 +209,9 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
     # dispatcher token server-side for the EVENTS panel only, so the browser
     # never holds it (and other panels are unaffected). The web-terminal process
     # picks up EVENT_DISPATCHER_TOKEN from the project .env via load_dotenv.
-    if panel_id == "events":
+    # Gated on config origin, not the id string: the token must follow the
+    # config-defined EVENTS panel, never a runtime-registered squat of the id.
+    if panel_id == "events" and _panel_is_config_defined(request, "events"):
         token = os.environ.get("EVENT_DISPATCHER_TOKEN", "")
         if token:
             fwd_headers["authorization"] = f"Bearer {token}"
@@ -220,6 +244,7 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
             resp_headers = {
                 k: v for k, v in upstream.headers.items() if k.lower() not in _HOP_BY_HOP
             }
+            resp_headers.setdefault("cache-control", _DEFAULT_NO_CACHE)
             return StreamingResponse(
                 _stream(),
                 status_code=upstream.status_code,
@@ -241,8 +266,10 @@ async def proxy_panel(panel_id: str, path: str, request: Request):
             status_code=502,
         )
 
-    # Filter response headers.
+    # Filter response headers; fill in the no-cache default when the upstream
+    # made no caching decision of its own (see _DEFAULT_NO_CACHE).
     resp_headers = {k: v for k, v in resp.headers.items() if k.lower() not in _HOP_BY_HOP}
+    resp_headers.setdefault("cache-control", _DEFAULT_NO_CACHE)
 
     content_type = resp.headers.get("content-type", "")
     base_type = content_type.split(";")[0].strip().lower()

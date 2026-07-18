@@ -10,7 +10,7 @@ Two kinds of plan source, both scanned into the same fail-closed registry:
   own device map at launch.
 - **The legacy single-module contract** — a single ``.py`` file exposing
   ``PLANS: dict[str, PlanSpec]`` and ``get_devices()``, resolved from
-  ``BLUESKY_PLAN_MODULE`` (env) or ``scan.plan_module`` (config.yml). This
+  ``BLUESKY_PLAN_MODULE`` (env) or ``bluesky.plan_module`` (config.yml). This
   predates the layered model and is folded in as a one-entry ``facility``-tier
   layer — it is the only source of injected devices.
 
@@ -19,13 +19,13 @@ Layer sources and their provenance-tier mapping:
 1. ``shipped`` — the in-image core dir bundled with this package
    (``plans_core/``, alongside this module). May not exist yet in a given
    install; an absent/empty directory is not an error.
-2. ``preset`` — directories listed in ``scan.plan_dirs`` in config.yml.
+2. ``preset`` — directories listed in ``bluesky.plan_dirs`` in config.yml.
    Config-shipped and versioned with a deployment's config bundle: lower
    operator trust than a per-instance runtime override.
 3. ``facility`` — directories listed in ``BLUESKY_PLAN_DIRS`` (env,
    ``os.pathsep``-separated), set per bridge instance at launch. This mirrors
    the legacy contract's existing precedent that an env override outranks
-   config (``BLUESKY_PLAN_MODULE`` wins over ``scan.plan_module``). The
+   config (``BLUESKY_PLAN_MODULE`` wins over ``bluesky.plan_module``). The
    legacy single-module contract itself is also pinned to ``facility`` —
    it is scanned *first*, so a lower-trust directory layer (``shipped`` or
    ``preset``) can never silently reclaim a name it already owns; only an
@@ -57,9 +57,7 @@ principled tie-breaker beyond scan order.
 Deliberately free of bluesky/ophyd/tiled imports — this module only execs
 plan files and reads pydantic metadata; only a loaded module itself needs
 bluesky. That keeps `plan_loader.py` importable in any bridge process
-regardless of whether the `bluesky-bridge` extra is installed (see
-``plans.py``'s built-in registry, which does need bluesky and degrades
-separately in ``app.py``'s `/plans` route).
+regardless of whether the `bluesky-bridge` extra is installed.
 """
 
 from __future__ import annotations
@@ -85,7 +83,7 @@ from .validation_record import validation_records
 logger = logging.getLogger("osprey.services.bluesky_bridge.plan_loader")
 
 # Set per bridge instance by the framework server definition (mirrors
-# BLUESKY_BRIDGE_URL/BLUESKY_PROMOTE_TOKEN); wins outright over config.yml.
+# BLUESKY_BRIDGE_URL/BLUESKY_LAUNCH_TOKEN); wins outright over config.yml.
 _MODULE_PATH_ENV = "BLUESKY_PLAN_MODULE"
 
 # os.pathsep-separated list of directory-layer dirs, set per bridge instance.
@@ -133,7 +131,7 @@ def _resolve_plan_module_path() -> str | None:
 
     1. ``BLUESKY_PLAN_MODULE`` env var (a filesystem path) — set by the
        framework server definition per bridge instance; wins outright.
-    2. ``scan.plan_module`` in config.yml (local/dev convenience).
+    2. ``bluesky.plan_module`` in config.yml (local/dev convenience).
     3. ``None`` — no legacy facility module is injected.
     """
     path = os.environ.get(_MODULE_PATH_ENV)
@@ -143,7 +141,7 @@ def _resolve_plan_module_path() -> str | None:
     from osprey.utils.workspace import load_osprey_config
 
     config = load_osprey_config()
-    value = config.get("scan", {}).get("plan_module")
+    value = config.get("bluesky", {}).get("plan_module")
     return str(value) if value else None
 
 
@@ -162,7 +160,7 @@ def _resolve_plan_dir_layers() -> list[tuple[Path, Provenance]]:
     from osprey.utils.workspace import load_osprey_config
 
     config = load_osprey_config()
-    preset_dirs = config.get("scan", {}).get("plan_dirs") or []
+    preset_dirs = config.get("bluesky", {}).get("plan_dirs") or []
     if isinstance(preset_dirs, str):
         preset_dirs = [preset_dirs]
     layers.extend((Path(d), "preset") for d in preset_dirs)
@@ -414,34 +412,12 @@ def load_facility_plans(module_path: str | None = None) -> FacilityPlans:
         len(devices),
         path_str,
     )
-    _warn_if_shadowing_builtins(plans)
 
     normalized_plans = {
         name: (spec if spec.provenance == "facility" else replace(spec, provenance="facility"))
         for name, spec in plans.items()
     }
     return FacilityPlans(plans=normalized_plans, devices=dict(devices))
-
-
-def _warn_if_shadowing_builtins(facility_plans: dict[str, PlanSpec[Any]]) -> None:
-    """Log once, at load time, if a legacy facility plan overrides a built-in of the same name.
-
-    Silent shadowing here would be a surprising way for an operator to lose a
-    built-in plan (e.g. `count`) to a same-named facility plan without any
-    trace in the logs. Guarded/lazy import of `plans.py` (which needs
-    bluesky) so this check itself never forces `plan_loader.py` to depend on
-    bluesky — absent bluesky, there's no built-in set to shadow anyway.
-    """
-    try:
-        from .plans import BUILTIN_PLANS
-    except ImportError:
-        return
-    shadowed = sorted(set(BUILTIN_PLANS) & set(facility_plans))
-    if shadowed:
-        logger.warning(
-            "plan_loader: facility plan(s) %s override built-in plan(s) of the same name",
-            shadowed,
-        )
 
 
 @dataclass

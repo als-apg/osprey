@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<!--
+  Pre-paint theme boot FIRST: a plain (non-module) script that resolves and
+  applies data-theme before first paint, so the panel never flashes the
+  wrong theme. Everything below styles against the token stylesheet that
+  follows it -- no raw color literals anywhere in this file.
+-->
+<script src="/design-system/js/theme-boot.js"></script>
+<link rel="stylesheet" href="/design-system/css/tokens.css">
+<link rel="stylesheet" href="/design-system/css/base.css">
+<!-- Self-hosted brand fonts (Outfit / JetBrains Mono). Root-absolute so it
+     resolves against the serving host in every embedding context. -->
+<link rel="stylesheet" href="/static/fonts/fonts.css">
+<link rel="stylesheet" href="./panel.css">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plan</title>
+<script type="module">
+  // Follower role: this panel is never the theme hub (the web terminal is).
+  // It applies its own `?theme=` query param when the host appends one,
+  // otherwise it trusts whatever theme-boot.js already set pre-paint, and
+  // thereafter obeys the hub's broadcasts. applyEmbedded() reads
+  // `?embedded=true` and hides the standalone chrome so the panel sits
+  // flush inside its host frame.
+  import { initTheme } from '/design-system/js/theme-manager.js';
+  import { applyEmbedded } from '/design-system/js/frame-params.js';
+  initTheme({ role: 'follower' });
+  applyEmbedded();
+</script>
+</head>
+<body>
+<div class="panel">
+  <header class="panel-chrome">
+    <h1>Plan</h1>
+    <span class="panel-kicker">OSPREY Bluesky Panels</span>
+  </header>
+
+  <div id="root-error" class="banner banner-err" hidden></div>
+
+  <!--
+    Two-pane browser. LEFT: a dense file-browser plan selector — names first,
+    trust/validation reduced to a status dot (details in the tooltip and the
+    detail header). RIGHT: the selected plan under a Parameters / Source tab
+    strip; Parameters is a 2-D schema-driven GUI (see schema-form.js) with a
+    live readout, and the footer carries the deterministic, connector-gated
+    Launch action. Everything dynamic is built via createElement/textContent
+    in panel.js — no innerHTML sink anywhere in this panel.
+  -->
+  <div class="browser">
+    <aside class="sidebar" aria-label="Plan browser">
+      <div class="sidebar-head">
+        <input id="plan-search" class="search" type="search"
+               placeholder="Filter…" autocomplete="off"
+               aria-label="Filter plans by name or description">
+      </div>
+      <div id="plan-tree" class="tree" role="tree" aria-label="Registered plans"></div>
+      <p id="plans-empty" class="muted sidebar-note" hidden>No plans available.</p>
+      <p id="plans-filtered-empty" class="muted sidebar-note" hidden>No match.</p>
+    </aside>
+
+    <section class="detail" aria-label="Plan detail">
+      <div id="detail-empty" class="detail-empty" hidden>
+        <p class="muted">No plan selected.</p>
+      </div>
+
+      <div id="detail-body" class="detail-body" hidden>
+        <div class="detail-head">
+          <div class="detail-id">
+            <h2 id="detail-title" class="detail-title"></h2>
+            <span id="detail-status" class="status-line"></span>
+          </div>
+          <p id="detail-desc" class="detail-desc"></p>
+          <p id="session-note" class="muted" hidden>
+            Session plans are in-memory; lost on bridge restart.
+          </p>
+          <div id="draft-unknown-banner" class="banner banner-warn" hidden></div>
+          <div class="draft-status">
+            <span id="draft-indicator" class="draft-indicator" hidden>
+              <span class="dot ok"></span>
+              <span>Draft bound</span>
+              <button type="button" id="draft-discard-btn" class="draft-discard-btn">Discard</button>
+            </span>
+            <button type="button" id="draft-affordance" class="draft-affordance" hidden></button>
+            <span id="draft-agent-note" class="draft-agent-note" hidden></span>
+          </div>
+          <div id="draft-rejected-banner" class="banner banner-err" hidden></div>
+          <div class="tabs" role="tablist" aria-label="Plan views">
+            <button type="button" id="tab-params" class="tab active" role="tab"
+                    aria-selected="true" aria-controls="panel-params" data-tab="params">
+              Parameters
+            </button>
+            <button type="button" id="tab-source" class="tab" role="tab"
+                    aria-selected="false" aria-controls="panel-source" data-tab="source">
+              Source
+            </button>
+          </div>
+        </div>
+
+        <div id="panel-params" class="tabpanel" role="tabpanel" aria-labelledby="tab-params">
+          <form id="param-form" class="param-form"></form>
+        </div>
+
+        <div id="panel-source" class="tabpanel" role="tabpanel" aria-labelledby="tab-source" hidden>
+          <pre id="detail-source" class="source"></pre>
+        </div>
+
+        <div class="detail-foot">
+          <div id="launch-outcome-banner" class="banner" hidden></div>
+          <div class="foot-row">
+            <div class="foot-info">
+              <span id="param-summary" class="readout" hidden></span>
+              <span id="unvalidated-note" class="muted" hidden>
+                not validated — cannot launch
+              </span>
+              <span class="footnote">
+                Launching is gated by the same arming as the agent path; the
+                connector is the sole write gate.
+              </span>
+            </div>
+            <button type="button" id="launch-btn" class="btn" disabled>Launch plan</button>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+<script type="module" src="./panel.js"></script>
+</body>
+</html>

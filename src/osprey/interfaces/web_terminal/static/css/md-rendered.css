@@ -3,7 +3,7 @@
 .osprey-md-rendered {
   padding: 4px 0;
   color: var(--text-primary);
-  line-height: 1.7;
+  line-height: var(--leading-loose);
   white-space: normal;
 }
 
@@ -16,46 +16,46 @@
   font-family: var(--font-display);
   color: var(--color-accent-light);
   margin: 1.2em 0 0.4em;
-  line-height: 1.3;
+  line-height: var(--leading-tight);
 }
 
 .osprey-md-rendered h1 {
-  font-size: 18px;
-  font-weight: 700;
+  font-size: var(--text-3xl);
+  font-weight: var(--weight-bold);
   border-bottom: 1px solid var(--border-accent);
   padding-bottom: 6px;
 }
 
 .osprey-md-rendered h2 {
-  font-size: 15px;
-  font-weight: 600;
+  font-size: 15px /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */;
+  font-weight: var(--weight-semibold);
   border-bottom: 1px solid var(--border-default);
-  padding-bottom: 4px;
+  padding-bottom: var(--space-1);
 }
 
 .osprey-md-rendered h3 {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
 }
 
 .osprey-md-rendered h4,
 .osprey-md-rendered h5,
 .osprey-md-rendered h6 {
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
   color: var(--text-secondary);
 }
 
 .osprey-md-rendered p {
   margin: 0.6em 0;
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .osprey-md-rendered ul,
 .osprey-md-rendered ol {
   margin: 0.5em 0;
   padding-left: 1.6em;
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .osprey-md-rendered li {
@@ -79,10 +79,10 @@
 
 .osprey-md-rendered code {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--text-base);
   background: var(--neutral-tint-10);
   border: 1px solid var(--border-default);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   padding: 1px 4px;
   color: var(--color-amber-light);
 }
@@ -92,10 +92,10 @@
   padding: 10px 12px;
   background: var(--overlay-black-30);
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-md);
   overflow-x: auto;
-  font-size: 11px;
-  line-height: 1.5;
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
 }
 
 .osprey-md-rendered pre code {
@@ -112,7 +112,7 @@
   border-left: 3px solid var(--color-accent);
   background: var(--accent-tint-04);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--text-md);
 }
 
 .osprey-md-rendered hr {
@@ -125,7 +125,7 @@
   width: 100%;
   border-collapse: collapse;
   margin: 0.8em 0;
-  font-size: 11px;
+  font-size: var(--text-base);
 }
 
 .osprey-md-rendered th,
@@ -138,12 +138,12 @@
 .osprey-md-rendered th {
   background: var(--bg-secondary);
   color: var(--color-accent-light);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
 }
 
 .osprey-md-rendered strong {
   color: var(--text-primary);
-  font-weight: 600;
+  font-weight: var(--weight-semibold);
 }
 
 .osprey-md-rendered em {

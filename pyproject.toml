@@ -40,7 +40,7 @@ dependencies = [
     # Core framework dependencies
     "rich>=14.0.0",
     "click>=8.1.0",
-    "questionary>=2.0.0",
+    "questionary>=2.1.1",
     "python-dotenv>=1.1.0",
     "PyYAML>=6.0.2",
     "ruamel.yaml>=0.18.0",  # Comment-preserving YAML for config updates
@@ -57,7 +57,7 @@ dependencies = [
     "nbconvert>=7.0.0",
     # AI/ML provider integrations
     "litellm>=1.56.0",  # Unified LLM provider interface (100+ providers)
-    "openai>=2",
+    "openai>=2.45.0",
     "anthropic",
     "google-generativeai",
     "ollama>=0.5.1",
@@ -83,13 +83,13 @@ dependencies = [
     "markdown>=3.5",  # Markdown-to-HTML rendering for artifact converters
     "aiofiles>=24.1.0",  # Async file I/O for non-blocking Python executor
     # MCP server development (for building MCP servers)
-    "fastmcp>=3.0.0",
+    "fastmcp>=3.4.4",
     # Scientific computing stack - for Python execution capability
-    "scipy>=1.15.3",
+    "scipy>=1.17.1",
     "seaborn",
     "scikit-learn",
     "plotly>=5.0.0",
-    "bokeh>=3.0",  # Interactive dashboards (data-visualizer agent)
+    "bokeh>=3.9.1",  # Interactive dashboards (data-visualizer agent)
     "playwright>=1.40.0",
     "ipywidgets",  # Interactive widgets for Jupyter notebooks
     # Natural language processing
@@ -108,7 +108,7 @@ dependencies = [
     # ARIEL proxy support for HTTP ingestion through SOCKS tunnels
     "aiohttp-socks>=0.8.0",
     # File system monitoring for web terminal
-    "watchdog>=3.0.0",
+    "watchdog>=6.0.0",
     # Async HTTP client for the web-terminal panel reverse proxy
     "httpx>=0.27.0",
     # Lattice physics (Accelerator Toolbox for lattice dashboard)
@@ -127,7 +127,7 @@ dependencies = [
 [project.optional-dependencies]
 # Documentation dependencies (for building docs only)
 docs = [
-    "sphinx>=8.0.0",
+    "sphinx>=9.0.4",
     "pydata-sphinx-theme",
     "myst-parser",
     "sphinx-copybutton",
@@ -155,7 +155,7 @@ dev = [
     "docker>=7.0.0",  # Docker SDK for testcontainers availability check
     "psycopg[binary,pool]>=3.1.0,<4.0.0",  # ARIEL search integration tests
     "psycopg-pool>=3.1.0,<4.0.0",  # ARIEL search integration tests
-    "pillow>=10.0.0",  # Perceptual diffing for the design-system visual regression suite
+    "pillow>=12.3.0",  # Perceptual diffing for the design-system visual regression suite
 ]
 
 # ARIEL (Agentic Retrieval Interface for Electronic Logbooks)
@@ -173,7 +173,7 @@ ariel-proxy = [
 
 # Google Sheets database backend for channel finder
 sheets = [
-    "gspread>=6.0.0",
+    "gspread>=6.2.1",
 ]
 
 # MongoDB archiver connector backend
@@ -194,13 +194,13 @@ screen-capture-linux = [
 
 # Bluesky bridge (osprey.services.bluesky_bridge): the RunEngine, ophyd-async
 # devices, and Tiled writer/reader the bridge's Phase 2 submodules (plans.py,
-# scanner_bluesky.py, devices/*.py) import behind this extra. The bridge's
-# lifecycle core (app.py, runs.py, security.py, scanner.py) stays import-clean
+# plan_runner_bluesky.py, devices/*.py) import behind this extra. The bridge's
+# lifecycle core (app.py, runs.py, security.py, plan_runner.py) stays import-clean
 # of all of these — installed only in the bridge process's own container venv,
 # never required in OSPREY's main venv. fastapi/uvicorn/httpx are already core
 # dependencies, so they're not repeated here.
 bluesky-bridge = [
-    "bluesky>=1.12",
+    "bluesky>=1.15.1",
     # [ca]: the aioca Channel Access backend. Required for the real EPICS-on-VA
     # substrate scanner (EpicsMotor/EpicsDetector over epics_signal_*); without
     # it ophyd-async's CA transport is unavailable and device construction
@@ -216,6 +216,10 @@ bluesky-bridge = [
 # (CI `uv sync --extra`, the VA image Dockerfile, and pinned older-version image
 # builds where softioc was still gated here) keep resolving.
 virtual-accelerator = []
+
+# bluesky_panels sidecar: fastapi/uvicorn[standard]/httpx are already core deps;
+# this extra exists so the service image can install osprey-framework[bluesky-panels].
+bluesky-panels = []
 
 # All optional dependencies for complete installation
 all = [
@@ -283,8 +287,8 @@ module = [
 ignore_missing_imports = true
 
 # Bluesky bridge (osprey.services.bluesky_bridge): the lifecycle core (runs.py,
-# app.py, security.py, scanner.py) stays import-clean of these, but Phase 2's
-# submodules (scanner_bluesky.py, devices/epics.py, plans.py, ...) will import
+# app.py, security.py, plan_runner.py) stays import-clean of these, but Phase 2's
+# submodules (plan_runner_bluesky.py, devices/epics.py, plans.py, ...) will import
 # them behind the optional `osprey-framework[bluesky-bridge]` extra.
 [[tool.mypy.overrides]]
 module = [

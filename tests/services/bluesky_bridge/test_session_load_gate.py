@@ -200,21 +200,15 @@ def test_malformed_session_file_is_quarantined_and_siblings_still_register(
     assert any(r.levelno == logging.WARNING and "quarantining" in r.message for r in caplog.records)
 
 
-def test_builtins_and_shipped_exemplars_are_not_gated() -> None:
-    """Regression: built-ins (count/scan/grid_scan/orm) carry no validation
-    record and are registered through a wholly separate path (`plans.py`'s
-    `BUILTIN_PLANS`, merged in `app.py`/`scanner_bluesky.py`, never through
-    this loader's registry) — the session gate must never touch them. The
-    shipped exemplars in `plans_core/` are `provenance="shipped"`, not
-    `session`/`unreviewed`, so they load unconditionally too."""
+def test_shipped_plans_are_not_gated() -> None:
+    """Regression: the shipped plans (`orm`/`grid_scan`, in `plans_core/`)
+    carry no validation record and are `provenance="shipped"`, not
+    `session`/`unreviewed` — the session gate must never touch them, so they
+    load unconditionally."""
     pytest.importorskip("bluesky")
-    from osprey.services.bluesky_bridge.plans import BUILTIN_PLANS
-
-    assert BUILTIN_PLANS
-    assert all(spec.provenance == "shipped" for spec in BUILTIN_PLANS.values())
 
     facility = plan_loader.get_facility_plans()
-    assert "response_matrix" in facility.plans
-    assert "grid_scan_nd" in facility.plans
-    assert facility.plans["response_matrix"].provenance == "shipped"
-    assert facility.plans["grid_scan_nd"].provenance == "shipped"
+    assert "orm" in facility.plans
+    assert "grid_scan" in facility.plans
+    assert facility.plans["orm"].provenance == "shipped"
+    assert facility.plans["grid_scan"].provenance == "shipped"

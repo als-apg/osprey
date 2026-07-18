@@ -37,6 +37,7 @@ from osprey.interfaces.design_system.generator.validate import (
     check_color_syntax,
     check_interface_mode_completeness,
     check_namespace_collisions,
+    check_promoted_primitive_collisions,
     check_terminal_serialization,
     check_theme_completeness,
     check_theme_metadata,
@@ -623,6 +624,54 @@ def test_check_namespace_collisions_allows_distinct_namespace() -> None:
     )
 
     assert check_namespace_collisions(tree) == []
+
+
+# --- check_promoted_primitive_collisions -------------------------------------------
+
+
+def test_check_promoted_primitive_collisions_flags_theme_token_collision() -> None:
+    # "text.base" is a promoted primitive scale step (--text-base); a theme
+    # authoring a semantic token at the same dot-path would collide on the
+    # same emitted CSS custom property name.
+    tree = _tree(
+        primitives={"text.base": _token("text.base", "11px", type_="dimension")},
+        themes={"dark": {"text.base": _token("text.base", "#000000")}},
+    )
+
+    errors = check_promoted_primitive_collisions(tree)
+
+    assert len(errors) == 1
+    assert errors[0].rule == ValidationRule.PROMOTED_PRIMITIVE_COLLISION
+    assert "text.base" in errors[0].message
+
+
+def test_check_promoted_primitive_collisions_flags_interface_token_collision() -> None:
+    tree = _tree(
+        primitives={"space.1": _token("space.1", "4px", type_="dimension")},
+        interfaces={
+            "demo": {
+                "dark.space.1": _token(
+                    "dark.space.1", "8px", type_="dimension", source_file=Path("i/demo.json")
+                )
+            }
+        },
+    )
+
+    errors = check_promoted_primitive_collisions(tree)
+
+    assert len(errors) == 1
+    assert errors[0].rule == ValidationRule.PROMOTED_PRIMITIVE_COLLISION
+    assert "space.1" in errors[0].message
+
+
+def test_check_promoted_primitive_collisions_allows_non_colliding_tokens() -> None:
+    tree = _tree(
+        primitives={"space.1": _token("space.1", "4px", type_="dimension")},
+        themes={"dark": {"bg.primary": _token("bg.primary", "#000000")}},
+        interfaces={"demo": {"dark.wt-crt.opacity": _token("p", "1", type_="number")}},
+    )
+
+    assert check_promoted_primitive_collisions(tree) == []
 
 
 # --- check_wcag_gates --------------------------------------------------------------

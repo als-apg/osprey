@@ -1,8 +1,8 @@
-"""Bounded live-row buffer for scan data still in flight or just completed.
+"""Bounded live-row buffer for run data still in flight or just completed.
 
-Task 2.2's ``GET /runs/{id}/data`` route needs a source of truth for scan data
+Task 2.2's ``GET /runs/{id}/data`` route needs a source of truth for run data
 before (or in place of) a Tiled server: the scan itself runs inside this
-bridge process (``runs.do_promote`` owns the scanner/RunEngine), so this
+bridge process (``runs.do_launch`` owns the runner/RunEngine), so this
 module subscribes a plain-dict document callback to that same RunEngine and
 keeps translated rows in a bounded, run_uid-keyed buffer. Real RunEngine
 wiring lands in task 2.7 (``real-runengine-integration``) — this module is
@@ -41,7 +41,7 @@ Bounding uses two independent knobs:
   higher since there is no Tiled fallback yet.
 
 The recorder itself never raises: every document is handled inside a
-try/except so a recorder bug can never abort a scan (mirrors the scanner
+try/except so a recorder bug can never abort a run (mirrors the runner
 seam's own safety contract) — a bug here loses live-read fidelity for that
 run, not the run itself.
 """
@@ -91,8 +91,8 @@ def _clear() -> None:
 class LiveRowRecorder:
     """Bluesky document callback recording rows into the bounded live buffer.
 
-    One instance per promoted run (mirrors BELLA's contract): subscribe it to
-    the RunEngine between ``reinitialize()`` and ``start_scan_thread()``
+    One instance per launched run (mirrors BELLA's contract): subscribe it to
+    the RunEngine between ``reinitialize()`` and ``start_run_thread()``
     (task 2.7) so the start doc is never missed.
     """
 

@@ -39,7 +39,7 @@ const SETTINGS_JSON = JSON.stringify({
   model: 'anthropic/claude-sonnet',
   permissions: {
     allow: ['Bash', 'Read(foo)'],
-    ask: ['mcp__scan__start'],
+    ask: ['mcp__bluesky__launch_run'],
     deny: ['Task(danger-agent)'],
   },
 }, null, 2);
@@ -115,7 +115,7 @@ describe('renderSettingsJsonEditor', () => {
         container.querySelectorAll('.config-perm-entry-interactive')
       ).map((e) => /** @type {HTMLElement} */ (e).dataset.dragId);
 
-      expect(ids.length).toBe(4); // Bash, Read(foo), mcp__scan__start, Task(danger-agent)
+      expect(ids.length).toBe(4); // Bash, Read(foo), mcp__bluesky__launch_run, Task(danger-agent)
       expect(new Set(ids).size).toBe(ids.length);
     });
 
@@ -186,7 +186,7 @@ describe('renderSettingsJsonEditor', () => {
 
       expect(result.model).toBe('anthropic/claude-sonnet');
       expect(result.permissions.allow.slice().sort()).toEqual(['Bash', 'Read(foo)'].sort());
-      expect(result.permissions.ask).toEqual(['mcp__scan__start']);
+      expect(result.permissions.ask).toEqual(['mcp__bluesky__launch_run']);
       expect(result.permissions.deny).toEqual(['Task(danger-agent)']);
     });
 

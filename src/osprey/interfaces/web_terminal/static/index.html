@@ -59,7 +59,12 @@
   <link rel="stylesheet" href="{{ prefixed('/static/css/drawer.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/sessions.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/settings.css') }}">
-  <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/10-prompt-gallery.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/20-memory-gallery.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/30-config-structured-renderers.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/40-settings-json-interactive-editor.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/50-interactive-drag-and-drop-permission-entries.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/60-ownership-warning-modal.css') }}">
 </head>
 <body>
 
@@ -72,6 +77,13 @@
     <div class="header-right">
       <div class="header-tabs" id="header-tabs">
         <!-- Populated by panel-manager.js -->
+      </div>
+      <!-- Add-panel control (browser-tab style "+"); menu populated by panel-add-menu.js -->
+      <div class="panel-add" id="panel-add">
+        <button class="panel-add-btn" id="panel-add-btn" type="button"
+                title="Add panel" aria-label="Add panel"
+                aria-haspopup="true" aria-expanded="false">+</button>
+        <div class="panel-add-menu" id="panel-add-menu" aria-label="Add panel"></div>
       </div>
       <div class="header-actions">
         {% if terminal_user %}<span class="header-app-name" id="header-user-name" title="Logged in as {{ terminal_user }}">{{ terminal_user }}</span>{% endif %}
