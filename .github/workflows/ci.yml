@@ -1057,6 +1057,18 @@ jobs:
         podman --version
         pip install --user podman-compose
         podman compose version
+        # Docker auto-treats localhost registries as insecure (plain HTTP);
+        # rootless podman defaults to tls-verify=true, so the test's throwaway
+        # stub registry on localhost:19081 (HTTP) breaks both `podman push` and
+        # the deploy's `podman compose pull`. A registries.conf.d drop-in (merged,
+        # not clobbering the default docker.io search registry) marks that one
+        # host insecure — giving podman docker's built-in localhost behavior.
+        mkdir -p ~/.config/containers/registries.conf.d
+        cat > ~/.config/containers/registries.conf.d/localhost-insecure.conf <<'EOF'
+        [[registry]]
+        location = "localhost:19081"
+        insecure = true
+        EOF
 
     - name: Install osprey
       run: uv sync --extra dev
