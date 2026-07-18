@@ -461,6 +461,11 @@ def web(
     _notice_declared_override(DECLARED_BIND_ENV, "--host", host, "chokepoint")
     host = resolve_bind_host(host, wt_config.get("host"))
     _notice_declared_override(DECLARED_WEB_PORT_ENV, "--port", port, "port mapping")
+    # An explicitly chosen port must never be silently reassigned: a DECLARED
+    # port (multi-user compose — MUST match nginx's per-user upstream) or an
+    # explicit --port / OSPREY_WEB_PORT is authoritative. Only an unspecified
+    # port (config default or the 8087 fallback) may auto-move off a busy port.
+    port_pinned = os.environ.get(DECLARED_WEB_PORT_ENV) is not None or port is not None
     port = resolve_web_port(port, wt_config.get("port"))
 
     user_shell_override = shell  # keep raw click value for the detached re-spawn
@@ -503,10 +508,20 @@ def web(
         try:
             s.bind((host, port))
         except OSError as exc:
-            click.echo(f"ERROR: Port {port} is already in use.", err=True)
-            click.echo(f"  Find the process:  lsof -i :{port}", err=True)
-            click.echo(f"  Or use another:    osprey web --port {port + 1}", err=True)
-            raise SystemExit(1) from exc
+            if port_pinned:
+                click.echo(f"ERROR: Port {port} is already in use.", err=True)
+                click.echo(f"  Find the process:  lsof -i :{port}", err=True)
+                click.echo(f"  Or use another:    osprey web --port {port + 1}", err=True)
+                raise SystemExit(1) from exc
+            # Port was left unspecified and the default is taken — let the OS
+            # assign a free one instead of hard-failing (single-user QoL). A
+            # pinned port never reaches here, so nginx's per-user routing table
+            # cannot be desynced by a silent move.
+            busy_port = port
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as free_sock:
+                free_sock.bind((host, 0))
+                port = free_sock.getsockname()[1]
+            click.echo(f"Port {busy_port} in use — using :{port} instead.")
 
     # Publish the ACTUAL port to every child process (PTY shells, their MCP
     # servers): web_terminal_url() resolves OSPREY_WEB_PORT first, and

@@ -11,6 +11,9 @@ authoritative over both `--host` and config, while leaving single-user
 
 from __future__ import annotations
 
+import contextlib
+import socket
+
 import pytest
 from click.testing import CliRunner
 
@@ -49,11 +52,27 @@ def _isolate_bind_and_port_env(monkeypatch):
 
 def _free_port() -> int:
     """Reserve then release an OS-assigned port so nothing is listening on it."""
-    import socket
-
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
+
+
+@contextlib.contextmanager
+def _occupied_port(host: str = "127.0.0.1"):
+    """Hold a real listener on an OS-assigned port for the block's duration.
+
+    A second bind to this exact ``(host, port)`` fails with ``EADDRINUSE`` even
+    with ``SO_REUSEADDR`` (that only shares TIME_WAIT sockets, not two live
+    binds), so it deterministically drives the ``osprey web`` pre-flight bind
+    into its busy-port branch.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind((host, 0))
+    sock.listen(1)
+    try:
+        yield sock.getsockname()[1]
+    finally:
+        sock.close()
 
 
 class TestResolveBindHost:
@@ -306,3 +325,70 @@ class TestWebCommandHonorsDeclaredWebPortEnv:
 
         assert result.exit_code == 0
         assert captured.get("port") == flag_port
+
+
+class TestBusyPortFallback:
+    """An UNSPECIFIED port auto-moves off a busy default (single-user QoL); a
+    PINNED port — explicit ``--port`` or a DECLARED multi-user port — still
+    hard-fails, so nginx's per-user upstream can never be silently desynced by
+    a moved listener.
+    """
+
+    def _capture_run_web(self, monkeypatch) -> dict:
+        captured: dict = {}
+        monkeypatch.setattr(
+            "osprey.interfaces.web_terminal.run_web", lambda **kw: captured.update(kw)
+        )
+        monkeypatch.setattr("osprey.mcp_env.load_dotenv_from_project", lambda: None)
+        return captured
+
+    def _fake_config(self, monkeypatch, **wt) -> None:
+        """Pin config `web_terminal.{host,port}` so the bound host is
+        deterministic (127.0.0.1) and matches ``_occupied_port``."""
+        wt.setdefault("host", "127.0.0.1")
+        monkeypatch.setattr(
+            "osprey.cli.web_cmd.get_config_value",
+            lambda key, default=None: (
+                wt if key == "web_terminal" else ({} if default is None else default)
+            ),
+        )
+
+    def test_unspecified_port_auto_moves_off_busy_default(self, runner, monkeypatch):
+        captured = self._capture_run_web(monkeypatch)
+        with _occupied_port() as busy:
+            self._fake_config(monkeypatch, port=busy)
+            result = runner.invoke(
+                web, ["--shell", "true", "--skip-preflight"], catch_exceptions=False
+            )
+
+        assert result.exit_code == 0
+        # Moved to some OTHER free port, and published it for children.
+        assert captured.get("port") not in (None, busy)
+        assert "in use" in result.output
+
+    def test_explicit_port_flag_still_hard_fails(self, runner, monkeypatch):
+        self._capture_run_web(monkeypatch)
+        with _occupied_port() as busy:
+            self._fake_config(monkeypatch)
+            result = runner.invoke(
+                web,
+                ["--port", str(busy), "--shell", "true", "--skip-preflight"],
+                catch_exceptions=False,
+            )
+
+        assert result.exit_code != 0
+        assert "already in use" in result.output
+
+    def test_declared_port_still_hard_fails(self, runner, monkeypatch):
+        """A DECLARED multi-user port that's busy must error, never silently
+        move — a moved listener would desync nginx's per-user upstream."""
+        self._capture_run_web(monkeypatch)
+        with _occupied_port() as busy:
+            self._fake_config(monkeypatch)
+            monkeypatch.setenv(DECLARED_WEB_PORT_ENV, str(busy))
+            result = runner.invoke(
+                web, ["--shell", "true", "--skip-preflight"], catch_exceptions=False
+            )
+
+        assert result.exit_code != 0
+        assert "already in use" in result.output
