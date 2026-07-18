@@ -1,6 +1,7 @@
-"""Assertions against the parsed `.github/workflows/ci.yml`, proving the two
+"""Assertions against the parsed `.github/workflows/ci.yml`, proving the
 secret-free Docker-stack e2e lanes (Tiled roundtrip, VA substrate
-equivalence) are correctly wired.
+equivalence, control-assistant demo) are correctly wired — and that every
+``dockerbuild``-marked e2e file stays out of the shared e2e-tests lane.
 
 Everything here loads ci.yml with ``yaml.safe_load`` and asserts against the
 parsed structure — never a text/regex match, so re-flowing YAML style can't
@@ -44,6 +45,9 @@ GATE_JOB = "all-checks-passed"
 SECRET_TOKEN = "secrets.ALS_APG_API_KEY"
 TILED_TEST_FILE = "tests/e2e/test_tiled_roundtrip.py"
 VA_TEST_FILE = "tests/e2e/test_va_substrate_equivalence.py"
+DEMO_JOB = "control-assistant-demo-e2e"
+DEMO_TEST_FILE = "tests/e2e/test_control_assistant_demo.py"
+LIFECYCLE_TEST_FILE = "tests/e2e/test_deploy_lifecycle.py"
 
 
 def _load_workflow() -> dict[str, Any]:
@@ -309,6 +313,95 @@ def test_bluesky_stack_is_a_core_dependency() -> None:
         assert any(dep.startswith(stack_dep) for dep in core_deps), (
             f"{stack_dep} must be a core dependency"
         )
+
+
+# ---------------------------------------------------------------------------
+# (e) control-assistant-demo-e2e lane + the dockerbuild --ignore guard
+# ---------------------------------------------------------------------------
+
+
+def test_control_assistant_demo_job_exists(workflow: dict[str, Any]) -> None:
+    assert DEMO_JOB in _jobs(workflow)
+
+
+def test_control_assistant_demo_job_exists__mutation_drops_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][DEMO_JOB]
+    with pytest.raises(AssertionError):
+        assert DEMO_JOB in _jobs(mutated)
+
+
+def test_control_assistant_demo_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
+    assert not _job_declares_secret(workflow, DEMO_JOB, SECRET_TOKEN)
+
+
+def test_all_checks_passed_needs_control_assistant_demo(workflow: dict[str, Any]) -> None:
+    assert DEMO_JOB in _jobs(workflow)[GATE_JOB]["needs"]
+
+
+def test_all_checks_passed_needs_control_assistant_demo__mutation_drops_needs_entry() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(DEMO_JOB)
+    with pytest.raises(AssertionError):
+        assert DEMO_JOB in _jobs(mutated)[GATE_JOB]["needs"]
+
+
+def _dockerbuild_marked_e2e_files() -> list[str]:
+    """Every ``tests/e2e/`` file whose source carries the ``dockerbuild``
+    marker. Text scan, not collection: importing the files would need their
+    (heavy, optional) e2e dependencies, and the marker is always spelled
+    literally at module or test level."""
+    e2e_dir = CI_YML.parents[2] / "tests" / "e2e"
+    return sorted(
+        (p.relative_to(e2e_dir.parents[1])).as_posix()
+        for p in e2e_dir.rglob("test_*.py")
+        if "pytest.mark.dockerbuild" in p.read_text(encoding="utf-8")
+    )
+
+
+def _run_step_ignores_all(wf: dict[str, Any], files: list[str]) -> list[str]:
+    """Return the subset of ``files`` MISSING from the e2e-tests run step's
+    ``--ignore`` list (empty = fully guarded)."""
+    run_text = _find_named_step(wf, E2E_TESTS_JOB, "Run E2E tests")["run"]
+    return [f for f in files if f"--ignore={f}" not in run_text]
+
+
+def test_every_dockerbuild_marked_file_is_ignored_in_e2e_lane(workflow: dict[str, Any]) -> None:
+    """A ``dockerbuild``-marked e2e file runs a real image build + full-stack
+    deploy; swept into the shared e2e-tests lane it either double-executes
+    (if it has its own job) or leaves host-global residue — fixed
+    ``<prefix>-web-<user>``/``<prefix>-nginx`` container names and the
+    host-global openobserve data volume (root creds pinned on first init) —
+    that breaks later tests on the same runner. There is no marker-expression
+    equivalent (``-m "not dockerbuild"`` would also drop legit in-lane
+    ``slow``-marked tests sharing files), so the curated ``--ignore`` list IS
+    the mechanism; this guard makes it total: every marked file, present or
+    future, must be ignored here and given its own job."""
+    files = _dockerbuild_marked_e2e_files()
+    assert files, "expected at least one dockerbuild-marked e2e file (marker scan broke?)"
+    missing = _run_step_ignores_all(workflow, files)
+    assert missing == [], (
+        f"dockerbuild-marked e2e file(s) not --ignored in the '{E2E_TESTS_JOB}' lane: "
+        f"{missing} — add an --ignore AND a dedicated job for each"
+    )
+
+
+def test_every_dockerbuild_marked_file_is_ignored__mutation_drops_one_ignore() -> None:
+    """Removing a single marked file's ignore line must fail the guard."""
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = _drop_ignore_line(step["run"], LIFECYCLE_TEST_FILE)
+    assert _run_step_ignores_all(mutated, [DEMO_TEST_FILE]) == []  # others survive
+    assert _run_step_ignores_all(mutated, _dockerbuild_marked_e2e_files()) == [LIFECYCLE_TEST_FILE]
+
+
+def test_every_dockerbuild_marked_file_is_ignored__mutation_new_marked_file() -> None:
+    """A future dockerbuild-marked file with no ignore entry must be reported
+    missing — the exact 'leaked into the shared lane' shape this guard exists
+    to catch before it costs a 50-minute red run."""
+    workflow = _load_workflow()
+    phantom = "tests/e2e/test_future_dockerbuild_stack.py"
+    assert _run_step_ignores_all(workflow, [*_dockerbuild_marked_e2e_files(), phantom]) == [phantom]
 
 
 # ---------------------------------------------------------------------------

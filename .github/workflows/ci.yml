@@ -453,6 +453,10 @@ jobs:
     # Only run on PRs (not pushes) to control API costs, and only for non-fork PRs (secrets unavailable on forks).
     # Also runs on manual workflow_dispatch to enable scoped reruns via the e2e_filter input.
     if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'workflow_dispatch'
+    # The lane's healthy runtime is ~30-35min; a run past that means a test is
+    # wedged on a dead endpoint or a leaked container stack, and the useful
+    # signal is the timeout itself, not another 3 hours of runner time.
+    timeout-minutes: 45
 
     steps:
     - name: Checkout repository
@@ -521,14 +525,19 @@ jobs:
           # (agentic-per-preset). The full Docker-stack tests
           # (dispatch-deploy-e2e, bluesky-deploy-e2e, tiled-roundtrip-e2e,
           # va-substrate-equivalence-e2e, bluesky-catalog-e2e,
-          # bluesky-sandbox-escape-e2e) and the Dockerfile e2e
+          # bluesky-sandbox-escape-e2e, control-assistant-demo-e2e,
+          # multi-user-deploy-lifecycle-e2e) and the Dockerfile e2e
           # (dockerfile-e2e) each have their own job because they build
-          # container images. Exclude all eight here to avoid
-          # double-execution. NOTE: "--ignore" means "not in this
-          # secret-gated LLM lane," NOT "not tested" — every ignored file
-          # below runs in its own secret-free job on every PR
-          # (bluesky-catalog-e2e and bluesky-sandbox-escape-e2e are advisory-only —
-          # see those jobs' comments).
+          # container images. Exclude them all here to avoid
+          # double-execution — and because full-stack deploys leave
+          # host-global residue (fixed `<prefix>-web-<user>`/`<prefix>-nginx`
+          # container names, the host-global openobserve data volume with
+          # root creds pinned on first init) that breaks later tests sharing
+          # this runner. NOTE: "--ignore" means "not in this secret-gated
+          # LLM lane," NOT "not tested" — every ignored file below runs in
+          # its own job (bluesky-catalog-e2e and bluesky-sandbox-escape-e2e
+          # are advisory-only; the deploy-lifecycle jobs run on
+          # epic→main PRs only — see those jobs' comments).
           uv run pytest tests/e2e/ -v --tb=short \
             --ignore=tests/e2e/test_preset_agentic.py \
             --ignore=tests/e2e/test_dispatch_deploy.py \
@@ -538,7 +547,9 @@ jobs:
             --ignore=tests/e2e/test_va_substrate_equivalence.py \
             --ignore=tests/e2e/test_bluesky_catalog_e2e.py \
             --ignore=tests/e2e/test_bluesky_sandbox_escape_e2e.py \
-            --ignore=tests/e2e/test_bluesky_panels_deploy.py
+            --ignore=tests/e2e/test_bluesky_panels_deploy.py \
+            --ignore=tests/e2e/test_control_assistant_demo.py \
+            --ignore=tests/e2e/test_deploy_lifecycle.py
         fi
 
   deploy-e2e:
@@ -801,6 +812,54 @@ jobs:
     - name: Run VA substrate equivalence E2E
       run: |
         uv run pytest tests/e2e/test_va_substrate_equivalence.py -v --tb=short
+
+  control-assistant-demo-e2e:
+    name: Control Assistant Demo E2E (two-persona topology + VA, full Docker stack)
+    runs-on: ubuntu-latest
+    # Only run on PRs from same repo (mirrors va-substrate-equivalence-e2e
+    # gating). This job needs no secrets — the demo topology proofs never
+    # shell out to an LLM. The test previously had no dedicated job and was
+    # only ever swept into e2e-tests' glob, where its full-stack deploy left
+    # host-global residue (fixed `<prefix>-web-<user>`/`<prefix>-nginx`
+    # container names, the shared openobserve data volume) that broke later
+    # tests in that lane. This job is its isolated lane.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Builds two persona project images plus the PyAT virtual-accelerator
+    # image, then deploys the full two-persona stack (nginx + web terminals +
+    # OO + VA + bridge) before the topology proofs start — as heavy as
+    # va-substrate-equivalence-e2e, so it gets the same cold-cache headroom.
+    timeout-minutes: 45
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Log in to ghcr (openobserve mirror)
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Run control assistant demo E2E
+      run: |
+        uv run pytest tests/e2e/test_control_assistant_demo.py -v --tb=short
 
   tiled-roundtrip-e2e:
     name: Tiled Roundtrip E2E (bluesky bridge + Tiled persistence, full Docker stack)
@@ -1111,7 +1170,7 @@ jobs:
 
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, tiled-roundtrip-e2e, dockerfile-e2e, agentic-per-preset]
+    needs: [test, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, control-assistant-demo-e2e, tiled-roundtrip-e2e, dockerfile-e2e, agentic-per-preset]
     runs-on: ubuntu-latest
     if: always()
 
@@ -1205,6 +1264,14 @@ jobs:
           echo "⏭️  VA substrate equivalence E2E skipped (only run on PRs)"
         else
           echo "✅ VA substrate equivalence E2E passed"
+        fi
+        # Control Assistant Demo E2E: advisory (Docker-dependent, no LLM involved)
+        if [[ "${{ needs.control-assistant-demo-e2e.result }}" == "failure" ]]; then
+          echo "⚠️  Control assistant demo E2E failed (non-blocking, Docker-dependent)"
+        elif [[ "${{ needs.control-assistant-demo-e2e.result }}" == "skipped" ]]; then
+          echo "⏭️  Control assistant demo E2E skipped (only run on PRs)"
+        else
+          echo "✅ Control assistant demo E2E passed"
         fi
         # Tiled Roundtrip E2E: advisory (Docker-dependent, no LLM involved)
         if [[ "${{ needs.tiled-roundtrip-e2e.result }}" == "failure" ]]; then
