@@ -109,7 +109,19 @@ class LimitsValidator:
                     logger.debug(f"Resolved limits database path: {resolved_path}")
             db_path = resolved_path
 
-            limits_db, raw_db = cls._load_limits_database(db_path)
+            try:
+                limits_db, raw_db = cls._load_limits_database(db_path)
+            except ValueError as e:
+                # Same failsafe as the missing-database-path case above: a
+                # missing/unparseable database must never crash the connector
+                # (a read-only deployment needs no limits) nor silently disable
+                # checking (returning None would leave writes unchecked) — an
+                # empty DB blocks every write with a clear refusal instead.
+                logger.warning(
+                    f"Limits checking enabled but the database at {db_path} could not "
+                    f"be read or parsed - blocking all writes. {e}"
+                )
+                return cls({}, {}, {})  # Empty DB = blocks all (failsafe)
             logger.debug(f"Loaded limits database with {len(limits_db)} channels")
 
             policy = {
