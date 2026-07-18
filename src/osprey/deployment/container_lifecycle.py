@@ -24,7 +24,10 @@ from osprey.deployment.runtime_helper import (
     runtime_env,
     verify_runtime_is_running,
 )
-from osprey.deployment.web_terminals.provision import deploy_up_web_terminals
+from osprey.deployment.web_terminals.provision import (
+    deploy_down_web_terminals,
+    deploy_up_web_terminals,
+)
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.dotenv import parse_dotenv_file
 from osprey.utils.log_filter import quiet_logger
@@ -919,6 +922,15 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
 def deploy_down(config_path, dev_mode=False):
     """Stop services using container runtime (Docker or Podman).
 
+    When ``modules.web_terminals.enabled`` is set, the web-terminal stack is
+    torn down first via its own compose invocation
+    (:func:`osprey.deployment.web_terminals.provision.deploy_down_web_terminals`)
+    — the services ``-f`` list below can never carry
+    ``docker-compose.web.yml`` (its relative paths are project-root-relative,
+    the services files' resolve against ``build/services/``), and the
+    services ``down`` execvpe-replaces this process, so the web ``down``
+    must happen before it.
+
     :param config_path: Path to the configuration file
     :type config_path: str
     """
@@ -928,6 +940,10 @@ def deploy_down(config_path, dev_mode=False):
             config = normalize_facility_config(config.raw_config)
     except Exception as e:
         raise RuntimeError(f"Could not load config file {config_path}: {e}") from e
+
+    if _web_terminals_enabled(config):
+        env_file_args = ["--env-file", ".env"] if Path(".env").exists() else []
+        deploy_down_web_terminals(config, os.environ.copy(), env_file_args)
 
     deployed_services = config.get("deployed_services", [])
     deployed_service_names = (

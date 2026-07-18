@@ -1041,6 +1041,67 @@ def test_deploy_down_pins_compose_project_name(monkeypatch, tmp_path):
     assert "down" in captured["args"]
 
 
+def _capture_exec_and_web_down(monkeypatch):
+    """Record the services execvpe and any deploy_down_web_terminals call."""
+    captured: dict = {"web_down_order": None, "exec_order": None}
+    order = iter(range(100))
+    monkeypatch.setattr(
+        container_lifecycle.os,
+        "execvpe",
+        lambda file, args, env: captured.update(args=args, env=env, exec_order=next(order)),
+    )
+    monkeypatch.setattr(
+        container_lifecycle,
+        "deploy_down_web_terminals",
+        lambda config, env, env_file_args: captured.update(
+            web_down_config=config, web_down_order=next(order)
+        ),
+    )
+    return captured
+
+
+def test_deploy_down_tears_down_web_stack_before_services(monkeypatch, tmp_path):
+    """With modules.web_terminals.enabled, deploy_down must run the web
+    stack's own `compose down` (deploy_up_web_terminals' mirror) BEFORE the
+    services execvpe replaces the process — the services `-f` list can never
+    carry docker-compose.web.yml (root-relative paths), so skipping this
+    leaves the fixed-name web/nginx containers running after every
+    `osprey deploy down`."""
+    monkeypatch.chdir(tmp_path)
+    _mock_down_config(monkeypatch, "myproj")
+    monkeypatch.setattr(
+        container_lifecycle,
+        "normalize_facility_config",
+        lambda raw: {
+            "project_name": "myproj",
+            "deployed_services": ["event_dispatcher"],
+            "modules": {"web_terminals": {"enabled": True}},
+        },
+    )
+    captured = _capture_exec_and_web_down(monkeypatch)
+
+    container_lifecycle.deploy_down(str(tmp_path / "config.yml"))
+
+    assert captured["web_down_order"] is not None, "web stack was never torn down"
+    assert captured["web_down_order"] < captured["exec_order"], (
+        "web-stack down must run before the process-replacing services down"
+    )
+    assert captured["web_down_config"]["project_name"] == "myproj"
+
+
+def test_deploy_down_skips_web_stack_when_module_disabled(monkeypatch, tmp_path):
+    """No modules.web_terminals.enabled → the plain services-only down, no
+    web-stack invocation."""
+    monkeypatch.chdir(tmp_path)
+    _mock_down_config(monkeypatch, "myproj")
+    captured = _capture_exec_and_web_down(monkeypatch)
+
+    container_lifecycle.deploy_down(str(tmp_path / "config.yml"))
+
+    assert captured["web_down_order"] is None
+    assert "down" in captured["args"]
+
+
 def test_deploy_restart_pins_compose_project_name(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(

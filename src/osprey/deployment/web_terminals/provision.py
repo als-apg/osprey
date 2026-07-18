@@ -936,3 +936,57 @@ def deploy_up_web_terminals(
     _enable_linger(config, run_env)
     seed_user_containers(config, env=run_env)
     _run_verify_script(project_root, run_env)
+
+
+def deploy_down_web_terminals(
+    config: dict,
+    env: dict[str, str],
+    env_file_args: list[str],
+) -> None:
+    """Tear down the web-terminal stack — the mirror of
+    :func:`deploy_up_web_terminals`'s second compose invocation.
+
+    ``deploy_down``'s services invocation can never carry
+    ``docker-compose.web.yml`` in its ``-f`` list (the web file's relative
+    paths are project-root-relative while the services files resolve against
+    ``build/services/`` — see the WHY TWO INVOCATIONS note on
+    :func:`deploy_up_web_terminals`), so the web stack needs this dedicated
+    ``down``. Without it the web containers outlive every
+    ``osprey deploy down`` — and because their ``container_name``s are fixed
+    host-global identifiers (``<prefix>-web-<user>``, ``<prefix>-nginx``),
+    the NEXT web-terminals deploy on the host, from any project, dies at
+    ``up`` with a container-name Conflict instead of reconciling.
+
+    A no-op when no rendered ``docker-compose.web.yml`` exists at the project
+    root (nothing was ever deployed from here, or the render predates web
+    terminals). Volumes are deliberately kept, mirroring the services
+    ``down`` (no ``--volumes``): per-user claude-config/agent-data volumes
+    are the durable user state ``osprey deploy decommission`` manages.
+
+    Best-effort: a failing web ``down`` is logged loudly but never raises —
+    the caller's services ``down`` (which execvpe-replaces the process) must
+    still run, or a broken web stack would leave the backend services
+    running too.
+
+    :param config: Raw deploy config (resolves the pinned compose project).
+    :param env: Base environment to layer the ``COMPOSE_PROJECT_NAME`` pin
+        onto, exactly like the ``up`` path's invocations.
+    :param env_file_args: ``["--env-file", ".env"]`` (or ``[]``) argv
+        fragment, resolved by the caller.
+    """
+    if not Path("docker-compose.web.yml").exists():
+        return
+    down_cmd = get_runtime_command(config)
+    down_cmd.extend(("-f", "docker-compose.web.yml"))
+    down_cmd.extend(env_file_args)
+    down_cmd.append("down")
+    logger.info(f"Running command:\n    {' '.join(down_cmd)}")
+    result = subprocess.run(
+        down_cmd, env=runtime_env(config, env), capture_output=True, text=True, check=False
+    )
+    if result.returncode != 0:
+        logger.warning(
+            "web-terminal stack down failed (rc=%s) — its containers may still be running:\n%s",
+            result.returncode,
+            result.stderr,
+        )
