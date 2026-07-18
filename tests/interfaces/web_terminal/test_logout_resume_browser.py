@@ -69,6 +69,29 @@ _LONG_LIVED_SHELL = [sys.executable, "-c", "import time; time.sleep(3600)"]
 # ---------------------------------------------------------------------------
 
 
+def _nginx_stand_in(app, prefix: str):
+    """ASGI wrapper reproducing nginx's prefix contract for a per-user app.
+
+    In a real multi-user deployment the browser talks to nginx at
+    ``/u/<user>/…`` and nginx strips that prefix before proxying, so the app
+    only ever sees bare paths (see the ``root_path`` note in ``create_app``).
+    This wrapper is that stripping proxy: http/websocket scopes whose path
+    starts with the prefix are forwarded with the prefix removed; the
+    ``lifespan`` scope passes through untouched so the inner app's startup
+    still runs (a ``starlette`` ``Mount`` would swallow it).
+    """
+
+    async def asgi(scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            if scope["path"] == prefix:  # bare /u/<user>, as nginx's trailing-slash redirect
+                scope = dict(scope, path="/")
+            elif scope["path"].startswith(f"{prefix}/"):
+                scope = dict(scope, path=scope["path"][len(prefix) :])
+        await app(scope, receive, send)
+
+    return asgi
+
+
 @contextmanager
 def _launch_terminal(
     tmp_path, monkeypatch, *, terminal_user: str = "", landing_url: str = ""
@@ -79,6 +102,11 @@ def _launch_terminal(
     so they MUST be in ``os.environ`` before the factory runs. Companion backends
     (artifact server, panels) are bypassed via the same patch set the other
     web-terminal browser suites use.
+
+    With a ``terminal_user`` the SPA self-addresses under ``/u/<user>/`` and the
+    app serves bare paths, so the pair only functions behind a prefix-stripping
+    proxy; the server is wrapped in ``_nginx_stand_in`` and the yielded base URL
+    carries the prefix, exactly as a user would reach it through nginx.
     """
     monkeypatch.chdir(tmp_path)
     env = {
@@ -103,8 +131,13 @@ def _launch_terminal(
         from osprey.interfaces.web_terminal.app import create_app
 
         app = create_app(shell_command=list(_LONG_LIVED_SHELL))
-        with _run_app_server(app) as base_url:
-            yield base_url
+        if terminal_user:
+            prefix = f"/u/{terminal_user}"
+            with _run_app_server(_nginx_stand_in(app, prefix)) as server_url:
+                yield f"{server_url}{prefix}"
+        else:
+            with _run_app_server(app) as base_url:
+                yield base_url
 
 
 @contextmanager

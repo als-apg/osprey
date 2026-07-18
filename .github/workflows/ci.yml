@@ -270,6 +270,7 @@ jobs:
         uv run pytest tests/interfaces/design_system/test_behavioral.py \
           tests/interfaces/web_terminal/test_panels_browser.py \
           tests/interfaces/web_terminal/test_contract_params.py \
+          tests/interfaces/web_terminal/test_logout_resume_browser.py \
           tests/interfaces/test_load_smokes.py -v --tb=short
 
     - name: Run visual regression suite
