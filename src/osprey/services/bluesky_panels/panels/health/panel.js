@@ -16,7 +16,7 @@
  * @module panel
  */
 
-import { escapeHtml } from '/design-system/js/dom.js';
+import { escapeHtml, panelApiPrefix } from '/design-system/js/dom.js';
 
 /** How often to re-poll `/health/full`, in milliseconds. */
 const POLL_INTERVAL_MS = 5000;
@@ -30,7 +30,7 @@ const POLL_INTERVAL_MS = 5000;
  * mounted standalone by the sidecar, or opened in the visual test harness),
  * so `api()` falls back to root-relative paths in that case.
  */
-const PREFIX = (location.pathname.match(/^\/panel\/[^/]+/) || [''])[0];
+const PREFIX = panelApiPrefix();
 
 /**
  * Build a sidecar API path, honoring the reverse-proxy prefix above.

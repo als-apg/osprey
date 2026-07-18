@@ -44,6 +44,19 @@ export default [
     },
   },
 
+  // (4b) max-lines ratchet on the bluesky panel bundles. Each panel is a
+  // deliberately self-contained single-file bundle (no build step, served
+  // as-is), so the 450 cap above would force an artificial split — but they
+  // must not grow without bound either. Cap at the current high-water mark
+  // (schema-form.js) rounded up; lower toward 450 if files shrink.
+  {
+    files: ['src/osprey/services/bluesky_panels/panels/**/*.js'],
+    ignores: ['**/*.test.*'],
+    rules: {
+      'max-lines': ['error', { max: 700, skipComments: true, skipBlankLines: true }],
+    },
+  },
+
   // (5) Root config files: node globals.
   {
     files: ['vitest.config.js', 'eslint.config.js'],

@@ -31,7 +31,7 @@
  * regression harness does exactly that).
  */
 
-import { escapeHtml } from '/design-system/js/dom.js';
+import { escapeHtml, panelApiPrefix } from '/design-system/js/dom.js';
 import { chartSeries, chartTheme, subscribe } from '/design-system/js/theme-manager.js';
 
 /** @typedef {{
@@ -59,10 +59,7 @@ import { chartSeries, chartTheme, subscribe } from '/design-system/js/theme-mana
 
 // ---- API base resolution (prefix-relative fetches only) ----
 
-const PREFIX = (() => {
-  const match = window.location.pathname.match(/^\/panel\/[^/]+/);
-  return match ? match[0] : '';
-})();
+const PREFIX = panelApiPrefix();
 
 /**
  * @param {string} path

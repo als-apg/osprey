@@ -516,6 +516,75 @@ function buildEnum(node, seed) {
 }
 
 /**
+ * Shared engine for the two array-of-scalars list editors (the chip well and
+ * the channel list). They differ only in DOM shape, so everything else lives
+ * here: the parsed, all-or-nothing commit (Enter/comma/blur, with
+ * whitespace/comma-separated pastes committing many at once and invalid text
+ * left visibly in the input), Backspace-on-empty removal of the last value,
+ * the ``OMIT``-or-array ``collect``, and the whole-value-replacement
+ * ``setValue``. The caller owns the DOM: it passes the add-input, the root
+ * element to mount, and a ``render(values)`` that paints the current values
+ * into its own structure — called once at build time and after every mutation
+ * (commit, Backspace, chip/row removal, ``setValue``).
+ *
+ * @param {JsonSchemaNode} itemSchema The resolved item schema (scalar).
+ * @param {unknown} seed
+ * @param {HTMLInputElement} input The add-input, owned by the caller.
+ * @param {HTMLElement} el The root element to mount, owned by the caller.
+ * @param {(values: unknown[]) => void} render Paint ``values`` into the DOM.
+ * @returns {Field}
+ */
+function buildCommitList(itemSchema, seed, input, el, render) {
+  const itemType = Array.isArray(itemSchema.enum) ? 'string' : effectiveType(itemSchema);
+  /** @type {unknown[]} */
+  const values = Array.isArray(seed) ? seed.slice() : [];
+
+  /** Commit the input text as values; all-or-nothing (see parseValueList). */
+  function commit() {
+    const raw = input.value.trim();
+    if (!raw) return;
+    const accepted = parseValueList(raw, itemType);
+    if (accepted === null) return; // leave the text in place — visibly not accepted
+    values.push(...accepted);
+    input.value = '';
+    render(values);
+    input.focus();
+    emitChange(el);
+  }
+
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ',') {
+      event.preventDefault();
+      commit();
+    } else if (event.key === 'Backspace' && input.value === '' && values.length > 0) {
+      values.pop();
+      render(values);
+      input.focus();
+      emitChange(el);
+    }
+  });
+  input.addEventListener('blur', () => commit());
+
+  render(values);
+
+  return {
+    el,
+    collect: () => (values.length > 0 ? values.slice() : OMIT),
+    // Whole-value replacement: an incoming array is a full new list, not a
+    // per-item patch — a per-item registry would go stale across add/remove
+    // edits, so this rebuilds `values` from scratch and re-renders. Also
+    // discards any not-yet-committed text in the add-input: leaving it would
+    // let a later blur commit stale text on top of the applied values.
+    setValue: (value) => {
+      values.length = 0;
+      if (Array.isArray(value)) values.push(...value);
+      input.value = '';
+      render(values);
+    },
+  };
+}
+
+/**
  * Array of scalars → chip editor. Typing a value and pressing Enter (or
  * comma, or leaving the field) commits it as a removable chip; multiple
  * whitespace/comma-separated values paste in as multiple chips; Backspace on
@@ -528,10 +597,6 @@ function buildEnum(node, seed) {
  * @returns {Field}
  */
 function buildChips(node, itemSchema, seed) {
-  const itemType = Array.isArray(itemSchema.enum) ? 'string' : effectiveType(itemSchema);
-  /** @type {unknown[]} */
-  const values = Array.isArray(seed) ? seed.slice() : [];
-
   const input = /** @type {HTMLInputElement} */ (
     h('input', {
       class: 'chips-input',
@@ -544,7 +609,10 @@ function buildChips(node, itemSchema, seed) {
   );
   const el = h('div', { class: 'chips' }, input);
 
-  function render() {
+  // Paint `values` into the chip well — a removable chip each, add-input last —
+  // rebuilding the whole well every call.
+  /** @param {unknown[]} values */
+  function render(values) {
     el.replaceChildren();
     values.forEach((value, index) => {
       const remove = h('button', {
@@ -555,7 +623,7 @@ function buildChips(node, itemSchema, seed) {
       });
       remove.addEventListener('click', () => {
         values.splice(index, 1);
-        render();
+        render(values);
         emitChange(el);
       });
       el.appendChild(h('span', { class: 'chip' }, h('span', { text: String(value) }), remove));
@@ -563,53 +631,12 @@ function buildChips(node, itemSchema, seed) {
     el.appendChild(input);
   }
 
-  /** Commit the input text as chips; all-or-nothing so bad input stays visible. */
-  function commit() {
-    const raw = input.value.trim();
-    if (!raw) return;
-    const accepted = parseValueList(raw, itemType);
-    if (accepted === null) return; // leave the text in place — visibly not accepted
-    values.push(...accepted);
-    input.value = '';
-    render();
-    input.focus();
-    emitChange(el);
-  }
-
-  input.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' || event.key === ',') {
-      event.preventDefault();
-      commit();
-    } else if (event.key === 'Backspace' && input.value === '' && values.length > 0) {
-      values.pop();
-      render();
-      input.focus();
-      emitChange(el);
-    }
-  });
-  input.addEventListener('blur', () => commit());
   // Clicking anywhere in the chip well focuses the input, like a real tag box.
   el.addEventListener('click', (event) => {
     if (event.target === el) input.focus();
   });
 
-  render();
-
-  return {
-    el,
-    collect: () => (values.length > 0 ? values.slice() : OMIT),
-    // Whole-value replacement: an incoming array is a full new chip list, not
-    // a per-chip patch — a per-chip registry would go stale across chip
-    // add/remove edits, so this rebuilds `values` from scratch and re-renders.
-    // Also discards any not-yet-committed text in the add-input: leaving it
-    // would let a later blur commit stale text on top of the applied chips.
-    setValue: (value) => {
-      values.length = 0;
-      if (Array.isArray(value)) values.push(...value);
-      input.value = '';
-      render();
-    },
-  };
+  return buildCommitList(itemSchema, seed, input, el, render);
 }
 
 /**
@@ -628,10 +655,6 @@ function buildChips(node, itemSchema, seed) {
  * @returns {Field}
  */
 function buildChannelList(node, itemSchema, seed) {
-  const itemType = Array.isArray(itemSchema.enum) ? 'string' : effectiveType(itemSchema);
-  /** @type {unknown[]} */
-  const values = Array.isArray(seed) ? seed.slice() : [];
-
   const count = h('span', { class: 'channel-count' });
   const head = h('div', { class: 'channel-list-head' }, count);
   const list = h('ul', { class: 'channel-items', role: 'list' });
@@ -647,7 +670,10 @@ function buildChannelList(node, itemSchema, seed) {
   );
   const el = h('div', { class: 'channel-list' }, head, list, input);
 
-  function render() {
+  // Paint `values` into the vertical list — one removable row each — and refresh
+  // the live count header. Only the <ul> is rebuilt; the head/input persist.
+  /** @param {unknown[]} values */
+  function render(values) {
     list.replaceChildren();
     values.forEach((value, index) => {
       const remove = h('button', {
@@ -658,7 +684,7 @@ function buildChannelList(node, itemSchema, seed) {
       });
       remove.addEventListener('click', () => {
         values.splice(index, 1);
-        render();
+        render(values);
         emitChange(el);
       });
       list.appendChild(
@@ -674,46 +700,7 @@ function buildChannelList(node, itemSchema, seed) {
     count.textContent = `${n} channel${n === 1 ? '' : 's'}`;
   }
 
-  /** Commit the input text as list entries; all-or-nothing (see parseValueList). */
-  function commit() {
-    const raw = input.value.trim();
-    if (!raw) return;
-    const accepted = parseValueList(raw, itemType);
-    if (accepted === null) return; // leave the text in place — visibly not accepted
-    values.push(...accepted);
-    input.value = '';
-    render();
-    input.focus();
-    emitChange(el);
-  }
-
-  input.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' || event.key === ',') {
-      event.preventDefault();
-      commit();
-    } else if (event.key === 'Backspace' && input.value === '' && values.length > 0) {
-      values.pop();
-      render();
-      input.focus();
-      emitChange(el);
-    }
-  });
-  input.addEventListener('blur', () => commit());
-
-  render();
-
-  return {
-    el,
-    collect: () => (values.length > 0 ? values.slice() : OMIT),
-    // Whole-value replacement, same rationale as buildChips.setValue —
-    // including discarding any not-yet-committed add-input text.
-    setValue: (value) => {
-      values.length = 0;
-      if (Array.isArray(value)) values.push(...value);
-      input.value = '';
-      render();
-    },
-  };
+  return buildCommitList(itemSchema, seed, input, el, render);
 }
 
 /**

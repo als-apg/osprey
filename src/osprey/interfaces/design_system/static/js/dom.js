@@ -42,6 +42,21 @@ export function escapeHtml(value) {
 }
 
 /**
+ * The reverse-proxy path prefix a panel is mounted under when reached through
+ * the web-terminal proxy at ``/panel/{id}/…`` — i.e. the ``/panel/{id}``
+ * segment. A panel issues its API fetches prefixed with this (the proxy does
+ * not rewrite root-absolute API paths), so they resolve back to the panel's
+ * own sidecar. Returns ``""`` when the panel is reached directly — mounted
+ * standalone by its sidecar, or opened in a visual-test harness — so those
+ * fetches fall back to root-relative.
+ *
+ * @returns {string}
+ */
+export function panelApiPrefix() {
+  return (location.pathname.match(/^\/panel\/[^/]+/) || [''])[0];
+}
+
+/**
  * Wrap `fn` so it only fires once `ms` has elapsed since the last call
  * (trailing edge). Preserves `this` and forwards arguments.
  *
