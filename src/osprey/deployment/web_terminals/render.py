@@ -15,7 +15,9 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader
 
 from osprey.deployment.web_terminals.ports import (
+    SUPPORTED_MCP_TOPOLOGY,
     allocate_ports,
+    as_dict,
     base_ports_from_config,
     effective_image_source,
     resolve_personas,
@@ -45,14 +47,6 @@ _LANDING_OUTPUT = "nginx/landing.html"
 # provide.
 _LOOPBACK_BIND_HOST = "127.0.0.1"
 
-# Task 2.5: the only wired value for `modules.web_terminals.mcp.topology`. Every
-# other value (including the recognized-but-rejected `shared_http`) is fail-closed
-# at render time — see `_check_mcp_topology()`. This key is scoped to the shared
-# framework-MCP tier only; it has no bearing on a facility's own
-# `claude_code.servers` custom entries (those render through the unrelated
-# per-project `.mcp.json` pipeline, untouched by this module).
-_SUPPORTED_MCP_TOPOLOGY = "per_container_stdio"
-
 
 def render_web_terminals(config: Any) -> dict[str, str]:
     """Render the compose overlay, nginx fragment, and landing page for one facility config.
@@ -80,10 +74,10 @@ def render_web_terminals(config: Any) -> dict[str, str]:
             ``modules.web_terminals.mcp.topology`` is set to anything other than
             ``per_container_stdio`` (see :func:`_check_mcp_topology`).
     """
-    root = _as_dict(config)
-    facility = _as_dict(root.get("facility"))
-    registry = _as_dict(root.get("registry"))
-    web_terminals = _as_dict(_as_dict(root.get("modules")).get("web_terminals"))
+    root = as_dict(config)
+    facility = as_dict(root.get("facility"))
+    registry = as_dict(root.get("registry"))
+    web_terminals = as_dict(as_dict(root.get("modules")).get("web_terminals"))
     facility_prefix = facility.get("prefix") or ""
 
     _check_mcp_topology(web_terminals)
@@ -136,7 +130,7 @@ def render_web_terminals(config: Any) -> dict[str, str]:
     }
     landing_ctx = {
         "facility_name": facility.get("name") or "",
-        "groups": _build_groups(_as_dict(web_terminals.get("landing")), resolved_users),
+        "groups": _build_groups(as_dict(web_terminals.get("landing")), resolved_users),
     }
 
     template_dir = files("osprey").joinpath(_TEMPLATE_PACKAGE_PATH)
@@ -170,7 +164,7 @@ def _landing_url(root: dict[str, Any], nginx_port: int) -> str:
     SSH-resolvable (may be a bare `~/.ssh/config` alias, not a browser-reachable
     hostname).
     """
-    deploy = _as_dict(root.get("deploy"))
+    deploy = as_dict(root.get("deploy"))
     host = str(deploy.get("fqdn") or "").strip()
     if not host:
         raise ValueError(
@@ -239,14 +233,14 @@ def _build_groups(
 
     groups: list[dict[str, Any]] = []
     for entry in groups_raw:
-        entry = _as_dict(entry)
+        entry = as_dict(entry)
         group_type = entry.get("type")
         if group_type == "users":
             items = [_user_card(user) for user in resolved_users]
             groups.append({"label": "Terminals", "items": items})
         elif group_type == "links":
             links = entry.get("links")
-            items = [_as_dict(link) for link in links] if isinstance(links, list) else []
+            items = [as_dict(link) for link in links] if isinstance(links, list) else []
             groups.append({"label": entry.get("label") or "", "items": items})
     return groups
 
@@ -273,8 +267,8 @@ def _auth_tls_context(web_terminals: dict[str, Any]) -> dict[str, Any]:
         ``tls_cert``/``tls_key`` (str path or ``None``, present only to be read
         when ``tls_enabled`` is true).
     """
-    auth = _as_dict(web_terminals.get("auth"))
-    tls = _as_dict(web_terminals.get("tls"))
+    auth = as_dict(web_terminals.get("auth"))
+    tls = as_dict(web_terminals.get("tls"))
     auth_method = auth.get("method")
     return {
         "auth_method": auth_method if isinstance(auth_method, str) and auth_method else "none",
@@ -311,9 +305,9 @@ def _check_mcp_topology(web_terminals: dict[str, Any]) -> None:
             ``per_container_stdio`` (including ``shared_http`` and any other
             unrecognized value).
     """
-    mcp_cfg = _as_dict(web_terminals.get("mcp"))
-    topology = mcp_cfg.get("topology") or _SUPPORTED_MCP_TOPOLOGY
-    if topology != _SUPPORTED_MCP_TOPOLOGY:
+    mcp_cfg = as_dict(web_terminals.get("mcp"))
+    topology = mcp_cfg.get("topology") or SUPPORTED_MCP_TOPOLOGY
+    if topology != SUPPORTED_MCP_TOPOLOGY:
         raise ValueError(
             f"modules.web_terminals.mcp.topology {topology!r} is not wired yet for "
             "the shared framework-MCP tier; per_container_stdio is the only "
@@ -321,8 +315,3 @@ def _check_mcp_topology(web_terminals: dict[str, Any]) -> None:
             "`url` entries are a separate, already-supported path and are "
             "unaffected by this restriction)."
         )
-
-
-def _as_dict(value: Any) -> dict[str, Any]:
-    """Read a config section defensively: anything not a dict becomes empty."""
-    return value if isinstance(value, dict) else {}

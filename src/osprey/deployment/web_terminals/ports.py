@@ -2,8 +2,6 @@
 
 from typing import Any
 
-_PORT_FAMILIES = ("web", "artifact", "ariel", "lattice")
-
 # Maps each facility-config base-port field to the family key allocate_ports()
 # expects. Shared by lint.py (Rule 11 port-overlap / family-completeness checks)
 # and render.py (per-service port construction) so the two can't drift on which
@@ -14,6 +12,23 @@ FAMILY_BASE_FIELDS = {
     "ariel_base_port": "ariel",
     "lattice_base_port": "lattice",
 }
+
+_PORT_FAMILIES = tuple(FAMILY_BASE_FIELDS.values())
+
+# Task 2.5: the only wired value for `modules.web_terminals.mcp.topology`. Every
+# other value (including the recognized-but-rejected `shared_http`) is
+# fail-closed at render time — see render.py's `_check_mcp_topology()`. Lives
+# here (like `FAMILY_BASE_FIELDS`) so lint.py and render.py can both import it
+# without one depending on the other. This key is scoped to the shared
+# framework-MCP tier only; it has no bearing on a facility's own
+# `claude_code.servers` custom entries (those render through the unrelated
+# per-project `.mcp.json` pipeline, untouched by this module).
+SUPPORTED_MCP_TOPOLOGY = "per_container_stdio"
+
+
+def as_dict(value: Any) -> dict[str, Any]:
+    """Read a config section defensively: anything not a dict becomes empty."""
+    return value if isinstance(value, dict) else {}
 
 
 def base_ports_from_config(web_terminals: dict[str, Any]) -> dict[str, int]:
@@ -103,6 +118,26 @@ def effective_image_source(web_terminals: dict[str, Any]) -> str:
     return "local" if web_terminals.get("image_source") == "local" else "registry"
 
 
+def _persona_ref_by_name(raw_users: Any) -> dict[str, str]:
+    """Recover each roster entry's ``persona`` reference from the raw roster.
+
+    normalize_users() drops any `persona` field off each surviving entry;
+    recover it here, keyed by name (the same key every other per-user artifact
+    in this module — compose service names, volume names — is keyed by), since
+    normalize_users()'s own index-freezing contract is orthogonal to persona
+    resolution.
+    """
+    refs: dict[str, str] = {}
+    if isinstance(raw_users, list):
+        for raw_entry in raw_users:
+            if isinstance(raw_entry, dict):
+                name = raw_entry.get("name")
+                persona = raw_entry.get("persona")
+                if isinstance(name, str) and isinstance(persona, str) and persona:
+                    refs[name] = persona
+    return refs
+
+
 def resolve_personas(
     web_terminals: dict[str, Any],
     registry_cfg: dict[str, Any],
@@ -187,20 +222,7 @@ def resolve_personas(
         if isinstance(url, str):
             registry_url = url
 
-    # normalize_users() drops any `persona` field off each surviving entry; recover
-    # it from the raw roster, keyed by name (the same key every other per-user
-    # artifact in this module — compose service names, volume names — is keyed
-    # by), since normalize_users()'s own index-freezing contract is orthogonal to
-    # persona resolution.
-    persona_ref_by_name: dict[str, str] = {}
-    raw_users = web_terminals.get("users")
-    if isinstance(raw_users, list):
-        for raw_entry in raw_users:
-            if isinstance(raw_entry, dict):
-                name = raw_entry.get("name")
-                persona = raw_entry.get("persona")
-                if isinstance(name, str) and isinstance(persona, str) and persona:
-                    persona_ref_by_name[name] = persona
+    persona_ref_by_name = _persona_ref_by_name(web_terminals.get("users"))
 
     if (
         strict

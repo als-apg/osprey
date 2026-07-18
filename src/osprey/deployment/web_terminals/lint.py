@@ -19,7 +19,9 @@ import yaml
 
 from osprey.deployment.web_terminals.ports import (
     FAMILY_BASE_FIELDS,
+    SUPPORTED_MCP_TOPOLOGY,
     allocate_ports,
+    as_dict,
     base_ports_from_config,
     effective_image_source,
     resolve_personas,
@@ -38,6 +40,12 @@ _RESERVED_SERVICE_NAMES = frozenset(
     }
 )
 _RESERVED_SERVICE_PREFIX = "dispatch-sidecar-"
+
+
+def _is_reserved_service_name(name: str) -> bool:
+    """Rule 12's predicate: collides with a reserved compose service key."""
+    return name in _RESERVED_SERVICE_NAMES or name.startswith(_RESERVED_SERVICE_PREFIX)
+
 
 # Usernames become nginx `location` keys and URL path segments (`/<user>/...`), so
 # they're held to a stricter charset than a bare "no reserved collision" check.
@@ -75,9 +83,9 @@ def lint_web_terminals(config: Any) -> list[Finding]:
         A list of :class:`Finding` objects, empty if nothing is wrong. Findings
         with ``severity="warn"`` do not indicate a config that must be rejected.
     """
-    root = _as_dict(config)
-    modules = _as_dict(root.get("modules"))
-    web_terminals = _as_dict(modules.get("web_terminals"))
+    root = as_dict(config)
+    modules = as_dict(root.get("modules"))
+    web_terminals = as_dict(modules.get("web_terminals"))
 
     if not web_terminals.get("enabled"):
         return []
@@ -115,7 +123,7 @@ def _check_empty_users(
     """Rule 13: enabled + empty users[] is a warning, unless benchmarks needs one."""
     if users:
         return []
-    benchmarks_enabled = bool(_as_dict(modules.get("benchmarks")).get("enabled"))
+    benchmarks_enabled = bool(as_dict(modules.get("benchmarks")).get("enabled"))
     if benchmarks_enabled:
         return [
             Finding(
@@ -190,8 +198,7 @@ def _check_reserved_names(users: list[Any]) -> list[Finding]:
         name = _user_name(user)
         if name is None:
             continue
-        is_reserved = name in _RESERVED_SERVICE_NAMES or name.startswith(_RESERVED_SERVICE_PREFIX)
-        if is_reserved:
+        if _is_reserved_service_name(name):
             findings.append(
                 Finding(
                     severity="error",
@@ -345,7 +352,7 @@ def _check_port_overlap(
     existing ``ports.*`` entry, which S3 already covers. Re-adding them would make
     every valid config falsely look like it collides with its own mirror.
     """
-    modules = _as_dict(root.get("modules"))
+    modules = as_dict(root.get("modules"))
     entries: list[tuple[int, str]] = []
 
     # S1: web_terminals family ranges, one per family, over the N configured users.
@@ -386,7 +393,7 @@ def _check_port_overlap(
     # S5: the gated auth/TLS seam's port(s) (Task 1.3/1.4) — only join the
     # collision set when the seam is actually enabled by config; the default
     # (tls disabled, auth "none") must not reserve 443 against ordinary configs.
-    tls = _as_dict(web_terminals.get("tls"))
+    tls = as_dict(web_terminals.get("tls"))
     if bool(tls.get("enabled", False)):
         entries.append((_TLS_LISTEN_PORT, "web_terminals.tls (listen 443 ssl)"))
     # `auth.method` has no value other than "none" in this schema revision, so
@@ -461,10 +468,7 @@ def _check_persona_reserved_names(web_terminals: dict[str, Any]) -> list[Finding
     for persona_name in _persona_catalog(web_terminals):
         if not isinstance(persona_name, str):
             continue
-        is_reserved = persona_name in _RESERVED_SERVICE_NAMES or persona_name.startswith(
-            _RESERVED_SERVICE_PREFIX
-        )
-        if is_reserved:
+        if _is_reserved_service_name(persona_name):
             findings.append(
                 Finding(
                     severity="error",
@@ -512,8 +516,8 @@ def _check_unknown_persona_reference(
     if not users:
         return []
     personas_catalog = _persona_catalog(web_terminals)
-    facility_prefix = _as_dict(root.get("facility")).get("prefix") or ""
-    registry_cfg = _as_dict(root.get("registry"))
+    facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
+    registry_cfg = as_dict(root.get("registry"))
     resolved = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False)
 
     findings: list[Finding] = []
@@ -551,7 +555,7 @@ def _check_empty_facility_prefix(
     """
     if not users:
         return []
-    facility_prefix = _as_dict(root.get("facility")).get("prefix") or ""
+    facility_prefix = as_dict(root.get("facility")).get("prefix") or ""
     if facility_prefix:
         return []
     return [
@@ -572,13 +576,6 @@ def _check_empty_facility_prefix(
 # The two recognized `modules.web_terminals.image_source` values (schema rule
 # 14). Anything else is `_check_unknown_image_source`'s ERROR.
 _VALID_IMAGE_SOURCES = frozenset({"registry", "local"})
-
-# Mirrors render.py's own `_SUPPORTED_MCP_TOPOLOGY` (Task 2.5) — duplicated
-# rather than imported, since lint.py and render.py are siblings with no
-# shared-constants module today (unlike `FAMILY_BASE_FIELDS`, which lives in
-# ports.py precisely so lint.py and render.py can both import it without one
-# depending on the other).
-_SUPPORTED_MCP_TOPOLOGY = "per_container_stdio"
 
 
 def _check_unknown_image_source(web_terminals: dict[str, Any]) -> list[Finding]:
@@ -612,7 +609,7 @@ def _check_registry_url_coherence(
     """
     if not _persona_catalog(web_terminals):
         return []
-    registry_url = _as_dict(root.get("registry")).get("url")
+    registry_url = as_dict(root.get("registry")).get("url")
     has_url = isinstance(registry_url, str) and bool(registry_url)
     image_source = effective_image_source(web_terminals)
     if image_source == "registry" and not has_url:
@@ -737,122 +734,127 @@ def _check_persona_project_paths(web_terminals: dict[str, Any], users: list[Any]
         if not isinstance(entry, dict):
             continue  # unresolvable reference — _check_unknown_persona_reference /
             # _check_default_persona_exists already report this
+        findings.extend(_check_one_persona_project_path(persona_name, entry))
+    return findings
 
-        catalog_project = entry.get("project")
-        has_catalog_project = isinstance(catalog_project, str) and bool(catalog_project)
-        build_profile = entry.get("build_profile")
-        has_build_profile = isinstance(build_profile, str) and bool(build_profile)
 
-        project_path_raw = entry.get("project_path")
-        if not isinstance(project_path_raw, str) or not project_path_raw:
-            findings.append(
-                Finding(
-                    severity="error",
-                    code="web_terminals.persona_missing_project_path",
-                    message=(
-                        f"modules.web_terminals.personas[{persona_name!r}] has no "
-                        "project_path set; image_source: local requires one to "
-                        "build this persona's image from"
-                    ),
-                )
+def _check_one_persona_project_path(persona_name: str, entry: dict[str, Any]) -> list[Finding]:
+    """The per-persona body of :func:`_check_persona_project_paths`: validate one
+    catalog entry's ``project_path``. Early returns short-circuit the later
+    checks exactly where a failed prerequisite makes them meaningless (see the
+    parent's docstring for the invariants)."""
+    catalog_project = entry.get("project")
+    has_catalog_project = isinstance(catalog_project, str) and bool(catalog_project)
+    build_profile = entry.get("build_profile")
+    has_build_profile = isinstance(build_profile, str) and bool(build_profile)
+
+    project_path_raw = entry.get("project_path")
+    if not isinstance(project_path_raw, str) or not project_path_raw:
+        return [
+            Finding(
+                severity="error",
+                code="web_terminals.persona_missing_project_path",
+                message=(
+                    f"modules.web_terminals.personas[{persona_name!r}] has no "
+                    "project_path set; image_source: local requires one to "
+                    "build this persona's image from"
+                ),
             )
-            continue
+        ]
 
-        project_path = Path(project_path_raw)
+    project_path = Path(project_path_raw)
 
-        # Name invariant: auto-render writes into <output_dir>/<project>, so
-        # project_path's basename must equal the catalog `project`. A
-        # disagreement is a hard config error regardless of whether the
-        # directory exists yet, and supersedes every existence check below —
-        # there is nothing else about this persona worth reporting on top of it.
-        if has_catalog_project and project_path.name != catalog_project:
-            findings.append(
+    # Name invariant: auto-render writes into <output_dir>/<project>, so
+    # project_path's basename must equal the catalog `project`. A
+    # disagreement is a hard config error regardless of whether the
+    # directory exists yet, and supersedes every existence check below —
+    # there is nothing else about this persona worth reporting on top of it.
+    if has_catalog_project and project_path.name != catalog_project:
+        return [
+            Finding(
+                severity="error",
+                code="web_terminals.persona_project_path_name_mismatch",
+                message=(
+                    f"modules.web_terminals.personas[{persona_name!r}].project_path "
+                    f"{project_path_raw!r} has basename {project_path.name!r}, which "
+                    f"does not match its project {catalog_project!r}; auto-render "
+                    "derives the output directory from project, so the two must agree"
+                ),
+            )
+        ]
+
+    if not project_path.is_dir():
+        # Missing directory: only auto-renderable (info) when a build_profile
+        # can render it, otherwise the pre-existing hard error.
+        if has_build_profile:
+            return [
                 Finding(
-                    severity="error",
-                    code="web_terminals.persona_project_path_name_mismatch",
+                    severity="info",
+                    code="web_terminals.persona_project_path_auto_renderable",
                     message=(
                         f"modules.web_terminals.personas[{persona_name!r}].project_path "
-                        f"{project_path_raw!r} has basename {project_path.name!r}, which "
-                        f"does not match its project {catalog_project!r}; auto-render "
-                        "derives the output directory from project, so the two must agree"
+                        f"{project_path_raw!r} does not exist yet, but the entry has a "
+                        f"build_profile {build_profile!r}; deploy up will render it "
+                        "before building"
                     ),
                 )
+            ]
+        return [
+            Finding(
+                severity="error",
+                code="web_terminals.persona_project_path_not_dir",
+                message=(
+                    f"modules.web_terminals.personas[{persona_name!r}]."
+                    f"project_path {project_path_raw!r} does not exist or is "
+                    "not a directory"
+                ),
             )
-            continue
+        ]
 
-        if not project_path.is_dir():
-            # Missing directory: only auto-renderable (info) when a build_profile
-            # can render it, otherwise the pre-existing hard error.
-            if has_build_profile:
-                findings.append(
-                    Finding(
-                        severity="info",
-                        code="web_terminals.persona_project_path_auto_renderable",
-                        message=(
-                            f"modules.web_terminals.personas[{persona_name!r}].project_path "
-                            f"{project_path_raw!r} does not exist yet, but the entry has a "
-                            f"build_profile {build_profile!r}; deploy up will render it "
-                            "before building"
-                        ),
-                    )
-                )
-            else:
-                findings.append(
-                    Finding(
-                        severity="error",
-                        code="web_terminals.persona_project_path_not_dir",
-                        message=(
-                            f"modules.web_terminals.personas[{persona_name!r}]."
-                            f"project_path {project_path_raw!r} does not exist or is "
-                            "not a directory"
-                        ),
-                    )
-                )
-            continue
-
-        if not (project_path / "Dockerfile").is_file():
-            findings.append(
-                Finding(
-                    severity="error",
-                    code="web_terminals.persona_missing_dockerfile",
-                    message=(
-                        f"modules.web_terminals.personas[{persona_name!r}]."
-                        f"project_path {project_path_raw!r} has no Dockerfile; "
-                        "local mode builds each persona's image from its own "
-                        "project directory"
-                    ),
-                )
+    findings: list[Finding] = []
+    if not (project_path / "Dockerfile").is_file():
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.persona_missing_dockerfile",
+                message=(
+                    f"modules.web_terminals.personas[{persona_name!r}]."
+                    f"project_path {project_path_raw!r} has no Dockerfile; "
+                    "local mode builds each persona's image from its own "
+                    "project directory"
+                ),
             )
+        )
 
-        config_yml_path = project_path / "config.yml"
-        if not config_yml_path.is_file():
-            findings.append(
-                Finding(
-                    severity="error",
-                    code="web_terminals.persona_missing_config_yml",
-                    message=(
-                        f"modules.web_terminals.personas[{persona_name!r}]."
-                        f"project_path {project_path_raw!r} has no config.yml"
-                    ),
-                )
+    config_yml_path = project_path / "config.yml"
+    if not config_yml_path.is_file():
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.persona_missing_config_yml",
+                message=(
+                    f"modules.web_terminals.personas[{persona_name!r}]."
+                    f"project_path {project_path_raw!r} has no config.yml"
+                ),
             )
-            continue  # nothing to compare `project` against
+        )
+        return findings  # nothing to compare `project` against
 
-        if not has_catalog_project:
-            continue  # entry.project itself unset — not this check's concern
-        rendered_project_name = _read_project_name(config_yml_path)
-        if rendered_project_name is not None and rendered_project_name != catalog_project:
-            findings.append(
-                Finding(
-                    severity="error",
-                    code="web_terminals.persona_project_mismatch",
-                    message=(
-                        f"modules.web_terminals.personas[{persona_name!r}].project "
-                        f"{catalog_project!r} does not match its project_path's "
-                        f"config.yml project_name {rendered_project_name!r}"
-                    ),
-                )
+    if not has_catalog_project:
+        return findings  # entry.project itself unset — not this check's concern
+    rendered_project_name = _read_project_name(config_yml_path)
+    if rendered_project_name is not None and rendered_project_name != catalog_project:
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.persona_project_mismatch",
+                message=(
+                    f"modules.web_terminals.personas[{persona_name!r}].project "
+                    f"{catalog_project!r} does not match its project_path's "
+                    f"config.yml project_name {rendered_project_name!r}"
+                ),
             )
+        )
     return findings
 
 
@@ -897,9 +899,9 @@ def _check_unknown_mcp_topology(web_terminals: dict[str, Any]) -> list[Finding]:
     ``ValueError`` (Task 2.5) — ``shared_http`` and any other unrecognized
     value are an ERROR here too, so a bad topology value is caught before a
     render/deploy attempt rather than only at render time."""
-    mcp_cfg = _as_dict(web_terminals.get("mcp"))
-    topology = mcp_cfg.get("topology") or _SUPPORTED_MCP_TOPOLOGY
-    if topology == _SUPPORTED_MCP_TOPOLOGY:
+    mcp_cfg = as_dict(web_terminals.get("mcp"))
+    topology = mcp_cfg.get("topology") or SUPPORTED_MCP_TOPOLOGY
+    if topology == SUPPORTED_MCP_TOPOLOGY:
         return []
     return [
         Finding(
@@ -914,8 +916,3 @@ def _check_unknown_mcp_topology(web_terminals: dict[str, Any]) -> list[Finding]:
             ),
         )
     ]
-
-
-def _as_dict(value: Any) -> dict[str, Any]:
-    """Read a config section defensively: anything not a dict becomes empty."""
-    return value if isinstance(value, dict) else {}
