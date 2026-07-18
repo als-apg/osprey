@@ -3,10 +3,11 @@
 ``PlanRunner`` is the boundary the lifecycle core (``runs.py``'s ``do_launch``) is
 written against. The real implementation (a bluesky ``RunEngine`` in a daemon
 thread, wired to ophyd-async devices and a ``TiledWriter``) lives in
-``plan_runner_bluesky.py``, behind the ``osprey-framework[bluesky-bridge]`` extra.
-Everything in this module — the Protocol and ``FakePlanRunner`` — has no
-bluesky/ophyd/tiled dependency, so the lifecycle core can be built, imported, and
-unit-tested before that extra ever needs to be installed.
+``plan_runner_bluesky.py``. The bluesky stack (bluesky/ophyd-async/tiled) is a
+core dependency, so that module always imports; this seam is an import-hygiene
+boundary, not an install-size one. Everything in this module — the Protocol and
+``FakePlanRunner`` — has no bluesky/ophyd/tiled dependency, so the lifecycle core
+can be built, imported, and unit-tested without loading the RunEngine.
 """
 
 from __future__ import annotations

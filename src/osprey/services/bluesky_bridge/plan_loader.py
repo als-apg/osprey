@@ -56,8 +56,9 @@ principled tie-breaker beyond scan order.
 
 Deliberately free of bluesky/ophyd/tiled imports — this module only execs
 plan files and reads pydantic metadata; only a loaded module itself needs
-bluesky. That keeps `plan_loader.py` importable in any bridge process
-regardless of whether the `bluesky-bridge` extra is installed.
+bluesky. The bluesky stack is a core dependency now, but keeping this module
+import-clean of it still lets `plan_loader.py` be imported in any bridge process
+without loading the RunEngine.
 """
 
 from __future__ import annotations

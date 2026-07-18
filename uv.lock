@@ -17,7 +17,8 @@ resolution-markers = [
 ]
 
 [options]
-exclude-newer = "2026-07-16T07:00:00Z"
+exclude-newer = "2026-07-11T05:35:00.517768Z"
+exclude-newer-span = "P7D"
 
 [[package]]
 name = "accelerator-toolbox"
@@ -3748,6 +3749,7 @@ dependencies = [
     { name = "aiohttp" },
     { name = "aiohttp-socks" },
     { name = "anthropic" },
+    { name = "bluesky" },
     { name = "bokeh" },
     { name = "certifi" },
     { name = "charset-normalizer" },
@@ -3772,6 +3774,7 @@ dependencies = [
     { name = "numpy" },
     { name = "ollama" },
     { name = "openai" },
+    { name = "ophyd-async", extra = ["ca"] },
     { name = "pandas" },
     { name = "playwright" },
     { name = "plotly" },
@@ -3790,6 +3793,7 @@ dependencies = [
     { name = "seaborn" },
     { name = "softioc" },
     { name = "tenacity" },
+    { name = "tiled", extra = ["client"] },
     { name = "typing-extensions" },
     { name = "unique-namer" },
     { name = "urllib3" },
@@ -3841,11 +3845,6 @@ ariel = [
 ariel-proxy = [
     { name = "aiohttp-socks" },
 ]
-bluesky-bridge = [
-    { name = "bluesky" },
-    { name = "ophyd-async", extra = ["ca"] },
-    { name = "tiled", extra = ["client"] },
-]
 dev = [
     { name = "build" },
     { name = "docker" },
@@ -3894,7 +3893,7 @@ requires-dist = [
     { name = "aiohttp-socks", specifier = ">=0.8.0" },
     { name = "aiohttp-socks", marker = "extra == 'ariel-proxy'", specifier = ">=0.8.0" },
     { name = "anthropic" },
-    { name = "bluesky", marker = "extra == 'bluesky-bridge'", specifier = ">=1.15.1" },
+    { name = "bluesky", specifier = ">=1.15.1" },
     { name = "bokeh", specifier = ">=3.9.1" },
     { name = "build", marker = "extra == 'all'" },
     { name = "build", marker = "extra == 'dev'" },
@@ -3933,7 +3932,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.2.6" },
     { name = "ollama", specifier = ">=0.5.1" },
     { name = "openai", specifier = ">=2.45.0" },
-    { name = "ophyd-async", extras = ["ca"], marker = "extra == 'bluesky-bridge'", specifier = ">=0.16,<1.0" },
+    { name = "ophyd-async", extras = ["ca"], specifier = ">=0.16,<1.0" },
     { name = "pandas", specifier = ">=2.2.3" },
     { name = "pillow", marker = "extra == 'all'", specifier = ">=12.3.0" },
     { name = "pillow", marker = "extra == 'dev'", specifier = ">=12.3.0" },
@@ -4000,7 +3999,7 @@ requires-dist = [
     { name = "testcontainers", extras = ["mongodb"], marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "testcontainers", extras = ["postgres"], marker = "extra == 'all'", specifier = ">=4.0.0" },
     { name = "testcontainers", extras = ["postgres"], marker = "extra == 'dev'", specifier = ">=4.0.0" },
-    { name = "tiled", extras = ["client"], marker = "extra == 'bluesky-bridge'", specifier = ">=0.1" },
+    { name = "tiled", extras = ["client"], specifier = ">=0.1" },
     { name = "typing-extensions", specifier = ">=4.12.0" },
     { name = "unique-namer", specifier = ">=0.1.0" },
     { name = "urllib3", specifier = ">=2.4.0" },
@@ -4008,7 +4007,7 @@ requires-dist = [
     { name = "watchdog", specifier = ">=6.0.0" },
     { name = "websocket-client", specifier = ">=1.7.0" },
 ]
-provides-extras = ["all", "archiver-mongodb", "ariel", "ariel-proxy", "bluesky-bridge", "bluesky-panels", "dev", "docs", "knowledge", "screen-capture-linux", "sheets", "virtual-accelerator"]
+provides-extras = ["all", "archiver-mongodb", "ariel", "ariel-proxy", "dev", "docs", "knowledge", "screen-capture-linux", "sheets", "virtual-accelerator"]
 
 [[package]]
 name = "packaging"

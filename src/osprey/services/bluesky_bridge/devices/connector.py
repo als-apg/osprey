@@ -25,10 +25,10 @@ internal extension point, while ``StandardReadable``'s ``set``/``read``/
 ``describe``/``connect`` are the stable public device contract that plans
 and the RunEngine actually consume.
 
-Imports ophyd-async, so this module (like the rest of ``devices/``) lives
-behind the optional ``osprey-framework[bluesky-bridge]`` extra — keep it
-out of the bridge lifecycle core's import path (``app.py``, ``runs.py``,
-``plan_runner.py``, ``security.py``).
+Imports ophyd-async (a core dependency), so this module (like the rest of
+``devices/``) is kept out of the bridge lifecycle core's import path
+(``app.py``, ``runs.py``, ``plan_runner.py``, ``security.py``), which stays
+import-clean of ophyd.
 """
 
 from __future__ import annotations

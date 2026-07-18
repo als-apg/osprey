@@ -3,8 +3,9 @@
 Consumes the plain `dict` rows an `orm` plan run emits (bluesky's event
 document `data`, one dict per point — see `plans_core/orm.py`'s `build_plan`), never a
 live-buffer or Tiled-specific shape, so this module has no dependency on
-`bluesky`/`ophyd-async`/`tiled` and imports cleanly on the MCP side (where the
-`bluesky-bridge` extra is not installed).
+`bluesky`/`ophyd-async`/`tiled` and imports cleanly on the MCP side without
+loading the bluesky stack (a core dependency, but heavier than this pure-numpy
+analysis needs).
 
 Three pieces:
 

@@ -149,7 +149,7 @@ services:
       timeout: 5s
       retries: 5
       # Grace period before failed probes count — uvicorn/FastAPI startup and
-      # the first image build (which bakes in the bluesky-bridge extra's
+      # the first image build (which bakes in the bluesky stack's
       # dependencies at build time, not at container start) take a few seconds.
       start_period: 15s
 {% if services.bluesky.tiled_enabled | default(false) %}
