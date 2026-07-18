@@ -1098,7 +1098,14 @@ def _container_image(name: str) -> str | None:
     result = _runtime_cli(
         "inspect", "--type", "container", "-f", "{{.Config.Image}}", name, timeout=15
     )
-    return result.stdout.strip() if result.returncode == 0 else None
+    if result.returncode != 0:
+        return None
+    # Podman fully-qualifies a registry-less locally-built tag with a
+    # `localhost/` prefix in Config.Image; docker keeps the bare `<name>:<tag>`.
+    # Strip only that synthetic prefix so image-identity assertions read the
+    # same on both runtimes. An explicit registry ref (`localhost:19081/...`,
+    # `host/...`) starts with `localhost:` / `<host>/` and is left untouched.
+    return result.stdout.strip().removeprefix("localhost/")
 
 
 def _container_mounts(name: str) -> list[dict]:
