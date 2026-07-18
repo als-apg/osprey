@@ -270,9 +270,7 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     # `--set` with its nested-dict semantics) would wholesale-replace the
     # preset's `modules.web_terminals` subtree instead of flipping one field.
     override_path = base / "override.yml"
-    override_path.write_text(
-        "config:\n  modules.web_terminals.enabled: false\n", encoding="utf-8"
-    )
+    override_path.write_text("config:\n  modules.web_terminals.enabled: false\n", encoding="utf-8")
 
     build = _run(
         [
