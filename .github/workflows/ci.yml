@@ -1081,6 +1081,17 @@ jobs:
         # runtime selection self-documenting here too, not just inferred.
         CONTAINER_RUNTIME: podman
       run: |
+        # `podman compose` delegates to the docker-compose CLI plugin present on
+        # the runner, which speaks the Docker API over the rootless podman socket
+        # (unix://$XDG_RUNTIME_DIR/podman/podman.sock). That API service isn't
+        # running by default — `podman push`/`build` are direct CLI calls that
+        # need no socket, but the compose `pull`/`up` the deploy runs do. Start
+        # it for the duration of this step (must be here, not the setup step:
+        # each step is its own process group) and wait until it's listening.
+        podman system service --time=0 &
+        SOCK="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
+        for _ in $(seq 1 30); do if [ -S "$SOCK" ]; then break; fi; sleep 1; done
+        export DOCKER_HOST="unix://$SOCK"
         uv run pytest tests/e2e/test_deploy_lifecycle.py -v --tb=short
 
     # Belt-and-suspenders on top of the test's own try/finally teardown: every
