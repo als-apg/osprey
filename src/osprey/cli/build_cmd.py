@@ -1671,11 +1671,9 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
         ("health", "/health-panel/", "HEALTH", "/health"),
     )
     for panel_id, panel_path, label, health_endpoint in panel_specs:
-        existing_url = config.get("web", {}).get("panels", {}).get(panel_id, {}).get("url", "")
-        if not existing_url:
-            config.setdefault("web", {}).setdefault("panels", {}).setdefault(panel_id, {})
-            config["web"]["panels"][panel_id]["url"] = default_url
         panel_cfg = config.setdefault("web", {}).setdefault("panels", {}).setdefault(panel_id, {})
+        if not panel_cfg.get("url"):
+            panel_cfg["url"] = default_url
         panel_cfg.setdefault("path", panel_path)
         panel_cfg.setdefault("label", label)
         if health_endpoint:

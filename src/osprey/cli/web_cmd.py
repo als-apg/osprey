@@ -350,6 +350,22 @@ def _wait_for_server(host: str, port: int, proc: subprocess.Popen, timeout: floa
     return False
 
 
+def _notice_declared_override(env_var: str, flag_name: str, flag_value: object, what: str) -> None:
+    """Print the NOTICE when a declared env var overrides a conflicting CLI flag.
+
+    Only the operator-facing message lives here — the declaration-wins
+    precedence itself is enforced by ``resolve_bind_host``/``resolve_web_port``
+    (C3), which run regardless of whether this notice fires.
+    """
+    declared = os.environ.get(env_var)
+    if declared and flag_value is not None and str(flag_value) != declared:
+        click.echo(
+            f"NOTICE: {env_var}={declared} is authoritative for the "
+            f"multi-user reverse-proxy {what}; ignoring {flag_name} {flag_value}.",
+            err=True,
+        )
+
+
 def _resolve_web_shell_command(
     cc_config: dict, shell_override: str | None, wt_config: dict
 ) -> list[str]:
@@ -442,21 +458,9 @@ def web(
 
     wt_config = get_config_value("web_terminal", {})
     cc_config = get_config_value("claude_code", {})
-    _declared = os.environ.get(DECLARED_BIND_ENV)
-    if _declared and host is not None and host != _declared:
-        click.echo(
-            f"NOTICE: {DECLARED_BIND_ENV}={_declared} is authoritative for the "
-            f"multi-user reverse-proxy chokepoint; ignoring --host {host}.",
-            err=True,
-        )
+    _notice_declared_override(DECLARED_BIND_ENV, "--host", host, "chokepoint")
     host = resolve_bind_host(host, wt_config.get("host"))
-    _declared_port = os.environ.get(DECLARED_WEB_PORT_ENV)
-    if _declared_port and port is not None and str(port) != _declared_port:
-        click.echo(
-            f"NOTICE: {DECLARED_WEB_PORT_ENV}={_declared_port} is authoritative for the "
-            f"multi-user reverse-proxy port mapping; ignoring --port {port}.",
-            err=True,
-        )
+    _notice_declared_override(DECLARED_WEB_PORT_ENV, "--port", port, "port mapping")
     port = resolve_web_port(port, wt_config.get("port"))
 
     user_shell_override = shell  # keep raw click value for the detached re-spawn
