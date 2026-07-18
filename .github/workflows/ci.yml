@@ -453,10 +453,11 @@ jobs:
     # Only run on PRs (not pushes) to control API costs, and only for non-fork PRs (secrets unavailable on forks).
     # Also runs on manual workflow_dispatch to enable scoped reruns via the e2e_filter input.
     if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'workflow_dispatch'
-    # The lane's healthy runtime is ~30-35min; a run past that means a test is
-    # wedged on a dead endpoint or a leaked container stack, and the useful
-    # signal is the timeout itself, not another 3 hours of runner time.
-    timeout-minutes: 45
+    # The lane's healthy runtime is ~40-50min (the LLM pipelines up front plus
+    # test_orm_roundtrip's full-stack deploy near the end); a run past the cap
+    # means a test is wedged on a dead endpoint or a leaked container stack,
+    # and the useful signal is the timeout itself, not hours more runner time.
+    timeout-minutes: 60
 
     steps:
     - name: Checkout repository
