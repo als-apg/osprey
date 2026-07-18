@@ -238,7 +238,7 @@ def _run(cmd: list[str], cwd: Path, timeout: int) -> subprocess.CompletedProcess
         # the same one _runtime_cli asserts against. PATH is prepended with this
         # interpreter's own bin dir so that `deploy up`'s persona auto-render —
         # which spawns a BARE `osprey build ...` subprocess
-        # (container_lifecycle._auto_render_missing_personas) inheriting this
+        # (web_terminals.provision._auto_render_missing_personas) inheriting this
         # env — resolves the SAME osprey the test drives (the venv's, which
         # knows the persona presets), not a stale `osprey` earlier on the
         # ambient PATH. Equivalent to running under an activated venv.
@@ -728,9 +728,7 @@ def test_t4_physicist_bridge_scan_drives_va(demo_stack: DemoStack) -> None:
         "grid_scan",
         {
             "detectors": [SCAN_DETECTOR],
-            "axes": [
-                {"setpoint": SCAN_MOTOR, "start": start, "stop": stop, "num_points": num}
-            ],
+            "axes": [{"setpoint": SCAN_MOTOR, "start": start, "stop": stop, "num_points": num}],
         },
     )
     assert status_body.get("status") == "completed", f"bridge scan did not complete: {status_body}"

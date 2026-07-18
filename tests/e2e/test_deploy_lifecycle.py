@@ -19,7 +19,7 @@ container-side reconcile scripts need: a ``dispatch`` user and the two mount-poi
 directories the compose template declares volumes onto. It is pushed into a
 throwaway local registry container this test starts, so ``docker compose pull``
 (which ``deploy up``'s web-terminal reconcile always runs — see
-``container_lifecycle._deploy_up_web_terminals``) genuinely succeeds against a
+``web_terminals.provision.deploy_up_web_terminals``) genuinely succeeds against a
 locally-resolvable image instead of failing with "pull access denied" against a
 registry that doesn't exist.
 
@@ -956,7 +956,7 @@ def _write_persona_project(root: Path, project_name: str, container_project_dir:
     since each persona has its own ``container_project_dir``
     (:func:`osprey.deployment.web_terminals.ports.resolve_personas`'s contract).
     ``config.yml`` only needs ``project_name`` -- nothing in the local-mode
-    build path (:func:`osprey.deployment.container_lifecycle.build_persona_images`)
+    build path (:func:`osprey.deployment.web_terminals.provision.build_persona_images`)
     reads anything else from a persona project's own config.
     """
     root.mkdir(parents=True)

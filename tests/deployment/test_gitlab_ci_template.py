@@ -7,9 +7,9 @@ build/push/registry tokens that gate CI-registry access.
 
 These tests lock in that heredoc's contents against the same allowlist the
 local-mode deploy path enforces in
-``osprey.deployment.container_lifecycle._build_env_production_subset`` (its
+``osprey.deployment.web_terminals.provision._build_env_production_subset`` (its
 docstring is the security spec). They mirror the local-path token-absence tests
-in ``tests/deployment/test_container_lifecycle.py``.
+in ``tests/deployment/web_terminals/test_provision.py``.
 """
 
 from __future__ import annotations
