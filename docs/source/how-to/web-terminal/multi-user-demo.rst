@@ -145,13 +145,13 @@ are genuinely different agents, not one agent with a UI toggle.
      - Scan tooling
    * - **alice**
      - operator
-     - None. The scan-plan authoring skill is excluded and the scan MCP server
-       is denied, so scan tooling never appears — even if a downstream overlay
-       tried to re-enable it.
+     - None. The scan-plan authoring skill is excluded and the bluesky MCP
+       server is denied, so scan tooling never appears — even if a downstream
+       overlay tried to re-enable it.
    * - **bob**
      - physicist
-     - Full. The scan MCP server is switched on, so bob can author and validate
-       the two shipped scan-plan types.
+     - Full. The bluesky MCP server is switched on, so bob can author and
+       validate the two shipped scan-plan types.
 
 The physicist's two scan-plan types are an orbit **response matrix** and an
 n-dimensional **grid scan** — the only scan plans the stack ships. They reach
@@ -215,8 +215,8 @@ Arming a scan write
 -------------------
 
 Even with the Virtual Accelerator in place, **launching** a scan is a hardware
-write, and the demo does not arm that path for you. The Bluesky bridge's promote
-route is fail-closed: it returns HTTP 503 until ``BLUESKY_PROMOTE_TOKEN`` is set
+write, and the demo does not arm that path for you. The Bluesky bridge's launch
+route is fail-closed: it returns HTTP 503 until ``BLUESKY_LAUNCH_TOKEN`` is set
 in the bridge's environment. And ``osprey deploy up`` deliberately **refuses** to
 mint that token while ``control_system.writes_enabled`` is on under local Python
 execution — an unsandboxed agent could otherwise read the token back and bypass

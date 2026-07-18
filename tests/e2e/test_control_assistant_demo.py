@@ -20,13 +20,13 @@ to end:
                      (read from the rendered config, never hardcoded) and project
                      name.
   T2 operator tier:  the auto-rendered OPERATOR project's ``.mcp.json`` has NO
-                     ``scan`` MCP server (the operator tier is deliberately kept
-                     out of scan tooling).
+                     ``bluesky`` MCP server (the operator tier is deliberately
+                     kept out of scan tooling).
   T3 physicist tier: the auto-rendered PHYSICIST project's ``.mcp.json`` DOES
-                     carry the ``scan`` server — the positive control that T2 is
-                     a real capability difference, not a render that dropped the
-                     server everywhere.
-  T4 VA drivable:    a connector-mediated ``scan`` plan through the Bluesky
+                     carry the ``bluesky`` server — the positive control that T2
+                     is a real capability difference, not a render that dropped
+                     the server everywhere.
+  T4 VA drivable:    a connector-mediated ``grid_scan`` plan through the Bluesky
                      bridge against the containerized PyAT VA completes, and its
                      readback (``:RB``) detector tracks the swept setpoint
                      (``:SP``) at every step — proving the physicist tier's scan
@@ -40,7 +40,7 @@ partition (``classify_partition``) — a pure software echo where ``:RB`` tracks
 ``:SP`` exactly, with none of the ring-wide physics side effects a pyat-coupled
 corrector write has (wrong for a deterministic tracking probe). The scan is run
 through the bridge exactly as ``tests/e2e/test_va_substrate_equivalence.py``
-drives it (the ``BLUESKY_EPICS_*`` substrate scanner + a self-supplied promote
+drives it (the ``BLUESKY_EPICS_*`` substrate scanner + a self-supplied launch
 token, since this preset's writes_enabled+local-exec config deliberately gates
 the bridge's auto-minting off).
 
@@ -142,9 +142,9 @@ OPERATOR_IMAGE = f"{OPERATOR_PROJECT}-operator:local"
 PHYSICIST_IMAGE = f"{PHYSICIST_PROJECT}-physicist:local"
 
 # The MCP server key the physicist opts in and the operator denies
-# (registry/mcp.py's ServerDefinition name="scan"). Present as a key under
+# (registry/mcp.py's ServerDefinition name="bluesky"). Present as a key under
 # `.mcp.json`'s `mcpServers` iff the tier enabled it.
-SCAN_SERVER_KEY = "scan"
+SCAN_SERVER_KEY = "bluesky"
 
 # EVERY published host port is remapped off the control-assistant preset's
 # defaults to a unique range, so this deploy coexists with an already-running
@@ -180,12 +180,18 @@ TILED_PORT = 25091
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
 BRIDGE_IMAGE = "osprey-bluesky-bridge:local"
 
-# The bridge's promote route fails closed on an unset BLUESKY_PROMOTE_TOKEN. This
-# preset deploys with writes_enabled:true + execution_method:local, which
-# deliberately gates auto-minting off (container_lifecycle._local_exec_arming_unsafe);
-# this controlled test supplies its own token — the supported operator-provides-a-token
-# path (mirrors test_va_substrate_equivalence.py:113).
-PROMOTE_TOKEN = "e2e-control-assistant-demo-promote-token"
+# The bluesky-panels sidecar the preset ships alongside the bridge — same
+# rationale: off the preset default 8095 so an already-running demo's panels
+# sidecar never collides.
+PANELS_PORT = 18095
+
+# The bridge's launch route (POST /runs/{id}/launch) fails closed on an unset
+# BLUESKY_LAUNCH_TOKEN. This preset deploys with writes_enabled:true +
+# execution_method:local, which deliberately gates auto-minting off
+# (container_lifecycle._local_exec_arming_unsafe); this controlled test supplies
+# its own token — the supported operator-provides-a-token path (mirrors
+# test_va_substrate_equivalence.py).
+LAUNCH_TOKEN = "e2e-control-assistant-demo-launch-token"
 
 # Scan device names wired into the bridge via BLUESKY_EPICS_MOTORS/_DETECTORS —
 # arbitrary handles resolved against explicit PV addresses, never a preset
@@ -424,10 +430,10 @@ def _write_scan_env(project_dir: Path, sp: str, rb: str) -> None:
 
     Wires the connector-backed EPICS substrate scanner (``BLUESKY_EPICS_SUBSTRATE``)
     with one motor (the sp-echo ``:SP``, readback ``:RB``) and one detector (its
-    ``:RB``), plus the promote token this test supplies itself.
+    ``:RB``), plus the launch token this test supplies itself.
     """
     values = {
-        "BLUESKY_PROMOTE_TOKEN": PROMOTE_TOKEN,
+        "BLUESKY_LAUNCH_TOKEN": LAUNCH_TOKEN,
         "BLUESKY_EPICS_SUBSTRATE": "1",
         "BLUESKY_EPICS_MOTORS": f"{SCAN_MOTOR}={sp}|{rb}",
         "BLUESKY_EPICS_DETECTORS": f"{SCAN_DETECTOR}={rb}",
@@ -442,13 +448,13 @@ def _write_scan_env(project_dir: Path, sp: str, rb: str) -> None:
 
 
 def _run_scan(plan_name: str, plan_args: dict, timeout: float = SCAN_TIMEOUT_SEC) -> dict:
-    """POST /runs -> promote -> poll to a terminal status. Returns the final status body."""
+    """POST /runs -> launch -> poll to a terminal status. Returns the final status body."""
     status, body = _post("/runs", {"plan_name": plan_name, "plan_args": plan_args})
     assert status == 200, f"POST /runs failed: {status} {body}"
     run_id = body["id"]
 
-    status, body = _post(f"/runs/{run_id}/promote", {}, headers={"X-Promote-Token": PROMOTE_TOKEN})
-    assert status == 200, f"promote failed: {status} {body}"
+    status, body = _post(f"/runs/{run_id}/launch", {}, headers={"X-Launch-Token": LAUNCH_TOKEN})
+    assert status == 200, f"launch failed: {status} {body}"
 
     deadline = time.monotonic() + timeout
     last_status_body: dict = {}
@@ -597,6 +603,8 @@ def demo_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DemoStack]:
             "--set",
             f"bluesky.tiled_port={TILED_PORT}",
             "--set",
+            f"bluesky_panels.port={PANELS_PORT}",
+            "--set",
             "bluesky.demo_scanner=false",
             "--skip-deps",
             "--skip-lifecycle",
@@ -611,7 +619,7 @@ def demo_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[DemoStack]:
         pytest.fail(_fmt("osprey build", build))
 
     # Select the scan channels from the DEPLOYED project's own limits and wire the
-    # bridge's substrate scanner + promote token into .env, all BEFORE deploy up.
+    # bridge's substrate scanner + launch token into .env, all BEFORE deploy up.
     limits = _channel_limits(project_dir)
     sp, rb = _select_sp_echo_pair(limits)
     _write_scan_env(project_dir, sp, rb)
@@ -672,7 +680,7 @@ def test_t1_demo_topology_containers_up(demo_stack: DemoStack) -> None:
 
 
 # ---------------------------------------------------------------------------
-# T2/T3: capability tiers — the scan MCP server is absent for the operator,
+# T2/T3: capability tiers — the bluesky MCP server is absent for the operator,
 # present for the physicist (the same auto-rendered projects `deploy up` built).
 # ---------------------------------------------------------------------------
 
@@ -717,11 +725,12 @@ def test_t4_physicist_bridge_scan_drives_va(demo_stack: DemoStack) -> None:
     num = SCAN_NUM_POINTS
 
     status_body = _run_scan(
-        "scan",
+        "grid_scan",
         {
             "detectors": [SCAN_DETECTOR],
-            "axes": [{"motor": SCAN_MOTOR, "start": start, "stop": stop}],
-            "num": num,
+            "axes": [
+                {"setpoint": SCAN_MOTOR, "start": start, "stop": stop, "num_points": num}
+            ],
         },
     )
     assert status_body.get("status") == "completed", f"bridge scan did not complete: {status_body}"

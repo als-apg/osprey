@@ -1,14 +1,13 @@
 # control-assistant-physicist.yml
 # Physicist persona — the full-capability tier of the control-assistant demo.
 #
-# This preset inherits everything from `control-assistant` (the base ships the
-# Bluesky bridge service but keeps the scan MCP server switched off) and opts
-# the physicist into scan tooling. With the scan server enabled, the physicist
-# can author and launch the two shipped scan-plan types — an orbit
-# response_matrix and an n-dimensional grid_scan — through the Bluesky bridge.
+# This preset inherits everything from `control-assistant` and keeps the
+# bluesky MCP server enabled. With the bluesky server on, the physicist can
+# author and launch the two shipped scan-plan types — an orbit response_matrix
+# and an n-dimensional grid_scan — through the Bluesky bridge.
 #
-# The scan server's BLUESKY_BRIDGE_URL defaults to 127.0.0.1:8090, matching the
-# bridge port the base ships, so no extra wiring is needed to reach it.
+# The bluesky server's BLUESKY_BRIDGE_URL defaults to 127.0.0.1:8090, matching
+# the bridge port the base ships, so no extra wiring is needed to reach it.
 
 name: Control Assistant (Physicist)
 
@@ -19,6 +18,8 @@ extends: control-assistant
 # after the template renders. Nested YAML under `config:` would deep-merge into
 # and clobber the base's rendered config subtree, so keep every override flat.
 config:
-  # Opt into the scan MCP server (off by default in the base). Enables the
-  # Bluesky bridge client tools for response_matrix + grid_scan plans.
-  claude_code.servers.scan.enabled: true
+  # Keep the bluesky MCP server on. The base tutorial preset already enables
+  # it, but the physicist tier states it explicitly: this is the capability
+  # that distinguishes the tier from the operator (which overrides it off),
+  # and it must hold even if the base default ever changes.
+  claude_code.servers.bluesky.enabled: true

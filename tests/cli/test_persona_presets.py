@@ -28,9 +28,9 @@ from osprey.utils.config_writer import config_update_fields
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-# Config key the scan MCP server reads to decide whether to register (see
-# osprey.registry.mcp — the ``scan`` server is ``default_enabled=False``).
-SCAN_ENABLED_KEY = "claude_code.servers.scan.enabled"
+# Config key the bluesky MCP server reads to decide whether to register (see
+# osprey.registry.mcp — the ``bluesky`` server is ``default_enabled=False``).
+SCAN_ENABLED_KEY = "claude_code.servers.bluesky.enabled"
 
 
 def resolve_preset(name: str) -> BuildProfile:

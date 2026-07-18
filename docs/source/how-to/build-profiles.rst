@@ -174,11 +174,11 @@ top of ``control-assistant`` by excluding the one scan-related skill:
        - writing-bluesky-plans
 
    config:
-     claude_code.servers.scan.enabled: false
+     claude_code.servers.bluesky.enabled: false
 
 The ``exclude:`` drops ``writing-bluesky-plans`` from the inherited skill set, so
 the operator tier never enters the scan-plan authoring workflow; the ``config:``
-override keeps the scan MCP server off as well. Because an operator building from
+override keeps the bluesky MCP server off as well. Because an operator building from
 this preset cannot re-add the skill with ``--set skills=[writing-bluesky-plans]``
 (that merges pre-exclusion and is stripped again), the restriction holds unless
 the profile itself is edited.

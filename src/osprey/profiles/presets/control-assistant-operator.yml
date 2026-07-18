@@ -27,7 +27,7 @@ exclude:
 # after the template renders. Nested YAML under `config:` would deep-merge into
 # and clobber the base's rendered config subtree, so keep every override flat.
 config:
-  # Explicitly deny the scan MCP server. The base already ships it off by
-  # default, but stating the denial here documents the operator tier's intent
-  # and keeps it off regardless of the inherited default.
-  claude_code.servers.scan.enabled: false
+  # Explicitly deny the bluesky MCP server. The base tutorial preset ships it
+  # ENABLED (the single-user demo wants the full scan stack), so this override
+  # is what actually keeps the operator tier out of scan tooling.
+  claude_code.servers.bluesky.enabled: false
