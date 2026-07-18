@@ -90,6 +90,17 @@ def override_yaml() -> str:
     slower to build than the VA/bridge images already are (mirrors
     test_va_substrate_equivalence.py / test_tiled_roundtrip.py).
 
+    ``modules.web_terminals.enabled: false`` drops the preset's per-persona
+    web-terminal stack (two persona images + nginx, all built locally) for
+    the same reason: nothing in the scan stack touches persona routing, and
+    that coverage lives in the dedicated web-terminals lanes
+    (control-assistant-demo-e2e, multi-user-deploy-lifecycle-e2e,
+    tests/e2e/web_terminals/). One dotted LEAF key on purpose -- the preset
+    sets the whole ``modules.web_terminals`` subtree as a single dotted key,
+    and overriding just ``.enabled`` leaves its siblings intact, whereas a
+    nested ``modules:`` mapping would wholesale-replace the subtree (see the
+    preset's own comment above its ``modules.web_terminals`` block).
+
     Written as flat dotted-string keys under ``config:`` (matching the
     preset's own convention), not a `--set config.control_system.type=...`
     CLI override -- `--set` builds a NESTED dict for every dotted segment,
@@ -101,6 +112,7 @@ def override_yaml() -> str:
         "  control_system.type: virtual_accelerator\n"
         "  execution.execution_method: container\n"
         "  claude_code.servers.bluesky.enabled: true\n"
+        "  modules.web_terminals.enabled: false\n"
         "dispatch: null\n"
     )
 

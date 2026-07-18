@@ -48,6 +48,14 @@ VA_TEST_FILE = "tests/e2e/test_va_substrate_equivalence.py"
 DEMO_JOB = "control-assistant-demo-e2e"
 DEMO_TEST_FILE = "tests/e2e/test_control_assistant_demo.py"
 LIFECYCLE_TEST_FILE = "tests/e2e/test_deploy_lifecycle.py"
+ORM_JOB = "orm-roundtrip-e2e"
+ORM_TEST_FILE = "tests/e2e/test_orm_roundtrip.py"
+OVERLAY_JOB = "dispatch-overlay-e2e"
+OVERLAY_TEST_FILE = "tests/e2e/test_dispatch_overlay_visibility.py"
+CATALOG_JOB = "bluesky-catalog-e2e"
+SANDBOX_JOB = "bluesky-sandbox-escape-e2e"
+BENCHMARKS_JOB = "channel-finder-benchmarks"
+BENCHMARKS_TEST_FILE = "tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py"
 
 
 def _load_workflow() -> dict[str, Any]:
@@ -402,6 +410,140 @@ def test_every_dockerbuild_marked_file_is_ignored__mutation_new_marked_file() ->
     workflow = _load_workflow()
     phantom = "tests/e2e/test_future_dockerbuild_stack.py"
     assert _run_step_ignores_all(workflow, [*_dockerbuild_marked_e2e_files(), phantom]) == [phantom]
+
+
+# ---------------------------------------------------------------------------
+# (f) e2e-lane slimming: orm-roundtrip-e2e + dispatch-overlay-e2e extractions,
+# the nightly channel-finder benchmarks, and the no-advisory-tier gate
+# ---------------------------------------------------------------------------
+
+
+def test_orm_roundtrip_job_exists(workflow: dict[str, Any]) -> None:
+    assert ORM_JOB in _jobs(workflow)
+
+
+def test_orm_roundtrip_job_exists__mutation_drops_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][ORM_JOB]
+    with pytest.raises(AssertionError):
+        assert ORM_JOB in _jobs(mutated)
+
+
+def test_orm_roundtrip_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
+    """The ORM roundtrip drives the bridge HTTP API directly — an LLM secret
+    appearing in its job would mean the lane's scope silently grew."""
+    assert not _job_declares_secret(workflow, ORM_JOB, SECRET_TOKEN)
+
+
+def test_orm_roundtrip_job_has_no_llm_secret__mutation_adds_secret() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][ORM_JOB]["steps"].append(
+        {"name": "inject", "env": {"ALS_APG_API_KEY": "${{ secrets.ALS_APG_API_KEY }}"}}
+    )
+    with pytest.raises(AssertionError):
+        assert not _job_declares_secret(mutated, ORM_JOB, SECRET_TOKEN)
+
+
+def test_dispatch_overlay_job_exists(workflow: dict[str, Any]) -> None:
+    assert OVERLAY_JOB in _jobs(workflow)
+
+
+def test_dispatch_overlay_job_exists__mutation_drops_job() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    del mutated["jobs"][OVERLAY_JOB]
+    with pytest.raises(AssertionError):
+        assert OVERLAY_JOB in _jobs(mutated)
+
+
+def test_dispatch_overlay_job_declares_llm_secret(workflow: dict[str, Any]) -> None:
+    """Inverse of the secret-free checks: the overlay test runs a REAL agent
+    turn, and its fixture skips outright without ALS_APG_API_KEY — a job
+    missing the secret would green-wash the lane by skipping its only test."""
+    assert _job_declares_secret(workflow, OVERLAY_JOB, SECRET_TOKEN)
+
+
+def test_dispatch_overlay_job_declares_llm_secret__mutation_strips_secret() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    mutated["jobs"][OVERLAY_JOB] = json.loads(
+        json.dumps(mutated["jobs"][OVERLAY_JOB]).replace("secrets.ALS_APG_API_KEY", "")
+    )
+    with pytest.raises(AssertionError):
+        assert _job_declares_secret(mutated, OVERLAY_JOB, SECRET_TOKEN)
+
+
+def test_benchmarks_job_is_schedule_gated_and_lane_ignores_it(workflow: dict[str, Any]) -> None:
+    """The channel-finder benchmarks are a statistical quality score, not a
+    per-PR correctness gate: they must be ignored by the shared e2e-tests
+    lane AND still exist as a scheduled job (otherwise the --ignore silently
+    deletes the only benchmark signal)."""
+    assert _run_step_ignores_all(workflow, [BENCHMARKS_TEST_FILE]) == []
+    job = _jobs(workflow)[BENCHMARKS_JOB]
+    assert "schedule" in job["if"], (
+        f"'{BENCHMARKS_JOB}' must gate on the nightly schedule; got: {job['if']!r}"
+    )
+
+
+def test_benchmarks_job_is_schedule_gated__mutation_drops_ignore() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    step = _find_named_step(mutated, E2E_TESTS_JOB, "Run E2E tests")
+    step["run"] = _drop_ignore_line(step["run"], BENCHMARKS_TEST_FILE)
+    assert _run_step_ignores_all(mutated, [BENCHMARKS_TEST_FILE]) == [BENCHMARKS_TEST_FILE]
+
+
+def _gate_run_text(wf: dict[str, Any]) -> str:
+    return _find_named_step(wf, GATE_JOB, "Check all jobs status")["run"]
+
+
+def test_gate_checks_every_needed_job(workflow: dict[str, Any]) -> None:
+    """Completeness: every job listed in the gate's ``needs`` must have its
+    ``needs.<job>.result`` examined by the gate script. A needs entry the
+    script never reads is decorative — the job could go red forever inside a
+    green check (the exact shape the old advisory tier had)."""
+    run_text = _gate_run_text(workflow)
+    unchecked = [
+        job for job in _jobs(workflow)[GATE_JOB]["needs"] if f"needs.{job}.result" not in run_text
+    ]
+    assert unchecked == [], f"gate never examines: {unchecked}"
+
+
+def test_gate_checks_every_needed_job__mutation_adds_unchecked_need() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].append("phantom-lane")
+    run_text = _gate_run_text(mutated)
+    unchecked = [
+        job for job in _jobs(mutated)[GATE_JOB]["needs"] if f"needs.{job}.result" not in run_text
+    ]
+    assert unchecked == ["phantom-lane"]
+
+
+def test_gate_has_no_advisory_tier(workflow: dict[str, Any]) -> None:
+    """No lane result may be waved through as 'non-blocking': every checked
+    lane either passes, is legitimately skipped (its ``if:`` didn't match the
+    event), or fails the gate. The literal advisory marker phrase from the
+    old gate must never reappear."""
+    run_text = _gate_run_text(workflow)
+    assert "non-blocking" not in run_text
+    assert "exit 1" in run_text
+
+
+def _gating_e2e_jobs(wf: dict[str, Any]) -> list[str]:
+    needs = _jobs(wf)[GATE_JOB]["needs"]
+    return [j for j in (ORM_JOB, OVERLAY_JOB, CATALOG_JOB, SANDBOX_JOB) if j in needs]
+
+
+def test_all_checks_passed_needs_promoted_and_new_lanes(workflow: dict[str, Any]) -> None:
+    """The two extracted lanes AND the two previously-advisory bluesky lanes
+    must all gate the merge. Deliberately `all`, not `any` — the same
+    silent-partial-fix guard shape as ``_needs_contains_both_new_jobs``."""
+    assert _gating_e2e_jobs(workflow) == [ORM_JOB, OVERLAY_JOB, CATALOG_JOB, SANDBOX_JOB]
+
+
+def test_all_checks_passed_needs_promoted_lanes__mutation_drops_sandbox() -> None:
+    mutated = copy.deepcopy(_load_workflow())
+    _jobs(mutated)[GATE_JOB]["needs"].remove(SANDBOX_JOB)
+    assert CATALOG_JOB in _jobs(mutated)[GATE_JOB]["needs"]  # the other survives untouched
+    with pytest.raises(AssertionError):
+        assert _gating_e2e_jobs(mutated) == [ORM_JOB, OVERLAY_JOB, CATALOG_JOB, SANDBOX_JOB]
 
 
 # ---------------------------------------------------------------------------

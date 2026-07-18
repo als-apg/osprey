@@ -10,8 +10,8 @@ One canonical workflow per preset. Each test:
   4. Optionally has the LLM judge evaluate the response.
 
 Budget per test: max_turns=4, max_budget_usd=0.25, target wall-clock <5 min.
-Marked advisory in CI (continue-on-error) — coverage of the "is the tool
-wired up at all?" contract comes from Tier 0+1.
+Gating in CI (agentic-per-preset blocks the merge like every other e2e lane);
+coverage of the "is the tool wired up at all?" contract comes from Tier 0+1.
 """
 
 from __future__ import annotations

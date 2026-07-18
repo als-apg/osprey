@@ -242,12 +242,18 @@ def rag_config_env(e2e_config_file):
 
 @pytest.fixture(scope="module")
 async def seeded_ariel_db(
-    e2e_database_url, e2e_migrated_pool, e2e_ariel_config, require_ollama, e2e_config_file
+    require_ollama, e2e_database_url, e2e_migrated_pool, e2e_ariel_config, e2e_config_file
 ):
     """Database with test entries and embeddings.
 
     Ingests test_logbook_entries.jsonl and generates embeddings.
     Module-scoped for efficiency (~10-15s setup).
+
+    ``require_ollama`` is deliberately the FIRST parameter: pytest resolves
+    fixture params in order, and with it listed after the DB fixtures a
+    runner with docker but no Ollama booted a real pgvector testcontainer
+    (image pull + migrations) only to skip the whole module immediately
+    afterwards.
 
     Yields:
         Dict with repository, config, pool, and entry_count

@@ -103,6 +103,11 @@ pytestmark = [
     pytest.mark.e2e,
     pytest.mark.requires_als_apg,
     pytest.mark.slow,
+    # dockerbuild: full dispatcher/worker image build + deploy -- runs in the
+    # dedicated dispatch-overlay-e2e CI job, never the shared e2e-tests lane
+    # (the marker->--ignore pairing is enforced by
+    # tests/deployment/test_ci_workflow_wiring.py).
+    pytest.mark.dockerbuild,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
 ]
 
@@ -255,6 +260,20 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     base = tmp_path_factory.mktemp("dispatch_overlay_build")
     project_dir = base / PROJECT_NAME
 
+    # This test asserts dispatch overlay/trigger behavior, not persona
+    # routing -- drop the preset's web-terminal stack (two persona images +
+    # nginx, all built locally on `deploy up`) so the deploy only builds the
+    # dispatcher/worker images it actually exercises. Web-terminals coverage
+    # lives in control-assistant-demo-e2e / multi-user-deploy-lifecycle-e2e /
+    # tests/e2e/web_terminals/. One dotted LEAF key via --override, mirroring
+    # tests/e2e/_orm_stack.override_yaml(): a nested `modules:` mapping (or a
+    # `--set` with its nested-dict semantics) would wholesale-replace the
+    # preset's `modules.web_terminals` subtree instead of flipping one field.
+    override_path = base / "override.yml"
+    override_path.write_text(
+        "config:\n  modules.web_terminals.enabled: false\n", encoding="utf-8"
+    )
+
     build = _run(
         [
             str(osprey_bin),
@@ -262,6 +281,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             PROJECT_NAME,
             "--preset",
             "control-assistant",
+            "--override",
+            str(override_path),
             "--set",
             "provider=als-apg",
             "--set",

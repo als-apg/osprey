@@ -68,6 +68,11 @@ from tests.e2e import _orm_stack
 pytestmark = [
     pytest.mark.e2e,
     pytest.mark.slow,
+    # dockerbuild: full VA/bridge/Tiled image build + deploy -- runs in the
+    # dedicated orm-roundtrip-e2e CI job, never the shared e2e-tests lane
+    # (the marker->--ignore pairing is enforced by
+    # tests/deployment/test_ci_workflow_wiring.py).
+    pytest.mark.dockerbuild,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
 ]
 
