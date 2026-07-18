@@ -39,7 +39,7 @@ label-filtered *listing* equivalent to ``ps -a``/``volume ls`` for this (image
 tags aren't compose-project-scoped), so each candidate tag is instead
 individually verified with ``image inspect`` against its own
 ``com.osprey.project`` label (stamped by the local-mode image build,
-:func:`osprey.deployment.container_lifecycle.build_persona_images`) before it
+:func:`osprey.deployment.web_terminals.provision.build_persona_images`) before it
 is ever considered for removal — a missing or mismatched label means the tag
 is skipped with a warning, not removed, since it may belong to a sibling
 deployment.
@@ -54,9 +54,13 @@ from typing import Any
 
 from osprey.deployment.compose_generator import resolve_project_name, resolve_user_volume_names
 from osprey.deployment.facility_config import normalize_facility_config
-from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
+from osprey.deployment.runtime_helper import (
+    get_runtime_command,
+    runtime_env,
+    verify_runtime_is_running,
+)
 from osprey.deployment.web_terminals.artifacts import write_web_terminal_artifacts
-from osprey.deployment.web_terminals.ports import normalize_users, resolve_personas
+from osprey.deployment.web_terminals.ports import as_dict, normalize_users, resolve_personas
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.config_writer import config_replace_list
 
@@ -65,6 +69,20 @@ _USERS_KEY_PATH = ["modules", "web_terminals", "users"]
 # Directory (relative to the project cwd, i.e. wherever ``osprey deploy`` has
 # already chdir'd) that --archive tarballs are written into.
 _ARCHIVE_DIR_NAME = "web_terminal_archives"
+
+
+def _require_running_runtime(config: dict[str, Any]) -> None:
+    """Refuse to proceed when the container runtime daemon is unreachable.
+
+    The same preflight ``deploy_up``/``deploy_restart``/``rebuild_deployment``
+    perform before touching the runtime. It matters most for
+    :func:`prune_users`: discovery-by-listing (``ps -a``/``volume ls``) against
+    a downed daemon yields empty output, which would misreport as "no
+    off-roster resources found; nothing to do" instead of the real cause.
+    """
+    is_running, error_msg = verify_runtime_is_running(config)
+    if not is_running:
+        raise RuntimeError(error_msg)
 
 
 def decommission_user(
@@ -110,12 +128,14 @@ def decommission_user(
 
     Raises:
         ValueError: If ``user`` is not present in ``modules.web_terminals.users``.
-        RuntimeError: If volume destruction was requested but not confirmed.
+        RuntimeError: If the container runtime daemon is not running, or volume
+            destruction was requested but not confirmed.
     """
     config_path = Path(config_path)
     config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
+    _require_running_runtime(config)
 
-    web_terminals = _as_dict(_as_dict(config.get("modules")).get("web_terminals"))
+    web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
     migrated = normalize_users(web_terminals.get("users"))
 
     if not any(entry["name"] == user for entry in migrated):
@@ -147,7 +167,7 @@ def decommission_user(
 
     runtime = get_runtime_command(config)[0]
     env = runtime_env(config)
-    facility_prefix = _as_dict(config.get("facility")).get("prefix") or ""
+    facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
     remove_container(runtime, f"{facility_prefix}-web-{user}", env=env)
 
     _apply_volume_policy(runtime, volumes, archive=archive, purge=purge, env=env)
@@ -202,17 +222,20 @@ def prune_users(
         assume_yes: Skip the typed confirmation gate.
 
     Raises:
-        RuntimeError: If pruning was requested but not confirmed.
+        RuntimeError: If the container runtime daemon is not running (orphan
+            discovery against a downed daemon would misreport "nothing to do"),
+            or pruning was requested but not confirmed.
     """
     config_path = Path(config_path)
     config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
+    _require_running_runtime(config)
 
-    web_terminals = _as_dict(_as_dict(config.get("modules")).get("web_terminals"))
+    web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
     roster_names = {entry["name"] for entry in normalize_users(web_terminals.get("users"))}
 
     runtime = get_runtime_command(config)[0]
     env = runtime_env(config)
-    facility_prefix = _as_dict(config.get("facility")).get("prefix") or ""
+    facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
     project = resolve_project_name(config)
 
     orphan_containers = _discover_orphan_containers(
@@ -336,20 +359,21 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
             scripted path.
 
     Raises:
-        RuntimeError: If the teardown was not confirmed, or if ``compose down``
-            exits non-zero.
+        RuntimeError: If the container runtime daemon is not running, the
+            teardown was not confirmed, or ``compose down`` exits non-zero.
     """
     config_path = Path(config_path)
     config = normalize_facility_config(ConfigBuilder(str(config_path)).raw_config)
+    _require_running_runtime(config)
 
-    web_terminals = _as_dict(_as_dict(config.get("modules")).get("web_terminals"))
+    web_terminals = as_dict(as_dict(config.get("modules")).get("web_terminals"))
     roster_names = [entry["name"] for entry in normalize_users(web_terminals.get("users"))]
 
     runtime_cmd = get_runtime_command(config)
     runtime = runtime_cmd[0]
     env = runtime_env(config)
     project = resolve_project_name(config)
-    facility_prefix = _as_dict(config.get("facility")).get("prefix") or ""
+    facility_prefix = as_dict(config.get("facility")).get("prefix") or ""
 
     volumes: list[str] = []
     for user in roster_names:
@@ -365,7 +389,7 @@ def nuke_stack(config_path: str | Path, *, assume_yes: bool = False) -> None:
     # Roster personas' locally-built images. Lenient resolution (strict=False)
     # means a stale/bad persona reference degrades to the zero-migration
     # (non-":local") image rather than blocking nuke — see resolve_personas.
-    registry_cfg = _as_dict(config.get("registry"))
+    registry_cfg = as_dict(config.get("registry"))
     personas_resolved = resolve_personas(web_terminals, registry_cfg, facility_prefix, strict=False)
     candidate_images: list[str] = []
     for entry in personas_resolved:
@@ -837,8 +861,3 @@ def confirm_destroy(prompt: str, assume_yes: bool, *, expected: str) -> bool:
     except EOFError:
         response = ""
     return response == expected
-
-
-def _as_dict(value: Any) -> dict[str, Any]:
-    """Read a config section defensively: anything not a dict becomes empty."""
-    return value if isinstance(value, dict) else {}

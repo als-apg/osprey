@@ -88,6 +88,7 @@ def fake_runtime(monkeypatch):
 
     monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
     monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
+    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None: (True, ""))
     return calls
 
 
@@ -116,6 +117,7 @@ def fake_runtime_prune(monkeypatch):
 
     monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
     monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
+    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None: (True, ""))
     return calls, listing
 
 
@@ -171,6 +173,7 @@ def fake_runtime_nuke(monkeypatch):
 
     monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
     monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
+    monkeypatch.setattr(lifecycle, "verify_runtime_is_running", lambda config=None: (True, ""))
     return calls, listing, down_result, image_labels
 
 
@@ -414,6 +417,33 @@ def test_decommission_argv_safety_no_dangerous_flags_or_bare_volume_rm(
 # =============================================================================
 # prune
 # =============================================================================
+
+
+@pytest.mark.parametrize("verb", ["decommission_user", "prune_users", "nuke_stack"])
+def test_downed_runtime_raises_instead_of_touching_anything(tmp_path, monkeypatch, verb):
+    """A downed daemon must surface as a RuntimeError, never as a silent no-op.
+
+    Without the preflight, prune's discovery (``ps -a``/``volume ls``) against a
+    downed daemon returns empty output and reports "nothing to do".
+    """
+    calls: list[list[str]] = []
+
+    def _fake_run(argv, **kwargs):
+        calls.append(list(argv))
+        return subprocess.CompletedProcess(argv, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(lifecycle.subprocess, "run", _fake_run)
+    monkeypatch.setattr(lifecycle, "get_runtime_command", lambda config=None: ["docker", "compose"])
+    monkeypatch.setattr(
+        lifecycle, "verify_runtime_is_running", lambda config=None: (False, "daemon is down")
+    )
+    monkeypatch.chdir(tmp_path)
+    config_path = _write_config(tmp_path, _config(["alice"]))
+
+    args = ("alice",) if verb == "decommission_user" else ()
+    with pytest.raises(RuntimeError, match="daemon is down"):
+        getattr(lifecycle, verb)(str(config_path), *args, assume_yes=True)
+    assert calls == []
 
 
 def test_prune_no_orphans_is_a_noop(tmp_path, monkeypatch, fake_runtime_prune, capsys):
