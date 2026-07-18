@@ -11,6 +11,7 @@ deployed_services. Two failure modes have to stay fixed:
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -687,7 +688,7 @@ def test_bluesky_bridge_never_depends_on_tiled(tiled_enabled: bool) -> None:
 #
 # A shipped, tested deploy configuration bringing up VA + bridge + Tiled with
 # control_system.type=virtual_accelerator, execution.execution_method=
-# container (so BLUESKY_PROMOTE_TOKEN mints safely and the agent can arm --
+# container (so BLUESKY_LAUNCH_TOKEN mints safely and the agent can arm --
 # see container_lifecycle.py's _local_exec_arming_unsafe), and the scan MCP
 # server enabled. tests/e2e/_orm_stack.py is the single source of this
 # config, reused by the real-container round-trip e2e (task 5.2) and the
@@ -707,7 +708,7 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
         services (``control_system.type=virtual_accelerator`` +
         ``bluesky.tiled_enabled=true``),
       - ``execution.execution_method: container`` (the arming-safe exec
-        method — a ``local`` exec method gates promote-token auto-minting
+        method — a ``local`` exec method gates launch-token auto-minting
         off, per ``container_lifecycle.py``'s ``_local_exec_arming_unsafe``),
       - the ``scan`` MCP server enabled in the rendered ``.mcp.json`` (it is
         ``default_enabled=False`` in the framework registry — a project must
@@ -728,7 +729,7 @@ def test_orm_stack_renders_va_bridge_tiled_with_arming_safe_exec_and_scan_mcp(
     with open(project_dir / "config.yml") as fh:
         config = yaml.load(fh)
     assert config["execution"]["execution_method"] == "container", (
-        "FR11 requires execution.execution_method=container so the promote "
+        "FR11 requires execution.execution_method=container so the launch "
         "token mints safely and the agent can arm"
     )
     assert config["control_system"]["type"] == "virtual_accelerator"
@@ -992,6 +993,62 @@ def test_host_python_env_path_would_bake_host_interpreter_into_mcp_command() -> 
 # ---------------------------------------------------------------------------
 
 _OPENOBSERVE_IMAGE_REF = "public.ecr.aws/zinclabs/openobserve"
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_CI_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "ci.yml"
+_OPENOBSERVE_TEMPLATE = (
+    _REPO_ROOT
+    / "src"
+    / "osprey"
+    / "templates"
+    / "services"
+    / "openobserve"
+    / "docker-compose.yml.j2"
+)
+
+
+def _pinned_openobserve_tag() -> str:
+    """Return the openobserve tag the compose template pins."""
+    text = _OPENOBSERVE_TEMPLATE.read_text(encoding="utf-8")
+    match = re.search(
+        r"\$\{OSPREY_OPENOBSERVE_IMAGE:-" + re.escape(_OPENOBSERVE_IMAGE_REF) + r":([^}\s]+)\}",
+        text,
+    )
+    assert match, "compose template no longer pins the openobserve image in the expected form"
+    return match.group(1)
+
+
+def test_ci_openobserve_pinned_to_ghcr_mirror() -> None:
+    """CI must pull openobserve from the ghcr mirror, pinned to the compose tag.
+
+    Two foot-guns in one assertion:
+
+    * If the override drifts back to ``public.ecr.aws`` the rate-limit flakiness
+      returns — ECR Public throttles anonymous pulls per source IP and
+      GitHub-hosted runners share egress IPs.
+    * The mirror is populated by hand (mirror-openobserve.yml) for one tag at a
+      time, so moving the compose template's pin without moving CI's leaves every
+      deploy lane pulling a tag that was never mirrored — a hard, confusing
+      failure far from the line that caused it.
+
+    Both remain latent until a runner happens to hit them, so guard statically.
+    """
+    pinned = _pinned_openobserve_tag()
+    overrides = re.findall(
+        r"OSPREY_OPENOBSERVE_IMAGE:\s*(\S+)", _CI_WORKFLOW.read_text(encoding="utf-8")
+    )
+    assert overrides, (
+        "CI no longer overrides OSPREY_OPENOBSERVE_IMAGE — deploy lanes fall back to ECR"
+    )
+    for ref in overrides:
+        assert ref.startswith("ghcr.io/"), (
+            f"CI pins {ref!r}, not the ghcr mirror. A non-ghcr ref (e.g. ECR Public) "
+            "reintroduces the anonymous-pull rate-limit flakiness."
+        )
+        assert ref.endswith(f":{pinned}"), (
+            f"CI pins {ref!r} but the compose template pins :{pinned}. Bump both "
+            "together, and run the mirror workflow for the new tag first."
+        )
 
 
 def _write_openobserve_config(

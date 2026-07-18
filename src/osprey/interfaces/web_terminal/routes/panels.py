@@ -402,10 +402,24 @@ async def register_panel(body: PanelRegisterRequest, request: Request):
             detail="Runtime panel registration is disabled. Set web.allow_runtime_panels: true to enable.",
         )
 
-    if body.id in BUILTIN_PANELS:
+    # Reserve both built-in ids and config-defined panel ids. Config-defined ids
+    # are derived from the live custom-panel state (never a second stored field
+    # that could drift) via the ``configDefined`` marker the config loader stamps.
+    # Without this, a runtime registration could squat a config panel's id and the
+    # remove-then-append below would silently repoint it — e.g. redirecting the
+    # EVENTS panel (which the proxy credentials server-side) at an attacker URL.
+    config_panel_ids = {
+        cp["id"]
+        for cp in getattr(request.app.state, "custom_panels", [])
+        if cp.get("configDefined")
+    }
+    if body.id in BUILTIN_PANELS or body.id in config_panel_ids:
         raise HTTPException(
             status_code=422,
-            detail=f"Panel id {body.id!r} collides with a built-in panel; choose a different id.",
+            detail=(
+                f"Panel id {body.id!r} collides with a built-in or config-defined "
+                "panel; choose a different id."
+            ),
         )
 
     allowlist: list[str] | None = getattr(request.app.state, "runtime_panel_allowlist", None)

@@ -3,9 +3,9 @@
 Covers the parse + de-duplication behavior directly (the app-wiring tests in
 ``test_epics_substrate_scanner_wiring.py`` exercise the same code through
 ``app.py``, but not the collision path). Guarded by ``importorskip`` because
-``_specs_from_env`` imports ``devices/epics.py``, which imports ophyd-async
-(the optional ``osprey-framework[bluesky-bridge]`` extra) — the base unit job
-skips this module cleanly when the extra is absent, mirroring the wiring test.
+``_specs_from_env`` imports ``devices/epics.py``, which imports ophyd-async: a
+core dependency, so this normally runs, but the guard skips cleanly in a slimmed
+install where ophyd-async is absent, mirroring the wiring test.
 """
 
 from __future__ import annotations

@@ -28,13 +28,14 @@ pre-existing process during development of this test.
 
 Asserts, against the REAL deployed container:
   * the bridge binds to 127.0.0.1 (never 0.0.0.0) — ``docker port`` inspection.
-  * BLUESKY_PROMOTE_TOKEN was minted into the project ``.env`` (task 2.10).
-  * the built image contains the unreleased bluesky_bridge modules AND the
-    bluesky-bridge extra (task 2.8's reviewer carry-forward) — NOT merely
-    that the image builds, since a PyPI-based build would silently lack both
-    and this must fail loudly rather than pass on stale code.
-  * a demo ``count`` scan against mock devices (``det1``) promotes, runs to
-    completion, and ``GET /runs/{id}/data`` returns the buffered rows.
+  * BLUESKY_LAUNCH_TOKEN was minted into the project ``.env`` (task 2.10).
+  * the built image contains the unreleased bluesky_bridge modules (task 2.8's
+    reviewer carry-forward) — NOT merely that the image builds, since a
+    PyPI-based build would silently lack them and this must fail loudly rather
+    than pass on stale code. Importing them also exercises the bluesky stack
+    (a core dependency), which must be present for the real PlanRunner.
+  * a demo ``grid_scan`` against mock devices (``motor1``/``det1``) launches,
+    runs to completion, and ``GET /runs/{id}/data`` returns the buffered rows.
 
 CONTAINER SAFETY: every docker/podman invocation below names an exact
 container/image — never a wildcard, never ``system prune``/``--volumes``.
@@ -207,8 +208,8 @@ def _minted_token(project_dir: Path) -> str:
     env_path = project_dir / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
     env = parse_dotenv_file(env_path)
-    token = env.get("BLUESKY_PROMOTE_TOKEN")
-    assert token, "BLUESKY_PROMOTE_TOKEN missing/empty in the project .env"
+    token = env.get("BLUESKY_LAUNCH_TOKEN")
+    assert token, "BLUESKY_LAUNCH_TOKEN missing/empty in the project .env"
     return token
 
 
@@ -254,8 +255,8 @@ def test_bridge_binds_loopback_only(deployed_bridge: Path) -> None:
     assert "0.0.0.0" not in proc.stdout, f"bridge must never bind 0.0.0.0: {proc.stdout!r}"
 
 
-def test_promote_token_was_minted(deployed_bridge: Path) -> None:
-    """task 2.10: an unset BLUESKY_PROMOTE_TOKEN is auto-generated into .env."""
+def test_launch_token_was_minted(deployed_bridge: Path) -> None:
+    """task 2.10: an unset BLUESKY_LAUNCH_TOKEN is auto-generated into .env."""
     token = _minted_token(deployed_bridge)
     assert len(token) >= 40  # secrets.token_urlsafe(32) -> ~43 url-safe chars
 
@@ -263,12 +264,12 @@ def test_promote_token_was_minted(deployed_bridge: Path) -> None:
 def test_image_contains_unreleased_bluesky_bridge_modules(deployed_bridge: Path) -> None:
     """Carry-forward from the 2.8 reviewer: assert CONTENT, not just "it builds".
 
-    A PyPI-based (non---dev) build would lack both the unreleased
-    bluesky_bridge submodules and the bluesky-bridge extra on the current
-    release — this would still "build" (pip just installs the released
+    A PyPI-based (non---dev) build would lack the unreleased bluesky_bridge
+    submodules — this would still "build" (pip just installs the released
     package), so a green build alone is not proof of anything. Import each
-    module inside the running container to prove the --dev wheel + extra
-    both landed.
+    module inside the running container to prove the --dev wheel landed; the
+    imports also pull in the bluesky stack (a core dependency), proving it is
+    present for the real PlanRunner.
     """
     failures: list[str] = []
     for module in _BLUESKY_BRIDGE_ONLY_MODULES:
@@ -282,23 +283,33 @@ def test_image_contains_unreleased_bluesky_bridge_modules(deployed_bridge: Path)
             failures.append(f"{module}: {proc.stderr.strip()}")
     assert not failures, (
         "built image is missing unreleased bluesky_bridge modules or the "
-        "bluesky-bridge extra deps (bluesky/ophyd-async) — was it built "
+        "bluesky stack (bluesky/ophyd-async) — was it built "
         "with --dev?\n  " + "\n  ".join(failures)
     )
 
 
 def test_demo_scan_against_mock_devices_completes(deployed_bridge: Path) -> None:
-    """End-to-end: launch -> promote -> poll -> read_run_data, against the real container."""
+    """End-to-end: create -> launch -> poll -> get_run_data, against the real container."""
     token = _minted_token(deployed_bridge)
 
+    # Minimal single-axis grid_scan (the demo runner's default mock devices
+    # are motor1/det1) -- the shipped registry only has orm/grid_scan; a
+    # 3-point 1-axis sweep stands in for the removed built-in `count` plan.
     status, body = _post(
-        "/runs", {"plan_name": "count", "plan_args": {"detectors": ["det1"], "num": 3}}
+        "/runs",
+        {
+            "plan_name": "grid_scan",
+            "plan_args": {
+                "detectors": ["det1"],
+                "axes": [{"setpoint": "motor1", "start": 0.0, "stop": 1.0, "num_points": 3}],
+            },
+        },
     )
     assert status == 200, f"POST /runs failed: {status} {body}"
     run_id = body["id"]
 
-    status, body = _post(f"/runs/{run_id}/promote", {}, headers={"X-Promote-Token": token})
-    assert status == 200, f"promote failed: {status} {body}"
+    status, body = _post(f"/runs/{run_id}/launch", {}, headers={"X-Launch-Token": token})
+    assert status == 200, f"launch failed: {status} {body}"
 
     deadline = time.monotonic() + SCAN_TIMEOUT_SEC
     last_status_body: dict = {}

@@ -68,7 +68,7 @@ async def write_plan(
             that is governed entirely by ``control_system.writes_enabled``.
         body: Your plan's own source: a `PARAMS` pydantic model (optional)
             and a `build_plan(devices, params)` callable, exactly as a
-            directory-layer plan file needs — see the response_matrix
+            directory-layer plan file needs — see the orm
             exemplar plan for the expected shape.
         description: Human-readable summary of what the plan does.
 
@@ -116,7 +116,7 @@ async def validate_plan(
     in-process mock devices only, in a subprocess whose ``EPICS_CA_*``
     variables are neutralized; it never reaches a real device regardless of
     ``control_system.writes_enabled``. A passing validation is recorded by
-    content hash so the plan becomes loadable/promotable (tasks 2.4/2.5);
+    content hash so the plan becomes loadable/launchable (tasks 2.4/2.5);
     editing the file afterward changes its hash and drops the record, so it
     must be re-validated.
 

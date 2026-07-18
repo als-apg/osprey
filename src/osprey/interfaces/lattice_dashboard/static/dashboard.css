@@ -16,8 +16,8 @@
   --verify-accent: #a78bfa; /* hygiene-allow-color: no canonical equivalent; theme-invariant one-off */
   --baseline-accent: #06b6d4; /* hygiene-allow-color: no canonical equivalent; theme-invariant one-off */
   --font-sans: 'Inter', -apple-system, sans-serif;
-  --radius-sm: 4px;
-  --radius-md: 6px;
+  --ld-radius-sm: 4px;
+  --ld-radius-md: 6px;
 }
 
 *, *::before, *::after {
@@ -64,7 +64,7 @@ html, body {
   color: var(--color-accent);
   padding: 3px 6px;
   border: 1px solid var(--border-accent);
-  border-radius: var(--radius-sm);
+  border-radius: var(--ld-radius-sm);
 }
 
 .topbar-lattice {
@@ -92,7 +92,7 @@ html, body {
   padding: 2px 8px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
+  border-radius: var(--ld-radius-sm);
   font-family: var(--font-mono);
   font-size: 11px;
   white-space: nowrap;
@@ -130,7 +130,7 @@ html, body {
   gap: 5px;
   padding: 4px 10px;
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
+  border-radius: var(--ld-radius-sm);
   background: var(--bg-elevated);
   color: var(--text-secondary);
   font-family: var(--font-mono);
@@ -178,7 +178,7 @@ html, body {
   width: 28px;
   height: 28px;
   border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border-radius: var(--ld-radius-sm);
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
@@ -237,7 +237,7 @@ body.embedded .topbar-logo { display: none; }
   width: 20px;
   height: 20px;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--ld-radius-sm);
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -388,7 +388,7 @@ body.embedded .topbar-logo { display: none; }
   gap: 4px;
   padding: 3px 6px;
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--ld-radius-sm);
   background: transparent;
   color: var(--text-muted);
   font-family: var(--font-mono);
@@ -505,7 +505,7 @@ body.embedded .topbar-logo { display: none; }
   width: 72px;
   padding: 2px 4px;
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
+  border-radius: var(--ld-radius-sm);
   background: var(--bg-primary);
   color: var(--text-primary);
   font-family: var(--font-mono);
@@ -547,7 +547,7 @@ body.embedded .topbar-logo { display: none; }
   flex: 1;
   padding: 5px 8px;
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
+  border-radius: var(--ld-radius-sm);
   background: var(--bg-elevated);
   color: var(--text-secondary);
   font-family: var(--font-mono);
@@ -605,7 +605,7 @@ body.embedded .topbar-logo { display: none; }
 .figure-cell {
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
+  border-radius: var(--ld-radius-md);
   display: flex;
   flex-direction: column;
   overflow: hidden;

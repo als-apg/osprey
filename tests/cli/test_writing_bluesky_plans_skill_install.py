@@ -84,9 +84,9 @@ class TestWritingBlueskyPlansSkillStructure:
         assert "pydantic.BaseModel" in skill_text or "BaseModel" in skill_text
 
     def test_references_exemplars(self, skill_text):
-        assert "response_matrix" in skill_text
-        assert "grid_scan_nd" in skill_text
-        assert "plans_core/response_matrix.py" in skill_text
+        assert "orm" in skill_text
+        assert "grid_scan" in skill_text
+        assert "plans_core/orm.py" in skill_text
         assert "plans_core/grid_scan.py" in skill_text
 
     # --- the allowlist ---
@@ -122,25 +122,26 @@ class TestWritingBlueskyPlansSkillStructure:
         assert "time.sleep" in skill_text
         assert "RunEngine" in skill_text
 
-    # --- author -> validate -> run -> promote workflow ---
+    # --- author -> validate -> run -> contribute workflow ---
 
     def test_documents_write_and_validate_tools(self, skill_text):
         assert "write_plan" in skill_text
         assert "validate_plan" in skill_text
 
     def test_documents_run_tools(self, skill_text):
-        for tool in ("create_run_intent", "launch_run", "list_plans"):
+        for tool in ("set_draft", "launch_run", "list_plans"):
             assert tool in skill_text, f"Missing tool reference: {tool}"
 
-    def test_documents_promote_to_permanent_pointer(self, skill_text):
-        assert "promote" in skill_text.lower()
+    def test_documents_contribute_to_permanent_pointer(self, skill_text):
+        assert "contribute" in skill_text.lower()
+        assert "promote" not in skill_text.lower()
 
     # --- explicit out-of-scope guidance ---
 
     def test_explicitly_rules_out_bba_and_tune_scan(self, skill_text):
         """BBA/tune-scan must appear only as a named anti-pattern, never as a
-        plan option to author (memory: shipped scan plans are response_matrix
-        (ORM) + n-d grid_scan ONLY; bba/tune_scan "always creeps in")."""
+        plan option to author (memory: shipped scan plans are `orm` (ORM) +
+        n-d `grid_scan` ONLY; bba/tune_scan "always creeps in")."""
         assert "propose a BBA or tune-scan plan" in skill_text
         assert "tune-scan" in skill_text
         assert "out of scope" in skill_text.lower()

@@ -96,14 +96,14 @@ function loadArtifactPicker() {
       renderArtifactPicker(el);
     })
     .catch(function () {
-      el.innerHTML = '<span style="color:var(--color-error); font-size:var(--text-xs);">Failed to load artifacts</span>';
+      el.innerHTML = '<span style="color:var(--color-error); font-size:var(--art-text-xs);">Failed to load artifacts</span>';
     });
 }
 
 /** @param {HTMLElement} list */
 function renderArtifactPicker(list) {
   if (allArtifacts.length === 0) {
-    list.innerHTML = '<span style="color:var(--text-muted); font-size:var(--text-xs);">No artifacts available</span>';
+    list.innerHTML = '<span style="color:var(--text-muted); font-size:var(--art-text-xs);">No artifacts available</span>';
     return;
   }
 
@@ -450,9 +450,9 @@ async function submitLogbook() {
     const body = document.getElementById("logbook-body");
     if (body) {
       body.innerHTML = `
-        <div style="text-align:center; padding:var(--space-6); color:var(--color-success);">
-          <div style="font-size:var(--text-xl); margin-bottom:var(--space-2);">Draft created</div>
-          <div style="font-size:var(--text-sm); color:var(--text-secondary);">
+        <div style="text-align:center; padding:var(--art-space-6); color:var(--color-success);">
+          <div style="font-size:var(--art-text-xl); margin-bottom:var(--art-space-2);">Draft created</div>
+          <div style="font-size:var(--art-text-sm); color:var(--text-secondary);">
             ${data.draft_id}<br>
             <a href="${data.url}" target="_blank" rel="noopener"
                style="color:var(--color-accent-light);">Open in ARIEL</a>

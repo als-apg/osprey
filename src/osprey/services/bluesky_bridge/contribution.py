@@ -1,26 +1,26 @@
-"""Prepares a validated session-tier plan for promotion to a permanent catalog.
+"""Prepares a validated session-tier plan for contribution to a permanent catalog.
 
-This module is thin glue, not a promotion engine: it never opens a pull/merge
+This module is thin glue, not a contribution engine: it never opens a pull/merge
 request, never commits, and never touches ``plan_loader.py``'s directory
 layers or trust order. All it does is (1) refuse to hand off a session plan
 whose *current* on-disk content lacks a passing validation record — the same
-check the load gate (task 2.4) and promote gate (task 2.5) perform — and (2)
+check the load gate (task 2.4) and launch gate (task 2.5) perform — and (2)
 copy that plan's exact bytes into a checkout of the repo that owns the target
 ``preset``/``facility`` plan directory, so the file is ready to ``git add``.
 
-**The promotion workflow this glue supports:**
+**The contribution workflow this glue supports:**
 
 1. Author + validate a session plan (``write_plan`` /
    ``validate_plan`` — task 2.3), then run it a few times via
    ``launch_run`` until it looks worth keeping.
-2. Call :func:`prepare_promotion` with the plan's ``name`` and a filesystem
+2. Call :func:`prepare_contribution` with the plan's ``name`` and a filesystem
    path to a checkout of the repo that owns the target catalog directory —
    one of the directories already listed in ``bluesky.plan_dirs`` (config.yml,
    ``preset`` tier) or ``BLUESKY_PLAN_DIRS`` (env, ``facility`` tier); see
    ``plan_loader.py``'s module docstring for the tier mapping. This raises
    unless the plan has a passing validation record for its exact current
    content.
-3. Call :func:`stage_promotion` on the result to write the file into that
+3. Call :func:`stage_contribution` on the result to write the file into that
    checkout.
 4. Use the existing **``osprey-contribute``** skill (branch → commit → push
    → PR, GitHub Flow) to open the PR/MR proposing the addition — exactly as
@@ -28,7 +28,7 @@ copy that plan's exact bytes into a checkout of the repo that owns the target
    suggested branch name / PR title / PR body; it does not re-implement any
    part of that workflow.
 
-**The trust boundary — read this before wiring anything to auto-promote:**
+**The trust boundary — read this before wiring anything to auto-contribute:**
 Nothing in this module (or step 1-3 above) raises the plan's provenance.
 A staged file sitting in a target repo's working tree, or even a pushed
 branch with an open PR, is still exactly as trusted as it was in the
@@ -57,12 +57,12 @@ class UnvalidatedPlanError(ValueError):
 
 
 @dataclass(frozen=True)
-class PromotionRequest:
-    """Everything a contributor needs to propose a session plan for promotion.
+class ContributionRequest:
+    """Everything a contributor needs to propose a session plan for contribution.
 
     ``target_path`` is where the file should land inside a checkout of the
     repo that owns the target ``preset``/``facility`` plan directory —
-    :func:`prepare_promotion` never writes there itself; :func:`stage_promotion`
+    :func:`prepare_contribution` never writes there itself; :func:`stage_contribution`
     does that as an explicit, separate step.
     """
 
@@ -76,8 +76,8 @@ class PromotionRequest:
     suggested_pr_body: str
 
 
-def prepare_promotion(name: str, catalog_dir: str | Path) -> PromotionRequest:
-    """Build a `PromotionRequest` for a validated session plan.
+def prepare_contribution(name: str, catalog_dir: str | Path) -> ContributionRequest:
+    """Build a `ContributionRequest` for a validated session plan.
 
     Reads ``name``'s current on-disk content from the bridge's session
     directory (``session_dir.resolve_session_plan_dir()``) and refuses to
@@ -85,7 +85,7 @@ def prepare_promotion(name: str, catalog_dir: str | Path) -> PromotionRequest:
     record (``validation_record.validation_records``) — an edit made after
     the last successful ``validate_plan`` call changes the content
     hash and drops the record, exactly as it does for the load gate (2.4)
-    and promote gate (2.5). Never writes anywhere; purely a read + gate check.
+    and launch gate (2.5). Never writes anywhere; purely a read + gate check.
 
     Args:
         name: Session plan name (the file stem written by ``write_plan``).
@@ -93,7 +93,7 @@ def prepare_promotion(name: str, catalog_dir: str | Path) -> PromotionRequest:
             directory, inside a local checkout of the repo that owns it.
 
     Returns:
-        A `PromotionRequest` describing what to write where, plus a
+        A `ContributionRequest` describing what to write where, plus a
         suggested branch name and PR title/body for the ``osprey-contribute``
         skill to use verbatim or adapt.
 
@@ -114,21 +114,21 @@ def prepare_promotion(name: str, catalog_dir: str | Path) -> PromotionRequest:
         raise UnvalidatedPlanError(
             f"Session plan {name!r} (content hash {content_hash[:12]}...) has no "
             "passing validation record for its CURRENT content — call "
-            "validate_plan and confirm it passes before promoting. "
+            "validate_plan and confirm it passes before contributing. "
             "Editing the file after validation invalidates this check, by design."
         )
 
     target_path = Path(catalog_dir) / f"{name}.py"
-    return PromotionRequest(
+    return ContributionRequest(
         name=name,
         body=body,
         content_hash=content_hash,
         source_path=source_path,
         target_path=target_path,
-        suggested_branch=f"feature/promote-{name}-plan",
+        suggested_branch=f"feature/contribute-{name}-plan",
         suggested_pr_title=f"Add {name} scan plan to the catalog",
         suggested_pr_body=(
-            f"Promotes the session-authored `{name}` scan plan (validated "
+            f"Contributes the session-authored `{name}` scan plan (validated "
             f"content hash `{content_hash}`) to a permanent catalog plan.\n\n"
             "This file was authored and dry-run validated (mock devices only) "
             "in an OSPREY session; it has never run against real hardware. "
@@ -139,7 +139,7 @@ def prepare_promotion(name: str, catalog_dir: str | Path) -> PromotionRequest:
     )
 
 
-def stage_promotion(request: PromotionRequest) -> Path:
+def stage_contribution(request: ContributionRequest) -> Path:
     """Write ``request.body`` to ``request.target_path``, creating parent dirs.
 
     The one filesystem side effect this module performs: copying the

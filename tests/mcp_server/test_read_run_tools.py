@@ -21,52 +21,27 @@ def _fn(name):
     return get_tool_fn(getattr(read_tools, name))
 
 
-# ── create_run_intent ──────────────────────────────────────────────────────
-async def test_create_run_intent_success():
-    body = {"id": "abc123", "status": "intent"}
-    with patch(f"{_MOD}._http_post_json", return_value=(200, body)) as m:
-        result = await _fn("create_run_intent")(plan_name="count", plan_args={"num": 5})
-    assert m.call_args.args[0] == "/runs"
-    assert m.call_args.args[1] == {"plan_name": "count", "plan_args": {"num": 5}}
-    data = extract_response_dict(result)
-    assert data["id"] == "abc123"
-    assert data["status"] == "intent"
-
-
-async def test_create_run_intent_default_plan_args():
-    with patch(f"{_MOD}._http_post_json", return_value=(200, {"id": "x", "status": "intent"})) as m:
-        await _fn("create_run_intent")(plan_name="count")
-    assert m.call_args.args[1]["plan_args"] == {}
-
-
-async def test_create_run_intent_rejected():
-    with patch(f"{_MOD}._http_post_json", return_value=(422, {"detail": "unknown plan 'bogus'"})):
-        with assert_raises_error(error_type="run_intent_rejected") as ctx:
-            await _fn("create_run_intent")(plan_name="bogus")
-    assert "unknown plan" in ctx["envelope"]["error_message"]
-
-
-# ── run_status ──────────────────────────────────────────────────────────────
-async def test_run_status_success():
+# ── get_run ──────────────────────────────────────────────────────────────
+async def test_get_run_success():
     body = {"id": "abc123", "status": "running", "completion": 0.5}
     with patch(f"{_MOD}._http_get_json", return_value=(200, body)) as m:
-        result = await _fn("run_status")(run_id="abc123")
+        result = await _fn("get_run")(run_id="abc123")
     assert m.call_args.args[0] == "/runs/abc123"
     data = extract_response_dict(result)
     assert data["status"] == "running"
 
 
-async def test_run_status_unknown_run():
+async def test_get_run_unknown_run():
     with patch(f"{_MOD}._http_get_json", return_value=(404, {"detail": "unknown run 'abc123'"})):
         with assert_raises_error(error_type="unknown_run") as ctx:
-            await _fn("run_status")(run_id="abc123")
+            await _fn("get_run")(run_id="abc123")
     assert "unknown run" in ctx["envelope"]["error_message"]
 
 
-async def test_run_status_bridge_error():
+async def test_get_run_bridge_error():
     with patch(f"{_MOD}._http_get_json", return_value=(500, {"detail": "boom"})):
         with assert_raises_error(error_type="bluesky_bridge_error") as ctx:
-            await _fn("run_status")(run_id="abc123")
+            await _fn("get_run")(run_id="abc123")
     assert "boom" in ctx["envelope"]["error_message"]
 
 
@@ -149,8 +124,8 @@ async def test_list_runs_bridge_error():
     assert "not armed" in ctx["envelope"]["error_message"]
 
 
-# ── read_run_data ───────────────────────────────────────────────────────────
-async def test_read_run_data_success():
+# ── get_run_data ───────────────────────────────────────────────────────────
+async def test_get_run_data_success():
     body = {
         "run_uid": "uid-1",
         "columns": ["x"],
@@ -159,27 +134,27 @@ async def test_read_run_data_success():
         "truncated": False,
     }
     with patch(f"{_MOD}._http_get_json", return_value=(200, body)) as m:
-        result = await _fn("read_run_data")(run_id="abc123", max_rows=50)
+        result = await _fn("get_run_data")(run_id="abc123", max_rows=50)
     assert m.call_args.args[0] == "/runs/abc123/data?max_rows=50"
     data = extract_response_dict(result)
     assert data["row_count"] == 1
 
 
-async def test_read_run_data_query_params():
+async def test_get_run_data_query_params():
     with patch(f"{_MOD}._http_get_json", return_value=(200, {"columns": [], "rows": []})) as m:
-        await _fn("read_run_data")(run_id="abc123", max_rows=10, offset=5, tail=True)
+        await _fn("get_run_data")(run_id="abc123", max_rows=10, offset=5, tail=True)
     url = m.call_args.args[0]
     assert "max_rows=10" in url and "offset=5" in url and "tail=true" in url
 
 
-async def test_read_run_data_unknown_run():
+async def test_get_run_data_unknown_run():
     with patch(f"{_MOD}._http_get_json", return_value=(404, {"detail": "unknown run 'abc123'"})):
         with assert_raises_error(error_type="unknown_run"):
-            await _fn("read_run_data")(run_id="abc123")
+            await _fn("get_run_data")(run_id="abc123")
 
 
-async def test_read_run_data_empty_run():
+async def test_get_run_data_empty_run():
     with patch(f"{_MOD}._http_get_json", return_value=(200, {"columns": [], "rows": []})):
-        result = await _fn("read_run_data")(run_id="abc123")
+        result = await _fn("get_run_data")(run_id="abc123")
     data = extract_response_dict(result)
     assert data == {"columns": [], "rows": []}

@@ -164,13 +164,6 @@ class TestParsePhysicsFault:
         model = parse_machine(_machine(), _PATH)
         assert model.scenarios["fault"].physics is None
 
-    def test_quad_misalign_parses(self):
-        machine = _machine(scenarios={"fault": {"physics": {"quad_misalign": {"QF07": 3.0e-4}}}})
-        physics = parse_machine(machine, _PATH).scenarios["fault"].physics
-        assert physics.quad_misalign == {"QF07": 3.0e-4}
-        assert physics.bpm_errors == {}
-        assert physics.corrector_gain == {}
-
     def test_bpm_errors_defaults_and_overrides(self):
         machine = _machine(
             scenarios={
@@ -196,9 +189,9 @@ class TestParsePhysicsFault:
         assert physics.corrector_gain == {"HCM01": 1.15}
 
     def test_physics_device_ids_are_not_checked_against_channels(self):
-        # Device ids are lattice ids ("QF07"), not EPICS channel names -- unlike
+        # Device ids are lattice ids ("HCM01"), not EPICS channel names -- unlike
         # `overrides`, they must never be validated against `channels`.
-        machine = _machine(scenarios={"fault": {"physics": {"quad_misalign": {"QF07": 1e-4}}}})
+        machine = _machine(scenarios={"fault": {"physics": {"corrector_gain": {"HCM01": 1.1}}}})
         parse_machine(machine, _PATH)  # no raise
 
     def test_non_mapping_physics_rejected(self):
@@ -206,24 +199,19 @@ class TestParsePhysicsFault:
         with pytest.raises(ValueError, match="'physics' must be a mapping"):
             parse_machine(machine, _PATH)
 
-    def test_non_mapping_quad_misalign_rejected(self):
-        machine = _machine(scenarios={"fault": {"physics": {"quad_misalign": [1, 2]}}})
-        with pytest.raises(ValueError, match="'quad_misalign' must be a mapping"):
-            parse_machine(machine, _PATH)
-
-    def test_quad_misalign_rejects_non_number(self):
-        machine = _machine(scenarios={"fault": {"physics": {"quad_misalign": {"QF07": "big"}}}})
-        with pytest.raises(ValueError, match=r"quad_misalign\['QF07'\] must be a number"):
-            parse_machine(machine, _PATH)
-
-    def test_quad_misalign_rejects_bool(self):
-        machine = _machine(scenarios={"fault": {"physics": {"quad_misalign": {"QF07": True}}}})
-        with pytest.raises(ValueError, match="must be a number"):
+    def test_non_mapping_corrector_gain_rejected(self):
+        machine = _machine(scenarios={"fault": {"physics": {"corrector_gain": [1, 2]}}})
+        with pytest.raises(ValueError, match="'corrector_gain' must be a mapping"):
             parse_machine(machine, _PATH)
 
     def test_corrector_gain_rejects_non_number(self):
         machine = _machine(scenarios={"fault": {"physics": {"corrector_gain": {"HCM01": "x"}}}})
         with pytest.raises(ValueError, match=r"corrector_gain\['HCM01'\] must be a number"):
+            parse_machine(machine, _PATH)
+
+    def test_corrector_gain_rejects_bool(self):
+        machine = _machine(scenarios={"fault": {"physics": {"corrector_gain": {"HCM01": True}}}})
+        with pytest.raises(ValueError, match="must be a number"):
             parse_machine(machine, _PATH)
 
     def test_bpm_errors_rejects_non_mapping_entry(self):
@@ -246,7 +234,7 @@ class TestParsePhysicsFault:
             parse_machine(machine, _PATH)
 
     def test_empty_device_id_rejected(self):
-        machine = _machine(scenarios={"fault": {"physics": {"quad_misalign": {"": 1e-4}}}})
+        machine = _machine(scenarios={"fault": {"physics": {"corrector_gain": {"": 1.1}}}})
         with pytest.raises(ValueError, match="non-empty device id strings"):
             parse_machine(machine, _PATH)
 
@@ -257,7 +245,7 @@ _TEMPLATE_SIM = (
 
 
 class TestSeededDiscoveryScenarioBundles:
-    """The shipped errant-quad / bpm-polarity bundles parse under the physics schema.
+    """The shipped bpm-polarity bundle parses under the physics schema.
 
     Loads the real ``control_assistant`` machine.json + scenarios/ tree (not the
     inline fixture) so a malformed bundle is caught here, not only downstream in
@@ -270,26 +258,9 @@ class TestSeededDiscoveryScenarioBundles:
         machine = json.loads(machine_path.read_text())
         return parse_machine(machine, machine_path)
 
-    def test_errant_quad_bundle_parses(self):
-        scenario = self._load().scenarios["errant-quad"]
-        assert scenario.physics is not None
-        assert set(scenario.physics.quad_misalign) == {"QF07"}
-        dx = scenario.physics.quad_misalign["QF07"]
-        assert 1.0e-4 <= dx <= 5.0e-4, f"QF07 dx {dx} outside the 100-500 um band"
-        assert scenario.physics.bpm_errors == {}
-        assert scenario.physics.corrector_gain == {}
-        # Telemetry overlay: a persistent (not transient) BPM step, for mock/monitoring views.
-        assert set(scenario.archiver) == {
-            "SR:DIAG:BPM:06:POSITION:X",
-            "SR:DIAG:BPM:07:POSITION:X",
-            "SR:DIAG:BPM:08:POSITION:X",
-        }
-        assert [e.entry_id for e in scenario.logbook] == ["DEMO-029", "DEMO-030"]
-
     def test_bpm_polarity_bundle_parses(self):
         scenario = self._load().scenarios["bpm-polarity"]
         assert scenario.physics is not None
-        assert scenario.physics.quad_misalign == {}
         assert scenario.physics.corrector_gain == {}
         assert set(scenario.physics.bpm_errors) == {"BPM17"}
         assert scenario.physics.bpm_errors["BPM17"].polarity == -1

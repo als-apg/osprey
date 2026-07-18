@@ -22,7 +22,7 @@ services:
 {% if 'bluesky' in deployed_services %}
     # Only when the bluesky bridge (Task 1.x) is co-deployed: order the
     # sidecar's startup after the bridge's healthcheck, so the read-proxy and
-    # execute route don't race the bridge's own startup. A panels-only deploy
+    # launch route don't race the bridge's own startup. A panels-only deploy
     # (no bluesky in deployed_services) must NOT get this — compose errors on
     # depends_on naming an undefined service.
     depends_on:
@@ -61,12 +61,12 @@ services:
       # key `bluesky-bridge` — never the host-published port.
       BLUESKY_BRIDGE_URL: http://bluesky-bridge:{{ services.bluesky.port | default(8090) }}
       # No :-default — an unset token must stay EMPTY so the sidecar's
-      # POST /runs/{id}/execute route stays inert (mirrors the bridge's own
-      # promote-token convention) rather than booting with a guessable secret.
+      # POST /runs/launch route stays inert (mirrors the bridge's own
+      # launch-token convention) rather than booting with a guessable secret.
       # `osprey deploy up` auto-generates a strong random token into the
       # project .env when unset (see container_lifecycle.py's per-service
       # token-mint map).
-      BLUESKY_PROMOTE_TOKEN: ${BLUESKY_PROMOTE_TOKEN}
+      BLUESKY_LAUNCH_TOKEN: ${BLUESKY_LAUNCH_TOKEN}
       # Tiled's IN-NETWORK port is 8000, not the host-published tiled_port
       # (services.bluesky.tiled_port, default 8091) — same distinction as the
       # bridge's own BLUESKY_TILED_URI.
@@ -89,7 +89,7 @@ services:
       timeout: 5s
       retries: 5
       # Grace period before failed probes count — uvicorn/FastAPI startup and
-      # the first image build (which bakes in the bluesky-panels extra's
+      # the first image build (which bakes in the sidecar's
       # dependencies at build time, not at container start) take a few seconds.
       start_period: 15s
 

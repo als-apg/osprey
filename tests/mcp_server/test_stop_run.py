@@ -53,8 +53,8 @@ async def test_stop_bluesky_bridge_error():
     assert "boom" in ctx["envelope"]["error_message"]
 
 
-async def test_stop_run_stops_an_unpromoted_intent():
-    """Halting is always allowed, even on a run that was never promoted."""
+async def test_stop_run_stops_an_unlaunched_pending_run():
+    """Halting is always allowed, even on a run that was never launched."""
     body = {"id": "abc123", "status": "stopped"}
     with patch(f"{_MOD}._http_post_json", return_value=(200, body)):
         result = await _fn()(run_id="abc123")

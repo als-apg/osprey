@@ -35,7 +35,7 @@ logger = get_logger("deployment.lifecycle")
 # and dispatch_worker both list the same pair because they share one .env:
 # the dispatcher forwards routed requests to workers using DISPATCH_WORKER_TOKEN,
 # so either service alone still needs both vars minted. bluesky needs its own
-# promote token (see ``security.require_armed`` in
+# launch token (see ``security.require_armed`` in
 # ``osprey.services.bluesky_bridge``) plus the API key the bridge presents to
 # the co-deployed Tiled catalog. The Tiled key hangs off "bluesky" rather than a
 # "tiled" key of its own because "tiled" is never a member of
@@ -58,7 +58,7 @@ logger = get_logger("deployment.lifecycle")
 _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
     "event_dispatcher": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
     "dispatch_worker": ("EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN"),
-    "bluesky": ("BLUESKY_PROMOTE_TOKEN", "BLUESKY_TILED_API_KEY"),
+    "bluesky": ("BLUESKY_LAUNCH_TOKEN", "BLUESKY_TILED_API_KEY"),
     "openobserve": ("ZO_ROOT_USER_PASSWORD",),
 }
 
@@ -77,8 +77,8 @@ _SERVICE_TOKEN_VARS: dict[str, tuple[str, ...]] = {
 # it grants no write-capable route the agent itself can walk. Under local exec,
 # agent-authored code can read any minted token straight out of .env/config.yml
 # and call the route it gates directly, bypassing the in-tool writes_enabled
-# re-check. BLUESKY_PROMOTE_TOKEN is therefore absent: it gates the bridge's
-# POST /runs/{id}/promote.
+# re-check. BLUESKY_LAUNCH_TOKEN is therefore absent: it gates the bridge's
+# POST /runs/{id}/launch.
 _LOCAL_EXEC_SAFE_VARS = {
     "BLUESKY_TILED_API_KEY",  # outbound credential to the Tiled catalog; gates no bridge route
     "EVENT_DISPATCHER_TOKEN",  # inbound webhook boundary, not a write path the agent walks
@@ -357,7 +357,7 @@ def _ensure_service_tokens(
     When ``_local_exec_arming_unsafe(config)`` — see that function's docstring —
     the mint is restricted to the ``_LOCAL_EXEC_SAFE_VARS`` allowlist: any other
     declared var is skipped (never minted; an existing value in .env/env is left
-    untouched but not read either). For the withheld ``BLUESKY_PROMOTE_TOKEN``
+    untouched but not read either). For the withheld ``BLUESKY_LAUNCH_TOKEN``
     the bridge's own ``require_armed()`` then keeps returning 503, i.e. this
     deploy never arms it, rather than arming it with a token any local
     agent-code execution can trivially read back out of ``.env``.

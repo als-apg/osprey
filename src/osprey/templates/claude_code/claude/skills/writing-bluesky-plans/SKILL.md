@@ -3,10 +3,10 @@ name: writing-bluesky-plans
 description: >
   Author a new Bluesky plan for the Bluesky MCP server: the plan-file
   format (PLAN_METADATA/PARAMS/build_plan), the allowlist the validator
-  enforces, and the author -> validate -> run -> promote workflow. Use when
+  enforces, and the author -> validate -> run -> contribute workflow. Use when
   asked to write, draft, or author a new Bluesky plan, or when an
   existing plan needs editing before re-validation. NOT for operating an
-  already-registered plan (use list_plans/create_run_intent directly).
+  already-registered plan (use the operating-bluesky-scans skill).
 summary: Author, validate, and launch a session-tier Bluesky plan
 ---
 
@@ -14,9 +14,9 @@ summary: Author, validate, and launch a session-tier Bluesky plan
 
 Author a new plan as a plain-text file, get it machine-validated in a
 sandbox with no hardware access, then launch it through the normal
-author -> validate -> run -> promote workflow. A plan you write is inert until `validate_plan` records a
+author -> validate -> run -> contribute workflow. A plan you write is inert until `validate_plan` records a
 pass for its exact content — nothing you author here is ever imported or
-executed directly.
+run directly.
 
 ---
 
@@ -47,12 +47,12 @@ A plan file is a single Python module exposing exactly three things:
    (typically built with `bluesky.plan_stubs`/`bluesky.plans`/
    `bluesky.preprocessors`).
 
-**Study the two shipped exemplars for the full worked pattern — do not
+**Study the two shipped plans for the full worked pattern — do not
 invent new accelerator physics:**
-- `response_matrix` (`src/osprey/services/bluesky_bridge/plans_core/response_matrix.py`)
+- `orm` (`src/osprey/services/bluesky_bridge/plans_core/orm.py`)
   — sweeps each corrector over a bounded current range, reading every BPM
   detector at each point, to measure an orbit-response matrix.
-- `grid_scan_nd` (`src/osprey/services/bluesky_bridge/plans_core/grid_scan.py`)
+- `grid_scan` (`src/osprey/services/bluesky_bridge/plans_core/grid_scan.py`)
   — steps a set of setpoint devices over a rectangular grid, reading a set of
   detectors at every grid point.
 
@@ -85,7 +85,7 @@ any of which can reject it outright before the next ever runs:
    generator to completion against in-process mock devices, in a subprocess
    with `EPICS_CA_*` neutralized. This is an authoring-quality check ("does
    it actually run"), not the containment boundary — containment is stages 1
-   and 2 plus the load/promote gates that key off the validation record.
+   and 2 plus the load/launch gates that key off the validation record.
 
 **Foot-gun: use `bps.sleep(...)`, never `time.sleep(...)`.** `time.sleep`
 blocks the RunEngine's worker thread for its whole duration — no other plan
@@ -97,7 +97,7 @@ never a substitute for `bps.sleep` inside a plan's own control flow.
 
 ---
 
-## Workflow: author -> validate -> run -> promote
+## Workflow: author -> validate -> run -> contribute
 
 1. **Author** — `write_plan(name, category, required_devices,
    writes, body, description="")`. `body` is your `PARAMS` + `build_plan`
@@ -114,16 +114,21 @@ never a substitute for `bps.sleep` inside a plan's own control flow.
    loaded, or launchable.
 3. **Confirm it's live** — `list_plans()` to see the plan appear with
    `provenance: "session"` alongside its `metadata`.
-4. **Run** — `create_run_intent(plan_name, plan_args)` records an intent
-   (motion-safe, no device touched yet), then `launch_run(run_id)` is the
-   sole promote path: it re-checks the validation record against the file's
-   current hash, requires `control_system.writes_enabled`, and needs human
-   approval. Use `run_status(run_id)` / `read_run_data(run_id, ...)` to
-   watch it run.
-5. **Promote to permanent** — a session plan stays session-tier (least
-   trusted, most ephemeral) until a human reviews and merges it into a
-   facility catalog directory; that is a separate follow-up step, not
-   something this skill or any MCP tool does automatically.
+4. **Run** — stage the validated plan into the shared draft with
+   `set_draft(plan_name, plan_args_patch=...)` (motion-safe, no device
+   touched — it only fills the plan panel and returns a `revision`), then
+   `launch_run(draft_revision)` is the sole launch path: it re-checks the
+   validation record against the file's current hash, requires
+   `control_system.writes_enabled`, and needs human approval. Use
+   `get_run(run_id)` / `get_run_data(run_id, ...)` to watch it run. The
+   `operating-bluesky-scans` skill covers this run flow in full — staging the
+   complete configuration, launching at a pinned revision, 409 recovery, and
+   stopping.
+5. **Contribute to the permanent catalog** — a session plan stays
+   session-tier (least trusted, most ephemeral) until a human reviews it and
+   contributes it into a facility catalog directory; that is a separate
+   follow-up step, not something this skill or any MCP tool does
+   automatically.
 
 ---
 
@@ -133,8 +138,8 @@ never a substitute for `bps.sleep` inside a plan's own control flow.
   (`epics`, `caput`/`caget`, `_osprey_connector`, raw PV names) — all device
   I/O goes through the `devices` dict `build_plan` receives.
 - **Never** use `time.sleep(...)` inside a plan body — use `bps.sleep(...)`.
-- **Never** propose a BBA or tune-scan plan — `response_matrix` (ORM) and
-  `grid_scan_nd` are the only scan patterns this framework ships.
+- **Never** propose a BBA or tune-scan plan — `orm` and `grid_scan` are the
+  only scan patterns this framework ships.
 - **Never** hard-code a facility device name inside `build_plan` — resolve
   every device by string name through the injected `devices` dict, exactly
   like both exemplars.

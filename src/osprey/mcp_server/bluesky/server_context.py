@@ -1,6 +1,6 @@
 """Bluesky MCP Server Context — bridge connection resolution and HTTP boundary.
 
-Resolves the facility-side Bluesky bridge's base URL and promote token (env with
+Resolves the facility-side Bluesky bridge's base URL and launch token (env with
 config.yml fallback, mirroring
 ``osprey.mcp_server.control_system.server_context``), and exposes the
 module-level HTTP primitives every tool module uses to talk to the
@@ -23,6 +23,8 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 
@@ -61,11 +63,11 @@ class BridgeContext:
 
     def __init__(self) -> None:
         self.bridge_url: str = _DEFAULT_BRIDGE_URL
-        self.promote_token: str | None = None
+        self.launch_token: str | None = None
         self._initialized = False
 
     def initialize(self) -> None:
-        """Resolve bridge_url and promote_token from env with config.yml fallback.
+        """Resolve bridge_url and launch_token from env with config.yml fallback.
 
         Called once during create_server(). Subsequent calls are no-ops.
         """
@@ -73,12 +75,12 @@ class BridgeContext:
             return
 
         self.bridge_url = self._resolve_bridge_url()
-        self.promote_token = self._resolve_promote_token()
+        self.launch_token = self._resolve_launch_token()
         self._initialized = True
         logger.info(
-            "BridgeContext: initialized (bridge_url=%s, promote_token_set=%s)",
+            "BridgeContext: initialized (bridge_url=%s, launch_token_set=%s)",
             self.bridge_url,
-            self.promote_token is not None,
+            self.launch_token is not None,
         )
 
     @staticmethod
@@ -103,24 +105,24 @@ class BridgeContext:
         return str(url).rstrip("/")
 
     @staticmethod
-    def _resolve_promote_token() -> str | None:
-        """Resolve the Bluesky bridge promote token.
+    def _resolve_launch_token() -> str | None:
+        """Resolve the Bluesky bridge launch token.
 
         Resolution order:
 
-        1. ``BLUESKY_PROMOTE_TOKEN`` env var — minted fail-closed per bridge
+        1. ``BLUESKY_LAUNCH_TOKEN`` env var — minted fail-closed per bridge
            instance by the framework server definition; wins outright.
-        2. ``bluesky.promote_token`` in config.yml (local/dev convenience only).
+        2. ``bluesky.launch_token`` in config.yml (local/dev convenience only).
         3. ``None`` — ``launch_run`` refuses client-side when unset.
         """
-        token = os.environ.get("BLUESKY_PROMOTE_TOKEN")
+        token = os.environ.get("BLUESKY_LAUNCH_TOKEN")
         if token:
             return token
 
         from osprey.utils.workspace import load_osprey_config
 
         config = load_osprey_config()
-        token = config.get("bluesky", {}).get("promote_token")
+        token = config.get("bluesky", {}).get("launch_token")
         return str(token) if token else None
 
 
@@ -160,18 +162,18 @@ def reset_server_context() -> None:
 # ---------------------------------------------------------------------------
 # HTTP boundary (patched in tests)
 # ---------------------------------------------------------------------------
-def _http_get_json(path: str) -> tuple[int, dict | list]:
-    """GET ``path`` on the Bluesky bridge and return ``(status, parsed_json)``.
+def _request_json(
+    request: Callable[..., httpx.Response], path: str, **kwargs: Any
+) -> tuple[int, Any]:
+    """Shared core of the ``_http_*_json`` helpers: dispatch, parse, unreachable handling.
 
-    Raises ``ToolError`` via ``make_error("bluesky_bridge_unreachable", ...)`` when
-    the bridge cannot be reached at all, so every tool gets identical
-    unreachable-bridge handling. HTTP error responses (4xx/5xx) are returned
-    to the caller as ``(status, parsed_body)`` so tools can render the
-    bridge's own error semantics (404/409/403/503).
+    ``request`` is the ``httpx`` verb function to call. The public wrappers
+    below look it up (``httpx.get``/``httpx.post``/...) at call time, so tests
+    that patch those module attributes still intercept the request.
     """
     url = f"{get_server_context().bridge_url}{path}"
     try:
-        resp = httpx.get(url, timeout=_TIMEOUT)
+        resp = request(url, timeout=_TIMEOUT, **kwargs)
     except httpx.HTTPError as exc:
         make_error(
             "bluesky_bridge_unreachable",
@@ -187,6 +189,18 @@ def _http_get_json(path: str) -> tuple[int, dict | list]:
     return resp.status_code, body
 
 
+def _http_get_json(path: str) -> tuple[int, dict | list]:
+    """GET ``path`` on the Bluesky bridge and return ``(status, parsed_json)``.
+
+    Raises ``ToolError`` via ``make_error("bluesky_bridge_unreachable", ...)`` when
+    the bridge cannot be reached at all, so every tool gets identical
+    unreachable-bridge handling. HTTP error responses (4xx/5xx) are returned
+    to the caller as ``(status, parsed_body)`` so tools can render the
+    bridge's own error semantics (404/409/403/503).
+    """
+    return _request_json(httpx.get, path)
+
+
 def _http_post_json(
     path: str, payload: dict, *, headers: dict[str, str] | None = None
 ) -> tuple[int, dict]:
@@ -194,19 +208,22 @@ def _http_post_json(
 
     Same unreachable-bridge/error-body contract as :func:`_http_get_json`.
     """
-    url = f"{get_server_context().bridge_url}{path}"
-    try:
-        resp = httpx.post(url, json=payload, headers=headers, timeout=_TIMEOUT)
-    except httpx.HTTPError as exc:
-        make_error(
-            "bluesky_bridge_unreachable",
-            f"Could not reach the Bluesky bridge: {exc}",
-            _UNREACHABLE_HINTS,
-        )
+    return _request_json(httpx.post, path, json=payload, headers=headers)
 
-    body: dict = {}
-    try:
-        body = resp.json()
-    except Exception:
-        pass
-    return resp.status_code, body
+
+def _http_patch_json(
+    path: str, payload: dict, *, headers: dict[str, str] | None = None
+) -> tuple[int, dict]:
+    """PATCH ``payload`` as JSON to ``path`` on the Bluesky bridge.
+
+    Same unreachable-bridge/error-body contract as :func:`_http_get_json`.
+    """
+    return _request_json(httpx.patch, path, json=payload, headers=headers)
+
+
+def _http_delete_json(path: str, *, headers: dict[str, str] | None = None) -> tuple[int, dict]:
+    """DELETE ``path`` on the Bluesky bridge.
+
+    Same unreachable-bridge/error-body contract as :func:`_http_get_json`.
+    """
+    return _request_json(httpx.delete, path, headers=headers)

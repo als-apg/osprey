@@ -118,6 +118,13 @@ dependencies = [
     # optional — the VA is exercised in almost all deployments, and PyAT
     # (accelerator-toolbox above) is already core, so the IOC toolkit joins it.
     "softioc",
+    # Bluesky scan stack (osprey.services.bluesky_bridge): RunEngine, ophyd-async
+    # devices, and the Tiled writer/reader. Core, not optional — Bluesky is a
+    # core part of OSPREY, joining PyAT/softioc above. ophyd-async's [ca] brings
+    # the aioca Channel Access backend the EPICS substrate devices need.
+    "bluesky>=1.15.1",
+    "ophyd-async[ca]>=0.16,<1.0",
+    "tiled[client]>=0.1",
     "duckdb>=1.5.1",
     "tenacity>=9.1.4",
     # Cross-version TypedDict/NotRequired — pydantic v2.12 rejects typing.TypedDict on py<3.12.
@@ -192,34 +199,12 @@ screen-capture-linux = [
     "python-xlib>=0.33",
 ]
 
-# Bluesky bridge (osprey.services.bluesky_bridge): the RunEngine, ophyd-async
-# devices, and Tiled writer/reader the bridge's Phase 2 submodules (plans.py,
-# plan_runner_bluesky.py, devices/*.py) import behind this extra. The bridge's
-# lifecycle core (app.py, runs.py, security.py, plan_runner.py) stays import-clean
-# of all of these — installed only in the bridge process's own container venv,
-# never required in OSPREY's main venv. fastapi/uvicorn/httpx are already core
-# dependencies, so they're not repeated here.
-bluesky-bridge = [
-    "bluesky>=1.15.1",
-    # [ca]: the aioca Channel Access backend. Required for the real EPICS-on-VA
-    # substrate scanner (EpicsMotor/EpicsDetector over epics_signal_*); without
-    # it ophyd-async's CA transport is unavailable and device construction
-    # raises "Protocol ca not available". The mock-device demo scanner doesn't
-    # need it, which is why it went unnoticed until the substrate keystone.
-    "ophyd-async[ca]>=0.16,<1.0",
-    "tiled[client]>=0.1",
-]
-
 # Virtual Accelerator: kept as an empty alias for back-compat. `softioc` is now
 # a core dependency (see [project] dependencies), so this extra installs nothing
 # extra. Retained so existing `osprey-framework[virtual-accelerator]` references
 # (CI `uv sync --extra`, the VA image Dockerfile, and pinned older-version image
 # builds where softioc was still gated here) keep resolving.
 virtual-accelerator = []
-
-# bluesky_panels sidecar: fastapi/uvicorn[standard]/httpx are already core deps;
-# this extra exists so the service image can install osprey-framework[bluesky-panels].
-bluesky-panels = []
 
 # All optional dependencies for complete installation
 all = [
@@ -288,8 +273,8 @@ ignore_missing_imports = true
 
 # Bluesky bridge (osprey.services.bluesky_bridge): the lifecycle core (runs.py,
 # app.py, security.py, plan_runner.py) stays import-clean of these, but Phase 2's
-# submodules (plan_runner_bluesky.py, devices/epics.py, plans.py, ...) will import
-# them behind the optional `osprey-framework[bluesky-bridge]` extra.
+# submodules (plan_runner_bluesky.py, devices/epics.py, plans.py, ...) import
+# them from the bluesky stack (now a core dependency).
 [[tool.mypy.overrides]]
 module = [
     "bluesky.*",

@@ -7,7 +7,7 @@ drives `plan_loader.py` directly and via the `BLUESKY_PLAN_MODULE` env var),
 this test goes through the full `bluesky.plan_module` config.yml path — the
 "local/dev convenience" resolution tier — mirroring how
 `tests/mcp_server/test_bridge_context.py` verifies `bluesky.bridge_url`/
-`bluesky.promote_token` config fallback. A custom plan module living in a temp
+`bluesky.launch_token` config fallback. A custom plan module living in a temp
 dir (PLANS + get_devices, no bluesky import) is loaded purely from config,
 its plans show up over real HTTP via `GET /plans`, and its devices construct.
 """
@@ -150,7 +150,7 @@ def test_env_var_still_wins_over_config_plan_module(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, client: TestClient
 ) -> None:
     """`BLUESKY_PLAN_MODULE` outranks `bluesky.plan_module`, mirroring
-    bridge_url/promote_token's env-wins-over-config precedent."""
+    bridge_url/launch_token's env-wins-over-config precedent."""
     config_module_path = _write_facility_module(tmp_path)
     _write_config(tmp_path, {"bluesky": {"plan_module": str(config_module_path)}})
     monkeypatch.setenv("OSPREY_CONFIG", str(tmp_path / "config.yml"))

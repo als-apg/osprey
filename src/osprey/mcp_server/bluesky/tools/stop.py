@@ -1,9 +1,9 @@
-"""MCP tool: stop_run — abort a running plan.
+"""MCP tool: stop_run — the always-available halt.
 
 Stopping is the safe direction: unlike launch_run, this tool carries no
-writes_enabled gate and no promote token. The bridge's ``POST /runs/{id}/stop``
+writes_enabled gate and no launch token. The bridge's ``POST /runs/{id}/stop``
 route is not token-gated either (see ``bluesky_bridge/app.py``) — halting is
-always allowed, including on an intent that was never promoted. This tool is
+always allowed, including on a pending run that was never launched. This tool is
 still approval-gated (``permissions_ask``, see the ``bluesky`` ServerDefinition
 in task 1.10) so a human sees every stop, but the kill switch (writes-disabled
 deny loop) must never block it.
@@ -26,14 +26,15 @@ from osprey.mcp_server.errors import make_error
 
 @mcp.tool()
 async def stop_run(run_id: str) -> str:
-    """Abort a running plan (or mark an unpromoted intent stopped).
+    """Abort a running plan — or stop a pending run that was never launched.
 
-    Not gated by control_system.writes_enabled — halting a run is the safe
-    direction and must always be reachable, kill switch or not. Still
+    The always-available halt. Not gated by control_system.writes_enabled —
+    halting a run is the safe direction and must always be reachable, so the
+    kill switch (writes-disabled deny loop) never blocks it. Still
     approval-gated so a human sees every stop request.
 
     Args:
-        run_id: Run id returned by create_run_intent or list_runs.
+        run_id: Run id returned by launch_run or list_runs.
 
     Returns:
         JSON run record with status "stopped" on success.
@@ -45,7 +46,7 @@ async def stop_run(run_id: str) -> str:
         return make_error(
             "run_stop_conflict",
             bridge_error_message(body, status),
-            ["Check run_status for the run's current state."],
+            ["Check get_run for the run's current state."],
         )
     if status != 200:
         return make_error("bluesky_bridge_error", bridge_error_message(body, status))

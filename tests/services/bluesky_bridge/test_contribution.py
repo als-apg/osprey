@@ -1,8 +1,8 @@
-"""Unit tests for `promotion.py` (task 2.9): the thin glue that hands a
+"""Unit tests for `contribution.py` (task 2.9): the thin glue that hands a
 validated session-tier plan off to the existing `osprey-contribute` skill for
-a promotion PR/MR.
+a contribution PR/MR.
 
-`prepare_promotion`/`stage_promotion` never open a PR themselves and never
+`prepare_contribution`/`stage_contribution` never open a PR themselves and never
 touch `plan_loader.py`'s trust order — these tests cover only the glue's own
 contract: refuse an unknown or unvalidated plan, and copy validated bytes
 byte-for-byte into the target catalog directory.
@@ -14,14 +14,14 @@ from pathlib import Path
 
 import pytest
 
-from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
-from osprey.services.bluesky_bridge.promotion import (
-    PromotionRequest,
+from osprey.services.bluesky_bridge.contribution import (
+    ContributionRequest,
     UnknownSessionPlanError,
     UnvalidatedPlanError,
-    prepare_promotion,
-    stage_promotion,
+    prepare_contribution,
+    stage_contribution,
 )
+from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
 from osprey.services.bluesky_bridge.session_dir import resolve_session_plan_dir
 from osprey.services.bluesky_bridge.validation_record import validation_records
 
@@ -57,14 +57,14 @@ def _write_session_plan(name: str, body: str = _PLAN_BODY) -> Path:
 
 def test_unknown_plan_raises(tmp_path: Path) -> None:
     with pytest.raises(UnknownSessionPlanError):
-        prepare_promotion("nonexistent_plan", tmp_path / "catalog")
+        prepare_contribution("nonexistent_plan", tmp_path / "catalog")
 
 
 def test_unvalidated_plan_raises(tmp_path: Path) -> None:
     _write_session_plan("orbit_bump")
     # No validation_records.record() call — hash was never recorded as passing.
     with pytest.raises(UnvalidatedPlanError):
-        prepare_promotion("orbit_bump", tmp_path / "catalog")
+        prepare_contribution("orbit_bump", tmp_path / "catalog")
 
 
 def test_validated_plan_prepares_request(tmp_path: Path) -> None:
@@ -72,9 +72,9 @@ def test_validated_plan_prepares_request(tmp_path: Path) -> None:
     validation_records.record(hash_plan_body(_PLAN_BODY))
 
     catalog_dir = tmp_path / "catalog"
-    request = prepare_promotion("orbit_bump", catalog_dir)
+    request = prepare_contribution("orbit_bump", catalog_dir)
 
-    assert isinstance(request, PromotionRequest)
+    assert isinstance(request, ContributionRequest)
     assert request.name == "orbit_bump"
     assert request.body == _PLAN_BODY
     assert request.content_hash == hash_plan_body(_PLAN_BODY)
@@ -95,16 +95,16 @@ def test_editing_after_validation_re_raises_unvalidated(tmp_path: Path) -> None:
     _write_session_plan("orbit_bump", body=_PLAN_BODY + "# tweak\n")
 
     with pytest.raises(UnvalidatedPlanError):
-        prepare_promotion("orbit_bump", tmp_path / "catalog")
+        prepare_contribution("orbit_bump", tmp_path / "catalog")
 
 
-def test_stage_promotion_copies_bytes_identically(tmp_path: Path) -> None:
+def test_stage_contribution_copies_bytes_identically(tmp_path: Path) -> None:
     _write_session_plan("orbit_bump")
     validation_records.record(hash_plan_body(_PLAN_BODY))
 
     catalog_dir = tmp_path / "catalog" / "nested"  # doesn't exist yet
-    request = prepare_promotion("orbit_bump", catalog_dir)
-    written_path = stage_promotion(request)
+    request = prepare_contribution("orbit_bump", catalog_dir)
+    written_path = stage_contribution(request)
 
     assert written_path == catalog_dir / "orbit_bump.py"
     assert written_path.read_text() == _PLAN_BODY

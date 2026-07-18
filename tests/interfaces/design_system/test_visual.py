@@ -274,7 +274,7 @@ TARGETS: list[VisualTarget] = [
         "scan_panel_plan",
         _bluesky_panels_server,
         path="/plan/",
-        wait_selector="#plan-list",
+        wait_selector="#plan-tree",
     ),
     VisualTarget(
         "scan_panel_results",

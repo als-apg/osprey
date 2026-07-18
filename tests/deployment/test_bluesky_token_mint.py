@@ -4,7 +4,7 @@ Mirrors ``test_container_lifecycle.py``'s dispatch-token coverage, but for the
 ``bluesky`` deployed-service entry added to ``_SERVICE_TOKEN_VARS``
 (container_lifecycle.py). Without this mint, the fail-closed bridge
 (``osprey.services.bluesky_bridge.security.require_armed``) 503s on every
-promote attempt after a fresh deploy.
+launch attempt after a fresh deploy.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from osprey.deployment import container_lifecycle
 
 # Every var any service declares, so the scoping tests below cannot silently
 # stop covering a var that gets added later.
-_NON_TILED_VARS = ("BLUESKY_PROMOTE_TOKEN", "EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN")
+_NON_TILED_VARS = ("BLUESKY_LAUNCH_TOKEN", "EVENT_DISPATCHER_TOKEN", "DISPATCH_WORKER_TOKEN")
 
 
 @pytest.fixture
@@ -46,7 +46,7 @@ def captured_argv(monkeypatch, tmp_path):
 @pytest.fixture
 def _clean_token_env(monkeypatch):
     """Ensure the bluesky tokens (and dispatch tokens) are unset in the process env."""
-    monkeypatch.delenv("BLUESKY_PROMOTE_TOKEN", raising=False)
+    monkeypatch.delenv("BLUESKY_LAUNCH_TOKEN", raising=False)
     monkeypatch.delenv("BLUESKY_TILED_API_KEY", raising=False)
     monkeypatch.delenv("EVENT_DISPATCHER_TOKEN", raising=False)
     monkeypatch.delenv("DISPATCH_WORKER_TOKEN", raising=False)
@@ -66,13 +66,13 @@ def _parse_env(tmp_path):
     return _parse_dotenv(tmp_path / ".env")
 
 
-def test_bluesky_deploy_generates_promote_token(captured_argv, _clean_token_env, tmp_path):
+def test_bluesky_deploy_generates_launch_token(captured_argv, _clean_token_env, tmp_path):
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=False)
 
     env = _parse_env(tmp_path)
-    assert env.get("BLUESKY_PROMOTE_TOKEN")
+    assert env.get("BLUESKY_LAUNCH_TOKEN")
     # token_urlsafe(32) → ~43 url-safe chars
-    assert len(env["BLUESKY_PROMOTE_TOKEN"]) >= 40
+    assert len(env["BLUESKY_LAUNCH_TOKEN"]) >= 40
     # A deploy with only 'bluesky' deployed must not mint unrelated dispatch tokens.
     assert "EVENT_DISPATCHER_TOKEN" not in env
     assert "DISPATCH_WORKER_TOKEN" not in env
@@ -89,7 +89,7 @@ def test_bluesky_deploy_generates_tiled_api_key(captured_argv, _clean_token_env,
     env = _parse_env(tmp_path)
     assert env.get("BLUESKY_TILED_API_KEY")
     assert len(env["BLUESKY_TILED_API_KEY"]) >= 40
-    assert env["BLUESKY_TILED_API_KEY"] != env["BLUESKY_PROMOTE_TOKEN"]
+    assert env["BLUESKY_TILED_API_KEY"] != env["BLUESKY_LAUNCH_TOKEN"]
 
 
 def test_bluesky_token_generation_is_idempotent(captured_argv, _clean_token_env, tmp_path):
@@ -98,37 +98,37 @@ def test_bluesky_token_generation_is_idempotent(captured_argv, _clean_token_env,
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
     second = _parse_env(tmp_path)
 
-    assert first["BLUESKY_PROMOTE_TOKEN"] == second["BLUESKY_PROMOTE_TOKEN"]
+    assert first["BLUESKY_LAUNCH_TOKEN"] == second["BLUESKY_LAUNCH_TOKEN"]
     assert first["BLUESKY_TILED_API_KEY"] == second["BLUESKY_TILED_API_KEY"]
     # No duplicate keys appended on the second run.
     text = (tmp_path / ".env").read_text()
-    assert text.count("BLUESKY_PROMOTE_TOKEN=") == 1
+    assert text.count("BLUESKY_LAUNCH_TOKEN=") == 1
     assert text.count("BLUESKY_TILED_API_KEY=") == 1
 
 
 def test_bluesky_existing_env_token_is_preserved(captured_argv, _clean_token_env, tmp_path):
-    (tmp_path / ".env").write_text("BLUESKY_PROMOTE_TOKEN=my-real-token\n", encoding="utf-8")
+    (tmp_path / ".env").write_text("BLUESKY_LAUNCH_TOKEN=my-real-token\n", encoding="utf-8")
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
     env = _parse_env(tmp_path)
-    assert env["BLUESKY_PROMOTE_TOKEN"] == "my-real-token"  # untouched
+    assert env["BLUESKY_LAUNCH_TOKEN"] == "my-real-token"  # untouched
 
 
 def test_bluesky_process_env_token_not_written_to_dotenv(captured_argv, monkeypatch, tmp_path):
-    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", "from-shell")
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "from-shell")
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
 
     env = _parse_env(tmp_path)
     # A token resolvable from the process env is not duplicated into .env.
-    assert "BLUESKY_PROMOTE_TOKEN" not in env
+    assert "BLUESKY_LAUNCH_TOKEN" not in env
 
 
 def test_bluesky_expose_refuses_empty_token(captured_argv, monkeypatch, tmp_path):
     # A token explicitly set empty must not be auto-overwritten, and --expose must
     # refuse rather than bind a fail-open server to 0.0.0.0.
-    monkeypatch.setenv("BLUESKY_PROMOTE_TOKEN", "")
+    monkeypatch.setenv("BLUESKY_LAUNCH_TOKEN", "")
 
     with pytest.raises(RuntimeError, match="refusing to --expose"):
         container_lifecycle.deploy_up(
@@ -161,14 +161,14 @@ def test_bluesky_alongside_dispatch_mints_both_independently(
     env = _parse_env(tmp_path)
     assert env.get("EVENT_DISPATCHER_TOKEN")
     assert env.get("DISPATCH_WORKER_TOKEN")
-    assert env.get("BLUESKY_PROMOTE_TOKEN")
+    assert env.get("BLUESKY_LAUNCH_TOKEN")
     # All three distinct values — no accidental sharing across services.
     assert (
         len(
             {
                 env["EVENT_DISPATCHER_TOKEN"],
                 env["DISPATCH_WORKER_TOKEN"],
-                env["BLUESKY_PROMOTE_TOKEN"],
+                env["BLUESKY_LAUNCH_TOKEN"],
             }
         )
         == 3
@@ -178,7 +178,7 @@ def test_bluesky_alongside_dispatch_mints_both_independently(
 def test_service_token_vars_map_includes_bluesky():
     """Locks in the generalized map shape."""
     assert container_lifecycle._SERVICE_TOKEN_VARS["bluesky"] == (
-        "BLUESKY_PROMOTE_TOKEN",
+        "BLUESKY_LAUNCH_TOKEN",
         "BLUESKY_TILED_API_KEY",
     )
     assert "event_dispatcher" in container_lifecycle._SERVICE_TOKEN_VARS
@@ -292,7 +292,7 @@ def test_deploy_up_routes_each_var_through_its_own_generator(
 
     env = _parse_env(tmp_path)
     assert env["BLUESKY_TILED_API_KEY"] == "sentinelhexvalue"
-    assert env["BLUESKY_PROMOTE_TOKEN"] == "sentinel-urlsafe_value"
+    assert env["BLUESKY_LAUNCH_TOKEN"] == "sentinel-urlsafe_value"
 
 
 # ---------------------------------------------------------------------------
@@ -314,7 +314,7 @@ def test_ensure_service_tokens_rejects_non_alphanumeric_tiled_key_from_dotenv(
     config = {"deployed_services": ["bluesky"]}
     env_path = tmp_path / ".env"
     env_path.write_text(
-        "BLUESKY_PROMOTE_TOKEN=some-real-looking-token\nBLUESKY_TILED_API_KEY=has-a-dash-in-it\n",
+        "BLUESKY_LAUNCH_TOKEN=some-real-looking-token\nBLUESKY_TILED_API_KEY=has-a-dash-in-it\n",
         encoding="utf-8",
     )
 
@@ -436,7 +436,7 @@ def test_ensure_service_tokens_never_mints_or_fabricates_ariel_dsn(tmp_path, _cl
     env = _parse_dotenv(env_path)
     assert "ARIEL_DSN" not in env
     # The real service tokens still mint normally alongside the no-op.
-    assert env.get("BLUESKY_PROMOTE_TOKEN")
+    assert env.get("BLUESKY_LAUNCH_TOKEN")
     assert env.get("BLUESKY_TILED_API_KEY")
 
 

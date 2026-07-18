@@ -165,3 +165,5 @@ tests/e2e/claude_code/benchmark_results/
 
 # Node.js (dev-only JS toolchain; not part of the Python wheel)
 node_modules/
+.claude/.logs/.state/
+.claude/.logs/*.jsonl

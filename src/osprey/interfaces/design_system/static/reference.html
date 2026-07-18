@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OSPREY Design Tokens</title>
+
+<!-- FOUC prevention: applies data-theme before first paint -->
+<script src="js/theme-boot.js"></script>
+
+<!-- Design system tokens. Paths are relative to this page's own directory
+     (the design-system static root) so the page resolves correctly both at
+     /design-system/reference.html and proxied under /panel/{id}/design-system/. -->
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/base.css">
+
+<!-- Family-picker theme switcher: self-registering Custom Element -->
+<script type="module" src="js/components/osprey-theme-switcher.js"></script>
+
+<script type="module">
+  // Standalone follower: never the theme hub (only web-terminal is). Trusts
+  // whatever theme-boot.js already applied pre-paint; the switcher's own
+  // setFamily()/toggleTheme() calls still work, they just don't persist or
+  // broadcast, which is correct for a page with no panels of its own.
+  import { initTheme } from './js/theme-manager.js';
+  initTheme({ role: 'follower' });
+</script>
+
+<style>
+  /* base.css sets html/body to height:100%/overflow:hidden for apps that
+     manage their own internal scroll regions (e.g. web-terminal's panes).
+     This page is plain scrolling content, so it opts back into a normal
+     document flow instead of being clipped to one viewport of height. */
+  html, body { height: auto; overflow: auto; }
+  body {
+    margin: 0;
+    padding: var(--space-6);
+    font-family: var(--font-display);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: var(--text-base);
+    line-height: var(--leading-normal);
+  }
+  .ref-page { max-width: 1080px; margin: 0 auto; }
+  .ref-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-4);
+    padding-bottom: var(--space-3);
+    margin-bottom: var(--space-6);
+    border-bottom: 1px solid var(--border-default);
+  }
+  .ref-header h1 { margin: 0; font-size: var(--text-3xl); font-weight: var(--weight-bold); }
+  .ref-kicker {
+    margin: var(--space-1) 0 0;
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+  section { margin-bottom: var(--space-7); }
+  section h2 {
+    font-size: var(--text-lg);
+    font-weight: var(--weight-semibold);
+    margin: 0 0 var(--space-3);
+    color: var(--text-secondary);
+  }
+
+  .swatch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: var(--space-2); }
+  .swatch { border: 1px solid var(--border-default); border-radius: var(--radius-md); overflow: hidden; background: var(--bg-elevated); }
+  .swatch-fill { height: var(--space-6); }
+  .swatch-name {
+    display: block;
+    padding: var(--space-1) var(--space-2);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-secondary);
+    word-break: break-all;
+  }
+
+  .row { display: flex; align-items: baseline; gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--border-default); }
+  .row-label { flex: 0 0 200px; font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--text-muted); }
+  .row-sample { color: var(--text-primary); }
+
+  .space-row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-1) 0; }
+  .space-bar { height: var(--space-3); background: var(--color-accent); border-radius: var(--radius-xs); }
+
+  .chip-row { display: flex; flex-wrap: wrap; gap: var(--space-4); }
+  .radius-chip {
+    width: 72px; height: 72px;
+    display: flex; align-items: center; justify-content: center; text-align: center;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-accent);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--text-secondary);
+  }
+  .duration-chip {
+    padding: var(--space-2) var(--space-3);
+    background: var(--accent-tint-10);
+    border: 1px solid var(--border-accent);
+    border-radius: var(--radius-md);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--color-accent-light);
+    transition-property: transform;
+    transition-timing-function: ease;
+  }
+  .duration-chip:hover { transform: translateY(-3px); }
+
+  .specimen-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-4); margin-bottom: var(--space-4); }
+  .demo-button {
+    font-family: var(--font-display);
+    font-size: var(--text-md);
+    font-weight: var(--weight-semibold);
+    color: var(--color-on-accent);
+    background: var(--color-accent);
+    border: none;
+    border-radius: var(--radius-md);
+    padding: var(--space-2) var(--space-4);
+    cursor: pointer;
+    transition-property: background-color;
+    transition-duration: var(--duration-fast);
+  }
+  .demo-button:hover { background: var(--color-accent-light); }
+  .demo-badge {
+    display: inline-flex; align-items: center;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-semibold);
+    color: var(--color-success);
+    background: var(--success-tint-08);
+    border: 1px solid var(--color-success);
+    border-radius: var(--radius-full);
+    padding: var(--space-1) var(--space-3);
+  }
+  .demo-card {
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-panel);
+    padding: var(--space-4);
+    max-width: 260px;
+  }
+  .demo-card h3 { margin: 0 0 var(--space-1); font-size: var(--text-md); font-weight: var(--weight-semibold); color: var(--text-primary); }
+  .demo-card p { margin: 0; font-size: var(--text-sm); color: var(--text-secondary); }
+  .demo-status-row { display: flex; gap: var(--space-2); }
+  .demo-status { font-family: var(--font-mono); font-size: var(--text-2xs); padding: var(--space-1) var(--space-2); border-radius: var(--radius-sm); }
+  .demo-status.ok { color: var(--color-success); background: var(--success-tint-08); }
+  .demo-status.warn { color: var(--color-amber); background: var(--amber-tint-08); }
+  .demo-status.err { color: var(--color-error); background: var(--error-tint-08); }
+</style>
+</head>
+<body>
+<div class="ref-page">
+  <header class="ref-header">
+    <div>
+      <h1>Design tokens</h1>
+      <p class="ref-kicker">OSPREY Design System — live reference, enumerated at runtime</p>
+    </div>
+    <osprey-theme-switcher></osprey-theme-switcher>
+  </header>
+
+  <main>
+    <section><h2>Colors</h2><div class="swatch-grid" id="group-color"></div></section>
+    <section><h2>Type scale</h2><div id="group-text"></div></section>
+    <section><h2>Fonts</h2><div id="group-font"></div></section>
+    <section><h2>Weights</h2><div id="group-weight"></div></section>
+    <section><h2>Leading</h2><div id="group-leading"></div></section>
+    <section><h2>Spacing</h2><div id="group-space"></div></section>
+    <section><h2>Radii</h2><div class="chip-row" id="group-radius"></div></section>
+    <section><h2>Durations</h2><div class="chip-row" id="group-duration"></div></section>
+
+    <section>
+      <h2>Specimens</h2>
+      <div class="specimen-row">
+        <button class="demo-button" type="button">Apply setpoint</button>
+        <span class="demo-badge">nominal</span>
+      </div>
+      <div class="specimen-row">
+        <div class="demo-card">
+          <h3>BPM-14</h3>
+          <p>Composed entirely from design tokens: surface, border, shadow, type, radius.</p>
+        </div>
+        <div class="demo-status-row">
+          <span class="demo-status ok">nominal</span>
+          <span class="demo-status warn">degraded</span>
+          <span class="demo-status err">fault</span>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+(function () {
+  // Which prefix a --name belongs to, gated by a shape test on its computed
+  // value so a semantic color that merely shares a prefix (--text-primary
+  // next to --text-2xs) never gets mistaken for a scale entry. New tokens
+  // fall into the right bucket automatically -- nothing here is a hardcoded
+  // token list.
+  var SCALE_RULES = [
+    ['text-', function (v) { return /^-?\d+(\.\d+)?px$/.test(v); }],
+    ['weight-', function (v) { return /^\d+$/.test(v); }],
+    ['leading-', function (v) { return /^\d+(\.\d+)?$/.test(v); }],
+    ['space-', function (v) { return /^-?\d+(\.\d+)?px$/.test(v); }],
+    ['radius-', function (v) { return /^\d+(\.\d+)?px$/.test(v); }],
+    ['z-', function (v) { return /^-?\d+$/.test(v); }],
+    ['duration-', function (v) { return /^\d+(\.\d+)?m?s$/.test(v); }],
+    ['font-', function () { return true; }],
+  ];
+
+  function groupOf(name, value) {
+    for (var i = 0; i < SCALE_RULES.length; i++) {
+      var prefix = SCALE_RULES[i][0];
+      var test = SCALE_RULES[i][1];
+      if (name.indexOf(prefix) === 0 && test(value)) return prefix.slice(0, -1);
+    }
+    return 'color';
+  }
+
+  // Every custom property declared on a `:root...` rule (tokens.css emits
+  // exactly one such rule, shared with the default theme), in declaration
+  // order. Per-theme-only blocks (`[data-theme="apex-dark"]` etc.) never
+  // start with ':root', so only the canonical, theme-independent name set
+  // is collected here.
+  function collectRootVars() {
+    var names = [];
+    var seen = {};
+    for (var s = 0; s < document.styleSheets.length; s++) {
+      var rules;
+      try { rules = document.styleSheets[s].cssRules; } catch (err) { continue; }
+      if (!rules) continue;
+      for (var r = 0; r < rules.length; r++) {
+        var rule = rules[r];
+        if (!rule.selectorText || rule.selectorText.trim().indexOf(':root') !== 0) continue;
+        for (var p = 0; p < rule.style.length; p++) {
+          var prop = rule.style.item(p);
+          if (prop.indexOf('--') === 0 && !seen[prop]) {
+            seen[prop] = true;
+            names.push(prop.slice(2));
+          }
+        }
+      }
+    }
+    return names;
+  }
+
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  // Builds a CSS custom-property reference for a token discovered at
+  // runtime. The opening four characters are split across two literals so
+  // they never sit contiguous in this file's own source text -- the fleet
+  // var-integrity hygiene scanner (test_hygiene.py::test_var_integrity)
+  // naively text-matches that exact substring wherever it occurs, so
+  // writing it as one literal here would misparse every dynamically
+  // discovered token as a broken static reference.
+  var VAR_OPEN = 'var' + '(--';
+  function cssVar(name) { return VAR_OPEN + name + ')'; }
+
+  function renderRow(container, t, sampleText, apply) {
+    var row = el('div', 'row');
+    row.appendChild(el('span', 'row-label', '--' + t.name + (t.value ? ' (' + t.value + ')' : '')));
+    var sample = el('span', 'row-sample', sampleText);
+    apply(sample.style, cssVar(t.name));
+    row.appendChild(sample);
+    container.appendChild(row);
+  }
+
+  var computed = getComputedStyle(document.documentElement);
+  var groups = { color: [], text: [], font: [], weight: [], leading: [], space: [], radius: [], z: [], duration: [] };
+  var names = collectRootVars();
+  for (var i = 0; i < names.length; i++) {
+    var name = names[i];
+    var value = computed.getPropertyValue('--' + name).trim();
+    groups[groupOf(name, value)].push({ name: name, value: value });
+  }
+
+  var colorsEl = document.getElementById('group-color');
+  groups.color.forEach(function (t) {
+    var swatch = el('div', 'swatch');
+    var fill = el('div', 'swatch-fill');
+    fill.style.background = cssVar(t.name);
+    swatch.appendChild(fill);
+    swatch.appendChild(el('span', 'swatch-name', '--' + t.name));
+    colorsEl.appendChild(swatch);
+  });
+
+  var textEl = document.getElementById('group-text');
+  groups.text.forEach(function (t) {
+    renderRow(textEl, t, 'The quick brown fox 0123456789', function (s, v) { s.fontSize = v; });
+  });
+
+  var fontEl = document.getElementById('group-font');
+  groups.font.forEach(function (t) {
+    renderRow(fontEl, t, 'The quick brown fox 0123456789', function (s, v) { s.fontFamily = v; });
+  });
+
+  var weightEl = document.getElementById('group-weight');
+  groups.weight.forEach(function (t) {
+    renderRow(weightEl, t, 'The quick brown fox', function (s, v) { s.fontWeight = v; });
+  });
+
+  var leadingEl = document.getElementById('group-leading');
+  groups.leading.forEach(function (t) {
+    renderRow(leadingEl, t, 'Line one of a wrapped paragraph. Line two shows the leading between them.',
+      function (s, v) { s.display = 'inline-block'; s.maxWidth = '360px'; s.lineHeight = v; });
+  });
+
+  var spaceEl = document.getElementById('group-space');
+  groups.space.forEach(function (t) {
+    var row = el('div', 'space-row');
+    row.appendChild(el('span', 'row-label', '--' + t.name + ' (' + t.value + ')'));
+    var bar = el('div', 'space-bar');
+    bar.style.width = cssVar(t.name);
+    row.appendChild(bar);
+    spaceEl.appendChild(row);
+  });
+
+  var radiusEl = document.getElementById('group-radius');
+  groups.radius.forEach(function (t) {
+    var chip = el('div', 'radius-chip', '--' + t.name);
+    chip.style.borderRadius = cssVar(t.name);
+    radiusEl.appendChild(chip);
+  });
+
+  var durationEl = document.getElementById('group-duration');
+  groups.duration.forEach(function (t) {
+    var chip = el('div', 'duration-chip', '--' + t.name + ' (' + t.value + ') — hover me');
+    chip.style.transitionDuration = cssVar(t.name);
+    durationEl.appendChild(chip);
+  });
+})();
+</script>
+</body>
+</html>

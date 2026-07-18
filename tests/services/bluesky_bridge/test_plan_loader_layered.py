@@ -338,11 +338,12 @@ def test_equal_trust_collision_lets_the_later_scanned_directory_win(
     )
 
 
-def test_builtin_plans_still_import_and_are_unaffected(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Sanity check: `plans.py`'s programmatic built-in set (registered
-    through `app.py`, not this loader) is untouched by the layered rewrite."""
+def test_shipped_plans_register_through_the_real_shipped_dir() -> None:
+    """Sanity check: `plan_loader.py` is the sole plan registry — the shipped
+    `orm`/`grid_scan` plans (in `plans_core/`) register through the ordinary
+    `shipped`-tier directory scan, same as any other layer."""
     pytest.importorskip("bluesky")
-    from osprey.services.bluesky_bridge.plans import BUILTIN_PLANS
 
-    assert BUILTIN_PLANS
-    assert all(spec.provenance == "shipped" for spec in BUILTIN_PLANS.values())
+    facility = plan_loader.get_facility_plans()
+    assert set(facility.plans) == {"orm", "grid_scan"}
+    assert all(spec.provenance == "shipped" for spec in facility.plans.values())

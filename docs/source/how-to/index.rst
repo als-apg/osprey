@@ -128,6 +128,13 @@ Services & Connectors
       Run the Control Assistant tutorial against a containerized PyAT soft-IOC that
       serves real EPICS Channel Access with live storage-ring physics.
 
+   .. grid-item-card:: Agent-Assisted Grid Scan Tutorial
+      :link: agent-assisted-grid-scan
+      :link-type: doc
+
+      Ask the Osprey agent to compose an n-dimensional grid scan, watch it fill
+      the PLAN panel live, then Execute and watch points land in SCAN RESULTS.
+
    .. grid-item-card:: ARIEL Logbook Search
       :link: ariel/index
       :link-type: doc
@@ -163,6 +170,7 @@ Services & Connectors
    add-connector
    use-channel-finder
    use-virtual-accelerator
+   agent-assisted-grid-scan
    ariel/index
    use-facility-knowledge
    /cli-reference/index

@@ -7,13 +7,13 @@ Deploys the VA-backed turn-key scan-stack (``tests/e2e/_orm_stack.py`` -- the
 same real Virtual Accelerator + bluesky-bridge container pair
 ``test_orm_roundtrip.py`` uses) and drives the session-authoring HTTP surface
 (``POST /plans/session``, ``POST /plans/validate``, ``POST /runs`` ->
-``promote``) end to end against it, then reads a real corrector setpoint back
+``launch``) end to end against it, then reads a real corrector setpoint back
 over Channel Access -- from this test process, independent of the bridge --
 to prove a rejected write never lands, not merely that the bridge's own HTTP
 responses claim it didn't.
 
 Mocked-client tests (``tests/services/bluesky_bridge/test_plan_validation.py``,
-``test_session_load_gate.py``, ``test_promote_validation_gate.py``) only
+``test_session_load_gate.py``, ``test_launch_validation_gate.py``) only
 exercise OSPREY's own half of this contract in-process. This is the other
 half: a real deployed bridge container, a real deployed IOC, and an
 independent CA read that never goes through the bridge at all.
@@ -21,7 +21,7 @@ independent CA read that never goes through the bridge at all.
 CRITICAL INTEGRATION CONTRACT (see ``plan_validation.py``'s module docstring
 and the P5 Phase 2 research digest): the bytes ``validate_plan``
 hashes for its validation record must be byte-identical to what the session
-directory's load gate (task 2.4) and the promote gate (task 2.5) re-hash from
+directory's load gate (task 2.4) and the launch gate (task 2.5) re-hash from
 disk. ``POST /plans/session`` writes the body once; ``POST /plans/validate``
 re-reads and hashes that SAME file -- never a body passed separately -- so
 "validated bytes == file bytes" is structural here, not a test convention
@@ -60,7 +60,7 @@ ci.yml's ``bluesky-sandbox-escape-e2e`` job); run locally with
 
 GAP FOUND WHILE WRITING THIS E2E, NOW FIXED: ``plan_validation.py``'s stage-1
 ``_ALLOWED_TOP_LEVEL_MODULES`` originally never added ``typing``/
-``__future__``/``logging`` -- the shipped ``plans_core/response_matrix.py``
+``__future__``/``logging`` -- the shipped ``plans_core/orm.py``
 exemplar this test's positive plan body mirrors uses all three
 (`from __future__ import annotations`, `from typing import Any`,
 `import logging`), so an author copying that exact, idiomatic house style
@@ -109,9 +109,9 @@ HEALTH_TIMEOUT_SEC = 300.0
 SCAN_TIMEOUT_SEC = 120.0
 
 # Three correctors total: one reserved exclusively as the escape/residual
-# probe TARGET (never promoted/launched in this test, by either the negative
+# probe TARGET (never launched in this test, by either the negative
 # or the obfuscation-residual case), two driven for real by the positive
-# author -> validate -> launch -> promote -> read round trip. Disjoint by
+# author -> validate -> launch -> read round trip. Disjoint by
 # construction, so a run-order change can never let the positive scan's
 # legitimate write be mistaken for evidence the negative case's write landed.
 CORRECTOR_COUNT = 3
@@ -141,7 +141,7 @@ def _escape_plan_body(target_sp: str, poison_current: float) -> str:
     this file despite it lacking a passing validation record, the poison write
     would fire on the very first ``GET /plans`` call that re-scans the session
     directory (``get_facility_plans()`` re-scans on every call), with no
-    launch/promote needed at all. This also makes ``import epics`` itself
+    launch needed at all. This also makes ``import epics`` itself
     task 2.1's REJECT case (its unit table asserts against exactly this
     import) -- caught at stage 1, long before any exec is even attempted.
     """
@@ -158,7 +158,7 @@ from pydantic import BaseModel
 
 # Fires the instant this module is ever exec'd -- not gated behind
 # build_plan at all, so a load-gate bypass would be provable without this
-# test ever needing to launch/promote a run.
+# test ever needing to launch a run.
 epics.caput({target_sp!r}, {poison_current!r})
 
 
@@ -187,7 +187,7 @@ def _obfuscated_residual_plan_body(target_sp: str, poison_current: float) -> str
     """
     return f'''"""KNOWN-UNCAUGHT residual plan body for the sandbox-escape e2e
 (tests/e2e/test_bluesky_sandbox_escape_e2e.py). Documented, accepted residual --
-see this test module's docstring. Never promoted/launched by this test."""
+see this test module's docstring. Never launched by this test."""
 
 from __future__ import annotations
 
@@ -211,7 +211,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 '''
 
 
-# response_matrix-shaped (mirrors plans_core/response_matrix.py's PARAMS/
+# orm-shaped (mirrors plans_core/orm.py's PARAMS/
 # build_plan in spirit, and now also its typing/logging imports verbatim --
 # see the module docstring's "GAP FOUND ... NOW FIXED" note): device-agnostic,
 # resolves correctors/detectors by string name against whatever `devices`
@@ -220,7 +220,7 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 # PLAN_METADATA -- lives here.
 #
 # SEPARATE, STRUCTURAL CONSTRAINT (found running this e2e for real, distinct
-# from the now-fixed allowlist gap): unlike `plans_core/response_matrix.py`
+# from the now-fixed allowlist gap): unlike `plans_core/orm.py`
 # (a shipped file, never passed through this prepending), this body's own
 # text is NOT position 0 in the file `write_session_plan` actually writes --
 # `POST /plans/session` assembles `f"PLAN_METADATA = {metadata!r}\\n\\n{body}"`,
@@ -236,8 +236,8 @@ def build_plan(devices: dict[str, Any], params: PARAMS) -> Any:
 # and are used exactly as the shipped exemplar does.
 _POSITIVE_PLAN_BODY = '''"""Session-authored positive plan body for the sandbox-escape e2e
 (tests/e2e/test_bluesky_sandbox_escape_e2e.py) -- mirrors plans_core/
-response_matrix.py's PARAMS/build_plan, proving the author -> validate ->
-launch -> promote -> read path works end to end for a legitimately-authored
+orm.py's PARAMS/build_plan, proving the author -> validate ->
+launch -> read path works end to end for a legitimately-authored
 session plan, in the same deployed stack the negative case runs against.
 """
 
@@ -339,8 +339,8 @@ def _minted_token(project_dir: Path) -> str:
     env_path = project_dir / ".env"
     assert env_path.is_file(), f"no .env written at {env_path} — token was not minted"
     env = parse_dotenv_file(env_path)
-    token = env.get("BLUESKY_PROMOTE_TOKEN")
-    assert token, "BLUESKY_PROMOTE_TOKEN missing/empty in the project .env"
+    token = env.get("BLUESKY_LAUNCH_TOKEN")
+    assert token, "BLUESKY_LAUNCH_TOKEN missing/empty in the project .env"
     return token
 
 
@@ -508,15 +508,15 @@ def test_sandbox_escape_is_caught_and_no_write_reaches_the_ioc(
             f"validation -- the session-tier load gate did not refuse it: {sorted(names)}"
         )
 
-    # --- gate (c): promote 409s (the promote-validation gate, task 2.5) ---
+    # --- gate (c): launch 409s (the launch-validation gate, task 2.5) ---
     status, body = _post("/runs", {"plan_name": _ESCAPE_PLAN_NAME, "plan_args": {}})
     assert status == 200, f"POST /runs failed: {status} {body}"
     run_id = body["id"]
 
     token = _minted_token(deployed_sandbox_stack.project_dir)
-    status, body = _post(f"/runs/{run_id}/promote", {}, headers={"X-Promote-Token": token})
+    status, body = _post(f"/runs/{run_id}/launch", {}, headers={"X-Launch-Token": token})
     assert status == 409, (
-        f"expected 409 promoting an unvalidated session plan, got {status}: {body}"
+        f"expected 409 launching an unvalidated session plan, got {status}: {body}"
     )
     assert "validation record" in body.get("detail", ""), (
         f"409 detail doesn't name the validation-record gate: {body}"
@@ -542,7 +542,7 @@ def test_obfuscated_residual_is_a_documented_known_uncaught_case(
     does NOT assert the validator refuses it -- stages 1-2 are AST/regex
     checks, not a containment boundary (see module docstring); asserting
     refusal here would misrepresent what this feature actually guarantees.
-    This plan is never launched/promoted by this test either way, so nothing
+    This plan is never launched by this test either way, so nothing
     here depends on -- or claims anything about -- whether the dry run's own
     independent EPICS_CA_* neutralization (plan_validation.py) happens to
     let stage 3 complete or fail for this particular body.
@@ -553,7 +553,7 @@ def test_obfuscated_residual_is_a_documented_known_uncaught_case(
         "/plans/session",
         {
             "name": _RESIDUAL_PLAN_NAME,
-            "description": "Known-uncaught obfuscation residual (never promoted)",
+            "description": "Known-uncaught obfuscation residual (never launched)",
             "category": "test",
             "required_devices": [],
             "writes": True,
@@ -575,7 +575,7 @@ def test_obfuscated_residual_is_a_documented_known_uncaught_case(
         f"reasons={body['reasons']!r} (documented known-uncaught case; not asserted)"
     )
 
-    # Non-asserting probe: this plan is never promoted/launched by this test,
+    # Non-asserting probe: this plan is never launched by this test,
     # so nothing should have moved regardless of the validate outcome above --
     # but this is recorded as an observation, not an assertion (see docstring).
     sp_value = _caget(target_sp)
@@ -583,12 +583,12 @@ def test_obfuscated_residual_is_a_documented_known_uncaught_case(
 
 
 # ---------------------------------------------------------------------------
-# Positive: author -> validate -> launch -> promote -> read, over the same
+# Positive: author -> validate -> launch -> read, over the same
 # deployed stack. May flake on the launch->read leg (bounded scan timing);
 # the negative case above stays strict.
 # ---------------------------------------------------------------------------
 @pytest.mark.flaky(reruns=2, only_rerun=["AssertionError"])
-def test_session_plan_author_validate_launch_promote_read_round_trip(
+def test_session_plan_author_validate_launch_read_round_trip(
     deployed_sandbox_stack: DeployedSandboxStack,
 ) -> None:
     correctors = deployed_sandbox_stack.positive_correctors
@@ -643,8 +643,8 @@ def test_session_plan_author_validate_launch_promote_read_round_trip(
     run_id = body["id"]
 
     token = _minted_token(deployed_sandbox_stack.project_dir)
-    status, body = _post(f"/runs/{run_id}/promote", {}, headers={"X-Promote-Token": token})
-    assert status == 200, f"promote failed: {status} {body}"
+    status, body = _post(f"/runs/{run_id}/launch", {}, headers={"X-Launch-Token": token})
+    assert status == 200, f"launch failed: {status} {body}"
 
     deadline = time.monotonic() + SCAN_TIMEOUT_SEC
     status_body: dict = {}

@@ -1,18 +1,18 @@
-"""Coverage for the promote-time session-plan validation gate (task 2.5).
+"""Coverage for the launch-time session-plan validation gate (task 2.5).
 
 Two parts, per the task split:
 
-- **Part A**: `app.py`'s `_epics_runner_factory` now resolves plan names
-  through the gated registry (``plans=None`` -> `BlueskyPlanRunner.reinitialize`
-  falls back to `_default_plan_registry()`, which merges built-ins with the
-  re-scanned, re-gated `get_facility_plans().plans`) instead of a fixed
-  `BUILTIN_PLANS` snapshot — so a validated session/facility plan is
-  launchable on the connector-mediated path, and an unvalidated one is not.
-- **Part B**: `app.py`'s `_promote_validation_gate`, dependency-injected into
-  `runs.do_promote` as its `validator` keyword, 409s a promote attempt for a
+- **Part A**: `app.py`'s `_epics_runner_factory` resolves plan names through
+  the gated registry (``plans=None`` -> `BlueskyPlanRunner.reinitialize` falls
+  back to `_default_plan_registry()`, the re-scanned, re-gated
+  `get_facility_plans().plans`) rather than a fixed snapshot — so a validated
+  session/facility plan is launchable on the connector-mediated path, and an
+  unvalidated one is not.
+- **Part B**: `app.py`'s `_launch_validation_gate`, dependency-injected into
+  `runs.do_launch` as its `validator` keyword, 409s a launch attempt for a
   session/unreviewed plan whose CURRENT on-disk content hash has no passing
   record in `validation_record.validation_records` — defense-in-depth
-  alongside task 2.4's session-layer LOAD gate, re-hashing fresh at promote
+  alongside task 2.4's session-layer LOAD gate, re-hashing fresh at launch
   time rather than trusting an earlier snapshot.
 
 All Part B plan files here are pure pydantic/stdlib (no bluesky import),
@@ -34,13 +34,13 @@ from osprey.services.bluesky_bridge import plan_loader
 from osprey.services.bluesky_bridge.app import app, set_runner_factory
 from osprey.services.bluesky_bridge.plan_runner import FakePlanRunner
 from osprey.services.bluesky_bridge.plan_validation import hash_plan_body
-from osprey.services.bluesky_bridge.runs import Run, do_promote, registry
+from osprey.services.bluesky_bridge.runs import Run, do_launch, registry
 from osprey.services.bluesky_bridge.validation_record import validation_records
 
 _SESSION_PLAN_DIR_ENV = "BLUESKY_SESSION_PLAN_DIR"
 _PLAN_DIRS_ENV = "BLUESKY_PLAN_DIRS"
 _PLAN_MODULE_ENV = "BLUESKY_PLAN_MODULE"
-_PROMOTE_TOKEN_ENV = "BLUESKY_PROMOTE_TOKEN"
+_LAUNCH_TOKEN_ENV = "BLUESKY_LAUNCH_TOKEN"
 _TOKEN = "s3cr3t"
 
 
@@ -96,7 +96,7 @@ def _write_session_plan(tmp_path: Path, name: str, source: str) -> Path:
 
 
 # =========================================================================
-# Part B: `_promote_validation_gate` unit coverage
+# Part B: `_launch_validation_gate` unit coverage
 # =========================================================================
 
 
@@ -112,7 +112,7 @@ def test_gate_blocks_a_session_plan_with_no_passing_record(tmp_path: Path) -> No
     run = _run_for("unvalidated_plan")
 
     with pytest.raises(HTTPException) as excinfo:
-        app_module._promote_validation_gate(run)
+        app_module._launch_validation_gate(run)
     assert excinfo.value.status_code == 409
     assert "unvalidated_plan" in excinfo.value.detail
     assert "no passing validation record" in excinfo.value.detail
@@ -125,19 +125,19 @@ def test_gate_allows_a_session_plan_once_validated(tmp_path: Path) -> None:
 
     run = _run_for("validated_plan")
 
-    assert app_module._promote_validation_gate(run) is None
+    assert app_module._launch_validation_gate(run) is None
 
 
 def test_gate_reblocks_after_the_session_file_is_edited(tmp_path: Path) -> None:
     """A post-validation edit changes the content hash: the fresh re-hash at
-    promote catches it even though the file still exists under the same name.
+    launch catches it even though the file still exists under the same name.
     """
     original = _session_plan_source("edited_plan")
     path = _write_session_plan(tmp_path, "edited_plan", original)
     validation_records.record(hash_plan_body(original))
 
     # Passes right after validation.
-    assert app_module._promote_validation_gate(_run_for("edited_plan")) is None
+    assert app_module._launch_validation_gate(_run_for("edited_plan")) is None
 
     # Edit the file (still a well-formed plan, just different content) without
     # re-validating it.
@@ -148,7 +148,7 @@ def test_gate_reblocks_after_the_session_file_is_edited(tmp_path: Path) -> None:
     path.write_text(edited)
 
     with pytest.raises(HTTPException) as excinfo:
-        app_module._promote_validation_gate(_run_for("edited_plan"))
+        app_module._launch_validation_gate(_run_for("edited_plan"))
     assert excinfo.value.status_code == 409
 
 
@@ -163,29 +163,29 @@ def test_gate_ignores_a_non_session_plan(tmp_path: Path, monkeypatch: pytest.Mon
     assert facility.plans["startup_plan"].provenance == "shipped"
 
     run = _run_for("startup_plan")
-    assert app_module._promote_validation_gate(run) is None
+    assert app_module._launch_validation_gate(run) is None
 
 
 def test_gate_ignores_a_plan_name_with_no_session_file_and_no_registration() -> None:
     """A genuinely unknown plan name is left to `PlanRunner.reinitialize`'s own
     "unknown plan" handling — the gate never 409s for it."""
     run = _run_for("nonexistent_plan")
-    assert app_module._promote_validation_gate(run) is None
+    assert app_module._launch_validation_gate(run) is None
 
 
 def test_gate_ignores_a_run_with_no_plan_name() -> None:
     run = registry.add(request={})
-    assert app_module._promote_validation_gate(run) is None
+    assert app_module._launch_validation_gate(run) is None
 
 
 # =========================================================================
-# Part B: end-to-end through `POST /runs/{id}/promote`
+# Part B: end-to-end through `POST /runs/{id}/launch`
 # =========================================================================
 
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    monkeypatch.setenv(_PROMOTE_TOKEN_ENV, _TOKEN)
+    monkeypatch.setenv(_LAUNCH_TOKEN_ENV, _TOKEN)
     return TestClient(app)
 
 
@@ -195,23 +195,23 @@ def _create_run(client: TestClient, plan_name: str) -> str:
     return resp.json()["id"]
 
 
-def _promote(client: TestClient, run_id: str):
-    return client.post(f"/runs/{run_id}/promote", headers={"X-Promote-Token": _TOKEN})
+def _launch(client: TestClient, run_id: str):
+    return client.post(f"/runs/{run_id}/launch", headers={"X-Launch-Token": _TOKEN})
 
 
-def test_promote_409s_an_unvalidated_session_plan(tmp_path: Path, client: TestClient) -> None:
+def test_launch_409s_an_unvalidated_session_plan(tmp_path: Path, client: TestClient) -> None:
     source = _session_plan_source("http_unvalidated")
     _write_session_plan(tmp_path, "http_unvalidated", source)
 
     run_id = _create_run(client, "http_unvalidated")
-    resp = _promote(client, run_id)
+    resp = _launch(client, run_id)
 
     assert resp.status_code == 409
     assert "no passing validation record" in resp.json()["detail"]
-    assert client.get(f"/runs/{run_id}").json()["status"] == "intent"
+    assert client.get(f"/runs/{run_id}").json()["status"] == "pending"
 
 
-def test_promote_succeeds_once_the_session_plan_is_validated(
+def test_launch_succeeds_once_the_session_plan_is_validated(
     tmp_path: Path, client: TestClient
 ) -> None:
     source = _session_plan_source("http_validated")
@@ -219,13 +219,13 @@ def test_promote_succeeds_once_the_session_plan_is_validated(
     validation_records.record(hash_plan_body(source))
 
     run_id = _create_run(client, "http_validated")
-    resp = _promote(client, run_id)
+    resp = _launch(client, run_id)
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "running"
 
 
-def test_promote_reblocks_after_a_post_validation_edit(tmp_path: Path, client: TestClient) -> None:
+def test_launch_reblocks_after_a_post_validation_edit(tmp_path: Path, client: TestClient) -> None:
     original = _session_plan_source("http_edited")
     path = _write_session_plan(tmp_path, "http_edited", original)
     validation_records.record(hash_plan_body(original))
@@ -236,13 +236,13 @@ def test_promote_reblocks_after_a_post_validation_edit(tmp_path: Path, client: T
     path.write_text(edited)
 
     run_id = _create_run(client, "http_edited")
-    resp = _promote(client, run_id)
+    resp = _launch(client, run_id)
 
     assert resp.status_code == 409
     assert "no passing validation record" in resp.json()["detail"]
 
 
-def test_promote_of_a_shipped_plan_is_unaffected(
+def test_launch_of_a_shipped_plan_is_unaffected(
     tmp_path: Path, client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     shipped_dir = tmp_path / "shipped"
@@ -251,19 +251,19 @@ def test_promote_of_a_shipped_plan_is_unaffected(
     monkeypatch.setattr(plan_loader, "_SHIPPED_PLANS_DIR", shipped_dir)
 
     run_id = _create_run(client, "startup_plan")
-    resp = _promote(client, run_id)
+    resp = _launch(client, run_id)
 
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "running"
 
 
 # =========================================================================
-# `do_promote(..., validator=None)` — the default preserves every existing
+# `do_launch(..., validator=None)` — the default preserves every existing
 # caller that never passes one (contract-test path unbroken).
 # =========================================================================
 
 
-def test_do_promote_without_a_validator_is_unaffected_by_the_gate(tmp_path: Path) -> None:
+def test_do_launch_without_a_validator_is_unaffected_by_the_gate(tmp_path: Path) -> None:
     """An unvalidated session plan is only refused when a validator is wired
     in — `runs.py` itself stays import-clean of `plan_loader`/bluesky, and
     every pre-2.5 caller that never passes `validator` sees no new behavior.
@@ -274,21 +274,21 @@ def test_do_promote_without_a_validator_is_unaffected_by_the_gate(tmp_path: Path
     run = _run_for("no_validator_plan")
     runner = FakePlanRunner()
 
-    result = do_promote(run, lambda: runner)
+    result = do_launch(run, lambda: runner)
 
     assert result is run
-    assert run.promoted is True
+    assert run.launched is True
     assert runner.reinitialize_calls == 1
 
 
-def test_do_promote_with_validator_none_explicit_matches_default() -> None:
+def test_do_launch_with_validator_none_explicit_matches_default() -> None:
     run = registry.add(request={})
     runner = FakePlanRunner()
 
-    result = do_promote(run, lambda: runner, validator=None)
+    result = do_launch(run, lambda: runner, validator=None)
 
     assert result is run
-    assert run.promoted is True
+    assert run.launched is True
 
 
 # =========================================================================
@@ -313,8 +313,8 @@ def _clean_epics_env(monkeypatch: pytest.MonkeyPatch):
 def test_epics_runner_factory_resolves_a_validated_session_plan(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, _clean_epics_env: None
 ) -> None:
-    """`_epics_runner_factory` no longer pins `plans=BUILTIN_PLANS` — a
-    validated session plan (re-gated by `_default_plan_registry()` on every
+    """`_epics_runner_factory` pins no fixed plan snapshot — a validated
+    session plan (re-gated by `_default_plan_registry()` on every
     `reinitialize()` call) is resolvable through the connector-mediated
     launch path, and an unvalidated one is not.
     """

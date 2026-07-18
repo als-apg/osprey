@@ -391,8 +391,13 @@ class TestLimitsValidator:
         assert validator.policy["allow_unlisted_channels"] is False
 
     @patch("osprey.utils.config.get_config_value")
-    def test_from_config_invalid_json_fails_fast(self, mock_get_config, tmp_path):
-        """Test that from_config raises error on invalid JSON (fail-fast at init)."""
+    def test_from_config_invalid_json_blocks_all_writes(self, mock_get_config, tmp_path):
+        """An unparseable database degrades to the empty block-all validator.
+
+        Same failsafe as the missing-database-path case: never crash the
+        connector (a read-only deployment needs no limits), never return None
+        (writes would go unchecked) — an empty DB refuses every write instead.
+        """
         db_file = tmp_path / "invalid.json"
         db_file.write_text('{"PV1": {"min_value": 0.0},}')  # Trailing comma
 
@@ -407,16 +412,15 @@ class TestLimitsValidator:
 
         mock_get_config.side_effect = config_side_effect
 
-        # Should raise ValueError during initialization (fail-fast)
-        with pytest.raises(ValueError) as exc_info:
-            LimitsValidator.from_config()
+        validator = LimitsValidator.from_config()
 
-        error_msg = str(exc_info.value)
-        assert "Invalid JSON" in error_msg
+        assert validator is not None
+        assert validator.limits == {}  # Empty database (blocks all writes)
 
     @patch("osprey.utils.config.get_config_value")
-    def test_from_config_missing_file_fails_fast(self, mock_get_config):
-        """Test that from_config raises error on missing file (fail-fast at init)."""
+    def test_from_config_missing_file_blocks_all_writes(self, mock_get_config):
+        """A missing database file degrades to the empty block-all validator
+        (same contract as the invalid-JSON case above)."""
 
         def config_side_effect(key, default):
             if key == "control_system.limits_checking.enabled":
@@ -429,12 +433,10 @@ class TestLimitsValidator:
 
         mock_get_config.side_effect = config_side_effect
 
-        # Should raise ValueError during initialization (fail-fast)
-        with pytest.raises(ValueError) as exc_info:
-            LimitsValidator.from_config()
+        validator = LimitsValidator.from_config()
 
-        error_msg = str(exc_info.value)
-        assert "Failed to load" in error_msg
+        assert validator is not None
+        assert validator.limits == {}  # Empty database (blocks all writes)
 
     # =========================================================================
     # Relative database_path resolution base (R4 container fix)

@@ -1,0 +1,101 @@
+/* ============================================================
+   Ownership Warning Modal
+   ============================================================ */
+
+.config-ownership-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: var(--overlay-black-70);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity var(--duration-base) ease;
+}
+
+.config-ownership-overlay.visible {
+  opacity: 1;
+}
+
+.config-ownership-dialog {
+  background: var(--bg-secondary);
+  border: 1px solid var(--amber-tint-25);
+  border-radius: var(--radius-lg);
+  padding: 28px 32px 24px;
+  max-width: 440px;
+  width: 90%;
+  box-shadow: 0 0 40px var(--amber-tint-12), var(--shadow-dialog);
+  transform: scale(0.95);
+  transition: transform var(--duration-base) ease;
+}
+
+.config-ownership-overlay.visible .config-ownership-dialog {
+  transform: scale(1);
+}
+
+.config-ownership-icon {
+  font-size: var(--text-4xl);
+  text-align: center;
+  margin-bottom: var(--space-3);
+  filter: saturate(1.2);
+}
+
+.config-ownership-title {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  color: var(--color-amber);
+  text-align: center;
+  margin-bottom: var(--space-3);
+}
+
+.config-ownership-body {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  line-height: var(--leading-relaxed);
+  color: var(--text-secondary);
+  text-align: center;
+  margin-bottom: var(--space-5);
+}
+
+.config-ownership-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.config-ownership-cancel {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-medium);
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 8px 20px;
+  cursor: pointer;
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast);
+}
+
+.config-ownership-cancel:hover {
+  color: var(--text-primary);
+  border-color: var(--text-muted);
+}
+
+.config-ownership-confirm {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+  color: var(--bg-primary);
+  background: var(--color-amber);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 8px 20px;
+  cursor: pointer;
+  transition: background var(--wt-transition-fast);
+}
+
+.config-ownership-confirm:hover {
+  background: var(--color-amber-hover);
+}

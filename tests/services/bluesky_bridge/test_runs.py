@@ -18,8 +18,8 @@ def test_run_defaults() -> None:
     assert run.id == "abc123"
     assert run.request == {"devices": []}
     assert isinstance(run.created_at, float)
-    assert run.promoted is False
-    assert run.promoting is False
+    assert run.launched is False
+    assert run.launching is False
     assert run.runner is None
     assert run.stopped is False
     assert run.error is None
@@ -42,15 +42,15 @@ def test_run_uid_reflects_the_attached_scanner() -> None:
 # =========================================================================
 
 
-def test_status_is_intent_before_promotion() -> None:
+def test_status_is_intent_before_launch() -> None:
     run = Run(id="abc123", request={})
-    assert run.status == "intent"
+    assert run.status == "pending"
 
 
 def test_status_is_running_while_scanner_is_active() -> None:
     runner = FakePlanRunner()
     runner.start_run_thread()
-    run = Run(id="abc123", request={}, promoted=True, runner=runner)
+    run = Run(id="abc123", request={}, launched=True, runner=runner)
     assert run.status == "running"
 
 
@@ -58,7 +58,7 @@ def test_status_is_completed_once_scan_finishes_cleanly() -> None:
     runner = FakePlanRunner()
     runner.start_run_thread()
     runner.simulate_completion()
-    run = Run(id="abc123", request={}, promoted=True, runner=runner)
+    run = Run(id="abc123", request={}, launched=True, runner=runner)
     assert run.status == "completed"
 
 
@@ -66,12 +66,12 @@ def test_status_is_stopped_when_the_run_was_stopped() -> None:
     runner = FakePlanRunner()
     runner.start_run_thread()
     runner.stop_run_thread()
-    run = Run(id="abc123", request={}, promoted=True, runner=runner, stopped=True)
+    run = Run(id="abc123", request={}, launched=True, runner=runner, stopped=True)
     assert run.status == "stopped"
 
 
 def test_status_is_error_when_run_error_is_set() -> None:
-    run = Run(id="abc123", request={}, promoted=True, error="promotion failed: boom")
+    run = Run(id="abc123", request={}, launched=True, error="launch failed: boom")
     assert run.status == "error"
 
 
@@ -79,11 +79,11 @@ def test_status_is_error_when_scanner_ends_in_an_error_state() -> None:
     runner = FakePlanRunner()
     runner.start_run_thread()
     runner.simulate_error("device timeout")
-    run = Run(id="abc123", request={}, promoted=True, runner=runner)
+    run = Run(id="abc123", request={}, launched=True, runner=runner)
     assert run.status == "error"
 
 
-def test_run_error_takes_precedence_even_before_promotion() -> None:
+def test_run_error_takes_precedence_even_before_launch() -> None:
     run = Run(id="abc123", request={}, error="setup failed")
     assert run.status == "error"
 
@@ -100,7 +100,7 @@ def test_status_is_error_based_on_error_message_not_a_current_state_heuristic() 
     runner.current_state = "some_custom_terminal_state"  # not "error"
     runner.error_message = "device timeout"
 
-    run = Run(id="abc123", request={}, promoted=True, runner=runner)
+    run = Run(id="abc123", request={}, launched=True, runner=runner)
     assert run.status == "error"
 
 
@@ -116,7 +116,7 @@ def test_status_is_not_error_when_current_state_looks_like_error_but_error_messa
     runner.current_state = "error"  # would have matched the old heuristic
     runner.error_message = None
 
-    run = Run(id="abc123", request={}, promoted=True, runner=runner)
+    run = Run(id="abc123", request={}, launched=True, runner=runner)
     assert run.status == "completed"
 
 
@@ -128,14 +128,14 @@ def test_status_is_not_error_when_current_state_looks_like_error_but_error_messa
 def test_to_dict_intent_is_minimal() -> None:
     run = Run(id="abc123", request={})
     out = run.to_dict()
-    assert out == {"id": "abc123", "status": "intent", "tiled_degraded": False}
+    assert out == {"id": "abc123", "status": "pending", "tiled_degraded": False}
 
 
-def test_to_dict_includes_completion_and_run_uid_once_promoted() -> None:
+def test_to_dict_includes_completion_and_run_uid_once_launched() -> None:
     runner = FakePlanRunner()
     runner.start_run_thread()
     runner.simulate_progress(0.5)
-    run = Run(id="abc123", request={}, promoted=True, runner=runner, launched_by="agent")
+    run = Run(id="abc123", request={}, launched=True, runner=runner, launched_by="agent")
     out = run.to_dict()
     assert out["id"] == "abc123"
     assert out["status"] == "running"
@@ -151,17 +151,17 @@ def test_to_dict_omits_launched_by_when_unset() -> None:
 
 
 def test_to_dict_surfaces_explicit_error() -> None:
-    run = Run(id="abc123", request={}, promoted=True, error="promotion failed: boom")
+    run = Run(id="abc123", request={}, launched=True, error="launch failed: boom")
     out = run.to_dict()
     assert out["status"] == "error"
-    assert out["error"] == "promotion failed: boom"
+    assert out["error"] == "launch failed: boom"
 
 
 def test_to_dict_synthesizes_error_message_from_scanner_state() -> None:
     runner = FakePlanRunner()
     runner.start_run_thread()
     runner.simulate_error("device timeout")
-    run = Run(id="abc123", request={}, promoted=True, runner=runner)
+    run = Run(id="abc123", request={}, launched=True, runner=runner)
     out = run.to_dict()
     assert out["status"] == "error"
     assert "error" in out
@@ -172,7 +172,7 @@ def test_to_dict_uses_the_scanner_error_message_directly() -> None:
     runner.start_run_thread()
     runner._active = False
     runner.error_message = "device timeout"
-    run = Run(id="abc123", request={}, promoted=True, runner=runner)
+    run = Run(id="abc123", request={}, launched=True, runner=runner)
     out = run.to_dict()
     assert out["error"] == "device timeout"
 
@@ -182,14 +182,14 @@ def test_to_dict_uses_the_scanner_error_message_directly() -> None:
 # =========================================================================
 
 
-def test_to_dict_tiled_degraded_is_false_for_a_promoted_healthy_writer() -> None:
+def test_to_dict_tiled_degraded_is_false_for_a_launched_healthy_writer() -> None:
     """A runner that exposes `tiled_degraded = False` (a healthy wired Tiled
     writer) must surface `False` on the run, with the key present.
     """
     runner = FakePlanRunner()
     runner.start_run_thread()
     runner.tiled_degraded = False  # duck-typed, like BlueskyPlanRunner's property
-    run = Run(id="abc123", request={}, promoted=True, runner=runner)
+    run = Run(id="abc123", request={}, launched=True, runner=runner)
 
     out = run.to_dict()
 
@@ -197,19 +197,19 @@ def test_to_dict_tiled_degraded_is_false_for_a_promoted_healthy_writer() -> None
     assert out["tiled_degraded"] is False
 
 
-def test_to_dict_tiled_degraded_is_true_for_a_promoted_degraded_writer() -> None:
+def test_to_dict_tiled_degraded_is_true_for_a_launched_degraded_writer() -> None:
     runner = FakePlanRunner()
     runner.start_run_thread()
     runner.tiled_degraded = True
-    run = Run(id="abc123", request={}, promoted=True, runner=runner)
+    run = Run(id="abc123", request={}, launched=True, runner=runner)
 
     out = run.to_dict()
 
     assert out["tiled_degraded"] is True
 
 
-def test_to_dict_tiled_degraded_is_false_and_present_for_an_unpromoted_run() -> None:
-    """No runner at all (never promoted) must read `False`, key present —
+def test_to_dict_tiled_degraded_is_false_and_present_for_an_unlaunched_run() -> None:
+    """No runner at all (never launched) must read `False`, key present —
     never absent, and never `True` merely because nothing has run yet.
     """
     run = Run(id="abc123", request={})
@@ -228,7 +228,7 @@ def test_to_dict_tiled_degraded_is_false_and_present_for_a_scanner_without_the_a
     runner = FakePlanRunner()
     runner.start_run_thread()
     assert not hasattr(runner, "tiled_degraded")  # sanity: FakePlanRunner truly lacks it
-    run = Run(id="abc123", request={}, promoted=True, runner=runner)
+    run = Run(id="abc123", request={}, launched=True, runner=runner)
 
     out = run.to_dict()
 
@@ -239,8 +239,8 @@ def test_to_dict_tiled_degraded_is_false_and_present_for_a_scanner_without_the_a
 def test_to_dict_key_set_is_unchanged_apart_from_tiled_degraded() -> None:
     """Existing keys and their meanings must not shift — this is an additive
     HTTP-contract change consumed by the MCP tools. Pin the full key set
-    for a minimal intent, a fully-populated healthy promoted run, and a
-    failed-promote run, so an accidental rename or drop (e.g. `error` ->
+    for a minimal intent, a fully-populated healthy launched run, and a
+    failed-launch run, so an accidental rename or drop (e.g. `error` ->
     `err`) is caught here rather than downstream — the two-key-set-only
     version of this test left `error` unpinned by any exhaustive assertion.
     """
@@ -251,7 +251,7 @@ def test_to_dict_key_set_is_unchanged_apart_from_tiled_degraded() -> None:
     runner.start_run_thread()
     runner.simulate_progress(0.5)
     runner.tiled_degraded = False
-    full_run = Run(id="abc123", request={}, promoted=True, runner=runner, launched_by="agent")
+    full_run = Run(id="abc123", request={}, launched=True, runner=runner, launched_by="agent")
     assert set(full_run.to_dict().keys()) == {
         "id",
         "status",
@@ -261,16 +261,16 @@ def test_to_dict_key_set_is_unchanged_apart_from_tiled_degraded() -> None:
         "run_uid",
     }
 
-    # A failed-promote run: `do_promote` (`runs.py`) only publishes
-    # `run.runner` on success, so a promotion that raised (unknown plan,
+    # A failed-launch run: `do_launch` (`runs.py`) only publishes
+    # `run.runner` on success, so a launch that raised (unknown plan,
     # a Tiled construction failure that somehow escaped the fault-isolated
     # wrapper, thread creation itself failing, etc.) leaves `runner is None`
     # with `error` set — exactly what an operator sees after a failed
-    # promote. `tiled_degraded` must still read `False`, present, here: a
-    # failed promote is not evidence Tiled specifically was the cause.
-    failed_promote_run = Run(id="abc123", request={}, error="promotion failed: boom")
-    assert set(failed_promote_run.to_dict().keys()) == {"id", "status", "tiled_degraded", "error"}
-    assert failed_promote_run.to_dict()["tiled_degraded"] is False
+    # launch. `tiled_degraded` must still read `False`, present, here: a
+    # failed launch is not evidence Tiled specifically was the cause.
+    failed_launch_run = Run(id="abc123", request={}, error="launch failed: boom")
+    assert set(failed_launch_run.to_dict().keys()) == {"id", "status", "tiled_degraded", "error"}
+    assert failed_launch_run.to_dict()["tiled_degraded"] is False
 
 
 # =========================================================================

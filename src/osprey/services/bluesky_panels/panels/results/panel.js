@@ -13,7 +13,7 @@
  * panel works unmodified whether it's opened directly or embedded through
  * the web-terminal reverse proxy.
  *
- * Poll cadence: ~1s while the run is non-terminal (`intent`/`running`) or
+ * Poll cadence: ~1s while the run is non-terminal (`pending`/`running`) or
  * the data response reports `partial: true`; polling stops once the run
  * reaches a terminal status (`completed`/`stopped`/`error`) and its data is
  * no longer partial.
@@ -323,7 +323,7 @@ async function pollOnce() {
  */
 function badgeClassForStatus(status) {
   if (status === 'completed') return 'ok';
-  if (status === 'running' || status === 'intent') return 'info';
+  if (status === 'running' || status === 'pending') return 'info';
   if (status === 'error') return 'err';
   return 'warn'; // stopped
 }

@@ -314,8 +314,8 @@ function renderChannelsPanel(body, fieldNames) {
         innerHtml += `<div class="sector-group-header">${esc(sec.label)} (${sec.total})</div>`;
 
         innerHtml += sec.shown.map(item =>
-          `<div class="column-item" style="padding: var(--space-1) var(--space-3); border-left: none;">
-            <span class="pv-name" style="font-size: var(--text-sm);">${esc(item.name)}</span>${
+          `<div class="column-item" style="padding: var(--cf-space-1) var(--cf-space-3); border-left: none;">
+            <span class="pv-name" style="font-size: var(--cf-text-sm);">${esc(item.name)}</span>${
               item.commonName ? `<span class="common-name">${esc(item.commonName)}</span>` : ''
             }
             <span class="item-actions">
@@ -325,12 +325,12 @@ function renderChannelsPanel(body, fieldNames) {
         ).join('');
 
         if (sec.hidden > 0) {
-          innerHtml += `<div style="padding: var(--space-1) var(--space-3); color: var(--text-muted); font-size: var(--text-xs);">... and ${sec.hidden} more</div>`;
+          innerHtml += `<div style="padding: var(--cf-space-1) var(--cf-space-3); color: var(--text-muted); font-size: var(--cf-text-xs);">... and ${sec.hidden} more</div>`;
         }
       }
 
       html += `
-        <div class="field-group" style="margin-bottom: var(--space-3);">
+        <div class="field-group" style="margin-bottom: var(--cf-space-3);">
           <div class="field-group-header" data-field="${esc(field)}">
             <span class="field-group-chevron">&#9654;</span>
             ${esc(field)} <span style="color: var(--text-muted);">(${visibleCount})</span>
@@ -344,8 +344,8 @@ function renderChannelsPanel(body, fieldNames) {
       // Fallback: flat display (no device info)
       const channelItems = channels.slice(0, 50).map((/** @type {any} */ ch) => {
         const name = typeof ch === 'string' ? ch : (ch.name || ch.channel || '');
-        return `<div class="column-item" style="padding: var(--space-1) var(--space-3); border-left: none;">
-          <span class="pv-name" style="font-size: var(--text-sm);">${esc(name)}</span>
+        return `<div class="column-item" style="padding: var(--cf-space-1) var(--cf-space-3); border-left: none;">
+          <span class="pv-name" style="font-size: var(--cf-text-sm);">${esc(name)}</span>
           <span class="item-actions">
             <button class="item-action-btn action-delete" data-field="${esc(field)}" data-channel="${esc(name)}" title="Delete channel">&times;</button>
           </span>
@@ -353,11 +353,11 @@ function renderChannelsPanel(body, fieldNames) {
       }).join('');
 
       const overflow = channels.length > 50
-        ? `<div style="padding: var(--space-1) var(--space-3); color: var(--text-muted); font-size: var(--text-xs);">... and ${channels.length - 50} more</div>`
+        ? `<div style="padding: var(--cf-space-1) var(--cf-space-3); color: var(--text-muted); font-size: var(--cf-text-xs);">... and ${channels.length - 50} more</div>`
         : '';
 
       html += `
-        <div class="field-group" style="margin-bottom: var(--space-3);">
+        <div class="field-group" style="margin-bottom: var(--cf-space-3);">
           <div class="field-group-header" data-field="${esc(field)}">
             <span class="field-group-chevron">&#9654;</span>
             ${esc(field)} <span style="color: var(--text-muted);">(${channels.length})</span>

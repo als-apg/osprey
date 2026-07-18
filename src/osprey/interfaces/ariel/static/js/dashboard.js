@@ -62,7 +62,7 @@ function renderStatus(container, status) {
       <div class="card-body" style="display: flex; align-items: center; gap: 16px;">
         <span class="status-dot ${healthStatus}" style="width: 16px; height: 16px;"></span>
         <div>
-          <div style="font-size: var(--text-lg); font-weight: 600; color: var(--text-primary);">
+          <div style="font-size: var(--ariel-text-lg); font-weight: 600; color: var(--text-primary);">
             ${healthLabel}
           </div>
           <div class="text-muted">
@@ -182,7 +182,7 @@ function renderModuleList(modules) {
               <span class="status-dot ${dot}"></span>
               <span>${escapeHtml(m.name)}</span>
             </span>
-            <span class="${labelColor}" style="font-size: var(--text-sm);">${label}</span>
+            <span class="${labelColor}" style="font-size: var(--ariel-text-sm);">${label}</span>
           </div>
         `;
       }).join('')}

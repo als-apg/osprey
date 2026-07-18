@@ -1,12 +1,13 @@
 """The injected runner seam: keeps the bridge lifecycle core import-clean of bluesky.
 
-``PlanRunner`` is the boundary the lifecycle core (``runs.py``'s ``do_promote``) is
+``PlanRunner`` is the boundary the lifecycle core (``runs.py``'s ``do_launch``) is
 written against. The real implementation (a bluesky ``RunEngine`` in a daemon
 thread, wired to ophyd-async devices and a ``TiledWriter``) lives in
-``plan_runner_bluesky.py``, behind the ``osprey-framework[bluesky-bridge]`` extra.
-Everything in this module — the Protocol and ``FakePlanRunner`` — has no
-bluesky/ophyd/tiled dependency, so the lifecycle core can be built, imported, and
-unit-tested before that extra ever needs to be installed.
+``plan_runner_bluesky.py``. The bluesky stack (bluesky/ophyd-async/tiled) is a
+core dependency, so that module always imports; this seam is an import-hygiene
+boundary, not an install-size one. Everything in this module — the Protocol and
+``FakePlanRunner`` — has no bluesky/ophyd/tiled dependency, so the lifecycle core
+can be built, imported, and unit-tested without loading the RunEngine.
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from typing import Any, Protocol, runtime_checkable
 class PlanRunner(Protocol):
     """One run's hardware/engine handle, as seen by the bridge lifecycle core.
 
-    A fresh instance is built per promoted run (see ``do_promote``): the caller
+    A fresh instance is built per launched run (see ``do_launch``): the caller
     calls ``reinitialize`` then ``start_run_thread``, polls ``is_run_active``/
     ``estimate_current_completion``/``current_state`` for status, and may call
     ``stop_run_thread`` to abort. ``last_run_uid`` surfaces the underlying

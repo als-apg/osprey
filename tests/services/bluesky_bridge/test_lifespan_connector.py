@@ -4,7 +4,7 @@
 `ConnectorFactory.create_control_system_connector`, built from the project's
 `control_system.type` (task 3.4; fail-safe default `"mock"`) — whenever the
 EPICS substrate is enabled (`_is_epics_substrate_enabled()`) and the
-bluesky-bridge extra is importable, holds it as the module-level `_connector`
+bluesky stack is importable, holds it as the module-level `_connector`
 singleton for the process's whole lifetime, and disconnects it exactly once
 on shutdown. The connector IS wired into the runner factory
 (`_epics_runner_factory` builds devices via `connector_devices.build_devices`,
@@ -259,7 +259,7 @@ def test_lifespan_does_not_construct_connector_when_flag_unset() -> None:
 def test_lifespan_does_not_construct_connector_when_extra_absent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Substrate flag set but the bluesky-bridge extra missing: fall back to
+    """Substrate flag set but the bluesky stack not importable: fall back to
     `FakePlanRunner` with no connector constructed at all (mirrors the existing
     `test_flag_set_but_extra_absent_falls_back_to_fake_scanner` simulation).
     """
