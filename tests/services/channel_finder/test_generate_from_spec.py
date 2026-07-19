@@ -25,8 +25,12 @@ from osprey.services.channel_finder.tools.generate_from_spec import (
 from osprey.simulation.channel_schema import CHANNEL_SCHEMA
 from osprey.simulation.facility_spec import ALS_U_AR
 
-SHIPPED_TIER3_DIR = Path(
-    "src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/tier3"
+# Anchored to the repo root via __file__ -- a cwd-relative path here makes the
+# whole module's fixtures fail when any earlier test in a full-suite run leaves
+# the process cwd changed.
+SHIPPED_TIER3_DIR = (
+    Path(__file__).resolve().parents[3]
+    / "src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/tier3"
 )
 
 _GROWN_COUNTS: dict[str, int] = {fam.name: fam.count for fam in ALS_U_AR.families}
