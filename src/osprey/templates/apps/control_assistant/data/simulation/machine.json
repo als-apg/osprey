@@ -2301,2026 +2301,2026 @@
       "min": 0.0
     },
     "SR:MAG:HCM:01:CURRENT:RB": {
-      "value": 2.544,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 01 current readback (nominal ~2.544 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 01 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:01:CURRENT:SP": {
-      "value": 2.544,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 01 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:02:CURRENT:RB": {
-      "value": 2.571,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 02 current readback (nominal ~2.571 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 02 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:02:CURRENT:SP": {
-      "value": 2.571,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 02 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:03:CURRENT:RB": {
-      "value": 2.572,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 03 current readback (nominal ~2.572 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 03 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:03:CURRENT:SP": {
-      "value": 2.572,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 03 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:04:CURRENT:RB": {
-      "value": 2.546,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 04 current readback (nominal ~2.546 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 04 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:04:CURRENT:SP": {
-      "value": 2.546,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 04 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:05:CURRENT:RB": {
-      "value": 2.503,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 05 current readback (nominal ~2.503 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 05 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:05:CURRENT:SP": {
-      "value": 2.503,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 05 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:06:CURRENT:RB": {
-      "value": 2.459,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 06 current readback (nominal ~2.459 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 06 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:06:CURRENT:SP": {
-      "value": 2.459,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 06 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:07:CURRENT:RB": {
-      "value": 2.43,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 07 current readback (nominal ~2.43 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 07 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:07:CURRENT:SP": {
-      "value": 2.43,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 07 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:08:CURRENT:RB": {
-      "value": 2.427,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 08 current readback (nominal ~2.427 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 08 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:08:CURRENT:SP": {
-      "value": 2.427,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 08 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:09:CURRENT:RB": {
-      "value": 2.452,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 09 current readback (nominal ~2.452 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 09 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:09:CURRENT:SP": {
-      "value": 2.452,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 09 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:10:CURRENT:RB": {
-      "value": 2.494,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 10 current readback (nominal ~2.494 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 10 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:10:CURRENT:SP": {
-      "value": 2.494,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 10 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:11:CURRENT:RB": {
-      "value": 2.538,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 11 current readback (nominal ~2.538 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 11 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:11:CURRENT:SP": {
-      "value": 2.538,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 11 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:12:CURRENT:RB": {
-      "value": 2.569,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 12 current readback (nominal ~2.569 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 12 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:12:CURRENT:SP": {
-      "value": 2.569,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 12 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:13:CURRENT:RB": {
-      "value": 2.573,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 13 current readback (nominal ~2.573 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 13 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:13:CURRENT:SP": {
-      "value": 2.573,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 13 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:14:CURRENT:RB": {
-      "value": 2.551,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 14 current readback (nominal ~2.551 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 14 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:14:CURRENT:SP": {
-      "value": 2.551,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 14 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:15:CURRENT:RB": {
-      "value": 2.509,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 15 current readback (nominal ~2.509 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 15 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:15:CURRENT:SP": {
-      "value": 2.509,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 15 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:16:CURRENT:RB": {
-      "value": 2.464,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 16 current readback (nominal ~2.464 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 16 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:16:CURRENT:SP": {
-      "value": 2.464,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 16 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:17:CURRENT:RB": {
-      "value": 2.433,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 17 current readback (nominal ~2.433 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 17 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:17:CURRENT:SP": {
-      "value": 2.433,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 17 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:18:CURRENT:RB": {
-      "value": 2.426,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 18 current readback (nominal ~2.426 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 18 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:18:CURRENT:SP": {
-      "value": 2.426,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 18 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:19:CURRENT:RB": {
-      "value": 2.447,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 19 current readback (nominal ~2.447 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 19 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:19:CURRENT:SP": {
-      "value": 2.447,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 19 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:20:CURRENT:RB": {
-      "value": 2.488,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 20 current readback (nominal ~2.488 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 20 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:20:CURRENT:SP": {
-      "value": 2.488,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 20 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:21:CURRENT:RB": {
-      "value": 2.544,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 21 current readback (nominal ~2.544 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 21 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:21:CURRENT:SP": {
-      "value": 2.544,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 21 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:22:CURRENT:RB": {
-      "value": 2.571,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 22 current readback (nominal ~2.571 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 22 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:22:CURRENT:SP": {
-      "value": 2.571,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 22 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:23:CURRENT:RB": {
-      "value": 2.572,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 23 current readback (nominal ~2.572 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 23 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:23:CURRENT:SP": {
-      "value": 2.572,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 23 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:24:CURRENT:RB": {
-      "value": 2.546,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 24 current readback (nominal ~2.546 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 24 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:24:CURRENT:SP": {
-      "value": 2.546,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 24 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:25:CURRENT:RB": {
-      "value": 2.503,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 25 current readback (nominal ~2.503 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 25 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:25:CURRENT:SP": {
-      "value": 2.503,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 25 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:26:CURRENT:RB": {
-      "value": 2.459,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 26 current readback (nominal ~2.459 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 26 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:26:CURRENT:SP": {
-      "value": 2.459,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 26 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:27:CURRENT:RB": {
-      "value": 2.43,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 27 current readback (nominal ~2.43 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 27 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:27:CURRENT:SP": {
-      "value": 2.43,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 27 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:28:CURRENT:RB": {
-      "value": 2.427,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 28 current readback (nominal ~2.427 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 28 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:28:CURRENT:SP": {
-      "value": 2.427,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 28 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:29:CURRENT:RB": {
-      "value": 2.452,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 29 current readback (nominal ~2.452 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 29 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:29:CURRENT:SP": {
-      "value": 2.452,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 29 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:30:CURRENT:RB": {
-      "value": 2.494,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 30 current readback (nominal ~2.494 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 30 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:30:CURRENT:SP": {
-      "value": 2.494,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 30 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:31:CURRENT:RB": {
-      "value": 2.538,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 31 current readback (nominal ~2.538 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 31 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:31:CURRENT:SP": {
-      "value": 2.538,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 31 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:32:CURRENT:RB": {
-      "value": 2.569,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 32 current readback (nominal ~2.569 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 32 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:32:CURRENT:SP": {
-      "value": 2.569,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 32 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:33:CURRENT:RB": {
-      "value": 2.573,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 33 current readback (nominal ~2.573 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 33 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:33:CURRENT:SP": {
-      "value": 2.573,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 33 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:34:CURRENT:RB": {
-      "value": 2.551,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 34 current readback (nominal ~2.551 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 34 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:34:CURRENT:SP": {
-      "value": 2.551,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 34 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:35:CURRENT:RB": {
-      "value": 2.509,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 35 current readback (nominal ~2.509 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 35 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:35:CURRENT:SP": {
-      "value": 2.509,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 35 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:36:CURRENT:RB": {
-      "value": 2.464,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 36 current readback (nominal ~2.464 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 36 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:36:CURRENT:SP": {
-      "value": 2.464,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 36 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:37:CURRENT:RB": {
-      "value": 2.433,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 37 current readback (nominal ~2.433 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 37 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:37:CURRENT:SP": {
-      "value": 2.433,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 37 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:38:CURRENT:RB": {
-      "value": 2.426,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 38 current readback (nominal ~2.426 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 38 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:38:CURRENT:SP": {
-      "value": 2.426,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 38 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:39:CURRENT:RB": {
-      "value": 2.447,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 39 current readback (nominal ~2.447 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 39 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:39:CURRENT:SP": {
-      "value": 2.447,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 39 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:40:CURRENT:RB": {
-      "value": 2.488,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 40 current readback (nominal ~2.488 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 40 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:40:CURRENT:SP": {
-      "value": 2.488,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 40 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:41:CURRENT:RB": {
-      "value": 2.544,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 41 current readback (nominal ~2.544 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 41 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:41:CURRENT:SP": {
-      "value": 2.544,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 41 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:42:CURRENT:RB": {
-      "value": 2.571,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 42 current readback (nominal ~2.571 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 42 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:42:CURRENT:SP": {
-      "value": 2.571,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 42 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:43:CURRENT:RB": {
-      "value": 2.572,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 43 current readback (nominal ~2.572 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 43 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:43:CURRENT:SP": {
-      "value": 2.572,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 43 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:44:CURRENT:RB": {
-      "value": 2.546,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 44 current readback (nominal ~2.546 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 44 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:44:CURRENT:SP": {
-      "value": 2.546,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 44 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:45:CURRENT:RB": {
-      "value": 2.503,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 45 current readback (nominal ~2.503 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 45 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:45:CURRENT:SP": {
-      "value": 2.503,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 45 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:46:CURRENT:RB": {
-      "value": 2.459,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 46 current readback (nominal ~2.459 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 46 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:46:CURRENT:SP": {
-      "value": 2.459,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 46 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:47:CURRENT:RB": {
-      "value": 2.43,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 47 current readback (nominal ~2.43 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 47 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:47:CURRENT:SP": {
-      "value": 2.43,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 47 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:48:CURRENT:RB": {
-      "value": 2.427,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 48 current readback (nominal ~2.427 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 48 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:48:CURRENT:SP": {
-      "value": 2.427,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 48 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:49:CURRENT:RB": {
-      "value": 2.452,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 49 current readback (nominal ~2.452 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 49 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:49:CURRENT:SP": {
-      "value": 2.452,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 49 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:50:CURRENT:RB": {
-      "value": 2.494,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 50 current readback (nominal ~2.494 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 50 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:50:CURRENT:SP": {
-      "value": 2.494,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 50 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:51:CURRENT:RB": {
-      "value": 2.538,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 51 current readback (nominal ~2.538 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 51 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:51:CURRENT:SP": {
-      "value": 2.538,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 51 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:52:CURRENT:RB": {
-      "value": 2.569,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 52 current readback (nominal ~2.569 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 52 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:52:CURRENT:SP": {
-      "value": 2.569,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 52 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:53:CURRENT:RB": {
-      "value": 2.573,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 53 current readback (nominal ~2.573 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 53 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:53:CURRENT:SP": {
-      "value": 2.573,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 53 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:54:CURRENT:RB": {
-      "value": 2.551,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 54 current readback (nominal ~2.551 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 54 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:54:CURRENT:SP": {
-      "value": 2.551,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 54 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:55:CURRENT:RB": {
-      "value": 2.509,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 55 current readback (nominal ~2.509 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 55 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:55:CURRENT:SP": {
-      "value": 2.509,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 55 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:56:CURRENT:RB": {
-      "value": 2.464,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 56 current readback (nominal ~2.464 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 56 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:56:CURRENT:SP": {
-      "value": 2.464,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 56 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:57:CURRENT:RB": {
-      "value": 2.433,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 57 current readback (nominal ~2.433 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 57 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:57:CURRENT:SP": {
-      "value": 2.433,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 57 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:58:CURRENT:RB": {
-      "value": 2.426,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 58 current readback (nominal ~2.426 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 58 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:58:CURRENT:SP": {
-      "value": 2.426,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 58 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:59:CURRENT:RB": {
-      "value": 2.447,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 59 current readback (nominal ~2.447 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 59 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:59:CURRENT:SP": {
-      "value": 2.447,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 59 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:60:CURRENT:RB": {
-      "value": 2.488,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 60 current readback (nominal ~2.488 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 60 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:60:CURRENT:SP": {
-      "value": 2.488,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 60 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:61:CURRENT:RB": {
-      "value": 2.544,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 61 current readback (nominal ~2.544 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 61 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:61:CURRENT:SP": {
-      "value": 2.544,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 61 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:62:CURRENT:RB": {
-      "value": 2.571,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 62 current readback (nominal ~2.571 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 62 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:62:CURRENT:SP": {
-      "value": 2.571,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 62 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:63:CURRENT:RB": {
-      "value": 2.572,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 63 current readback (nominal ~2.572 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 63 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:63:CURRENT:SP": {
-      "value": 2.572,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 63 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:64:CURRENT:RB": {
-      "value": 2.546,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 64 current readback (nominal ~2.546 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 64 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:64:CURRENT:SP": {
-      "value": 2.546,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 64 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:65:CURRENT:RB": {
-      "value": 2.503,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 65 current readback (nominal ~2.503 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 65 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:65:CURRENT:SP": {
-      "value": 2.503,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 65 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:66:CURRENT:RB": {
-      "value": 2.459,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 66 current readback (nominal ~2.459 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 66 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:66:CURRENT:SP": {
-      "value": 2.459,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 66 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:67:CURRENT:RB": {
-      "value": 2.43,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 67 current readback (nominal ~2.43 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 67 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:67:CURRENT:SP": {
-      "value": 2.43,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 67 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:68:CURRENT:RB": {
-      "value": 2.427,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 68 current readback (nominal ~2.427 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 68 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:68:CURRENT:SP": {
-      "value": 2.427,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 68 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:69:CURRENT:RB": {
-      "value": 2.452,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 69 current readback (nominal ~2.452 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 69 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:69:CURRENT:SP": {
-      "value": 2.452,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 69 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:70:CURRENT:RB": {
-      "value": 2.494,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 70 current readback (nominal ~2.494 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 70 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:70:CURRENT:SP": {
-      "value": 2.494,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 70 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:71:CURRENT:RB": {
-      "value": 2.538,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 71 current readback (nominal ~2.538 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 71 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:71:CURRENT:SP": {
-      "value": 2.538,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 71 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:HCM:72:CURRENT:RB": {
-      "value": 2.569,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring horizontal corrector 72 current readback (nominal ~2.569 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring horizontal corrector 72 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:HCM:72:CURRENT:SP": {
-      "value": 2.569,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring horizontal corrector 72 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:01:CURRENT:RB": {
-      "value": 1.831,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 01 current readback (nominal ~1.831 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 01 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:01:CURRENT:SP": {
-      "value": 1.831,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 01 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:02:CURRENT:RB": {
-      "value": 1.851,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 02 current readback (nominal ~1.851 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 02 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:02:CURRENT:SP": {
-      "value": 1.851,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 02 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:03:CURRENT:RB": {
-      "value": 1.852,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 03 current readback (nominal ~1.852 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 03 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:03:CURRENT:SP": {
-      "value": 1.852,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 03 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:04:CURRENT:RB": {
-      "value": 1.833,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 04 current readback (nominal ~1.833 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 04 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:04:CURRENT:SP": {
-      "value": 1.833,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 04 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:05:CURRENT:RB": {
-      "value": 1.802,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 05 current readback (nominal ~1.802 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 05 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:05:CURRENT:SP": {
-      "value": 1.802,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 05 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:06:CURRENT:RB": {
-      "value": 1.77,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 06 current readback (nominal ~1.77 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 06 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:06:CURRENT:SP": {
-      "value": 1.77,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 06 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:07:CURRENT:RB": {
-      "value": 1.75,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 07 current readback (nominal ~1.75 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 07 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:07:CURRENT:SP": {
-      "value": 1.75,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 07 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:08:CURRENT:RB": {
-      "value": 1.748,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 08 current readback (nominal ~1.748 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 08 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:08:CURRENT:SP": {
-      "value": 1.748,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 08 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:09:CURRENT:RB": {
-      "value": 1.765,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 09 current readback (nominal ~1.765 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 09 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:09:CURRENT:SP": {
-      "value": 1.765,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 09 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:10:CURRENT:RB": {
-      "value": 1.796,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 10 current readback (nominal ~1.796 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 10 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:10:CURRENT:SP": {
-      "value": 1.796,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 10 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:11:CURRENT:RB": {
-      "value": 1.828,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 11 current readback (nominal ~1.828 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 11 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:11:CURRENT:SP": {
-      "value": 1.828,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 11 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:12:CURRENT:RB": {
-      "value": 1.849,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 12 current readback (nominal ~1.849 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 12 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:12:CURRENT:SP": {
-      "value": 1.849,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 12 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:13:CURRENT:RB": {
-      "value": 1.853,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 13 current readback (nominal ~1.853 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 13 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:13:CURRENT:SP": {
-      "value": 1.853,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 13 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:14:CURRENT:RB": {
-      "value": 1.837,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 14 current readback (nominal ~1.837 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 14 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:14:CURRENT:SP": {
-      "value": 1.837,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 14 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:15:CURRENT:RB": {
-      "value": 1.807,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 15 current readback (nominal ~1.807 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 15 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:15:CURRENT:SP": {
-      "value": 1.807,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 15 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:16:CURRENT:RB": {
-      "value": 1.774,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 16 current readback (nominal ~1.774 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 16 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:16:CURRENT:SP": {
-      "value": 1.774,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 16 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:17:CURRENT:RB": {
-      "value": 1.752,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 17 current readback (nominal ~1.752 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 17 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:17:CURRENT:SP": {
-      "value": 1.752,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 17 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:18:CURRENT:RB": {
-      "value": 1.747,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 18 current readback (nominal ~1.747 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 18 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:18:CURRENT:SP": {
-      "value": 1.747,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 18 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:19:CURRENT:RB": {
-      "value": 1.762,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 19 current readback (nominal ~1.762 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 19 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:19:CURRENT:SP": {
-      "value": 1.762,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 19 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:20:CURRENT:RB": {
-      "value": 1.791,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 20 current readback (nominal ~1.791 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 20 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:20:CURRENT:SP": {
-      "value": 1.791,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 20 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:21:CURRENT:RB": {
-      "value": 1.831,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 21 current readback (nominal ~1.831 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 21 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:21:CURRENT:SP": {
-      "value": 1.831,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 21 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:22:CURRENT:RB": {
-      "value": 1.851,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 22 current readback (nominal ~1.851 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 22 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:22:CURRENT:SP": {
-      "value": 1.851,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 22 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:23:CURRENT:RB": {
-      "value": 1.852,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 23 current readback (nominal ~1.852 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 23 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:23:CURRENT:SP": {
-      "value": 1.852,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 23 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:24:CURRENT:RB": {
-      "value": 1.833,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 24 current readback (nominal ~1.833 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 24 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:24:CURRENT:SP": {
-      "value": 1.833,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 24 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:25:CURRENT:RB": {
-      "value": 1.802,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 25 current readback (nominal ~1.802 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 25 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:25:CURRENT:SP": {
-      "value": 1.802,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 25 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:26:CURRENT:RB": {
-      "value": 1.77,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 26 current readback (nominal ~1.77 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 26 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:26:CURRENT:SP": {
-      "value": 1.77,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 26 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:27:CURRENT:RB": {
-      "value": 1.75,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 27 current readback (nominal ~1.75 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 27 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:27:CURRENT:SP": {
-      "value": 1.75,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 27 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:28:CURRENT:RB": {
-      "value": 1.748,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 28 current readback (nominal ~1.748 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 28 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:28:CURRENT:SP": {
-      "value": 1.748,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 28 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:29:CURRENT:RB": {
-      "value": 1.765,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 29 current readback (nominal ~1.765 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 29 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:29:CURRENT:SP": {
-      "value": 1.765,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 29 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:30:CURRENT:RB": {
-      "value": 1.796,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 30 current readback (nominal ~1.796 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 30 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:30:CURRENT:SP": {
-      "value": 1.796,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 30 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:31:CURRENT:RB": {
-      "value": 1.828,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 31 current readback (nominal ~1.828 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 31 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:31:CURRENT:SP": {
-      "value": 1.828,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 31 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:32:CURRENT:RB": {
-      "value": 1.849,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 32 current readback (nominal ~1.849 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 32 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:32:CURRENT:SP": {
-      "value": 1.849,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 32 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:33:CURRENT:RB": {
-      "value": 1.853,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 33 current readback (nominal ~1.853 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 33 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:33:CURRENT:SP": {
-      "value": 1.853,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 33 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:34:CURRENT:RB": {
-      "value": 1.837,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 34 current readback (nominal ~1.837 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 34 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:34:CURRENT:SP": {
-      "value": 1.837,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 34 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:35:CURRENT:RB": {
-      "value": 1.807,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 35 current readback (nominal ~1.807 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 35 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:35:CURRENT:SP": {
-      "value": 1.807,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 35 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:36:CURRENT:RB": {
-      "value": 1.774,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 36 current readback (nominal ~1.774 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 36 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:36:CURRENT:SP": {
-      "value": 1.774,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 36 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:37:CURRENT:RB": {
-      "value": 1.752,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 37 current readback (nominal ~1.752 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 37 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:37:CURRENT:SP": {
-      "value": 1.752,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 37 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:38:CURRENT:RB": {
-      "value": 1.747,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 38 current readback (nominal ~1.747 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 38 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:38:CURRENT:SP": {
-      "value": 1.747,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 38 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:39:CURRENT:RB": {
-      "value": 1.762,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 39 current readback (nominal ~1.762 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 39 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:39:CURRENT:SP": {
-      "value": 1.762,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 39 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:40:CURRENT:RB": {
-      "value": 1.791,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 40 current readback (nominal ~1.791 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 40 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:40:CURRENT:SP": {
-      "value": 1.791,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 40 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:41:CURRENT:RB": {
-      "value": 1.831,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 41 current readback (nominal ~1.831 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 41 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:41:CURRENT:SP": {
-      "value": 1.831,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 41 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:42:CURRENT:RB": {
-      "value": 1.851,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 42 current readback (nominal ~1.851 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 42 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:42:CURRENT:SP": {
-      "value": 1.851,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 42 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:43:CURRENT:RB": {
-      "value": 1.852,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 43 current readback (nominal ~1.852 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 43 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:43:CURRENT:SP": {
-      "value": 1.852,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 43 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:44:CURRENT:RB": {
-      "value": 1.833,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 44 current readback (nominal ~1.833 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 44 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:44:CURRENT:SP": {
-      "value": 1.833,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 44 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:45:CURRENT:RB": {
-      "value": 1.802,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 45 current readback (nominal ~1.802 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 45 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:45:CURRENT:SP": {
-      "value": 1.802,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 45 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:46:CURRENT:RB": {
-      "value": 1.77,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 46 current readback (nominal ~1.77 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 46 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:46:CURRENT:SP": {
-      "value": 1.77,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 46 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:47:CURRENT:RB": {
-      "value": 1.75,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 47 current readback (nominal ~1.75 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 47 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:47:CURRENT:SP": {
-      "value": 1.75,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 47 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:48:CURRENT:RB": {
-      "value": 1.748,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 48 current readback (nominal ~1.748 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 48 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:48:CURRENT:SP": {
-      "value": 1.748,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 48 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:49:CURRENT:RB": {
-      "value": 1.765,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 49 current readback (nominal ~1.765 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 49 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:49:CURRENT:SP": {
-      "value": 1.765,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 49 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:50:CURRENT:RB": {
-      "value": 1.796,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 50 current readback (nominal ~1.796 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 50 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:50:CURRENT:SP": {
-      "value": 1.796,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 50 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:51:CURRENT:RB": {
-      "value": 1.828,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 51 current readback (nominal ~1.828 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 51 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:51:CURRENT:SP": {
-      "value": 1.828,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 51 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:52:CURRENT:RB": {
-      "value": 1.849,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 52 current readback (nominal ~1.849 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 52 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:52:CURRENT:SP": {
-      "value": 1.849,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 52 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:53:CURRENT:RB": {
-      "value": 1.853,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 53 current readback (nominal ~1.853 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 53 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:53:CURRENT:SP": {
-      "value": 1.853,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 53 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:54:CURRENT:RB": {
-      "value": 1.837,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 54 current readback (nominal ~1.837 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 54 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:54:CURRENT:SP": {
-      "value": 1.837,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 54 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:55:CURRENT:RB": {
-      "value": 1.807,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 55 current readback (nominal ~1.807 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 55 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:55:CURRENT:SP": {
-      "value": 1.807,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 55 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:56:CURRENT:RB": {
-      "value": 1.774,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 56 current readback (nominal ~1.774 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 56 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:56:CURRENT:SP": {
-      "value": 1.774,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 56 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:57:CURRENT:RB": {
-      "value": 1.752,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 57 current readback (nominal ~1.752 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 57 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:57:CURRENT:SP": {
-      "value": 1.752,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 57 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:58:CURRENT:RB": {
-      "value": 1.747,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 58 current readback (nominal ~1.747 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 58 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:58:CURRENT:SP": {
-      "value": 1.747,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 58 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:59:CURRENT:RB": {
-      "value": 1.762,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 59 current readback (nominal ~1.762 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 59 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:59:CURRENT:SP": {
-      "value": 1.762,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 59 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:60:CURRENT:RB": {
-      "value": 1.791,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 60 current readback (nominal ~1.791 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 60 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:60:CURRENT:SP": {
-      "value": 1.791,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 60 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:61:CURRENT:RB": {
-      "value": 1.831,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 61 current readback (nominal ~1.831 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 61 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:61:CURRENT:SP": {
-      "value": 1.831,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 61 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:62:CURRENT:RB": {
-      "value": 1.851,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 62 current readback (nominal ~1.851 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 62 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:62:CURRENT:SP": {
-      "value": 1.851,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 62 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:63:CURRENT:RB": {
-      "value": 1.852,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 63 current readback (nominal ~1.852 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 63 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:63:CURRENT:SP": {
-      "value": 1.852,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 63 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:64:CURRENT:RB": {
-      "value": 1.833,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 64 current readback (nominal ~1.833 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 64 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:64:CURRENT:SP": {
-      "value": 1.833,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 64 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:65:CURRENT:RB": {
-      "value": 1.802,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 65 current readback (nominal ~1.802 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 65 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:65:CURRENT:SP": {
-      "value": 1.802,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 65 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:66:CURRENT:RB": {
-      "value": 1.77,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 66 current readback (nominal ~1.77 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 66 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:66:CURRENT:SP": {
-      "value": 1.77,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 66 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:67:CURRENT:RB": {
-      "value": 1.75,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 67 current readback (nominal ~1.75 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 67 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:67:CURRENT:SP": {
-      "value": 1.75,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 67 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:68:CURRENT:RB": {
-      "value": 1.748,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 68 current readback (nominal ~1.748 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 68 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:68:CURRENT:SP": {
-      "value": 1.748,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 68 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:69:CURRENT:RB": {
-      "value": 1.765,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 69 current readback (nominal ~1.765 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 69 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:69:CURRENT:SP": {
-      "value": 1.765,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 69 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:70:CURRENT:RB": {
-      "value": 1.796,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 70 current readback (nominal ~1.796 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 70 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:70:CURRENT:SP": {
-      "value": 1.796,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 70 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:71:CURRENT:RB": {
-      "value": 1.828,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 71 current readback (nominal ~1.828 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 71 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:71:CURRENT:SP": {
-      "value": 1.828,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 71 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:VCM:72:CURRENT:RB": {
-      "value": 1.849,
+      "value": 0.0,
       "noise": 0.01,
       "units": "A",
-      "description": "Storage-ring vertical corrector 72 current readback (nominal ~1.849 A; pyat-coupled -- backed by the AT lattice model)",
-      "min": 0.0
+      "description": "Storage-ring vertical corrector 72 current readback (nominal ~0.0 A; pyat-coupled -- backed by the AT lattice model)",
+      "min": -12.0
     },
     "SR:MAG:VCM:72:CURRENT:SP": {
-      "value": 1.849,
+      "value": 0.0,
       "noise": 0,
       "units": "A",
       "description": "Storage-ring vertical corrector 72 current setpoint",
-      "min": 0.0
+      "min": -12.0
     },
     "SR:MAG:QFA:01:CURRENT:RB": {
       "value": 356.101,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 01 current readback (nominal ~356.101 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 01 current readback (nominal ~356.101 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:01:CURRENT:SP": {
@@ -4334,7 +4334,7 @@
       "value": 359.931,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 02 current readback (nominal ~359.931 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 02 current readback (nominal ~359.931 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:02:CURRENT:SP": {
@@ -4348,7 +4348,7 @@
       "value": 360.064,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 03 current readback (nominal ~360.064 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 03 current readback (nominal ~360.064 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:03:CURRENT:SP": {
@@ -4362,7 +4362,7 @@
       "value": 356.451,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 04 current readback (nominal ~356.451 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 04 current readback (nominal ~356.451 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:04:CURRENT:SP": {
@@ -4376,7 +4376,7 @@
       "value": 350.437,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 05 current readback (nominal ~350.437 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 05 current readback (nominal ~350.437 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:05:CURRENT:SP": {
@@ -4390,7 +4390,7 @@
       "value": 344.26,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 06 current readback (nominal ~344.26 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 06 current readback (nominal ~344.26 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:06:CURRENT:SP": {
@@ -4404,7 +4404,7 @@
       "value": 340.22,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 07 current readback (nominal ~340.22 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 07 current readback (nominal ~340.22 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:07:CURRENT:SP": {
@@ -4418,7 +4418,7 @@
       "value": 339.82,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 08 current readback (nominal ~339.82 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 08 current readback (nominal ~339.82 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:08:CURRENT:SP": {
@@ -4432,7 +4432,7 @@
       "value": 343.21,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 09 current readback (nominal ~343.21 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 09 current readback (nominal ~343.21 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:09:CURRENT:SP": {
@@ -4446,7 +4446,7 @@
       "value": 349.128,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 10 current readback (nominal ~349.128 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 10 current readback (nominal ~349.128 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:10:CURRENT:SP": {
@@ -4460,7 +4460,7 @@
       "value": 355.37,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 11 current readback (nominal ~355.37 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 11 current readback (nominal ~355.37 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:11:CURRENT:SP": {
@@ -4474,7 +4474,7 @@
       "value": 359.613,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 12 current readback (nominal ~359.613 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 12 current readback (nominal ~359.613 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:12:CURRENT:SP": {
@@ -4488,7 +4488,7 @@
       "value": 360.278,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 13 current readback (nominal ~360.278 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 13 current readback (nominal ~360.278 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:13:CURRENT:SP": {
@@ -4502,7 +4502,7 @@
       "value": 357.117,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 14 current readback (nominal ~357.117 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 14 current readback (nominal ~357.117 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:14:CURRENT:SP": {
@@ -4516,7 +4516,7 @@
       "value": 351.307,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 15 current readback (nominal ~351.307 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 15 current readback (nominal ~351.307 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:15:CURRENT:SP": {
@@ -4530,7 +4530,7 @@
       "value": 345.01,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 16 current readback (nominal ~345.01 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 16 current readback (nominal ~345.01 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:16:CURRENT:SP": {
@@ -4544,7 +4544,7 @@
       "value": 356.101,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 17 current readback (nominal ~356.101 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 17 current readback (nominal ~356.101 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:17:CURRENT:SP": {
@@ -4558,7 +4558,7 @@
       "value": 359.931,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 18 current readback (nominal ~359.931 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 18 current readback (nominal ~359.931 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:18:CURRENT:SP": {
@@ -4572,7 +4572,7 @@
       "value": 360.064,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 19 current readback (nominal ~360.064 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 19 current readback (nominal ~360.064 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:19:CURRENT:SP": {
@@ -4586,7 +4586,7 @@
       "value": 356.451,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 20 current readback (nominal ~356.451 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 20 current readback (nominal ~356.451 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:20:CURRENT:SP": {
@@ -4600,7 +4600,7 @@
       "value": 350.437,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 21 current readback (nominal ~350.437 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 21 current readback (nominal ~350.437 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:21:CURRENT:SP": {
@@ -4614,7 +4614,7 @@
       "value": 344.26,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 22 current readback (nominal ~344.26 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 22 current readback (nominal ~344.26 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:22:CURRENT:SP": {
@@ -4628,7 +4628,7 @@
       "value": 340.22,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 23 current readback (nominal ~340.22 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 23 current readback (nominal ~340.22 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:23:CURRENT:SP": {
@@ -4642,7 +4642,7 @@
       "value": 339.82,
       "noise": 0.001,
       "units": "A",
-      "description": "Storage-ring achromat focusing quadrupole 24 current readback (nominal ~339.82 A; provisional -- analogous to QF, pending phase 2b calibration)",
+      "description": "Storage-ring achromat focusing quadrupole 24 current readback (nominal ~339.82 A)",
       "min": 0.0
     },
     "SR:MAG:QFA:24:CURRENT:SP": {
@@ -4656,7 +4656,7 @@
       "value": 122.092,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 01 current readback (nominal ~122.092 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 01 current readback (nominal ~122.092 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:01:CURRENT:SP": {
@@ -4670,7 +4670,7 @@
       "value": 123.405,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 02 current readback (nominal ~123.405 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 02 current readback (nominal ~123.405 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:02:CURRENT:SP": {
@@ -4684,7 +4684,7 @@
       "value": 123.45,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 03 current readback (nominal ~123.45 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 03 current readback (nominal ~123.45 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:03:CURRENT:SP": {
@@ -4698,7 +4698,7 @@
       "value": 122.212,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 04 current readback (nominal ~122.212 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 04 current readback (nominal ~122.212 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:04:CURRENT:SP": {
@@ -4712,7 +4712,7 @@
       "value": 120.15,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 05 current readback (nominal ~120.15 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 05 current readback (nominal ~120.15 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:05:CURRENT:SP": {
@@ -4726,7 +4726,7 @@
       "value": 118.032,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 06 current readback (nominal ~118.032 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 06 current readback (nominal ~118.032 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:06:CURRENT:SP": {
@@ -4740,7 +4740,7 @@
       "value": 116.647,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 07 current readback (nominal ~116.647 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 07 current readback (nominal ~116.647 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:07:CURRENT:SP": {
@@ -4754,7 +4754,7 @@
       "value": 116.51,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 08 current readback (nominal ~116.51 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 08 current readback (nominal ~116.51 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:08:CURRENT:SP": {
@@ -4768,7 +4768,7 @@
       "value": 117.672,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 09 current readback (nominal ~117.672 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 09 current readback (nominal ~117.672 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:09:CURRENT:SP": {
@@ -4782,7 +4782,7 @@
       "value": 119.701,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 10 current readback (nominal ~119.701 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 10 current readback (nominal ~119.701 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:10:CURRENT:SP": {
@@ -4796,7 +4796,7 @@
       "value": 121.841,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 11 current readback (nominal ~121.841 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 11 current readback (nominal ~121.841 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:11:CURRENT:SP": {
@@ -4810,7 +4810,7 @@
       "value": 123.296,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 12 current readback (nominal ~123.296 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 12 current readback (nominal ~123.296 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:12:CURRENT:SP": {
@@ -4824,7 +4824,7 @@
       "value": 122.092,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 13 current readback (nominal ~122.092 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 13 current readback (nominal ~122.092 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:13:CURRENT:SP": {
@@ -4838,7 +4838,7 @@
       "value": 123.405,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 14 current readback (nominal ~123.405 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 14 current readback (nominal ~123.405 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:14:CURRENT:SP": {
@@ -4852,7 +4852,7 @@
       "value": 123.45,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 15 current readback (nominal ~123.45 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 15 current readback (nominal ~123.45 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:15:CURRENT:SP": {
@@ -4866,7 +4866,7 @@
       "value": 122.212,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 16 current readback (nominal ~122.212 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 16 current readback (nominal ~122.212 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:16:CURRENT:SP": {
@@ -4880,7 +4880,7 @@
       "value": 120.15,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 17 current readback (nominal ~120.15 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 17 current readback (nominal ~120.15 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:17:CURRENT:SP": {
@@ -4894,7 +4894,7 @@
       "value": 118.032,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 18 current readback (nominal ~118.032 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 18 current readback (nominal ~118.032 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:18:CURRENT:SP": {
@@ -4908,7 +4908,7 @@
       "value": 116.647,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 19 current readback (nominal ~116.647 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 19 current readback (nominal ~116.647 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:19:CURRENT:SP": {
@@ -4922,7 +4922,7 @@
       "value": 116.51,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 20 current readback (nominal ~116.51 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 20 current readback (nominal ~116.51 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:20:CURRENT:SP": {
@@ -4936,7 +4936,7 @@
       "value": 117.672,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 21 current readback (nominal ~117.672 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 21 current readback (nominal ~117.672 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:21:CURRENT:SP": {
@@ -4950,7 +4950,7 @@
       "value": 119.701,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 22 current readback (nominal ~119.701 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 22 current readback (nominal ~119.701 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:22:CURRENT:SP": {
@@ -4964,7 +4964,7 @@
       "value": 121.841,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 23 current readback (nominal ~121.841 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 23 current readback (nominal ~121.841 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:23:CURRENT:SP": {
@@ -4978,7 +4978,7 @@
       "value": 123.296,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic focusing sextupole 24 current readback (nominal ~123.296 A; provisional -- analogous to SF, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic focusing sextupole 24 current readback (nominal ~123.296 A)",
       "min": 0.0
     },
     "SR:MAG:SHF:24:CURRENT:SP": {
@@ -4992,7 +4992,7 @@
       "value": 96.656,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 01 current readback (nominal ~96.656 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 01 current readback (nominal ~96.656 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:01:CURRENT:SP": {
@@ -5006,7 +5006,7 @@
       "value": 97.695,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 02 current readback (nominal ~97.695 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 02 current readback (nominal ~97.695 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:02:CURRENT:SP": {
@@ -5020,7 +5020,7 @@
       "value": 97.732,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 03 current readback (nominal ~97.732 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 03 current readback (nominal ~97.732 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:03:CURRENT:SP": {
@@ -5034,7 +5034,7 @@
       "value": 96.751,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 04 current readback (nominal ~96.751 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 04 current readback (nominal ~96.751 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:04:CURRENT:SP": {
@@ -5048,7 +5048,7 @@
       "value": 95.119,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 05 current readback (nominal ~95.119 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 05 current readback (nominal ~95.119 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:05:CURRENT:SP": {
@@ -5062,7 +5062,7 @@
       "value": 93.442,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 06 current readback (nominal ~93.442 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 06 current readback (nominal ~93.442 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:06:CURRENT:SP": {
@@ -5076,7 +5076,7 @@
       "value": 92.345,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 07 current readback (nominal ~92.345 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 07 current readback (nominal ~92.345 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:07:CURRENT:SP": {
@@ -5090,7 +5090,7 @@
       "value": 92.237,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 08 current readback (nominal ~92.237 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 08 current readback (nominal ~92.237 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:08:CURRENT:SP": {
@@ -5104,7 +5104,7 @@
       "value": 93.157,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 09 current readback (nominal ~93.157 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 09 current readback (nominal ~93.157 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:09:CURRENT:SP": {
@@ -5118,7 +5118,7 @@
       "value": 94.763,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 10 current readback (nominal ~94.763 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 10 current readback (nominal ~94.763 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:10:CURRENT:SP": {
@@ -5132,7 +5132,7 @@
       "value": 96.457,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 11 current readback (nominal ~96.457 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 11 current readback (nominal ~96.457 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:11:CURRENT:SP": {
@@ -5146,7 +5146,7 @@
       "value": 97.609,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 12 current readback (nominal ~97.609 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 12 current readback (nominal ~97.609 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:12:CURRENT:SP": {
@@ -5160,7 +5160,7 @@
       "value": 96.656,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 13 current readback (nominal ~96.656 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 13 current readback (nominal ~96.656 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:13:CURRENT:SP": {
@@ -5174,7 +5174,7 @@
       "value": 97.695,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 14 current readback (nominal ~97.695 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 14 current readback (nominal ~97.695 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:14:CURRENT:SP": {
@@ -5188,7 +5188,7 @@
       "value": 97.732,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 15 current readback (nominal ~97.732 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 15 current readback (nominal ~97.732 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:15:CURRENT:SP": {
@@ -5202,7 +5202,7 @@
       "value": 96.751,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 16 current readback (nominal ~96.751 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 16 current readback (nominal ~96.751 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:16:CURRENT:SP": {
@@ -5216,7 +5216,7 @@
       "value": 95.119,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 17 current readback (nominal ~95.119 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 17 current readback (nominal ~95.119 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:17:CURRENT:SP": {
@@ -5230,7 +5230,7 @@
       "value": 93.442,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 18 current readback (nominal ~93.442 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 18 current readback (nominal ~93.442 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:18:CURRENT:SP": {
@@ -5244,7 +5244,7 @@
       "value": 92.345,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 19 current readback (nominal ~92.345 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 19 current readback (nominal ~92.345 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:19:CURRENT:SP": {
@@ -5258,7 +5258,7 @@
       "value": 92.237,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 20 current readback (nominal ~92.237 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 20 current readback (nominal ~92.237 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:20:CURRENT:SP": {
@@ -5272,7 +5272,7 @@
       "value": 93.157,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 21 current readback (nominal ~93.157 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 21 current readback (nominal ~93.157 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:21:CURRENT:SP": {
@@ -5286,7 +5286,7 @@
       "value": 94.763,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 22 current readback (nominal ~94.763 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 22 current readback (nominal ~94.763 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:22:CURRENT:SP": {
@@ -5300,7 +5300,7 @@
       "value": 96.457,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 23 current readback (nominal ~96.457 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 23 current readback (nominal ~96.457 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:23:CURRENT:SP": {
@@ -5314,7 +5314,7 @@
       "value": 97.609,
       "noise": 0.0015,
       "units": "A",
-      "description": "Storage-ring harmonic defocusing sextupole 24 current readback (nominal ~97.609 A; provisional -- analogous to SD, pending phase 2b calibration)",
+      "description": "Storage-ring harmonic defocusing sextupole 24 current readback (nominal ~97.609 A)",
       "min": 0.0
     },
     "SR:MAG:SHD:24:CURRENT:SP": {
@@ -5325,868 +5325,868 @@
       "min": 0.0
     },
     "SR:DIAG:BPM:01:POSITION:X": {
-      "value": 0.0439,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 01 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0439 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 01 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:01:POSITION:Y": {
-      "value": 0.0722,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 01 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0722 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 01 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:02:POSITION:X": {
-      "value": 0.0767,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 02 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0767 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 02 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:02:POSITION:Y": {
-      "value": 0.0368,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 02 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0368 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 02 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:03:POSITION:X": {
-      "value": 0.0899,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 03 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0899 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 03 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:03:POSITION:Y": {
-      "value": -0.0079,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 03 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0079 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 03 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:04:POSITION:X": {
-      "value": 0.0803,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 04 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0803 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 04 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:04:POSITION:Y": {
-      "value": -0.0507,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 04 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0507 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 04 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:05:POSITION:X": {
-      "value": 0.0502,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 05 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0502 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 05 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:05:POSITION:Y": {
-      "value": -0.0805,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 05 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0805 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 05 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:06:POSITION:X": {
-      "value": 0.0073,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 06 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0073 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 06 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:06:POSITION:Y": {
-      "value": -0.0899,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 06 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0899 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 06 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:07:POSITION:X": {
-      "value": -0.0374,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 07 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0374 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 07 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:07:POSITION:Y": {
-      "value": -0.0764,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 07 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0764 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 07 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:08:POSITION:X": {
-      "value": -0.0726,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 08 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0726 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 08 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:08:POSITION:Y": {
-      "value": -0.0434,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 08 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0434 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 08 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:09:POSITION:X": {
-      "value": -0.0893,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 09 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0893 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 09 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:09:POSITION:Y": {
-      "value": 0.0006,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 09 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0006 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 09 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:10:POSITION:X": {
-      "value": -0.0833,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 10 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0833 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 10 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:10:POSITION:Y": {
-      "value": 0.0445,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 10 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0445 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 10 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:11:POSITION:X": {
-      "value": -0.0561,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 11 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0561 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 11 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:11:POSITION:Y": {
-      "value": 0.077,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 11 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.077 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 11 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:12:POSITION:X": {
-      "value": -0.0146,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 12 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0146 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 12 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:12:POSITION:Y": {
-      "value": 0.0899,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 12 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0899 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 12 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:13:POSITION:X": {
-      "value": 0.0306,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 13 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0306 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 13 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:13:POSITION:Y": {
-      "value": 0.08,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 13 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.08 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 13 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:14:POSITION:X": {
-      "value": 0.068,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 14 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.068 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 14 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:14:POSITION:Y": {
-      "value": 0.0497,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 14 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0497 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 14 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:15:POSITION:X": {
-      "value": 0.0881,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 15 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0881 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 15 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:15:POSITION:Y": {
-      "value": 0.0067,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 15 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0067 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 15 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:16:POSITION:X": {
-      "value": 0.0858,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 16 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0858 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 16 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:16:POSITION:Y": {
-      "value": -0.0379,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 16 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0379 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 16 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:17:POSITION:X": {
-      "value": 0.0617,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 17 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0617 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 17 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:17:POSITION:Y": {
-      "value": -0.073,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 17 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.073 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 17 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:18:POSITION:X": {
-      "value": 0.0218,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 18 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0218 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 18 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:18:POSITION:Y": {
-      "value": -0.0894,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 18 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0894 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 18 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:19:POSITION:X": {
-      "value": -0.0236,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 19 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0236 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 19 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:19:POSITION:Y": {
-      "value": -0.0831,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 19 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0831 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 19 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:20:POSITION:X": {
-      "value": -0.063,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 20 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.063 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 20 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:20:POSITION:Y": {
-      "value": -0.0556,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 20 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0556 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 20 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:21:POSITION:X": {
-      "value": 0.0439,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 21 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0439 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 21 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:21:POSITION:Y": {
-      "value": 0.0722,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 21 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0722 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 21 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:22:POSITION:X": {
-      "value": 0.0767,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 22 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0767 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 22 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:22:POSITION:Y": {
-      "value": 0.0368,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 22 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0368 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 22 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:23:POSITION:X": {
-      "value": 0.0899,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 23 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0899 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 23 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:23:POSITION:Y": {
-      "value": -0.0079,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 23 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0079 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 23 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:24:POSITION:X": {
-      "value": 0.0803,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 24 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0803 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 24 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:24:POSITION:Y": {
-      "value": -0.0507,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 24 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0507 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 24 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:25:POSITION:X": {
-      "value": 0.0502,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 25 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0502 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 25 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:25:POSITION:Y": {
-      "value": -0.0805,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 25 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0805 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 25 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:26:POSITION:X": {
-      "value": 0.0073,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 26 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0073 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 26 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:26:POSITION:Y": {
-      "value": -0.0899,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 26 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0899 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 26 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:27:POSITION:X": {
-      "value": -0.0374,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 27 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0374 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 27 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:27:POSITION:Y": {
-      "value": -0.0764,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 27 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0764 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 27 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:28:POSITION:X": {
-      "value": -0.0726,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 28 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0726 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 28 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:28:POSITION:Y": {
-      "value": -0.0434,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 28 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0434 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 28 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:29:POSITION:X": {
-      "value": -0.0893,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 29 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0893 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 29 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:29:POSITION:Y": {
-      "value": 0.0006,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 29 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0006 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 29 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:30:POSITION:X": {
-      "value": -0.0833,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 30 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0833 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 30 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:30:POSITION:Y": {
-      "value": 0.0445,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 30 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0445 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 30 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:31:POSITION:X": {
-      "value": -0.0561,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 31 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0561 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 31 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:31:POSITION:Y": {
-      "value": 0.077,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 31 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.077 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 31 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:32:POSITION:X": {
-      "value": -0.0146,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 32 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0146 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 32 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:32:POSITION:Y": {
-      "value": 0.0899,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 32 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0899 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 32 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:33:POSITION:X": {
-      "value": 0.0306,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 33 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0306 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 33 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:33:POSITION:Y": {
-      "value": 0.08,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 33 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.08 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 33 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:34:POSITION:X": {
-      "value": 0.068,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 34 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.068 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 34 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:34:POSITION:Y": {
-      "value": 0.0497,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 34 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0497 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 34 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:35:POSITION:X": {
-      "value": 0.0881,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 35 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0881 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 35 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:35:POSITION:Y": {
-      "value": 0.0067,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 35 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0067 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 35 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:36:POSITION:X": {
-      "value": 0.0858,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 36 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0858 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 36 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:36:POSITION:Y": {
-      "value": -0.0379,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 36 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0379 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 36 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:37:POSITION:X": {
-      "value": 0.0617,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 37 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0617 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 37 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:37:POSITION:Y": {
-      "value": -0.073,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 37 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.073 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 37 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:38:POSITION:X": {
-      "value": 0.0218,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 38 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0218 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 38 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:38:POSITION:Y": {
-      "value": -0.0894,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 38 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0894 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 38 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:39:POSITION:X": {
-      "value": -0.0236,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 39 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0236 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 39 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:39:POSITION:Y": {
-      "value": -0.0831,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 39 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0831 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 39 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:40:POSITION:X": {
-      "value": -0.063,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 40 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.063 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 40 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:40:POSITION:Y": {
-      "value": -0.0556,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 40 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0556 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 40 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:41:POSITION:X": {
-      "value": 0.0439,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 41 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0439 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 41 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:41:POSITION:Y": {
-      "value": 0.0722,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 41 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0722 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 41 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:42:POSITION:X": {
-      "value": 0.0767,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 42 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0767 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 42 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:42:POSITION:Y": {
-      "value": 0.0368,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 42 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0368 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 42 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:43:POSITION:X": {
-      "value": 0.0899,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 43 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0899 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 43 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:43:POSITION:Y": {
-      "value": -0.0079,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 43 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0079 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 43 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:44:POSITION:X": {
-      "value": 0.0803,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 44 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0803 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 44 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:44:POSITION:Y": {
-      "value": -0.0507,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 44 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0507 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 44 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:45:POSITION:X": {
-      "value": 0.0502,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 45 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0502 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 45 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:45:POSITION:Y": {
-      "value": -0.0805,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 45 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0805 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 45 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:46:POSITION:X": {
-      "value": 0.0073,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 46 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0073 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 46 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:46:POSITION:Y": {
-      "value": -0.0899,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 46 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0899 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 46 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:47:POSITION:X": {
-      "value": -0.0374,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 47 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0374 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 47 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:47:POSITION:Y": {
-      "value": -0.0764,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 47 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0764 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 47 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:48:POSITION:X": {
-      "value": -0.0726,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 48 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0726 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 48 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:48:POSITION:Y": {
-      "value": -0.0434,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 48 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0434 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 48 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:49:POSITION:X": {
-      "value": -0.0893,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 49 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0893 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 49 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:49:POSITION:Y": {
-      "value": 0.0006,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 49 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0006 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 49 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:50:POSITION:X": {
-      "value": -0.0833,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 50 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0833 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 50 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:50:POSITION:Y": {
-      "value": 0.0445,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 50 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0445 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 50 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:51:POSITION:X": {
-      "value": -0.0561,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 51 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0561 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 51 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:51:POSITION:Y": {
-      "value": 0.077,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 51 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.077 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 51 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:52:POSITION:X": {
-      "value": -0.0146,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 52 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0146 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 52 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:52:POSITION:Y": {
-      "value": 0.0899,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 52 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0899 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 52 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:53:POSITION:X": {
-      "value": 0.0306,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 53 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0306 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 53 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:53:POSITION:Y": {
-      "value": 0.08,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 53 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.08 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 53 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:54:POSITION:X": {
-      "value": 0.068,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 54 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.068 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 54 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:54:POSITION:Y": {
-      "value": 0.0497,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 54 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0497 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 54 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:55:POSITION:X": {
-      "value": 0.0881,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 55 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0881 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 55 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:55:POSITION:Y": {
-      "value": 0.0067,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 55 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0067 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 55 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:56:POSITION:X": {
-      "value": 0.0858,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 56 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0858 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 56 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:56:POSITION:Y": {
-      "value": -0.0379,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 56 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0379 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 56 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:57:POSITION:X": {
-      "value": 0.0617,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 57 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0617 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 57 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:57:POSITION:Y": {
-      "value": -0.073,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 57 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.073 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 57 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:58:POSITION:X": {
-      "value": 0.0218,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 58 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0218 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 58 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:58:POSITION:Y": {
-      "value": -0.0894,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 58 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0894 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 58 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:59:POSITION:X": {
-      "value": -0.0236,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 59 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0236 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 59 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:59:POSITION:Y": {
-      "value": -0.0831,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 59 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0831 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 59 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:60:POSITION:X": {
-      "value": -0.063,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 60 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.063 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 60 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:60:POSITION:Y": {
-      "value": -0.0556,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 60 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0556 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 60 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:61:POSITION:X": {
-      "value": 0.0439,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 61 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0439 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 61 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:61:POSITION:Y": {
-      "value": 0.0722,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 61 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0722 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 61 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:62:POSITION:X": {
-      "value": 0.0767,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 62 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0767 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 62 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:62:POSITION:Y": {
-      "value": 0.0368,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 62 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0368 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 62 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:63:POSITION:X": {
-      "value": 0.0899,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 63 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0899 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 63 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:63:POSITION:Y": {
-      "value": -0.0079,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 63 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0079 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 63 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:64:POSITION:X": {
-      "value": 0.0803,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 64 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0803 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 64 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:64:POSITION:Y": {
-      "value": -0.0507,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 64 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0507 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 64 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:65:POSITION:X": {
-      "value": 0.0502,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 65 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0502 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 65 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:65:POSITION:Y": {
-      "value": -0.0805,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 65 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0805 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 65 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:66:POSITION:X": {
-      "value": 0.0073,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 66 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0073 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 66 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:66:POSITION:Y": {
-      "value": -0.0899,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 66 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0899 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 66 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:67:POSITION:X": {
-      "value": -0.0374,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 67 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0374 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 67 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:67:POSITION:Y": {
-      "value": -0.0764,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 67 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0764 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 67 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:68:POSITION:X": {
-      "value": -0.0726,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 68 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0726 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 68 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:68:POSITION:Y": {
-      "value": -0.0434,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 68 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0434 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 68 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:69:POSITION:X": {
-      "value": -0.0893,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 69 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0893 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 69 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:69:POSITION:Y": {
-      "value": 0.0006,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 69 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0006 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 69 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:70:POSITION:X": {
-      "value": -0.0833,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 70 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0833 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 70 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:70:POSITION:Y": {
-      "value": 0.0445,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 70 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0445 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 70 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:71:POSITION:X": {
-      "value": -0.0561,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 71 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0561 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 71 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:71:POSITION:Y": {
-      "value": 0.077,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 71 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.077 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 71 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:72:POSITION:X": {
-      "value": -0.0146,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 72 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~-0.0146 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 72 horizontal position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "SR:DIAG:BPM:72:POSITION:Y": {
-      "value": 0.0899,
+      "value": 0.0,
       "noise": 0.2,
       "units": "mm",
-      "description": "Storage-ring BPM 72 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; nominal ~0.0899 mm closed-orbit offset)"
+      "description": "Storage-ring BPM 72 vertical position readback (pyat-coupled -- recomputed from the AT lattice model; ideal closed orbit, 0.0 mm baseline)"
     },
     "BR:MAG:DIPOLE:01:CURRENT:RB": {
       "value": 325.578,

@@ -1,5 +1,5 @@
 {
-  "_comment": "Channel Limits Database - safety limits and verification for runtime write validation. This file is a pure projection of the namespace-union manifest (osprey.services.virtual_accelerator.manifest): it carries exactly one entry per manifest address, and the write-safety contract is a single rule -- a channel is writable if and only if it is a setpoint (:SP). The 396 :SP addresses are writable with min/max bounds (family-banded from the SR lattice model's device inventory and machine.json nominal values); every other manifest address (readbacks :RB / :X / :Y, status and fault flags, golden references, telemetry) is writable:false so the software safety layer -- not just the IOC -- refuses writes to it. QFA/SHF/SHD are new families added by the ALS-U AR lattice growth; their bands are provisional, copied by analogy from QF/SF/SD respectively, pending real calibration in phase 2b. Regenerate with the manifest; tests/templates/test_channel_limits_va.py guards the projection.",
+  "_comment": "Channel Limits Database - safety limits and verification for runtime write validation. This file is a pure projection of the namespace-union manifest (osprey.services.virtual_accelerator.manifest): it carries exactly one entry per manifest address, and the write-safety contract is a single rule -- a channel is writable if and only if it is a setpoint (:SP). The 396 :SP addresses are writable with min/max bounds (family-banded from the SR lattice model's device inventory and machine.json nominal values); every other manifest address (readbacks :RB / :X / :Y, status and fault flags, golden references, telemetry) is writable:false so the software safety layer -- not just the IOC -- refuses writes to it. QF/QD/QFA/DIPOLE bands are calibrated: derived by scripts/va/derive_bands.py by sweeping each device on the real ALS-U AR ring built from osprey.services.virtual_accelerator.lattice.build_ring and locating the one-turn-map stability edge (|max-plane trace| = 1.8) in both directions from nominal. QF/QD/QFA additionally apply a unipolar-supply floor (min clamped to 0.0 A; only QD's derived lower edge is negative, so only QD is floored). DIPOLE's committed band is the +/-0.5% policy trim window around nominal, asserted to sit with at least 2x headroom inside its own derived stability boundary. Regenerate with the manifest; scripts/va/derive_bands.py --verify re-checks these bands against the real ring; tests/templates/test_channel_limits_va.py guards the projection.",
   "_version": "4.0",
   "_description": "This database configures automatic limits validation and verification for channel writes. The connector reads it automatically - capabilities need not know these details. max_step is intentionally NOT set on any entry: LimitsValidator's max_step check reads the current value via a direct pyepics caget regardless of connector type (not connector-abstracted), which would block every write under the default mock control-system type (no live EPICS server behind mock addresses). min/max bounds plus readback verification already enforce 'a value must fit inside its own limits' without that failure mode.",
   "defaults": {
@@ -283,288 +283,288 @@
     }
   },
   "SR:MAG:DIPOLE:01:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 908.78126,
+    "max_value": 917.9147399999999,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:02:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 918.555145,
+    "max_value": 927.7868550000001,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:03:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 918.895435,
+    "max_value": 928.130565,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:04:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 909.67477,
+    "max_value": 918.81723,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:05:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 894.3259,
+    "max_value": 903.3141,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:06:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 878.562115,
+    "max_value": 887.391885,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:07:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 868.251925,
+    "max_value": 876.978075,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:08:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 867.2320500000001,
+    "max_value": 875.94795,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:09:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 875.883575,
+    "max_value": 884.686425,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:10:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 890.98469,
+    "max_value": 899.93931,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:11:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 906.915635,
+    "max_value": 916.030365,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:12:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 917.74422,
+    "max_value": 926.96778,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:13:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 919.440695,
+    "max_value": 928.6813050000001,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:14:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 911.3742299999999,
+    "max_value": 920.53377,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:15:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 896.54674,
+    "max_value": 905.55726,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:16:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 880.47749,
+    "max_value": 889.3265100000001,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:17:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 869.14842,
+    "max_value": 877.8835799999999,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:18:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 866.77634,
+    "max_value": 875.4876599999999,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:19:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 874.24481,
+    "max_value": 883.03119,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:20:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 888.7738,
+    "max_value": 897.7062,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:21:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 904.95449,
+    "max_value": 914.0495099999999,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:22:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 916.764145,
+    "max_value": 925.977855,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:23:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 919.80586,
+    "max_value": 929.0501399999999,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:24:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 912.94832,
+    "max_value": 922.1236799999999,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:25:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 908.78126,
+    "max_value": 917.9147399999999,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:26:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 918.555145,
+    "max_value": 927.7868550000001,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:27:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 918.895435,
+    "max_value": 928.130565,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:28:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 909.67477,
+    "max_value": 918.81723,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:29:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 894.3259,
+    "max_value": 903.3141,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:30:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 878.562115,
+    "max_value": 887.391885,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:31:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 868.251925,
+    "max_value": 876.978075,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:32:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 867.2320500000001,
+    "max_value": 875.94795,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:33:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 875.883575,
+    "max_value": 884.686425,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:34:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 890.98469,
+    "max_value": 899.93931,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:35:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 906.915635,
+    "max_value": 916.030365,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:DIPOLE:36:CURRENT:SP": {
-    "min_value": 800.0,
-    "max_value": 1000.0,
+    "min_value": 917.74422,
+    "max_value": 926.96778,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
@@ -1147,576 +1147,576 @@
     }
   },
   "SR:MAG:QD:01:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 489.68070704352203,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:02:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 494.9474032658239,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:03:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 495.1296062142683,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:04:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 490.16199783115263,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:05:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 481.8906720344365,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:06:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 473.3976087085204,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:07:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 467.8421380190366,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:08:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 467.2920914157158,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:09:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 471.95373638002224,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:10:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 480.090988311255,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:11:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 488.67515310139333,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:12:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 494.5090848822952,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:13:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 495.423537361384,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:14:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 491.0781691989663,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:15:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 483.08702339528884,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:16:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 474.4289460880618,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:17:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 489.68070705045636,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:18:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 494.9474032722717,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:19:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 495.1296062041379,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:20:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 490.16199782302704,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:21:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 481.89067203644584,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:22:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 473.3976087092345,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:23:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 467.8421380214792,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QD:24:CURRENT:SP": {
-    "min_value": 250.0,
-    "max_value": 320.0,
+    "min_value": 0.0,
+    "max_value": 467.29209141987025,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:01:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 306.23530136209473,
+    "max_value": 432.5174125907713,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:02:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 309.52897704791906,
+    "max_value": 437.16929980209505,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:03:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 309.6433527306404,
+    "max_value": 437.3308405346014,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:04:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 306.53629000345455,
+    "max_value": 432.9425197764403,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:05:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 301.36444521131864,
+    "max_value": 425.637963704547,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:06:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 296.0524257086588,
+    "max_value": 418.1354291573549,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:07:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 292.5781568403561,
+    "max_value": 413.2284776266926,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:08:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 292.2341698274152,
+    "max_value": 412.7426408386793,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:09:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 295.1494597916999,
+    "max_value": 416.8601075950442,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:10:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 300.2387477005588,
+    "max_value": 424.0480628296764,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:11:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 305.60666509216685,
+    "max_value": 431.6295458559352,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:12:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 309.2555073668847,
+    "max_value": 436.78305956305036,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:13:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 309.8273857806553,
+    "max_value": 437.5907632169563,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:14:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 307.10902838597275,
+    "max_value": 433.7514380237696,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:15:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 302.11261697183625,
+    "max_value": 426.6946587197693,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:16:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 296.69740136559176,
+    "max_value": 419.0463731267701,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:17:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 306.23530136425876,
+    "max_value": 432.517412584914,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:18:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 309.52897704575446,
+    "max_value": 437.1692998060848,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:19:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 309.6433527286124,
+    "max_value": 437.33084053558474,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:20:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 306.53629000361406,
+    "max_value": 432.9425197768821,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:21:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 301.3644452111431,
+    "max_value": 425.63796371170287,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:22:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 296.0524257090924,
+    "max_value": 418.1354291574087,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:23:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 292.5781568432366,
+    "max_value": 413.22847762615766,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QF:24:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 292.23416982779406,
+    "max_value": 412.742640840378,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:01:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 317.60144060247995,
+    "max_value": 416.11257988047765,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:02:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 321.0173633818431,
+    "max_value": 420.5880269570767,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:03:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 321.13598419847705,
+    "max_value": 420.7434406541732,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:04:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 317.9136006458859,
+    "max_value": 416.5215632926087,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:05:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 312.5497991849612,
+    "max_value": 409.4940597070722,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:06:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 307.04062033241604,
+    "max_value": 402.27608669982004,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:07:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 303.43740152795624,
+    "max_value": 397.5552495698441,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:08:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 303.08064719161035,
+    "max_value": 397.0878399520477,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:09:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 306.1041401995206,
+    "max_value": 401.04913645300087,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:10:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 311.38232061865006,
+    "max_value": 407.9644617333038,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:11:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 316.949472050469,
+    "max_value": 415.2583888062574,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:12:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 320.73374368134944,
+    "max_value": 420.21643631649187,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:13:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 321.3268477681929,
+    "max_value": 420.9935048040205,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:14:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 318.5075966189499,
+    "max_value": 417.2998003072741,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:15:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 313.3257398708271,
+    "max_value": 410.5106756228348,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:16:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 307.70953471714853,
+    "max_value": 403.15247973000015,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:17:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 317.6014406023421,
+    "max_value": 416.11257988140244,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:18:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 321.0173633805726,
+    "max_value": 420.5880269606544,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:19:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 321.13598419873495,
+    "max_value": 420.7434406589308,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:20:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 317.91360064746794,
+    "max_value": 416.5215632951104,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:21:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 312.5497991873297,
+    "max_value": 409.49405970663946,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:22:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 307.04062033454653,
+    "max_value": 402.276086699638,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:23:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 303.43740152834755,
+    "max_value": 397.555249570955,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
     }
   },
   "SR:MAG:QFA:24:CURRENT:SP": {
-    "min_value": 300.0,
-    "max_value": 400.0,
+    "min_value": 303.0806471911603,
+    "max_value": 397.0878399517678,
     "verification": {
       "level": "readback",
       "tolerance_percent": 1.0
