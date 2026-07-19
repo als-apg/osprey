@@ -21,6 +21,7 @@ local testing without an actual bind mount.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import time
 from pathlib import Path
@@ -29,6 +30,7 @@ from osprey.services.virtual_accelerator.ioc.engine_source import EngineSource
 from osprey.services.virtual_accelerator.ioc.physics_bridge import PhysicsBridge
 from osprey.services.virtual_accelerator.ioc.records import build_records
 from osprey.services.virtual_accelerator.manifest import build_manifest
+from osprey.services.virtual_accelerator.manifest.loaders import load_machine_json_channels
 from osprey.simulation.engine import SimulationEngine
 
 DEFAULT_DATA_DIR = "/data/simulation"
@@ -135,6 +137,61 @@ def _parse_bpm_errors(env_var: str = "VA_BPM_ERRORS") -> dict[str, dict[str, flo
     return result
 
 
+def _channel_limits_path() -> Path:
+    """Locate ``channel_limits.json`` from the installed ``osprey.templates``
+    package -- the same convention ``manifest/paths.py`` uses for the other
+    control-assistant data files -- so this works identically from an
+    editable checkout, a built wheel, or the wheel-drop context an image
+    build stages."""
+    import osprey.templates
+
+    return (
+        Path(osprey.templates.__file__).parent
+        / "apps"
+        / "control_assistant"
+        / "data"
+        / "channel_limits.json"
+    )
+
+
+def _load_drive_limits() -> dict[str, tuple[float, float]]:
+    """Derive the ``build_records(drive_limits=...)`` map from
+    ``channel_limits.json``: one ``(min_value, max_value)`` entry per
+    writable ``:SP`` address with numeric bounds. ``ioc/records.py`` stays
+    file-blind (see its ``build_records`` docstring) -- this is the file
+    read its ``drive_limits`` argument replaces."""
+    raw = json.loads(_channel_limits_path().read_text())
+    defaults = raw.get("defaults", {})
+    limits: dict[str, tuple[float, float]] = {}
+    for address, entry in raw.items():
+        if address.startswith("_") or address == "defaults" or not address.endswith(":SP"):
+            continue
+        merged = {**defaults, **entry}
+        if not merged.get("writable", True):
+            continue
+        min_value = merged.get("min_value")
+        max_value = merged.get("max_value")
+        if min_value is None or max_value is None:
+            continue
+        limits[address] = (float(min_value), float(max_value))
+    return limits
+
+
+def _load_boot_values() -> dict[str, float]:
+    """Derive the ``build_records(boot_values=...)`` map from
+    machine.json's scenario-seed channels (see ``ioc/records.py``'s
+    ``build_records`` docstring). A handful of derived channels (e.g. RF
+    net power, computed via an ``expr`` rather than a stored ``value``)
+    carry no static value and are skipped -- harmless here since none of
+    them are ``:SP``/``:RB`` addresses, the only subfields this map is ever
+    consulted for."""
+    return {
+        address: entry["value"]
+        for address, entry in load_machine_json_channels().items()
+        if "value" in entry
+    }
+
+
 def main() -> None:
     data_dir = Path(os.environ.get("VA_DATA_DIR", DEFAULT_DATA_DIR))
     machine_path = data_dir / "machine.json"
@@ -179,7 +236,11 @@ def main() -> None:
         corrector_gains=corrector_gains or None,
     )
     records = build_records(
-        channels, on_pyat_setpoint=bridge.on_setpoint, stuck_setpoints=stuck_setpoints
+        channels,
+        on_pyat_setpoint=bridge.on_setpoint,
+        stuck_setpoints=stuck_setpoints,
+        drive_limits=_load_drive_limits(),
+        boot_values=_load_boot_values(),
     )
     bridge.bind(records.pyat_coupled)
 

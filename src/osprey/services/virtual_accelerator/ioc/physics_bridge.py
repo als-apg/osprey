@@ -1,11 +1,12 @@
 """Physics bridge: synchronous PyAT orbit recompute for SR magnet setpoint writes.
 
 Wires partition (a) (pyat-coupled) SR magnet SP writes into the SR lattice
-built by ``lattice.build_ring()``: writing a corrector, quadrupole, or dipole
-current updates that element's strength on a single persistent lattice
-instance, re-solves the closed orbit, and makes every BPM POSITION reading
-available before the write call returns (FR3/SC3: the recompute happens
-synchronously in the write handler itself, never on a polling/heartbeat tick).
+built by ``lattice.build_ring()``: writing a corrector, quadrupole, dipole, or
+sextupole current updates that element's strength on a single persistent
+lattice instance, re-solves the closed orbit, and makes every BPM POSITION
+reading available before the write call returns (FR3/SC3: the recompute
+happens synchronously in the write handler itself, never on a
+polling/heartbeat tick).
 
 This module fulfills the ``on_pyat_setpoint`` callback contract that
 ``ioc.records.build_records()`` exposes (see that module's docstring):
@@ -13,24 +14,10 @@ This module fulfills the ``on_pyat_setpoint`` callback contract that
 ``PhysicsBridge.bind()`` wires the resulting ``IOCRecords.pyat_coupled`` BPM
 records so they receive the recomputed positions via ``.set()``.
 
-Current-to-strength calibration (all documented, simple linear maps -- this
-task's brief explicitly says "simple linear map is sufficient", not a
-physical magnet model):
-
-  * Correctors (HCM/VCM): absolute map ``kick = current / AMPS_PER_RADIAN_KICK``,
-    imported from ``lattice.response`` so a corrector produces the exact same
-    kick whether driven through ``orbit_response()`` (offline analysis) or
-    this live bridge. Zero current genuinely means zero kick for a corrector
-    -- physically normal for a steering magnet.
-  * Quadrupoles (QF/QD) and dipoles: a *scaled-from-nominal* map, not an
-    absolute one. ``lattice.ring.build_ring()`` bakes in the nominal
-    gradients/bend angle (``QF_K``, ``QD_K``, ``2*pi/N_ARC_CELLS``) needed for
-    a stable ring -- unlike correctors, a real quad/dipole never actually
-    runs at 0 A, so an absolute zero-at-zero map would make the ring go
-    unstable the moment a setpoint is initialized. Instead, writing each
-    family's ``NOMINAL_*_CURRENT_A`` reference current reproduces exactly the
-    ring's built-in nominal strength, and the strength scales linearly with
-    the ratio of written current to that reference.
+Current-to-strength calibration for every magnet/corrector family is owned by
+:class:`~osprey.services.virtual_accelerator.lattice.strengths.StrengthMap`
+(see that module's docstring for the per-family formulas); this bridge only
+looks up a device's commanded current -> physical strength through it.
 """
 
 from __future__ import annotations
@@ -46,20 +33,14 @@ from osprey.services.virtual_accelerator.lattice.errors import (
     bpm_read,
     magnet_cal,
 )
-from osprey.services.virtual_accelerator.lattice.response import AMPS_PER_RADIAN_KICK
-from osprey.services.virtual_accelerator.lattice.ring import QD_K, QF_K
+from osprey.services.virtual_accelerator.lattice.solve import OrbitSolveError, solve_orbit
+from osprey.services.virtual_accelerator.lattice.strengths import (
+    ElementState,
+    StrengthMap,
+    restore_element,
+    snapshot_element,
+)
 
-# Reference currents (Amps) at which a quad/dipole reproduces the ring's
-# built-in nominal strength. Chosen from the DB's own stated typical ranges
-# (QF/QD "0-200A", DIPOLE "50-500A" per the hierarchical channel DB
-# descriptions) -- round numbers well inside those ranges, not their exact
-# midpoints.
-NOMINAL_QF_CURRENT_A = 100.0
-NOMINAL_QD_CURRENT_A = 100.0
-NOMINAL_DIPOLE_CURRENT_A = 300.0
-
-_CORRECTOR_FAMILIES = frozenset({"HCM", "VCM"})
-_DIPOLE_FAMILY = "DIPOLE"
 _CURRENT_FIELD = "CURRENT"
 _BPM_SYSTEM_FAMILY = ("DIAG", "BPM")
 _BPM_FIELD = "POSITION"
@@ -85,16 +66,6 @@ _IDENTITY_BPM_ERROR: dict[str, float] = {
 
 class UnknownDeviceError(ValueError):
     """Raised when a pyat-coupled address doesn't map to a known lattice element."""
-
-
-class OrbitSolveError(RuntimeError):
-    """Raised when the closed orbit fails to converge after a setpoint write.
-
-    A quad/dipole write, unlike a corrector kick, can push the ring's linear
-    optics into instability. Surfacing this distinctly (rather than letting a
-    raw AT/linear-algebra exception propagate) lets a caller decide how to
-    handle a rejected write.
-    """
 
 
 def _parse_pyat_coupled_address(address: str) -> tuple[str, str, str, str]:
@@ -159,14 +130,7 @@ class PhysicsBridge:
         """
         self._ring: at.Lattice = build_ring()
         self._index_by_famname: dict[str, int] = {el.FamName: i for i, el in enumerate(self._ring)}
-        # Dipole trims are expressed relative to the ring's nominal (per-device)
-        # bend angle, so a dipole's current genuinely means something at 0 A
-        # only relative to this baseline, never an absolute bend of 0.
-        self._nominal_bending_angle: dict[str, float] = {
-            el.FamName: el.BendingAngle
-            for el in self._ring
-            if el.FamName.startswith(_DIPOLE_FAMILY)
-        }
+        self._strength_map = StrengthMap(self._ring)
         self._bpm_positions: dict[str, float] = {}
         self._bpm_device_ids: list[str] = []
         self._bpm_readback_records: dict[str, Any] = {}
@@ -218,8 +182,8 @@ class PhysicsBridge:
                 (the second write fully determines the element's strength).
 
         Raises:
-            UnknownDeviceError: if address doesn't map to a corrector, quad,
-                or dipole element in the lattice.
+            UnknownDeviceError: if address doesn't map to a corrector, magnet,
+                or sextupole element in the lattice.
             OrbitSolveError: if the resulting lattice has no stable closed
                 orbit -- the write is rolled back (the element's prior
                 strength is restored) before this is raised, so a rejected
@@ -236,13 +200,13 @@ class PhysicsBridge:
             )
         fam_name = f"{family}{device}"
         idx = self._element_index(fam_name)  # validates before mutating anything
-        previous_state = self._element_state(idx)
+        previous_state: ElementState = snapshot_element(self._ring[idx])
 
-        self._apply_current(idx, family, fam_name, value)
+        self._apply_current(family, device, fam_name, value)
         try:
             self._solve_orbit()
         except OrbitSolveError:
-            self._restore_element_state(idx, previous_state)
+            restore_element(self._ring[idx], previous_state)
             raise
         self._push_bpm_readbacks()
 
@@ -262,27 +226,7 @@ class PhysicsBridge:
             raise UnknownDeviceError(f"no lattice element named {fam_name!r}")
         return idx
 
-    def _element_state(self, idx: int) -> Any:
-        """Snapshot the one strength attribute `_apply_current` would change."""
-        element = self._ring[idx]
-        if hasattr(element, "KickAngle"):
-            return list(element.KickAngle)
-        if hasattr(element, "BendingAngle") and element.FamName.startswith(_DIPOLE_FAMILY):
-            return element.BendingAngle
-        return element.K
-
-    def _restore_element_state(self, idx: int, state: Any) -> None:
-        element = self._ring[idx]
-        if hasattr(element, "KickAngle"):
-            element.KickAngle = state
-        elif hasattr(element, "BendingAngle") and element.FamName.startswith(_DIPOLE_FAMILY):
-            element.BendingAngle = state
-        else:
-            element.K = state
-
-    def _apply_current(self, idx: int, family: str, fam_name: str, value: float) -> None:
-        element = self._ring[idx]
-
+    def _apply_current(self, family: str, device_id: str, fam_name: str, value: float) -> None:
         # A seeded calibration error (gain/polarity/offset) acts on the
         # commanded current before it's converted to physical strength -- a
         # miscalibrated magnet's *field* differs from its setpoint, not the
@@ -290,37 +234,32 @@ class PhysicsBridge:
         cal = self._magnet_cal_state.get(fam_name, {})
         value = magnet_cal(value, factor=cal.get("factor", 1.0), offset=cal.get("offset", 0.0))
 
-        if family in _CORRECTOR_FAMILIES:
-            plane = 0 if family == "HCM" else 1
-            kick_angle = list(element.KickAngle)
-            kick_angle[plane] = value / AMPS_PER_RADIAN_KICK
-            element.KickAngle = kick_angle
-        elif family == "QF":
-            element.K = QF_K * (value / NOMINAL_QF_CURRENT_A)
-        elif family == "QD":
-            element.K = QD_K * (value / NOMINAL_QD_CURRENT_A)
-        elif family == _DIPOLE_FAMILY:
-            nominal = self._nominal_bending_angle[fam_name]
-            element.BendingAngle = nominal * (value / NOMINAL_DIPOLE_CURRENT_A)
-        else:
-            raise UnknownDeviceError(f"family {family!r} (device {fam_name!r}) is not pyat-coupled")
-
-    def _check_stable(self) -> None:
-        m44, _ = at.find_m44(self._ring)
-        trace_x = m44[0, 0] + m44[1, 1]
-        trace_y = m44[2, 2] + m44[3, 3]
-        if abs(trace_x) >= 2.0 or abs(trace_y) >= 2.0:
-            raise OrbitSolveError(
-                f"one-turn matrix unstable after write (trace_x={trace_x}, trace_y={trace_y}); "
-                "write rejected"
-            )
+        try:
+            self._strength_map.apply(self._ring, family, device_id, value)
+        except ValueError as exc:
+            raise UnknownDeviceError(
+                f"family {family!r} (device {fam_name!r}) is not pyat-coupled: {exc}"
+            ) from exc
 
     def _solve_orbit(self) -> None:
-        self._check_stable()
+        # pyAT's find_m44/find_orbit4 usually signal an unstable/non-converged
+        # solve by value (NaN), which `solve_orbit` already guards against by
+        # raising OrbitSolveError -- but in rare configurations find_m44/
+        # find_orbit4 themselves raise instead of returning a non-finite
+        # orbit: `at.AtError` on a pyAT-detected failure, or a plain
+        # `numpy.linalg.LinAlgError`/`ValueError` on LAPACK/pyAT-internal
+        # non-convergence. All three are the same failure from this bridge's
+        # perspective (no orbit can be trusted), so they are folded into
+        # OrbitSolveError here, ahead of both the constructor's and
+        # `on_setpoint`'s single `except OrbitSolveError` rollback paths --
+        # any exception besides OrbitSolveError itself must not escape this
+        # method uncaught, or a failed write would skip the rollback path.
         try:
-            _, orbit_at_monitors = at.find_orbit4(self._ring, refpts=at.Monitor)
-        except Exception as exc:  # AT raises plain LinAlgError/ValueError on non-convergence
-            raise OrbitSolveError(f"closed orbit did not converge: {exc}") from exc
+            orbit_at_monitors = solve_orbit(self._ring)
+        except OrbitSolveError:
+            raise
+        except (at.AtError, np.linalg.LinAlgError, ValueError) as exc:
+            raise OrbitSolveError(f"closed orbit solve raised {type(exc).__name__}: {exc}") from exc
 
         monitor_indices = self._ring.get_refpts(at.Monitor)
         positions: dict[str, float] = {}
@@ -361,7 +300,4 @@ __all__ = [
     "PhysicsBridge",
     "UnknownDeviceError",
     "OrbitSolveError",
-    "NOMINAL_QF_CURRENT_A",
-    "NOMINAL_QD_CURRENT_A",
-    "NOMINAL_DIPOLE_CURRENT_A",
 ]

@@ -48,15 +48,6 @@ from osprey.services.virtual_accelerator.manifest import (
 SETPOINT_SUBFIELD = "SP"
 READBACK_SUBFIELD = "RB"
 
-# SR corrector current band, Amps -- matches the SR:MAG:{HCM,VCM}:*:CURRENT:SP
-# channel_limits.json band. Set as DRVL/DRVH on the built aOut record so
-# pythonSoftIOC clamps an out-of-range caput to this band at the record
-# itself, before on_update (hence the physics hook and the RB echo) ever
-# sees it -- a real second bound below the ORM plan's own pydantic schema,
-# enforced against any writer, not only the plan.
-CORRECTOR_FAMILIES = frozenset({"HCM", "VCM"})
-CORRECTOR_DRIVE_LIMIT_A = 12.0
-
 _IN_BUILDERS = {
     RECORD_TYPE_ANALOG: builder.aIn,
     RECORD_TYPE_BINARY: builder.boolIn,
@@ -110,11 +101,24 @@ def _channel_key(channel: dict) -> tuple[str, str, str, str, str]:
     )
 
 
+def _initial_value(channel: dict, boot_values: dict[str, float] | None) -> Any:
+    """Boot value for one record: the manifest-typed default, unless this is
+    a ``:SP``/``:RB`` channel with its own entry in ``boot_values`` (see
+    ``build_records``'s ``boot_values`` argument).
+    """
+    default = _DEFAULT_VALUE[channel["record_type"]]
+    if boot_values is None or channel["subfield"] not in (SETPOINT_SUBFIELD, READBACK_SUBFIELD):
+        return default
+    return boot_values.get(channel["address"], default)
+
+
 def build_records(
     channels: list[dict],
     *,
     on_pyat_setpoint: Callable[[str, float], None] | None = None,
     stuck_setpoints: frozenset[str] = frozenset(),
+    drive_limits: dict[str, tuple[float, float]] | None = None,
+    boot_values: dict[str, float] | None = None,
 ) -> IOCRecords:
     """Build one softioc record per manifest channel.
 
@@ -141,6 +145,24 @@ def build_records(
             This is a substrate-honesty fixture: any Channel Access client
             reading the frozen readback sees the identical stale value, not
             a per-client divergence. Empty by default (no fault).
+        drive_limits: optional ``{address: (drvl, drvh)}`` map. Any ``:SP``
+            channel whose address appears here gets that band set as
+            DRVL/DRVH on the built ``aOut`` record, so pythonSoftIOC clamps
+            an out-of-range caput at the record itself, before on_update
+            (hence the physics hook and the RB echo) ever sees it -- a real
+            second bound below the ORM plan's own pydantic schema, enforced
+            against any writer, not only the plan. This module stays
+            file-blind: the caller (entrypoint.py) is responsible for
+            deriving this map (e.g. from channel_limits.json). ``None``
+            (the default) applies no DRVL/DRVH clamping here.
+        boot_values: optional ``{address: value}`` map giving the boot-time
+            initial value for ``:SP``/``:RB`` records (e.g. derived from
+            machine.json by the caller -- this module never loads it).
+            A ``:SP``/``:RB`` address with no entry here, and every non-SP/RB
+            record regardless, boots at the type-appropriate default (0.0 /
+            False / ""). ``None`` (the default) boots every record at its
+            type-appropriate default, matching the file-blind behavior of
+            this module.
 
     Returns:
         An :class:`IOCRecords` with every built record plus the two
@@ -176,7 +198,7 @@ def build_records(
             continue
 
         rec = _IN_BUILDERS[record_type](
-            channel["address"], initial_value=_DEFAULT_VALUE[record_type]
+            channel["address"], initial_value=_initial_value(channel, boot_values)
         )
         records.all[channel["address"]] = rec
 
@@ -235,15 +257,13 @@ def build_records(
             on_update = lambda value: None  # noqa: E731
 
         drive_limit_kwargs: dict[str, float] = {}
-        if partition == PARTITION_PYAT_COUPLED and channel["family"] in CORRECTOR_FAMILIES:
-            drive_limit_kwargs = {
-                "DRVL": -CORRECTOR_DRIVE_LIMIT_A,
-                "DRVH": CORRECTOR_DRIVE_LIMIT_A,
-            }
+        if drive_limits is not None and address in drive_limits:
+            drvl, drvh = drive_limits[address]
+            drive_limit_kwargs = {"DRVL": drvl, "DRVH": drvh}
 
         rec = _OUT_BUILDERS[record_type](
             address,
-            initial_value=_DEFAULT_VALUE[record_type],
+            initial_value=_initial_value(channel, boot_values),
             on_update=on_update,
             **drive_limit_kwargs,
         )

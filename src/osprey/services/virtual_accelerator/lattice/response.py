@@ -1,31 +1,60 @@
-"""Corrector-kick closed-orbit response for the SR lattice.
+"""Corrector-kick closed-orbit response for the ALS-U AR lattice.
 
 Provides orbit_response(corrector_name, current) -> {bpm_name: (x_m, y_m)}:
-sets one corrector's kick angle from a current, re-solves the closed orbit with
-AT's find_orbit4 (4x4 linear closed-orbit search), and returns every BPM's
-(x, y) reading in meters. find_orbit4 solves in low-single-digit milliseconds
-at this ring's size (280 elements) -- comfortably inside the FR3 synchronous
-recompute contract's <100 ms budget (see test_lattice.py for the measured
-figure).
+applies one corrector's current through the same current->strength formula
+:mod:`ioc.physics_bridge` uses (delegated to
+:class:`~osprey.services.virtual_accelerator.lattice.strengths.StrengthMap`,
+which sets ``KickAngle[plane] = I / AMPS_PER_RADIAN_KICK`` absolute), re-solves
+the closed orbit with the guarded :func:`~.solve.solve_orbit` helper, and
+returns every BPM's (x, y) reading in meters, keyed by its flat FamName (e.g.
+"BPM01"). Sharing both the ring source (`build_ring`) and the strength-map
+code path with the bridge is deliberate: it is what lets the ORM crosscheck
+(task 4.3) prove this oracle and the live IOC agree because they run the same
+model, not two independently-written ones.
 
-Current-to-kick calibration is a toy constant (AMPS_PER_RADIAN_KICK): this
-module only needs *a* deterministic, sign-correct, linear mapping so setpoints
-move the lattice by a plausible amount. ioc-physics-bridge (task 3.4) owns the
-real current<->field calibration used by the running IOC.
+``AMPS_PER_RADIAN_KICK`` is defined in this module and imported by
+``strengths`` (its docstring and formula reference it); ``StrengthMap`` is
+therefore imported back into this module lazily, inside
+:func:`_get_strength_map`, rather than at module scope, to avoid a load-order
+cycle between the two modules.
+
+``solve_orbit`` guards against the unstable-lattice failure mode described in
+`solve.py`'s docstring (non-finite/unstable closed orbit surfaces as
+`OrbitSolveError`, not a silently-returned garbage orbit); this oracle lets
+that exception propagate to its caller uncaught -- a corrector current that
+destabilizes the ring has no valid model-oracle answer.
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import at
 
 from .ring import build_ring
+from .solve import solve_orbit
 
-# Toy calibration: a corrector in the DB's typical +-10A range produces a
-# few-mrad kick, giving mm-scale BPM orbit shifts -- plausible for a light
-# source ring, without claiming physical precision.
-AMPS_PER_RADIAN_KICK = 10_000.0
+if TYPE_CHECKING:
+    from .strengths import StrengthMap
+
+# Current-to-kick calibration shared with ioc.physics_bridge via
+# strengths.StrengthMap: KickAngle[plane] = I / AMPS_PER_RADIAN_KICK.
+#
+# This is still a deterministic, sign-correct calibration constant, not a
+# claim of physical realism -- but its magnitude matters now in a way it
+# didn't on the toy ring: the real AR lattice carries much stronger
+# sextupoles (low-emittance MBA design), so a corrector kick large enough to
+# move the closed orbit by several mm picks up measurable *nonlinear*
+# sextupole feed-down (the +I/-I response stops being antisymmetric). Kept
+# at 1e6 (rather than the toy ring's 1e4) so a corrector's typical +-10 A
+# range stays in the small-signal/quasi-linear regime (tens of microns of
+# orbit shift, not millimeters) -- see test_lattice.py's antisymmetry check.
+AMPS_PER_RADIAN_KICK = 1_000_000.0
+
+_CORRECTOR_FAMILIES = ("HCM", "VCM")
 
 _RING: at.Lattice | None = None
+_STRENGTH_MAP: "StrengthMap | None" = None
 
 
 def _get_ring() -> at.Lattice:
@@ -36,12 +65,26 @@ def _get_ring() -> at.Lattice:
     return _RING
 
 
-def _corrector_plane(corrector_name: str) -> int:
-    """Return 0 for a horizontal corrector (HCM), 1 for vertical (VCM)."""
-    if corrector_name.startswith("HCM"):
-        return 0
-    if corrector_name.startswith("VCM"):
-        return 1
+def _get_strength_map(ring: at.Lattice) -> "StrengthMap":
+    """Return the (lazily-built, process-wide cached) StrengthMap for `ring`.
+
+    Imported locally rather than at module scope: `strengths` imports
+    `AMPS_PER_RADIAN_KICK` from this module, so importing `StrengthMap` back
+    at this module's top level would create a load-order cycle.
+    """
+    global _STRENGTH_MAP
+    if _STRENGTH_MAP is None:
+        from .strengths import StrengthMap
+
+        _STRENGTH_MAP = StrengthMap(ring)
+    return _STRENGTH_MAP
+
+
+def _split_corrector_name(corrector_name: str) -> tuple[str, str]:
+    """Split a corrector's FamName (e.g. "HCM01") into ("HCM", "01")."""
+    for family in _CORRECTOR_FAMILIES:
+        if corrector_name.startswith(family):
+            return family, corrector_name[len(family) :]
     raise ValueError(
         f"unrecognized corrector name '{corrector_name}' (expected 'HCM..' or 'VCM..')"
     )
@@ -58,7 +101,7 @@ def orbit_response(corrector_name: str, current: float) -> dict[str, tuple[float
     """Set one corrector's current and return the resulting closed-orbit BPM readings.
 
     Args:
-        corrector_name: Lattice FamName of the corrector, e.g. "HCM01" or "VCM07"
+        corrector_name: Flat FamName of the corrector, e.g. "HCM01" or "VCM07"
             (matches the manifest's zero-padded SR:MAG:{HCM,VCM} device ids).
         current: Corrector current in Amps.
 
@@ -71,18 +114,17 @@ def orbit_response(corrector_name: str, current: float) -> dict[str, tuple[float
     Raises:
         ValueError: if corrector_name doesn't match "HCM.."/"VCM.." or doesn't
             match any element in the lattice.
+        OrbitSolveError: if the resulting lattice has no stable closed orbit
+            (see :func:`~.solve.solve_orbit`).
     """
     ring = _get_ring()
-    plane = _corrector_plane(corrector_name)
+    family, device_id = _split_corrector_name(corrector_name)
     idx = _corrector_index(ring, corrector_name)
-    kick = current / AMPS_PER_RADIAN_KICK
-
-    kick_angle = [0.0, 0.0]
-    kick_angle[plane] = kick
-    ring[idx].KickAngle = kick_angle
+    strength_map = _get_strength_map(ring)
 
     try:
-        _, orbit_at_monitors = at.find_orbit4(ring, refpts=at.Monitor)
+        strength_map.apply(ring, family, device_id, current)
+        orbit_at_monitors = solve_orbit(ring)
     finally:
         ring[idx].KickAngle = [0.0, 0.0]
 
