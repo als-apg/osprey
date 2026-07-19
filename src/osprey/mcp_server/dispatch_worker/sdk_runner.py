@@ -15,6 +15,8 @@ from collections.abc import Iterable
 from datetime import UTC, datetime
 from typing import Any
 
+from osprey.mcp_server.dispatch_worker import run_stats
+
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker.sdk_runner")
 
 # SDK imports -- guard so module loads even when SDK is not installed
@@ -350,6 +352,11 @@ async def run_dispatch(
                         text_parts.append(block.text)
                         await _push({"type": "text", "content": block.text})
                     elif isinstance(block, ToolUseBlock):
+                        # Count every tool call for a truthful total, even beyond
+                        # the retained-list cap below, so the stamp sites can
+                        # report the real number rather than len(tool_calls).
+                        if run_id:
+                            run_stats.increment_tool_calls(run_id)
                         # Bound the retained tool-call list; excess calls still
                         # stream as events but are not accumulated in memory.
                         if len(tool_calls) < _MAX_TOOL_CALLS:

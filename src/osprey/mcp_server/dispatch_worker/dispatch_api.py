@@ -37,7 +37,7 @@ from osprey.interfaces.artifacts.resolve import (
     load_run_record,
     resolve_single_run_artifact,
 )
-from osprey.mcp_server.dispatch_worker import sdk_runner
+from osprey.mcp_server.dispatch_worker import run_stats, sdk_runner
 from osprey.utils.tool_rules import matches_denylist
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker")
@@ -436,6 +436,7 @@ async def _run_dispatch_task(run_id: str, request: DispatchRequest) -> None:
         await queue.put({"type": "error", "message": str(exc)})
     finally:
         _tasks.pop(run_id, None)
+        run_stats.pop_run_stats(run_id)
 
 
 # ---------------------------------------------------------------------------
