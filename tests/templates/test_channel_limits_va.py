@@ -43,6 +43,7 @@ from pathlib import Path
 import pytest
 
 from osprey.services.virtual_accelerator.manifest import build_manifest
+from osprey.simulation.facility_spec import ALS_U_AR
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 LIMITS_PATH = (
@@ -80,6 +81,32 @@ STALE_ADDRESSES = (
 METADATA_KEYS = {"_comment", "_version", "_description"}
 RESERVED_KEYS = METADATA_KEYS | {"defaults"}
 
+# FR9/SC5: the four families whose channel_limits.json bands are physics-
+# derived (scripts/va/derive_bands.py) against the real ALS-U AR ring, rather
+# than a static family-wide constant -- QF/QD/QFA at the ring's one-turn-
+# trace stability edge (with a unipolar-supply floor at 0 A), DIPOLE at a
+# fixed +/-0.5% policy window with 2x headroom over its own derived edge.
+QUAD_DIPOLE_FAMILIES = ("QF", "QD", "QFA", "DIPOLE")
+
+# scripts/va/derive_bands.py's TRACE_EDGE: the max-plane one-turn |trace|
+# QF/QD/QFA sweeps stop at when deriving a band edge -- a safety margin below
+# the hard |trace| >= 2.0 instability guard in lattice.solve.solve_orbit.
+# DIPOLE's committed band is a policy window strictly inside its own derived
+# edge (2x headroom invariant), so it never actually reaches this value in
+# practice; QF/QD/QFA sit right at it by construction.
+TRACE_MARGIN = 1.8
+
+# derive_bands.py locates each band edge by linearly interpolating *current*
+# between the last sub-threshold and first over-threshold sweep sample, then
+# commits that interpolated current verbatim. Because trace-vs-current isn't
+# itself linear, re-evaluating the trace at the committed edge overshoots 1.8
+# by a small residual (measured here: up to ~2.2e-6, at SR:MAG:QFA:12, across
+# all 216 QF/QD/QFA/DIPOLE edges). This tolerance is ~40x that observed
+# residual while staying ~2000x tighter than the 0.2 margin to the hard 2.0
+# instability guard -- it absorbs the interpolation residual without masking
+# a real regression.
+TRACE_MARGIN_TOLERANCE = 1e-4
+
 
 @pytest.fixture(scope="module")
 def limits_db() -> dict:
@@ -102,6 +129,20 @@ def manifest_sp_addresses() -> set[str]:
 def manifest_non_sp_addresses() -> set[str]:
     manifest = build_manifest()
     return {c["address"] for c in manifest["channels"] if c["subfield"] != "SP"}
+
+
+@pytest.fixture(scope="module")
+def family_sp_addresses(manifest_sp_addresses) -> dict[str, list[str]]:
+    """SR:MAG:{family}: setpoint addresses for each recalibrated family.
+
+    DIPOLE is SR-ring only: BR:MAG:DIPOLE (a different ring/spec) also has
+    ``:SP`` entries in channel_limits.json, but neither ALS_U_AR's family
+    count nor scripts/va/derive_bands.py's recalibration cover it.
+    """
+    return {
+        family: sorted(a for a in manifest_sp_addresses if a.startswith(f"SR:MAG:{family}:"))
+        for family in QUAD_DIPOLE_FAMILIES
+    }
 
 
 class TestDefaultsSemanticsPreserved:
@@ -239,41 +280,126 @@ class TestValidatorEnforcesTheContract:
 
 
 class TestQuadLimitsArePhysicallyStable:
-    """FR9: channel_limits.json's SR quad bands must bracket currents PyAT
-    actually accepts. The shipped bands (250-320A QD, 300-400A QF) sat well
-    outside the ~100A stable operating point and raised OrbitSolveError from
-    every quad on first use -- this pins the fix so it can't regress."""
+    """FR9/SC5: channel_limits.json's SR QF/QD/QFA/DIPOLE bands must bracket
+    currents the real ALS-U AR ring (lattice.build_ring(), PhysicsBridge)
+    actually accepts, with margin -- not just survive the hard |trace| >= 2.0
+    instability guard (lattice.solve.solve_orbit), but stay inside the 1.8
+    margin scripts/va/derive_bands.py derived them at. Both halves of the
+    check below cover every committed band edge (108 addresses x min/max =
+    216 edges):
 
-    @pytest.mark.xfail(
-        reason=(
-            "Phase 2b (physics-bridge repoint): PhysicsBridge builds the VA lattice via "
-            "services/virtual_accelerator/lattice/ring.py, which hardcodes N_ARC_CELLS=24 "
-            "but the grown manifest now has 36 SR:MAG:DIPOLE, so construction raises before "
-            "the bands are read. The quad bands asserted here (QF 300-400A, QD 250-320A) are "
-            "correct for the real ALS-U nominals; this physics-model coupling and its "
-            "~100A-operating-point premise are rewritten when 2b repoints the bridge to the "
-            "real ring. Tracked in the phase-2a -> 2b handoff."
-        ),
-        strict=False,
-    )
-    def test_channel_limits_quad_range_is_physically_stable(self, limits_db, manifest_sp_addresses):
+    (a) a fresh PhysicsBridge() accepts a write at the edge without raising
+        (the SC2 "no OrbitSolveError/UnknownDeviceError" survival check);
+    (b) the edge's one-turn |trace|, computed directly against a bare ring
+        (no bridge/BPM readback needed), sits inside the 1.8 committed
+        margin, not just below the 2.0 hard guard (the actual SC5 margin
+        assert).
+
+    Superseded by this class: the pre-repoint version of this test targeted
+    a 24-cell toy ring and asserted a flat 48-address QF+QD-only band
+    (300-400A QF, 250-320A QD) around a ~100A toy operating point. The real
+    ring has no such flat bands -- every device's min/max is individually
+    swept (see derive_bands.py) -- so there is nothing left to assert a
+    fixed numeric band against; the address-count and stability checks below
+    replace it.
+    """
+
+    def test_family_address_counts_match_facility_spec(self, family_sp_addresses):
+        # Recalibration covers exactly ALS_U_AR's declared per-family device
+        # counts -- the facility spec is the single source of truth for how
+        # many QF/QD/QFA/DIPOLE devices exist, not a number hardcoded here.
+        for family in QUAD_DIPOLE_FAMILIES:
+            assert len(family_sp_addresses[family]) == ALS_U_AR.family(family).count, family
+
+    def test_recalibrated_address_count_is_108(self, family_sp_addresses):
+        # Replaces the old toy-ring "48 (QF+QD)" count: the repointed bridge
+        # covers four families, all derived from the facility spec --
+        # 24 QF + 24 QD + 24 QFA + 36 DIPOLE = 108.
+        expected = sum(ALS_U_AR.family(family).count for family in QUAD_DIPOLE_FAMILIES)
+        assert expected == 108
+        total = sum(len(addresses) for addresses in family_sp_addresses.values())
+        assert total == expected
+
+    def test_every_band_edge_survives_a_fresh_bridge_write(self, limits_db, family_sp_addresses):
+        """SC5(a): the write-survival half of the margin check, via the real
+        bridge (construction + solve + rollback path), not the cheap
+        ring-level trace computation the next test uses.
+
+        One ``PhysicsBridge()`` per edge, not a shared/reused bridge, so a
+        prior edge's write can never leak state into the next edge's result
+        -- each write starts from that bridge's own freshly solved nominal
+        state. Measured cost: ~21s for all 216 edges on this machine
+        (PhysicsBridge construction ~90ms + one on_setpoint call each),
+        comfortably inside the ~2-3 minute budget the task brief flagged as
+        the line for falling back to a per-family/representative sample --
+        so this covers every edge, not a sample.
+        """
         from osprey.services.virtual_accelerator.ioc.physics_bridge import (
             OrbitSolveError,
             PhysicsBridge,
+            UnknownDeviceError,
         )
 
-        quad_addresses = [
-            a
-            for a in manifest_sp_addresses
-            if a.startswith("SR:MAG:QF:") or a.startswith("SR:MAG:QD:")
-        ]
-        assert len(quad_addresses) == 48  # 24 QF + 24 QD
+        for family in QUAD_DIPOLE_FAMILIES:
+            for address in family_sp_addresses[family]:
+                entry = limits_db[address]
+                for value in (entry["min_value"], entry["max_value"]):
+                    bridge = PhysicsBridge()
+                    try:
+                        bridge.on_setpoint(address, value)
+                    except (OrbitSolveError, UnknownDeviceError) as exc:
+                        pytest.fail(f"{address}={value} is not physically stable: {exc}")
 
-        for address in quad_addresses:
-            entry = limits_db[address]
-            for value in (entry["min_value"], entry["max_value"]):
-                bridge = PhysicsBridge()
-                try:
-                    bridge.on_setpoint(address, value)
-                except OrbitSolveError as exc:
-                    pytest.fail(f"{address}={value} is not physically stable: {exc}")
+    def test_every_band_edge_trace_is_inside_the_committed_margin(
+        self, limits_db, family_sp_addresses
+    ):
+        """SC5(b): the actual margin assert -- |trace| <= 1.8 (+ the
+        interpolation tolerance documented at TRACE_MARGIN_TOLERANCE), not
+        just the bridge's 2.0 survival threshold the previous test exercises.
+
+        Computed ring-level: one shared ``build_ring()`` + ``StrengthMap``,
+        mutating and restoring a single element per edge and reading
+        ``at.find_m44`` directly, rather than a fresh PhysicsBridge per edge
+        -- this only needs the one-turn matrix, not a full closed-orbit solve
+        plus BPM readback, so all 216 edges cost ~1s total here (versus ~21s
+        for the bridge-based survival check above).
+        """
+        import warnings
+
+        import at
+        import numpy as np
+
+        from osprey.services.virtual_accelerator.lattice import build_ring
+        from osprey.services.virtual_accelerator.lattice.strengths import (
+            StrengthMap,
+            restore_element,
+            snapshot_element,
+        )
+
+        ring = build_ring()
+        strength_map = StrengthMap(ring)
+        index_by_famname = {element.FamName: i for i, element in enumerate(ring)}
+
+        for family in QUAD_DIPOLE_FAMILIES:
+            for address in family_sp_addresses[family]:
+                device_id = address.split(":")[3]  # "SR:MAG:QF:01:CURRENT:SP" -> "01"
+                idx = index_by_famname[f"{family}{device_id}"]
+                entry = limits_db[address]
+                for value in (entry["min_value"], entry["max_value"]):
+                    previous = snapshot_element(ring[idx])
+                    strength_map.apply(ring, family, device_id, value)
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore", category=at.AtWarning)
+                        m44 = at.find_m44(ring)[0]
+                    restore_element(ring[idx], previous)
+
+                    assert np.all(np.isfinite(m44)), (
+                        f"{address}={value}: non-finite one-turn matrix"
+                    )
+                    trace_x = float(m44[0, 0] + m44[1, 1])
+                    trace_y = float(m44[2, 2] + m44[3, 3])
+                    worst_trace = max(abs(trace_x), abs(trace_y))
+                    assert worst_trace <= TRACE_MARGIN + TRACE_MARGIN_TOLERANCE, (
+                        f"{address}={value}: |trace|={worst_trace:.6f} exceeds the "
+                        f"{TRACE_MARGIN} committed margin (+/-{TRACE_MARGIN_TOLERANCE} tol)"
+                    )

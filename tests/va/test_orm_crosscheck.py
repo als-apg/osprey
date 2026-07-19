@@ -13,6 +13,17 @@ physics matches the model, not merely that each is internally consistent.
 Corrector and BPM device ids are derived from the manifest's pyat-coupled
 inventory (`lattice.inventory`), never hardcoded preset channel names, per
 the epic's VA-safety-test convention.
+
+The model side (`_model_matrix`) evaluates `orbit_response` over the SAME
+5-point sweep and fits it with the SAME degree-1 `numpy.polyfit` that
+`orm_analysis.build_response_matrix` fits over the measured rows -- estimator
+identity, not just independent data sources. On the real AR lattice's
+nonlinear (sextupole-bearing) closed-orbit response, a two-point
+finite-difference slope and a 5-point polyfit slope over the same sweep are
+different numbers, so anything less than an identical estimator on both
+sides would make the <=1e-9 agreement below meaningless; see `test_lattice.py`
+and `response.py`'s `AMPS_PER_RADIAN_KICK` docstring for why the ring is
+nonlinear enough for this to matter.
 """
 
 from __future__ import annotations
@@ -125,23 +136,32 @@ def _measure_rows(
     return rows
 
 
-def _model_matrix(correctors: list[str], bpms: list[str], span: float) -> np.ndarray:
+def _model_matrix(correctors: list[str], bpms: list[str], currents: list[float]) -> np.ndarray:
     """The independent model-oracle response matrix from `lattice/response.py`.
 
-    A symmetric two-point finite difference at +-span mirrors exactly what a
-    degree-1 polyfit recovers over a symmetric sweep of an exactly-linear
-    system (AT's `find_orbit4` closed-orbit solve is linear in kick angle at
-    fixed optics) -- the same slope `build_response_matrix` fits.
+    Evaluates `orbit_response` at the SAME `currents` sweep and fits the SAME
+    degree-1 `numpy.polyfit` that `build_response_matrix` fits over the
+    measured rows -- estimator identity, not just data-source independence.
+    This matters because the estimators are no longer interchangeable: the
+    real AR lattice's sextupoles (see `response.py`'s `AMPS_PER_RADIAN_KICK`
+    docstring) make the closed-orbit response mildly nonlinear in kick angle,
+    so a two-point finite-difference slope and a 5-point polyfit slope over
+    the same sweep are two different numbers, not two estimates of the same
+    one. Using anything but the identical estimator on both sides would
+    reintroduce that discrepancy into the comparison below and make the
+    <=1e-9 agreement meaningless; with identical estimators, any agreement
+    failure can only mean the two code paths (bridge vs. oracle) disagree.
     """
     n_axes = len(_AXES)
     detectors = [_detector_key(bpm, axis) for bpm in bpms for axis in _AXES]
     matrix = np.zeros((len(detectors), len(correctors)))
     for j, corrector in enumerate(correctors):
-        plus = orbit_response(corrector, span)
-        minus = orbit_response(corrector, -span)
+        readings = [orbit_response(corrector, current) for current in currents]
         for i, bpm in enumerate(bpms):
             for a in range(n_axes):
-                matrix[i * n_axes + a, j] = (plus[bpm][a] - minus[bpm][a]) / (2 * span)
+                values = [reading[bpm][a] for reading in readings]
+                slope, _intercept = np.polyfit(currents, values, deg=1)
+                matrix[i * n_axes + a, j] = slope
     return matrix
 
 
@@ -153,7 +173,7 @@ def test_measured_orm_matches_model_oracle_to_1e9_relative():
     bridge = PhysicsBridge()
     rows = _measure_rows(bridge, correctors, bpms, SPAN_A, NUM_POINTS)
     measured = build_response_matrix(rows, correctors, detectors)
-    model = _model_matrix(correctors, bpms, SPAN_A)
+    model = _model_matrix(correctors, bpms, _sweep_currents(SPAN_A, NUM_POINTS))
 
     nonzero = np.abs(model) > 1e-15
     assert nonzero.any(), "model oracle produced an all-zero matrix -- test setup is broken"
