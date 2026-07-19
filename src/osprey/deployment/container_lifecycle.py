@@ -818,6 +818,13 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     independent of ``detached``, and takes over from the plain services path
     below.
 
+    Idempotent from any prior state: every path first clears this project's
+    own non-running containers (``compose rm -f`` — a wedged ``created``
+    container from an aborted deploy holds its published host ports on Docker
+    Desktop, blocking the next ``up``), and the plain path's ``up`` carries
+    ``--remove-orphans`` to reconcile away services dropped from the config.
+    Running containers and volumes are never touched by either measure.
+
     :param config_path: Path to the configuration file
     :type config_path: str
     :param detached: Run in detached mode
@@ -893,6 +900,19 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
         base_cmd.extend(("-f", compose_file))
     base_cmd.extend(_env_file_args())
 
+    # Self-heal before reconciling: an aborted prior deploy can leave this
+    # project's containers wedged in created/exited state, and Docker Desktop
+    # reserves published host ports at container CREATE time — so a stale
+    # created container blocks the next `up` on its own port ("address already
+    # in use" with nothing listening). `rm -f` removes only non-running
+    # containers (running ones are untouched, and it exits 0 as a no-op when
+    # there is nothing stopped), so a healthy stack's reconcile stays
+    # zero-churn. Volumes are never touched — destroying state stays the job
+    # of clean/rebuild. Best-effort: if it fails, `up` surfaces the real error.
+    rm_cmd = base_cmd + ["rm", "-f"]
+    logger.info(f"Running command:\n    {' '.join(rm_cmd)}")
+    subprocess.run(rm_cmd, env=run_env)
+
     if dev_mode:
         # `osprey deploy up --dev` re-bakes the local osprey checkout into a fresh
         # wheel on every run, but compose reuses the cached image tag (e.g.
@@ -906,7 +926,13 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
         logger.info(f"Running command:\n    {' '.join(build_cmd)}")
         subprocess.run(build_cmd, env=run_env, check=True)
 
-    cmd = base_cmd + ["up"]
+    # --remove-orphans reconciles away containers whose service left the
+    # config since the last deploy (including a formerly-enabled web-terminal
+    # stack). Safe here because this single invocation's -f list defines the
+    # ENTIRE compose project; the web path must never use it — its two
+    # invocations share one project name, so each would destroy the other
+    # stack's containers as "orphans".
+    cmd = base_cmd + ["up", "--remove-orphans"]
     if dev_mode:
         cmd.append("--no-build")
     if detached:
@@ -1019,6 +1045,17 @@ def deploy_restart(config_path, detached=False, expose_network=False):
 def rebuild_deployment(config_path, detached=False, dev_mode=False, expose_network=False):
     """Rebuild deployment from scratch (clean + up).
 
+    Tears down this project's containers, volumes, and images via
+    :func:`clean_deployment`, then delegates the start-up to :func:`deploy_up`
+    so every up-path behavior — the web-terminals branch, the dev-mode
+    build/up split, the stale-container preflight — stays defined in exactly
+    one place. ``clean``'s ``down --rmi all`` removes the images, so the
+    delegated ``up`` rebuilds/pulls everything fresh via compose's own
+    build-on-up, no explicit ``build`` step needed here. The web-terminal
+    stack's per-user volumes are declared only in ``docker-compose.web.yml``
+    (never in the services compose files ``clean`` operates on), so a rebuild
+    recreates web containers but preserves user volumes.
+
     :param config_path: Path to the configuration file
     :type config_path: str
     :param detached: Run in detached mode
@@ -1030,45 +1067,12 @@ def rebuild_deployment(config_path, detached=False, dev_mode=False, expose_netwo
     """
     config, compose_files = prepare_compose_files(config_path, dev_mode, expose_network)
 
-    # Verify container runtime is actually running (for the rebuild phase)
+    # Verify container runtime is actually running (for the clean phase;
+    # deploy_up re-verifies for its own).
     is_running, error_msg = verify_runtime_is_running(config)
     if not is_running:
         raise RuntimeError(error_msg)
 
-    # Self-provision fail-closed service tokens (see deploy_up) before rebuilding.
-    _ensure_service_tokens(config, expose_network)
-
-    # Clean first
     clean_deployment(compose_files, config)
 
-    # Set up environment for containers
-    env = os.environ.copy()
-    if dev_mode:
-        env["DEV_MODE"] = "true"
-        logger.key_info("Development mode: DEV_MODE environment variable set for containers")
-
-    # Rebuild the dispatch worker's <project>:local image too (see deploy_up).
-    _build_project_image(config, dev_mode, env)
-
-    # Then start up. Pin COMPOSE_PROJECT_NAME (see deploy_up) so the rebuild
-    # reconciles this deploy's own project, not the shared "services" one.
-    run_env = runtime_env(config, env)
-
-    base_cmd = get_runtime_command(config)
-    for compose_file in compose_files:
-        base_cmd.extend(("-f", compose_file))
-
-    base_cmd.extend(_env_file_args())
-
-    # Build in its own step, then `up --no-build` (see deploy_up for the
-    # containerd image-store race a single `up --build` can hit).
-    build_cmd = base_cmd + ["build"]
-    logger.info(f"Running command:\n    {' '.join(build_cmd)}")
-    subprocess.run(build_cmd, env=run_env, check=True)
-
-    cmd = base_cmd + ["up", "--no-build"]
-    if detached:
-        cmd.append("-d")
-
-    logger.info(f"Running command:\n    {' '.join(cmd)}")
-    os.execvpe(cmd[0], cmd, run_env)
+    deploy_up(config_path, detached=detached, dev_mode=dev_mode, expose_network=expose_network)

@@ -11,6 +11,11 @@ Compatibility is documented in release notes, not encoded in the version string.
 
 ## [Unreleased]
 
+### Fixed
+
+- `osprey deploy up` is now idempotent from any prior state: it first removes the project's own stale non-running containers (a container left in `created` state by an aborted deploy holds its published host ports on Docker Desktop, blocking the next `up` with "address already in use"), and the plain services path reconciles away containers of services removed from the config. Running containers, volumes, and sibling deployments on the same host are untouched.
+- `osprey deploy rebuild` on a web-terminals project now brings the web-terminal stack (nginx, per-user containers) back up after the clean; previously it restarted only the backend services. Per-user volumes survive a rebuild.
+
 ### Added
 
 - **Multi-user web terminals behind a single origin** — the multi-user web-terminal stack now binds every per-user service to loopback and routes all browser traffic through one nginx origin at `/u/<user>/`, instead of exposing each per-user app on its own host port; the Web Terminal SPA serves identically under that per-user prefix. Optional, off-by-default auth and TLS seams are wired into the deploy config (`modules.web_terminals.auth` / `.tls`): they render the corresponding nginx blocks with no frontend change and fail closed (an enabled `auth.method` with no backend returns 403) — so this remains a trust-the-network deployment until a real auth backend and TLS certificates are configured. Logging out now ends the warm terminal session and returns to the landing page.

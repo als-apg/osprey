@@ -817,7 +817,11 @@ def deploy_up_web_terminals(
     mode only) + ``up -d`` for the web stack; plain ``up -d`` for the
     services stack, mirroring the non-web path): no bespoke digest/state
     diffing, and deliberately no ``--force-recreate`` on either invocation,
-    so a no-op second run recreates zero containers. Under ``dev_mode`` the
+    so a no-op second run recreates zero containers. Each invocation is
+    preceded by a ``rm -f`` stale-container preflight (see the inline
+    comments for why it is service-scoped and why ``--remove-orphans`` is
+    forbidden on this path); running containers are untouched, so the
+    zero-recreate property holds. Under ``dev_mode`` the
     services ``up -d`` also carries ``--build``, mirroring the non-web
     path's dev-mode ``--build``: without it, a co-deployed backend service's
     cached image tag would keep running the stale code from its first
@@ -889,6 +893,18 @@ def deploy_up_web_terminals(
         for compose_file in compose_files:
             services_base.extend(("-f", compose_file))
         services_base.extend(env_file_args)
+        # Stale-container preflight (see deploy_up): clear this stack's own
+        # wedged created/exited containers — a created container from an
+        # aborted deploy holds its published host ports on Docker Desktop and
+        # blocks the next `up`. `rm -f` is service-scoped to THIS invocation's
+        # -f files, never touches running containers or volumes, and no-ops
+        # (exit 0) on a clean stack. Deliberately NOT `--remove-orphans`
+        # anywhere on this path: both invocations share one
+        # COMPOSE_PROJECT_NAME, so orphan-removal in either would destroy the
+        # OTHER stack's containers as "orphans" of the shared project.
+        services_rm = services_base + ["rm", "-f"]
+        logger.info(f"Running command:\n    {' '.join(services_rm)}")
+        subprocess.run(services_rm, env=run_env)
         if dev_mode:
             # Mirrors the plain non-web path's dev-mode build (see deploy_up):
             # without a rebuild, a co-deployed service's cached image tag keeps
@@ -909,6 +925,12 @@ def deploy_up_web_terminals(
     web_cmd = get_runtime_command(config)
     web_cmd.extend(("-f", "docker-compose.web.yml"))
     web_cmd.extend(env_file_args)
+
+    # Same stale-container preflight as the services stack above (and same
+    # no-`--remove-orphans` constraint — see that comment).
+    web_rm = web_cmd + ["rm", "-f"]
+    logger.info(f"Running command:\n    {' '.join(web_rm)}")
+    subprocess.run(web_rm, env=run_env)
 
     if not local_mode:
         # Registry mode only: local-only tags have no upstream to pull from,

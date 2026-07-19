@@ -512,10 +512,10 @@ class _FakeCompletedProcess:
 
 def test_web_deploy_docker_runtime_linger_adds_no_subprocess_calls(captured_web_runs, tmp_path):
     """captured_web_runs defaults to docker -- the post-up hook's linger step
-    must add zero subprocess calls beyond the ordinary pull + up."""
+    must add zero subprocess calls beyond the ordinary rm preflight + pull + up."""
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
-    assert len(captured_web_runs["calls"]) == 2
+    assert len(captured_web_runs["calls"]) == 3
 
 
 def test_web_deploy_calls_enable_linger_in_post_up_hook(monkeypatch, tmp_path):
@@ -713,9 +713,16 @@ def test_local_mode_calls_ensure_env_production_then_auto_render_then_build_then
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
-    # Exactly one compose call (web `up -d`; no deployed_services, no pull in
-    # local mode) after all three preflight steps, in this order.
-    assert order == ["ensure_env_production", "auto_render", "build_persona_images", "compose"]
+    # Exactly two compose calls (the stale-container `rm -f` preflight, then
+    # the web `up -d`; no deployed_services, no pull in local mode) after all
+    # three preflight steps, in this order.
+    assert order == [
+        "ensure_env_production",
+        "auto_render",
+        "build_persona_images",
+        "compose",
+        "compose",
+    ]
 
 
 def test_local_mode_passes_resolve_personas_output_to_build_persona_images(
@@ -801,14 +808,17 @@ def test_registry_mode_calls_ensure_env_production_before_pull_before_up(
     )
 
     def _fake_run(cmd, **kwargs):
-        order.append("pull" if "pull" in cmd else "up")
+        if "rm" in cmd:
+            order.append("rm")
+        else:
+            order.append("pull" if "pull" in cmd else "up")
         return _FakeCompletedProcess(returncode=0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
-    assert order == ["ensure_env_production", "pull", "up"]
+    assert order == ["ensure_env_production", "rm", "pull", "up"]
 
 
 def test_post_up_hook_order_is_linger_then_seed_then_verify(
@@ -1145,7 +1155,7 @@ def test_rebuild_deployment_pins_compose_project_name(monkeypatch, tmp_path):
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
-    # The pre-up `compose build` split (Defect A) lands on subprocess.run; swallow it.
+    # The stale-container `rm -f` preflight lands on subprocess.run; swallow it.
     monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda *a, **k: None)
     captured: dict = {}
     monkeypatch.setattr(
@@ -1218,7 +1228,9 @@ def test_deploy_up_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
     assert any("up" in c and "--no-build" in c for c in runs), joined
 
 
-def test_rebuild_deployment_splits_build_from_up(monkeypatch, tmp_path):
+def test_rebuild_deployment_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
+    """rebuild delegates its up phase to deploy_up, so --dev inherits the same
+    build/up split (Defect A): standalone `build`, then exec'd `up --no-build`."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         container_lifecycle,
@@ -1242,11 +1254,157 @@ def test_rebuild_deployment_splits_build_from_up(monkeypatch, tmp_path):
         "execvpe",
         lambda file, args, env: execd.update(args=args),
     )
-    container_lifecycle.rebuild_deployment(str(tmp_path / "config.yml"))
+    container_lifecycle.rebuild_deployment(str(tmp_path / "config.yml"), dev_mode=True)
     # `build` ran as its own subprocess; the exec'd `up` carries --no-build.
     assert any(c[-1] == "build" for c in runs), [" ".join(c) for c in runs]
     assert "up" in execd["args"] and "--no-build" in execd["args"]
     assert "--build" not in execd["args"]
+
+
+def test_rebuild_deployment_cleans_before_delegating_to_deploy_up(monkeypatch, tmp_path):
+    """rebuild = clean, then the real deploy_up (single definition of every
+    up-path behavior); clean must run first."""
+    monkeypatch.chdir(tmp_path)
+    order: list[str] = []
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: ({"deployed_services": ["event_dispatcher"]}, ["docker-compose.yml"]),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "clean_deployment", lambda *a, **k: order.append("clean")
+    )
+    monkeypatch.setattr(
+        container_lifecycle,
+        "deploy_up",
+        lambda *a, **k: order.append("deploy_up"),
+    )
+    container_lifecycle.rebuild_deployment(str(tmp_path / "config.yml"))
+    assert order == ["clean", "deploy_up"]
+
+
+def test_rebuild_deployment_reconciles_web_terminals_stack(monkeypatch, tmp_path):
+    """A web-terminals project's rebuild must reach the web reconcile — the
+    pre-delegation rebuild ran only the plain services path, so nginx and the
+    persona containers never came back up after clean."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env.production").write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: (
+            {"deployed_services": [], "modules": {"web_terminals": {"enabled": True}}},
+            [],
+        ),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "clean_deployment", lambda *a, **k: None)
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
+    calls: list = []
+
+    def _fake_run(cmd, env=None, **k):
+        calls.append(list(cmd))
+        return _FakeCompletedProcess(returncode=0)
+
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    container_lifecycle.rebuild_deployment(str(tmp_path / "config.yml"))
+    assert any("docker-compose.web.yml" in c and "up" in c for c in calls)
+
+
+# ---------------------------------------------------------------------------
+# Stale-container preflight — self-healing `deploy up`
+#
+# An aborted deploy leaves containers wedged in created/exited state, and
+# Docker Desktop reserves published host ports at container CREATE time — so
+# the next `up` collides with its own ghost ("address already in use" with
+# nothing listening on the port). Every up path first runs a service-scoped
+# `rm -f` (removes only non-running containers; running containers and
+# volumes untouched; exit-0 no-op on a clean stack). The plain path's `up`
+# additionally carries --remove-orphans; the web path must NOT — its two
+# invocations share one COMPOSE_PROJECT_NAME, so orphan-removal in either
+# would destroy the other stack's containers as "orphans".
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def captured_plain_runs(monkeypatch, tmp_path):
+    """Plain (non-web) deploy_up with every subprocess.run argv captured in order."""
+    calls: list[list[str]] = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: ({"deployed_services": ["event_dispatcher"]}, ["docker-compose.yml"]),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    monkeypatch.setattr(
+        container_lifecycle.subprocess, "run", lambda cmd, env=None, **k: calls.append(list(cmd))
+    )
+    return calls
+
+
+def test_deploy_up_runs_stale_container_preflight_before_up(captured_plain_runs, tmp_path):
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    rm_idx = next(i for i, c in enumerate(captured_plain_runs) if c[-2:] == ["rm", "-f"])
+    up_idx = next(i for i, c in enumerate(captured_plain_runs) if "up" in c)
+    assert rm_idx < up_idx
+    # Scoped to this deploy's own compose files — and it is `rm`, never a
+    # `down` (which would stop running containers).
+    rm_cmd = captured_plain_runs[rm_idx]
+    assert "docker-compose.yml" in rm_cmd
+    assert "down" not in rm_cmd
+
+
+def test_deploy_up_preflight_never_stops_or_removes_volumes(captured_plain_runs, tmp_path):
+    """`rm -f` must stay surgical: no -s/--stop (would touch running
+    containers) and no -v/--volumes (destroying state is clean/rebuild's job)."""
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    rm_cmd = next(c for c in captured_plain_runs if c[-2:] == ["rm", "-f"])
+    for forbidden in ("-s", "--stop", "-v", "--volumes"):
+        assert forbidden not in rm_cmd
+
+
+def test_deploy_up_plain_up_carries_remove_orphans(captured_plain_runs, tmp_path):
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    up_cmd = next(c for c in captured_plain_runs if "up" in c)
+    assert "--remove-orphans" in up_cmd
+
+
+def test_web_deploy_preflights_rm_and_never_remove_orphans(captured_web_runs, tmp_path):
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
+
+    cmds = [c["cmd"] for c in captured_web_runs["calls"]]
+    rm_idx = next(i for i, c in enumerate(cmds) if c[-2:] == ["rm", "-f"])
+    up_idx = next(i for i, c in enumerate(cmds) if "up" in c)
+    assert rm_idx < up_idx
+    for cmd in cmds:
+        assert "--remove-orphans" not in cmd
+
+
+def test_combined_deploy_each_stack_gets_its_own_rm_preflight(captured_combined_runs, tmp_path):
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
+
+    cmds = [c["cmd"] for c in captured_combined_runs["calls"]]
+    rm_calls = [c for c in cmds if c[-2:] == ["rm", "-f"]]
+    assert len(rm_calls) == 2
+    assert any("docker-compose.yml" in c for c in rm_calls)
+    assert any("docker-compose.web.yml" in c for c in rm_calls)
+    # The two stacks' files are never merged into one rm argv, and the
+    # shared-project path never orphan-removes.
+    for c in rm_calls:
+        assert not ("docker-compose.yml" in c and "docker-compose.web.yml" in c)
+    for c in cmds:
+        assert "--remove-orphans" not in c
 
 
 def test_web_services_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
