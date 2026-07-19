@@ -37,7 +37,7 @@ from osprey.interfaces.artifacts.resolve import (
     load_run_record,
     resolve_single_run_artifact,
 )
-from osprey.mcp_server.dispatch_worker import failure_class, run_stats, sdk_runner
+from osprey.mcp_server.dispatch_worker import counters, failure_class, run_stats, sdk_runner
 from osprey.utils.tool_rules import matches_denylist
 
 logger = logging.getLogger("osprey.mcp_server.dispatch_worker")
@@ -52,6 +52,12 @@ _QUEUE_TTL_SEC = 60  # discard unconsumed SSE queues after this many seconds pos
 # ---------------------------------------------------------------------------
 # App setup
 # ---------------------------------------------------------------------------
+
+# Boot nonce: the worker process's start timestamp, captured once at import.
+# Stable for the life of the process and different across restarts, so a poller
+# can detect a worker restart (and the accompanying reset of the process-lifetime
+# failure counters in ``counters``) by watching this value change.
+_BOOT_NONCE: float = time.time()
 
 # In-memory run store: run_id -> result dict (includes created_at, completed_at)
 _runs: dict[str, dict[str, Any]] = {}
@@ -204,6 +210,9 @@ async def _lifespan(app: FastAPI):
     startup, since they depend on the mounted ``config.yml`` and environment.
     """
     _inject_provider_env_once()
+    # Route every _stamp's per-class increment into the process-lifetime counters
+    # before any run can fail, so no early failure goes uncounted.
+    counters.install()
     _load_persisted_runs()
     task = asyncio.create_task(_stale_run_cleanup())
     yield
@@ -650,12 +659,19 @@ async def health() -> dict[str, Any]:
         s = run.get("status", "")
         if s in counts:
             counts[s] += 1
+    # Process-lifetime failure counters — monotonic and independent of the
+    # evictable _runs map above (see counters module docstring). The _runs-derived
+    # error_runs field is retained unchanged for compatibility.
+    lifetime = counters.get_counts()
     return {
         "status": "ok",
         "pending_runs": counts["pending"],
         "completed_runs": counts["completed"],
         "error_runs": counts["error"],
         "total_runs": len(_runs),
+        "provider_errors": lifetime[failure_class.FAILURE_PROVIDER],
+        "infrastructure_errors": lifetime[failure_class.FAILURE_INFRASTRUCTURE],
+        "boot_nonce": _BOOT_NONCE,
     }
 
 
