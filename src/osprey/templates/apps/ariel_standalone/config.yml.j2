@@ -93,6 +93,7 @@ system:
 # ============================================================
 # Only PostgreSQL is needed for ARIEL logbook search
 
+{% if deploy_services | default(true) %}
 services:
   postgresql:
     path: ./services/postgresql
@@ -116,6 +117,13 @@ services:
 deployed_services:
   - postgresql
   - openobserve
+{% else %}
+# Attached project (deploy_services: false): connects to a services stack
+# another OSPREY project deployed on the same host, so it scaffolds nothing.
+services: {}
+
+deployed_services: []
+{% endif %}
 
 # ============================================================
 # SAFETY CONTROLS

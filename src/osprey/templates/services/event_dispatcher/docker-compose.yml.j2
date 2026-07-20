@@ -1,13 +1,15 @@
-# The event-dispatcher and dispatch-worker share one locally-built image
-# (see ./Dockerfile). `osprey deploy up` builds it on first run; subsequent
-# runs reuse the local tag. To use a prebuilt/published image instead, set
-# OSPREY_DISPATCH_IMAGE (e.g. OSPREY_DISPATCH_IMAGE=my-registry/osprey-dispatch:dev).
+# The event-dispatcher runs a locally-built image (see ./Dockerfile).
+# `osprey deploy up` builds it on first run; subsequent runs reuse the local
+# tag, which is project-prefixed ({{ osprey_labels.project_name }}-dispatch:local)
+# so two OSPREY projects on one host never race to tag one shared image.
+# To use a prebuilt/published image instead, set OSPREY_DISPATCH_IMAGE
+# (e.g. OSPREY_DISPATCH_IMAGE=my-registry/osprey-dispatch:dev).
 # Use `osprey deploy up --dev` to bake in your local osprey checkout (incl.
 # unreleased code) via a wheel; otherwise the image installs osprey from PyPI.
 
 services:
   event-dispatcher:
-    image: ${OSPREY_DISPATCH_IMAGE:-{{ services.event_dispatcher.image | default('osprey-dispatch:local') }}}
+    image: ${OSPREY_DISPATCH_IMAGE:-{{ services.event_dispatcher.image | default(osprey_labels.project_name ~ '-dispatch:local') }}}
     build:
       # With multiple `-f` compose files, ALL relative paths (build contexts and
       # bind mounts alike) resolve against the FIRST file's dir — the compose
@@ -17,6 +19,10 @@ services:
       dockerfile: Dockerfile
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
+        OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
+{% if dev_mode | default(false) %}
+        OSPREY_DEV: "1"
+{% endif %}
     # container_name is a HOST-GLOBAL docker identifier: namespace it per-project
     # so two OSPREY projects can deploy the dispatcher on one host without
     # colliding on one name. In-network consumers reach this service by its

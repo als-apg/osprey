@@ -13,7 +13,11 @@
 services:
 {% for i in range(1, wc + 1) %}
   dispatch-worker-{{ i }}:
-    image: ${OSPREY_WORKER_IMAGE:-{{ services.dispatch_worker.image | default('osprey-dispatch:local') }}}
+    {#- The template-level fallback mirrors _worker_image_target's Python
+        fallback (<project>:local — the PROJECT image `osprey deploy up`
+        builds), for renders where _inject_project_metadata's setdefault
+        didn't fire (e.g. a null `dispatch_worker:` config key). #}
+    image: ${OSPREY_WORKER_IMAGE:-{{ services.dispatch_worker.image | default(osprey_labels.project_name ~ ':local') }}}
     # NO build: block here on purpose. The project image (<project>:local) is
     # built once by `osprey deploy up` (deployment/container_lifecycle.py) from
     # the project root before `docker compose up` runs; the worker just

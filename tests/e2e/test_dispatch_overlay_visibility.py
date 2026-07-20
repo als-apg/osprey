@@ -2,8 +2,9 @@
 
 This is the authoritative two-party gate for the dispatch-worker image
 unification. After unification the worker runs the *project* image
-(``proj:local``, built from the project via ``COPY .``) rather than the old lean
-``osprey-dispatch:local`` — so the whole project tree, including facility
+(``<project>:local``, built from the project via ``COPY .``) rather than the old
+lean dispatch image (``<project>-dispatch:local``, still the dispatcher's own
+tag) — so the whole project tree, including facility
 ``.claude`` overlays and the ``data/`` bundle, is baked into the container the
 agent actually runs in. A config-only render (the pre-unification behaviour)
 would silently drop both, and no mock can falsify that: only a live container
@@ -56,6 +57,8 @@ from typing import Any
 
 import pytest
 import yaml
+
+from osprey.deployment.compose_generator import resolve_project_name
 
 DISPATCHER_URL = "http://localhost:8020"
 TOKEN = "dev-token"  # matches the .env tokens written below
@@ -320,8 +323,11 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     # mutated project. `osprey deploy up --dev` rebuilds these, but removing any
     # stale images first guarantees the worker bakes the mutation above. Ignore
     # failure if an image is absent.
-    subprocess.run(["docker", "rmi", "-f", "proj:local"], capture_output=True, text=True)
-    subprocess.run(["docker", "rmi", "-f", "osprey-dispatch:local"], capture_output=True, text=True)
+    project = resolve_project_name({"project_name": PROJECT_NAME})
+    subprocess.run(["docker", "rmi", "-f", f"{project}:local"], capture_output=True, text=True)
+    subprocess.run(
+        ["docker", "rmi", "-f", f"{project}-dispatch:local"], capture_output=True, text=True
+    )
 
     # Drop any stale worker workspace volume so the fresh deploy repopulates it
     # from the image (osprey-owned _agent_data). Without this, a volume left

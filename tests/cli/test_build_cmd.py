@@ -173,6 +173,33 @@ class TestProfileLoading:
         assert profile.agents == []
         assert profile.output_styles == []
         assert profile.web_panels == []
+        # Self-contained/deployable is the default posture.
+        assert profile.deploy_services is True
+
+    def test_deploy_services_defaults_true(self, tmp_path: Path):
+        """Omitting the knob leaves a project self-contained (deploys its own stack)."""
+        p = tmp_path / "d.yml"
+        p.write_text("name: Deployable\n")
+        assert load_profile(p).deploy_services is True
+
+    def test_deploy_services_explicit_false_parses(self, tmp_path: Path):
+        """An explicit false marks the project as attached."""
+        p = tmp_path / "a.yml"
+        p.write_text("name: Attached\ndeploy_services: false\n")
+        assert load_profile(p).deploy_services is False
+
+    def test_deploy_services_inherited_child_wins(self, tmp_path: Path):
+        """A child's deploy_services: false overrides an implicitly-true base.
+
+        deploy_services is a plain scalar, so ``extends`` resolves it child-wins
+        like any other scalar: a base that leaves it defaulted-true is overridden
+        by a child that sets it false.
+        """
+        base = tmp_path / "base.yml"
+        base.write_text("name: Base\ndeploy_services: true\n")
+        child = tmp_path / "child.yml"
+        child.write_text("name: Child\nextends: base.yml\ndeploy_services: false\n")
+        assert load_profile(child).deploy_services is False
 
     def test_load_profile_lifecycle_parsed(self, tmp_path: Path):
         profile_data = {
@@ -232,6 +259,12 @@ class TestValidation:
             overlay={"nonexistent/file.json": "data/file.json"},
         )
         with pytest.raises(BuildProfileError, match="Overlay source not found"):
+            profile.validate(tmp_path)
+
+    def test_non_bool_deploy_services_rejected(self, tmp_path: Path):
+        """A non-boolean deploy_services is a validation error, not silently coerced."""
+        profile = BuildProfile(name="Test", deploy_services="yes")  # type: ignore[arg-type]
+        with pytest.raises(BuildProfileError, match="deploy_services must be a boolean"):
             profile.validate(tmp_path)
 
     def test_path_traversal_blocked(self, tmp_path: Path):

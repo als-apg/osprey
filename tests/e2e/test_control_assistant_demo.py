@@ -93,7 +93,7 @@ from typing import Any
 import pytest
 import yaml
 
-from osprey.deployment.compose_generator import resolve_user_volume_names
+from osprey.deployment.compose_generator import resolve_project_name, resolve_user_volume_names
 
 pytestmark = [
     pytest.mark.e2e,
@@ -171,14 +171,17 @@ POSTGRES_PORT = 25432
 # templates). The connector gateway port (a separate config key) is overridden to
 # match as belt-and-suspenders for any host-side connector.
 VA_CA_PORT = 25064
-VA_IMAGE = "osprey-va:local"
+# Locally-built VA image, derived the way the compose template does
+# (``resolve_project_name`` -> ``<project>-va:local``) rather than a host-global
+# tag that no longer matches the rendered image.
+VA_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-va:local"
 
 # Bluesky bridge + its Tiled store — non-default ports so the already-running
 # demo's 8090/8091 never collide. The scan is driven through this bridge.
 BRIDGE_PORT = 18096
 TILED_PORT = 25091
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
-BRIDGE_IMAGE = "osprey-bluesky-bridge:local"
+BRIDGE_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-bluesky-bridge:local"
 
 # The bluesky-panels sidecar the preset ships alongside the bridge — same
 # rationale: off the preset default 8095 so an already-running demo's panels

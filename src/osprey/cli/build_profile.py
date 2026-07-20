@@ -359,6 +359,20 @@ class BuildProfile:
 
     name: str
     data_bundle: str = "control_assistant"
+    deploy_services: bool = True
+    """Whether this project scaffolds its own container-services stack.
+
+    ``True`` (default) builds a self-contained, deployable project: service
+    templates are copied and ``services.*``/``deployed_services`` config is
+    written for every declared/injected service.
+
+    ``False`` marks an *attached* project — one that connects to a services
+    stack deployed by another OSPREY project on the same host. Service sections
+    in the profile (own or inherited) are parsed and validated but scaffold
+    nothing: no ``services/`` directory, no ``services.*`` blocks, and an empty
+    ``deployed_services`` list. Its terminal images reach the shared stack via
+    client config (e.g. ``bluesky.bridge_url``) over host networking.
+    """
     provider: str | None = None
     model: str | None = None
     channel_finder_mode: str | None = None
@@ -448,6 +462,11 @@ class BuildProfile:
 
         if not self.name:
             errors.append("Profile 'name' is required")
+
+        if not isinstance(self.deploy_services, bool):
+            errors.append(
+                f"deploy_services must be a boolean (got {type(self.deploy_services).__name__})"
+            )
 
         if self.tier is not None and self.tier not in (1, 2, 3):
             errors.append(f"tier must be 1, 2, or 3 (got {self.tier!r})")
@@ -738,6 +757,7 @@ _KNOWN_PROFILE_KEYS = frozenset(
         "extends",
         "exclude",
         "data_bundle",
+        "deploy_services",
         "provider",
         "model",
         "channel_finder_mode",
@@ -909,6 +929,7 @@ def _parse_profile(raw: dict[str, Any]) -> BuildProfile:
     return BuildProfile(
         name=raw.get("name", ""),
         data_bundle=raw.get("data_bundle", "control_assistant"),
+        deploy_services=raw.get("deploy_services", True),
         provider=raw.get("provider"),
         model=raw.get("model"),
         channel_finder_mode=raw.get("channel_finder_mode"),

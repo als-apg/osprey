@@ -417,9 +417,15 @@ def deployed_sandbox_stack(
     # (osprey deploy up does not pass --build to compose, so it would
     # otherwise reuse a stale cached image). Exact-named images only.
     if not os.environ.get("E2E_REUSE_IMAGES"):
-        subprocess.run(["docker", "rmi", "-f", _orm_stack.VA_IMAGE], capture_output=True, text=True)
         subprocess.run(
-            ["docker", "rmi", "-f", _orm_stack.BRIDGE_IMAGE], capture_output=True, text=True
+            ["docker", "rmi", "-f", _orm_stack.va_image("sandbox-escape")],
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            ["docker", "rmi", "-f", _orm_stack.bridge_image("sandbox-escape")],
+            capture_output=True,
+            text=True,
         )
 
     try:

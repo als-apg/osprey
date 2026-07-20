@@ -62,6 +62,8 @@ from typing import Any
 
 import pytest
 
+from osprey.deployment.compose_generator import resolve_project_name
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SWEEP_SCRIPT = REPO_ROOT / "scripts" / "va" / "sweep_check.py"
 # Out-of-process host-side CA op (see its module docstring): each P3-P5 host
@@ -79,20 +81,21 @@ HOST_CA_RESULT_MARKER = "__HOST_CA_RESULT__"
 # connector config below and the container's published port must both stay
 # at this value, or the two silently drift apart.
 VA_CA_PORT = 5064
-VA_IMAGE = "osprey-va:local"
 # The fixture builds/deploys under this project name; the compose templates
-# render each service's container_name as ``<project>-<service>``
-# (services/*/docker-compose.yml.j2), so derive them rather than hardcode
+# render each service's container_name AND its locally-built image as
+# ``<project>-<service>`` (services/*/docker-compose.yml.j2), so derive both
+# (via resolve_project_name, exactly as the templates do) rather than hardcode
 # host-global names that break the moment the templates are namespaced per-project.
 PROJECT_NAME = "proj"
 VA_CONTAINER = f"{PROJECT_NAME}-virtual-accelerator"
+VA_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-va:local"
 
 # Deliberately non-default (avoids colliding with test_bluesky_deploy.py's 18090
 # on a shared dev machine — see that module's docstring).
 BRIDGE_PORT = 18099
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
-BRIDGE_IMAGE = "osprey-bluesky-bridge:local"
 BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
+BRIDGE_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-bluesky-bridge:local"
 
 # Device names wired into the bridge via BLUESKY_EPICS_MOTORS/_DETECTORS —
 # arbitrary, resolved against explicit PV addresses (see _write_scan_env

@@ -283,6 +283,13 @@ Profile YAML Schema
      - string
      - ``project``
      - Python used by MCP servers: ``project`` (project venv), ``build`` (build-time Python), or an absolute path.
+   * - ``port_block``
+     - int
+     - ``0``
+     - Per-project host-port band (``0``–``8``). ``0`` keeps today's default ports; a
+       non-zero block shifts every host-published default onto a dedicated band so
+       two projects built from the same profile can run on one host. A port left at
+       its default moves with the block; a port set to any other value is preserved.
 
 
 Configuration Overrides

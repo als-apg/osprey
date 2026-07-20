@@ -8,7 +8,9 @@ without a container runtime.
 
 from __future__ import annotations
 
+import subprocess
 import types
+from pathlib import Path
 
 import pytest
 
@@ -512,10 +514,10 @@ class _FakeCompletedProcess:
 
 def test_web_deploy_docker_runtime_linger_adds_no_subprocess_calls(captured_web_runs, tmp_path):
     """captured_web_runs defaults to docker -- the post-up hook's linger step
-    must add zero subprocess calls beyond the ordinary pull + up."""
+    must add zero subprocess calls beyond the ordinary rm preflight + pull + up."""
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
-    assert len(captured_web_runs["calls"]) == 2
+    assert len(captured_web_runs["calls"]) == 3
 
 
 def test_web_deploy_calls_enable_linger_in_post_up_hook(monkeypatch, tmp_path):
@@ -679,13 +681,16 @@ def test_local_mode_unresolvable_persona_raises_before_any_compose_call(
     assert _mode_wiring_collab == []  # no compose subprocess ever ran
 
 
-def test_local_mode_calls_ensure_env_production_then_auto_render_then_build_then_compose(
+def test_local_mode_calls_auto_render_then_ensure_env_production_then_build_then_compose(
     monkeypatch, tmp_path, _mode_wiring_collab
 ):
-    """The local-mode preflight order is load-bearing: ensure_env_production,
-    THEN auto-render any missing persona project, THEN build its image, THEN
-    compose. A spy on _auto_render_missing_personas (overriding the fixture's
-    inert stub) proves the wiring line actually runs it -- and runs it BEFORE
+    """The local-mode preflight order is load-bearing: auto-render any missing
+    persona project FIRST, then ensure_env_production, then build the image,
+    then compose. ensure_env_production's claude_code credential sweep reads
+    each rendered persona's config.yml, so on a first deploy it must run
+    after auto-render (and still before any compose call). A spy on
+    _auto_render_missing_personas (overriding the fixture's inert stub)
+    proves the wiring line actually runs it -- and runs it BEFORE
     build_persona_images, which needs the rendered context to exist."""
     order: list[str] = []
     config = _web_terminals_config("local")
@@ -713,9 +718,16 @@ def test_local_mode_calls_ensure_env_production_then_auto_render_then_build_then
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
-    # Exactly one compose call (web `up -d`; no deployed_services, no pull in
-    # local mode) after all three preflight steps, in this order.
-    assert order == ["ensure_env_production", "auto_render", "build_persona_images", "compose"]
+    # Exactly two compose calls (the stale-container `rm -f` preflight, then
+    # the web `up -d`; no deployed_services, no pull in local mode) after all
+    # three preflight steps, in this order.
+    assert order == [
+        "auto_render",
+        "ensure_env_production",
+        "build_persona_images",
+        "compose",
+        "compose",
+    ]
 
 
 def test_local_mode_passes_resolve_personas_output_to_build_persona_images(
@@ -801,14 +813,17 @@ def test_registry_mode_calls_ensure_env_production_before_pull_before_up(
     )
 
     def _fake_run(cmd, **kwargs):
-        order.append("pull" if "pull" in cmd else "up")
+        if "rm" in cmd:
+            order.append("rm")
+        else:
+            order.append("pull" if "pull" in cmd else "up")
         return _FakeCompletedProcess(returncode=0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
-    assert order == ["ensure_env_production", "pull", "up"]
+    assert order == ["ensure_env_production", "rm", "pull", "up"]
 
 
 def test_post_up_hook_order_is_linger_then_seed_then_verify(
@@ -1145,7 +1160,7 @@ def test_rebuild_deployment_pins_compose_project_name(monkeypatch, tmp_path):
     monkeypatch.setattr(
         container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
     )
-    # The pre-up `compose build` split (Defect A) lands on subprocess.run; swallow it.
+    # The stale-container `rm -f` preflight lands on subprocess.run; swallow it.
     monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda *a, **k: None)
     captured: dict = {}
     monkeypatch.setattr(
@@ -1218,7 +1233,9 @@ def test_deploy_up_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
     assert any("up" in c and "--no-build" in c for c in runs), joined
 
 
-def test_rebuild_deployment_splits_build_from_up(monkeypatch, tmp_path):
+def test_rebuild_deployment_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
+    """rebuild delegates its up phase to deploy_up, so --dev inherits the same
+    build/up split (Defect A): standalone `build`, then exec'd `up --no-build`."""
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(
         container_lifecycle,
@@ -1242,11 +1259,157 @@ def test_rebuild_deployment_splits_build_from_up(monkeypatch, tmp_path):
         "execvpe",
         lambda file, args, env: execd.update(args=args),
     )
-    container_lifecycle.rebuild_deployment(str(tmp_path / "config.yml"))
+    container_lifecycle.rebuild_deployment(str(tmp_path / "config.yml"), dev_mode=True)
     # `build` ran as its own subprocess; the exec'd `up` carries --no-build.
     assert any(c[-1] == "build" for c in runs), [" ".join(c) for c in runs]
     assert "up" in execd["args"] and "--no-build" in execd["args"]
     assert "--build" not in execd["args"]
+
+
+def test_rebuild_deployment_cleans_before_delegating_to_deploy_up(monkeypatch, tmp_path):
+    """rebuild = clean, then the real deploy_up (single definition of every
+    up-path behavior); clean must run first."""
+    monkeypatch.chdir(tmp_path)
+    order: list[str] = []
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: ({"deployed_services": ["event_dispatcher"]}, ["docker-compose.yml"]),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(
+        container_lifecycle, "clean_deployment", lambda *a, **k: order.append("clean")
+    )
+    monkeypatch.setattr(
+        container_lifecycle,
+        "deploy_up",
+        lambda *a, **k: order.append("deploy_up"),
+    )
+    container_lifecycle.rebuild_deployment(str(tmp_path / "config.yml"))
+    assert order == ["clean", "deploy_up"]
+
+
+def test_rebuild_deployment_reconciles_web_terminals_stack(monkeypatch, tmp_path):
+    """A web-terminals project's rebuild must reach the web reconcile — the
+    pre-delegation rebuild ran only the plain services path, so nginx and the
+    persona containers never came back up after clean."""
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env.production").write_text("", encoding="utf-8")
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: (
+            {"deployed_services": [], "modules": {"web_terminals": {"enabled": True}}},
+            [],
+        ),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "clean_deployment", lambda *a, **k: None)
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
+    calls: list = []
+
+    def _fake_run(cmd, env=None, **k):
+        calls.append(list(cmd))
+        return _FakeCompletedProcess(returncode=0)
+
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+    container_lifecycle.rebuild_deployment(str(tmp_path / "config.yml"))
+    assert any("docker-compose.web.yml" in c and "up" in c for c in calls)
+
+
+# ---------------------------------------------------------------------------
+# Stale-container preflight — self-healing `deploy up`
+#
+# An aborted deploy leaves containers wedged in created/exited state, and
+# Docker Desktop reserves published host ports at container CREATE time — so
+# the next `up` collides with its own ghost ("address already in use" with
+# nothing listening on the port). Every up path first runs a service-scoped
+# `rm -f` (removes only non-running containers; running containers and
+# volumes untouched; exit-0 no-op on a clean stack). The plain path's `up`
+# additionally carries --remove-orphans; the web path must NOT — its two
+# invocations share one COMPOSE_PROJECT_NAME, so orphan-removal in either
+# would destroy the other stack's containers as "orphans".
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def captured_plain_runs(monkeypatch, tmp_path):
+    """Plain (non-web) deploy_up with every subprocess.run argv captured in order."""
+    calls: list[list[str]] = []
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        container_lifecycle,
+        "prepare_compose_files",
+        lambda *a, **k: ({"deployed_services": ["event_dispatcher"]}, ["docker-compose.yml"]),
+    )
+    monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
+    monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", lambda *a, **k: None)
+    monkeypatch.setattr(container_lifecycle, "_build_project_image", lambda *a, **k: None)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    monkeypatch.setattr(
+        container_lifecycle.subprocess, "run", lambda cmd, env=None, **k: calls.append(list(cmd))
+    )
+    return calls
+
+
+def test_deploy_up_runs_stale_container_preflight_before_up(captured_plain_runs, tmp_path):
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    rm_idx = next(i for i, c in enumerate(captured_plain_runs) if c[-2:] == ["rm", "-f"])
+    up_idx = next(i for i, c in enumerate(captured_plain_runs) if "up" in c)
+    assert rm_idx < up_idx
+    # Scoped to this deploy's own compose files — and it is `rm`, never a
+    # `down` (which would stop running containers).
+    rm_cmd = captured_plain_runs[rm_idx]
+    assert "docker-compose.yml" in rm_cmd
+    assert "down" not in rm_cmd
+
+
+def test_deploy_up_preflight_never_stops_or_removes_volumes(captured_plain_runs, tmp_path):
+    """`rm -f` must stay surgical: no -s/--stop (would touch running
+    containers) and no -v/--volumes (destroying state is clean/rebuild's job)."""
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    rm_cmd = next(c for c in captured_plain_runs if c[-2:] == ["rm", "-f"])
+    for forbidden in ("-s", "--stop", "-v", "--volumes"):
+        assert forbidden not in rm_cmd
+
+
+def test_deploy_up_plain_up_carries_remove_orphans(captured_plain_runs, tmp_path):
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True)
+
+    up_cmd = next(c for c in captured_plain_runs if "up" in c)
+    assert "--remove-orphans" in up_cmd
+
+
+def test_web_deploy_preflights_rm_and_never_remove_orphans(captured_web_runs, tmp_path):
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
+
+    cmds = [c["cmd"] for c in captured_web_runs["calls"]]
+    rm_idx = next(i for i, c in enumerate(cmds) if c[-2:] == ["rm", "-f"])
+    up_idx = next(i for i, c in enumerate(cmds) if "up" in c)
+    assert rm_idx < up_idx
+    for cmd in cmds:
+        assert "--remove-orphans" not in cmd
+
+
+def test_combined_deploy_each_stack_gets_its_own_rm_preflight(captured_combined_runs, tmp_path):
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
+
+    cmds = [c["cmd"] for c in captured_combined_runs["calls"]]
+    rm_calls = [c for c in cmds if c[-2:] == ["rm", "-f"]]
+    assert len(rm_calls) == 2
+    assert any("docker-compose.yml" in c for c in rm_calls)
+    assert any("docker-compose.web.yml" in c for c in rm_calls)
+    # The two stacks' files are never merged into one rm argv, and the
+    # shared-project path never orphan-removes.
+    for c in rm_calls:
+        assert not ("docker-compose.yml" in c and "docker-compose.web.yml" in c)
+    for c in cmds:
+        assert "--remove-orphans" not in c
 
 
 def test_web_services_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
@@ -1285,3 +1448,174 @@ def test_web_services_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
     assert not any("up" in c and "--build" in c for c in svc)
     assert any(c[-1] == "build" for c in svc), [" ".join(c) for c in svc]
     assert any("up" in c and "--no-build" in c for c in svc), [" ".join(c) for c in svc]
+
+
+# ---------------------------------------------------------------------------
+# _project_image_build_cmd -- com.osprey.project label + OSPREY_DEV build-arg
+# (task 2.5). The label lets a later `nuke` verify a tag belongs to this
+# deployment before removing it (matching the persona build path); OSPREY_DEV=1
+# is added iff --dev, mirroring the persona dev path.
+# ---------------------------------------------------------------------------
+
+
+def test_project_image_build_cmd_carries_project_label():
+    cmd = container_lifecycle._project_image_build_cmd(
+        {"project_name": "myfacility"}, "docker", "/proj"
+    )
+    assert "--label" in cmd
+    assert "com.osprey.project=myfacility" in cmd
+    # The label value tracks resolve_project_name (normalized), same as the tag.
+    assert f"{cmd[cmd.index('-t') + 1]}" == "myfacility:local"
+    assert cmd[-1] == "/proj"  # context stays last
+
+
+def test_project_image_build_cmd_non_dev_omits_osprey_dev_build_arg():
+    cmd = container_lifecycle._project_image_build_cmd(
+        {"project_name": "myfacility"}, "docker", "/proj", dev_mode=False
+    )
+    assert "OSPREY_DEV=1" not in cmd
+    assert not any(str(a) == "OSPREY_DEV=1" for a in cmd)
+
+
+def test_project_image_build_cmd_dev_adds_osprey_dev_build_arg():
+    cmd = container_lifecycle._project_image_build_cmd(
+        {"project_name": "myfacility"}, "docker", "/proj", dev_mode=True
+    )
+    assert "OSPREY_DEV=1" in cmd
+    # Properly paired behind a --build-arg flag, with the context still last.
+    assert cmd[cmd.index("OSPREY_DEV=1") - 1] == "--build-arg"
+    assert cmd[-1] == "/proj"
+
+
+# ---------------------------------------------------------------------------
+# _build_project_image -- OSPREY_DEV is keyed on ACTUAL wheel-staging success
+# (fail-closed). A --dev build whose wheel build/staging failed must NOT pass
+# the pin-relaxing OSPREY_DEV=1 arg: with an unreleased pin that arg would
+# silently install the latest published release instead of the local code the
+# flag promises. The image is still built -- just with fail-loud pin semantics.
+# ---------------------------------------------------------------------------
+
+
+def _project_image_dev_build_cmds(monkeypatch, tmp_path, staging_result):
+    """Run _build_project_image under --dev with a stubbed staging outcome;
+    return the captured build argv list."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_copy_local_framework_for_override",
+        lambda project_root: staging_result,
+    )
+    calls = []
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    config = {"project_name": "myfacility", "deployed_services": ["dispatch_worker"]}
+    container_lifecycle._build_project_image(config, dev_mode=True, env={})
+    return calls
+
+
+def test_build_project_image_dev_passes_osprey_dev_when_wheel_staged(monkeypatch, tmp_path):
+    (cmd,) = _project_image_dev_build_cmds(monkeypatch, tmp_path, staging_result=True)
+    assert "OSPREY_DEV=1" in cmd
+    assert cmd[cmd.index("OSPREY_DEV=1") - 1] == "--build-arg"
+
+
+def test_build_project_image_dev_omits_osprey_dev_when_staging_fails(monkeypatch, tmp_path):
+    (cmd,) = _project_image_dev_build_cmds(monkeypatch, tmp_path, staging_result=False)
+    assert "OSPREY_DEV=1" not in cmd
+
+
+def _fake_wheel_and_manifest_stage(project_root):
+    """Staging stub that drops BOTH dev artifacts, like the real helper does."""
+    Path(project_root, "osprey_framework-0.0.0-py3-none-any.whl").write_text("wheel")
+    Path(project_root, "osprey-local-requirements.txt").write_text("softioc>=4.5\n")
+    return True
+
+
+def test_build_project_image_dev_cleans_staged_wheel_and_manifest(monkeypatch, tmp_path):
+    """The finally-cleanup must remove BOTH staged artifacts — wheel AND
+    osprey-local-requirements.txt — so neither poisons a later non-dev build."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(container_lifecycle, "get_runtime_command", lambda config: ["docker"])
+    monkeypatch.setattr(
+        container_lifecycle, "_copy_local_framework_for_override", _fake_wheel_and_manifest_stage
+    )
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda cmd, **k: None)
+    config = {"project_name": "myfacility", "deployed_services": ["dispatch_worker"]}
+
+    container_lifecycle._build_project_image(config, dev_mode=True, env={})
+
+    assert list(tmp_path.glob("*.whl")) == []
+    assert not (tmp_path / "osprey-local-requirements.txt").exists()
+
+
+def test_build_project_image_dev_cleans_staged_artifacts_on_build_failure(monkeypatch, tmp_path):
+    """Cleanup runs in a finally: a failing image build must still remove the
+    staged wheel + manifest."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(container_lifecycle, "get_runtime_command", lambda config: ["docker"])
+    monkeypatch.setattr(
+        container_lifecycle, "_copy_local_framework_for_override", _fake_wheel_and_manifest_stage
+    )
+
+    def _failing_build(cmd, **k):
+        raise subprocess.CalledProcessError(1, cmd)
+
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", _failing_build)
+    config = {"project_name": "myfacility", "deployed_services": ["dispatch_worker"]}
+
+    with pytest.raises(subprocess.CalledProcessError):
+        container_lifecycle._build_project_image(config, dev_mode=True, env={})
+
+    assert list(tmp_path.glob("*.whl")) == []
+    assert not (tmp_path / "osprey-local-requirements.txt").exists()
+
+
+# ---------------------------------------------------------------------------
+# _warn_unignored_build_dir -- --dev context-bloat guard (task 3.3). Warns when
+# the rendered project's build/ dir would be swept into the --dev build context
+# because .dockerignore doesn't exclude it; silent otherwise.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _captured_warnings(monkeypatch):
+    warnings: list = []
+    monkeypatch.setattr(
+        container_lifecycle.logger, "warning", lambda *a, **k: warnings.append((a, k))
+    )
+    return warnings
+
+
+def test_warn_unignored_build_dir_fires_when_build_present_and_unignored(
+    _captured_warnings, tmp_path
+):
+    """build/ exists and no .dockerignore (missing == not-matching) -> warn once."""
+    (tmp_path / "build").mkdir()
+    container_lifecycle._warn_unignored_build_dir(str(tmp_path))
+    assert len(_captured_warnings) == 1
+
+
+def test_warn_unignored_build_dir_fires_when_dockerignore_lacks_build(_captured_warnings, tmp_path):
+    """build/ exists, .dockerignore present but lists other paths -> still warn."""
+    (tmp_path / "build").mkdir()
+    (tmp_path / ".dockerignore").write_text("*.whl\n.venv/\n", encoding="utf-8")
+    container_lifecycle._warn_unignored_build_dir(str(tmp_path))
+    assert len(_captured_warnings) == 1
+
+
+def test_warn_unignored_build_dir_silent_when_build_absent(_captured_warnings, tmp_path):
+    container_lifecycle._warn_unignored_build_dir(str(tmp_path))
+    assert _captured_warnings == []
+
+
+@pytest.mark.parametrize("ignore_line", ["build/", "build"])
+def test_warn_unignored_build_dir_silent_when_dockerignore_excludes_build(
+    _captured_warnings, tmp_path, ignore_line
+):
+    """A matching build/ (or build) line in .dockerignore silences the warning."""
+    (tmp_path / "build").mkdir()
+    (tmp_path / ".dockerignore").write_text(f"*.whl\n{ignore_line}\n", encoding="utf-8")
+    container_lifecycle._warn_unignored_build_dir(str(tmp_path))
+    assert _captured_warnings == []

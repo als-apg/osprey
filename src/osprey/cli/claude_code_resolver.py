@@ -72,6 +72,28 @@ CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
     },
 }
 
+
+def provider_auth_secret_env(provider_name: str, api_providers: dict | None = None) -> str | None:
+    """Name of the shell env var holding ``provider_name``'s auth secret.
+
+    The single source of the secret-var naming rule, shared by
+    :meth:`ClaudeCodeModelResolver.resolve` (which injects the secret at
+    launch) and the web-terminal ``.env.production`` generator (which must
+    ship the same var into per-user containers): built-in providers declare
+    ``auth_secret_env`` in :data:`CLAUDE_CODE_PROVIDERS`; a custom proxy
+    defined under ``api.providers`` derives ``<NAME>_API_KEY``. Returns
+    ``None`` for a provider known to neither — the caller decides whether
+    that's an error (:meth:`~ClaudeCodeModelResolver.resolve` raises) or a
+    skip (the generator leaves unknown providers to the resolver's own
+    validation).
+    """
+    if provider_name in CLAUDE_CODE_PROVIDERS:
+        return CLAUDE_CODE_PROVIDERS[provider_name]["auth_secret_env"]
+    if api_providers and provider_name in api_providers:
+        return f"{provider_name.upper().replace('-', '_')}_API_KEY"
+    return None
+
+
 AGENT_DEFAULT_TIERS: dict[str, str] = {
     "channel-finder": "haiku",
     "logbook-search": "sonnet",
@@ -496,7 +518,7 @@ class ClaudeCodeModelResolver:
             provider_entry = api_providers[provider_name]
             provider_def = {
                 "auth_env_var": "ANTHROPIC_AUTH_TOKEN",
-                "auth_secret_env": f"{provider_name.upper().replace('-', '_')}_API_KEY",
+                "auth_secret_env": provider_auth_secret_env(provider_name, api_providers),
                 "base_url": provider_entry.get("base_url"),
                 "default_model_tier": "opus",
                 "models": {},

@@ -10,6 +10,7 @@ together lives in ``tests/deployment/test_container_lifecycle.py``.
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -424,6 +425,234 @@ def test_env_production_local_mode_defaults_when_image_source_absent_is_registry
 
 
 # ---------------------------------------------------------------------------
+# ensure_env_production -- claude_code provider auth-secret coverage. The
+# generator must ship the auth secret of every claude_code.provider a web
+# container will actually authenticate with (deploy config's own on the
+# zero-migration path, each referenced persona project's under a catalog),
+# and must fail loudly -- not generate a dead file -- when one is missing.
+# ---------------------------------------------------------------------------
+
+
+def _write_persona_project(tmp_path, name, provider):
+    project_dir = tmp_path / name
+    project_dir.mkdir()
+    (project_dir / "config.yml").write_text(
+        f"project_name: {name}\nclaude_code:\n  provider: {provider}\n", encoding="utf-8"
+    )
+    return name  # catalog project_path, relative to the deploy project root
+
+
+def _persona_config(tmp_path, personas: dict[str, str]) -> dict:
+    """A local-mode deploy config whose catalog references rendered persona
+    projects, one per ``{persona_name: provider}`` entry."""
+    catalog = {
+        persona: {
+            "project": f"{persona}-proj",
+            "project_path": _write_persona_project(tmp_path, f"{persona}-proj", provider),
+        }
+        for persona, provider in personas.items()
+    }
+    first = next(iter(personas))
+    return {
+        "facility": {"timezone": "UTC"},
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "image_source": "local",
+                "default_persona": first,
+                "personas": catalog,
+                "users": [
+                    {"name": "alice", "index": 0, "persona": persona} for persona in personas
+                ],
+            },
+        },
+    }
+
+
+def test_env_production_zero_migration_copies_own_claude_code_secret(tmp_path):
+    """No persona catalog: the deploy config's own claude_code.provider is what
+    the web container runs, so its auth secret is copied -- and required."""
+    _write_dotenv(tmp_path / ".env", {"CBORG_API_KEY": "cc-secret"})
+    config = {
+        "facility": {},
+        "claude_code": {"provider": "cborg"},
+        "modules": {"web_terminals": {"image_source": "local"}},
+    }
+
+    generated = provision.parse_dotenv_file(provision.ensure_env_production(config, tmp_path))
+
+    assert generated["CBORG_API_KEY"] == "cc-secret"
+
+
+def test_env_production_copies_each_persona_projects_claude_code_secret(tmp_path):
+    """Persona catalog: every referenced persona project's own provider secret
+    ships, even when the deploy config's provider differs."""
+    _write_dotenv(
+        tmp_path / ".env",
+        {"ALS_APG_API_KEY": "persona-secret", "CBORG_API_KEY": "deploy-secret"},
+    )
+    config = _persona_config(tmp_path, {"operator": "als-apg"})
+    config["claude_code"] = {"provider": "cborg"}
+
+    generated = provision.parse_dotenv_file(provision.ensure_env_production(config, tmp_path))
+
+    assert generated["ALS_APG_API_KEY"] == "persona-secret"
+    # The deploy config's own provider secret is copied too (extra, not required).
+    assert generated["CBORG_API_KEY"] == "deploy-secret"
+
+
+def test_env_production_missing_persona_claude_code_secret_raises_actionably(tmp_path):
+    """A referenced persona's provider secret absent from .env must raise --
+    naming the var, the provider, and the persona -- never generate a file
+    that produces healthy-looking, unauthenticated terminals."""
+    _write_dotenv(tmp_path / ".env", {"SOMETHING_ELSE": "x"})
+    config = _persona_config(tmp_path, {"operator": "als-apg"})
+
+    with pytest.raises(RuntimeError, match=r"ALS_APG_API_KEY.*\.env") as excinfo:
+        provision.ensure_env_production(config, tmp_path)
+
+    assert "als-apg" in str(excinfo.value)
+    assert "operator" in str(excinfo.value)
+    assert not (tmp_path / ".env.production").exists()
+
+
+def test_env_production_deploy_configs_own_secret_not_required_under_catalog(tmp_path):
+    """With a persona catalog in play the per-user containers run persona
+    projects, so the deploy config's own provider secret is copy-if-present
+    but its absence must NOT fail the deploy."""
+    _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "persona-secret"})
+    config = _persona_config(tmp_path, {"operator": "als-apg"})
+    config["claude_code"] = {"provider": "anthropic"}  # ANTHROPIC_API_KEY not in .env
+
+    generated = provision.parse_dotenv_file(provision.ensure_env_production(config, tmp_path))
+
+    assert generated["ALS_APG_API_KEY"] == "persona-secret"
+    assert "ANTHROPIC_API_KEY" not in generated
+
+
+def test_env_production_custom_provider_secret_derived_from_api_providers(tmp_path):
+    """A custom proxy provider (defined under api.providers, not built in)
+    derives <NAME>_API_KEY -- the same rule the launch-time resolver uses."""
+    _write_dotenv(tmp_path / ".env", {"MY_PROXY_API_KEY": "custom-secret"})
+    config = {
+        "facility": {},
+        "api": {"providers": {"my-proxy": {"base_url": "https://proxy.example.org"}}},
+        "claude_code": {"provider": "my-proxy"},
+        "modules": {"web_terminals": {"image_source": "local"}},
+    }
+
+    generated = provision.parse_dotenv_file(provision.ensure_env_production(config, tmp_path))
+
+    assert generated["MY_PROXY_API_KEY"] == "custom-secret"
+
+
+def test_env_production_unknown_provider_is_skipped_not_raised(tmp_path):
+    """A provider name known neither to CLAUDE_CODE_PROVIDERS nor to
+    api.providers contributes nothing here -- rejecting it is the launch-time
+    resolver's job, with its own actionable error."""
+    _write_dotenv(tmp_path / ".env", {"CBORG_API_KEY": "x"})
+    config = {
+        "facility": {},
+        "claude_code": {"provider": "frobnicator"},
+        "modules": {"web_terminals": {"image_source": "local"}},
+    }
+
+    result = provision.ensure_env_production(config, tmp_path)
+
+    assert result.is_file()
+
+
+def test_env_production_stale_existing_file_without_credentials_warns(tmp_path, caplog):
+    """The never-clobber rule keeps a stale pre-provider-change file in
+    service; the deploy must at least say so, naming the missing var."""
+    (tmp_path / ".env.production").write_text("TZ=UTC\n", encoding="utf-8")
+    config = _persona_config(tmp_path, {"operator": "als-apg"})
+
+    with caplog.at_level("WARNING"):
+        result = provision.ensure_env_production(config, tmp_path)
+
+    assert result.read_text(encoding="utf-8") == "TZ=UTC\n"  # still never clobbered
+    assert "ALS_APG_API_KEY" in caplog.text
+    assert "none of the LLM credential" in caplog.text
+
+
+def test_env_production_existing_file_with_credential_does_not_warn(tmp_path, caplog):
+    (tmp_path / ".env.production").write_text("ALS_APG_API_KEY=ok\n", encoding="utf-8")
+    config = _persona_config(tmp_path, {"operator": "als-apg"})
+
+    with caplog.at_level("WARNING"):
+        provision.ensure_env_production(config, tmp_path)
+
+    assert "none of the LLM credential" not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# _warn_if_web_stack_unreachable -- advisory post-up host-reachability probe
+# (the Docker Desktop network_mode:host trap: healthy stack, unreachable host).
+# ---------------------------------------------------------------------------
+
+_PROBE_CONFIG = {"modules": {"web_terminals": {"enabled": True, "nginx_port": 9080}}}
+
+
+def test_web_stack_reachable_no_warning(monkeypatch, caplog):
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(provision.urllib.request, "urlopen", lambda url, timeout: _Resp())
+
+    with caplog.at_level("WARNING"):
+        provision._warn_if_web_stack_unreachable(_PROBE_CONFIG, attempts=2, delay=0)
+
+    assert "not reachable" not in caplog.text
+
+
+def test_web_stack_unreachable_warns_with_docker_desktop_hint(monkeypatch, caplog):
+    def _refuse(url, timeout):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(provision.urllib.request, "urlopen", _refuse)
+    monkeypatch.setattr(provision.sys, "platform", "darwin")
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+
+    with caplog.at_level("WARNING"):
+        provision._warn_if_web_stack_unreachable(_PROBE_CONFIG, attempts=2, delay=0)
+
+    assert "http://127.0.0.1:9080/" in caplog.text
+    assert "Enable host networking" in caplog.text
+
+
+def test_web_stack_unreachable_on_linux_warns_without_desktop_hint(monkeypatch, caplog):
+    def _refuse(url, timeout):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(provision.urllib.request, "urlopen", _refuse)
+    monkeypatch.setattr(provision.sys, "platform", "linux")
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+
+    with caplog.at_level("WARNING"):
+        provision._warn_if_web_stack_unreachable(_PROBE_CONFIG, attempts=2, delay=0)
+
+    assert "not reachable" in caplog.text
+    assert "Enable host networking" not in caplog.text
+
+
+def test_web_stack_http_error_counts_as_reachable(monkeypatch, caplog):
+    def _http_error(url, timeout):
+        raise provision.urllib.error.HTTPError(url, 502, "Bad Gateway", None, None)
+
+    monkeypatch.setattr(provision.urllib.request, "urlopen", _http_error)
+
+    with caplog.at_level("WARNING"):
+        provision._warn_if_web_stack_unreachable(_PROBE_CONFIG, attempts=2, delay=0)
+
+    assert "not reachable" not in caplog.text
+
+
+# ---------------------------------------------------------------------------
 # build_persona_images -- local-mode per-persona image builder
 # ---------------------------------------------------------------------------
 
@@ -446,8 +675,10 @@ def _make_persona_project(tmp_path, name, cli_version=None):
 def _no_dev_wheel_staging(monkeypatch):
     """Stub out the dev-wheel staging collaborator (its own coverage lives with
     _build_project_image's tests) so build_persona_images tests never touch a
-    real wheel build."""
-    monkeypatch.setattr(provision, "_copy_local_framework_for_override", lambda project_root: None)
+    real wheel build. Reports SUCCESS (True) — the OSPREY_DEV build-arg is
+    keyed on staging success, so simulating a successful staging keeps the
+    dev-path assertions meaningful; the failure path has its own test."""
+    monkeypatch.setattr(provision, "_copy_local_framework_for_override", lambda project_root: True)
 
 
 def test_build_persona_images_noop_in_registry_mode(monkeypatch, tmp_path):
@@ -644,6 +875,89 @@ def test_build_persona_images_never_reads_facility_cli_version(
     assert not any("9.9.9" in str(arg) for arg in cmd)
 
 
+def test_build_persona_images_dev_mode_adds_osprey_dev_build_arg(
+    monkeypatch, tmp_path, _no_dev_wheel_staging
+):
+    """Under --dev the persona build argv carries OSPREY_DEV=1 (mirroring the
+    dispatch-worker project-image dev path)."""
+    ops_path = _make_persona_project(tmp_path, "ops-app")
+    config = {
+        "project_name": "myfacility",
+        "modules": {
+            "web_terminals": {
+                "image_source": "local",
+                "default_persona": "ops",
+                "personas": {"ops": {"project": "ops-app", "project_path": ops_path}},
+            }
+        },
+    }
+    resolved_users = [{"name": "alice", "persona": "ops", "project": "ops-app"}]
+
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    calls = []
+    monkeypatch.setattr(provision.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+
+    provision.build_persona_images(config, resolved_users, True, {})
+
+    (cmd,) = calls
+    assert "OSPREY_DEV=1" in cmd
+    assert cmd[cmd.index("OSPREY_DEV=1") - 1] == "--build-arg"
+
+
+def test_build_persona_images_dev_mode_omits_osprey_dev_when_staging_fails(monkeypatch, tmp_path):
+    """--dev with a FAILED wheel staging must build WITHOUT OSPREY_DEV: the
+    pin-relaxing arg would otherwise silently install the latest published
+    release instead of the local code the flag promises (fail-closed)."""
+    ops_path = _make_persona_project(tmp_path, "ops-app")
+    config = {
+        "project_name": "myfacility",
+        "modules": {
+            "web_terminals": {
+                "image_source": "local",
+                "default_persona": "ops",
+                "personas": {"ops": {"project": "ops-app", "project_path": ops_path}},
+            }
+        },
+    }
+    resolved_users = [{"name": "alice", "persona": "ops", "project": "ops-app"}]
+
+    monkeypatch.setattr(provision, "_copy_local_framework_for_override", lambda project_root: False)
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    calls = []
+    monkeypatch.setattr(provision.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+
+    provision.build_persona_images(config, resolved_users, True, {})
+
+    (cmd,) = calls  # the image is still built -- just without the dev relaxation
+    assert "OSPREY_DEV=1" not in cmd
+
+
+def test_build_persona_images_non_dev_omits_osprey_dev_build_arg(
+    monkeypatch, tmp_path, _no_dev_wheel_staging
+):
+    ops_path = _make_persona_project(tmp_path, "ops-app")
+    config = {
+        "project_name": "myfacility",
+        "modules": {
+            "web_terminals": {
+                "image_source": "local",
+                "default_persona": "ops",
+                "personas": {"ops": {"project": "ops-app", "project_path": ops_path}},
+            }
+        },
+    }
+    resolved_users = [{"name": "alice", "persona": "ops", "project": "ops-app"}]
+
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    calls = []
+    monkeypatch.setattr(provision.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+
+    provision.build_persona_images(config, resolved_users, False, {})
+
+    (cmd,) = calls
+    assert "OSPREY_DEV=1" not in cmd
+
+
 def test_build_persona_images_dev_mode_stages_and_cleans_wheel(monkeypatch, tmp_path):
     ops_path = _make_persona_project(tmp_path, "ops-app")
     config = {
@@ -660,6 +974,8 @@ def test_build_persona_images_dev_mode_stages_and_cleans_wheel(monkeypatch, tmp_
 
     def _fake_stage(project_root):
         (Path(project_root) / "osprey_framework-0.0.0-py3-none-any.whl").write_text("wheel")
+        (Path(project_root) / "osprey-local-requirements.txt").write_text("softioc>=4.5\n")
+        return True
 
     monkeypatch.setattr(provision, "_copy_local_framework_for_override", _fake_stage)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
@@ -667,9 +983,47 @@ def test_build_persona_images_dev_mode_stages_and_cleans_wheel(monkeypatch, tmp_
 
     provision.build_persona_images(config, resolved_users, True, {})
 
-    # Staged wheel must be cleaned up after the build so it can't poison a
-    # later non-dev build's wheel-drop branch.
+    # Staged artifacts (wheel AND its requirements manifest) must be cleaned
+    # up after the build so neither can poison a later non-dev build.
     assert list(Path(ops_path).glob("*.whl")) == []
+    assert not (Path(ops_path) / "osprey-local-requirements.txt").exists()
+
+
+def test_build_persona_images_dev_mode_cleans_staged_artifacts_on_build_failure(
+    monkeypatch, tmp_path
+):
+    """The persona cleanup runs in a finally: a failing image build must still
+    remove the staged wheel + manifest from the persona's context."""
+    ops_path = _make_persona_project(tmp_path, "ops-app")
+    config = {
+        "project_name": "myfacility",
+        "modules": {
+            "web_terminals": {
+                "image_source": "local",
+                "default_persona": "ops",
+                "personas": {"ops": {"project": "ops-app", "project_path": ops_path}},
+            }
+        },
+    }
+    resolved_users = [{"name": "alice", "persona": "ops", "project": "ops-app"}]
+
+    def _fake_stage(project_root):
+        (Path(project_root) / "osprey_framework-0.0.0-py3-none-any.whl").write_text("wheel")
+        (Path(project_root) / "osprey-local-requirements.txt").write_text("softioc>=4.5\n")
+        return True
+
+    def _failing_build(cmd, **k):
+        raise subprocess.CalledProcessError(1, cmd)
+
+    monkeypatch.setattr(provision, "_copy_local_framework_for_override", _fake_stage)
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(provision.subprocess, "run", _failing_build)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        provision.build_persona_images(config, resolved_users, True, {})
+
+    assert list(Path(ops_path).glob("*.whl")) == []
+    assert not (Path(ops_path) / "osprey-local-requirements.txt").exists()
 
 
 def test_build_persona_images_no_referenced_personas_runs_no_build(

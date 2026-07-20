@@ -49,8 +49,8 @@ never leaves the stack degraded for a later run.
 
 CONTAINER SAFETY: every docker/compose invocation below names an EXACT
 resource (``<project>-bluesky-bridge``, ``<project>-virtual-accelerator``,
-``<project>-bluesky-panels``, images ``osprey-bluesky-bridge:local``/
-``osprey-va:local``/``osprey-bluesky-panels:local``) -- never ``system prune``,
+``<project>-bluesky-panels``, images ``<project>-bluesky-bridge:local``/
+``<project>-va:local``/``<project>-bluesky-panels:local``) -- never ``system prune``,
 never ``--volumes``, never a wildcard ``docker rm``/``rmi``. Teardown goes
 through ``osprey deploy down`` (the shipped compose path), and the one
 mid-test ``docker stop``/``docker start`` (test 6) names the VA container
@@ -98,18 +98,20 @@ BLUESKY_PANELS_URL = f"http://localhost:{BLUESKY_PANELS_PORT}"
 
 VA_CA_PORT = _orm_stack.VA_CA_PORT
 
-BRIDGE_IMAGE = _orm_stack.BRIDGE_IMAGE
-VA_IMAGE = _orm_stack.VA_IMAGE
-BLUESKY_PANELS_IMAGE = "osprey-bluesky-panels:local"
-
 # The fixture builds/deploys under this project name; every compose template
-# renders its container_name as ``<project>-<service>``, so derive them
-# rather than hardcode host-global names that break the moment the templates
-# are namespaced per-project.
+# renders its container_name and locally-built image as ``<project>-<service>``,
+# so derive them rather than hardcode host-global names that break the moment
+# the templates are namespaced per-project.
 PROJECT_NAME = "panels-proj"
 BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
 VA_CONTAINER = f"{PROJECT_NAME}-virtual-accelerator"
 BLUESKY_PANELS_CONTAINER = f"{PROJECT_NAME}-bluesky-panels"
+
+# Image tags derived the same way the service compose templates do
+# (``resolve_project_name`` -> ``<project>-<service>:local``).
+BRIDGE_IMAGE = _orm_stack.bridge_image(PROJECT_NAME)
+VA_IMAGE = _orm_stack.va_image(PROJECT_NAME)
+BLUESKY_PANELS_IMAGE = _orm_stack.panels_image(PROJECT_NAME)
 
 BUILD_TIMEOUT_SEC = _orm_stack.BUILD_TIMEOUT_SEC
 # The first-time native VA source build is slow (minutes); the sidecar +
