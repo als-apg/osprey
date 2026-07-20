@@ -60,7 +60,7 @@ dependencies = [
     "openai>=2.45.0",
     "anthropic",
     "google-generativeai",
-    "ollama>=0.5.1",
+    "ollama>=0.6.2",
     # Advanced code generation
     # Claude Code SDK - pinned. Bundles CLI 2.1.191 (verified to work with
     # als-apg routing). >=0.1.46 needed for list_subagents/
@@ -75,10 +75,10 @@ dependencies = [
     # Networking and protocols
     "aiohttp>=3.10",  # Required by litellm (ConnectionTimeoutError added in 3.10)
     "websocket-client>=1.7.0",
-    "urllib3>=2.4.0",
+    "urllib3>=2.7.0",
     "certifi>=2025.4.26",
     "charset-normalizer>=3.4.2",
-    "idna>=3.10",
+    "idna>=3.18",
     "MarkupSafe>=3.0.2",
     "markdown>=3.5",  # Markdown-to-HTML rendering for artifact converters
     "aiofiles>=24.1.0",  # Async file I/O for non-blocking Python executor
@@ -93,10 +93,10 @@ dependencies = [
     "playwright>=1.40.0",
     "ipywidgets",  # Interactive widgets for Jupyter notebooks
     # Natural language processing
-    "nltk>=3.8.1",
+    "nltk>=3.10.0",
     # ARIEL Web Interface (FastAPI server)
     "fastapi>=0.109.0",
-    "uvicorn[standard]>=0.27.0",
+    "uvicorn[standard]>=0.51.0",
     # Utilities
     "unique-namer>=0.1.0",
     # EPICS Channel Access client (used by control_system connector,
@@ -124,8 +124,8 @@ dependencies = [
     # the aioca Channel Access backend the EPICS substrate devices need.
     "bluesky>=1.15.1",
     "ophyd-async[ca]>=0.16,<1.0",
-    "tiled[client]>=0.1",
-    "duckdb>=1.5.1",
+    "tiled[client]>=0.2.14",
+    "duckdb>=1.5.4",
     "tenacity>=9.1.4",
     # Cross-version TypedDict/NotRequired — pydantic v2.12 rejects typing.TypedDict on py<3.12.
     "typing_extensions>=4.12.0",
@@ -157,9 +157,9 @@ dev = [
     "pre-commit",
     "ruff",
     "build",  # Required for 'osprey deploy up --dev' to build local wheel
-    "testcontainers[postgres]>=4.0.0",  # Real PostgreSQL for integration tests
-    "testcontainers[mongodb]>=4.0.0",  # MongoDB for archiver-mongodb integration tests
-    "docker>=7.0.0",  # Docker SDK for testcontainers availability check
+    "testcontainers[postgres]>=4.14.2",  # Real PostgreSQL for integration tests
+    "testcontainers[mongodb]>=4.14.2",  # MongoDB for archiver-mongodb integration tests
+    "docker>=7.2.0",  # Docker SDK for testcontainers availability check
     "psycopg[binary,pool]>=3.1.0,<4.0.0",  # ARIEL search integration tests
     "psycopg-pool>=3.1.0,<4.0.0",  # ARIEL search integration tests
     "pillow>=12.3.0",  # Perceptual diffing for the design-system visual regression suite
