@@ -313,11 +313,14 @@ def deploy(
                 console.print(f"  • {compose_file}")
 
         elif action == "clean":
-            # clean_deployment expects compose_files list, so prepare them first
-            _, compose_files = prepare_compose_files(
+            # clean_deployment expects compose_files list, so prepare them first.
+            # Keep the loaded config and pass it through so cleanup runs under
+            # this deploy's COMPOSE_PROJECT_NAME (resolve_project_name(config))
+            # rather than the shared "unnamed-project" default.
+            cfg, compose_files = prepare_compose_files(
                 config_path, dev_mode=dev, expose_network=expose
             )
-            clean_deployment(compose_files)
+            clean_deployment(compose_files, cfg)
 
         elif action == "rebuild":
             rebuild_deployment(config_path, detached=detached, dev_mode=dev, expose_network=expose)

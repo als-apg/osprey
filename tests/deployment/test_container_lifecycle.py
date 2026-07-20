@@ -8,7 +8,9 @@ without a container runtime.
 
 from __future__ import annotations
 
+import subprocess
 import types
+from pathlib import Path
 
 import pytest
 
@@ -1443,3 +1445,174 @@ def test_web_services_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
     assert not any("up" in c and "--build" in c for c in svc)
     assert any(c[-1] == "build" for c in svc), [" ".join(c) for c in svc]
     assert any("up" in c and "--no-build" in c for c in svc), [" ".join(c) for c in svc]
+
+
+# ---------------------------------------------------------------------------
+# _project_image_build_cmd -- com.osprey.project label + OSPREY_DEV build-arg
+# (task 2.5). The label lets a later `nuke` verify a tag belongs to this
+# deployment before removing it (matching the persona build path); OSPREY_DEV=1
+# is added iff --dev, mirroring the persona dev path.
+# ---------------------------------------------------------------------------
+
+
+def test_project_image_build_cmd_carries_project_label():
+    cmd = container_lifecycle._project_image_build_cmd(
+        {"project_name": "myfacility"}, "docker", "/proj"
+    )
+    assert "--label" in cmd
+    assert "com.osprey.project=myfacility" in cmd
+    # The label value tracks resolve_project_name (normalized), same as the tag.
+    assert f"{cmd[cmd.index('-t') + 1]}" == "myfacility:local"
+    assert cmd[-1] == "/proj"  # context stays last
+
+
+def test_project_image_build_cmd_non_dev_omits_osprey_dev_build_arg():
+    cmd = container_lifecycle._project_image_build_cmd(
+        {"project_name": "myfacility"}, "docker", "/proj", dev_mode=False
+    )
+    assert "OSPREY_DEV=1" not in cmd
+    assert not any(str(a) == "OSPREY_DEV=1" for a in cmd)
+
+
+def test_project_image_build_cmd_dev_adds_osprey_dev_build_arg():
+    cmd = container_lifecycle._project_image_build_cmd(
+        {"project_name": "myfacility"}, "docker", "/proj", dev_mode=True
+    )
+    assert "OSPREY_DEV=1" in cmd
+    # Properly paired behind a --build-arg flag, with the context still last.
+    assert cmd[cmd.index("OSPREY_DEV=1") - 1] == "--build-arg"
+    assert cmd[-1] == "/proj"
+
+
+# ---------------------------------------------------------------------------
+# _build_project_image -- OSPREY_DEV is keyed on ACTUAL wheel-staging success
+# (fail-closed). A --dev build whose wheel build/staging failed must NOT pass
+# the pin-relaxing OSPREY_DEV=1 arg: with an unreleased pin that arg would
+# silently install the latest published release instead of the local code the
+# flag promises. The image is still built -- just with fail-loud pin semantics.
+# ---------------------------------------------------------------------------
+
+
+def _project_image_dev_build_cmds(monkeypatch, tmp_path, staging_result):
+    """Run _build_project_image under --dev with a stubbed staging outcome;
+    return the captured build argv list."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(
+        container_lifecycle, "get_runtime_command", lambda config: ["docker", "compose"]
+    )
+    monkeypatch.setattr(
+        container_lifecycle,
+        "_copy_local_framework_for_override",
+        lambda project_root: staging_result,
+    )
+    calls = []
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+    config = {"project_name": "myfacility", "deployed_services": ["dispatch_worker"]}
+    container_lifecycle._build_project_image(config, dev_mode=True, env={})
+    return calls
+
+
+def test_build_project_image_dev_passes_osprey_dev_when_wheel_staged(monkeypatch, tmp_path):
+    (cmd,) = _project_image_dev_build_cmds(monkeypatch, tmp_path, staging_result=True)
+    assert "OSPREY_DEV=1" in cmd
+    assert cmd[cmd.index("OSPREY_DEV=1") - 1] == "--build-arg"
+
+
+def test_build_project_image_dev_omits_osprey_dev_when_staging_fails(monkeypatch, tmp_path):
+    (cmd,) = _project_image_dev_build_cmds(monkeypatch, tmp_path, staging_result=False)
+    assert "OSPREY_DEV=1" not in cmd
+
+
+def _fake_wheel_and_manifest_stage(project_root):
+    """Staging stub that drops BOTH dev artifacts, like the real helper does."""
+    Path(project_root, "osprey_framework-0.0.0-py3-none-any.whl").write_text("wheel")
+    Path(project_root, "osprey-local-requirements.txt").write_text("softioc>=4.5\n")
+    return True
+
+
+def test_build_project_image_dev_cleans_staged_wheel_and_manifest(monkeypatch, tmp_path):
+    """The finally-cleanup must remove BOTH staged artifacts — wheel AND
+    osprey-local-requirements.txt — so neither poisons a later non-dev build."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(container_lifecycle, "get_runtime_command", lambda config: ["docker"])
+    monkeypatch.setattr(
+        container_lifecycle, "_copy_local_framework_for_override", _fake_wheel_and_manifest_stage
+    )
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda cmd, **k: None)
+    config = {"project_name": "myfacility", "deployed_services": ["dispatch_worker"]}
+
+    container_lifecycle._build_project_image(config, dev_mode=True, env={})
+
+    assert list(tmp_path.glob("*.whl")) == []
+    assert not (tmp_path / "osprey-local-requirements.txt").exists()
+
+
+def test_build_project_image_dev_cleans_staged_artifacts_on_build_failure(monkeypatch, tmp_path):
+    """Cleanup runs in a finally: a failing image build must still remove the
+    staged wheel + manifest."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(container_lifecycle, "get_runtime_command", lambda config: ["docker"])
+    monkeypatch.setattr(
+        container_lifecycle, "_copy_local_framework_for_override", _fake_wheel_and_manifest_stage
+    )
+
+    def _failing_build(cmd, **k):
+        raise subprocess.CalledProcessError(1, cmd)
+
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", _failing_build)
+    config = {"project_name": "myfacility", "deployed_services": ["dispatch_worker"]}
+
+    with pytest.raises(subprocess.CalledProcessError):
+        container_lifecycle._build_project_image(config, dev_mode=True, env={})
+
+    assert list(tmp_path.glob("*.whl")) == []
+    assert not (tmp_path / "osprey-local-requirements.txt").exists()
+
+
+# ---------------------------------------------------------------------------
+# _warn_unignored_build_dir -- --dev context-bloat guard (task 3.3). Warns when
+# the rendered project's build/ dir would be swept into the --dev build context
+# because .dockerignore doesn't exclude it; silent otherwise.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def _captured_warnings(monkeypatch):
+    warnings: list = []
+    monkeypatch.setattr(
+        container_lifecycle.logger, "warning", lambda *a, **k: warnings.append((a, k))
+    )
+    return warnings
+
+
+def test_warn_unignored_build_dir_fires_when_build_present_and_unignored(
+    _captured_warnings, tmp_path
+):
+    """build/ exists and no .dockerignore (missing == not-matching) -> warn once."""
+    (tmp_path / "build").mkdir()
+    container_lifecycle._warn_unignored_build_dir(str(tmp_path))
+    assert len(_captured_warnings) == 1
+
+
+def test_warn_unignored_build_dir_fires_when_dockerignore_lacks_build(_captured_warnings, tmp_path):
+    """build/ exists, .dockerignore present but lists other paths -> still warn."""
+    (tmp_path / "build").mkdir()
+    (tmp_path / ".dockerignore").write_text("*.whl\n.venv/\n", encoding="utf-8")
+    container_lifecycle._warn_unignored_build_dir(str(tmp_path))
+    assert len(_captured_warnings) == 1
+
+
+def test_warn_unignored_build_dir_silent_when_build_absent(_captured_warnings, tmp_path):
+    container_lifecycle._warn_unignored_build_dir(str(tmp_path))
+    assert _captured_warnings == []
+
+
+@pytest.mark.parametrize("ignore_line", ["build/", "build"])
+def test_warn_unignored_build_dir_silent_when_dockerignore_excludes_build(
+    _captured_warnings, tmp_path, ignore_line
+):
+    """A matching build/ (or build) line in .dockerignore silences the warning."""
+    (tmp_path / "build").mkdir()
+    (tmp_path / ".dockerignore").write_text(f"*.whl\n{ignore_line}\n", encoding="utf-8")
+    container_lifecycle._warn_unignored_build_dir(str(tmp_path))
+    assert _captured_warnings == []

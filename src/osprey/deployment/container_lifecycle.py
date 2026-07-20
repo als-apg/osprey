@@ -14,11 +14,17 @@ from urllib.parse import unquote, urlsplit
 
 from osprey.deployment.compose_generator import (
     _copy_local_framework_for_override,
+    _staged_dev_artifact_paths,
     clean_deployment,
     prepare_compose_files,
     resolve_project_name,
 )
 from osprey.deployment.facility_config import normalize_facility_config
+from osprey.deployment.host_ports import (
+    find_port_conflicts,
+    format_conflict_report,
+    parse_host_port_bindings,
+)
 from osprey.deployment.runtime_helper import (
     get_runtime_command,
     runtime_env,
@@ -650,30 +656,74 @@ def _worker_image_target(config: dict, env: dict) -> str:
     return f"{resolve_project_name(config)}:local"
 
 
-def _project_image_build_cmd(config: dict, runtime: str, project_root: str) -> list[str]:
+def _project_image_build_cmd(
+    config: dict, runtime: str, project_root: str, dev_mode: bool = False
+) -> list[str]:
     """Construct the ``<runtime> build`` argv that produces ``<project>:local``.
+
+    Carries the same ``com.osprey.project`` label
+    :func:`osprey.deployment.web_terminals.provision._persona_image_build_cmd`
+    stamps on its persona images, so a later ``nuke`` can verify a tag belongs
+    to this deployment before removing it. Under ``dev_mode`` an
+    ``OSPREY_DEV=1`` build-arg is added (mirroring the persona dev path), so
+    the Dockerfile's dev branch can key off it.
 
     :param config: Raw deploy config (project name, ``claude_code.cli_version``).
     :param runtime: Base container command (``docker`` or ``podman``).
     :param project_root: Build context — the project root that holds the
         rendered ``Dockerfile`` (and, under ``--dev``, the staged wheel).
+    :param dev_mode: Whether ``--dev`` was passed (adds ``OSPREY_DEV=1``).
     :return: The full build command as an argv list.
     """
     project_name = resolve_project_name(config)
     dockerfile = os.path.join(project_root, "Dockerfile")
-    return [
+    cmd = [
         runtime,
         "build",
         "-t",
         f"{project_name}:local",
         "-f",
         dockerfile,
+        "--label",
+        f"com.osprey.project={project_name}",
         "--build-arg",
         f"CLAUDE_CLI_VERSION={_resolve_claude_cli_version(config)}",
         "--build-arg",
         f"OSPREY_PIP_SPEC={_resolve_pip_spec()}",
-        project_root,
     ]
+    if dev_mode:
+        cmd.extend(["--build-arg", "OSPREY_DEV=1"])
+    cmd.append(project_root)
+    return cmd
+
+
+def _warn_unignored_build_dir(project_root: str) -> None:
+    """Warn if a ``build/`` dir would bloat the ``--dev`` build context.
+
+    A rendered project accumulates a ``build/`` directory (compose files,
+    service contexts). When it isn't excluded via the project's
+    ``.dockerignore``, ``<runtime> build``'s context tar sweeps it up on every
+    ``--dev`` build — slow, and a foot-gun a one-line ``.dockerignore`` entry
+    fixes. Plain-text line check only (no docker introspection); a missing
+    ``.dockerignore`` counts as not-matching.
+    """
+    if not (Path(project_root) / "build").exists():
+        return
+    dockerignore = Path(project_root) / ".dockerignore"
+    lines = (
+        dockerignore.read_text(encoding="utf-8").splitlines()
+        if dockerignore.is_file()
+        else []
+    )
+    if any(line.strip().rstrip("/") == "build" for line in lines):
+        return
+    logger.warning(
+        "The project's build/ directory is not excluded from the --dev image "
+        "build context (no matching entry in %s), so it will be sent to the "
+        "container runtime on every build. Add a line 'build/' to .dockerignore, "
+        "or re-render the project with `osprey build --force`.",
+        dockerignore,
+    )
 
 
 def _build_project_image(config: dict, dev_mode: bool, env: dict) -> None:
@@ -689,12 +739,15 @@ def _build_project_image(config: dict, dev_mode: bool, env: dict) -> None:
     ``<project>:local`` tag: an ``OSPREY_WORKER_IMAGE`` override or a
     profile-pinned ``services.dispatch_worker.image`` means a prebuilt image is
     wanted, so there is nothing to build. The event-dispatcher's own
-    ``osprey-dispatch:local`` build (its compose ``build:`` block) is untouched.
+    ``<project>-dispatch:local`` build (its compose ``build:`` block) is untouched.
 
     Under ``dev_mode`` a wheel is built from the local osprey checkout and staged
     into the build context (mirroring the dispatch image's ``--dev`` convention);
     the Dockerfile's wheel-drop branch then installs it so unreleased code is
-    baked in. The staged wheel is removed afterward so it cannot poison a later
+    baked in. The ``OSPREY_DEV=1`` build-arg is passed only when that staging
+    actually succeeded — a failed wheel build keeps the pinned install
+    fail-loud instead of silently relaxing it to the latest published release.
+    The staged wheel is removed afterward so it cannot poison a later
     non-dev build (whose wheel-drop branch fires on any ``*.whl`` in the context).
 
     :param config: Raw deploy config.
@@ -720,23 +773,37 @@ def _build_project_image(config: dict, dev_mode: bool, env: dict) -> None:
     runtime = get_runtime_command(config)[0]
     project_root = os.getcwd()
 
-    staged_wheels: list[Path] = []
+    # OSPREY_DEV=1 (the pin-relaxing build arg) is passed only when the wheel
+    # was actually staged: on a failed build/staging the Dockerfile must keep
+    # its fail-loud pinned install rather than silently falling back to the
+    # latest published release under a flag that means "run my local code".
+    staged_artifacts: list[Path] = []
+    wheel_staged = False
     if dev_mode:
-        before = set(Path(project_root).glob("*.whl"))
-        _copy_local_framework_for_override(project_root)
-        staged_wheels = list(set(Path(project_root).glob("*.whl")) - before)
+        _warn_unignored_build_dir(project_root)
+        before = _staged_dev_artifact_paths(project_root)
+        wheel_staged = bool(_copy_local_framework_for_override(project_root))
+        staged_artifacts = sorted(_staged_dev_artifact_paths(project_root) - before)
+        if not wheel_staged:
+            logger.warning(
+                "Dev-wheel staging failed for the project image build; building "
+                "without OSPREY_DEV so the Dockerfile keeps its pinned "
+                "osprey-framework install."
+            )
 
     try:
-        cmd = _project_image_build_cmd(config, runtime, project_root)
+        cmd = _project_image_build_cmd(config, runtime, project_root, dev_mode and wheel_staged)
         logger.key_info("Building dispatch worker project image %s:", project_image)
         logger.info("Running command:\n    %s", " ".join(cmd))
         subprocess.run(cmd, env=env, check=True)
     finally:
-        for whl in staged_wheels:
+        # Remove BOTH staged artifacts (wheel + requirements manifest) so
+        # neither can poison a later non-dev build in this context.
+        for artifact in staged_artifacts:
             try:
-                whl.unlink()
+                artifact.unlink()
             except OSError:
-                logger.warning("Could not remove staged dev wheel %s", whl)
+                logger.warning("Could not remove staged dev artifact %s", artifact)
 
 
 def _env_file_args() -> list[str]:
@@ -807,6 +874,32 @@ def _web_terminals_enabled(config: dict) -> bool:
     return bool(web_terminals.get("enabled"))
 
 
+def _preflight_host_ports(config, compose_files):
+    """Abort the deploy if a published host port is already taken.
+
+    Parses the published bindings out of the rendered compose files and checks
+    them for intra-deploy duplicates and external listeners (see
+    :mod:`osprey.deployment.host_ports`). On any conflict the report is logged
+    and a :class:`RuntimeError` is raised so the caller aborts before running
+    a single container-touching command.
+
+    :param config: Loaded configuration dictionary
+    :type config: dict
+    :param compose_files: Rendered compose file paths for this deploy
+    :type compose_files: list[str]
+    :raises RuntimeError: If any host-port conflict is found
+    """
+    bindings = parse_host_port_bindings(compose_files)
+    conflicts = find_port_conflicts(bindings, resolve_project_name(config), config)
+    if not conflicts:
+        return
+    logger.error(format_conflict_report(conflicts))
+    raise RuntimeError(
+        f"host port preflight failed: {len(conflicts)} "
+        f"conflict{'' if len(conflicts) == 1 else 's'} (see report above)"
+    )
+
+
 def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False):
     """Start services using container runtime (Docker or Podman).
 
@@ -858,6 +951,14 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     is_running, error_msg = verify_runtime_is_running(config)
     if not is_running:
         raise RuntimeError(error_msg)
+
+    # Fail fast on a host-port collision (a foreign stack, or a second project
+    # on the same host) with an actionable diagnosis, rather than letting
+    # `compose up` collapse mid-start on a bare "address already in use". Runs
+    # before any container-touching command below, so an abort here leaves the
+    # host untouched. A port held by this project's own container is not a
+    # conflict, so an idempotent redeploy stays green.
+    _preflight_host_ports(config, compose_files)
 
     # Self-provision fail-closed service tokens into .env (before the --env-file
     # check below) so a fresh deploy is secure by default. The dispatch worker
@@ -916,7 +1017,7 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     if dev_mode:
         # `osprey deploy up --dev` re-bakes the local osprey checkout into a fresh
         # wheel on every run, but compose reuses the cached image tag (e.g.
-        # osprey-dispatch:local) unless it is rebuilt — so a dev deploy must build.
+        # <project>-dispatch:local) unless it is rebuilt — so a dev deploy must build.
         # Build in its OWN step, then `up --no-build`: a single `up --build` can
         # build a local-only tag and then fail container-create with
         # "No such image" under Docker's containerd image store. Non-dev stays a

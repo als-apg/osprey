@@ -10,6 +10,7 @@ together lives in ``tests/deployment/test_container_lifecycle.py``.
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -446,8 +447,10 @@ def _make_persona_project(tmp_path, name, cli_version=None):
 def _no_dev_wheel_staging(monkeypatch):
     """Stub out the dev-wheel staging collaborator (its own coverage lives with
     _build_project_image's tests) so build_persona_images tests never touch a
-    real wheel build."""
-    monkeypatch.setattr(provision, "_copy_local_framework_for_override", lambda project_root: None)
+    real wheel build. Reports SUCCESS (True) — the OSPREY_DEV build-arg is
+    keyed on staging success, so simulating a successful staging keeps the
+    dev-path assertions meaningful; the failure path has its own test."""
+    monkeypatch.setattr(provision, "_copy_local_framework_for_override", lambda project_root: True)
 
 
 def test_build_persona_images_noop_in_registry_mode(monkeypatch, tmp_path):
@@ -644,6 +647,89 @@ def test_build_persona_images_never_reads_facility_cli_version(
     assert not any("9.9.9" in str(arg) for arg in cmd)
 
 
+def test_build_persona_images_dev_mode_adds_osprey_dev_build_arg(
+    monkeypatch, tmp_path, _no_dev_wheel_staging
+):
+    """Under --dev the persona build argv carries OSPREY_DEV=1 (mirroring the
+    dispatch-worker project-image dev path)."""
+    ops_path = _make_persona_project(tmp_path, "ops-app")
+    config = {
+        "project_name": "myfacility",
+        "modules": {
+            "web_terminals": {
+                "image_source": "local",
+                "default_persona": "ops",
+                "personas": {"ops": {"project": "ops-app", "project_path": ops_path}},
+            }
+        },
+    }
+    resolved_users = [{"name": "alice", "persona": "ops", "project": "ops-app"}]
+
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    calls = []
+    monkeypatch.setattr(provision.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+
+    provision.build_persona_images(config, resolved_users, True, {})
+
+    (cmd,) = calls
+    assert "OSPREY_DEV=1" in cmd
+    assert cmd[cmd.index("OSPREY_DEV=1") - 1] == "--build-arg"
+
+
+def test_build_persona_images_dev_mode_omits_osprey_dev_when_staging_fails(monkeypatch, tmp_path):
+    """--dev with a FAILED wheel staging must build WITHOUT OSPREY_DEV: the
+    pin-relaxing arg would otherwise silently install the latest published
+    release instead of the local code the flag promises (fail-closed)."""
+    ops_path = _make_persona_project(tmp_path, "ops-app")
+    config = {
+        "project_name": "myfacility",
+        "modules": {
+            "web_terminals": {
+                "image_source": "local",
+                "default_persona": "ops",
+                "personas": {"ops": {"project": "ops-app", "project_path": ops_path}},
+            }
+        },
+    }
+    resolved_users = [{"name": "alice", "persona": "ops", "project": "ops-app"}]
+
+    monkeypatch.setattr(provision, "_copy_local_framework_for_override", lambda project_root: False)
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    calls = []
+    monkeypatch.setattr(provision.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+
+    provision.build_persona_images(config, resolved_users, True, {})
+
+    (cmd,) = calls  # the image is still built -- just without the dev relaxation
+    assert "OSPREY_DEV=1" not in cmd
+
+
+def test_build_persona_images_non_dev_omits_osprey_dev_build_arg(
+    monkeypatch, tmp_path, _no_dev_wheel_staging
+):
+    ops_path = _make_persona_project(tmp_path, "ops-app")
+    config = {
+        "project_name": "myfacility",
+        "modules": {
+            "web_terminals": {
+                "image_source": "local",
+                "default_persona": "ops",
+                "personas": {"ops": {"project": "ops-app", "project_path": ops_path}},
+            }
+        },
+    }
+    resolved_users = [{"name": "alice", "persona": "ops", "project": "ops-app"}]
+
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    calls = []
+    monkeypatch.setattr(provision.subprocess, "run", lambda cmd, **k: calls.append(cmd))
+
+    provision.build_persona_images(config, resolved_users, False, {})
+
+    (cmd,) = calls
+    assert "OSPREY_DEV=1" not in cmd
+
+
 def test_build_persona_images_dev_mode_stages_and_cleans_wheel(monkeypatch, tmp_path):
     ops_path = _make_persona_project(tmp_path, "ops-app")
     config = {
@@ -660,6 +746,8 @@ def test_build_persona_images_dev_mode_stages_and_cleans_wheel(monkeypatch, tmp_
 
     def _fake_stage(project_root):
         (Path(project_root) / "osprey_framework-0.0.0-py3-none-any.whl").write_text("wheel")
+        (Path(project_root) / "osprey-local-requirements.txt").write_text("softioc>=4.5\n")
+        return True
 
     monkeypatch.setattr(provision, "_copy_local_framework_for_override", _fake_stage)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
@@ -667,9 +755,47 @@ def test_build_persona_images_dev_mode_stages_and_cleans_wheel(monkeypatch, tmp_
 
     provision.build_persona_images(config, resolved_users, True, {})
 
-    # Staged wheel must be cleaned up after the build so it can't poison a
-    # later non-dev build's wheel-drop branch.
+    # Staged artifacts (wheel AND its requirements manifest) must be cleaned
+    # up after the build so neither can poison a later non-dev build.
     assert list(Path(ops_path).glob("*.whl")) == []
+    assert not (Path(ops_path) / "osprey-local-requirements.txt").exists()
+
+
+def test_build_persona_images_dev_mode_cleans_staged_artifacts_on_build_failure(
+    monkeypatch, tmp_path
+):
+    """The persona cleanup runs in a finally: a failing image build must still
+    remove the staged wheel + manifest from the persona's context."""
+    ops_path = _make_persona_project(tmp_path, "ops-app")
+    config = {
+        "project_name": "myfacility",
+        "modules": {
+            "web_terminals": {
+                "image_source": "local",
+                "default_persona": "ops",
+                "personas": {"ops": {"project": "ops-app", "project_path": ops_path}},
+            }
+        },
+    }
+    resolved_users = [{"name": "alice", "persona": "ops", "project": "ops-app"}]
+
+    def _fake_stage(project_root):
+        (Path(project_root) / "osprey_framework-0.0.0-py3-none-any.whl").write_text("wheel")
+        (Path(project_root) / "osprey-local-requirements.txt").write_text("softioc>=4.5\n")
+        return True
+
+    def _failing_build(cmd, **k):
+        raise subprocess.CalledProcessError(1, cmd)
+
+    monkeypatch.setattr(provision, "_copy_local_framework_for_override", _fake_stage)
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+    monkeypatch.setattr(provision.subprocess, "run", _failing_build)
+
+    with pytest.raises(subprocess.CalledProcessError):
+        provision.build_persona_images(config, resolved_users, True, {})
+
+    assert list(Path(ops_path).glob("*.whl")) == []
+    assert not (Path(ops_path) / "osprey-local-requirements.txt").exists()
 
 
 def test_build_persona_images_no_referenced_personas_runs_no_build(

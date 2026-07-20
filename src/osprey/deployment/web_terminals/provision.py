@@ -22,6 +22,7 @@ from typing import cast
 
 from osprey.deployment.compose_generator import (
     _copy_local_framework_for_override,
+    _staged_dev_artifact_paths,
     resolve_project_name,
 )
 from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
@@ -75,6 +76,7 @@ def _persona_image_build_cmd(
     project: str,
     persona: str,
     project_label: str,
+    dev_mode: bool = False,
 ) -> list[str]:
     """Construct the ``<runtime> build`` argv that produces ``<project>-<persona>:local``.
 
@@ -91,6 +93,8 @@ def _persona_image_build_cmd(
         (tag prefix, matching :func:`osprey.deployment.web_terminals.ports.resolve_personas`'s
         ``<project>-<persona>:local`` naming).
     :param persona: The persona catalog key (tag suffix).
+    :param dev_mode: Whether ``--dev`` was passed (adds an ``OSPREY_DEV=1``
+        build-arg, mirroring :func:`_project_image_build_cmd`'s dev path).
     :param project_label: THIS DEPLOYMENT's project name
         (:func:`resolve_project_name` on the facility config being deployed),
         NOT the persona's own ``project`` — the ``com.osprey.project`` label
@@ -121,6 +125,8 @@ def _persona_image_build_cmd(
     if cli_version:
         cmd.extend(["--build-arg", f"CLAUDE_CLI_VERSION={cli_version}"])
     cmd.extend(["--build-arg", f"OSPREY_PIP_SPEC={_resolve_pip_spec()}"])
+    if dev_mode:
+        cmd.extend(["--build-arg", "OSPREY_DEV=1"])
     cmd.append(project_path)
     return cmd
 
@@ -329,7 +335,9 @@ def build_persona_images(
     afterward, exactly mirroring :func:`_build_project_image`'s per-context
     dev-wheel convention (so a later non-dev persona build's wheel-drop
     branch, which fires on any ``*.whl`` in ITS OWN context, never sees a
-    stale wheel from this run).
+    stale wheel from this run). The ``OSPREY_DEV=1`` build-arg is passed only
+    when that persona's staging actually succeeded — a failed wheel build
+    keeps the pinned install fail-loud.
 
     :param config: Raw deploy config (the facility config being deployed —
         read for ``modules.web_terminals`` and for
@@ -368,25 +376,45 @@ def build_persona_images(
         project = unit["project"]
         project_path = unit["project_path"]
 
-        staged_wheels: list[Path] = []
+        # OSPREY_DEV=1 (the pin-relaxing build arg) is passed only when the
+        # wheel actually landed in THIS persona's context: on a failed
+        # build/staging the Dockerfile must keep its fail-loud pinned install
+        # rather than silently falling back to the latest published release
+        # (mirroring _build_project_image's fail-closed dev path).
+        staged_artifacts: list[Path] = []
+        wheel_staged = False
         if dev_mode:
-            before = set(Path(project_path).glob("*.whl"))
-            _copy_local_framework_for_override(project_path)
-            staged_wheels = list(set(Path(project_path).glob("*.whl")) - before)
+            before = _staged_dev_artifact_paths(project_path)
+            wheel_staged = bool(_copy_local_framework_for_override(project_path))
+            staged_artifacts = sorted(_staged_dev_artifact_paths(project_path) - before)
+            if not wheel_staged:
+                logger.warning(
+                    "Dev-wheel staging failed for persona %r; building without "
+                    "OSPREY_DEV so the Dockerfile keeps its pinned "
+                    "osprey-framework install.",
+                    persona_name,
+                )
 
         try:
             cmd = _persona_image_build_cmd(
-                runtime, project_path, project, persona_name, project_label
+                runtime,
+                project_path,
+                project,
+                persona_name,
+                project_label,
+                dev_mode and wheel_staged,
             )
             logger.key_info("Building persona image %s-%s:local:", project, persona_name)
             logger.info("Running command:\n    %s", " ".join(cmd))
             subprocess.run(cmd, env=env, check=True)
         finally:
-            for whl in staged_wheels:
+            # Remove BOTH staged artifacts (wheel + requirements manifest) so
+            # neither can poison a later non-dev build in this context.
+            for artifact in staged_artifacts:
                 try:
-                    whl.unlink()
+                    artifact.unlink()
                 except OSError:
-                    logger.warning("Could not remove staged dev wheel %s", whl)
+                    logger.warning("Could not remove staged dev artifact %s", artifact)
 
 
 def _copy_named_env_var(var_name: str | None, source: dict[str, str], dest: dict[str, str]) -> None:

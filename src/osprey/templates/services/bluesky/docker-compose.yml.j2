@@ -8,7 +8,7 @@
 
 services:
   bluesky-bridge:
-    image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-{{ services.bluesky.image | default('osprey-bluesky-bridge:local') }}}
+    image: ${OSPREY_BLUESKY_BRIDGE_IMAGE:-{{ services.bluesky.image | default(osprey_labels.project_name ~ '-bluesky-bridge:local') }}}
     build:
       # With multiple `-f` compose files, ALL relative paths (build contexts and
       # bind mounts alike) resolve against the FIRST file's dir — the compose
@@ -18,6 +18,10 @@ services:
       dockerfile: Dockerfile
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
+        OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
+{% if dev_mode | default(false) %}
+        OSPREY_DEV: "1"
+{% endif %}
 {% if 'virtual_accelerator' in deployed_services %}
     # Only when the Virtual Accelerator (Task 4.1) is co-deployed: order the
     # bridge's startup after the VA's CA-readiness healthcheck, so the

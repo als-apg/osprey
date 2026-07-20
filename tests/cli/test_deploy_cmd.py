@@ -163,6 +163,51 @@ class TestDeployCommandActions:
 
                     assert mock_clean.called
 
+    def test_clean_action_pins_compose_project_name(self, cli_runner, tmp_path):
+        """Clean must run subprocesses under this deploy's COMPOSE_PROJECT_NAME.
+
+        The clean path passes the config loaded by ``prepare_compose_files`` into
+        ``clean_deployment`` so cleanup shells out under
+        ``resolve_project_name(config)`` rather than the "unnamed-project"
+        fallback. Exercise the real ``clean_deployment`` and assert the captured
+        subprocess env carries the resolved project name.
+        """
+        from osprey.deployment.compose_generator import resolve_project_name
+
+        config_file = tmp_path / "config.yml"
+        config_file.write_text("# test")
+
+        config = {"project_name": "my-test-project"}
+        expected_name = resolve_project_name(config)
+
+        captured_envs = []
+
+        def fake_run(cmd, *args, **kwargs):
+            captured_envs.append(kwargs.get("env"))
+            return MagicMock(returncode=0)
+
+        with patch("osprey.cli.deploy_cmd.prepare_compose_files") as mock_prepare:
+            mock_prepare.return_value = (config, ["docker-compose.yml"])
+            with patch("osprey.cli.deploy_cmd.resolve_config_path") as mock_resolve:
+                mock_resolve.return_value = config_file
+                with patch(
+                    "osprey.deployment.compose_generator.get_runtime_command",
+                    return_value=["docker", "compose"],
+                ):
+                    with patch(
+                        "osprey.deployment.compose_generator.subprocess.run",
+                        side_effect=fake_run,
+                    ):
+                        result = cli_runner.invoke(
+                            deploy, ["clean", "--config", str(config_file)]
+                        )
+
+        assert result.exit_code == 0
+        assert captured_envs, "clean_deployment did not shell out to any subprocess"
+        for env in captured_envs:
+            assert env is not None
+            assert env.get("COMPOSE_PROJECT_NAME") == expected_name
+
     def test_rebuild_action_calls_rebuild_deployment(self, cli_runner, tmp_path):
         """Test that 'rebuild' action calls rebuild_deployment function."""
         config_file = tmp_path / "config.yml"
@@ -175,6 +220,86 @@ class TestDeployCommandActions:
                 cli_runner.invoke(deploy, ["rebuild", "--config", str(config_file)])
 
                 assert mock_rebuild.called
+
+
+class TestDeployUpPortPreflight:
+    """The host-port preflight runs inside ``deploy_up`` before ``compose up``."""
+
+    def _neutralize_deploy_up(self, config, find_port_conflicts, subprocess_mock):
+        """Patch out everything ``deploy_up`` touches except the preflight.
+
+        Leaves the real preflight wiring in place while stubbing runtime
+        detection, token provisioning, image build and compose invocation, so a
+        CLI ``deploy up`` exercises the preflight against ``find_port_conflicts``
+        without needing a real project or container runtime.
+        """
+        return patch.multiple(
+            "osprey.deployment.container_lifecycle",
+            prepare_compose_files=MagicMock(return_value=(config, ["docker-compose.yml"])),
+            _web_terminals_enabled=MagicMock(return_value=False),
+            _check_shared_disk_preflight=MagicMock(),
+            verify_runtime_is_running=MagicMock(return_value=(True, "")),
+            _ensure_service_tokens=MagicMock(),
+            _ensure_bluesky_substrate_env=MagicMock(),
+            _build_project_image=MagicMock(),
+            get_runtime_command=MagicMock(return_value=["docker", "compose"]),
+            runtime_env=MagicMock(return_value={}),
+            parse_host_port_bindings=MagicMock(return_value=[]),
+            find_port_conflicts=find_port_conflicts,
+            subprocess=subprocess_mock,
+        )
+
+    def test_conflict_aborts_before_compose_up(self, cli_runner, tmp_path):
+        """A detected conflict aborts nonzero without touching any container."""
+        from osprey.deployment.host_ports import PortConflict
+
+        config_file = tmp_path / "config.yml"
+        config_file.write_text("# test")
+        config = {"deployed_services": ["osprey.postgresql"], "project_name": "proj"}
+
+        conflict = PortConflict(
+            host_port=5432,
+            bind_address="127.0.0.1",
+            service="postgresql",
+            kind="external",
+            holder="container 'other-ariel-postgres' (compose project 'other')",
+            remedy="services.postgresql.port_host",
+        )
+        find_conflicts = MagicMock(return_value=[conflict])
+        subprocess_mock = MagicMock()
+
+        with self._neutralize_deploy_up(config, find_conflicts, subprocess_mock):
+            with patch("os.execvpe") as mock_execvpe:
+                with patch("osprey.cli.deploy_cmd.resolve_config_path") as mock_resolve:
+                    mock_resolve.return_value = config_file
+                    result = cli_runner.invoke(deploy, ["up", "--config", str(config_file)])
+
+        assert result.exit_code == 1
+        assert find_conflicts.called
+        # No compose command ran and the process was never handed off to `up`.
+        subprocess_mock.run.assert_not_called()
+        mock_execvpe.assert_not_called()
+        assert "failed" in result.output.lower()
+
+    def test_clean_preflight_proceeds_to_compose_up(self, cli_runner, tmp_path):
+        """With no conflicts, the deploy proceeds to the compose ``up`` handoff."""
+        config_file = tmp_path / "config.yml"
+        config_file.write_text("# test")
+        config = {"deployed_services": ["osprey.postgresql"], "project_name": "proj"}
+
+        find_conflicts = MagicMock(return_value=[])
+        subprocess_mock = MagicMock()
+
+        with self._neutralize_deploy_up(config, find_conflicts, subprocess_mock):
+            with patch("os.execvpe") as mock_execvpe:
+                with patch("osprey.cli.deploy_cmd.resolve_config_path") as mock_resolve:
+                    mock_resolve.return_value = config_file
+                    result = cli_runner.invoke(deploy, ["up", "--config", str(config_file)])
+
+        assert result.exit_code == 0
+        assert find_conflicts.called
+        # Non-detached `up` hands off via execvpe once the preflight is clean.
+        mock_execvpe.assert_called_once()
 
 
 class TestDeployCommandOptions:
