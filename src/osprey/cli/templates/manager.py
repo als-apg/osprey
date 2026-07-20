@@ -265,23 +265,31 @@ class TemplateManager:
         )
 
         # 5. Copy services: bundle-level services/ dir takes priority, then
-        #    fall back to matching names from the top-level services/ dir
-        bundle_services_dir = bundle_dir / "services"
-        top_level_services_dir = self.template_root / "services"
-        if bundle_services_dir.is_dir():
-            service_names = [d.name for d in bundle_services_dir.iterdir() if d.is_dir()]
-            if service_names:
-                scaffolding.copy_services_selective(self.template_root, project_dir, service_names)
-        elif top_level_services_dir.is_dir():
-            # Copy top-level services whose names match subdirs declared in bundle config
-            # (e.g., control_assistant's config.yml.j2 references postgresql)
-            available = [d.name for d in top_level_services_dir.iterdir() if d.is_dir()]
-            bundle_config = bundle_dir / "config.yml.j2"
-            if bundle_config.exists():
-                config_text = bundle_config.read_text(encoding="utf-8")
-                to_copy = [name for name in available if name in config_text]
-                if to_copy:
-                    scaffolding.copy_services_selective(self.template_root, project_dir, to_copy)
+        #    fall back to matching names from the top-level services/ dir.
+        #    Skipped for an attached project (deploy_services: false), which
+        #    scaffolds no services/ tree of its own — it connects to a stack
+        #    another OSPREY project deployed on the same host.
+        if ctx.get("deploy_services", True):
+            bundle_services_dir = bundle_dir / "services"
+            top_level_services_dir = self.template_root / "services"
+            if bundle_services_dir.is_dir():
+                service_names = [d.name for d in bundle_services_dir.iterdir() if d.is_dir()]
+                if service_names:
+                    scaffolding.copy_services_selective(
+                        self.template_root, project_dir, service_names
+                    )
+            elif top_level_services_dir.is_dir():
+                # Copy top-level services whose names match subdirs declared in bundle config
+                # (e.g., control_assistant's config.yml.j2 references postgresql)
+                available = [d.name for d in top_level_services_dir.iterdir() if d.is_dir()]
+                bundle_config = bundle_dir / "config.yml.j2"
+                if bundle_config.exists():
+                    config_text = bundle_config.read_text(encoding="utf-8")
+                    to_copy = [name for name in available if name in config_text]
+                    if to_copy:
+                        scaffolding.copy_services_selective(
+                            self.template_root, project_dir, to_copy
+                        )
 
         # 6. Copy data files from template (no src/ package)
         scaffolding.copy_template_data(
@@ -300,6 +308,17 @@ class TemplateManager:
             shutil.copytree(machine_data_src, machine_data_dst, dirs_exist_ok=True)
             console.print(
                 f"  [success]✓[/success] Copied machine data to [path]{machine_data_dst}[/path]"
+            )
+
+        # 6a'. Copy docker/ if bundle provides it — carries the
+        # docker/web-terminal-context/ overlay tree (base.md + per-user
+        # extra.md/skills) that web-terminal seeding requires at deploy time.
+        docker_src = bundle_dir / "docker"
+        if docker_src.exists():
+            docker_dst = project_dir / "docker"
+            shutil.copytree(docker_src, docker_dst, dirs_exist_ok=True)
+            console.print(
+                f"  [success]✓[/success] Copied docker overlay tree to [path]{docker_dst}[/path]"
             )
 
         # 6b. Flatten the preset's tier-routed channel DBs into the canonical

@@ -26,7 +26,7 @@ Virtual Accelerator.
 Overview
 ========
 
-The agent composes a Bluesky scan plan through three MCP tools
+The agent composes a Bluesky scan plan through three drafting tools
 (``get_draft`` / ``set_draft`` / ``clear_draft``) against a
 single **shared draft** held on the Bluesky bridge. The human's PLAN panel
 binds to that same draft: every field the agent sets is broadcast over SSE
@@ -46,11 +46,14 @@ Accelerator instead, which does:
 .. code-block:: bash
 
    osprey config set-control-system virtual_accelerator
+   osprey deploy up
 
-That's the only change. See :doc:`use-virtual-accelerator` for starting the
-container itself — this guide assumes it's already running. Everything else
-(the bluesky MCP server, the PLAN and SCAN RESULTS panels) ships enabled in
-the Control Assistant preset.
+That's the only configuration change — the second command re-stages it so the
+already-running services pick it up. The soft-IOC itself ships as part of the
+stack, so there is no separate container to start; see
+:doc:`use-virtual-accelerator` for the details. Everything else (the bluesky
+MCP server, the PLAN and SCAN RESULTS panels) ships enabled in the Control
+Assistant preset.
 
 Ask the agent
 ==============
@@ -65,8 +68,9 @@ setpoint and orbit terms, not plan-parameter terms:
    at every point.
 
 The agent resolves this into a ``grid_scan`` plan draft — two
-``axes`` entries (one per corrector, each with its own ``start``/``stop``/
-``num_points``) and a ``detectors`` list naming the two BPM readbacks — and
+``axes`` entries (one per corrector, each naming its ``setpoint`` channel
+plus ``start``/``stop``/``num_points``) and a ``detectors`` list naming the
+two BPM readbacks — and
 stages the whole thing in a single ``set_draft`` call, noting the ``revision``
 it returns. This is staging only: composing the draft never touches hardware,
 never requires arming, and never triggers an approval prompt.
@@ -83,8 +87,10 @@ starts live updates.
 .. note::
 
    Binding always requires this one click or selection, even if the agent
-   set the draft first. The panel never silently jumps to a plan you weren't
-   already looking at — it just tells you one is waiting.
+   set the draft first: an *unbound* panel never silently jumps to a plan you
+   weren't already looking at — it just tells you one is waiting. Once bound,
+   the panel does follow the draft if the agent switches it to a different
+   plan, so what you are looking at always matches what a Launch would send.
 
 Once bound, a **Draft bound** indicator appears next to a **Discard**
 button, and every field the agent set (or sets from here) glows briefly as
@@ -102,17 +108,23 @@ Launch
 ======
 
 Once the plan validates, click **Launch plan**, then **Confirm launch**.
-This launches the *exact draft revision the panel just showed you* — the
-sidecar re-reads the draft once more first, and if it has moved on since
-(someone else edited it, or it was cleared) you get a clear "stale, please
-resync" message instead of a mismatched launch.
+This launches the *exact draft revision the panel just showed you*: the
+panel flushes any pending edit and pins that revision to the request, and
+the bridge refuses the launch if the draft has moved on since (someone else
+edited it, or it was cleared). You get a clear "the draft changed since you
+last saw it — refreshed, review and launch again" message instead of a
+mismatched launch. The same pin also makes a double-click harmless — a
+revision that has already been launched is rejected rather than run twice.
 
 .. note::
 
-   Draft editing needs no arming, but launching still does: the same
-   launch-token and ``writes_enabled`` gates that guard the agent's own
-   ``launch_run`` guard this click too. The connector is the sole write
-   gate, on both paths.
+   Draft editing needs no arming, but launching still does. The human and
+   agent launch paths are gated differently, and it is worth knowing which
+   you are on: this click is checked against the **launch token** only, and
+   when that token is unset the panel reports an inert *"writes not armed"*
+   rather than launching. The agent's own ``launch_run`` additionally
+   requires ``control_system.writes_enabled``. Neither path can launch an
+   unarmed stack; only the agent path also honours the writes switch.
 
 Results
 =======

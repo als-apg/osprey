@@ -152,6 +152,57 @@ def _create_dispatch_dashboard_app() -> FastAPI:
 
 
 # ---------------------------------------------------------------------------
+# The multi-user grouped landing page has no standalone FastAPI app either:
+# in production it's a static file (nginx/landing.html) produced by
+# render_web_terminals() and served by nginx, with no app route behind it.
+# Stand one up the same way the dispatch dashboard does — a minimal real app
+# serving the genuine render output — so the baseline exercises the real
+# deploy render path, not a hand-built HTML fixture. Two users with distinct
+# personas (alice->operator, bob->physicist) so both persona sublabels appear.
+# ---------------------------------------------------------------------------
+
+_MULTI_USER_LANDING_CONFIG = {
+    "facility": {"name": "Demo Control Room", "prefix": "demo"},
+    "registry": {"url": "registry.example.org/demo"},
+    "deploy": {"fqdn": "demo.example.org"},
+    "modules": {
+        "web_terminals": {
+            "nginx_port": 8080,
+            "web_base_port": 8100,
+            "artifact_base_port": 8200,
+            "ariel_base_port": 8300,
+            "lattice_base_port": 8400,
+            "default_persona": "operator",
+            "personas": {
+                "operator": {"project": "demo-operator"},
+                "physicist": {"project": "demo-physicist"},
+            },
+            "users": [
+                {"name": "alice", "index": 0, "persona": "operator"},
+                {"name": "bob", "index": 1, "persona": "physicist"},
+            ],
+        }
+    },
+}
+
+
+def _create_multi_user_landing_app() -> FastAPI:
+    from osprey.deployment.web_terminals.render import render_web_terminals
+
+    landing_html = render_web_terminals(_MULTI_USER_LANDING_CONFIG)["nginx/landing.html"]
+
+    app = FastAPI()
+
+    # The landing page is fully self-contained (inline CSS, no external assets),
+    # so — unlike the dispatch dashboard — it needs no /design-system static mount.
+    @app.get("/", response_class=HTMLResponse)
+    async def root() -> str:
+        return landing_html
+
+    return app
+
+
+# ---------------------------------------------------------------------------
 # Visual targets: one real app (or hub + real embedded backend) per interface
 # ---------------------------------------------------------------------------
 
@@ -198,6 +249,10 @@ def _lattice_dashboard_server(tmp_path: Path):
 
 def _dispatch_dashboard_server(tmp_path: Path):
     return _run_app_server(_create_dispatch_dashboard_app())
+
+
+def _multi_user_landing_server(tmp_path: Path):
+    return _run_app_server(_create_multi_user_landing_app())
 
 
 # ---------------------------------------------------------------------------
@@ -393,3 +448,33 @@ def test_visual_snapshot(tmp_path, chromium_browser, target: VisualTarget, pytes
                 page.close()
 
             _assert_matches_baseline(f"{target.name}_{theme}", png_bytes, regen)
+
+
+@pytest.mark.parametrize("theme", THEMES)
+def test_visual_multi_user_landing(tmp_path, chromium_browser, theme, pytestconfig) -> None:
+    """Capture the multi-user grouped landing page in each theme and diff its baseline.
+
+    The deploy-rendered landing page is not one of the app ``TARGETS`` because it
+    themes differently: in production it's a static nginx-served file with no
+    in-page JS, so it has no ``?theme=`` query hook or ``data-theme`` attribute and
+    themes purely off the ``prefers-color-scheme`` media query. Its theme is
+    therefore driven by Playwright's ``color_scheme`` emulation (the real signal
+    the page responds to) rather than the query param the app targets use. Baseline
+    handling is otherwise identical — shared ``_assert_matches_baseline`` — so it
+    is Linux-authoritative and skips the byte-compare off-Linux like every target.
+    """
+    regen = bool(pytestconfig.getoption("--regen-baselines"))
+
+    with _multi_user_landing_server(tmp_path) as base_url:
+        page = chromium_browser.new_page(viewport=VIEWPORT, color_scheme=theme)
+        try:
+            page.goto(base_url, wait_until="domcontentloaded", timeout=15_000)
+            # Both persona-badged user cards must be present before the shot, so
+            # the baseline is guaranteed to show the operator/physicist sublabels.
+            expect(page.locator(".landing-card-sublabel")).to_have_count(2, timeout=10_000)
+            page.wait_for_timeout(300)
+            png_bytes = page.screenshot()
+        finally:
+            page.close()
+
+    _assert_matches_baseline(f"multi_user_landing_{theme}", png_bytes, regen)

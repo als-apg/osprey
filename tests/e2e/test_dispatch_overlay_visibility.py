@@ -2,8 +2,9 @@
 
 This is the authoritative two-party gate for the dispatch-worker image
 unification. After unification the worker runs the *project* image
-(``proj:local``, built from the project via ``COPY .``) rather than the old lean
-``osprey-dispatch:local`` — so the whole project tree, including facility
+(``<project>:local``, built from the project via ``COPY .``) rather than the old
+lean dispatch image (``<project>-dispatch:local``, still the dispatcher's own
+tag) — so the whole project tree, including facility
 ``.claude`` overlays and the ``data/`` bundle, is baked into the container the
 agent actually runs in. A config-only render (the pre-unification behaviour)
 would silently drop both, and no mock can falsify that: only a live container
@@ -57,6 +58,8 @@ from typing import Any
 import pytest
 import yaml
 
+from osprey.deployment.compose_generator import resolve_project_name
+
 DISPATCHER_URL = "http://localhost:8020"
 TOKEN = "dev-token"  # matches the .env tokens written below
 
@@ -103,6 +106,11 @@ pytestmark = [
     pytest.mark.e2e,
     pytest.mark.requires_als_apg,
     pytest.mark.slow,
+    # dockerbuild: full dispatcher/worker image build + deploy -- runs in the
+    # dedicated dispatch-overlay-e2e CI job, never the shared e2e-tests lane
+    # (the marker->--ignore pairing is enforced by
+    # tests/deployment/test_ci_workflow_wiring.py).
+    pytest.mark.dockerbuild,
     pytest.mark.skipif(shutil.which("docker") is None, reason="docker not available"),
 ]
 
@@ -255,6 +263,18 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     base = tmp_path_factory.mktemp("dispatch_overlay_build")
     project_dir = base / PROJECT_NAME
 
+    # This test asserts dispatch overlay/trigger behavior, not persona
+    # routing -- drop the preset's web-terminal stack (two persona images +
+    # nginx, all built locally on `deploy up`) so the deploy only builds the
+    # dispatcher/worker images it actually exercises. Web-terminals coverage
+    # lives in control-assistant-demo-e2e / multi-user-deploy-lifecycle-e2e /
+    # tests/e2e/web_terminals/. One dotted LEAF key via --override, mirroring
+    # tests/e2e/_orm_stack.override_yaml(): a nested `modules:` mapping (or a
+    # `--set` with its nested-dict semantics) would wholesale-replace the
+    # preset's `modules.web_terminals` subtree instead of flipping one field.
+    override_path = base / "override.yml"
+    override_path.write_text("config:\n  modules.web_terminals.enabled: false\n", encoding="utf-8")
+
     build = _run(
         [
             str(osprey_bin),
@@ -262,6 +282,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             PROJECT_NAME,
             "--preset",
             "control-assistant",
+            "--override",
+            str(override_path),
             "--set",
             "provider=als-apg",
             "--set",
@@ -301,8 +323,11 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     # mutated project. `osprey deploy up --dev` rebuilds these, but removing any
     # stale images first guarantees the worker bakes the mutation above. Ignore
     # failure if an image is absent.
-    subprocess.run(["docker", "rmi", "-f", "proj:local"], capture_output=True, text=True)
-    subprocess.run(["docker", "rmi", "-f", "osprey-dispatch:local"], capture_output=True, text=True)
+    project = resolve_project_name({"project_name": PROJECT_NAME})
+    subprocess.run(["docker", "rmi", "-f", f"{project}:local"], capture_output=True, text=True)
+    subprocess.run(
+        ["docker", "rmi", "-f", f"{project}-dispatch:local"], capture_output=True, text=True
+    )
 
     # Drop any stale worker workspace volume so the fresh deploy repopulates it
     # from the image (osprey-owned _agent_data). Without this, a volume left

@@ -55,7 +55,7 @@ For **each** entry in `servers`:
   ```
   If `modules.shared_disk.enabled` is true and `${server.name}` appears in `modules.shared_disk.services_to_mount`, a `volumes:` entry is added too.
 - .gitlab-ci.yml: one `build-${server.name}` job in the `docker-build` stage that builds `${server.dockerfile}` with context `${server.build_context}`, tags it `${config.registry.url}/${server.name}:$CI_COMMIT_SHORT_SHA` AND `:latest`, and pushes both. The job declares `needs:` on `osprey-build` if `${server.artifacts}` is non-empty.
-- scripts/deploy.sh: nothing per-server — `compose pull` + `up -d` handles everything.
+- `osprey deploy`: nothing per-server — `compose pull` + `up -d` (inside `osprey deploy up`) handles everything.
 - scripts/verify.sh: an HTTP GET to `http://localhost:${config.ports.${server.name}}/health` for each server, expecting 200. Advisory only.
 - .env.template: nothing per-server unless the server's Dockerfile references env vars (in which case the user adds them manually to the template after authoring).
 

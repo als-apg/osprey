@@ -42,10 +42,15 @@ control_system:
   archiver_url: "http://arch.dls.example.org:17668"
 
 # -----------------------------------------------------------------------------
-# GitLab — where source lives and CI runs.
+# CI/CD provider — where source lives and CI runs. `provider` mirrors the
+# `llm.provider` enum pattern; `gitlab` is the only value with a shipped CI
+# template today. A legacy `gitlab:` block (no `provider` key) is still read
+# via the facility-config normalizer, aliased to this shape with a deprecation
+# warning — new configs should write `ci:` directly.
 # token_env_var holds the NAME of the env var, never the token value itself.
 # -----------------------------------------------------------------------------
-gitlab:
+ci:
+  provider: "gitlab"                     # gitlab | other (see facility-config-schema.md)
   host: "git.dls.example.org"
   remote_name: "gitlab"
   default_branch: "main"
@@ -54,12 +59,15 @@ gitlab:
   token_env_var: "DLS_GITLAB_TOKEN"
 
 # -----------------------------------------------------------------------------
-# Container registry — where CI pushes built images and deploy.sh pulls from.
-# external_projects covers other GitLab projects whose images this deploy
-# also pulls (each needs its own deploy token).
+# Container registry — where CI pushes built images and `osprey deploy up` pulls from.
+# token_env_var is optional and defaults to ci.token_env_var when unset; set it
+# explicitly only to decouple registry auth from the CI token (e.g. a dedicated
+# deploy token). external_projects covers other GitLab projects whose images
+# this deploy also pulls (each needs its own deploy token).
 # -----------------------------------------------------------------------------
 registry:
   url: "git.dls.example.org:5050/physics/production/dls-profiles"
+  # token_env_var: "DLS_REGISTRY_TOKEN"   # uncomment to decouple from ci.token_env_var
   external_projects:
     - name: "beam-viewer"
       url: "git.dls.example.org:5050/physics/production/beam-viewer"
@@ -140,8 +148,9 @@ ports:
   beam_viewer: 8007
   # Optional services
   event_dispatcher: 8010
-  # Web terminal range — base + offset per user
-  web_terminal_base: 9091
+  # Web terminal nginx is a single port and is mirrored here. The four per-user
+  # port ranges are not single values, so they are not mirrored here; they live
+  # authoritatively in modules.web_terminals.*_base_port below.
   web_terminal_nginx: 9080
 
 # =============================================================================
@@ -167,17 +176,64 @@ modules:
 
   # ---------------------------------------------------------------------------
   # Multi-user web terminal stack with nginx reverse proxy.
-  # Three users → three containers on ports 9091, 9092, 9093.
+  # Each user gets four independent ports (one per service family) so their
+  # terminal/artifact-gallery/ARIEL/lattice-dashboard never collide, and the
+  # ranges below stay clear of event_dispatcher's sidecar range (9190-9192):
+  #   alice → 9091/9291/9391/9491   bob → 9092/9292/9392/9492
   # ---------------------------------------------------------------------------
   web_terminals:
     enabled: true
     nginx_port: 9080                     # mirrors ports.web_terminal_nginx
-    base_port: 9091                      # mirrors ports.web_terminal_base
+    web_base_port: 9091                  # → OSPREY_WEB_PORT (range start; not mirrored in ports.* — see rule 11)
+    # Companion-panel families are OPTIONAL — omitted ones fall back to their
+    # registry defaults (registry/web.py): channel_finder 9591, okf 9691, ...
+    artifact_base_port: 9291             # → OSPREY_ARTIFACT_SERVER_PORT
+    ariel_base_port: 9391                # → OSPREY_ARIEL_PORT
+    lattice_base_port: 9491              # → OSPREY_LATTICE_DASHBOARD_PORT
     users:
       - alice
       - bob
-      - carol
-    landing_page_template: "default"     # default | custom
+      - name: "carol"                    # object-form entry — same container, explicit fields
+        index: 2                        # required for object-form entries — explicit port-offset
+        persona: "analysis"              # references personas.analysis below
+    # image_source/personas/mcp below are OPTIONAL — omitting them entirely is the
+    # zero-migration path: one shared image, one shared project, exactly today's
+    # behavior. This example exercises the heterogeneous-persona shape instead.
+    image_source: "registry"             # registry (default) | local — see facility-config-schema.md
+    default_persona: "assistant"         # required when image_source: local
+    personas:
+      assistant:                        # default persona — alice, bob resolve here
+        project: "dls-assistant"
+        project_path: "../dls-assistant"
+        build_profile: "profiles/assistant.yml"
+      analysis:                         # non-default persona — only carol uses this one
+        project: "dls-analysis"
+        project_path: "../dls-analysis"
+        build_profile: "profiles/analysis.yml"
+    mcp:
+      topology: "per_container_stdio"    # only accepted value; shared_http is rejected fail-closed
+    landing:                             # grouped landing page served at nginx_port
+      groups:
+        - type: "users"                  # auto-populated: one card per user above
+        - type: "links"
+          label: "Facility Tools"
+          links:
+            - label: "Elog"
+              url: "https://elog.dls.example.org"
+            - label: "Status Page"
+              url: "https://status.dls.example.org"
+    # auth/tls below are OPTIONAL, forward-looking, config-gated seams — INERT with
+    # these (default) values. No auth backend or TLS is implemented in this phase;
+    # the stack is perimeter-trust plain HTTP, identical to Phase 1. C1
+    # (authentication) and C2 (cleartext HTTP) remain OPEN/deferred — see
+    # facility-config-schema.md for the full note. Uncomment/edit only once a
+    # later phase actually wires an auth_request backend + cert provisioning.
+    # auth:
+    #   method: "none"                   # none (default) — no other value is exercised yet
+    # tls:
+    #   enabled: false                   # default; v1 ships plain HTTP only
+    #   cert: "/etc/osprey/tls/dls.crt"  # only read when enabled: true
+    #   key: "/etc/osprey/tls/dls.key"   # only read when enabled: true
 
   # ---------------------------------------------------------------------------
   # Electronic logbook integration.

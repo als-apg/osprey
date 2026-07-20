@@ -55,7 +55,7 @@ import { AGENT_MODEL_OPTIONS, parseFrontMatter } from './utils.js';
 export function createScaffoldGalleryEditForm(gallery) {
   /** @returns {Promise<void>} */
   async function renderEdit() {
-    const data = await fetchJSON(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}`);
+    const data = await fetchJSON(`/api/scaffold/${encodeURIComponent(gallery.selectedArtifact.name)}`); // fetchJSON prefixes internally
     const content = data.content || '';
     const artifactName = gallery.selectedArtifact.name || '';
     const language = data.language || gallery.selectedArtifact.language || 'text';

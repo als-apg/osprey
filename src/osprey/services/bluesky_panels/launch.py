@@ -22,9 +22,10 @@ launch token:
   ``plan_name``/``plan_args`` come from the bridge's held draft, never from
   this request body.
 
-The launch token is resolved entirely in-process (mirroring
-``osprey.mcp_server.bluesky.server_context.BridgeContext._resolve_launch_token``):
-``BLUESKY_LAUNCH_TOKEN`` env var, then ``bluesky.launch_token`` in
+The launch token is resolved entirely in-process via the shared
+``osprey.bluesky_bridge_connection.resolve_launch_token`` (the same resolver the
+Bluesky MCP server uses, so the two never drift on which token arms which
+bridge): ``BLUESKY_LAUNCH_TOKEN`` env var, then ``bluesky.launch_token`` in
 ``config.yml``, then ``None``. No request field ever supplies it, and it is
 never echoed back in a response.
 
@@ -55,7 +56,6 @@ gained draft support.
 
 from __future__ import annotations
 
-import os
 from typing import Any
 
 import httpx
@@ -63,14 +63,19 @@ from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, model_validator
 
+from osprey.bluesky_bridge_connection import (
+    bridge_error_message,
+    resolve_launch_token,
+    unwrap_bridge_conflict_detail,
+)
+from osprey.services.bluesky_panels._shared import UNREACHABLE_BODY, safe_json
+
 router = APIRouter()
 
 _WRITES_NOT_ARMED_BODY: dict[str, str] = {
     "status": "writes_not_armed",
     "detail": "writes are not armed on this deployment",
 }
-
-_UNREACHABLE_BODY: dict[str, str] = {"detail": "bluesky bridge unreachable"}
 
 
 class LaunchRequest(BaseModel):
@@ -134,43 +139,6 @@ class LaunchRequest(BaseModel):
         return self
 
 
-def _resolve_launch_token() -> str | None:
-    """Resolve the Bluesky bridge launch token, entirely in-process.
-
-    Mirrors ``osprey.mcp_server.bluesky.server_context.BridgeContext._resolve_launch_token``
-    and ``osprey.services.bluesky_panels.app._resolve_bridge_url``'s lazy-import
-    style so this module and the Bluesky MCP agree on which token arms which
-    bridge instance. Resolution order:
-
-    1. ``BLUESKY_LAUNCH_TOKEN`` env var — wins outright.
-    2. ``bluesky.launch_token`` in config.yml (local/dev convenience only).
-    3. ``None`` — this route refuses (inertly) before contacting the bridge.
-    """
-    token = os.environ.get("BLUESKY_LAUNCH_TOKEN")
-    if token:
-        return token
-
-    from osprey.utils.workspace import load_osprey_config
-
-    config = load_osprey_config()
-    token = config.get("bluesky", {}).get("launch_token")
-    return str(token) if token else None
-
-
-def _bridge_error_message(body: object, status_code: int) -> str:
-    """Extract the bridge's FastAPI ``detail`` message, falling back to the status."""
-    if isinstance(body, dict) and body.get("detail"):
-        return str(body["detail"])
-    return f"Bluesky bridge returned HTTP {status_code}."
-
-
-def _safe_json(response: httpx.Response) -> Any:
-    try:
-        return response.json()
-    except ValueError:
-        return {}
-
-
 async def _launch_draft(
     client: httpx.AsyncClient, bridge_url: str, draft_revision: int, token: str
 ) -> JSONResponse:
@@ -209,10 +177,10 @@ async def _launch_draft(
             headers={"X-Launch-Token": token},
         )
     except httpx.HTTPError:
-        return JSONResponse(_UNREACHABLE_BODY, status_code=502)
+        return JSONResponse(UNREACHABLE_BODY, status_code=502)
 
     status = response.status_code
-    body = _safe_json(response)
+    body = safe_json(response, default={})
 
     if status in (503, 403):
         return JSONResponse(_WRITES_NOT_ARMED_BODY, status_code=200)
@@ -223,11 +191,11 @@ async def _launch_draft(
         # to the panel's top-level ``{"code", "detail", "revision"}`` shape for
         # BOTH stale_draft_revision and draft_revision_already_launched. A 409
         # that isn't the expected nested-detail envelope is relayed as-is.
-        nested = body.get("detail") if isinstance(body, dict) else None
-        return JSONResponse(nested if isinstance(nested, dict) else body, status_code=409)
+        nested = unwrap_bridge_conflict_detail(body)
+        return JSONResponse(nested if nested is not None else body, status_code=409)
     if status != 200:
         return JSONResponse(
-            {"detail": _bridge_error_message(body, status)},
+            {"detail": bridge_error_message(body, status)},
             status_code=status,
         )
 
@@ -235,6 +203,85 @@ async def _launch_draft(
     if not run_id:
         return JSONResponse({"detail": "bluesky bridge returned no run id"}, status_code=502)
     result_status = body.get("status", "running") if isinstance(body, dict) else "running"
+    return JSONResponse({"run_id": run_id, "status": result_status}, status_code=200)
+
+
+async def _launch_manual(
+    client: httpx.AsyncClient,
+    bridge_url: str,
+    plan_name: str,
+    plan_args: dict[str, Any],
+    token: str,
+) -> JSONResponse:
+    """Compose pending-run create + launch for manual mode, in two bridge calls.
+
+    1. ``POST {bridge}/runs`` records a ``pending`` run and returns its ``id``.
+    2. ``POST {bridge}/runs/{run_id}/launch`` (header ``X-Launch-Token``)
+       launches that pending run.
+
+    Response mapping mirrors :func:`_launch_draft`:
+
+    - a create failure (>=400) is relayed with the bridge's status and
+      ``detail`` message;
+    - launch **503 / 403** -> the same inert ``writes_not_armed`` 200 as "no
+      token resolved locally" (the bridge is unarmed, or the resolved token
+      doesn't match the bridge's);
+    - any other non-200 launch (including the bridge's own 409 for an
+      already-launched run) is relayed with the bridge's status and ``detail``;
+    - **200** -> the launched run projected to this route's ``{"run_id",
+      "status"}`` success shape.
+
+    A connection-level failure to either bridge call is this route's existing
+    502 ``bluesky bridge unreachable``.
+    """
+    try:
+        create_response = await client.post(
+            f"{bridge_url}/runs",
+            json={"plan_name": plan_name, "plan_args": plan_args},
+        )
+    except httpx.HTTPError:
+        return JSONResponse(UNREACHABLE_BODY, status_code=502)
+
+    if create_response.status_code >= 400:
+        body = safe_json(create_response, default={})
+        return JSONResponse(
+            {"detail": bridge_error_message(body, create_response.status_code)},
+            status_code=create_response.status_code,
+        )
+
+    run_body = safe_json(create_response, default={})
+    run_id = run_body.get("id") if isinstance(run_body, dict) else None
+    if not run_id:
+        return JSONResponse({"detail": "bluesky bridge returned no run id"}, status_code=502)
+
+    try:
+        launch_response = await client.post(
+            f"{bridge_url}/runs/{run_id}/launch",
+            headers={"X-Launch-Token": token},
+        )
+    except httpx.HTTPError:
+        return JSONResponse(UNREACHABLE_BODY, status_code=502)
+
+    launch_status = launch_response.status_code
+    launch_body = safe_json(launch_response, default={})
+
+    if launch_status in (503, 403):
+        # Bridge unarmed, or our resolved token doesn't match the bridge's —
+        # for the human and the agent alike this is the same inert state as
+        # "no token resolved locally", not a 500.
+        return JSONResponse(_WRITES_NOT_ARMED_BODY, status_code=200)
+    if launch_status != 200:
+        # Any other launch failure (including the bridge's own 409 for an
+        # already-launched run) is relayed with the bridge's status and
+        # ``detail`` message.
+        return JSONResponse(
+            {"detail": bridge_error_message(launch_body, launch_status)},
+            status_code=launch_status,
+        )
+
+    result_status = (
+        launch_body.get("status", "running") if isinstance(launch_body, dict) else "running"
+    )
     return JSONResponse({"run_id": run_id, "status": result_status}, status_code=200)
 
 
@@ -249,11 +296,12 @@ async def launch_run(payload: LaunchRequest, request: Request) -> JSONResponse:
     In draft mode (``payload.draft_revision`` set), the whole launch is the
     bridge's one ``POST /draft/run`` primitive (:func:`_launch_draft`), taken
     after the arming check -- the launched ``plan_name``/``plan_args`` are the
-    bridge's held draft, never ``payload`` itself. In manual mode they come
-    straight from ``payload.plan_name``/``payload.plan_args``, exactly as
-    before draft mode existed.
+    bridge's held draft, never ``payload`` itself. In manual mode
+    (:func:`_launch_manual`) they come straight from
+    ``payload.plan_name``/``payload.plan_args``, exactly as before draft mode
+    existed.
     """
-    token = _resolve_launch_token()
+    token = resolve_launch_token()
     if not token:
         # No token resolved locally: refuse before ever contacting the
         # bridge (in either mode), so an unarmed deployment never creates an
@@ -266,54 +314,6 @@ async def launch_run(payload: LaunchRequest, request: Request) -> JSONResponse:
     if payload.draft_revision is not None:
         return await _launch_draft(client, bridge_url, payload.draft_revision, token)
 
-    plan_name, plan_args = payload.plan_name, payload.plan_args
-
-    try:
-        create_response = await client.post(
-            f"{bridge_url}/runs",
-            json={"plan_name": plan_name, "plan_args": plan_args},
-        )
-    except httpx.HTTPError:
-        return JSONResponse(_UNREACHABLE_BODY, status_code=502)
-
-    if create_response.status_code >= 400:
-        body = _safe_json(create_response)
-        return JSONResponse(
-            {"detail": _bridge_error_message(body, create_response.status_code)},
-            status_code=create_response.status_code,
-        )
-
-    run_body = _safe_json(create_response)
-    run_id = run_body.get("id") if isinstance(run_body, dict) else None
-    if not run_id:
-        return JSONResponse({"detail": "bluesky bridge returned no run id"}, status_code=502)
-
-    try:
-        launch_response = await client.post(
-            f"{bridge_url}/runs/{run_id}/launch",
-            headers={"X-Launch-Token": token},
-        )
-    except httpx.HTTPError:
-        return JSONResponse(_UNREACHABLE_BODY, status_code=502)
-
-    launch_status = launch_response.status_code
-    launch_body = _safe_json(launch_response)
-
-    if launch_status in (503, 403):
-        # Bridge unarmed, or our resolved token doesn't match the bridge's —
-        # for the human and the agent alike this is the same inert state as
-        # "no token resolved locally", not a 500.
-        return JSONResponse(_WRITES_NOT_ARMED_BODY, status_code=200)
-    if launch_status != 200:
-        # Any other launch failure (including the bridge's own 409 for an
-        # already-launched run) is relayed with the bridge's status and
-        # ``detail`` message.
-        return JSONResponse(
-            {"detail": _bridge_error_message(launch_body, launch_status)},
-            status_code=launch_status,
-        )
-
-    result_status = (
-        launch_body.get("status", "running") if isinstance(launch_body, dict) else "running"
-    )
-    return JSONResponse({"run_id": run_id, "status": result_status}, status_code=200)
+    # The validator guarantees plan_name is set in manual mode.
+    assert payload.plan_name is not None
+    return await _launch_manual(client, bridge_url, payload.plan_name, payload.plan_args, token)

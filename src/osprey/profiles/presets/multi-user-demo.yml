@@ -1,0 +1,137 @@
+# multi-user-demo.yml
+# Multi-user web-terminal demo — two users, two capability postures, one host.
+#
+# This preset is the hosting project for the multi-user demo: it deploys nginx,
+# the landing page, and one web-terminal container per roster user. The two
+# persona tiers differ on exactly ONE axis — `control_system.writes_enabled` —
+# so the demo shows the framework's foundational write gate doing its job:
+#
+#   * `multi-user-demo-readonly`  — writes_enabled: false. Channel writes,
+#     readwrite Python execution, and every other write surface are refused
+#     with a clean "writes disabled" message.
+#   * `multi-user-demo-readwrite` — writes_enabled: true. The same write goes
+#     through the ordinary safety chain (writes-check, limits, human approval).
+#
+# The posture is a property of the SESSION a user gets, not a claim about the
+# person: each persona is a self-contained rendered OSPREY project with its own
+# config.yml, so the boundary is enforced per project, not toggled in a UI.
+#
+# Deliberately scan-free: no Bluesky bridge, no Virtual Accelerator, no panels
+# sidecar, no event dispatch. For the full scan stack, see `control-assistant`.
+
+name: Multi-User Demo
+
+# The standard full bundle (channel databases, simulation data, logbook seed) —
+# the demo needs real channels to read, and a channel_limits.json for the
+# write-capable tier's limits checking to bite on.
+data_bundle: control_assistant
+
+provider: anthropic
+model: claude-haiku-4-5
+
+# Channel-finder pipeline. Override via --set channel_finder_mode=in_context|middle_layer.
+channel_finder_mode: hierarchical
+
+# ── Artifact selection ───────────────────────────────────────────────────────
+
+hooks:
+  - hook-log          # Append every tool call to a structured JSONL audit log
+  - hook-config       # Inject project config.yml path into every tool call env
+  - approval          # Gate hardware-write tool calls on human approval prompt
+  - writes-check      # Pre-write safety check: confirm channel is writable
+  - limits            # Enforce per-channel min/max limits before writes
+  - error-guidance    # Post-error hook that surfaces remediation hints
+  - memory-guard      # Warn when context window approaches threshold
+  - notebook-update   # Sync CLAUDE.md notebook after each session
+  - config-drift      # Warn at session start when config.yml drifted from generated artifacts
+
+rules:
+  - safety              # Core safety rules: never write without approval
+  - error-handling      # Standard error handling and retry guidance
+  - artifacts           # Rules for saving diagnostic and tuning artifacts
+  - facility            # Facility-level conventions (naming, units, logbook)
+  - timezone            # Always localise timestamps to facility timezone
+  - python-execution    # Rules governing Python executor sandbox usage
+  - data-visualization  # Rules for producing control-room-ready plots
+  - control-system-safety  # EPICS PV safety: alarm limits, soft-IOC guards
+
+skills:
+  - diagnose        # Run a structured fault-diagnosis workflow
+  - session-report  # Summarise session actions and outcomes to the logbook
+
+agents:
+  - channel-finder          # Semantic search over channel databases (hierarchical)
+  - data-visualizer         # Produce strip charts and correlation plots
+  - logbook-search          # Search facility logbook for historical entries
+  - facility-knowledge      # Look up facility documentation, procedures, and device specs
+
+output_styles:
+  - control-operator  # Terse, actionable output style
+
+web_panels:
+  - ariel           # ARIEL search interface (past experiments, papers)
+  - channel-finder  # Interactive channel-finder web UI
+
+# ── Config overrides ─────────────────────────────────────────────────────────
+# Dotted keys ONLY (except the one documented modules.web_terminals exception):
+# each entry is a literal `key.path` written into config.yml after the template
+# renders.
+config:
+  control_system.type: mock
+  # The hosting project's own agent is read-only; the write posture is decided
+  # per persona below, in each persona's own rendered config.yml.
+  control_system.writes_enabled: false
+  # Container-name prefix for the multi-user web-terminal stack below. Web
+  # container names are `<prefix>-nginx` / `<prefix>-web-<user>`, so this MUST be
+  # a non-empty valid Docker name start ([a-zA-Z0-9]) — an empty prefix renders
+  # `-nginx`, which Docker rejects and `osprey deploy up` fails on. Keep it short
+  # and distinct from the project name (used for image tags). Set to your own
+  # facility abbreviation when you copy this preset.
+  facility.prefix: mu
+  # Landing-URL origin for the multi-user web stack: render refuses to build
+  # OSPREY_TERMINAL_LANDING_URL without deploy.fqdn once users are configured.
+  # 127.0.0.1 matches the single-trusted-host demo posture; set your
+  # browser-reachable hostname when deploying anywhere else.
+  deploy.fqdn: 127.0.0.1
+  # ── Multi-user web-terminal stack ──────────────────────────────────────────
+  # This MUST stay ONE literal dotted key — `modules.web_terminals` addressing
+  # the whole module subtree with a nested value. A nested `modules:` mapping
+  # under `config:` would wholesale-replace the rendered `modules` subtree,
+  # silently dropping any sibling module: config_writer applies each dotted key
+  # verbatim, setting only the addressed leaf (see utils/config_writer.py).
+  #
+  # `image_source: local` means `osprey deploy up` builds each persona's image
+  # itself from `project_path`; the referenced persona projects are auto-rendered
+  # from their `build_profile` preset before the build, so a bare `osprey build`
+  # of this preset plus `osprey deploy up` stands the whole stack up with no
+  # registry. Each persona's `project` equals its `project_path` basename — the
+  # invariant persona auto-render relies on to land the rendered project exactly
+  # where the catalog mounts it.
+  modules.web_terminals:
+    enabled: true
+    image_source: local
+    nginx_port: 9080            # public-facing reverse proxy / landing page
+    # Per-user port families: user i gets base + i in each family. Every
+    # companion panel gets its own family (the containers share the host
+    # network namespace, so per-user offsets are what prevent collisions);
+    # families omitted here fall back to registry defaults (registry/web.py).
+    web_base_port: 9091           # first per-user web-terminal port
+    artifact_base_port: 9291      # first per-user artifact-gallery port
+    ariel_base_port: 9391         # first per-user ARIEL search port
+    lattice_base_port: 9491       # first per-user lattice-dashboard port
+    channel_finder_base_port: 9591  # first per-user channel-finder panel port
+    default_persona: readonly   # roster entries with no persona resolve here
+    users:
+      - alice                   # bare string → default_persona (readonly)
+      - name: bob
+        index: 1
+        persona: readwrite
+    personas:
+      readonly:
+        project: multi-user-demo-readonly
+        project_path: ../multi-user-demo-readonly
+        build_profile: multi-user-demo-readonly
+      readwrite:
+        project: multi-user-demo-readwrite
+        project_path: ../multi-user-demo-readwrite
+        build_profile: multi-user-demo-readwrite

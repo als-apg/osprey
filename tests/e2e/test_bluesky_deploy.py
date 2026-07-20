@@ -65,19 +65,23 @@ from pathlib import Path
 
 import pytest
 
+from osprey.deployment.compose_generator import resolve_project_name
+
 # Deliberately NOT the bluesky-bridge default (8090): this is a shared dev
 # machine with other long-running services, and 8090 was observed colliding
 # with an unrelated pre-existing process during development of this test.
 # Pinned via --set bluesky.port=... below rather than relying on the default.
 BRIDGE_PORT = 18090
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
-BRIDGE_IMAGE = "osprey-bluesky-bridge:local"
 # The fixture builds/deploys under this project name; the compose template
-# renders the bridge container_name as ``<project>-bluesky-bridge``
-# (services/bluesky/docker-compose.yml.j2), so derive it rather than hardcode a
-# host-global name that breaks the moment the template is namespaced per-project.
+# renders the bridge container_name AND its locally-built image as
+# ``<project>-bluesky-bridge`` (services/bluesky/docker-compose.yml.j2), so
+# derive both (via resolve_project_name, exactly as the template does) rather
+# than hardcode a host-global name that breaks the moment the template is
+# namespaced per-project.
 PROJECT_NAME = "proj"
 BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
+BRIDGE_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-bluesky-bridge:local"
 
 DEPLOY_UP_TIMEOUT_SEC = 600
 HEALTH_TIMEOUT_SEC = 120.0
@@ -162,7 +166,7 @@ def deployed_bridge(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
 
     # Force a fresh image build so the deployed bridge runs CURRENT source —
     # `osprey deploy up` does not pass --build to compose, so it would
-    # otherwise silently reuse a stale cached osprey-bluesky-bridge:local.
+    # otherwise silently reuse a stale cached <project>-bluesky-bridge:local.
     # Exact-named image only.
     subprocess.run(["docker", "rmi", "-f", BRIDGE_IMAGE], capture_output=True, text=True)
 

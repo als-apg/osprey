@@ -5,51 +5,66 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OSPREY Web Terminal</title>
 
+  <!-- Per-user URL prefix contract (multi-user deployments): the JS source
+       of truth, and the import map retargeting root-absolute /design-system/
+       and /static/ ES-module specifiers under it. Must land before any
+       module script loads. Empty prefix (single-origin/dev) is a no-op
+       identity map. See app.py's compute_url_prefix(). -->
+  <script>window.__OSPREY_PREFIX__ = "{{ url_prefix }}";</script>
+  <script type="importmap">
+  {
+    "imports": {
+      "/design-system/": "{{ url_prefix }}/design-system/",
+      "/static/": "{{ url_prefix }}/static/"
+    }
+  }
+  </script>
+
   <!-- FOUC prevention: applies data-theme before any CSS loads -->
-  <script src="/design-system/js/theme-boot.js"></script>
+  <script src="{{ prefixed('/design-system/js/theme-boot.js') }}"></script>
 
   <!-- Design system tokens -->
-  <link rel="stylesheet" href="/design-system/css/tokens.css">
-  <link rel="stylesheet" href="/design-system/css/base.css">
+  <link rel="stylesheet" href="{{ prefixed('/design-system/css/tokens.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/design-system/css/base.css') }}">
 
   <!-- Family-picker theme switcher: self-registering Custom Element -->
-  <script type="module" src="/design-system/js/components/osprey-theme-switcher.js"></script>
+  <script type="module" src="{{ prefixed('/design-system/js/components/osprey-theme-switcher.js') }}"></script>
 
   <!-- Fonts (self-hosted, no external CDN) -->
-  <link rel="stylesheet" href="/static/fonts/fonts.css">
-  <link rel="stylesheet" href="/static/fonts/apex-fonts.css">
+  <link rel="stylesheet" href="{{ prefixed('/static/fonts/fonts.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/fonts/apex-fonts.css') }}">
 
   <!-- xterm.js (CDN by default; local in OSPREY_OFFLINE mode) -->
-  <link rel="stylesheet" href="{{ vendor_url('xterm.css', '/static/vendor/xterm.min.css') }}">
-  <script src="{{ vendor_url('xterm.js', '/static/vendor/xterm.min.js') }}"></script>
-  <script src="{{ vendor_url('xterm addon-fit', '/static/vendor/addon-fit.min.js') }}"></script>
-  <script src="{{ vendor_url('xterm addon-web-links', '/static/vendor/addon-web-links.min.js') }}"></script>
+  <link rel="stylesheet" href="{{ prefixed(vendor_url('xterm.css', '/static/vendor/xterm.min.css')) }}">
+  <script src="{{ prefixed(vendor_url('xterm.js', '/static/vendor/xterm.min.js')) }}"></script>
+  <script src="{{ prefixed(vendor_url('xterm addon-fit', '/static/vendor/addon-fit.min.js')) }}"></script>
+  <script src="{{ prefixed(vendor_url('xterm addon-web-links', '/static/vendor/addon-web-links.min.js')) }}"></script>
 
   <!-- highlight.js: data-href-dark/light let theme-manager.js swap the stylesheet at runtime -->
   <link id="hljs-theme" rel="stylesheet"
-        href="{{ vendor_url('highlight.js atom-one-dark theme', '/static/vendor/atom-one-dark.min.css') }}"
-        data-href-dark="{{ vendor_url('highlight.js atom-one-dark theme', '/static/vendor/atom-one-dark.min.css') }}"
-        data-href-light="{{ vendor_url('highlight.js atom-one-light theme', '/static/vendor/atom-one-light.min.css') }}">
-  <link rel="prefetch" href="{{ vendor_url('highlight.js atom-one-light theme', '/static/vendor/atom-one-light.min.css') }}">
-  <script src="{{ vendor_url('highlight.js', '/static/vendor/highlight.min.js') }}"></script>
+        href="{{ prefixed(vendor_url('highlight.js atom-one-dark theme', '/static/vendor/atom-one-dark.min.css')) }}"
+        data-href-dark="{{ prefixed(vendor_url('highlight.js atom-one-dark theme', '/static/vendor/atom-one-dark.min.css')) }}"
+        data-href-light="{{ prefixed(vendor_url('highlight.js atom-one-light theme', '/static/vendor/atom-one-light.min.css')) }}">
+  <link rel="prefetch" href="{{ prefixed(vendor_url('highlight.js atom-one-light theme', '/static/vendor/atom-one-light.min.css')) }}">
+  <script src="{{ prefixed(vendor_url('highlight.js', '/static/vendor/highlight.min.js')) }}"></script>
 
   <!-- marked.js -->
-  <script src="{{ vendor_url('marked', '/static/vendor/marked.min.js') }}"></script>
+  <script src="{{ prefixed(vendor_url('marked', '/static/vendor/marked.min.js')) }}"></script>
 
   <!-- OSPREY styles -->
-  <link rel="stylesheet" href="/static/css/terminal.css">
-  <link rel="stylesheet" href="/static/css/files.css">
-  <link rel="stylesheet" href="/static/css/operator.css">
-  <link rel="stylesheet" href="/static/css/md-rendered.css">
-  <link rel="stylesheet" href="/static/css/drawer.css">
-  <link rel="stylesheet" href="/static/css/sessions.css">
-  <link rel="stylesheet" href="/static/css/settings.css">
-  <link rel="stylesheet" href="/static/css/scaffold/10-prompt-gallery.css">
-  <link rel="stylesheet" href="/static/css/scaffold/20-memory-gallery.css">
-  <link rel="stylesheet" href="/static/css/scaffold/30-config-structured-renderers.css">
-  <link rel="stylesheet" href="/static/css/scaffold/40-settings-json-interactive-editor.css">
-  <link rel="stylesheet" href="/static/css/scaffold/50-interactive-drag-and-drop-permission-entries.css">
-  <link rel="stylesheet" href="/static/css/scaffold/60-ownership-warning-modal.css">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/terminal.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/files.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/operator.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/md-rendered.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/drawer.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/sessions.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/settings.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/10-prompt-gallery.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/20-memory-gallery.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/30-config-structured-renderers.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/40-settings-json-interactive-editor.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/50-interactive-drag-and-drop-permission-entries.css') }}">
+  <link rel="stylesheet" href="{{ prefixed('/static/css/scaffold/60-ownership-warning-modal.css') }}">
 </head>
 <body>
 
@@ -71,10 +86,12 @@
         <div class="panel-add-menu" id="panel-add-menu" aria-label="Add panel"></div>
       </div>
       <div class="header-actions">
+        {% if terminal_user %}<span class="header-app-name" id="header-user-name" title="Logged in as {{ terminal_user }}">{{ terminal_user }}</span>{% endif %}
         {% if app_name %}<span class="header-app-name" title="{{ app_name }}">{{ app_name }}</span>{% endif %}
         <a class="header-icon-btn" id="docs-link" href="https://als-apg.github.io/osprey/" title="Documentation" target="_blank" rel="noopener">&#128214;</a>
         <osprey-theme-switcher></osprey-theme-switcher>
         <button class="header-icon-btn" data-drawer-trigger="settings-drawer" title="Settings">&#9881;</button>
+        {% if landing_url %}<button class="header-icon-btn" id="logout-btn" data-landing-url="{{ landing_url }}" title="Log out{% if terminal_user %} {{ terminal_user }}{% endif %} and return to the landing page" aria-label="Log out{% if terminal_user %} {{ terminal_user }}{% endif %} and return to the landing page"><span aria-hidden="true">&#128682;</span></button>{% endif %}
       </div>
     </div>
   </header>
@@ -208,7 +225,7 @@
     <div class="welcome-terminal">
       <pre class="welcome-ascii" id="welcome-ascii" aria-hidden="true"></pre>
       <a class="welcome-safety-link" id="welcome-safety-link" style="visibility:hidden"
-         href="/static/safety.html" target="_blank" rel="noopener">Read the safety guidelines</a>
+         href="{{ prefixed('/static/safety.html') }}" target="_blank" rel="noopener">Read the safety guidelines</a>
       <button class="welcome-prompt" id="welcome-dismiss" style="visibility:hidden">
         <span class="welcome-cursor"></span> Press ENTER to continue
       </button>
@@ -216,7 +233,7 @@
   </div>
 
   <!-- App entry point -->
-  <script type="module" src="/static/js/app.js"></script>
+  <script type="module" src="{{ prefixed('/static/js/app.js') }}"></script>
 
 </body>
 </html>

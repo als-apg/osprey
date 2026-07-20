@@ -344,6 +344,11 @@ def build(
 
         # 6. Build context from profile fields
         context: dict[str, Any] = {}
+        # Gates the rendered config.yml's `services:`/`deployed_services:`
+        # sections. An attached project (deploy_services: false) renders an
+        # empty `services: {}` and `deployed_services: []` so `osprey deploy`
+        # finds an explicit empty list and scaffolds nothing.
+        context["deploy_services"] = build_profile.deploy_services
         if build_profile.provider:
             context["default_provider"] = build_profile.provider
         if build_profile.model:
@@ -416,33 +421,48 @@ def build(
             _apply_config_overrides(project_path, build_profile.config)
             logger.info("  ✓ Applied %d config override(s)", len(build_profile.config))
 
-        # 9. Copy service templates for `osprey deploy up`
-        svc_count = _copy_service_templates(project_path)
-        if svc_count:
-            logger.info("  ✓ Copied %d service template(s) for deploy", svc_count)
+        # 9-10d. Service scaffolding + injection. Skipped wholesale for an
+        # attached project (deploy_services: false): its service sections were
+        # parsed and validated, but it deploys nothing of its own and instead
+        # connects to a services stack another OSPREY project deployed on the
+        # same host. The rendered config.yml already carries an empty
+        # `deployed_services: []` (config.yml.j2 gates on `deploy_services`), so
+        # nothing below needs to run.
+        if build_profile.deploy_services:
+            # 9. Copy service templates for `osprey deploy up`
+            svc_count = _copy_service_templates(project_path)
+            if svc_count:
+                logger.info("  ✓ Copied %d service template(s) for deploy", svc_count)
 
-        # 10. Inject profile-defined services (facility containers)
-        if build_profile.services:
-            psvc_count = _inject_profile_services(profile_dir, project_path, build_profile.services)
-            logger.info("  ✓ Injected %d profile service(s) for deploy", psvc_count)
+            # 10. Inject profile-defined services (facility containers)
+            if build_profile.services:
+                psvc_count = _inject_profile_services(
+                    profile_dir, project_path, build_profile.services
+                )
+                logger.info("  ✓ Injected %d profile service(s) for deploy", psvc_count)
 
-        # 10b. Inject event-dispatch services + triggers
-        if build_profile.dispatch is not None:
-            _inject_dispatch(build_profile.dispatch, profile_dir, project_path)
+            # 10b. Inject event-dispatch services + triggers
+            if build_profile.dispatch is not None:
+                _inject_dispatch(build_profile.dispatch, profile_dir, project_path)
 
-        # 10c. Inject the Bluesky scan-bridge service
-        if build_profile.bluesky is not None:
-            _inject_bluesky(build_profile.bluesky, project_path)
+            # 10c. Inject the Bluesky scan-bridge service
+            if build_profile.bluesky is not None:
+                _inject_bluesky(build_profile.bluesky, project_path)
 
-        # 10c2. Inject the bluesky-panels sidecar + its three web panels (depends
-        # on bluesky — the sidecar read-proxies the bridge — so this must run
-        # after step 10c).
-        if build_profile.bluesky_panels is not None:
-            _inject_bluesky_panels(build_profile.bluesky_panels, project_path)
+            # 10c2. Inject the bluesky-panels sidecar + its three web panels (depends
+            # on bluesky — the sidecar read-proxies the bridge — so this must run
+            # after step 10c).
+            if build_profile.bluesky_panels is not None:
+                _inject_bluesky_panels(build_profile.bluesky_panels, project_path)
 
-        # 10d. Inject the Virtual Accelerator soft-IOC service
-        if build_profile.virtual_accelerator is not None:
-            _inject_va(build_profile.virtual_accelerator, project_path)
+            # 10d. Inject the Virtual Accelerator soft-IOC service
+            if build_profile.virtual_accelerator is not None:
+                _inject_va(build_profile.virtual_accelerator, project_path)
+        else:
+            logger.info(
+                "deploy_services: false — attached project; no services scaffolded "
+                "(connects to a shared OSPREY services stack)"
+            )
 
         # 11. Copy overlay files
         if build_profile.overlay:
@@ -1336,8 +1356,8 @@ def _inject_dispatch(dispatch: DispatchConfig, profile_dir: Path, project_path: 
         config = yaml.load(fh)
 
     # No ``image`` key on either service, so each falls to its compose default:
-    # the event-dispatcher builds the shared osprey-dispatch:local image (its own
-    # compose ``build:`` block), and the dispatch worker runs <project>:local —
+    # the event-dispatcher builds the project's <project>-dispatch:local image (its
+    # own compose ``build:`` block), and the dispatch worker runs <project>:local —
     # the project image ``osprey deploy up`` builds from the project Dockerfile
     # (the worker has no build block of its own, to avoid racing the dispatcher).
     # Override with OSPREY_DISPATCH_IMAGE/OSPREY_WORKER_IMAGE, or set
@@ -1671,11 +1691,9 @@ def _inject_bluesky_panels(bluesky_panels: BlueskyPanelsConfig, project_path: Pa
         ("health", "/health-panel/", "HEALTH", "/health"),
     )
     for panel_id, panel_path, label, health_endpoint in panel_specs:
-        existing_url = config.get("web", {}).get("panels", {}).get(panel_id, {}).get("url", "")
-        if not existing_url:
-            config.setdefault("web", {}).setdefault("panels", {}).setdefault(panel_id, {})
-            config["web"]["panels"][panel_id]["url"] = default_url
         panel_cfg = config.setdefault("web", {}).setdefault("panels", {}).setdefault(panel_id, {})
+        if not panel_cfg.get("url"):
+            panel_cfg["url"] = default_url
         panel_cfg.setdefault("path", panel_path)
         panel_cfg.setdefault("label", label)
         if health_endpoint:

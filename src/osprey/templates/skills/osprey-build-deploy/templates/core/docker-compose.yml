@@ -54,10 +54,24 @@ services:
     # ARIEL sync runs inside the web-terminal image because it has OSPREY
     # installed. One-shot container that exits after sync — restart policy
     # is intentionally "on-failure" so it doesn't loop forever.
+    #
+    # Image resolution follows modules.web_terminals.image_source, same as
+    # every per-user web-terminal service (see references/modules/
+    # web-terminals.md "Personas"): registry mode (default) pulls the shared
+    # CI-built tag; local mode has no registry image to pull at all, so use
+    # the DEFAULT persona's locally-built image instead — the same
+    # <project>-<persona>:local tag `deploy up` builds and tags for that
+    # persona's own per-user containers (resolve_personas() suffixes even the
+    # default persona's tag in local mode; only registry mode keeps it
+    # unsuffixed).
+    # IF modules.web_terminals.image_source == local
+    image: ${config.modules.web_terminals.personas[config.modules.web_terminals.default_persona].project}-${config.modules.web_terminals.default_persona}:local
+    # ELSE
     image: ${config.registry.url}/web-terminal:latest
+    # END IF
     container_name: ${config.facility.prefix}-ariel-sync
     command: osprey ariel sync
-    env_file: .env.production
+    env_file: .env
     networks:
       - ${config.facility.prefix}-net
     depends_on:
@@ -118,7 +132,7 @@ services:
     environment:
       - MCP_TRANSPORT=http
       - MCP_PORT=${each.port}
-    env_file: .env.production
+    env_file: .env
     ports:
       - "0.0.0.0:${each.port}:${each.port}"
     networks:
@@ -149,7 +163,7 @@ services:
     environment:
       - MCP_TRANSPORT=http
       - MCP_PORT=${config.ports.integration_tests}
-    env_file: .env.production
+    env_file: .env
     ports:
       - "0.0.0.0:${config.ports.integration_tests}:${config.ports.integration_tests}"
     networks:
@@ -185,7 +199,7 @@ services:
       - MCP_PORT=${config.modules.event_dispatcher.port}
       - ${config.modules.event_dispatcher.token_env_var}=${env.${config.modules.event_dispatcher.token_env_var}}
       - ${config.modules.event_dispatcher.sidecar_token_env_var}=${env.${config.modules.event_dispatcher.sidecar_token_env_var}}
-    env_file: .env.production
+    env_file: .env
     volumes:
       - ./${config.modules.event_dispatcher.triggers_file}:/app/${config.modules.event_dispatcher.triggers_file}:ro
 
@@ -213,7 +227,7 @@ services:
     ports:
       - "0.0.0.0:${config.modules.event_dispatcher.sidecar_port_base + i}:9100"
     # END IF
-    env_file: .env.production
+    env_file: .env
     environment:
       # On host networking the sidecar binds the host-visible port directly;
       # on bridge networking it binds :9100 inside the container and compose
@@ -232,7 +246,7 @@ services:
   # FOR each in registry.external_projects
   # ---------------------------------------------------------------------------
   # External project image: ${each.name}
-  # Pulled explicitly in scripts/deploy.sh using its dedicated deploy token
+  # Pulled explicitly by the operator (or CI) before `osprey deploy up`, using its dedicated deploy token
   # because the main registry login doesn't have access to sibling projects.
   # ---------------------------------------------------------------------------
   ${each.name}:

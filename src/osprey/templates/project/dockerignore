@@ -8,6 +8,9 @@
 .venv
 .git
 _agent_data/
+# Regenerated in-image with fresh deploy stamps — excluding it keeps those
+# stamps from busting the image cache on every rebuild.
+build/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -19,6 +22,7 @@ __pycache__/
 .claude/settings.local.json
 CLAUDE.local.md
 
-# The image doesn't need its own build recipe
+# The image doesn't need its own build recipe. Note: .dockerignore itself is
+# NOT excluded — the wheel layer's `COPY .dockerignore *.wh[l]` relies on it as a
+# guaranteed-present sibling so the COPY never fails when no wheel is staged.
 Dockerfile
-.dockerignore

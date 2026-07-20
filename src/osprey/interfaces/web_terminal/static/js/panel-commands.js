@@ -8,6 +8,8 @@
  * a human action and an agent MCP call are indistinguishable downstream.
  */
 
+import { withPrefix } from './api.js';
+
 /**
  * Show or hide a panel. Fire-and-forget: the panel_visibility SSE echo updates
  * every connected client's tab strip, so there is nothing to await here.
@@ -15,7 +17,7 @@
  * @param {boolean} visible
  */
 export function setPanelVisibility(panelId, visible) {
-  fetch('/api/panel-visibility', {
+  fetch(withPrefix('/api/panel-visibility'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ panel: panelId, visible }),
@@ -28,7 +30,7 @@ export function setPanelVisibility(panelId, visible) {
  * @param {string} panelId
  */
 export function setPanelFocus(panelId) {
-  fetch('/api/panel-focus', {
+  fetch(withPrefix('/api/panel-focus'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ panel: panelId }),
@@ -45,7 +47,7 @@ export function setPanelFocus(panelId) {
  */
 export async function registerUrlPanel({ id, label, url }) {
   try {
-    const resp = await fetch('/api/panels/register', {
+    const resp = await fetch(withPrefix('/api/panels/register'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, label, url, path: '/' }),

@@ -9,10 +9,16 @@
 #
 # Build args:
 #   OSPREY_PIP_SPEC     pip requirement for OSPREY (default: PyPI release;
-#                       override with a git+https URL to pin an unreleased
-#                       build). Ignored when a *.whl is present in the build
-#                       context — `osprey deploy up --dev` drops a
-#                       locally-built wheel there and it wins.
+#                       override with a git+https URL or ==version to pin an
+#                       unreleased build). The deps layer primes this spec with
+#                       its dependencies, plus any local dependency delta staged
+#                       as osprey-local-requirements.txt on dev builds. If
+#                       `osprey deploy up --dev` stages a local *.whl in the
+#                       build context, a later wheel layer force-reinstalls
+#                       osprey itself from that wheel on top of the primed deps.
+#   OSPREY_DEV          "1" relaxes the deps layer: if the pinned OSPREY_PIP_SPEC
+#                       is unreleased and fails to install, fall back to the
+#                       latest published osprey-framework instead of failing.
 #   CLAUDE_CLI_VERSION  Claude Code CLI version to pin (default: this
 #                       project's claude_code.cli_version). Bump deliberately
 #                       — an unpinned upstream release could silently change
@@ -22,9 +28,18 @@
 
 FROM python:3.12-slim
 ARG OSPREY_PIP_SPEC="osprey-framework"
+ARG OSPREY_DEV=""
 ARG CLAUDE_CLI_VERSION={{ claude_code_cli_version }}
 ARG PIP_NO_PROXY=""
 ARG OSPREY_OFFLINE="0"
+
+# Debian apt mirrors over HTTPS (plain-HTTP bulk fetches are throttled or
+# broken by middleboxes on some networks; deb.debian.org supports HTTPS), and
+# bounded apt retries with backoff so a transient network blip mid-build does
+# not fail the whole image.
+RUN find /etc/apt \( -name '*.sources' -o -name '*.list' \) \
+    -exec sed -i 's|http://deb.debian.org|https://deb.debian.org|g' {} + \
+ && printf 'Acquire::Retries "5";\n' > /etc/apt/apt.conf.d/80-osprey-retries
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl git procps ca-certificates gnupg \
@@ -39,26 +54,48 @@ RUN apt-get update \
 # builds — mirrors the dispatch-worker image's pinned install.
 RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}"
 
-# OSPREY + profile dependencies. `osprey deploy up --dev` drops a
-# locally-built wheel into the build context; if present it wins over
-# OSPREY_PIP_SPEC (dev override), mirroring the dispatch-worker image's
-# --dev convention so this image can also serve as the dispatch worker.
-# A C toolchain (build-essential + python3-dev) is needed at install time to
-# compile native deps (e.g. accelerator-toolbox); it is purged in the same
-# layer so it never bloats the final image (mirrors the dispatch image).
-COPY . /tmp/ctx/
+# OSPREY + profile dependencies (deps layer). A C toolchain (build-essential +
+# python3-dev) is needed at install time to compile native deps (e.g.
+# accelerator-toolbox); it is purged in the same RUN so it never bloats the
+# final image (mirrors the dispatch image). The pinned OSPREY_PIP_SPEC is primed
+# here with its dependencies, plus any local dependency delta staged as
+# osprey-local-requirements.txt by `osprey deploy up --dev` — installed after
+# the primer, while the toolchain is still available. The `.dockerignore` COPY
+# sibling keeps the glob matching when no manifest is staged, so the deps cache
+# only busts when the manifest content changes. When OSPREY_DEV=1 and the pinned
+# spec is unreleased (the primer install fails), fall back to the latest
+# published osprey-framework so dev builds are not blocked; otherwise the build
+# fails loudly.
+COPY .dockerignore osprey-local-requirements.tx[t] /tmp/deps-ctx/
 RUN export NO_PROXY="$PIP_NO_PROXY" no_proxy="$PIP_NO_PROXY" \
     && apt-get update \
     && apt-get install -y --no-install-recommends build-essential python3-dev \
-    && if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
-        echo "Installing osprey from local wheel (dev build)" \
-        && pip install --no-cache-dir /tmp/ctx/*.whl {{ pip_dependency_args | default("") }} ; \
-    else \
-        pip install --no-cache-dir "$OSPREY_PIP_SPEC" {{ pip_dependency_args | default("") }} ; \
-    fi \
+    && { pip install --no-cache-dir "$OSPREY_PIP_SPEC" {{ pip_dependency_args | default("") }} \
+         || if [ "$OSPREY_DEV" = "1" ]; then \
+                echo "WARNING: pin unreleased, priming with latest" \
+                && pip install --no-cache-dir osprey-framework {{ pip_dependency_args | default("") }}; \
+            else exit 1; fi; } \
+    && if [ -f /tmp/deps-ctx/osprey-local-requirements.txt ]; then \
+           pip install --no-cache-dir -r /tmp/deps-ctx/osprey-local-requirements.txt; \
+       fi \
     && apt-get purge -y build-essential python3-dev \
     && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/* /tmp/ctx
+    && rm -rf /var/lib/apt/lists/* /tmp/deps-ctx
+
+# Dev wheel drop (wheel layer). `osprey deploy up --dev` stages a locally-built
+# wheel in the build context; when present, reinstall osprey from it (deps
+# first, then a --no-deps --force-reinstall so the local build wins over the
+# primed copy) and `pip check` the result. With no wheel staged this RUN is a
+# no-op (exit 0) and the image is complete after the deps layer. The
+# `.dockerignore` sibling in the COPY glob guarantees the COPY always matches at
+# least one file, so it never fails when no wheel exists.
+COPY .dockerignore *.wh[l] /tmp/ctx/
+RUN if ls /tmp/ctx/*.whl >/dev/null 2>&1; then \
+        pip install --no-cache-dir /tmp/ctx/*.whl \
+        && pip install --no-cache-dir --no-deps --force-reinstall /tmp/ctx/*.whl \
+        && pip check; \
+    fi \
+    && rm -rf /tmp/ctx
 
 # Optional offline mode: vendor web assets (JS/CSS/fonts) into the image so
 # the web UI works without internet access. "0" is falsy for is_offline().

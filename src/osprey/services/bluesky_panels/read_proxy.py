@@ -43,9 +43,9 @@ import httpx
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
 
-router = APIRouter()
+from osprey.services.bluesky_panels._shared import UNREACHABLE_BODY, safe_json
 
-_UNREACHABLE_BODY = {"detail": "bluesky bridge unreachable"}
+router = APIRouter()
 
 
 async def _forward_get(request: Request, path: str) -> JSONResponse:
@@ -62,12 +62,9 @@ async def _forward_get(request: Request, path: str) -> JSONResponse:
     try:
         response = await client.get(f"{bridge_url}{path}", params=request.query_params)
     except httpx.RequestError:
-        return JSONResponse(content=_UNREACHABLE_BODY, status_code=502)
+        return JSONResponse(content=UNREACHABLE_BODY, status_code=502)
 
-    try:
-        body = response.json()
-    except ValueError:
-        body = None
+    body = safe_json(response)
 
     return JSONResponse(content=body, status_code=response.status_code)
 

@@ -429,6 +429,17 @@ class TestPreflightCompanionPortCollision:
 
         assert _preflight({}, None, "127.0.0.1", 8087) == ([], [])
 
+    def test_panel_id_mapping_covers_every_registry_server(self):
+        """Every FRAMEWORK_WEB_SERVERS entry except `artifact` (always launched,
+        never gated on web.panels) must have a `_PANEL_ID_FOR_REGISTRY_KEY`
+        mapping — a missing entry makes the probe silently skip that panel, so
+        a foreign listener on its port would go unreported."""
+        from osprey.cli.web_cmd import _PANEL_ID_FOR_REGISTRY_KEY
+        from osprey.registry.web import FRAMEWORK_WEB_SERVERS
+
+        expected_keys = set(FRAMEWORK_WEB_SERVERS) - {"artifact"}
+        assert set(_PANEL_ID_FOR_REGISTRY_KEY) == expected_keys
+
 
 class TestWebCommandPreflightWiring:
     """`osprey web`: consolidated report + exit 1, or --skip-preflight bypass."""

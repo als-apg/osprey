@@ -147,6 +147,11 @@ my-lattice-assistant/
 my-ariel-standalone/
 my-agent/_audit/
 
+# Persona projects auto-rendered by `osprey deploy up` for the multi-user
+# web-terminal stack (regenerate: re-run `osprey deploy up`)
+control-assistant-operator/
+control-assistant-physicist/
+
 # Generated benchmark databases (regenerate: uv run python scripts/generate_benchmark_suite.py)
 data/benchmarks/cross_paradigm/tier*/
 

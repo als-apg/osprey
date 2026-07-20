@@ -1149,3 +1149,88 @@ class TestOverlayLogbookSeedNotMutated:
         )
         # Seed data round-trips unchanged — the build did not rewrite timestamps.
         assert built == seed
+
+
+# ---------------------------------------------------------------------------
+# Attached projects (deploy_services: false)
+# ---------------------------------------------------------------------------
+
+
+class TestDeployServicesKnob:
+    """``deploy_services: false`` marks an attached project: no service
+    scaffolding runs, no ``services/`` tree is written, and the rendered
+    config.yml carries an explicit empty ``deployed_services`` list. The knob
+    defaults true, so every existing (self-contained) build is unchanged.
+    """
+
+    # A profile whose bundle template would normally scaffold postgresql +
+    # openobserve and whose ``bluesky:`` block would normally inject a bridge
+    # service — so an attached build has real scaffolding to suppress.
+    _PROFILE = (
+        "name: Attachment Test\n"
+        "data_bundle: control_assistant\n"
+        "provider: anthropic\n"
+        "model: claude-haiku-4-5\n"
+        "channel_finder_mode: hierarchical\n"
+        "bluesky:\n"
+        "  port: 8090\n"
+    )
+
+    def _build(self, runner: CliRunner, tmp_path: Path, extra: str) -> Path:
+        profile = tmp_path / "profile.yml"
+        profile.write_text(self._PROFILE + extra)
+        result = runner.invoke(
+            build,
+            [
+                "smoke",
+                str(profile),
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        return tmp_path / "smoke"
+
+    def test_default_true_scaffolds_services(self, runner: CliRunner, tmp_path: Path) -> None:
+        """Baseline: the same profile without the knob deploys its own stack."""
+        project = self._build(runner, tmp_path, extra="")
+        cfg = _config_yaml(project)
+        assert "postgresql" in cfg["deployed_services"]
+        assert "bluesky" in cfg["deployed_services"]
+        assert (project / "services").is_dir()
+        assert "postgresql" in cfg["services"]
+
+    def test_false_scaffolds_nothing(self, runner: CliRunner, tmp_path: Path) -> None:
+        """An attached project writes no services/ tree, no services.* blocks,
+        and an explicit empty deployed_services list."""
+        project = self._build(runner, tmp_path, extra="deploy_services: false\n")
+        cfg = _config_yaml(project)
+        # Explicit empty list — present so `osprey deploy` reads [] not None.
+        assert cfg["deployed_services"] == []
+        # None of the would-be-scaffolded services leak into services.*.
+        assert cfg.get("services") in ({}, None)
+        for name in ("postgresql", "openobserve", "bluesky"):
+            assert name not in (cfg.get("services") or {})
+        # No services/ directory at all.
+        assert not (project / "services").exists()
+
+    def test_readonly_persona_builds_attached(self, runner: CliRunner, tmp_path: Path) -> None:
+        """The shipped read-only persona preset builds as an attached project."""
+        result = runner.invoke(
+            build,
+            [
+                "op",
+                "--preset",
+                "multi-user-demo-readonly",
+                "--skip-deps",
+                "--skip-lifecycle",
+                "--output-dir",
+                str(tmp_path),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        cfg = _config_yaml(tmp_path / "op")
+        assert cfg["deployed_services"] == []
+        assert not (tmp_path / "op" / "services").exists()

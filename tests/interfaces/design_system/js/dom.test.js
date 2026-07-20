@@ -18,6 +18,7 @@ import {
   el,
   escapeHtml,
   debounce,
+  panelApiPrefix,
 } from '../../../../src/osprey/interfaces/design_system/static/js/dom.js';
 
 describe('escapeHtml', () => {
@@ -111,5 +112,41 @@ describe('debounce', () => {
     vi.advanceTimersByTime(150);
     expect(fn).toHaveBeenCalledTimes(1);
     expect(fn).toHaveBeenCalledWith('third');
+  });
+});
+
+describe('panelApiPrefix', () => {
+  /** @param {string} path */
+  function atPath(path) {
+    window.history.replaceState(null, '', path);
+  }
+
+  afterEach(() => {
+    atPath('/');
+  });
+
+  test('single-user reverse proxy: /panel/<id>/… yields /panel/<id>', () => {
+    atPath('/panel/results/results/');
+    expect(panelApiPrefix()).toBe('/panel/results');
+  });
+
+  test('multi-user reverse proxy: /u/<user>/panel/<id>/… keeps the outer prefix', () => {
+    atPath('/u/alice/panel/results/results/');
+    expect(panelApiPrefix()).toBe('/u/alice/panel/results');
+  });
+
+  test('multi-user deep path: nested panel-internal segments do not extend the prefix', () => {
+    atPath('/u/bob/panel/health/health-panel/index.html');
+    expect(panelApiPrefix()).toBe('/u/bob/panel/health');
+  });
+
+  test('standalone (sidecar-mounted) panel: no /panel/ segment yields the empty string', () => {
+    atPath('/results/');
+    expect(panelApiPrefix()).toBe('');
+  });
+
+  test('a panel-internal path segment merely containing "panel" is not a mount marker', () => {
+    atPath('/health-panel/index.html');
+    expect(panelApiPrefix()).toBe('');
   });
 });

@@ -9,7 +9,7 @@
 
 services:
   bluesky-panels:
-    image: ${OSPREY_BLUESKY_PANELS_IMAGE:-{{ services.bluesky_panels.image | default('osprey-bluesky-panels:local') }}}
+    image: ${OSPREY_BLUESKY_PANELS_IMAGE:-{{ services.bluesky_panels.image | default(osprey_labels.project_name ~ '-bluesky-panels:local') }}}
     build:
       # With multiple `-f` compose files, ALL relative paths (build contexts and
       # bind mounts alike) resolve against the FIRST file's dir — the compose
@@ -19,6 +19,10 @@ services:
       dockerfile: Dockerfile
       args:
         OSPREY_VERSION: "{{ osprey_version | default('') }}"
+        OSPREY_PROJECT_NAME: "{{ osprey_labels.project_name }}"
+{% if dev_mode | default(false) %}
+        OSPREY_DEV: "1"
+{% endif %}
 {% if 'bluesky' in deployed_services %}
     # Only when the bluesky bridge (Task 1.x) is co-deployed: order the
     # sidecar's startup after the bridge's healthcheck, so the read-proxy and

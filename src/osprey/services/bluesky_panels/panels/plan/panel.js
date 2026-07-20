@@ -40,6 +40,7 @@
  */
 
 import { renderSchemaForm } from './schema-form.js';
+import { panelApiPrefix } from '/design-system/js/dom.js';
 import {
   createDraftClient,
   resolvePinnedRevision,
@@ -73,7 +74,7 @@ import {
 // must be prefixed with this panel's own mount prefix. Falls back to "" when
 // opened directly (e.g. the visual-regression test, which serves this panel
 // with no bridge behind it).
-const PREFIX = (location.pathname.match(/^\/panel\/[^/]+/) || [''])[0];
+const PREFIX = panelApiPrefix();
 
 /**
  * @param {string} path

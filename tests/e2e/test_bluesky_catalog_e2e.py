@@ -235,7 +235,7 @@ def deployed_catalog_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator
     # cache is warm; never set it in CI.
     if not os.environ.get("E2E_REUSE_IMAGES"):
         subprocess.run(
-            ["docker", "rmi", "-f", _orm_stack.BRIDGE_IMAGE], capture_output=True, text=True
+            ["docker", "rmi", "-f", _orm_stack.bridge_image("proj")], capture_output=True, text=True
         )
 
     try:

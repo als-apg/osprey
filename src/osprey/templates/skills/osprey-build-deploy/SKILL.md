@@ -3,15 +3,16 @@ name: osprey-build-deploy
 description: >
   Deployment control plane for an OSPREY-based facility profile repository. Owns the
   deploy lifecycle end-to-end: scaffolds the deploy infrastructure (docker-compose,
-  .gitlab-ci.yml, scripts/deploy.sh, .env.template) from facility-config.yml, drives
+  .gitlab-ci.yml, .env.template) from facility-config.yml, drives
   the GitLab CI/CD container pipeline (push → CI → manual release tag → server deploy),
-  brings containers up on the deploy server with `scripts/deploy.sh`, and runs
+  brings containers up on the deploy server with `osprey deploy up` (which also
+  reconciles and seeds multi-user web terminals), and runs
   post-deploy health checks. Modular opt-in support for OLOG/logbook integration,
   multi-user web terminals, Ollama embeddings, shared-disk mounts, EPICS-driven event
   dispatcher, ARIEL database, wiki search, custom MCP servers, e2e benchmarks, and
   EPICS test IOC management. Use this skill whenever the user is asking about
   deploying, releasing, pushing to GitLab, building containers, modifying
-  docker-compose files, scripts/deploy.sh, .gitlab-ci.yml, the CI pipeline, the
+  docker-compose files, `osprey deploy`, .gitlab-ci.yml, the CI pipeline, the
   container registry, the deploy server, the .env, the facility-config.yml, webhook
   triggers, the event dispatcher, web terminals, OLOG, Ollama, ARIEL, integration
   tests, test IOC, OSPREY:TEST PVs, agent benchmarks, or anything CI/CD or
@@ -31,7 +32,7 @@ description: >
 
 Deployment control plane for a facility profile repository.
 
-This skill is project-local — it lives at `<profile-repo>/.claude/skills/osprey-build-deploy/` and is installed by `/osprey-build-interview` at the end of Phase 8 (when the profile repo is generated). To refresh or re-install it later (e.g., after upgrading OSPREY), run from the profile repo root:
+The OSPREY agent owns the on-server deploy lifecycle through the `osprey deploy` CLI command — there is no generated `deploy.sh` script to run or maintain. This skill is project-local — it lives at `<profile-repo>/.claude/skills/osprey-build-deploy/` and is installed by `/osprey-build-interview` at the end of Phase 8 (when the profile repo is generated). To refresh or re-install it later (e.g., after upgrading OSPREY), run from the profile repo root:
 
 ```bash
 osprey skills install osprey-build-deploy --target .claude/skills/
@@ -46,7 +47,7 @@ This skill owns **deployment**, not profile authoring. The split is:
 | Concern | Skill | Produces / Operates on |
 |---------|-------|-----------------------|
 | Author the OSPREY build profile YAML for one assistant (signals, channels, write safety, AI provider, channel finder, archiver, dashboard) | **`osprey-build-interview`** (separate, invoked as `/osprey-build-interview`) | `build-profile/profile.yml`, channel databases, channel limits |
-| Stand up CI/CD, deploy infra, on-server runtime; ongoing release operations | **this skill** | `docker-compose.yml`, `.gitlab-ci.yml`, `scripts/deploy.sh`, `.env.template`, container deploys, health checks |
+| Stand up CI/CD, deploy infra, on-server runtime; ongoing release operations | **this skill** | `docker-compose.yml`, `.gitlab-ci.yml`, `.env.template`, `osprey deploy` container/web-terminal lifecycle, health checks |
 
 **If the user wants to create or modify a profile YAML, hand off to `/osprey-build-interview` and stop.** Do not edit profile YAMLs in this skill — that's not its job and the two skills must not overlap.
 
@@ -83,8 +84,8 @@ If the user's intent is clear, match it to one action below and go directly. If 
 
 ### Always available (core)
 
-- **Scaffold deploy infrastructure** — generate `docker-compose.yml`, `.gitlab-ci.yml`, `scripts/deploy.sh`, `scripts/verify.sh`, `.env.template`, and a deploy `README.md` from templates, all parameterized by `facility-config.yml`. → `references/scaffolding.md`.
-- **Deploy via CI/CD** — push to GitLab, watch CI build the container images, trigger the manual release job, run `scripts/deploy.sh` on the deploy server. → `references/gitlab-ci-pipeline.md` and `references/deploy-server.md`.
+- **Scaffold deploy infrastructure** — generate `docker-compose.yml`, `.gitlab-ci.yml`, `scripts/verify.sh`, `.env.template`, and a deploy `README.md` from templates, all parameterized by `facility-config.yml`. → `references/scaffolding.md`.
+- **Deploy via CI/CD** — push to GitLab, watch CI build the container images, trigger the manual release job, run `osprey deploy up` on the deploy server. → `references/gitlab-ci-pipeline.md` and `references/deploy-server.md`.
 - **Build local client** — produce a Claude Code project on the developer's machine that connects to the remote MCP services running on the deploy server (no local containers). → `references/local-client.md`.
 - **Diagnose deployment** — SSH into the deploy server, inspect container status, logs, networking, regenerated MCP config. → `references/post-deploy-diagnosis.md`.
 - **Run integration health checks** — execute the `integration_tests` MCP server's `/checks` endpoint (or pytest equivalents) to verify infrastructure. → `references/integration-tests.md`.
@@ -126,45 +127,59 @@ This is the canonical deploy path. Every facility's pipeline has the same shape;
 
 ```
                      manual                   ssh
-[git push] ──→ [CI builds N images] ──→ [release job re-tags as :latest] ──→ [deploy server: deploy.sh]
+[git push] ──→ [CI builds N images] ──→ [release job re-tags as :latest] ──→ [deploy server: osprey deploy up]
                                                                                        │
                                                                                        ▼
-                                                                               podman/docker login
+                                                                               podman/docker login (operator, pre-provisioned)
                                                                                compose pull
                                                                                compose up -d
-                                                                               verify.sh (advisory)
+                                                                               reconcile + seed web terminals (if enabled)
+                                                                               verify.sh (auto-run, advisory — exit code ignored)
+                                                                               ── osprey deploy up ends here ──
 ```
+
+The on-server entrypoint is the `osprey deploy` CLI command (installed with OSPREY on the deploy server), not a generated shell script. It owns the entire container + multi-user web-terminal lifecycle: bringing the stack up, tearing it down, and per-user provisioning/removal.
 
 ### Quick reference (substitute from config)
 
 ```bash
 # 1. Push (triggers CI)
-git push ${config.gitlab.remote_name} ${config.gitlab.default_branch}
+git push ${config.ci.remote_name} ${config.ci.default_branch}
 
 # 2. Watch the pipeline until status: "manual"
-curl -s --header "PRIVATE-TOKEN: $${config.gitlab.token_env_var}" \
-  "https://${config.gitlab.host}/api/v4/projects/${config.gitlab.project_id}/pipelines?per_page=1" \
+curl -s --header "PRIVATE-TOKEN: $${config.ci.token_env_var}" \
+  "https://${config.ci.host}/api/v4/projects/${config.ci.project_id}/pipelines?per_page=1" \
   | python3 -m json.tool
 
 # 3. Trigger the manual `release` job (GitLab UI, or POST to /jobs/<id>/play)
 
-# 4. Deploy on the server (single command pulls code + images + starts containers + verifies)
-ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ./scripts/deploy.sh"
+# 4. Deploy on the server (git pull is a manual/CI step first — see below —
+#    then one command reconciles services + web-terminal users and seeds them)
+ssh ${config.deploy.host} "cd ${config.deploy.project_path} && git pull && osprey deploy up"
 
-# 4b. Clean restart (compose down first)
-ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ./scripts/deploy.sh --clean"
-
-# 4c. From-scratch rebuild (also wipes images, volumes, networks)
-ssh ${config.deploy.host} "cd ${config.deploy.project_path} && ./scripts/deploy.sh --nuke"
+# 4b. From-scratch rebuild (wipes this project's containers, images, volumes, networks)
+ssh ${config.deploy.host} "cd ${config.deploy.project_path} && osprey deploy nuke && osprey deploy up"
 ```
 
-| Flag | What `deploy.sh` does |
-|------|------------------------|
-| (none) | git pull → registry login → pull images → restart changed containers → verify |
-| `--clean` | git pull → **compose down** → registry login → pull images → start all → verify |
-| `--nuke` | git pull → **compose down + remove images/volumes/networks** → registry login → pull images → start all → verify |
+| `osprey deploy` verb | What it does |
+|-----------------------|---------------|
+| `up` | Reconciles services + web-terminal users idempotently (`compose pull` + `compose up -d`), then seeds each live web-terminal container's CLAUDE.md and skills, then auto-runs `verify.sh` (advisory — exit code ignored). Safe to re-run — a no-op second run recreates nothing |
+| `down` / `restart` | Stop / restart the running stack without touching images or volumes |
+| `status` | Per-service health, plus per-user web-terminal health and volume presence |
+| `decommission <user> [--archive\|--purge]` | Remove a single user's web-terminal workspace (container + roster entry); volumes are retained by default |
+| `prune [--dry-run] [--archive\|--purge]` | Remove containers/volumes for users no longer in the user index (orphans) |
+| `nuke` | Guarded full teardown of this project's entire stack — containers, images, volumes, networks |
+| `seed [user]` | (Re)seed CLAUDE.md + skills into one or all web-terminal containers from the user index, without a full `up` |
+| `build` / `clean` / `rebuild` | Prepare compose files only / remove containers+volumes / clean+rebuild+restart |
 
-`verify.sh` runs after every deploy and is **advisory** — it never fails the deploy, just reports health. If it surfaces a real problem, the operator decides what to do.
+Operator/CI responsibilities that happen **before** `osprey deploy up` — these are environment prep, not part of the deploy lifecycle itself:
+- **Code checkout** — `git pull` (or whatever CI already does to sync the profile repo) so the running config, compose files, and web-terminal context reflect the pushed commit.
+- **Registry login** — `${config.runtime.engine} login` against `${config.registry.url}` with `${config.ci.token_env_var}`, so `compose pull` can fetch the `:latest` images the release job just tagged.
+- **Secrets provisioning** — `.env` exists on the server with every value `.env.template` lists (see `references/deploy-server.md`).
+
+`osprey deploy up` assumes all three are already in place; it does not perform them itself.
+
+`verify.sh` is auto-run by `osprey deploy up` as its last step (see `references/deploy-server.md` § Verifying a deploy) and is **advisory** — its exit code is ignored and it never fails the deploy, just reports health. It's also runnable by hand at any time. If it surfaces a real problem, the operator decides what to do.
 
 ### What NOT to do before deploying
 
@@ -172,7 +187,7 @@ These are anti-patterns the operations team learned to avoid:
 
 - SSH into the deploy server to "check what's there" — the deploy is idempotent, just run it.
 - Compare git logs between local and remote — if you pushed, CI has it; the server pulls on deploy.
-- Read `.env.production` or `config.yml` on the remote — they're generated/templated, inspect locally.
+- Read `.env` or `config.yml` on the remote — they're generated/templated, inspect locally.
 - `git diff` to "summarize what changed" — irrelevant; the deploy is what runs.
 - Make a "what changed" table — the commit message and CI logs are the source of truth.
 
@@ -181,10 +196,10 @@ These are anti-patterns the operations team learned to avoid:
 ### Pre-deploy checklist (substitute from config)
 
 1. Working tree clean: `git status` shows nothing.
-2. Pushed: `git push ${config.gitlab.remote_name} ${config.gitlab.default_branch}`.
+2. Pushed: `git push ${config.ci.remote_name} ${config.ci.default_branch}`.
 3. CI passes through `docker-build` and lands at `release` (manual gate).
 4. Trigger the release job (re-tags all images as `:latest`).
-5. Run `deploy.sh` on the server.
+5. On the server: `git pull` (env-prep), then `osprey deploy up`.
 
 ---
 
@@ -226,7 +241,7 @@ Every manual step in deployment is a bug — it means the templates or `facility
 | Index search data | `lifecycle.post_build:` steps | Standalone index commands |
 | Validate deployment | `lifecycle.validate:` | Ad-hoc SSH + test scripts |
 | Configure services | `services:` section | Manual `config.yml` edits |
-| Pull images on the server | `deploy.sh` | `podman pull <image>` one-by-one |
+| Pull images on the server | `osprey deploy up` | `podman pull <image>` one-by-one |
 
 If a real workflow can't be expressed through these primitives, fix OSPREY (see next section) or extend `facility-config.yml` and the templates rather than papering over with shell commands.
 
@@ -297,7 +312,7 @@ If the deploy mechanics change, update the skill. Stale skills cause failed depl
 - New optional module → add a section under "Gated on optional modules" above, write `references/modules/<name>.md`, and extend the interview in `references/setup-interview.md`.
 - New config field → update `references/facility-config-schema.md` AND `references/setup-interview.md` to ask the question.
 - New OSPREY CLI flag or build phase that affects deploy → update the relevant section above.
-- New deploy mode (beyond `--clean` and `--nuke`) → document under "Deploy Pipeline".
+- New `osprey deploy` verb or flag → document under "Deploy Pipeline".
 - New control-system type with its own deploy quirks → add a control-system-gated section to "Action Routing" and a module reference for the system-specific operations.
 
 The skill and its references are the single source of truth that future sessions use to operate this project. If the skill is stale, future deploys fail or use outdated commands.
@@ -312,7 +327,7 @@ The skill and its references are the single source of truth that future sessions
 | `references/facility-config-schema.md` | Editing `facility-config.yml` by hand, understanding what each field means |
 | `references/scaffolding.md` | Generating deploy-infra files from templates after an interview |
 | `references/gitlab-ci-pipeline.md` | All CI/CD pipeline questions (stages, jobs, registry, tagging) |
-| `references/deploy-server.md` | On-server setup, `.env.production`, container runtime install |
+| `references/deploy-server.md` | On-server setup, `.env`, container runtime install |
 | `references/local-client.md` | Local Mac/laptop builds connecting to remote MCP |
 | `references/integration-tests.md` | Health check architecture (always available, not module-gated) |
 | `references/post-deploy-diagnosis.md` | Container is sick after deploy — what to inspect |

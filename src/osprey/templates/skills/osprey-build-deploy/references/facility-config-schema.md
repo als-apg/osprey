@@ -1,6 +1,6 @@
 # `facility-config.yml` — Schema Reference
 
-`facility-config.yml` is the durable contract between this skill and the facility profile repo. It captures every site-specific value once, so generated files (`docker-compose.yml`, `.gitlab-ci.yml`, `scripts/deploy.sh`, `.env.template`) can derive everything from it without hardcoding.
+`facility-config.yml` is the durable contract between this skill and the facility profile repo. It captures every site-specific value once, so generated files (`docker-compose.yml`, `.gitlab-ci.yml`, `.env.template`) and `osprey deploy` itself (which reads `config.yml`, derived from this file) can derive everything from it without hardcoding.
 
 **Treat this file like a Terraform state file:** version-controlled, source of truth, never lost. Re-running the deploy interview merges new answers into the existing file rather than overwriting it.
 
@@ -15,7 +15,7 @@ schema_version: 1               # bump only when the schema changes incompatibly
 
 facility: { ... }               # who you are
 control_system: { ... }         # what control system the facility runs
-gitlab: { ... }                 # CI/CD source
+ci: { ... }                     # CI/CD provider (source repo + pipeline)
 registry: { ... }               # container image destination
 deploy: { ... }                 # the server everything runs on
 runtime: { ... }                # container engine + compose flavor
@@ -64,28 +64,44 @@ When `type != "epics"`, the EPICS test IOC module is automatically unavailable r
 
 ---
 
-## `gitlab` — GitLab project where source lives and CI runs
+## `ci` — CI/CD provider where source lives and the pipeline runs
 
 ```yaml
-gitlab:
-  host: "git.als.lbl.gov"                 # GitLab server hostname (no scheme)
-  remote_name: "gitlab"                   # `git remote` name for the GitLab origin
+ci:
+  provider: "gitlab"                      # gitlab | other — see note below
+  host: "git.als.lbl.gov"                 # CI server hostname (no scheme)
+  remote_name: "gitlab"                   # `git remote` name for the CI origin
   default_branch: "main"                  # branch CI watches
-  project_id: 951                         # numeric GitLab project ID (Settings → General)
+  project_id: 951                         # numeric project ID (Settings → General, for GitLab)
   project_path: "physics/production/als-profiles"  # group/subgroup/project path
   token_env_var: "ALS_GITLAB_TOKEN"       # name of env var holding the PAT (NOT the value)
 ```
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
+| `provider` | enum | yes | Names the CI/CD provider that owns `host`/`project_id`/`project_path` and which CI template the skill renders. Mirrors the `llm.provider` pattern: an enum that names more values than have working code behind them. `gitlab` is the only value with a shipped CI template (`.gitlab-ci.yml`) today — the skill renders no second CI template and ships no CI/registry plugin group, so any other value writes valid config but has nothing to render against yet. |
 | `host` | hostname | yes | No `https://`, no path |
-| `remote_name` | string | yes | The name of the git remote pointing to GitLab — typically `origin` or `gitlab` |
+| `remote_name` | string | yes | The name of the git remote pointing to the CI provider — typically `origin` or `gitlab` |
 | `default_branch` | string | yes | Usually `main`; CI release job is restricted to this branch |
-| `project_id` | int | yes | Find at GitLab project Settings → General → Project ID |
+| `project_id` | int | yes (gitlab) | Find at GitLab project Settings → General → Project ID |
 | `project_path` | string | yes | The URL path after the host: `<group>/<subgroup>/<project>` |
-| `token_env_var` | string | yes | Name of the env var that holds the PAT/deploy token; the value lives in `.env` and is loaded by deploy.sh |
+| `token_env_var` | string | yes | Name of the env var that holds the PAT/deploy token; the value lives in `.env`, read via `osprey deploy`'s compose `--env-file` and by the operator's manual registry login before it. `registry.token_env_var` defaults to this value when it isn't set explicitly — see the `registry` section below to decouple registry auth from this token instead |
 
 The token must have at minimum: `api` and `read_registry` scopes (`write_registry` if CI pushes images). Document this in the `.env.template`.
+
+### Deprecated alias: `gitlab:`
+
+Older facility configs use a top-level `gitlab:` block instead of `ci:` — same fields,
+no `provider` key (it's implied to be `"gitlab"`). It still works: every facility-config
+load site (the `scaffold web-terminals` lint loader and every `osprey deploy`/lifecycle
+entry point) runs the config through
+`osprey.deployment.facility_config.normalize_facility_config()` first, a pure function
+that rewrites a bare `gitlab:` block to `ci: {provider: "gitlab", ...gitlab fields}`
+before any other code sees the config. If a config somehow has both `gitlab:` and
+`ci:`, `ci:` wins and `gitlab:` is dropped. Either way, normalizing emits exactly one
+`DeprecationWarning` per process no matter how many load sites call it in that
+invocation. New configs should write `ci:` directly — the setup interview (Phase 2)
+now asks for `ci.provider` and only ever writes the `ci:` form.
 
 ---
 
@@ -94,6 +110,7 @@ The token must have at minimum: `api` and `read_registry` scopes (`write_registr
 ```yaml
 registry:
   url: "git.als.lbl.gov:5050/physics/production/als-profiles"   # full registry URL incl. port + path
+  token_env_var: "ALS_REGISTRY_TOKEN"      # optional — see note below
   external_projects:                       # optional — separate registries with their own deploy tokens
     - name: "beam-viewer"
       url: "git.als.lbl.gov:5050/physics/production/beam-viewer"
@@ -103,8 +120,9 @@ registry:
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| `url` | string | yes | Where CI pushes built images and deploy.sh pulls from. For GitLab projects, this is `<gitlab-host>:5050/<project_path>` |
-| `external_projects` | list | no | Other GitLab projects whose images this deploy also pulls (e.g., a sibling team's service); each needs its own deploy token |
+| `url` | string | yes | Where CI pushes built images and `osprey deploy up` pulls from. For GitLab projects, this is `<ci-host>:5050/<project_path>` |
+| `token_env_var` | string | no | Name of the env var holding the registry login credential. Defaults to `ci.token_env_var` (the CI PAT) when unset, matching every deployment that logs into the registry with the same token that pushes code. Set this explicitly to decouple registry auth from the CI token — e.g. a dedicated deploy token, or a registry that isn't the CI provider's own. |
+| `external_projects` | list | no | Other projects whose images this deploy also pulls (e.g., a sibling team's service); each needs its own deploy token |
 
 ---
 
@@ -140,7 +158,7 @@ runtime:
 
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
-| `engine` | enum | yes | Affects login/pull command syntax in deploy.sh |
+| `engine` | enum | yes | Affects login/pull command syntax for the operator's registry login and for `osprey deploy` |
 | `compose_command` | string | yes | The actual command name on the deploy server |
 | `compose_files` | list | yes | Order matters — later files override earlier ones |
 
@@ -200,8 +218,9 @@ ports:
   # Optional services — only present if the corresponding module is enabled
   event_dispatcher: 8010
   beam_viewer: 8007
-  # Web terminals (port range start; one port per user)
-  web_terminal_base: 9091
+  # Web terminals — nginx is a single port and is mirrored here. The four
+  # per-user port RANGES are not single values, so they are not mirrored here;
+  # they live authoritatively in modules.web_terminals.*_base_port (see below).
   web_terminal_nginx: 9080
 ```
 
@@ -232,18 +251,190 @@ modules:
 
 ### `modules.web_terminals` — multi-user web terminal stack
 
+Each user gets one independent per-user port **per service family** — the terminal
+itself (`web`) plus one family for every companion panel in the framework's web-server
+registry (`registry/web.py` `FRAMEWORK_WEB_SERVERS`: artifact gallery, ARIEL search,
+channel finder, lattice dashboard, OKF knowledge) — so no user's services ever collide
+with each other or with any other user's. For a user at position `i` (0-indexed, per
+`users[]` order), the per-family host port is `<family>_base_port + i`. The family
+set and each family's default base port are **derived from the registry** (a newly
+registered companion panel is multi-user-wired automatically); only `web_base_port`
+is required in config — every companion family falls back to its registry default
+when its `<family>_base_port` field is omitted. This arithmetic is implemented once
+in `deployment/web_terminals/ports.py` (`allocate_ports`) and consumed by the
+renderer and the lint — do not reimplement it.
+
 ```yaml
 modules:
   web_terminals:
     enabled: true
-    nginx_port: 9080                       # public-facing reverse proxy
-    base_port: 9091                        # first per-user terminal port
+    nginx_port: 9080                       # public-facing reverse proxy / landing page
+    web_base_port: 9091                    # first per-user web-terminal port      → OSPREY_WEB_PORT (required)
+    # Companion-panel families — OPTIONAL; each falls back to its registry
+    # default (shown) when omitted. Every FRAMEWORK_WEB_SERVERS panel has one.
+    artifact_base_port: 9291               # first per-user artifact-gallery port  → OSPREY_ARTIFACT_SERVER_PORT
+    ariel_base_port: 9391                  # first per-user ARIEL search port      → OSPREY_ARIEL_PORT
+    lattice_base_port: 9491                # first per-user lattice-dashboard port → OSPREY_LATTICE_DASHBOARD_PORT
+    channel_finder_base_port: 9591         # first per-user channel-finder panel port → OSPREY_CHANNEL_FINDER_PORT
+    okf_base_port: 9691                    # first per-user OKF knowledge panel port  → OSPREY_FACILITY_KNOWLEDGE_PORT
     users:                                 # one container per user, named ${facility.prefix}-web-${user}
-      - thellert
-      - gmartino
+      - thellert                           # bare string — shorthand for {name: "thellert"}
+      - name: "gmartino"                   # object form — same container, explicit fields
+        index: 1                           # required for object-form entries — explicit port-offset (see note below)
+        persona: "analysis"                # optional; key into personas.<name> below
       - scleemann
-    landing_page_template: "default"       # default | custom (custom requires nginx/landing.html)
+    image_source: "registry"               # registry (default) | local — see note below
+    default_persona: "assistant"           # required when image_source: local; see note below
+    personas:                              # optional catalog — omit entirely for zero-migration behavior
+      assistant:                           # persona name — matches users[].persona / default_persona
+        project: "als-assistant"           # rendered project name (must equal that project's config.yml project_name)
+        project_path: "../als-assistant"   # rendered project dir — local-mode build context
+        build_profile: "profiles/assistant.yml"  # registry mode: committed profile path (local mode: a bundled preset name)
+      analysis:
+        project: "als-analysis"
+        project_path: "../als-analysis"
+        build_profile: "profiles/analysis.yml"
+    mcp:
+      topology: "per_container_stdio"      # per_container_stdio (default, only accepted value) | shared_http (rejected — see note below)
+    landing:                               # grouped landing page served at nginx_port
+      groups:                              # ordered list; rendered top to bottom
+        - type: "users"                    # auto-populated: one card per entry in `users` above
+        - type: "links"                    # a static group of operator-supplied links
+          label: "Facility Tools"
+          links:
+            - label: "Elog"
+              url: "https://elog.example.org"
+            - label: "Status Page"
+              url: "https://status.example.org"
+    auth:                                 # OPTIONAL — forward-looking, config-gated seam; INERT (see note below)
+      method: "none"                      # none (default); no other value is exercised in this schema revision
+    tls:                                  # OPTIONAL — forward-looking, config-gated seam; INERT (see note below)
+      enabled: false                      # default; v1 ships plain HTTP only
+      cert: "/etc/osprey/tls/facility.crt"  # only read when enabled: true
+      key: "/etc/osprey/tls/facility.key"   # only read when enabled: true
 ```
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `enabled` | bool | yes | Off by default |
+| `nginx_port` | int | yes | Reverse proxy + landing page port; must be unique across `ports.*` |
+| `web_base_port` | int | yes | First per-user web-terminal port. The compose overlay declares it into each per-user container as `OSPREY_TERMINAL_WEB_PORT`, which `osprey web`'s `resolve_web_port()` treats as authoritative over `--port`/`OSPREY_WEB_PORT`/config (exact parallel to `OSPREY_TERMINAL_BIND_HOST` below) |
+| `artifact_base_port` | int | no (default 9291) | First per-user artifact-gallery port; binds `OSPREY_ARTIFACT_SERVER_PORT` |
+| `ariel_base_port` | int | no (default 9391) | First per-user ARIEL search port; binds `OSPREY_ARIEL_PORT` |
+| `lattice_base_port` | int | no (default 9491) | First per-user lattice-dashboard port; binds `OSPREY_LATTICE_DASHBOARD_PORT` |
+| `channel_finder_base_port` | int | no (default 9591) | First per-user channel-finder panel port; binds `OSPREY_CHANNEL_FINDER_PORT` |
+| `okf_base_port` | int | no (default 9691) | First per-user OKF knowledge-panel port; binds `OSPREY_FACILITY_KNOWLEDGE_PORT` |
+| `users` | list of strings and/or objects | yes | May be empty when `enabled: true` (see validation rule below). See "User roster entries" below for the object form |
+| `image_source` | enum | no | `registry` (default — today's behavior: `deploy up` pulls a CI-built image) or `local` (`deploy up` builds each referenced persona's image itself from its `project_path`; no CI/registry needed). Fail-closed default; an unrecognized value is a lint ERROR. See "Personas" below |
+| `default_persona` | string | required if `image_source: local`, or if any `personas` catalog is present and some `users[]` entry has no `persona:` of its own | The persona a roster entry resolves to when it declares no `persona:` key. See "Personas" below |
+| `personas.<name>` | map of objects | no | Catalog of heterogeneous personas — own project, own image, own permissions. Omit entirely (no `personas:` block, no `persona:` keys anywhere) for exactly today's behavior. See "Personas" below |
+| `mcp.topology` | enum | no | `per_container_stdio` (default — today's behavior) is the only accepted value. `shared_http` is a recognized but rejected value — lint ERROR and render `ValueError`. See "MCP topology" below and `references/modules/web-terminals.md` for the deferral rationale |
+| `landing.groups` | list of group objects | no | Defaults to a single `type: "users"` group if omitted. `type: "users"` groups take no other fields and auto-populate from `users[]`; `type: "links"` groups require `label` and a `links` list of `{label, url}` objects |
+| `auth.method` | string | no | Defaults to `"none"` (no authentication). Forward-looking seam only — see note below |
+| `tls.enabled` | bool | no | Defaults to `false` (plain HTTP). Forward-looking seam only — see note below |
+| `tls.cert` | string | required if `tls.enabled: true` | Path to the TLS certificate file, mounted into the nginx container |
+| `tls.key` | string | required if `tls.enabled: true` | Path to the TLS private key file, mounted into the nginx container |
+
+Every port-valued field in the table above must be free of collisions with every
+other port allocation in the config: `nginx_port` against `ports.*` (its mirror is
+`ports.web_terminal_nginx`), and each `*_base_port` against every other port
+allocation for its whole per-family range `[base, base+len(users)-1]`, not just the
+base value itself. The four `*_base_port` fields are deliberately **not** mirrored
+into `ports.*` (see the `ports` section above) — they are ranges, not single ports.
+See validation rule 11 for the full closed set of checks.
+
+The field names above (`web_base_port`, `artifact_base_port`, `ariel_base_port`,
+`lattice_base_port`) are backend-neutral — they name the four service families, not
+any specific container runtime, so a future non-container backend can reuse them
+unchanged.
+
+The `web` family's internal container port — the port the `osprey web` process
+itself listens on inside the per-user container, before any per-user remapping —
+is a **fixed constant, 8087** (the `osprey web` default; see `cli/web_cmd.py`) and
+is **not configurable** via this schema; only the externally-published,
+per-user `web_base_port + i` host port varies. Templates and docs must never
+reintroduce the old `9087` value.
+
+### User roster entries
+
+A `users[]` entry is either a bare string or an object:
+
+```yaml
+users:
+  - alice                                # bare string — shorthand for {name: "alice"}
+  - name: "bob"
+    index: 1                             # required in object form — explicit port-offset (see below)
+    persona: "analysis"                  # optional — key into personas.<name>
+```
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `name` | string | yes | The username; drives the container name (`${facility.prefix}-web-${name}`), named volumes, and the nginx route |
+| `index` | int (non-negative, non-bool) | yes, for an object-form entry | Explicit port-offset. A bare-string entry has no `index` field at all (its offset is inferred from list position); the moment an entry is written in object form, `index` must be present and a valid non-negative, non-bool int, or lint rejects it — there is no "infer it anyway" fallback for object-form entries. `osprey deploy decommission` freezes every *surviving* entry to this object form (assigning each its current positional index) before deleting the target user, so removing an earlier user from the list can never shift a later survivor's allocated ports; this is a tooling-managed migration, not something to hand-author in the interview |
+| `persona` | string | no | Key into `modules.web_terminals.personas`. Falls back to `default_persona` when absent; falls back further to "no persona in effect" (today's single-image, single-project behavior) when neither is set |
+
+### Personas
+
+A **persona** is a named, self-contained deployment identity for one or more users:
+its own container image, its own rendered OSPREY project, and — since permissions are
+a property of a project's own `config.yml` — its own real per-tool permissions, for
+free, via the existing per-project pipeline. No `personas:` catalog at all (or every
+`users[]` entry resolving to no persona) is exactly today's behavior: one shared image,
+one shared project (`${facility.prefix}-assistant`), un-suffixed `web-terminal:latest`.
+
+```yaml
+personas:
+  assistant:                              # persona name
+    project: "als-assistant"              # rendered project name
+    project_path: "../als-assistant"      # rendered project dir (local-mode build context)
+    build_profile: "profiles/assistant.yml"  # registry mode: committed profile path (local mode: a bundled preset name)
+```
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `project` | string | yes | The persona's rendered project name. In local mode this must equal that project's own `config.yml` `project_name` — a mismatch is a lint ERROR (otherwise a silently dead mount/path) |
+| `project_path` | path | required if `image_source: local` | Path to the persona's rendered project directory (the local-mode build context). In local mode, `deploy up` **auto-renders** this project from `build_profile` when the directory is absent (see `build_profile` below), so pre-building each persona by hand is optional. An existing render is user-owned and never overwritten; a *partial* render (missing `Dockerfile` or `config.yml`) is an ERROR; a missing directory with no usable `build_profile` cannot be auto-rendered |
+| `build_profile` | path or preset name | see Notes | The source the persona's project is rendered from — consumed differently per mode. **Registry mode:** a path to the persona's committed build-profile YAML, fed as the positional profile to the one `.gitlab-ci.yml` build job generated per non-default persona (required for a non-default persona; lint ERROR if missing). **Local mode:** a **bundled preset name**, passed to `osprey build --preset <build_profile>` by `deploy up`'s auto-render — so it must name a bundled preset (see `--list-presets`), not a file path. Required in local mode for any persona whose `project_path` is not already rendered |
+
+**Image naming** is derived deterministically — never set by hand:
+
+| Mode | Default persona (or no persona in effect) | Non-default persona |
+|------|---------------------------------------------|----------------------|
+| `registry` (default) | `${registry.url}/web-terminal:latest` — unsuffixed, unchanged by introducing a catalog | `${registry.url}/web-terminal-<persona>:latest` |
+| `local` | `<persona.project>-<persona>:local` | `<persona.project>-<persona>:local` |
+
+The default persona's image tag never changes when a catalog is introduced in registry
+mode (zero migration for existing deployments and the `ariel-sync` core-stack
+consumer); in local mode, every persona — including the default — is built and tagged
+the same way. The default persona's in-container project directory is likewise pinned
+to `/app/${facility.prefix}-assistant` regardless of its catalog `project` value, so an
+existing user's agent-data volume keeps mounting at the same path it always has; a
+non-default persona mounts at `/app/<project>`.
+
+### MCP topology
+
+`modules.web_terminals.mcp.topology` chooses how the framework's stdio MCP servers are
+wired per deployment. `per_container_stdio` (the default, and today's only real
+behavior) runs every framework server as its own stdio subprocess inside each
+container. `shared_http` is a recognized schema value that is deliberately **rejected,
+fail-closed**: setting it is a lint ERROR, and rendering it raises a `ValueError`
+scoped to the shared framework MCP tier (a config error naming a different server,
+e.g. a `claude_code.servers` custom `url` entry, is unaffected). See
+`references/modules/web-terminals.md` for why a shared HTTP tier is schema-only in this
+revision.
+
+> **`auth`/`tls` are forward-looking, config-gated seams — not an implemented
+> security feature.** With the defaults shown (`auth.method: none`,
+> `tls.enabled: false`), the rendered stack is functionally equivalent to Phase 1
+> (minus the port→path relocation): perimeter-trust, plain HTTP, open to anyone who
+> reaches the deploy host. OSPREY does not ship an auth backend or provision
+> certificates for you — these stanzas only exist so that a future phase can wire
+> a real `auth_request` backend and TLS termination as a config flip instead of a
+> template rewrite. The multi-user-support epic's two CRITICAL findings, **C1 (no
+> authentication)** and **C2 (all traffic is cleartext HTTP)**, remain **OPEN and
+> explicitly deferred** — defining this schema does not close them, and no
+> deployment should be treated as authenticated or encrypted on the strength of
+> these fields existing.
 
 ### `modules.olog` — electronic logbook integration
 
@@ -401,9 +592,9 @@ modules:
 
 When the interview writes or updates this file, validate:
 
-1. **Required core blocks present**: `facility`, `control_system`, `gitlab`, `registry`, `deploy`, `runtime`, `llm`, `ports`.
+1. **Required core blocks present**: `facility`, `control_system`, `ci`, `registry`, `deploy`, `runtime`, `llm`, `ports`. (A legacy `gitlab:` block satisfies this in place of `ci:` — the normalizer resolves it to `ci:` before anything else reads the config.)
 2. **`facility.prefix` is lowercase, 2–6 chars, alphanumeric + hyphens**. No underscores, no uppercase (container name compatibility).
-3. **`gitlab.host` does not include `https://` or trailing path**.
+3. **`ci.host` (or the legacy `gitlab.host`) does not include `https://` or trailing path**.
 4. **`registry.url` includes the port** (typically `:5050` for GitLab).
 5. **`deploy.host` is reachable** by `ssh -o BatchMode=yes ${host} true` (warn, don't fail — operator may not have keys yet).
 6. **`network.no_proxy` includes `localhost` and `127.0.0.1`** (warn if missing).
@@ -411,8 +602,26 @@ When the interview writes or updates this file, validate:
 8. **`modules.test_ioc.cas_server_port` is outside 5064–5076** if test_ioc is enabled.
 9. **`modules.benchmarks` requires `modules.web_terminals.enabled`**.
 10. **`modules.event_dispatcher.epics_ca.enabled` requires `control_system.type == "epics"`**.
-11. **Port range overlap** — with `web_terminals` base `B_w` and N users binding `[B_w, B_w+N-1]`, and `event_dispatcher` base `B_d` and M sidecars binding `[B_d, B_d+M-1]`, the two ranges MUST NOT overlap. Reject configs where either range contains a value in the other.
-12. **Custom MCP server names must not collide with reserved service keys** — `ariel-postgres`, `typesense`, `event-dispatcher`, `integration-tests`, `dispatch-sidecar-*`, `ariel-sync`, `nginx`. Custom names are rendered as `${prefix}-mcp-${name}` so they don't collide at the compose level, but bare references to reserved names in `depends_on` or `services_to_mount` are reserved for the built-ins.
+11. **Port range overlap** — a closed rule over four named sets; reject a config if any value appears in more than one of them, or if any two ranges in `S1 ∪ S2` overlap:
+    - **S1 (web_terminals families)** — for N = `len(users)`, one range per family: `[base_f, base_f+N-1]` for each `base_f` in `{web_base_port, artifact_base_port, ariel_base_port, lattice_base_port}`.
+    - **S2 (event_dispatcher sidecars)** — `[sidecar_port_base, sidecar_port_base+sidecar_count-1]`.
+    - **S3 (`ports.*` literals)** — every value in the top-level `ports.*` map. `modules.web_terminals.nginx_port` and `modules.event_dispatcher.port` are each required to equal their `ports.*` mirror (`ports.web_terminal_nginx` / `ports.event_dispatcher`), so checking `ports.*` once already covers both — do not check the module field a second time, or every valid config would (correctly) show the same value twice and falsely look like a collision.
+    - **S4 (module ports with no `ports.*` mirror)** — `modules.test_ioc.cas_server_port` and `modules.test_ioc.cas_beacon_port`. (`modules.custom_mcp_servers.servers[].port` values are required to already equal an existing `ports.*` entry — see the per-server comment convention — so they're already covered by S3 and need no separate check. The four `web_terminals` family base ports are likewise NOT mirrored into `ports.*` — see the `ports` section above — precisely so they don't need de-duplicating against S1.)
+
+    Concretely: take `S1 ∪ S2 ∪ S3 ∪ S4` as a value multiset (ranges expanded to their member ports) and flag any value with multiplicity > 1. This set is closed and enumerable — these four sets are the complete input, nothing further needs discovering from the config.
+12. **Reserved service names** — no entry in `modules.web_terminals.users`, and no `custom_mcp_servers` server name, may collide with a reserved service key: `nginx`, `ariel-postgres`, `typesense`, `event-dispatcher`, `integration-tests`, `dispatch-sidecar-*`, `ariel-sync`. A username becomes part of a compose service name (`${facility.prefix}-web-${user}`), and the web-terminals reverse proxy is always named `nginx` — a user literally named `nginx` (or any other reserved key) would collide with a built-in service. Custom MCP server names are rendered as `${prefix}-mcp-${name}` so they don't collide at the compose level, but bare references to reserved names in `depends_on` or `services_to_mount` are reserved for the built-ins.
+13. **`modules.web_terminals` with an empty `users[]`** — if `enabled: true` and `users` is `[]`:
+    - If `modules.benchmarks.enabled` is `false` (or `modules.benchmarks` is absent), this is a **warning, not a failure**: the module still renders nginx + the landing page (with the `users` landing group rendering empty), just with zero per-user terminal services. Warn and continue; do not reject the config.
+    - If `modules.benchmarks.enabled` is `true`, this **is a failure**: rule 9 requires `web_terminals.enabled` for benchmarks, but `modules.benchmarks.runs_in_container` resolves to a specific user's container (e.g. `${facility.prefix}-web-${first_user}`) and there is no user to resolve `first_user` to. Reject the config in this combination.
+14. **Personas and `image_source`**:
+    - Every `users[].persona` (and `default_persona`, if set) must name an entry in `modules.web_terminals.personas` — an unresolvable reference is an ERROR.
+    - A persona name follows the same charset as a username and may not collide with a reserved service key (rule 12's set).
+    - `image_source: local` requires both a non-empty `personas` catalog and `default_persona` to be set — ERROR otherwise. This check also runs as a plain `ValueError` on the `deploy up`/build path itself (not just lint), because `deploy up` does not invoke the lint pass.
+    - In local mode, every referenced persona's `project_path` must exist and contain both a `Dockerfile` and a `config.yml` — ERROR if any is missing.
+    - In local mode, a persona's `project` must equal its own `project_path`'s `config.yml` `project_name` — ERROR on mismatch (the two diverging silently produces a dead mount/path at runtime).
+    - In registry mode, every referenced non-default persona must set `build_profile` — ERROR if absent (there would be no CI input to build its image).
+    - `image_source: registry` (the default) with no `registry.url` set is an ERROR; `image_source: local` with `registry.url` set is a WARNING (the value is simply unused).
+15. **`mcp.topology`** — only `per_container_stdio` is accepted. `shared_http` (or any other value) is an ERROR at lint time and a `ValueError` at render time.
 
 If validation fails, do not silently overwrite — surface the error and ask the user to confirm the fix.
 

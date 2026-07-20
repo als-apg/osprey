@@ -31,11 +31,10 @@ import httpx
 from fastapi import FastAPI
 from starlette.staticfiles import StaticFiles
 
+from osprey.bluesky_bridge_connection import resolve_bridge_url
 from osprey.interfaces._app_setup import configure_interface_app
 from osprey.services.bluesky_panels import draft_relay, launch, read_proxy
 from osprey.services.bluesky_panels import health as health_routes
-
-_DEFAULT_BRIDGE_URL = "http://127.0.0.1:8090"
 
 # Panel bundle directories (relative to this module's directory) and the
 # mount path each is served under. Later tasks (3.2 plan authoring, 3.3
@@ -50,34 +49,14 @@ _PANEL_MOUNTS: dict[str, str] = {
 }
 
 
-def _resolve_bridge_url() -> str:
-    """Resolve the Bluesky bridge base URL.
-
-    Mirrors ``osprey.mcp_server.bluesky.server_context.BridgeContext._resolve_bridge_url``
-    so the sidecar and the Bluesky MCP agree on which bridge instance to talk to.
-
-    Resolution order:
-
-    1. ``BLUESKY_BRIDGE_URL`` env var (full URL) — wins outright.
-    2. ``bluesky.bridge_url`` in config.yml.
-    3. ``http://127.0.0.1:8090`` default.
-    """
-    full = os.environ.get("BLUESKY_BRIDGE_URL")
-    if full:
-        return full.rstrip("/")
-
-    from osprey.utils.workspace import load_osprey_config
-
-    config = load_osprey_config()
-    url = config.get("bluesky", {}).get("bridge_url", _DEFAULT_BRIDGE_URL)
-    return str(url).rstrip("/")
-
-
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     client = httpx.AsyncClient(timeout=15.0)
     _app.state.client = client
-    _app.state.bridge_url = _resolve_bridge_url()
+    # Resolved via the shared osprey.bluesky_bridge_connection helper so this
+    # sidecar and the Bluesky MCP server agree on which bridge instance to talk
+    # to.
+    _app.state.bridge_url = resolve_bridge_url()
     try:
         yield
     finally:

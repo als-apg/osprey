@@ -15,9 +15,19 @@ on:
           tests/e2e/test_vacuum_burst_scenario.py'
         required: false
         default: ''
+      run_benchmarks:
+        description: >-
+          Run the on-demand benchmark lanes (channel-finder MCP benchmarks)
+          instead of the E2E lane. The home for e2e suites that are useful
+          but too expensive to run on every PR — trigger before a release or
+          after touching the code they exercise.
+        required: false
+        type: boolean
+        default: false
   schedule:
-    # Nightly at 07:00 UTC (midnight Pacific). Tier 4 (provider matrix,
-    # benchmarks) gates on github.event_name == 'schedule'.
+    # Nightly at 07:00 UTC (midnight Pacific) for the always-on jobs
+    # (test, lint, docs, ...; no `if:`). Every e2e/benchmark lane is
+    # PR-gated or dispatch-gated and does NOT run on this schedule.
     - cron: '0 7 * * *'
 
 # Note: This workflow runs tests, linting, docs build, and package checks
@@ -73,8 +83,21 @@ jobs:
       run: uv sync --extra dev --extra virtual-accelerator
 
     - name: Run unit tests
+      # Coverage is measured only on the cell that uploads to Codecov below —
+      # the other three cells were paying ~25% runtime (measured) for a report
+      # nobody reads. Deliberately NOT pytest-xdist-parallelized: the unit
+      # suite relies on serial collection order to dodge cross-test
+      # global-state bleed (stdlib subprocess.run monkeypatches, loguru sink
+      # reconfiguration), and under -n 4 it flakes ~1 test per run with a
+      # different victim each time. Parallelizing this lane first requires
+      # fixing that isolation debt.
       run: |
-        uv run pytest tests/ --ignore=tests/e2e -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term
+        if [ "${{ matrix.python-version }}" = "3.11" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+          COV_ARGS="--cov=src/osprey --cov-report=xml --cov-report=term"
+        else
+          COV_ARGS=""
+        fi
+        uv run pytest tests/ --ignore=tests/e2e -v --tb=short $COV_ARGS
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v7
@@ -270,6 +293,7 @@ jobs:
         uv run pytest tests/interfaces/design_system/test_behavioral.py \
           tests/interfaces/web_terminal/test_panels_browser.py \
           tests/interfaces/web_terminal/test_contract_params.py \
+          tests/interfaces/web_terminal/test_logout_resume_browser.py \
           tests/interfaces/test_load_smokes.py -v --tb=short
 
     - name: Run visual regression suite
@@ -374,11 +398,12 @@ jobs:
         uv run pytest tests/integration/test_build_boot.py -v --tb=short -k "$PRESET"
 
   agentic-per-preset:
-    name: Tier 3 — Agentic flow (${{ matrix.preset }}) [advisory]
+    name: Tier 3 — Agentic flow (${{ matrix.preset }})
     runs-on: ubuntu-latest
-    # Only run on PRs from same repo (ALS_APG_API_KEY unavailable on forks)
+    # Only run on PRs from same repo (ALS_APG_API_KEY unavailable on forks).
+    # Gating (no continue-on-error): a red Tier 3 flow blocks the merge like
+    # every other e2e lane — the house rule is full green, no advisory tiers.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    continue-on-error: true
     strategy:
       fail-fast: false
       matrix:
@@ -450,8 +475,15 @@ jobs:
     name: E2E Tests
     runs-on: ubuntu-latest
     # Only run on PRs (not pushes) to control API costs, and only for non-fork PRs (secrets unavailable on forks).
-    # Also runs on manual workflow_dispatch to enable scoped reruns via the e2e_filter input.
-    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || github.event_name == 'workflow_dispatch'
+    # Also runs on manual workflow_dispatch to enable scoped reruns via the e2e_filter input —
+    # unless that dispatch asked for the benchmark lanes instead (run_benchmarks).
+    if: (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) || (github.event_name == 'workflow_dispatch' && !inputs.run_benchmarks)
+    # The lane's healthy runtime is ~20-25min (real-LLM SDK/CLI pipelines —
+    # every full-stack docker deploy now lives in its own dedicated job, and
+    # the channel-finder benchmarks moved to the nightly schedule); a run past
+    # the cap means a test is wedged on a dead endpoint or a leaked container
+    # stack, and the useful signal is the timeout itself, not more runner time.
+    timeout-minutes: 40
 
     steps:
     - name: Checkout repository
@@ -518,27 +550,111 @@ jobs:
         else
           # Tier 3 per-preset agentic flows live in their own matrix job
           # (agentic-per-preset). The full Docker-stack tests
-          # (dispatch-deploy-e2e, bluesky-deploy-e2e, tiled-roundtrip-e2e,
-          # va-substrate-equivalence-e2e, bluesky-catalog-e2e,
-          # bluesky-sandbox-escape-e2e) and the Dockerfile e2e
+          # (dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e,
+          # tiled-roundtrip-e2e, va-substrate-equivalence-e2e,
+          # orm-roundtrip-e2e, bluesky-catalog-e2e,
+          # bluesky-sandbox-escape-e2e, multi-user-demo-e2e,
+          # multi-user-deploy-lifecycle-e2e) and the Dockerfile e2e
           # (dockerfile-e2e) each have their own job because they build
-          # container images. Exclude all eight here to avoid
-          # double-execution. NOTE: "--ignore" means "not in this
-          # secret-gated LLM lane," NOT "not tested" — every ignored file
-          # below runs in its own secret-free job on every PR
-          # (bluesky-catalog-e2e and bluesky-sandbox-escape-e2e are advisory-only —
-          # see those jobs' comments).
-          uv run pytest tests/e2e/ -v --tb=short \
+          # container images. Exclude them all here to avoid
+          # double-execution — and because full-stack deploys leave
+          # host-global residue (fixed `<prefix>-web-<user>`/`<prefix>-nginx`
+          # container names, the host-global openobserve data volume with
+          # root creds pinned on first init) that breaks later tests sharing
+          # this runner. NOTE: "--ignore" means "not in this secret-gated
+          # LLM lane," NOT "not tested" — every ignored file below runs in
+          # its own job (the deploy-lifecycle jobs run on PRs into main
+          # only — see those jobs' comments), except the channel-finder
+          # benchmarks, which run on demand via the run_benchmarks
+          # dispatch input (channel-finder-benchmarks): they are a
+          # statistical quality score with flaky reruns, not a per-PR
+          # correctness gate.
+          # -n 4 --dist loadfile (pytest-xdist): this lane is ~18 min of
+          # real-LLM round-trips at near-zero CPU, so four workers cut it to
+          # roughly the slowest single file. loadfile (not load) keeps every
+          # file's tests on one worker, preserving in-file ordering and
+          # module-scoped fixtures — the documented registry-order hazard is
+          # about mixing e2e with unit tests, not about file-level
+          # parallelism. The only fixed-port stacks in this lane
+          # (grid-scan/ORM VA on 5064) are GitHub-Actions-skipped anyway.
+          uv run pytest tests/e2e/ -v --tb=short -n 4 --dist loadfile \
             --ignore=tests/e2e/test_preset_agentic.py \
             --ignore=tests/e2e/test_dispatch_deploy.py \
+            --ignore=tests/e2e/test_dispatch_overlay_visibility.py \
             --ignore=tests/e2e/test_bluesky_deploy.py \
             --ignore=tests/e2e/test_dockerfile_e2e.py \
             --ignore=tests/e2e/test_tiled_roundtrip.py \
             --ignore=tests/e2e/test_va_substrate_equivalence.py \
+            --ignore=tests/e2e/test_orm_roundtrip.py \
             --ignore=tests/e2e/test_bluesky_catalog_e2e.py \
             --ignore=tests/e2e/test_bluesky_sandbox_escape_e2e.py \
-            --ignore=tests/e2e/test_bluesky_panels_deploy.py
+            --ignore=tests/e2e/test_bluesky_panels_deploy.py \
+            --ignore=tests/e2e/test_multi_user_demo.py \
+            --ignore=tests/e2e/test_deploy_lifecycle.py \
+            --ignore=tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py
         fi
+
+  channel-finder-benchmarks:
+    name: Channel-Finder MCP Benchmarks (on demand)
+    runs-on: ubuntu-latest
+    # Manual-only, via the `run_benchmarks` workflow_dispatch input (Actions
+    # tab "Run workflow", or `gh workflow run ci.yml -f run_benchmarks=true`):
+    # this is a statistical quality benchmark (F1/perfect-match thresholds
+    # over ~30 real LLM channel-finder queries, flaky-rerun-heavy), not a
+    # per-PR correctness gate. It used to run inside the shared e2e-tests
+    # lane on every PR (~4min of the lane); like every benchmark in this
+    # repo it is human-babysat — run it deliberately before a release or
+    # after touching the channel-finder/MCP code, and read the scores in the
+    # job log. Deliberately NOT in all-checks-passed's needs — a
+    # dispatch-gated job has no result on PR runs. This job is the intended
+    # home for future too-expensive-per-PR e2e lanes as well.
+    if: github.event_name == 'workflow_dispatch' && inputs.run_benchmarks
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Install dependencies
+      run: uv sync --extra dev
+
+    - name: Pre-flight LLM endpoint reachability check
+      env:
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      run: |
+        # Same probe as e2e-tests: fail fast if the proxy is unreachable.
+        if [ -z "${ALS_APG_API_KEY:-}" ]; then
+          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
+          exit 1
+        fi
+        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
+          -X POST https://llm.gianlucamartino.com/v1/messages \
+          -H "Content-Type: application/json" \
+          -H "anthropic-version: 2023-06-01" \
+          -H "Authorization: Bearer $ALS_APG_API_KEY" \
+          -d '{"model":"claude-haiku-4-5-20251001","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+        if [ "$HTTP_CODE" != "200" ]; then
+          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
+          head -c 500 /tmp/probe.txt; echo
+          exit 1
+        fi
+        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+
+    - name: Run channel-finder MCP benchmarks
+      env:
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      run: |
+        uv run pytest tests/e2e/claude_code/test_channel_finder_mcp_benchmarks.py -v --tb=short
 
   deploy-e2e:
     name: Deploy E2E Test (build + deploy pipeline)
@@ -665,6 +781,78 @@ jobs:
         DISPATCH_WORKER_TOKEN: dev-token
       run: |
         uv run pytest tests/e2e/test_dispatch_deploy.py -v --tb=short
+
+  dispatch-overlay-e2e:
+    name: Dispatch Overlay E2E (overlay skill/data/trigger visibility, full Docker stack)
+    runs-on: ubuntu-latest
+    # Only run on PRs from same repo (secrets unavailable on forks). This test
+    # previously ran inside the shared e2e-tests lane, where its full
+    # dispatcher/worker image build + deploy was the lane's single biggest
+    # time sink (~11min); it follows the same extraction pattern (and job
+    # shape) as dispatch-deploy-e2e.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Build + deploy + one real agent turn healthily fits well under 20min
+    # (~11min when it ran in-lane, including the web-terminal image builds
+    # its fixture has since dropped); past the cap it's wedged, not slow.
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Log in to ghcr (openobserve mirror)
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Pre-flight LLM endpoint reachability check
+      env:
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+      run: |
+        # Same probe as dispatch-deploy-e2e: fail fast if the proxy is
+        # unreachable rather than burning a multi-minute container build first.
+        if [ -z "${ALS_APG_API_KEY:-}" ]; then
+          echo "❌ ALS_APG_API_KEY secret is not set on this runner"
+          exit 1
+        fi
+        HTTP_CODE=$(curl -sS -o /tmp/probe.txt -w "%{http_code}" --max-time 15 \
+          -X POST https://llm.gianlucamartino.com/v1/messages \
+          -H "Content-Type: application/json" \
+          -H "anthropic-version: 2023-06-01" \
+          -H "Authorization: Bearer $ALS_APG_API_KEY" \
+          -d '{"model":"claude-haiku-4-5-20251001","max_tokens":4,"messages":[{"role":"user","content":"ping"}]}')
+        if [ "$HTTP_CODE" != "200" ]; then
+          echo "❌ ALS-APG endpoint probe failed (HTTP $HTTP_CODE)"
+          head -c 500 /tmp/probe.txt; echo
+          exit 1
+        fi
+        echo "✅ ALS-APG endpoint reachable (HTTP 200)"
+
+    - name: Run dispatch overlay visibility E2E
+      env:
+        ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
+        EVENT_DISPATCHER_TOKEN: dev-token
+        DISPATCH_WORKER_TOKEN: dev-token
+      run: |
+        uv run pytest tests/e2e/test_dispatch_overlay_visibility.py -v --tb=short
 
   bluesky-deploy-e2e:
     name: Bluesky Deploy E2E (bluesky bridge, full Docker stack)
@@ -801,6 +989,99 @@ jobs:
       run: |
         uv run pytest tests/e2e/test_va_substrate_equivalence.py -v --tb=short
 
+  orm-roundtrip-e2e:
+    name: ORM Roundtrip E2E (VA + bluesky bridge + Tiled, full Docker stack)
+    runs-on: ubuntu-latest
+    # Only run on PRs from same repo (mirrors va-substrate-equivalence-e2e
+    # gating). This job needs no secrets — the ORM roundtrip drives the
+    # bridge HTTP API directly, no LLM involved. It previously ran inside the
+    # shared e2e-tests lane (its ~7min full VA/bridge/Tiled build + deploy
+    # was the lane's second-biggest time sink); same extraction pattern as
+    # every other dockerbuild-marked file.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Builds the native PyAT/softioc VA image from source like
+    # va-substrate-equivalence-e2e (see its timeout note) — generous cap so a
+    # cold image cache can't red the job.
+    timeout-minutes: 45
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Log in to ghcr (openobserve mirror)
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Run ORM roundtrip E2E
+      run: |
+        uv run pytest tests/e2e/test_orm_roundtrip.py -v --tb=short
+
+  multi-user-demo-e2e:
+    name: Multi-User Demo E2E (two-persona topology, full Docker stack)
+    runs-on: ubuntu-latest
+    # Only run on PRs from same repo (mirrors va-substrate-equivalence-e2e
+    # gating). This job needs no secrets — the demo topology proofs never
+    # shell out to an LLM. The test previously had no dedicated job and was
+    # only ever swept into e2e-tests' glob, where its full-stack deploy left
+    # host-global residue (fixed `<prefix>-web-<user>`/`<prefix>-nginx`
+    # container names, the shared openobserve data volume) that broke later
+    # tests in that lane. This job is its isolated lane.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    # Builds two persona project images, then deploys the two-persona web
+    # tier (nginx + web terminals + OO) before the topology proofs start —
+    # persona image builds dominate, so keep generous cold-cache headroom.
+    timeout-minutes: 45
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Log in to ghcr (openobserve mirror)
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Run multi-user demo E2E
+      run: |
+        uv run pytest tests/e2e/test_multi_user_demo.py -v --tb=short
+
   tiled-roundtrip-e2e:
     name: Tiled Roundtrip E2E (bluesky bridge + Tiled persistence, full Docker stack)
     runs-on: ubuntu-latest
@@ -848,9 +1129,11 @@ jobs:
   bluesky-catalog-e2e:
     name: Bluesky Catalog E2E (layered plan catalog, full Docker stack)
     runs-on: ubuntu-latest
-    # ADVISORY LANE: deliberately NOT in all-checks-passed's `needs:` list —
-    # read this job's own log to see whether it passed. Only run on PRs from
-    # same repo (mirrors bluesky-deploy-e2e/tiled-roundtrip-e2e gating). This
+    # GATING LANE (promoted from advisory after a clean pass history): wired
+    # into all-checks-passed's `needs:` and its failure blocks the merge —
+    # deterministic Docker stack, no LLM, no flake source to excuse. Only run
+    # on PRs from same repo (mirrors bluesky-deploy-e2e/tiled-roundtrip-e2e
+    # gating). This
     # job needs no secrets — the bridge never shells out to an LLM — and no
     # amd64-emulated Virtual Accelerator image (demo_runner mode: real
     # RunEngine, mock devices, no EPICS), so it's comparable in weight to
@@ -891,9 +1174,11 @@ jobs:
   bluesky-sandbox-escape-e2e:
     name: Bluesky Sandbox Escape E2E (session-plan authoring gates, full Docker stack)
     runs-on: ubuntu-latest
-    # ADVISORY LANE: deliberately NOT in all-checks-passed's `needs:` list —
-    # read this job's own log to see whether it passed (mirrors
-    # bluesky-catalog-e2e's advisory precedent). Only run on PRs from same repo
+    # GATING LANE (promoted from advisory after a clean pass history, together
+    # with bluesky-catalog-e2e): wired into all-checks-passed's `needs:` and
+    # its failure blocks the merge — deterministic Docker stack, no LLM, and a
+    # sandbox-escape SAFETY proof is the last thing that should be allowed to
+    # fail inside a green check. Only run on PRs from same repo
     # (mirrors bluesky-deploy-e2e/va-substrate-equivalence-e2e gating). This job
     # needs no secrets — neither the bridge nor the virtual accelerator
     # shells out to an LLM — but DOES need the amd64-emulated Virtual
@@ -969,14 +1254,163 @@ jobs:
         ALS_APG_API_KEY: ${{ secrets.ALS_APG_API_KEY }}
       run: uv run pytest tests/e2e/test_dockerfile_e2e.py -v --tb=short
 
+  multi-user-deploy-lifecycle-e2e:
+    name: Multi-User Deploy Lifecycle E2E (PRs into main, real container runtime)
+    runs-on: ubuntu-latest
+    # Runs on every same-repo PR whose BASE is main — which is every ordinary
+    # PR, but not per-phase PRs inside an epic (those target epic/* and skip
+    # it, matching how the epic workflow scopes its heavier gates; the job
+    # then runs once at the epic→main boundary). Scoped this way because it
+    # drives REAL, destructive container/volume lifecycle operations
+    # (decommission/prune/nuke) against the runtime.
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up Docker Compose
+      uses: docker/setup-compose-action@v2
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Run multi-user deploy lifecycle E2E
+      run: |
+        uv run pytest tests/e2e/test_deploy_lifecycle.py -v --tb=short
+
+    # Belt-and-suspenders on top of the test's own try/finally teardown: every
+    # resource named here is exact (never a prune/-a/wildcard), matching
+    # tests/e2e/test_deploy_lifecycle.py's own container-ops safety guardrail.
+    - name: Clean up any stranded lifecycle-e2e resources
+      if: always()
+      run: |
+        for user in alice bob carol dave erin; do
+          docker rm -f "e2e-web-${user}" || true
+          docker volume rm "osprey-e2e-mus-p3_${user}-claude-config" || true
+          docker volume rm "osprey-e2e-mus-p3_${user}-agent-data" || true
+        done
+        docker rm -f e2e-nginx || true
+        docker rm -f osprey-e2e-mus-p3-registry || true
+        docker compose -p osprey-e2e-mus-p3 down || true
+
+  multi-user-deploy-lifecycle-e2e-podman:
+    name: Multi-User Deploy Lifecycle E2E (PRs into main, podman runtime)
+    runs-on: ubuntu-latest
+    # Podman counterpart of multi-user-deploy-lifecycle-e2e above — same job,
+    # same real-runtime lifecycle mechanics, run against rootless podman
+    # instead of docker (tests/e2e/test_deploy_lifecycle.py picks its runtime
+    # from OSPREY_E2E_RUNTIME). Scoped identically: same-repo PRs into main
+    # (per-phase PRs inside an epic target epic/* and skip it).
+    if: |
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v7
+      with:
+        enable-cache: true
+
+    - name: Set up Python
+      run: uv python install 3.11
+
+    - name: Set up rootless Podman
+      run: |
+        podman --version
+        pip install --user podman-compose
+        podman compose version
+        # Docker auto-treats localhost registries as insecure (plain HTTP);
+        # rootless podman defaults to tls-verify=true, so the test's throwaway
+        # stub registry on localhost:19081 (HTTP) breaks both `podman push` and
+        # the deploy's `podman compose pull`. A registries.conf.d drop-in (merged,
+        # not clobbering the default docker.io search registry) marks that one
+        # host insecure — giving podman docker's built-in localhost behavior.
+        mkdir -p ~/.config/containers/registries.conf.d
+        cat > ~/.config/containers/registries.conf.d/localhost-insecure.conf <<'EOF'
+        [[registry]]
+        location = "localhost:19081"
+        insecure = true
+        EOF
+
+    - name: Install osprey
+      run: uv sync --extra dev
+
+    - name: Run multi-user deploy lifecycle E2E (podman)
+      env:
+        OSPREY_E2E_RUNTIME: podman
+        # Explicit belt-and-suspenders alongside the test's own RUNTIME ->
+        # CONTAINER_RUNTIME coupling (see _run_osprey): makes the deploy-side
+        # runtime selection self-documenting here too, not just inferred.
+        CONTAINER_RUNTIME: podman
+      run: |
+        # `podman compose` delegates to the docker-compose CLI plugin present on
+        # the runner, which speaks the Docker API over the rootless podman socket
+        # (unix://$XDG_RUNTIME_DIR/podman/podman.sock). That API service isn't
+        # running by default — `podman push`/`build` are direct CLI calls that
+        # need no socket, but the compose `pull`/`up` the deploy runs do. Start
+        # it for the duration of this step (must be here, not the setup step:
+        # each step is its own process group) and wait until it's listening.
+        podman system service --time=0 &
+        SOCK="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/podman/podman.sock"
+        for _ in $(seq 1 30); do if [ -S "$SOCK" ]; then break; fi; sleep 1; done
+        export DOCKER_HOST="unix://$SOCK"
+        uv run pytest tests/e2e/test_deploy_lifecycle.py -v --tb=short
+
+    # Belt-and-suspenders on top of the test's own try/finally teardown: every
+    # resource named here is exact (never a prune/-a/wildcard), matching
+    # tests/e2e/test_deploy_lifecycle.py's own container-ops safety guardrail.
+    - name: Clean up any stranded lifecycle-e2e resources
+      if: always()
+      run: |
+        for user in alice bob carol dave erin; do
+          podman rm -f "e2e-web-${user}" || true
+          podman volume rm "osprey-e2e-mus-p3_${user}-claude-config" || true
+          podman volume rm "osprey-e2e-mus-p3_${user}-agent-data" || true
+        done
+        podman rm -f e2e-nginx || true
+        podman rm -f osprey-e2e-mus-p3-registry || true
+        podman compose -p osprey-e2e-mus-p3 down || true
+
   all-checks-passed:
     name: All CI Checks Passed
-    needs: [test, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, tiled-roundtrip-e2e, dockerfile-e2e, agentic-per-preset]
+    needs: [test, lint, docs, package, static-checks, visual-theming, frontend-js, build-boot-smoke, e2e-tests, deploy-e2e, dispatch-deploy-e2e, dispatch-overlay-e2e, bluesky-deploy-e2e, bluesky-panels-deploy-e2e, va-substrate-equivalence-e2e, orm-roundtrip-e2e, multi-user-demo-e2e, tiled-roundtrip-e2e, bluesky-catalog-e2e, bluesky-sandbox-escape-e2e, dockerfile-e2e, agentic-per-preset, multi-user-deploy-lifecycle-e2e, multi-user-deploy-lifecycle-e2e-podman]
     runs-on: ubuntu-latest
     if: always()
 
     steps:
     - name: Check all jobs status
+      # Two shapes, both BLOCKING — no advisory tier (house rule: full green,
+      # a red e2e lane must never hide inside a green check):
+      #
+      #   * Always-on jobs (test, lint, ...): anything but "success" fails
+      #     the gate, including "skipped".
+      #   * Conditionally-run jobs (every e2e/deploy lane; `if:` limits them
+      #     to same-repo PRs, and the lifecycle pair to PRs based on main):
+      #     "skipped" is a legitimate result on push/schedule/fork-PR/epic
+      #     -phase runs and passes the gate; any OTHER non-success result
+      #     (failure, cancelled) fails it. Corollary: on fork PRs the secret
+      #     -gated lanes don't run at all — the gate can't vouch for them
+      #     there, same as before.
       run: |
         if [[ "${{ needs.test.result }}" != "success" ]]; then
           echo "❌ Tests failed"
@@ -1010,76 +1444,31 @@ jobs:
           echo "❌ Tier 1 build + boot smoke failed"
           exit 1
         fi
-        # Tier 3 agentic-per-preset: advisory (continue-on-error in job)
-        if [[ "${{ needs.agentic-per-preset.result }}" == "failure" ]]; then
-          echo "⚠️  Agentic per-preset failed (non-blocking, LLM-dependent)"
-        elif [[ "${{ needs.agentic-per-preset.result }}" == "skipped" ]]; then
-          echo "⏭️  Agentic per-preset skipped (only run on PRs)"
-        else
-          echo "✅ Agentic per-preset passed"
-        fi
-        # E2E tests: advisory (LLM-dependent, may fail due to rate limits)
-        if [[ "${{ needs.e2e-tests.result }}" == "failure" ]]; then
-          echo "⚠️  E2E tests failed (non-blocking, LLM-dependent)"
-        elif [[ "${{ needs.e2e-tests.result }}" == "skipped" ]]; then
-          echo "⏭️  E2E tests skipped (only run on PRs)"
-        else
-          echo "✅ E2E tests passed"
-        fi
-        # Deploy E2E: advisory (LLM-dependent, may fail due to rate limits)
-        if [[ "${{ needs.deploy-e2e.result }}" == "failure" ]]; then
-          echo "⚠️  Deploy E2E test failed (non-blocking, LLM-dependent)"
-        elif [[ "${{ needs.deploy-e2e.result }}" == "skipped" ]]; then
-          echo "⏭️  Deploy E2E test skipped (only run on PRs)"
-        else
-          echo "✅ Deploy E2E test passed"
-        fi
-        # Dispatch Deploy E2E: advisory (Docker build + LLM-dependent)
-        if [[ "${{ needs.dispatch-deploy-e2e.result }}" == "failure" ]]; then
-          echo "⚠️  Dispatch deploy E2E failed (non-blocking, Docker + LLM-dependent)"
-        elif [[ "${{ needs.dispatch-deploy-e2e.result }}" == "skipped" ]]; then
-          echo "⏭️  Dispatch deploy E2E skipped (only run on PRs)"
-        else
-          echo "✅ Dispatch deploy E2E passed"
-        fi
-        # Bluesky Deploy E2E: advisory (Docker-dependent, no LLM involved)
-        if [[ "${{ needs.bluesky-deploy-e2e.result }}" == "failure" ]]; then
-          echo "⚠️  Bluesky deploy E2E failed (non-blocking, Docker-dependent)"
-        elif [[ "${{ needs.bluesky-deploy-e2e.result }}" == "skipped" ]]; then
-          echo "⏭️  Bluesky deploy E2E skipped (only run on PRs)"
-        else
-          echo "✅ Bluesky deploy E2E passed"
-        fi
-        # Bluesky Panels Deploy E2E: advisory (Docker-dependent, no LLM involved)
-        if [[ "${{ needs.bluesky-panels-deploy-e2e.result }}" == "failure" ]]; then
-          echo "⚠️  Bluesky panels deploy E2E failed (non-blocking, Docker-dependent)"
-        elif [[ "${{ needs.bluesky-panels-deploy-e2e.result }}" == "skipped" ]]; then
-          echo "⏭️  Bluesky panels deploy E2E skipped (only run on PRs)"
-        else
-          echo "✅ Bluesky panels deploy E2E passed"
-        fi
-        # VA Substrate Equivalence E2E: advisory (Docker-dependent, no LLM involved)
-        if [[ "${{ needs.va-substrate-equivalence-e2e.result }}" == "failure" ]]; then
-          echo "⚠️  VA substrate equivalence E2E failed (non-blocking, Docker-dependent)"
-        elif [[ "${{ needs.va-substrate-equivalence-e2e.result }}" == "skipped" ]]; then
-          echo "⏭️  VA substrate equivalence E2E skipped (only run on PRs)"
-        else
-          echo "✅ VA substrate equivalence E2E passed"
-        fi
-        # Tiled Roundtrip E2E: advisory (Docker-dependent, no LLM involved)
-        if [[ "${{ needs.tiled-roundtrip-e2e.result }}" == "failure" ]]; then
-          echo "⚠️  Tiled roundtrip E2E failed (non-blocking, Docker-dependent)"
-        elif [[ "${{ needs.tiled-roundtrip-e2e.result }}" == "skipped" ]]; then
-          echo "⏭️  Tiled roundtrip E2E skipped (only run on PRs)"
-        else
-          echo "✅ Tiled roundtrip E2E passed"
-        fi
-        # Dockerfile E2E: advisory (network-dependent: PyPI, claude.ai installer)
-        if [[ "${{ needs.dockerfile-e2e.result }}" == "failure" ]]; then
-          echo "⚠️  Dockerfile E2E failed (non-blocking, network-dependent)"
-        elif [[ "${{ needs.dockerfile-e2e.result }}" == "skipped" ]]; then
-          echo "⏭️  Dockerfile E2E skipped (only run on PRs)"
-        else
-          echo "✅ Dockerfile E2E passed"
-        fi
+        check_pr_lane() {
+          # $1 = human-readable lane name, $2 = needs.<job>.result
+          if [[ "$2" == "skipped" ]]; then
+            echo "⏭️  $1 skipped (lane's if: condition not met on this event)"
+          elif [[ "$2" != "success" ]]; then
+            echo "❌ $1 failed (result: $2)"
+            exit 1
+          else
+            echo "✅ $1 passed"
+          fi
+        }
+        check_pr_lane "Agentic per-preset"           "${{ needs.agentic-per-preset.result }}"
+        check_pr_lane "E2E tests"                    "${{ needs.e2e-tests.result }}"
+        check_pr_lane "Deploy E2E"                   "${{ needs.deploy-e2e.result }}"
+        check_pr_lane "Dispatch deploy E2E"          "${{ needs.dispatch-deploy-e2e.result }}"
+        check_pr_lane "Dispatch overlay E2E"         "${{ needs.dispatch-overlay-e2e.result }}"
+        check_pr_lane "Bluesky deploy E2E"           "${{ needs.bluesky-deploy-e2e.result }}"
+        check_pr_lane "Bluesky panels deploy E2E"    "${{ needs.bluesky-panels-deploy-e2e.result }}"
+        check_pr_lane "VA substrate equivalence E2E" "${{ needs.va-substrate-equivalence-e2e.result }}"
+        check_pr_lane "ORM roundtrip E2E"            "${{ needs.orm-roundtrip-e2e.result }}"
+        check_pr_lane "Multi-user demo E2E"          "${{ needs.multi-user-demo-e2e.result }}"
+        check_pr_lane "Tiled roundtrip E2E"          "${{ needs.tiled-roundtrip-e2e.result }}"
+        check_pr_lane "Bluesky catalog E2E"          "${{ needs.bluesky-catalog-e2e.result }}"
+        check_pr_lane "Bluesky sandbox escape E2E"   "${{ needs.bluesky-sandbox-escape-e2e.result }}"
+        check_pr_lane "Dockerfile E2E"               "${{ needs.dockerfile-e2e.result }}"
+        check_pr_lane "Multi-user lifecycle E2E (docker)" "${{ needs.multi-user-deploy-lifecycle-e2e.result }}"
+        check_pr_lane "Multi-user lifecycle E2E (podman)" "${{ needs.multi-user-deploy-lifecycle-e2e-podman.result }}"
         echo "✅ All CI checks passed!"

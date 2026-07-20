@@ -4,7 +4,9 @@ Handles Jinja2 template rendering, service discovery, build directory
 management, and Docker Compose file creation for container deployments.
 """
 
+import atexit
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -12,7 +14,8 @@ from pathlib import Path
 import yaml
 from jinja2 import Environment, FileSystemLoader
 
-from osprey.deployment.runtime_helper import get_runtime_command
+from osprey.deployment.facility_config import normalize_facility_config
+from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
 from osprey.utils.config import ConfigBuilder
 from osprey.utils.log_filter import quiet_logger
 from osprey.utils.logger import get_logger
@@ -25,6 +28,14 @@ OUT_SRC_DIR = "repo_src"
 
 TEMPLATE_FILENAME = "docker-compose.yml.j2"
 COMPOSE_FILE_NAME = "docker-compose.yml"
+
+# Staged next to every dev wheel (see _copy_local_framework_for_override): the
+# wheel's own base dependency list, which the Dockerfiles' deps layer installs
+# with the build toolchain still present. Without it the deps layer primes only
+# the RELEASED PyPI pin's dependencies, and any base dep the local wheel adds
+# that the release lacks (e.g. a native sdist like softioc) would have to
+# compile in the later toolchain-less wheel-install layer — and fail.
+LOCAL_REQUIREMENTS_FILENAME = "osprey-local-requirements.txt"
 
 
 def find_service_config(config, service_name):
@@ -110,6 +121,29 @@ def find_service_config(config, service_name):
     return None, None
 
 
+def _normalize_compose_name(name):
+    """Normalize a string into a valid docker-compose project name.
+
+    Mirrors docker-compose's own normalization so the value OSPREY pins as
+    ``COMPOSE_PROJECT_NAME`` matches what compose would derive on its own:
+    lowercase, keep only ``[a-z0-9_-]`` (dropping everything else, including
+    whitespace), then strip leading AND trailing ``_``/``-`` so the result
+    begins and ends with a letter or number. Trailing separators must go too:
+    the project name is used as an image-tag prefix (``<project>-dispatch:local``),
+    and a trailing separator would produce invalid docker references like
+    ``proj_-dispatch:local``. An input that is already a valid lowercase name
+    passes through byte-unchanged.
+
+    :param name: Raw candidate project name
+    :type name: str
+    :return: Compose-valid project name (may be empty if no valid characters
+        remain)
+    :rtype: str
+    """
+    kept = re.findall(r"[a-z0-9_-]", str(name).lower())
+    return "".join(kept).strip("_-")
+
+
 def resolve_project_name(config):
     """Derive the project name used for labels and the ``<project>:local`` image tag.
 
@@ -120,6 +154,11 @@ def resolve_project_name(config):
     1. Root-level ``project_name`` attribute (preferred, explicit)
     2. Last component of the ``project_root`` path (smart fallback)
     3. ``"unnamed-project"`` (final fallback)
+
+    The resolved name is normalized to a valid docker-compose project name via
+    :func:`_normalize_compose_name` so it matches the value compose itself would
+    use for volume/network namespacing. If normalization empties the candidate
+    (no valid characters), the ``"unnamed-project"`` fallback is used.
 
     :param config: Configuration dictionary
     :type config: dict
@@ -134,11 +173,42 @@ def resolve_project_name(config):
         if project_root:
             project_name = os.path.basename(str(project_root).rstrip("/"))
 
+    project_name = _normalize_compose_name(project_name) if project_name else ""
+
     if not project_name:
         # Final fallback: Default
         project_name = "unnamed-project"
 
     return project_name
+
+
+def resolve_user_volume_names(config, user):
+    """Derive the real runtime names of a web terminal user's named volumes.
+
+    The web terminal compose template declares each user's volumes bare
+    (``<user>-claude-config``, ``<user>-agent-data``). Compose namespaces bare
+    volume names with ``COMPOSE_PROJECT_NAME`` (defaulting to
+    ``basename(cwd)`` when unset), which is independent of the project name
+    :func:`resolve_project_name` derives for container labels. Left alone,
+    those two can diverge — the labels say one project, the actual volumes
+    live under another. :func:`runtime_helper.runtime_env` pins
+    ``COMPOSE_PROJECT_NAME`` to :func:`resolve_project_name`'s result for
+    every runtime invocation, so this function returns the same
+    ``<project>_<name>`` form to give volume-targeting code (inspect/rm/
+    archive) the real runtime volume names deterministically, without
+    shelling out to discover them.
+
+    :param config: Configuration dictionary (``None`` is treated as an empty
+        config, resolving to the ``"unnamed-project"`` namespace — symmetric with
+        :func:`runtime_helper.runtime_env`)
+    :type config: dict
+    :param user: Web terminal username the volumes belong to
+    :type user: str
+    :return: Tuple of ``(claude_config_volume, agent_data_volume)`` runtime names
+    :rtype: tuple[str, str]
+    """
+    project = resolve_project_name(config or {})
+    return f"{project}_{user}-claude-config", f"{project}_{user}-agent-data"
 
 
 def _inject_project_metadata(config):
@@ -154,8 +224,8 @@ def _inject_project_metadata(config):
     It also defaults the dispatch worker's image to ``<project>:local`` — the
     tag ``osprey deploy up`` builds from the project ``Dockerfile`` — unless the
     profile pinned an explicit ``services.dispatch_worker.image``. The
-    event-dispatcher is left untouched (it builds ``osprey-dispatch:local`` via
-    its own compose ``build:`` block; the worker deliberately has none).
+    event-dispatcher is left untouched (it builds ``<project>-dispatch:local``
+    via its own compose ``build:`` block; the worker deliberately has none).
 
     :param config: Configuration dictionary
     :type config: dict
@@ -192,9 +262,10 @@ def _inject_project_metadata(config):
     # Default the dispatch worker's image to the project image that
     # ``osprey deploy up`` builds (``<project>:local``). The worker compose
     # template renders ``${OSPREY_WORKER_IMAGE:-{{ services.dispatch_worker.image
-    # | default('osprey-dispatch:local') }}}``, so setting this key here makes
-    # the rendered default the project image instead of the shared dispatch
-    # image. ``setdefault`` honors a profile that pinned its own image. Copy the
+    # | default(osprey_labels.project_name ~ ':local') }}}`` — the template-level
+    # fallback now matches this same project image, so this setdefault and the
+    # template agree even when it cannot fire (e.g. a null ``dispatch_worker:``
+    # key). ``setdefault`` honors a profile that pinned its own image. Copy the
     # nested dicts we touch so the shared input config is never mutated (the
     # top-level copy() above is shallow).
     services = config_with_labels.get("services")
@@ -285,6 +356,188 @@ def render_template(template_path, config, out_dir):
     return output_filepath
 
 
+# Per-process memo for the dev-wheel build: one deploy stages the SAME wheel
+# into many build contexts (every service context, the project image root, each
+# persona project), and `rebuild_deployment` even renders the compose files
+# twice — so without a memo `python -m build` (an isolated-env build taking tens
+# of seconds) runs once per staging call. Key: resolved osprey source root.
+# Value: path to the cached built wheel (in a memo-owned temp dir), or None when
+# the build failed (failures are memoized too — retrying an identical build in
+# the same process would just fail identically, slowly). Callers are sequential,
+# so no locking is needed.
+_wheel_build_cache: dict = {}
+_wheel_cache_dir = None
+# Whether _reset_wheel_build_cache is already registered with atexit. Set the
+# first time a cache dir is created so a real deploy process cannot leak the
+# temp dir (and its wheel copy); one registration covers the whole process
+# because the reset hook is idempotent and re-reads the current cache dir.
+_wheel_cache_cleanup_registered = False
+
+
+def _reset_wheel_build_cache():
+    """Clear the per-process dev-wheel build memo and its cached wheel dir.
+
+    Explicit reset hook for tests (and any long-lived process that needs a
+    fresh build, e.g. after editing framework source mid-process). Also
+    registered with ``atexit`` when the cache dir is first created, so normal
+    process exit removes the temp dir. Idempotent — safe to call repeatedly
+    (including once explicitly and once again at exit).
+    """
+    global _wheel_cache_dir
+    _wheel_build_cache.clear()
+    if _wheel_cache_dir is not None:
+        shutil.rmtree(_wheel_cache_dir, ignore_errors=True)
+    _wheel_cache_dir = None
+
+
+def _build_dev_wheel_cached(osprey_source_root):
+    """Build the local osprey wheel at most once per process; return its cached path.
+
+    :param osprey_source_root: Root of the editable osprey checkout (contains
+        ``pyproject.toml``)
+    :type osprey_source_root: Path
+    :return: Path to the cached wheel file, or ``None`` if the build failed
+    :rtype: pathlib.Path or None
+    """
+    global _wheel_cache_dir, _wheel_cache_cleanup_registered
+
+    import subprocess
+    import sys
+    import tempfile
+    from pathlib import Path
+
+    key = str(Path(osprey_source_root).resolve())
+    if key in _wheel_build_cache:
+        return _wheel_build_cache[key]
+
+    cached_wheel = None
+    # Build the wheel package from local source
+    logger.info("Building osprey wheel from local source...")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Use sys.executable, NOT bare "python3": in a non-activated venv,
+        # PATH "python3" resolves to the system/pyenv interpreter (which
+        # lacks the 'build' package), not the venv running osprey. Bare
+        # python3 made --dev silently fall back to the PyPI release, booting
+        # containers with stale osprey that lacks unreleased modules.
+        result = subprocess.run(
+            [sys.executable, "-m", "build", "--wheel", "--outdir", tmpdir],
+            cwd=osprey_source_root,
+            capture_output=True,
+            text=True,
+        )
+
+        if result.returncode != 0:
+            # Check for missing 'build' package
+            if "No module named build" in result.stderr:
+                logger.warning(
+                    "The 'build' package is required for --dev mode. Install with: "
+                    r"uv pip install build or pip install build"
+                )
+            else:
+                logger.warning(f"Failed to build osprey wheel: {result.stderr}")
+        else:
+            # Find the built wheel and move it to the memo-owned cache dir
+            # (tmpdir is deleted on exit; the cache must outlive it so later
+            # staging calls can copy the same build instead of rebuilding).
+            wheel_files = list(Path(tmpdir).glob("*.whl"))
+            if not wheel_files:
+                logger.warning("No wheel file found after build")
+            else:
+                if _wheel_cache_dir is None:
+                    _wheel_cache_dir = tempfile.mkdtemp(prefix="osprey-dev-wheel-cache-")
+                    if not _wheel_cache_cleanup_registered:
+                        atexit.register(_reset_wheel_build_cache)
+                        _wheel_cache_cleanup_registered = True
+                cached_wheel = Path(_wheel_cache_dir) / wheel_files[0].name
+                shutil.copy2(wheel_files[0], cached_wheel)
+                logger.success(f"Built osprey wheel: {wheel_files[0].name}")
+
+    _wheel_build_cache[key] = cached_wheel
+    return cached_wheel
+
+
+def _wheel_base_requirements(wheel_path):
+    """Extract the wheel's base (non-extra) ``Requires-Dist`` entries, sorted.
+
+    Parses ``*.dist-info/METADATA`` inside the wheel and returns every
+    ``Requires-Dist`` requirement string EXCEPT those gated behind an extra
+    (environment marker referencing ``extra``). Non-extra markers such as
+    ``python_version`` are kept verbatim so pip evaluates them in-container.
+
+    The result is fully deterministic for identical wheels — sorted, with
+    whitespace normalized — because the manifest built from it is COPY'd into
+    a BuildKit-content-hashed layer: byte-identical input keeps the deps-layer
+    cache warm across deploys.
+
+    :param wheel_path: Path to the built wheel file
+    :type wheel_path: str or pathlib.Path
+    :return: Sorted requirement strings (extras excluded)
+    :rtype: list[str]
+    :raises ValueError: If the wheel contains no ``*.dist-info/METADATA``
+    """
+    import zipfile
+    from email.parser import Parser
+
+    from packaging.requirements import Requirement
+
+    with zipfile.ZipFile(wheel_path) as whl:
+        metadata_names = sorted(
+            name for name in whl.namelist() if name.endswith(".dist-info/METADATA")
+        )
+        if not metadata_names:
+            raise ValueError(f"no *.dist-info/METADATA found in wheel {wheel_path}")
+        metadata = Parser().parsestr(whl.read(metadata_names[0]).decode("utf-8"))
+
+    requirements = []
+    for entry in metadata.get_all("Requires-Dist") or []:
+        req = Requirement(entry)
+        if req.marker is not None and "extra" in str(req.marker):
+            continue  # extra-gated dep: stays out of the base install set
+        # Collapse header-folding whitespace so the written line is stable
+        # and single-line; the requirement text itself stays verbatim.
+        requirements.append(" ".join(entry.split()))
+    return sorted(requirements)
+
+
+def _write_local_requirements_manifest(cached_wheel, out_dir):
+    """Write ``osprey-local-requirements.txt`` next to the staged dev wheel.
+
+    Content contract (shared with the service Dockerfiles, which COPY the file
+    and pip-install it in their toolchain-equipped deps layer): one requirement
+    per line, sorted, trailing newline — byte-identical for identical wheels.
+
+    :param cached_wheel: The cached local wheel the manifest derives from
+    :type cached_wheel: pathlib.Path
+    :param out_dir: Build context directory the wheel was staged into
+    :type out_dir: str
+    """
+    manifest_path = os.path.join(out_dir, LOCAL_REQUIREMENTS_FILENAME)
+    content = "".join(f"{line}\n" for line in _wheel_base_requirements(cached_wheel))
+    with open(manifest_path, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(content)
+
+
+def _staged_dev_artifact_paths(context_dir):
+    """All dev-staging artifacts (wheels + requirements manifest) in a context.
+
+    Callers that stage into a long-lived directory (project-image and persona
+    builds) snapshot this before/after staging so their ``finally`` cleanup
+    removes exactly what staging added — wheel AND manifest — and nothing that
+    was already there.
+
+    :param context_dir: Build context directory
+    :type context_dir: str
+    :return: Paths of staged dev artifacts currently present
+    :rtype: set[pathlib.Path]
+    """
+    root = Path(context_dir)
+    artifacts = set(root.glob("*.whl"))
+    manifest = root / LOCAL_REQUIREMENTS_FILENAME
+    if manifest.exists():
+        artifacts.add(manifest)
+    return artifacts
+
+
 def _copy_local_framework_for_override(out_dir):
     """Build and copy local osprey wheel to container build directory for development mode.
 
@@ -295,6 +548,13 @@ def _copy_local_framework_for_override(out_dir):
 
     The wheel is built using the standard Python build process and can be installed
     in containers to override the PyPI version during development and testing.
+    The build itself runs at most once per process (see
+    :func:`_build_dev_wheel_cached`); each call copies the cached wheel into its
+    own ``out_dir`` and writes ``osprey-local-requirements.txt`` (the wheel's
+    own base dependency list — see :func:`_write_local_requirements_manifest`)
+    next to it. Success (True) means BOTH landed; a manifest failure removes
+    the staged wheel and reports failure so the ``OSPREY_DEV`` gating never
+    fires for a half-staged context.
 
     Note: This function only works when osprey is installed in editable/development mode
     (e.g., `pip install -e .`). If osprey is installed from PyPI or via regular
@@ -308,9 +568,6 @@ def _copy_local_framework_for_override(out_dir):
     """
     try:
         # Try to import osprey to get its location
-        import subprocess
-        import sys
-        import tempfile
         from pathlib import Path
 
         import osprey
@@ -340,46 +597,35 @@ def _copy_local_framework_for_override(out_dir):
             )
             return False
 
-        # Build the wheel package from local source
-        logger.info("Building osprey wheel from local source...")
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Use sys.executable, NOT bare "python3": in a non-activated venv,
-            # PATH "python3" resolves to the system/pyenv interpreter (which
-            # lacks the 'build' package), not the venv running osprey. Bare
-            # python3 made --dev silently fall back to the PyPI release, booting
-            # containers with stale osprey that lacks unreleased modules.
-            result = subprocess.run(
-                [sys.executable, "-m", "build", "--wheel", "--outdir", tmpdir],
-                cwd=osprey_source_root,
-                capture_output=True,
-                text=True,
+        cached_wheel = _build_dev_wheel_cached(osprey_source_root)
+        if cached_wheel is None:
+            return False
+
+        # Copy the cached wheel to this call's output directory
+        dest_wheel = os.path.join(out_dir, cached_wheel.name)
+        shutil.copy2(cached_wheel, dest_wheel)
+
+        # Stage the wheel's own base dependency list next to it so the
+        # Dockerfiles' toolchain-equipped deps layer can install any deps the
+        # released PyPI pin lacks. A context holding a wheel without its
+        # manifest is half-staged — the OSPREY_DEV success signal must not
+        # fire for it, so a manifest failure removes the wheel and fails
+        # staging outright (fail-closed, matching the wheel-build path).
+        try:
+            _write_local_requirements_manifest(cached_wheel, out_dir)
+        except Exception as manifest_error:
+            try:
+                os.remove(dest_wheel)
+            except OSError:
+                pass
+            logger.warning(
+                f"Failed to write {LOCAL_REQUIREMENTS_FILENAME} for dev override: {manifest_error}"
             )
+            return False
 
-            if result.returncode != 0:
-                # Check for missing 'build' package
-                if "No module named build" in result.stderr:
-                    logger.warning(
-                        "The 'build' package is required for --dev mode. Install with: "
-                        r"uv pip install build or pip install build"
-                    )
-                else:
-                    logger.warning(f"Failed to build osprey wheel: {result.stderr}")
-                return False
+        logger.success(f"Copied osprey wheel: {cached_wheel.name}")
 
-            # Find the built wheel
-            wheel_files = list(Path(tmpdir).glob("*.whl"))
-            if not wheel_files:
-                logger.warning("No wheel file found after build")
-                return False
-
-            wheel_file = wheel_files[0]
-
-            # Copy wheel to output directory
-            dest_wheel = os.path.join(out_dir, wheel_file.name)
-            shutil.copy2(wheel_file, dest_wheel)
-            logger.success(f"Built and copied osprey wheel: {wheel_file.name}")
-
-            return True
+        return True
 
     except ImportError:
         logger.warning("Osprey not found in local environment, containers will use PyPI version")
@@ -387,6 +633,48 @@ def _copy_local_framework_for_override(out_dir):
     except Exception as e:
         logger.warning(f"Failed to build osprey wheel for dev override: {e}")
         return False
+
+
+def _stage_dev_wheel_for_context(out_dir, dev_mode):
+    """Stage the local dev wheel into a service build context; report success.
+
+    The boolean return is the success signal :func:`setup_build_dir` (and its
+    incremental sibling) key the rendered ``OSPREY_DEV`` build arg on: only a
+    context that actually received a wheel may relax the Dockerfile's pinned
+    ``osprey-framework`` install (fail-closed — a failed build/staging keeps
+    the fail-loud pin instead of silently installing the latest published
+    release under a flag that means "run my local code").
+
+    Only build contexts that contain a ``Dockerfile`` get the wheel: pure-image
+    services (postgresql, openobserve) never install it, and a stray wheel in
+    their context is dead weight that also churns the build-context hash.
+
+    :param out_dir: The service's build context directory (already populated
+        with the service's files, including any ``Dockerfile``)
+    :type out_dir: str
+    :param dev_mode: Whether ``--dev`` was passed
+    :type dev_mode: bool
+    :return: True iff a wheel was successfully staged into ``out_dir``
+    :rtype: bool
+    """
+    if not dev_mode:
+        logger.info("Production mode: Containers will install osprey from PyPI")
+        return False
+    if not os.path.isfile(os.path.join(out_dir, "Dockerfile")):
+        logger.info(
+            f"Development mode: build context {out_dir} has no Dockerfile, "
+            "so no osprey wheel was staged for it"
+        )
+        return False
+    if _copy_local_framework_for_override(out_dir):
+        logger.key_info("Development mode: Osprey override prepared")
+        return True
+    logger.warning(
+        "Development mode requested but osprey wheel staging failed; "
+        "OSPREY_DEV will not be set for this build, so the pinned PyPI "
+        "install applies"
+    )
+    return False
 
 
 def render_kernel_templates(source_dir, config, out_dir):
@@ -601,10 +889,12 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
                 raise
     os.makedirs(out_dir, exist_ok=True)
 
-    # Create the docker compose file from the template
-    compose_filepath = render_template(template_path, config, out_dir)
-
-    # Copy the contents of the services directory, except the template
+    # Copy the service's own files (except templates) and stage the dev wheel
+    # BEFORE rendering the compose template: the render context's dev_mode flag
+    # is what service templates turn into the OSPREY_DEV=1 build arg, and that
+    # pin-relaxing arg must only be emitted for a context that actually
+    # received a wheel (see _stage_dev_wheel_for_context).
+    wheel_staged = False
     if source_dir != SERVICES_DIR:  # ignore the top level dir
         # Deep copy everything in source directory except templates
         for file in os.listdir(source_dir):
@@ -617,6 +907,19 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
                 else:
                     shutil.copy2(src_path, dst_path)
 
+        # Copy local osprey for development override (only in dev mode).
+        # This will override the PyPI osprey after standard installation.
+        wheel_staged = _stage_dev_wheel_for_context(out_dir, dev_mode)
+
+    # Create the docker compose file from the template. The render context
+    # carries dev_mode so service templates can emit dev-only build args
+    # (e.g. OSPREY_DEV) exactly when `osprey deploy up --dev` runs AND the
+    # local wheel actually landed in this context — never when staging failed
+    # (fail-closed: the Dockerfile then keeps its fail-loud pinned install).
+    render_config = {**config, "dev_mode": dev_mode and wheel_staged}
+    compose_filepath = render_template(template_path, render_config, out_dir)
+
+    if source_dir != SERVICES_DIR:  # ignore the top level dir
         # Copy the source directory
         if container_cfg.get("copy_src", False):
             shutil.copytree(SRC_DIR, os.path.join(out_dir, OUT_SRC_DIR))
@@ -636,18 +939,6 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
                 repo_src_pyproject = os.path.join(out_dir, OUT_SRC_DIR, "pyproject_user.toml")
                 shutil.copy2(global_pyproject, repo_src_pyproject)
                 logger.debug(f"Copied user pyproject.toml to {repo_src_pyproject}")
-
-        # Copy local osprey for development override (only in dev mode)
-        # This will override the PyPI osprey after standard installation
-        # Moved outside copy_src block so all services can use dev mode
-        if dev_mode:
-            osprey_copied = _copy_local_framework_for_override(out_dir)
-            if osprey_copied:
-                logger.key_info("Development mode: Osprey override prepared")
-            else:
-                logger.warning("Development mode requested but osprey override failed, using PyPI")
-        else:
-            logger.info("Production mode: Containers will install osprey from PyPI")
 
         # Copy additional directories if specified in service configuration
         additional_dirs = container_cfg.get("additional_dirs", [])
@@ -689,7 +980,7 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
         try:
             with quiet_logger(["registry", "CONFIG"]):
                 global_config = ConfigBuilder()
-                flattened_config = (
+                flattened_config = normalize_facility_config(
                     global_config.get_unexpanded_config()
                 )  # Preserves ${VAR} placeholders - secrets not written to disk
 
@@ -759,12 +1050,27 @@ def setup_build_dir(template_path, config, container_cfg, dev_mode=False):
             logger.debug(f"Created flattened config.yml at {config_yml_dst}")
         except Exception as e:
             logger.warning(f"Failed to create flattened config: {e}")
-            # Fallback to copying original config
+            # Fallback to copying original config — normalized, so a container
+            # never sees the raw `gitlab:` shape even on this degraded path. A
+            # config.yml the normalizer/YAML loader can't parse falls back
+            # further, to the previous verbatim copy, so this degraded path
+            # never blocks the build.
             config_yml_src = "config.yml"
             if os.path.exists(config_yml_src):
                 config_yml_dst = os.path.join(out_dir, "config.yml")
-                shutil.copy2(config_yml_src, config_yml_dst)
-                logger.debug(f"Copied original config.yml to {config_yml_dst}")
+                try:
+                    with open(config_yml_src, encoding="utf-8") as src_f:
+                        fallback_config = normalize_facility_config(yaml.safe_load(src_f) or {})
+                    with open(config_yml_dst, "w") as dst_f:
+                        yaml.dump(fallback_config, dst_f, default_flow_style=False, sort_keys=False)
+                    logger.debug(f"Copied normalized original config.yml to {config_yml_dst}")
+                except Exception as fallback_exc:
+                    logger.warning(
+                        f"Could not normalize fallback config.yml ({fallback_exc}); "
+                        "copying it verbatim instead"
+                    )
+                    shutil.copy2(config_yml_src, config_yml_dst)
+                    logger.debug(f"Copied original config.yml to {config_yml_dst}")
 
         # Render kernel templates if specified in service configuration
         if container_cfg.get("render_kernel_templates", False):
@@ -795,10 +1101,11 @@ def _incremental_setup_build_dir(template_path, config, service_config, out_dir,
     # Ensure output directory exists
     os.makedirs(out_dir, exist_ok=True)
 
-    # Create/update the docker compose file from the template
-    compose_filepath = render_template(template_path, config, out_dir)
-
-    # Copy/update files from source directory (skip if top-level services dir)
+    # Copy/update files from source directory (skip if top-level services dir),
+    # then stage the dev wheel — BEFORE rendering, exactly as in
+    # setup_build_dir: the rendered OSPREY_DEV build arg must reflect whether a
+    # wheel actually landed in this context.
+    wheel_staged = False
     if source_dir != SERVICES_DIR:
         for file in os.listdir(source_dir):
             src_path = os.path.join(source_dir, file)
@@ -822,6 +1129,14 @@ def _incremental_setup_build_dir(template_path, config, service_config, out_dir,
                         shutil.copy2(src_path, dst_path)
                 except (OSError, shutil.Error) as e:
                     logger.warning(f"Could not update {dst_path}: {e}")
+
+        wheel_staged = _stage_dev_wheel_for_context(out_dir, dev_mode)
+
+    # Create/update the docker compose file from the template (dev_mode gated
+    # on staging success, exactly as in setup_build_dir).
+    compose_filepath = render_template(
+        template_path, {**config, "dev_mode": dev_mode and wheel_staged}, out_dir
+    )
 
     # Handle source directory copying if needed
     if service_config.get("copy_src", False):
@@ -900,6 +1215,11 @@ def clean_deployment(compose_files, config=None):
     """
     logger.key_info("Cleaning up deployment...")
 
+    # Pin COMPOSE_PROJECT_NAME so `down --volumes` targets THIS deploy's project
+    # and volumes; unpinned it derives the shared "services" project and would
+    # destroy a sibling deploy's data volumes.
+    run_env = runtime_env(config, os.environ.copy())
+
     # Stop and remove containers, networks, volumes
     cmd_down = get_runtime_command(config)
     for compose_file in compose_files:
@@ -907,7 +1227,7 @@ def clean_deployment(compose_files, config=None):
     cmd_down.extend(["--env-file", ".env", "down", "--volumes", "--remove-orphans"])
 
     logger.info(f"Running: {' '.join(cmd_down)}")
-    subprocess.run(cmd_down)
+    subprocess.run(cmd_down, env=run_env)
 
     # Remove images built by the compose files
     cmd_rmi = get_runtime_command(config)
@@ -916,7 +1236,7 @@ def clean_deployment(compose_files, config=None):
     cmd_rmi.extend(["--env-file", ".env", "down", "--rmi", "all"])
 
     logger.info(f"Running: {' '.join(cmd_rmi)}")
-    subprocess.run(cmd_rmi)
+    subprocess.run(cmd_rmi, env=run_env)
 
     logger.success("Cleanup completed")
 
@@ -939,7 +1259,7 @@ def prepare_compose_files(config_path, dev_mode=False, expose_network=False):
     try:
         with quiet_logger(["registry", "CONFIG"]):
             config = ConfigBuilder(config_path)
-            config = config.raw_config
+            config = normalize_facility_config(config.raw_config)
     except Exception as e:
         raise RuntimeError(f"Could not load config file {config_path}: {e}") from e
 
@@ -968,12 +1288,17 @@ def prepare_compose_files(config_path, dev_mode=False, expose_network=False):
 
     compose_files = []
 
-    # Create the top level compose file
-    top_template = os.path.join(SERVICES_DIR, TEMPLATE_FILENAME)
-    build_dir = config.get("build_dir", "./build")
-    out_dir = os.path.join(build_dir, SERVICES_DIR)
-    top_template = render_template(top_template, config, out_dir)
-    compose_files.append(top_template)
+    # Create the top level compose file. Skipped when no services are deployed:
+    # an attached project (deploy_services: false) scaffolds no services/
+    # templates at all, so rendering would throw — and there is nothing for the
+    # top-level file to describe. deploy_up's empty-services guard (or its
+    # web-terminals branch, which brings its own compose file) handles the rest.
+    if deployed_service_names:
+        top_template = os.path.join(SERVICES_DIR, TEMPLATE_FILENAME)
+        build_dir = config.get("build_dir", "./build")
+        out_dir = os.path.join(build_dir, SERVICES_DIR)
+        top_template = render_template(top_template, config, out_dir)
+        compose_files.append(top_template)
 
     # Create the service build directory for deployed services only
     for service_name in deployed_service_names:

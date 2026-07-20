@@ -83,8 +83,8 @@ def test_inject_dispatch_bundled_triggers(tmp_path: Path) -> None:
     assert ed["facility_name"] == "ALS"
     assert ed["pv_strip_prefix"] == "ALS:"
     assert ed["path"] == "./services/event_dispatcher"
-    # No pinned image: the service builds the shared local image (the compose
-    # template defaults to ``osprey-dispatch:local`` + a ``build:`` section).
+    # No pinned image: the service builds the project's local image (the compose
+    # template defaults to ``<project>-dispatch:local`` + a ``build:`` section).
     assert "image" not in ed
 
     dw = config["services"]["dispatch_worker"]

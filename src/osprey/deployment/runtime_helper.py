@@ -101,6 +101,36 @@ def get_runtime_command(config: dict | None = None) -> list[str]:
         )
 
 
+def runtime_env(config: dict | None, base_env: dict[str, str] | None = None) -> dict[str, str]:
+    """Build the environment for a runtime (docker/podman compose) invocation.
+
+    Pins ``COMPOSE_PROJECT_NAME`` to :func:`compose_generator.resolve_project_name`
+    so the volume namespace compose derives (``<COMPOSE_PROJECT_NAME>_<name>``)
+    always matches the project name baked into container labels. Left unset,
+    compose falls back to ``basename(cwd)`` for the volume namespace, which can
+    silently diverge from the label project name (e.g. an explicit
+    ``project_name`` in config, or a deploy invoked from a different cwd than
+    ``project_root``). Every subprocess/exec call that shells out to a runtime
+    command should build its env through this function rather than passing
+    ``os.environ`` (or a copy of it) directly.
+
+    Args:
+        config: Configuration dictionary used to resolve the project name.
+            Falsy values (``None``, ``{}``) resolve the same as an empty dict,
+            i.e. the ``"unnamed-project"`` fallback.
+        base_env: Environment to layer the pin onto. Defaults to
+            ``os.environ``. Never mutated — a fresh copy is always returned.
+
+    Returns:
+        A new environment dict with ``COMPOSE_PROJECT_NAME`` set.
+    """
+    from osprey.deployment.compose_generator import resolve_project_name
+
+    env = dict(base_env if base_env is not None else os.environ)
+    env["COMPOSE_PROJECT_NAME"] = resolve_project_name(config or {})
+    return env
+
+
 def verify_runtime_is_running(config: dict | None = None) -> tuple[bool, str]:
     """Verify that the detected container runtime is actually running.
 

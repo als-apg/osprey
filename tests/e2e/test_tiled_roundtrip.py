@@ -48,6 +48,8 @@ from pathlib import Path
 
 import pytest
 
+from osprey.deployment.compose_generator import resolve_project_name
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Deliberately distinct from test_bluesky_deploy.py's 18090 and
@@ -55,14 +57,16 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 # on a shared dev machine without a port collision.
 BRIDGE_PORT = 18101
 BRIDGE_URL = f"http://localhost:{BRIDGE_PORT}"
-BRIDGE_IMAGE = "osprey-bluesky-bridge:local"
 # The fixture builds/deploys under this project name; the compose template
-# renders each container_name as ``<project>-<service>``
-# (services/bluesky/docker-compose.yml.j2), so derive them rather than hardcode
-# host-global names that break the moment the template is namespaced per-project.
+# renders each container_name AND the bridge's locally-built image as
+# ``<project>-<service>`` (services/bluesky/docker-compose.yml.j2), so derive
+# both (via resolve_project_name, exactly as the template does) rather than
+# hardcode host-global names that break the moment the template is namespaced
+# per-project.
 PROJECT_NAME = "proj"
 BRIDGE_CONTAINER = f"{PROJECT_NAME}-bluesky-bridge"
 TILED_CONTAINER = f"{PROJECT_NAME}-bluesky-tiled"
+BRIDGE_IMAGE = f"{resolve_project_name({'project_name': PROJECT_NAME})}-bluesky-bridge:local"
 
 # The demo scanner's mock device factory (devices/mock.py's build_devices())
 # defaults to a single "det1" MockDetector when the bridge's app.py lifespan
@@ -155,9 +159,23 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     # `deploy up` before the bridge/Tiled containers it creates alongside it
     # ever start. Moved to a high, unassigned port -- same defensive
     # convention as this fixture's own BRIDGE_PORT choice above.
+    #
+    # modules.web_terminals.enabled: false drops the preset's per-persona
+    # web-terminal stack (two persona images + nginx, all built locally):
+    # nothing in this proof touches persona routing, and the deploy-up
+    # credential preflight would otherwise abort for the personas' missing
+    # LLM key. Persona coverage lives in the dedicated web-terminals lanes.
+    # One dotted LEAF key on purpose -- overriding just `.enabled` leaves
+    # the preset's `modules.web_terminals` siblings intact, whereas a nested
+    # `modules:` mapping would wholesale-replace the subtree (same
+    # convention as tests/e2e/_orm_stack.py).
     override_path = base / "override.yml"
     override_path.write_text(
-        "dispatch: null\nconfig:\n  services.postgresql.port_host: 15432\n", encoding="utf-8"
+        "dispatch: null\n"
+        "config:\n"
+        "  services.postgresql.port_host: 15432\n"
+        "  modules.web_terminals.enabled: false\n",
+        encoding="utf-8",
     )
 
     # bluesky.port/demo_runner/tiled_enabled are all leaf scalars under the

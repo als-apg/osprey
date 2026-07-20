@@ -20,7 +20,11 @@ import yaml
 from ruamel.yaml import YAML
 
 from osprey.cli.build_cmd import _copy_service_templates
-from osprey.deployment.compose_generator import prepare_compose_files
+from osprey.deployment.compose_generator import (
+    prepare_compose_files,
+    resolve_project_name,
+    resolve_user_volume_names,
+)
 
 
 def _write_config(project_path: Path, deployed_services: list[str]) -> Path:
@@ -47,19 +51,26 @@ def test_copy_service_templates_copies_root_when_no_services(tmp_path: Path) -> 
     root_template = tmp_path / "services" / "docker-compose.yml.j2"
     assert root_template.is_file(), (
         "root services/docker-compose.yml.j2 must be copied even when "
-        "deployed_services is empty (otherwise prepare_compose_files dies "
-        "with TemplateNotFound at render time)"
+        "deployed_services is empty (a deploying project may enable services "
+        "later without rebuilding; attached projects skip this copy entirely "
+        "via deploy_services: false)"
     )
 
 
-def test_prepare_compose_files_no_services_renders_root_only(tmp_path: Path) -> None:
-    """With empty deployed_services, prepare_compose_files renders just the root."""
+def test_prepare_compose_files_no_services_renders_nothing(tmp_path: Path) -> None:
+    """With empty deployed_services, prepare_compose_files renders no files at all.
+
+    An attached project (``deploy_services: false``) scaffolds no ``services/``
+    templates, so the root render must be skipped too — every consumer is
+    guarded on non-empty ``deployed_services`` before invoking compose
+    (deploy_up's early return; the web branch's services sub-invocation).
+    """
     config_path = _write_config(tmp_path, deployed_services=[])
-    _copy_service_templates(tmp_path)
 
     monkey_cwd = Path.cwd()
     try:
-        # render_template resolves SERVICES_DIR relative to cwd
+        # render_template resolves SERVICES_DIR relative to cwd; deliberately
+        # no _copy_service_templates — the attached case has no services/ dir.
         import os
 
         os.chdir(tmp_path)
@@ -69,14 +80,8 @@ def test_prepare_compose_files_no_services_renders_root_only(tmp_path: Path) -> 
 
         os.chdir(monkey_cwd)
 
-    assert len(compose_files) == 1, (
-        f"expected exactly one rendered compose file (the root), got {compose_files}"
-    )
-    rendered = Path(compose_files[0])
-    assert rendered.is_file()
-    rendered_text = rendered.read_text()
-    assert "services:" not in rendered_text, (
-        f"empty-deployed-services preset rendered a compose with services block:\n{rendered_text}"
+    assert compose_files == [], (
+        f"empty deployed_services must render no compose files, got {compose_files}"
     )
 
 
@@ -188,14 +193,14 @@ def test_dispatcher_build_context_is_project_dir_relative() -> None:
 
 
 def test_worker_does_not_build_shared_image() -> None:
-    """The worker must NOT declare its own build for the shared image tag.
+    """The worker must NOT declare its own build for its image tag.
 
-    event-dispatcher and dispatch-worker share osprey-dispatch:local. If both
-    declared `build:`, `docker compose up` builds them concurrently and the two
-    exports race to tag the image — one fails with
-    ``ERROR: image "osprey-dispatch:local": already exists`` (deterministic once
-    base layers are cached). event-dispatcher is the sole builder; the worker
-    references its image and depends_on it.
+    The worker runs the project image (``<project>:local``) that `osprey deploy
+    up` builds once before `compose up` (see ``_build_project_image``). If the
+    worker also declared `build:`, two builders would race to tag the same
+    image — one fails with ``ERROR: image ... already exists`` (deterministic
+    once base layers are cached). The worker only references the prebuilt tag
+    and depends_on the event-dispatcher for ordering.
     """
     rendered = _render_worker_template(env_present=True)
     # The build directive is identified by its context/dockerfile keys (the word
@@ -1286,6 +1291,7 @@ def _render_service_template(rel_path: str, project_name: str, **overrides: obje
             "event_dispatcher": {"port": 8020},
             "dispatch_worker": {"worker_count": 1, "workspace_mode": "isolated"},
             "bluesky": {"port": 8090},
+            "bluesky_panels": {"port": 8095},
         },
         "deployment": {},
         "system": {"timezone": "UTC"},
@@ -1384,3 +1390,740 @@ def test_multi_worker_dispatch_container_names_are_each_namespaced() -> None:
         "dispatch-worker-1": "proj-a-dispatch-worker-1",
         "dispatch-worker-2": "proj-a-dispatch-worker-2",
     }, names
+
+
+# ---------------------------------------------------------------------------
+# resolve_user_volume_names
+#
+# Web terminal per-user volumes are declared bare in the compose template, so
+# compose namespaces them with COMPOSE_PROJECT_NAME. runtime_helper.runtime_env
+# pins COMPOSE_PROJECT_NAME to resolve_project_name(config), so the real
+# runtime volume name is always "<resolve_project_name(config)>_<bare-name>".
+# resolve_user_volume_names must compute that same value so volume-targeting
+# code (inspect/rm/archive) doesn't have to shell out to discover it.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_user_volume_names_uses_explicit_project_name() -> None:
+    """An explicit project_name wins over any project_root fallback."""
+    config = {"project_name": "proj-a", "project_root": "/somewhere/else"}
+    claude_config, agent_data = resolve_user_volume_names(config, "alice")
+    assert claude_config == "proj-a_alice-claude-config"
+    assert agent_data == "proj-a_alice-agent-data"
+
+
+def test_resolve_user_volume_names_falls_back_to_project_root_basename() -> None:
+    """Without project_name, the project comes from basename(project_root)."""
+    config = {"project_root": "/home/user/my-facility-project"}
+    claude_config, agent_data = resolve_user_volume_names(config, "bob")
+    assert claude_config == "my-facility-project_bob-claude-config"
+    assert agent_data == "my-facility-project_bob-agent-data"
+
+
+def test_resolve_user_volume_names_default_project_name() -> None:
+    """With neither project_name nor project_root, the default project name applies."""
+    claude_config, agent_data = resolve_user_volume_names({}, "carol")
+    assert claude_config == "unnamed-project_carol-claude-config"
+    assert agent_data == "unnamed-project_carol-agent-data"
+
+
+def test_resolve_user_volume_names_none_config_uses_default_project_name() -> None:
+    """A ``None`` config is treated as empty (resolving to ``unnamed-project``),
+    symmetric with ``runtime_helper.runtime_env`` — it must not raise."""
+    claude_config, agent_data = resolve_user_volume_names(None, "dave")
+    assert claude_config == "unnamed-project_dave-claude-config"
+    assert agent_data == "unnamed-project_dave-agent-data"
+
+
+# ---------------------------------------------------------------------------
+# resolve_project_name normalizes its result to a valid docker-compose project
+# name (lowercase; only [a-z0-9_-]; must start with a letter or number), so the
+# value OSPREY pins as COMPOSE_PROJECT_NAME matches what compose would derive on
+# its own. Already-valid lowercase names must pass through byte-unchanged.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_project_name_valid_lowercase_unchanged() -> None:
+    """An already-valid lowercase name passes through byte-for-byte."""
+    assert resolve_project_name({"project_name": "my-facility-project"}) == "my-facility-project"
+    assert resolve_project_name({"project_name": "als_beamline-7"}) == "als_beamline-7"
+
+
+def test_resolve_project_name_lowercases_mixed_case() -> None:
+    """Mixed-case names are lowercased, matching compose normalization."""
+    assert resolve_project_name({"project_name": "MyProject"}) == "myproject"
+    assert resolve_project_name({"project_name": "ALS-Booster"}) == "als-booster"
+
+
+def test_resolve_project_name_drops_spaces() -> None:
+    """Whitespace is dropped (not replaced), matching compose normalization."""
+    assert resolve_project_name({"project_name": "my project"}) == "myproject"
+    assert resolve_project_name({"project_name": "  Spaced  Name  "}) == "spacedname"
+
+
+def test_resolve_project_name_drops_invalid_characters() -> None:
+    """Characters outside [a-z0-9_-] are dropped."""
+    assert resolve_project_name({"project_name": "proj@2024!"}) == "proj2024"
+    assert resolve_project_name({"project_name": "a.b/c:d"}) == "abcd"
+
+
+def test_resolve_project_name_strips_leading_invalid_chars() -> None:
+    """Leading ``_``/``-`` are stripped so the name starts with a letter or number."""
+    assert resolve_project_name({"project_name": "-leading-dash"}) == "leading-dash"
+    assert resolve_project_name({"project_name": "__underscored"}) == "underscored"
+    assert resolve_project_name({"project_name": "-_-mixed"}) == "mixed"
+
+
+def test_resolve_project_name_normalizes_project_root_fallback() -> None:
+    """The basename(project_root) fallback is normalized just like project_name."""
+    assert resolve_project_name({"project_root": "/home/user/My Facility"}) == "myfacility"
+
+
+def test_resolve_project_name_all_invalid_falls_back_to_default() -> None:
+    """A candidate with no valid characters falls back to ``unnamed-project``."""
+    assert resolve_project_name({"project_name": "@#$%"}) == "unnamed-project"
+    assert resolve_project_name({"project_name": "---"}) == "unnamed-project"
+
+
+def test_resolve_project_name_empty_config_uses_default() -> None:
+    """With neither project_name nor project_root, the default name applies."""
+    assert resolve_project_name({}) == "unnamed-project"
+
+
+def test_resolve_project_name_strips_trailing_separators() -> None:
+    """Trailing ``_``/``-`` are stripped, not just leading ones.
+
+    The project name is used as an image-tag prefix (``<project>-dispatch:local``);
+    a surviving trailing separator would produce invalid docker references like
+    ``proj_-dispatch:local``.
+    """
+    assert resolve_project_name({"project_name": "trailing_"}) == "trailing"
+    assert resolve_project_name({"project_name": "trailing-"}) == "trailing"
+    assert resolve_project_name({"project_name": "_both_"}) == "both"
+
+
+def test_resolve_project_name_project_root_trailing_separator_normalized() -> None:
+    """The basename(project_root) fallback also gets trailing separators stripped."""
+    assert resolve_project_name({"project_root": "/home/user/my-project_"}) == "my-project"
+    assert resolve_project_name({"project_root": "/home/user/my-project-"}) == "my-project"
+
+
+# ---------------------------------------------------------------------------
+# Project-prefixed service image tags + build args (fast-dev-image-rebuilds)
+#
+# The locally-built service images used host-global default tags
+# (osprey-dispatch:local, osprey-va:local, ...). Service `:local` tags are
+# HOST-GLOBAL docker identifiers, so two OSPREY projects building the same
+# service on one host raced to tag ONE image — a sibling clean/rebuild could
+# delete or replace it mid-deploy. The defaults are now project-prefixed
+# (`<project>-dispatch:local`, ...); the `${OSPREY_*_IMAGE:-...}` env override
+# wrappers are unchanged. The build args additionally carry
+# OSPREY_PROJECT_NAME (always) and OSPREY_DEV=1 (iff `osprey deploy up --dev`,
+# via the dev_mode key setup_build_dir plumbs into the render context).
+# The external Tiled image (a pulled upstream image, never built locally) is
+# deliberately NOT project-prefixed.
+# ---------------------------------------------------------------------------
+
+# (template rel-path, compose service key, image override env var, local-tag suffix)
+_PREFIXED_IMAGE_SERVICES = [
+    (
+        "event_dispatcher/docker-compose.yml.j2",
+        "event-dispatcher",
+        "OSPREY_DISPATCH_IMAGE",
+        "dispatch",
+    ),
+    (
+        "virtual_accelerator/docker-compose.yml.j2",
+        "virtual-accelerator",
+        "OSPREY_VA_IMAGE",
+        "va",
+    ),
+    (
+        "bluesky/docker-compose.yml.j2",
+        "bluesky-bridge",
+        "OSPREY_BLUESKY_BRIDGE_IMAGE",
+        "bluesky-bridge",
+    ),
+    (
+        "bluesky_panels/docker-compose.yml.j2",
+        "bluesky-panels",
+        "OSPREY_BLUESKY_PANELS_IMAGE",
+        "bluesky-panels",
+    ),
+]
+
+_PREFIXED_IDS = [s[1] for s in _PREFIXED_IMAGE_SERVICES]
+
+
+@pytest.mark.parametrize(
+    ("rel_path", "service_key", "env_var", "suffix"), _PREFIXED_IMAGE_SERVICES, ids=_PREFIXED_IDS
+)
+def test_service_image_default_is_project_prefixed(
+    rel_path: str, service_key: str, env_var: str, suffix: str
+) -> None:
+    """Each locally-built service image defaults to ``<project>-<suffix>:local``,
+    keeping the ``${OSPREY_*_IMAGE:-...}`` env override wrapper intact."""
+    svc = yaml.safe_load(_render_service_template(rel_path, "proj-a"))["services"][service_key]
+    assert svc["image"] == f"${{{env_var}:-proj-a-{suffix}:local}}", svc["image"]
+
+
+def test_two_projects_render_disjoint_local_image_tag_sets() -> None:
+    """Two project names must produce fully disjoint default local-tag sets —
+    otherwise sibling deploys on one host still race on a shared tag."""
+
+    def local_tags(project: str) -> set[str]:
+        tags = set()
+        for rel_path, service_key, _env_var, _suffix in _PREFIXED_IMAGE_SERVICES:
+            svc = yaml.safe_load(_render_service_template(rel_path, project))["services"][
+                service_key
+            ]
+            match = re.fullmatch(r"\$\{[A-Z_]+:-(.+)\}", svc["image"])
+            assert match, f"unexpected image form: {svc['image']}"
+            tags.add(match.group(1))
+        return tags
+
+    tags_a = local_tags("proj-a")
+    tags_b = local_tags("proj-b")
+    assert len(tags_a) == len(_PREFIXED_IMAGE_SERVICES)
+    assert len(tags_b) == len(_PREFIXED_IMAGE_SERVICES)
+    assert tags_a.isdisjoint(tags_b), f"shared tags: {tags_a & tags_b}"
+
+
+@pytest.mark.parametrize(
+    ("rel_path", "service_key", "env_var", "suffix"), _PREFIXED_IMAGE_SERVICES, ids=_PREFIXED_IDS
+)
+def test_service_build_args_carry_project_name_and_dev_flag(
+    rel_path: str, service_key: str, env_var: str, suffix: str
+) -> None:
+    """build.args always carry OSPREY_PROJECT_NAME; OSPREY_DEV renders as "1"
+    iff dev mode, and is entirely absent otherwise."""
+    prod = yaml.safe_load(_render_service_template(rel_path, "proj-a"))["services"][service_key]
+    prod_args = prod["build"]["args"]
+    assert prod_args["OSPREY_PROJECT_NAME"] == "proj-a"
+    assert "OSPREY_VERSION" in prod_args, "the existing OSPREY_VERSION arg must survive"
+    assert "OSPREY_DEV" not in prod_args, "OSPREY_DEV must be absent outside dev mode"
+
+    dev = yaml.safe_load(_render_service_template(rel_path, "proj-a", dev_mode=True))["services"][
+        service_key
+    ]
+    dev_args = dev["build"]["args"]
+    assert dev_args["OSPREY_PROJECT_NAME"] == "proj-a"
+    assert dev_args["OSPREY_DEV"] == "1"
+
+
+def test_tiled_external_image_stays_unprefixed() -> None:
+    """The Tiled service pulls an external upstream image — it is never built
+    locally, so it must NOT get a project-prefixed tag (or any build block)."""
+    rendered = _render_service_template(
+        "bluesky/docker-compose.yml.j2",
+        "proj-a",
+        services={"bluesky": {"port": 8090, "tiled_enabled": True}},
+    )
+    tiled = yaml.safe_load(rendered)["services"]["tiled"]
+    assert tiled["image"] == "${OSPREY_TILED_IMAGE:-ghcr.io/bluesky/tiled:0.2.12}"
+    assert "build" not in tiled
+
+
+# ---------------------------------------------------------------------------
+# Task 2.2: the dispatch worker's TEMPLATE-LEVEL image fallback
+#
+# The worker runs the PROJECT image (<project>:local — built by `osprey deploy
+# up` from the project Dockerfile), never the dispatcher's image. Its rendered
+# default normally comes from _inject_project_metadata's setdefault on
+# services.dispatch_worker.image — but that setdefault only fires when
+# `dispatch_worker:` is a mapping. A null `dispatch_worker:` key (legal YAML)
+# skips it, exposing the template's own `| default(...)` literal, which used to
+# be the WRONG image (osprey-dispatch:local). The template fallback must equal
+# _worker_image_target's Python fallback for the same config.
+# ---------------------------------------------------------------------------
+
+
+def test_worker_template_fallback_matches_worker_image_target_python_fallback() -> None:
+    """With a null ``dispatch_worker:`` key (setdefault can't fire), the rendered
+    worker image fallback must equal ``_worker_image_target``'s ``<project>:local``."""
+    from importlib import resources
+
+    from jinja2 import Template
+
+    from osprey.deployment.compose_generator import _inject_project_metadata
+    from osprey.deployment.container_lifecycle import _worker_image_target
+
+    config = {
+        "project_name": "fbk-proj",
+        "project_root": "/r/fbk-proj",
+        # A null dispatch_worker: key — _inject_project_metadata's isinstance
+        # guard skips the image setdefault, so the template's own default fires.
+        "services": {"dispatch_worker": None},
+        "system": {"timezone": "UTC"},
+    }
+    injected = _inject_project_metadata(config)
+    assert injected["services"]["dispatch_worker"] is None, (
+        "precondition: the setdefault path must NOT have injected an image"
+    )
+
+    tpl = resources.files("osprey").joinpath(
+        "templates/services/dispatch_worker/docker-compose.yml.j2"
+    )
+    rendered = Template(tpl.read_text(encoding="utf-8")).render(**injected)
+
+    expected = _worker_image_target(config, env={})
+    assert expected == "fbk-proj:local"
+    assert f"image: ${{OSPREY_WORKER_IMAGE:-{expected}}}" in rendered, (
+        "the template-level fallback must match _worker_image_target's Python "
+        "fallback — the worker runs the PROJECT image, not the dispatcher's"
+    )
+    assert "osprey-dispatch:local" not in rendered
+
+
+# ---------------------------------------------------------------------------
+# Wheel-build memo (Task 3.1) + Dockerfile-scoped staging (Task 3.2)
+#
+# One `--dev` deploy stages the SAME wheel into many build contexts (every
+# Dockerfile-bearing service context, the project-image root, each persona
+# project), and rebuild_deployment renders the compose files twice (its own
+# prepare_compose_files + the delegated deploy_up's). The isolated-env
+# `python -m build` takes tens of seconds, so it is memoized per process:
+# built at most once, copied per context. Staging is also scoped to build
+# contexts that actually contain a Dockerfile — pure-image services
+# (postgresql, openobserve) never install the wheel.
+# ---------------------------------------------------------------------------
+
+
+def _write_dispatch_stack_config(project_path: Path, deployed: list[str]) -> Path:
+    """Write a config.yml declaring event_dispatcher + postgresql; return its path."""
+    config_path = project_path / "config.yml"
+    yaml_rt = YAML()
+    config: dict = {
+        "project_name": "wheel-fixture",
+        "project_root": str(project_path),
+        "build_dir": str(project_path / "build"),
+        "system": {"timezone": "UTC"},
+        "services": {
+            "event_dispatcher": {"path": "./services/event_dispatcher", "port": 8020},
+            "postgresql": {"path": "./services/postgresql", "port_host": 5432},
+        },
+        "deployed_services": deployed,
+    }
+    with open(config_path, "w") as fh:
+        yaml_rt.dump(config, fh)
+    return config_path
+
+
+# METADATA for the fixture wheel _write_fixture_wheel builds: two plain base
+# deps, one dep kept behind a non-extra (python_version) marker, and two
+# extra-gated deps that must stay OUT of the local-requirements manifest.
+_FIXTURE_WHEEL_METADATA = (
+    "Metadata-Version: 2.1\n"
+    "Name: osprey-framework\n"
+    "Version: 0.0.0\n"
+    "Requires-Dist: softioc>=4.5\n"
+    "Requires-Dist: aiohttp\n"
+    'Requires-Dist: tomli>=2; python_version < "3.11"\n'
+    'Requires-Dist: pytest>=8; extra == "dev"\n'
+    'Requires-Dist: sphinx; extra == "docs"\n'
+)
+
+# The manifest _FIXTURE_WHEEL_METADATA must produce: extras excluded, non-extra
+# markers verbatim, sorted, one per line, trailing newline.
+_FIXTURE_WHEEL_EXPECTED_MANIFEST = 'aiohttp\nsoftioc>=4.5\ntomli>=2; python_version < "3.11"\n'
+
+
+def _write_fixture_wheel(path: Path) -> None:
+    """Write a minimal but structurally valid wheel zip with real METADATA."""
+    import zipfile
+
+    with zipfile.ZipFile(path, "w") as whl:
+        whl.writestr("osprey_framework-0.0.0.dist-info/METADATA", _FIXTURE_WHEEL_METADATA)
+
+
+@pytest.fixture
+def spy_wheel_build(monkeypatch: pytest.MonkeyPatch) -> list:
+    """Spy on the ``python -m build`` subprocess, faking a successful build.
+
+    Records every build invocation and drops a minimal VALID wheel (real zip
+    with a ``*.dist-info/METADATA``) into the requested ``--outdir`` so
+    ``_copy_local_framework_for_override`` proceeds through both its copy step
+    and its requirements-manifest step. Every other subprocess.run call passes
+    through untouched.
+    """
+    import subprocess as subprocess_module
+
+    calls: list = []
+    real_run = subprocess_module.run
+
+    def _fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
+        if isinstance(cmd, list) and cmd[1:3] == ["-m", "build"]:
+            calls.append(list(cmd))
+            outdir = cmd[cmd.index("--outdir") + 1]
+            _write_fixture_wheel(Path(outdir, "osprey_framework-0.0.0-py3-none-any.whl"))
+            return subprocess_module.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return real_run(cmd, **kwargs)
+
+    monkeypatch.setattr(subprocess_module, "run", _fake_run)
+    return calls
+
+
+def test_dev_wheel_builds_once_across_service_and_project_staging(
+    tmp_path: Path, spy_wheel_build: list
+) -> None:
+    """One process, many staging targets, exactly ONE ``python -m build``.
+
+    Drives the real service-context staging (``prepare_compose_files`` with
+    dev_mode) plus two further ``_copy_local_framework_for_override`` calls
+    with distinct out_dirs — the same helper the project-image build
+    (``_build_project_image``) and persona builds (``build_persona_images``)
+    invoke against their own contexts. Every context must still receive its
+    own wheel copy (the memo caches the BUILD, not the copy).
+    """
+    import os
+
+    from osprey.deployment.compose_generator import _copy_local_framework_for_override
+
+    config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
+    _copy_service_templates(tmp_path)
+
+    project_image_ctx = tmp_path / "project-image-ctx"
+    persona_ctx = tmp_path / "persona-ctx"
+    project_image_ctx.mkdir()
+    persona_ctx.mkdir()
+
+    monkey_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        prepare_compose_files(str(config_path), dev_mode=True)
+        assert _copy_local_framework_for_override(str(project_image_ctx)) is True
+        assert _copy_local_framework_for_override(str(persona_ctx)) is True
+    finally:
+        os.chdir(monkey_cwd)
+
+    assert len(spy_wheel_build) == 1, (
+        f"the wheel build subprocess must run exactly once, ran {len(spy_wheel_build)}x"
+    )
+    service_ctx = tmp_path / "build" / "services" / "event_dispatcher"
+    for ctx in (service_ctx, project_image_ctx, persona_ctx):
+        assert list(ctx.glob("*.whl")), f"no wheel staged into {ctx}"
+        assert (ctx / "osprey-local-requirements.txt").is_file(), (
+            f"no local-requirements manifest staged next to the wheel in {ctx}"
+        )
+
+
+def test_dev_wheel_builds_once_across_rebuild_deployment_renders(
+    tmp_path: Path, spy_wheel_build: list
+) -> None:
+    """``rebuild_deployment`` runs ``prepare_compose_files`` twice (its own call
+    plus the delegated ``deploy_up``'s) — the wheel build must still run once."""
+    import os
+
+    config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
+    _copy_service_templates(tmp_path)
+
+    monkey_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        prepare_compose_files(str(config_path), dev_mode=True)
+        prepare_compose_files(str(config_path), dev_mode=True)
+    finally:
+        os.chdir(monkey_cwd)
+
+    assert len(spy_wheel_build) == 1, (
+        f"the wheel build subprocess must run exactly once, ran {len(spy_wheel_build)}x"
+    )
+
+
+def test_dev_wheel_staged_only_into_dockerfile_build_contexts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Dev-mode staging must target only build contexts that contain a
+    Dockerfile: postgresql (pure-image, no Dockerfile) gets nothing, the
+    event_dispatcher context gets the wheel."""
+    import os
+
+    from osprey.deployment import compose_generator
+
+    staged: list[str] = []
+
+    def _record_staging(out_dir: str) -> bool:
+        staged.append(out_dir)
+        return True
+
+    monkeypatch.setattr(compose_generator, "_copy_local_framework_for_override", _record_staging)
+
+    config_path = _write_dispatch_stack_config(
+        tmp_path, deployed=["postgresql", "event_dispatcher"]
+    )
+    _copy_service_templates(tmp_path)
+
+    monkey_cwd = Path.cwd()
+    try:
+        os.chdir(tmp_path)
+        prepare_compose_files(str(config_path), dev_mode=True)
+    finally:
+        os.chdir(monkey_cwd)
+
+    assert len(staged) == 1, f"expected staging into exactly one context, got {staged}"
+    assert staged[0].endswith(os.path.join("services", "event_dispatcher")), staged[0]
+
+
+# ---------------------------------------------------------------------------
+# Fail-closed OSPREY_DEV rendering: the pin-relaxing OSPREY_DEV=1 build arg is
+# rendered into a service's compose build.args only when the dev wheel was
+# actually staged into THAT context. A --dev deploy whose wheel build/staging
+# failed must render WITHOUT the arg — with an unreleased pin, OSPREY_DEV=1
+# would otherwise silently install the latest published release instead of
+# the local code the flag promises.
+# ---------------------------------------------------------------------------
+
+
+def _rendered_dispatcher_build_args(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, staging_result: bool
+) -> dict:
+    """Run a --dev prepare_compose_files with a stubbed staging outcome and
+    return the event-dispatcher's rendered build.args."""
+    from osprey.deployment import compose_generator
+
+    monkeypatch.setattr(
+        compose_generator,
+        "_copy_local_framework_for_override",
+        lambda out_dir: staging_result,
+    )
+    config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
+    _copy_service_templates(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    prepare_compose_files(str(config_path), dev_mode=True)
+    compose_file = tmp_path / "build" / "services" / "event_dispatcher" / "docker-compose.yml"
+    return yaml.safe_load(compose_file.read_text())["services"]["event-dispatcher"]["build"]["args"]
+
+
+def test_rendered_compose_carries_osprey_dev_when_wheel_staged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    args = _rendered_dispatcher_build_args(tmp_path, monkeypatch, staging_result=True)
+    assert args["OSPREY_DEV"] == "1"
+
+
+def test_rendered_compose_omits_osprey_dev_when_wheel_staging_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    args = _rendered_dispatcher_build_args(tmp_path, monkeypatch, staging_result=False)
+    assert "OSPREY_DEV" not in args, (
+        "a failed dev-wheel staging must not render the pin-relaxing "
+        f"OSPREY_DEV build arg (fail-closed); got {args}"
+    )
+
+
+def test_rendered_compose_omits_osprey_dev_on_memoized_build_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Drive the REAL staging helper against a failing ``python -m build``:
+    the memoized failure must leave OSPREY_DEV out of the rendered compose."""
+    import subprocess as subprocess_module
+
+    real_run = subprocess_module.run
+
+    def _failing_build(cmd, **kwargs):  # type: ignore[no-untyped-def]
+        if isinstance(cmd, list) and cmd[1:3] == ["-m", "build"]:
+            return subprocess_module.CompletedProcess(
+                cmd, 1, stdout="", stderr="No module named build"
+            )
+        return real_run(cmd, **kwargs)
+
+    monkeypatch.setattr(subprocess_module, "run", _failing_build)
+
+    config_path = _write_dispatch_stack_config(tmp_path, deployed=["event_dispatcher"])
+    _copy_service_templates(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    prepare_compose_files(str(config_path), dev_mode=True)
+
+    compose_file = tmp_path / "build" / "services" / "event_dispatcher" / "docker-compose.yml"
+    args = yaml.safe_load(compose_file.read_text())["services"]["event-dispatcher"]["build"]["args"]
+    assert "OSPREY_DEV" not in args
+    service_ctx = tmp_path / "build" / "services" / "event_dispatcher"
+    assert not list(service_ctx.glob("*.whl")), "no wheel may be staged on a failed build"
+
+
+# ---------------------------------------------------------------------------
+# Wheel-cache temp dir lifecycle: the memo's mkdtemp dir must register an
+# atexit cleanup when first created, so a real --dev deploy process doesn't
+# leak a temp dir (with a wheel copy) on every run. The reset hook stays
+# idempotent — it runs both explicitly (tests) and again at process exit.
+# ---------------------------------------------------------------------------
+
+
+def test_wheel_cache_dir_creation_registers_atexit_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spy_wheel_build: list
+) -> None:
+    from osprey.deployment import compose_generator
+    from osprey.deployment.compose_generator import (
+        _copy_local_framework_for_override,
+        _reset_wheel_build_cache,
+    )
+
+    registered: list = []
+    monkeypatch.setattr(compose_generator.atexit, "register", lambda fn: registered.append(fn))
+    monkeypatch.setattr(compose_generator, "_wheel_cache_cleanup_registered", False)
+
+    ctx = tmp_path / "ctx"
+    ctx.mkdir()
+    assert _copy_local_framework_for_override(str(ctx)) is True
+    assert compose_generator._reset_wheel_build_cache in registered, (
+        "creating the wheel cache dir must register the reset hook with atexit"
+    )
+
+    cache_dir = compose_generator._wheel_cache_dir
+    assert cache_dir is not None and Path(cache_dir).is_dir()
+    # The registered hook removes the dir and is safe to call twice
+    # (explicitly now, and again at interpreter exit).
+    _reset_wheel_build_cache()
+    assert not Path(cache_dir).exists()
+    _reset_wheel_build_cache()
+
+
+# ---------------------------------------------------------------------------
+# Task 3.4: dev-wheel reproducibility
+#
+# The service Dockerfiles COPY the staged wheel into an early layer; if two
+# builds of identical source produced byte-different wheels, every --dev
+# rebuild would invalidate the image layer cache even with no code change.
+# This gate builds the wheel twice for real (memo reset in between) and pins
+# byte-identity via sha256.
+# ---------------------------------------------------------------------------
+
+
+def test_dev_wheel_build_is_reproducible(tmp_path: Path) -> None:
+    """Two dev-wheel builds from identical source yield identical sha256.
+
+    Skips cleanly under exactly the conditions the production helper itself
+    falls back on: osprey not editable-installed, no pyproject.toml at the
+    source root, or the ``build`` package unavailable.
+    """
+    import hashlib
+    import importlib.util
+
+    import osprey
+    from osprey.deployment.compose_generator import (
+        _copy_local_framework_for_override,
+        _reset_wheel_build_cache,
+    )
+
+    module_path = Path(osprey.__file__).parent
+    if "site-packages" in str(module_path) or "dist-packages" in str(module_path):
+        pytest.skip("osprey is not an editable install — dev wheel build unavailable")
+    source_root = module_path.parent.parent
+    if not (source_root / "pyproject.toml").exists():
+        pytest.skip(f"no pyproject.toml at {source_root} — cannot build wheel from source")
+    if importlib.util.find_spec("build") is None:
+        pytest.skip("the 'build' package is not installed")
+
+    digests = []
+    for label in ("first", "second"):
+        out_dir = tmp_path / label
+        out_dir.mkdir()
+        # Reset the memo so the second round is a genuinely fresh build, not
+        # a copy of the first round's cached wheel.
+        _reset_wheel_build_cache()
+        if not _copy_local_framework_for_override(str(out_dir)):
+            pytest.skip("dev wheel build unavailable in this environment")
+        [wheel] = out_dir.glob("*.whl")
+        digests.append(hashlib.sha256(wheel.read_bytes()).hexdigest())
+
+    assert digests[0] == digests[1], (
+        "two wheel builds from identical source must be byte-identical — a "
+        "nondeterministic wheel invalidates the Docker layer cache on every "
+        "--dev rebuild"
+    )
+
+
+# ---------------------------------------------------------------------------
+# osprey-local-requirements.txt: staged next to every dev wheel so the service
+# Dockerfiles' toolchain-equipped deps layer can install the local wheel's own
+# base dependency set (the released PyPI pin's deps may lack e.g. softioc, a
+# native sdist that cannot compile in the toolchain-less wheel layer). The
+# content contract — extras excluded, non-extra markers verbatim, sorted, one
+# per line, trailing newline — must be byte-deterministic for identical wheels
+# because BuildKit content-hashes the COPY'd file.
+# ---------------------------------------------------------------------------
+
+
+def test_local_requirements_manifest_written_next_to_wheel(
+    tmp_path: Path, spy_wheel_build: list
+) -> None:
+    """The REAL staging helper writes the manifest with exactly the expected
+    content: extra-gated deps excluded, python_version marker kept verbatim,
+    sorted, trailing newline."""
+    from osprey.deployment.compose_generator import _copy_local_framework_for_override
+
+    ctx = tmp_path / "ctx"
+    ctx.mkdir()
+    assert _copy_local_framework_for_override(str(ctx)) is True
+
+    manifest = ctx / "osprey-local-requirements.txt"
+    assert manifest.is_file(), "manifest must be staged next to the wheel"
+    assert manifest.read_text(encoding="utf-8") == _FIXTURE_WHEEL_EXPECTED_MANIFEST
+    assert list(ctx.glob("*.whl")), "the wheel itself must still be staged"
+
+
+def test_local_requirements_manifest_is_deterministic(
+    tmp_path: Path, spy_wheel_build: list
+) -> None:
+    """Two stagings of the same wheel produce byte-identical manifests —
+    anything else busts BuildKit's content-hashed deps-layer cache on every
+    deploy."""
+    from osprey.deployment.compose_generator import _copy_local_framework_for_override
+
+    contents = []
+    for label in ("first", "second"):
+        ctx = tmp_path / label
+        ctx.mkdir()
+        assert _copy_local_framework_for_override(str(ctx)) is True
+        contents.append((ctx / "osprey-local-requirements.txt").read_bytes())
+
+    assert contents[0] == contents[1]
+
+
+def test_staging_fails_closed_when_manifest_cannot_be_derived(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A wheel whose METADATA cannot be read (corrupt zip) must FAIL staging —
+    and leave neither wheel nor manifest behind. A context holding a wheel
+    without its manifest would trip the OSPREY_DEV gate while the deps layer
+    still lacks the local wheel's added deps (half-staged)."""
+    import subprocess as subprocess_module
+
+    from osprey.deployment.compose_generator import _copy_local_framework_for_override
+
+    real_run = subprocess_module.run
+
+    def _fake_run(cmd, **kwargs):  # type: ignore[no-untyped-def]
+        if isinstance(cmd, list) and cmd[1:3] == ["-m", "build"]:
+            outdir = cmd[cmd.index("--outdir") + 1]
+            Path(outdir, "osprey_framework-0.0.0-py3-none-any.whl").write_bytes(b"not a zip")
+            return subprocess_module.CompletedProcess(cmd, 0, stdout="", stderr="")
+        return real_run(cmd, **kwargs)
+
+    monkeypatch.setattr(subprocess_module, "run", _fake_run)
+
+    ctx = tmp_path / "ctx"
+    ctx.mkdir()
+    assert _copy_local_framework_for_override(str(ctx)) is False
+    assert not list(ctx.glob("*.whl")), "the half-staged wheel must be removed"
+    assert not (ctx / "osprey-local-requirements.txt").exists()
+
+
+def test_staging_fails_closed_when_manifest_write_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, spy_wheel_build: list
+) -> None:
+    """Even with a valid wheel, a failed manifest WRITE must fail staging
+    (return False) and remove the already-copied wheel."""
+    from osprey.deployment import compose_generator
+    from osprey.deployment.compose_generator import _copy_local_framework_for_override
+
+    def _boom(cached_wheel, out_dir):  # type: ignore[no-untyped-def]
+        raise OSError("disk full")
+
+    monkeypatch.setattr(compose_generator, "_write_local_requirements_manifest", _boom)
+
+    ctx = tmp_path / "ctx"
+    ctx.mkdir()
+    assert _copy_local_framework_for_override(str(ctx)) is False
+    assert not list(ctx.glob("*.whl")), "the half-staged wheel must be removed"
+    assert not (ctx / "osprey-local-requirements.txt").exists()

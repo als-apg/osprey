@@ -182,18 +182,18 @@ def _focus_artifact(gallery_base_url: str, artifact_id: str) -> None:
 
 
 # Default Bluesky bridge base URL — mirrors
-# osprey.mcp_server.bluesky.server_context.BridgeContext._resolve_bridge_url's
-# fallback (`_DEFAULT_BRIDGE_URL`) without importing that module: this hook
-# runs standalone, in a different process/venv from OSPREY's own package.
+# osprey.bluesky_bridge_connection.resolve_bridge_url's fallback
+# (`DEFAULT_BRIDGE_URL`) without importing that module: this hook runs
+# standalone, in a different process/venv from OSPREY's own package.
 _DEFAULT_BRIDGE_URL = "http://127.0.0.1:8090"
 
 
 def _resolve_bridge_url(config: dict) -> str:
     """Resolve the Bluesky bridge base URL: env wins outright over config.yml.
 
-    Resolution order mirrors `BridgeContext._resolve_bridge_url` exactly:
-    ``BLUESKY_BRIDGE_URL`` env var, then ``bluesky.bridge_url`` in config.yml,
-    then the loopback default above.
+    Resolution order mirrors `osprey.bluesky_bridge_connection.resolve_bridge_url`
+    exactly: ``BLUESKY_BRIDGE_URL`` env var, then ``bluesky.bridge_url`` in
+    config.yml, then the loopback default above.
     """
     full = os.environ.get("BLUESKY_BRIDGE_URL")
     if full:

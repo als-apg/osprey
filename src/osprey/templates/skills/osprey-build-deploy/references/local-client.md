@@ -32,7 +32,7 @@ Don't use the client profile when:
 | Network access to `${config.deploy.fqdn}` | Typically requires being on the facility's control network, via VPN or on-site. Test with `curl -v http://${config.deploy.fqdn}:${config.ports.integration_tests}/health` before building. |
 | Local container runtime — *only if* the client profile uses any containerized component | The standard client profile does NOT run local containers. If your facility's `${config.facility.prefix}-client.yml` adds local containers (rare), Docker Desktop (Mac/Windows) or Docker Engine (Linux) is sufficient — podman is not required for client builds. |
 
-The developer does *not* need a deploy token, a registry login, or anything that touches `${config.gitlab.host}`. Client builds are read-only against the deploy server.
+The developer does *not* need a deploy token, a registry login, or anything that touches `${config.ci.host}`. Client builds are read-only against the deploy server.
 
 ---
 
@@ -80,7 +80,7 @@ The two profiles share most overlay/agent/rule definitions (often via `extends:`
 | Concern | `*-prod.yml` (deploy server) | `*-client.yml` (developer laptop) |
 |---------|------------------------------|------------------------------------|
 | MCP server URLs | `http://localhost:<port>/mcp` (or Docker DNS service names like `http://<service>:<port>/mcp` from inside containers) | `http://${config.deploy.fqdn}:<port>/mcp` |
-| `env.file` | `.env.production` (server-side, has all secrets) | `.env.local` (developer-side, has just the LLM key) |
+| `env.file` | `.env` (server-side, has all secrets) | `.env.local` (developer-side, has just the LLM key) |
 | `env.required` | Long list (every service credential) | Short list (`${config.llm.api_key_env_var}` and any client-specific key) |
 | `container_runtime` | `${config.runtime.engine}` (whatever the server uses) | typically `docker` (most developer laptops) |
 | `overlay:` extras | Server-side test infrastructure, soft-IOC management skills, etc. | Stripped down — no test IOC, no on-server admin skills |

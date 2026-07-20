@@ -123,6 +123,7 @@ describe('_parseToolDescription', () => {
 describe('renderMcpJson', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    delete window.__OSPREY_PREFIX__;
   });
 
   test('returns null on invalid JSON (matches the other renderers\' parse-guard)', () => {
@@ -178,6 +179,16 @@ describe('renderMcpJson', () => {
     const toolItem = qs(card, '.config-mcp-tool-item');
     expect(toolItem).not.toBeNull();
     expect(qs(toolItem, '.config-mcp-tool-name').textContent).toBe('launch_run');
+  });
+
+  test('prepends window.__OSPREY_PREFIX__ to the /api/mcp-servers fetch (multi-user deployments)', () => {
+    window.__OSPREY_PREFIX__ = '/u/alice';
+    const fetchMock = vi.fn(() => new Promise(() => {})); // never resolves
+    vi.stubGlobal('fetch', fetchMock);
+
+    renderContainer(MCP_JSON);
+
+    expect(fetchMock).toHaveBeenCalledWith('/u/alice/api/mcp-servers');
   });
 
   test('falls back to "tools not available" when the fetch rejects', async () => {

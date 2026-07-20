@@ -47,9 +47,18 @@ between companion tools without ever leaving the page.
 
       Add your own tools as themed side panels that sit beside the chat.
 
+   .. grid-item-card:: Multi-user
+      :link: multi-user
+      :link-type: doc
+      :shadow: md
+
+      Serve a whole team from one host — a landing page plus a private
+      containerized terminal per user, in capability tiers.
+
 .. toctree::
    :hidden:
 
    operate
    theming
    panels
+   multi-user

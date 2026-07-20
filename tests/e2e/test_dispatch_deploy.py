@@ -40,6 +40,8 @@ from pathlib import Path
 
 import pytest
 
+from osprey.deployment.compose_generator import resolve_project_name
+
 DISPATCHER_URL = "http://localhost:8020"
 TOKEN = "dev-token"  # matches the .env tokens written below
 
@@ -108,6 +110,20 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     base = tmp_path_factory.mktemp("dispatch_deploy_build")
     project_dir = base / PROJECT_NAME
 
+    # modules.web_terminals.enabled: false drops the preset's per-persona
+    # web-terminal stack (two persona images + nginx, all built locally):
+    # nothing in the dispatch pipeline touches persona routing, and the
+    # deploy-up credential preflight would otherwise abort for the persona
+    # presets' pinned anthropic provider (the parent project's
+    # `provider=als-apg` --set does not reach the auto-rendered persona
+    # projects). Persona coverage lives in the dedicated web-terminals
+    # lanes. One dotted LEAF key on purpose -- overriding just `.enabled`
+    # leaves the preset's `modules.web_terminals` siblings intact, whereas
+    # a nested `modules:` mapping would wholesale-replace the subtree
+    # (same convention as tests/e2e/_orm_stack.py).
+    override_path = base / "override.yml"
+    override_path.write_text("config:\n  modules.web_terminals.enabled: false\n", encoding="utf-8")
+
     build = _run(
         [
             str(osprey_bin),
@@ -115,6 +131,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             PROJECT_NAME,
             "--preset",
             "control-assistant",
+            "--override",
+            str(override_path),
             "--set",
             "provider=als-apg",
             "--set",
@@ -147,12 +165,15 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     )
 
     # Force a fresh image build so the deployed services run CURRENT source. The
-    # dispatcher runs osprey-dispatch:local; the worker now runs the unified
-    # project image proj:local (built by `deploy up --dev` from the project root).
+    # dispatcher runs <project>-dispatch:local; the worker now runs the unified
+    # project image <project>:local (built by `deploy up --dev` from the project
+    # root). Both tags are project-prefixed, derived via resolve_project_name
+    # exactly as the compose templates / project build do.
     # `osprey deploy up` does not pass --build to compose, so it would otherwise
     # reuse existing images and silently test stale code. The freshly-built dev
     # wheel invalidates the relevant build-cache layers on rebuild.
-    for image in ("osprey-dispatch:local", "proj:local"):
+    project = resolve_project_name({"project_name": PROJECT_NAME})
+    for image in (f"{project}-dispatch:local", f"{project}:local"):
         subprocess.run(["docker", "rmi", "-f", image], capture_output=True, text=True)
 
     try:

@@ -5,7 +5,7 @@ import { stopTerminal, startTerminal, restartTerminal, getCurrentSessionId, noti
 import { escapeHtml } from '/design-system/js/dom.js';
 
 /**
- * A session summary as returned by `/api/sessions`.
+ * A session summary as returned by the (prefix-aware) `/api/sessions` endpoint.
  * @typedef {object} SessionRecord
  * @property {string} session_id
  * @property {string} last_modified
@@ -63,7 +63,7 @@ export function initSessionSelector(containerId) {
  */
 async function fetchSessions() {
   try {
-    const data = await fetchJSON('/api/sessions');
+    const data = await fetchJSON('/api/sessions'); // fetchJSON prefixes this internally
     sessionsData = data.sessions || [];
   } catch (err) {
     console.error('Failed to fetch sessions:', err);

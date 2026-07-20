@@ -153,6 +153,7 @@ dev = [
     "pytest-order",  # Run flaky/in-debug e2e tests first via @pytest.mark.order
     "pytest-rerunfailures",  # Absorb rare LLM nondeterminism in agentic e2e via @pytest.mark.flaky
     "pytest-timeout",  # Deadlock-breaker for the model-matrix benchmark runner (--timeout)
+    "pytest-xdist",  # Parallel e2e lane in CI (-n 4 --dist loadfile; LLM-bound, file-isolated)
     "mypy",
     "pre-commit",
     "ruff",

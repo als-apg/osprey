@@ -1,0 +1,25 @@
+# Throwaway stand-in for the real ``<registry_url>/web-terminal:latest`` image
+# (src/osprey/templates/modules/web_terminals/docker-compose.web.yml.j2), used
+# ONLY by tests/e2e/test_deploy_lifecycle.py to exercise deploy-lifecycle
+# MECHANICS (up/idempotency/seed/decommission/prune/nuke) against a real
+# container runtime. It never runs the actual osprey web app — it just needs
+# to (a) stay running so compose reports it healthy-enough to inspect/exec
+# into, and (b) satisfy what seeding.py's container-side reconcile scripts
+# depend on: a "dispatch" user (chown target) and the two mount-point
+# directories the per-user compose service declares volumes onto.
+#
+# The paths below are hardcoded to the fixture's facility_prefix ("e2e" ->
+# /app/e2e-assistant/...) — see multi_user_config.yml. If that prefix ever
+# changes, these paths must change with it.
+FROM alpine:3.20
+
+RUN adduser -D dispatch \
+    && mkdir -p /data/claude-config \
+    && mkdir -p /app/e2e-assistant/_agent_data \
+    && mkdir -p /app/e2e-assistant/.claude/skills \
+    && chown -R dispatch:dispatch /data/claude-config /app/e2e-assistant
+
+# alpine's busybox `sleep` doesn't accept the GNU "infinity" literal; `tail -f
+# /dev/null` is the portable idle-forever idiom. seeding.py execs into this
+# container as root (-u 0), so the process's own uid doesn't matter here.
+CMD ["tail", "-f", "/dev/null"]

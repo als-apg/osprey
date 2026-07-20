@@ -1,17 +1,18 @@
 """Bluesky MCP Server Context — bridge connection resolution and HTTP boundary.
 
-Resolves the facility-side Bluesky bridge's base URL and launch token (env with
-config.yml fallback, mirroring
-``osprey.mcp_server.control_system.server_context``), and exposes the
-module-level HTTP primitives every tool module uses to talk to the
-bridge. Centralizing the primitives here means every tool gets identical
-``bluesky_bridge_unreachable`` handling without repeating a try/except around
-each HTTP call.
+Holds the resolved facility-side Bluesky bridge connection (base URL and launch
+token) for the MCP server process and exposes the module-level HTTP primitives
+every tool module uses to talk to the bridge. Centralizing the primitives here
+means every tool gets identical ``bluesky_bridge_unreachable`` handling without
+repeating a try/except around each HTTP call.
 
-Also home to the ``bridge_error_message`` / ``UNKNOWN_RUN_HINTS`` helpers
-shared by every tool module (``read_tools``, ``launch``, ``stop``) for
-translating a non-2xx bridge response into a ``make_error`` call, so all three
-render the same error envelope for the same bridge failure.
+The bridge URL / launch token resolution itself and the ``bridge_error_message``
+helper live in the shared leaf ``osprey.bluesky_bridge_connection``, imported by
+both this MCP server and the panels sidecar so the two never drift on which
+bridge instance or token they use (a safety-relevant bug class). This module
+re-exports ``bridge_error_message`` so the tool modules (``read_tools``,
+``launch``, ``stop``, ``draft``, ``authoring``) keep importing it from here
+alongside the ``UNKNOWN_RUN_HINTS`` helper.
 
 Usage in tools:
     from osprey.mcp_server.bluesky.server_context import _http_get_json, _http_post_json
@@ -22,17 +23,24 @@ Usage in tools:
 from __future__ import annotations
 
 import logging
-import os
 from collections.abc import Callable
 from typing import Any
 
 import httpx
 
+from osprey.bluesky_bridge_connection import (
+    DEFAULT_BRIDGE_URL,
+    resolve_bridge_url,
+    resolve_launch_token,
+)
+from osprey.bluesky_bridge_connection import (
+    # Re-exported so the tool modules keep importing it from server_context.
+    bridge_error_message as bridge_error_message,
+)
 from osprey.mcp_server.errors import make_error
 
 logger = logging.getLogger("osprey.mcp_server.bluesky.server_context")
 
-_DEFAULT_BRIDGE_URL = "http://127.0.0.1:8090"
 _TIMEOUT = 15.0  # seconds
 
 _UNREACHABLE_HINTS = [
@@ -48,13 +56,6 @@ UNKNOWN_RUN_HINTS = [
 ]
 
 
-def bridge_error_message(body: object, status: int) -> str:
-    """Extract the bridge's FastAPI ``detail`` message, falling back to the status."""
-    if isinstance(body, dict) and body.get("detail"):
-        return str(body["detail"])
-    return f"Bluesky bridge returned HTTP {status}."
-
-
 # ---------------------------------------------------------------------------
 # BridgeContext
 # ---------------------------------------------------------------------------
@@ -62,68 +63,29 @@ class BridgeContext:
     """Resolved Bluesky bridge connection details for the current process."""
 
     def __init__(self) -> None:
-        self.bridge_url: str = _DEFAULT_BRIDGE_URL
+        self.bridge_url: str = DEFAULT_BRIDGE_URL
         self.launch_token: str | None = None
         self._initialized = False
 
     def initialize(self) -> None:
         """Resolve bridge_url and launch_token from env with config.yml fallback.
 
-        Called once during create_server(). Subsequent calls are no-ops.
+        Delegates to the shared ``osprey.bluesky_bridge_connection`` resolvers so
+        this MCP server and the panels sidecar agree on which bridge instance and
+        token they use. Called once during create_server(); subsequent calls are
+        no-ops.
         """
         if self._initialized:
             return
 
-        self.bridge_url = self._resolve_bridge_url()
-        self.launch_token = self._resolve_launch_token()
+        self.bridge_url = resolve_bridge_url()
+        self.launch_token = resolve_launch_token()
         self._initialized = True
         logger.info(
             "BridgeContext: initialized (bridge_url=%s, launch_token_set=%s)",
             self.bridge_url,
             self.launch_token is not None,
         )
-
-    @staticmethod
-    def _resolve_bridge_url() -> str:
-        """Resolve the Bluesky bridge base URL.
-
-        Resolution order:
-
-        1. ``BLUESKY_BRIDGE_URL`` env var (full URL) — set by the framework server
-           definition per bridge instance; wins outright.
-        2. ``bluesky.bridge_url`` in config.yml.
-        3. ``http://127.0.0.1:8090`` default.
-        """
-        full = os.environ.get("BLUESKY_BRIDGE_URL")
-        if full:
-            return full.rstrip("/")
-
-        from osprey.utils.workspace import load_osprey_config
-
-        config = load_osprey_config()
-        url = config.get("bluesky", {}).get("bridge_url", _DEFAULT_BRIDGE_URL)
-        return str(url).rstrip("/")
-
-    @staticmethod
-    def _resolve_launch_token() -> str | None:
-        """Resolve the Bluesky bridge launch token.
-
-        Resolution order:
-
-        1. ``BLUESKY_LAUNCH_TOKEN`` env var — minted fail-closed per bridge
-           instance by the framework server definition; wins outright.
-        2. ``bluesky.launch_token`` in config.yml (local/dev convenience only).
-        3. ``None`` — ``launch_run`` refuses client-side when unset.
-        """
-        token = os.environ.get("BLUESKY_LAUNCH_TOKEN")
-        if token:
-            return token
-
-        from osprey.utils.workspace import load_osprey_config
-
-        config = load_osprey_config()
-        token = config.get("bluesky", {}).get("launch_token")
-        return str(token) if token else None
 
 
 # ---------------------------------------------------------------------------
