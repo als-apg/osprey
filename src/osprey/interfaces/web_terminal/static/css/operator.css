@@ -1,7 +1,18 @@
-/* OSPREY Web Terminal — Operator Mode (Control-Room Log Console) */
+/* OSPREY Web Terminal — Operator Mode (Control-Room Log Console)
 
-/* ---- Container ---- */
+   Simple mode swaps the xterm PTY for this chat console. It fills the
+   terminal-card's body (framed in terminal.css) and inherits that flat card's
+   chrome, so this file styles only the console interior on the shared design
+   tokens: flat surfaces, hairline separators, an azure interactive accent, and
+   amber reserved for the operator's own turns. */
 
+/* ---- Container + mode gate ---- */
+
+/* #terminal-container and #operator-container both stay mounted inside
+   .terminal-body; visibility is a pure display gate off html[data-ui-mode]
+   (resolved pre-paint by the FOUC boot script). The matching rule that hides
+   #terminal-container in simple mode lives in terminal.css. A live mode flip
+   therefore tears down no DOM and either view restores exactly on toggle-back. */
 .operator-container {
   display: none;
   flex-direction: column;
@@ -11,28 +22,31 @@
   position: relative;
 }
 
-.operator-container.active {
+html[data-ui-mode="simple"] #operator-container {
   display: flex;
 }
 
-/* CRT scanline overlay — matches terminal-body::after */
+/* Streaming affordance — a steady azure edge along the console's top while a
+   turn streams. Replaces the old inset CRT glow, whose --wt-crt-glow-opacity
+   token resolves to 0 in every theme (an invisible element). Collapsed
+   (scaleX 0) at rest; the .streaming class the controller toggles slides it in. */
 .operator-container::after {
   content: '';
   position: absolute;
   top: 0;
   left: 0;
   right: 0;
-  bottom: 0;
+  height: 2px;
+  background: var(--color-accent);
+  transform: scaleX(0);
+  transform-origin: left center;
+  transition: transform var(--wt-transition-normal);
   pointer-events: none;
-  background: var(--wt-crt-scanline-bg);
-  opacity: var(--wt-crt-scanline-opacity);
-  z-index: 1;
+  z-index: 3;
 }
 
-/* Inner glow while streaming */
-.operator-container.streaming {
-  box-shadow: inset 0 0 60px var(--accent-tint-04);
-  opacity: var(--wt-crt-glow-opacity);
+.operator-container.streaming::after {
+  transform: scaleX(1);
 }
 
 /* ---- Session info header bar ---- */
@@ -41,31 +55,29 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 6px 12px;
-  background: var(--bg-secondary);
+  padding: 8px 12px;
+  background: var(--bg-panel);
   border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
-  z-index: 2;
 }
 
 .op-session-led {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
   background: var(--text-muted);
   flex-shrink: 0;
 }
 
 .op-session-led.active {
-  background: var(--color-accent-light);
-  animation: ledPulse 3s ease-in-out infinite; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
+  background: var(--color-success);
 }
 
 .op-session-label {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
@@ -89,11 +101,10 @@
 .op-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 8px 0;
+  padding: var(--space-2) 0;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  z-index: 2;
 }
 
 /* ---- Log entries (full-width, no chat bubbles) ---- */
@@ -105,10 +116,10 @@
   font-size: var(--text-md);
   line-height: var(--leading-relaxed);
   word-wrap: break-word;
-  border-left: 3px solid transparent;
+  border-left: 2px solid transparent;
 }
 
-/* Operator (user) entries — amber */
+/* Operator (the human's own turns) — amber left edge + faint amber wash. */
 .op-entry.operator {
   border-left-color: var(--color-amber);
   background: var(--amber-tint-04);
@@ -118,10 +129,10 @@
   color: var(--color-amber-light);
 }
 
-/* System (assistant) entries — teal */
+/* Agent turns — azure left edge, tracking the interactive accent. */
 .op-entry.assistant {
   border-left-color: var(--color-accent);
-  background: var(--wt-accent-system-tint-04);
+  background: var(--accent-tint-04);
 }
 
 .op-entry.assistant .op-entry-prefix {
@@ -151,7 +162,7 @@
 /* ---- Thinking (collapsible) ---- */
 
 .op-thinking {
-  border-left: 2px solid var(--color-accent);
+  border-left: 2px solid var(--border-accent);
   margin: 4px 0;
   padding-left: 10px;
 }
@@ -178,7 +189,7 @@
 
 .op-tool {
   background: var(--bg-elevated);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   margin: 4px 0;
   padding: 4px 8px;
   border-left: 2px solid var(--tool-color, var(--color-accent));
@@ -201,7 +212,7 @@
   display: inline-block;
   width: 5px;
   height: 5px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: var(--tool-color, var(--color-accent-light));
   animation: ledPulse 1.5s ease-in-out infinite; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
   flex-shrink: 0;
@@ -355,7 +366,7 @@
 .op-ts-plotly {
   min-height: 250px;
   max-height: 350px;
-  background: var(--bg-secondary);
+  background: var(--bg-panel);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   overflow: hidden;
@@ -429,7 +440,7 @@
 .op-processing-led {
   width: 5px;
   height: 5px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
   background: var(--color-accent-light);
   animation: ledPulse 1.5s ease-in-out infinite; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
 }
@@ -441,10 +452,9 @@
   align-items: flex-end;
   gap: 0;
   padding: 8px 12px;
-  background: var(--bg-secondary);
+  background: var(--bg-panel);
   border-top: 1px solid var(--border-default);
   flex-shrink: 0;
-  z-index: 2;
 }
 
 .op-prompt-char {
@@ -487,22 +497,24 @@
 
 .op-input-controls button {
   background: transparent;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-xs);
   padding: 3px 10px;
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   text-transform: uppercase;
   letter-spacing: 0.05em;
   cursor: pointer;
-  transition: all var(--wt-transition-fast);
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
+    background var(--wt-transition-fast);
   white-space: nowrap;
 }
 
 .op-input-controls button:hover {
   color: var(--color-accent-light);
-  border-color: var(--color-accent);
+  border-color: var(--border-accent);
+  background: var(--accent-tint-08);
 }
 
 .op-input-controls button:disabled {
@@ -511,8 +523,9 @@
 }
 
 .op-input-controls button:disabled:hover {
-  color: var(--text-muted);
+  color: var(--text-secondary);
   border-color: var(--border-default);
+  background: transparent;
 }
 
 .op-input-controls .op-stop-btn {
@@ -521,6 +534,7 @@
 }
 
 .op-input-controls .op-stop-btn:hover {
+  color: var(--color-error);
   border-color: var(--color-error);
   background: var(--error-tint-10);
 }
@@ -533,18 +547,19 @@
   font-weight: var(--weight-medium);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   background: transparent;
-  border: 1px solid var(--border-accent);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
   padding: 2px 8px;
   cursor: pointer;
-  transition: all var(--wt-transition-fast);
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
+    background var(--wt-transition-fast);
   margin-left: auto;
 }
 
 .mode-toggle-btn:hover {
   color: var(--color-accent-light);
-  border-color: var(--color-accent-light);
+  border-color: var(--border-accent);
   background: var(--accent-tint-08);
 }
