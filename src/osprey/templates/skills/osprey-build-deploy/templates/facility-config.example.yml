@@ -185,6 +185,8 @@ modules:
     enabled: true
     nginx_port: 9080                     # mirrors ports.web_terminal_nginx
     web_base_port: 9091                  # → OSPREY_WEB_PORT (range start; not mirrored in ports.* — see rule 11)
+    # Companion-panel families are OPTIONAL — omitted ones fall back to their
+    # registry defaults (registry/web.py): channel_finder 9591, okf 9691, ...
     artifact_base_port: 9291             # → OSPREY_ARTIFACT_SERVER_PORT
     ariel_base_port: 9391                # → OSPREY_ARIEL_PORT
     lattice_base_port: 9491              # → OSPREY_LATTICE_DASHBOARD_PORT

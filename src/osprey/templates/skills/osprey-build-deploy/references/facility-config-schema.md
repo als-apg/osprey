@@ -251,22 +251,32 @@ modules:
 
 ### `modules.web_terminals` — multi-user web terminal stack
 
-Each user gets **four** independent per-user ports — one per service family — so a
-single user's terminal, artifact gallery, ARIEL search, and lattice dashboard never
-collide with each other or with any other user's. For a user at position `i`
-(0-indexed, per `users[]` order), the per-family host port is `<family>_base_port +
-i`. This arithmetic is implemented once in `deployment/web_terminals/ports.py`
-(`allocate_ports`) and consumed by the renderer and the lint — do not reimplement it.
+Each user gets one independent per-user port **per service family** — the terminal
+itself (`web`) plus one family for every companion panel in the framework's web-server
+registry (`registry/web.py` `FRAMEWORK_WEB_SERVERS`: artifact gallery, ARIEL search,
+channel finder, lattice dashboard, OKF knowledge) — so no user's services ever collide
+with each other or with any other user's. For a user at position `i` (0-indexed, per
+`users[]` order), the per-family host port is `<family>_base_port + i`. The family
+set and each family's default base port are **derived from the registry** (a newly
+registered companion panel is multi-user-wired automatically); only `web_base_port`
+is required in config — every companion family falls back to its registry default
+when its `<family>_base_port` field is omitted. This arithmetic is implemented once
+in `deployment/web_terminals/ports.py` (`allocate_ports`) and consumed by the
+renderer and the lint — do not reimplement it.
 
 ```yaml
 modules:
   web_terminals:
     enabled: true
     nginx_port: 9080                       # public-facing reverse proxy / landing page
-    web_base_port: 9091                    # first per-user web-terminal port      → OSPREY_WEB_PORT
+    web_base_port: 9091                    # first per-user web-terminal port      → OSPREY_WEB_PORT (required)
+    # Companion-panel families — OPTIONAL; each falls back to its registry
+    # default (shown) when omitted. Every FRAMEWORK_WEB_SERVERS panel has one.
     artifact_base_port: 9291               # first per-user artifact-gallery port  → OSPREY_ARTIFACT_SERVER_PORT
     ariel_base_port: 9391                  # first per-user ARIEL search port      → OSPREY_ARIEL_PORT
     lattice_base_port: 9491                # first per-user lattice-dashboard port → OSPREY_LATTICE_DASHBOARD_PORT
+    channel_finder_base_port: 9591         # first per-user channel-finder panel port → OSPREY_CHANNEL_FINDER_PORT
+    okf_base_port: 9691                    # first per-user OKF knowledge panel port  → OSPREY_FACILITY_KNOWLEDGE_PORT
     users:                                 # one container per user, named ${facility.prefix}-web-${user}
       - thellert                           # bare string — shorthand for {name: "thellert"}
       - name: "gmartino"                   # object form — same container, explicit fields
@@ -309,9 +319,11 @@ modules:
 | `enabled` | bool | yes | Off by default |
 | `nginx_port` | int | yes | Reverse proxy + landing page port; must be unique across `ports.*` |
 | `web_base_port` | int | yes | First per-user web-terminal port. The compose overlay declares it into each per-user container as `OSPREY_TERMINAL_WEB_PORT`, which `osprey web`'s `resolve_web_port()` treats as authoritative over `--port`/`OSPREY_WEB_PORT`/config (exact parallel to `OSPREY_TERMINAL_BIND_HOST` below) |
-| `artifact_base_port` | int | yes | First per-user artifact-gallery port; binds `OSPREY_ARTIFACT_SERVER_PORT` |
-| `ariel_base_port` | int | yes | First per-user ARIEL search port; binds `OSPREY_ARIEL_PORT` |
-| `lattice_base_port` | int | yes | First per-user lattice-dashboard port; binds `OSPREY_LATTICE_DASHBOARD_PORT` |
+| `artifact_base_port` | int | no (default 9291) | First per-user artifact-gallery port; binds `OSPREY_ARTIFACT_SERVER_PORT` |
+| `ariel_base_port` | int | no (default 9391) | First per-user ARIEL search port; binds `OSPREY_ARIEL_PORT` |
+| `lattice_base_port` | int | no (default 9491) | First per-user lattice-dashboard port; binds `OSPREY_LATTICE_DASHBOARD_PORT` |
+| `channel_finder_base_port` | int | no (default 9591) | First per-user channel-finder panel port; binds `OSPREY_CHANNEL_FINDER_PORT` |
+| `okf_base_port` | int | no (default 9691) | First per-user OKF knowledge-panel port; binds `OSPREY_FACILITY_KNOWLEDGE_PORT` |
 | `users` | list of strings and/or objects | yes | May be empty when `enabled: true` (see validation rule below). See "User roster entries" below for the object form |
 | `image_source` | enum | no | `registry` (default — today's behavior: `deploy up` pulls a CI-built image) or `local` (`deploy up` builds each referenced persona's image itself from its `project_path`; no CI/registry needed). Fail-closed default; an unrecognized value is a lint ERROR. See "Personas" below |
 | `default_persona` | string | required if `image_source: local`, or if any `personas` catalog is present and some `users[]` entry has no `persona:` of its own | The persona a roster entry resolves to when it declares no `persona:` key. See "Personas" below |

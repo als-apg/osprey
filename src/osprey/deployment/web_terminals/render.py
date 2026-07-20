@@ -15,6 +15,7 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader
 
 from osprey.deployment.web_terminals.ports import (
+    PANEL_ENV_VARS,
     SUPPORTED_MCP_TOPOLOGY,
     allocate_ports,
     as_dict,
@@ -38,8 +39,9 @@ _COMPOSE_OUTPUT = "docker-compose.web.yml"
 _NGINX_OUTPUT = "nginx/nginx.conf"
 _LANDING_OUTPUT = "nginx/landing.html"
 
-# Per-container constant (Task 1.1): every per-user app's four service families
-# (web/artifact/ariel/lattice) bind this host, never a routable interface —
+# Per-container constant (Task 1.1): every per-user app's service families
+# (web + every registry companion family) bind this host, never a routable
+# interface —
 # nginx's reverse proxy (Task 1.2) becomes the only off-host path. Not
 # config-driven: unlike the per-family ports, there is no facility-config knob
 # for this, since a facility that wants a per-user port reachable directly
@@ -65,7 +67,7 @@ def render_web_terminals(config: Any) -> dict[str, str]:
 
     Raises:
         ValueError: If ``modules.web_terminals.nginx_port`` is missing/not an int,
-            if a configured user can't resolve a full four-family port set, if
+            if a configured user can't resolve a full port-family set, if
             ``deploy.fqdn`` is missing while at least one user is configured (the
             landing-origin host baked into ``OSPREY_TERMINAL_LANDING_URL``), if
             a roster entry's persona reference can't be resolved (see
@@ -85,16 +87,27 @@ def render_web_terminals(config: Any) -> dict[str, str]:
     resolved_users = resolve_personas(web_terminals, registry, facility_prefix, strict=True)
 
     base_ports = base_ports_from_config(web_terminals)
-    services = [
-        {
-            "user": entry["name"],
-            "image": entry["image"],
-            "project": entry["project"],
-            "container_project_dir": entry["container_project_dir"],
-            **allocate_ports(base_ports, entry["index"]),
-        }
-        for entry in resolved_users
-    ]
+    services = []
+    for entry in resolved_users:
+        user_ports = allocate_ports(base_ports, entry["index"])
+        services.append(
+            {
+                "user": entry["name"],
+                "image": entry["image"],
+                "project": entry["project"],
+                "container_project_dir": entry["container_project_dir"],
+                **user_ports,
+                # One env line per companion family, derived from the web-server
+                # registry (PANEL_ENV_VARS) so a newly registered companion is
+                # multi-user-wired without touching this module or the template.
+                # The "web" family is not in this list — the template exports
+                # its OSPREY_TERMINAL_WEB_PORT/OSPREY_WEB_PORT pair explicitly.
+                "panel_env": [
+                    {"name": env_var, "port": user_ports[family]}
+                    for family, env_var in PANEL_ENV_VARS.items()
+                ],
+            }
+        )
 
     nginx_port = web_terminals.get("nginx_port")
     if not isinstance(nginx_port, int):

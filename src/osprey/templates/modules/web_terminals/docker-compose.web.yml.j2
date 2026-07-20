@@ -30,17 +30,22 @@
       `allocate_ports()` — persona resolution and port arithmetic both stay
       in Python; this template only iterates. Each entry is
       `{"user": str, "image": str, "project": str, "container_project_dir": str,
-      **allocate_ports(base_ports, index)}`:
+      "panel_env": list, **allocate_ports(base_ports, index)}`:
         {
           "user": str,                  # bare username, e.g. "thellert"
           "image": str,                 # resolved by resolve_personas() -> per-svc `image:`
           "project": str,               # resolved by resolve_personas() (not read by this template)
           "container_project_dir": str, # resolved by resolve_personas() -> agent-data mount root
-          "web": int,        # web_base_port + index      -> OSPREY_WEB_PORT / OSPREY_TERMINAL_WEB_PORT
-          "artifact": int,   # artifact_base_port + index -> OSPREY_ARTIFACT_SERVER_PORT
-          "ariel": int,      # ariel_base_port + index    -> OSPREY_ARIEL_PORT
-          "lattice": int,    # lattice_base_port + index  -> OSPREY_LATTICE_DASHBOARD_PORT
+          "web": int,        # web_base_port + index -> OSPREY_WEB_PORT / OSPREY_TERMINAL_WEB_PORT
+          "panel_env": [     # ONE entry per FRAMEWORK_WEB_SERVERS companion family,
+            {"name": str,    #   derived by render.py from the registry's port_env_var
+             "port": int},   #   + `<family>_base_port + index` (ports.PANEL_ENV_VARS)
+            ...              #   — the template only iterates; hand-listing env vars
+          ],                 #   here is what once let a panel miss multi-user wiring
         }
+      (allocate_ports() also merges each companion family's port under its
+      family name — e.g. "artifact": int — for callers/tests; this template
+      reads only "web" and "panel_env".)
       A no-personas config (the zero-migration path) resolves every entry's
       `image` to the same `<registry_url>/web-terminal:latest` this template
       used to build directly, and every entry's `container_project_dir` to
@@ -151,9 +156,9 @@ services:
       - OSPREY_TERMINAL_BIND_HOST={{ bind_host }}
       - OSPREY_TERMINAL_WEB_PORT={{ svc.web }}
       - OSPREY_WEB_PORT={{ svc.web }}
-      - OSPREY_ARTIFACT_SERVER_PORT={{ svc.artifact }}
-      - OSPREY_ARIEL_PORT={{ svc.ariel }}
-      - OSPREY_LATTICE_DASHBOARD_PORT={{ svc.lattice }}
+{%- for env in svc.panel_env %}
+      - {{ env.name }}={{ env.port }}
+{%- endfor %}
     volumes:
       - {{ svc.user }}-claude-config:/data/claude-config
       - {{ svc.user }}-agent-data:{{ svc.container_project_dir }}/_agent_data

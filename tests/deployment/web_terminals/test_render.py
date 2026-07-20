@@ -8,10 +8,21 @@ import re
 import pytest
 import yaml
 
-from osprey.deployment.web_terminals.ports import allocate_ports
+from osprey.deployment.web_terminals.ports import (
+    PANEL_ENV_VARS,
+    allocate_ports,
+    base_ports_from_config,
+)
 from osprey.deployment.web_terminals.render import _auth_tls_context, render_web_terminals
 
-_BASE_PORTS = {"web": 9091, "artifact": 9291, "ariel": 9391, "lattice": 9491}
+# The four classic config-set families; the effective per-family base set the
+# render actually allocates from also carries every registry default
+# (channel_finder, okf, ...) — resolved once here so `allocate_ports(_BASE_PORTS,
+# i)` calls throughout this module see the same full set the render does.
+_CONFIGURED_BASE_PORTS = {"web": 9091, "artifact": 9291, "ariel": 9391, "lattice": 9491}
+_BASE_PORTS = base_ports_from_config(
+    {f"{family}_base_port": port for family, port in _CONFIGURED_BASE_PORTS.items()}
+)
 
 
 def _config(users: list[str], groups: list[dict] | None = None) -> dict:
@@ -20,10 +31,10 @@ def _config(users: list[str], groups: list[dict] | None = None) -> dict:
     web_terminals: dict = {
         "enabled": True,
         "nginx_port": 9080,
-        "web_base_port": _BASE_PORTS["web"],
-        "artifact_base_port": _BASE_PORTS["artifact"],
-        "ariel_base_port": _BASE_PORTS["ariel"],
-        "lattice_base_port": _BASE_PORTS["lattice"],
+        "web_base_port": _CONFIGURED_BASE_PORTS["web"],
+        "artifact_base_port": _CONFIGURED_BASE_PORTS["artifact"],
+        "ariel_base_port": _CONFIGURED_BASE_PORTS["ariel"],
+        "lattice_base_port": _CONFIGURED_BASE_PORTS["lattice"],
         "users": users,
     }
     if groups is not None:
@@ -111,11 +122,14 @@ def test_compose_service_env_has_terminal_user_and_8087_constant_per_service() -
     assert compose_text.count("8087") == 2 * len(users)
 
 
-def test_compose_ports_are_four_non_colliding_families_matching_allocate_ports() -> None:
-    """Every user's four ports must match allocate_ports() exactly and never collide."""
+def test_compose_ports_are_non_colliding_families_matching_allocate_ports() -> None:
+    """Every user's ports — one per derived family — must match allocate_ports()
+    exactly and never collide. Iterates PANEL_ENV_VARS (registry-derived), so a
+    newly registered companion server is asserted here without editing this test."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     users = config["modules"]["web_terminals"]["users"]
+    effective_base_ports = base_ports_from_config(config["modules"]["web_terminals"])
 
     # Act
     artifacts = render_web_terminals(config)
@@ -124,15 +138,12 @@ def test_compose_ports_are_four_non_colliding_families_matching_allocate_ports()
     # Assert
     seen_ports: set[int] = set()
     for index, user in enumerate(users):
-        expected = allocate_ports(_BASE_PORTS, index)
+        expected = allocate_ports(effective_base_ports, index)
         env = compose["services"][f"web-{user}"]["environment"]
         env_map = dict(item.split("=", 1) for item in env if "=" in item)
-        actual = {
-            "web": int(env_map["OSPREY_WEB_PORT"]),
-            "artifact": int(env_map["OSPREY_ARTIFACT_SERVER_PORT"]),
-            "ariel": int(env_map["OSPREY_ARIEL_PORT"]),
-            "lattice": int(env_map["OSPREY_LATTICE_DASHBOARD_PORT"]),
-        }
+        actual = {"web": int(env_map["OSPREY_WEB_PORT"])}
+        for family, env_var in PANEL_ENV_VARS.items():
+            actual[family] = int(env_map[env_var])
         assert actual == expected
         for port in actual.values():
             assert port not in seen_ports, f"port {port} collides across users"
@@ -391,15 +402,38 @@ def test_render_missing_deploy_fqdn_is_fine_with_zero_users() -> None:
     assert "docker-compose.web.yml" in artifacts
 
 
-def test_render_missing_port_family_raises_value_error() -> None:
-    """A user list that can't fully resolve allocate_ports() must fail loudly, not silently."""
+def test_render_missing_web_base_port_raises_value_error() -> None:
+    """A user list that can't fully resolve allocate_ports() must fail loudly, not
+    silently. Only `web` can be missing — every companion family carries a
+    registry default (see test_render_missing_companion_base_port_uses_default)."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    del config["modules"]["web_terminals"]["web_base_port"]
+
+    # Act / Assert
+    with pytest.raises(ValueError, match="web"):
+        render_web_terminals(config)
+
+
+def test_render_missing_companion_base_port_uses_registry_default() -> None:
+    """A config omitting a companion family's base port (e.g. written before that
+    panel existed) must render with the registry default, not fail — the
+    zero-migration guarantee that keeps feature parity from breaking old configs."""
     # Arrange
     config = copy.deepcopy(_MULTI_USER_CONFIG)
     del config["modules"]["web_terminals"]["lattice_base_port"]
 
-    # Act / Assert
-    with pytest.raises(ValueError, match="lattice"):
-        render_web_terminals(config)
+    # Act
+    artifacts = render_web_terminals(config)
+    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
+
+    # Assert — lattice family renders from its registry default for every user.
+    from osprey.registry.web import FRAMEWORK_WEB_SERVERS
+
+    default_base = FRAMEWORK_WEB_SERVERS["lattice_dashboard"].multi_user_base_port
+    for index, user in enumerate(["alice", "bob", "carol"]):
+        env = compose["services"][f"web-{user}"]["environment"]
+        assert f"OSPREY_LATTICE_DASHBOARD_PORT={default_base + index}" in env
 
 
 def test_removing_user_regenerates_without_their_service_route_and_volumes() -> None:

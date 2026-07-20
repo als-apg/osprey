@@ -37,7 +37,9 @@ services:
       - OSPREY_WEB_PORT=9091
       - OSPREY_ARTIFACT_SERVER_PORT=9291
       - OSPREY_ARIEL_PORT=9391
+      - OSPREY_CHANNEL_FINDER_PORT=9591
       - OSPREY_LATTICE_DASHBOARD_PORT=9491
+      - OSPREY_FACILITY_KNOWLEDGE_PORT=9691
     volumes:
       - alice-claude-config:/data/claude-config
       - alice-agent-data:/app/dls-assistant/_agent_data
@@ -74,7 +76,9 @@ services:
       - OSPREY_WEB_PORT=9092
       - OSPREY_ARTIFACT_SERVER_PORT=9292
       - OSPREY_ARIEL_PORT=9392
+      - OSPREY_CHANNEL_FINDER_PORT=9592
       - OSPREY_LATTICE_DASHBOARD_PORT=9492
+      - OSPREY_FACILITY_KNOWLEDGE_PORT=9692
     volumes:
       - bob-claude-config:/data/claude-config
       - bob-agent-data:/app/dls-assistant/_agent_data

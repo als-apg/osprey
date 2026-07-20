@@ -1,10 +1,10 @@
 # Module: web_terminals
 
-A multi-user web terminal stack lets named operators reach the built assistant from a browser without installing Claude Code locally. Each user gets a dedicated container running `osprey web` with a private Claude Code config, private session memory, and a private CLAUDE.md. That same container also runs three companion services per user — an artifact gallery, ARIEL search, and a lattice dashboard — each bound to its own port, so nothing collides across users or across a single user's own services. An nginx reverse proxy in front offers a landing page and routes browser requests to the right per-user service. Enable this when the facility wants more than one or two people using the assistant interactively, when laptops can't reach internal services directly, or when persistent per-user state matters.
+A multi-user web terminal stack lets named operators reach the built assistant from a browser without installing Claude Code locally. Each user gets a dedicated container running `osprey web` with a private Claude Code config, private session memory, and a private CLAUDE.md. That same container also runs the profile's companion panel services per user — artifact gallery, ARIEL search, channel finder, lattice dashboard, OKF knowledge — each bound to its own port, so nothing collides across users or across a single user's own services. An nginx reverse proxy in front offers a landing page and routes browser requests to the right per-user service. Enable this when the facility wants more than one or two people using the assistant interactively, when laptops can't reach internal services directly, or when persistent per-user state matters.
 
 **Enabled when**: `modules.web_terminals.enabled: true` in `facility-config.yml`.
 
-> **Loopback-bound apps behind a single chokepoint — still perimeter-trust only.** Every per-user service (all four families: web, artifact, ariel, lattice) binds `127.0.0.1` inside its container, so nginx is the **only** process that can reach them from outside — hitting a per-user host port directly no longer reaches anything. That does **not** mean the stack is authenticated or encrypted: `modules.web_terminals.auth` and `.tls` exist as config-gated seams, but with their defaults (`auth.method: none`, `tls.enabled: false`) traffic reaching nginx is still unauthenticated, cleartext HTTP, open to anyone who reaches the deploy host. Enabling `auth.method` to anything other than `none` fails **closed** — every request gets `403` — rather than allow-all, since no real auth backend exists behind the seam yet. Only deploy this module on a network you already trust (VPN-only segment, firewalled lab subnet, etc.) until a real auth backend and real TLS certificates are configured.
+> **Loopback-bound apps behind a single chokepoint — still perimeter-trust only.** Every per-user service (the web family plus every companion-panel family) binds `127.0.0.1` inside its container, so nginx is the **only** process that can reach them from outside — hitting a per-user host port directly no longer reaches anything. That does **not** mean the stack is authenticated or encrypted: `modules.web_terminals.auth` and `.tls` exist as config-gated seams, but with their defaults (`auth.method: none`, `tls.enabled: false`) traffic reaching nginx is still unauthenticated, cleartext HTTP, open to anyone who reaches the deploy host. Enabling `auth.method` to anything other than `none` fails **closed** — every request gets `403` — rather than allow-all, since no real auth backend exists behind the seam yet. Only deploy this module on a network you already trust (VPN-only segment, firewalled lab subnet, etc.) until a real auth backend and real TLS certificates are configured.
 
 ---
 
@@ -22,27 +22,34 @@ A multi-user web terminal stack lets named operators reach the built assistant f
                   ┌────────────────────┼────────────────────┐
                   ▼                    ▼                    ▼
        ${prefix}-web-${user[0]}  ${prefix}-web-${user[1]}  ${prefix}-web-${user[N-1]}
-        one container per user — same image by default, four independently-bound host ports
+        one container per user — same image by default, independently-bound host ports per family
 ```
 
 Every user's container runs the same image and the same rendered project by default.
 A facility can instead assign different users different images and different
 projects — see "Personas" below — without changing anything else about this
-architecture: each container still publishes the same four ports, still gets its own
-named volumes, and nginx still fronts all of them identically.
+architecture: each container still publishes the same port families, still gets its
+own named volumes, and nginx still fronts all of them identically.
 
-Each user's single container publishes four ports, one per service family:
+Each user's single container publishes one port per service family — the terminal
+itself plus one family per companion panel in `registry/web.py`
+`FRAMEWORK_WEB_SERVERS`. The family set is **derived from that registry** (a newly
+registered panel gets its family, config knob, and compose env line automatically),
+and every companion family carries a registry default base port so configs written
+before a panel existed keep deploying unchanged:
 
 | Family (per-user service) | Env var inside the container | Host port for user at index `i` |
 |----------------------------|--------------------------------|-----------------------------------|
-| web (terminal UI, `osprey web`) | `OSPREY_WEB_PORT` | `web_base_port + i` |
-| artifact (build artifact gallery) | `OSPREY_ARTIFACT_SERVER_PORT` | `artifact_base_port + i` |
-| ariel (ARIEL search) | `OSPREY_ARIEL_PORT` | `ariel_base_port + i` |
-| lattice (lattice dashboard) | `OSPREY_LATTICE_DASHBOARD_PORT` | `lattice_base_port + i` |
+| web (terminal UI, `osprey web`) | `OSPREY_WEB_PORT` | `web_base_port + i` (required) |
+| artifact (build artifact gallery) | `OSPREY_ARTIFACT_SERVER_PORT` | `artifact_base_port + i` (default 9291) |
+| ariel (ARIEL search) | `OSPREY_ARIEL_PORT` | `ariel_base_port + i` (default 9391) |
+| lattice (lattice dashboard) | `OSPREY_LATTICE_DASHBOARD_PORT` | `lattice_base_port + i` (default 9491) |
+| channel_finder (channel-finder panel) | `OSPREY_CHANNEL_FINDER_PORT` | `channel_finder_base_port + i` (default 9591) |
+| okf (OKF knowledge panel) | `OSPREY_FACILITY_KNOWLEDGE_PORT` | `okf_base_port + i` (default 9691) |
 
 Each container also has a private CLAUDE.md, a private named volume mounted at `/data/claude-config/`, and every MCP server / stdio subprocess the profile configures (confluence, etc.).
 
-Each container is a complete OSPREY runtime. The Claude Code project (and its `.mcp.json`, `config.yml`, agents, skills, hooks) is **baked into the image at CI time** (registry mode) or **built locally by `deploy up`** (local mode — see "Personas" below) — either way there is no rsync to the deploy server. At runtime each container exec's `osprey web`, whose unconfigured default listen port is the fixed constant **8087**; the compose overlay declares the published host port into the container as `OSPREY_TERMINAL_WEB_PORT=<web_base_port + i>`, and `osprey web`'s `resolve_web_port()` (`src/osprey/cli/web_cmd.py`) treats a *declared* `OSPREY_TERMINAL_WEB_PORT` as authoritative over `--port`, the `OSPREY_WEB_PORT` click envvar, and config — the same declared-wins pattern as `OSPREY_TERMINAL_BIND_HOST` below, so the process binds directly to its published host port with no internal-port remapping under `network_mode: host` even if a stale or hostile image `CMD` passes a mismatched `--port`. (`OSPREY_TERMINAL_WEB_PORT` is scoped to this one container and is never re-exported to child processes, unlike `OSPREY_WEB_PORT`, which is — a nested `osprey web --port X` launched manually inside the container still gets today's explicit-flag-wins behavior.) The artifact/ariel/lattice companion servers auto-launch the same way inside the same container, each reading its own `OSPREY_*_PORT` env var (see `src/osprey/registry/web.py` for their unconfigured defaults, which are not 8087 and are not shared across families).
+Each container is a complete OSPREY runtime. The Claude Code project (and its `.mcp.json`, `config.yml`, agents, skills, hooks) is **baked into the image at CI time** (registry mode) or **built locally by `deploy up`** (local mode — see "Personas" below) — either way there is no rsync to the deploy server. At runtime each container exec's `osprey web`, whose unconfigured default listen port is the fixed constant **8087**; the compose overlay declares the published host port into the container as `OSPREY_TERMINAL_WEB_PORT=<web_base_port + i>`, and `osprey web`'s `resolve_web_port()` (`src/osprey/cli/web_cmd.py`) treats a *declared* `OSPREY_TERMINAL_WEB_PORT` as authoritative over `--port`, the `OSPREY_WEB_PORT` click envvar, and config — the same declared-wins pattern as `OSPREY_TERMINAL_BIND_HOST` below, so the process binds directly to its published host port with no internal-port remapping under `network_mode: host` even if a stale or hostile image `CMD` passes a mismatched `--port`. (`OSPREY_TERMINAL_WEB_PORT` is scoped to this one container and is never re-exported to child processes, unlike `OSPREY_WEB_PORT`, which is — a nested `osprey web --port X` launched manually inside the container still gets today's explicit-flag-wins behavior.) The companion panel servers (artifact, ariel, channel finder, lattice, OKF) auto-launch the same way inside the same container, each reading its own `OSPREY_*_PORT` env var (see `src/osprey/registry/web.py` for their unconfigured defaults, which are not 8087 and are not shared across families).
 
 Bind address follows the same env-over-config precedent as port: the compose overlay sets `OSPREY_TERMINAL_BIND_HOST=127.0.0.1` on every per-user service, and `osprey web`'s `resolve_bind_host()` (`src/osprey/cli/web_cmd.py`) treats a *declared* `OSPREY_TERMINAL_BIND_HOST` as **authoritative over `--host`** — even a stale or hostile image `CMD` passing `--host 0.0.0.0` gets clamped back to loopback (logged as a stderr NOTICE). Every per-user app therefore only answers on `127.0.0.1`; nginx, which itself listens on every interface, is the sole off-host path in. A per-user image's `CMD` must never rely on `--host 0.0.0.0` to be reachable — reachability comes from nginx proxying to the loopback upstream, not from the app's own bind address. A deployment can still opt out of loopback binding for a given app by setting `OSPREY_TERMINAL_BIND_HOST=0.0.0.0` explicitly; this is loud and greppable, and the module's existing `0.0.0.0`-exposure warning still fires for it.
 
@@ -57,7 +64,9 @@ modules:
   web_terminals:
     enabled: true
     nginx_port: 9080                    # ${config.modules.web_terminals.nginx_port}
-    web_base_port: 9091                 # first per-user web-terminal port      → OSPREY_WEB_PORT
+    web_base_port: 9091                 # first per-user web-terminal port      → OSPREY_WEB_PORT (required)
+    # Companion families are optional — omitted ones use registry defaults
+    # (artifact 9291, ariel 9391, lattice 9491, channel_finder 9591, okf 9691).
     artifact_base_port: 9291            # first per-user artifact-gallery port  → OSPREY_ARTIFACT_SERVER_PORT
     ariel_base_port: 9391               # first per-user ARIEL search port      → OSPREY_ARIEL_PORT
     lattice_base_port: 9491             # first per-user lattice-dashboard port → OSPREY_LATTICE_DASHBOARD_PORT
@@ -264,7 +273,7 @@ Neither `osprey deploy up` nor `osprey deploy seed` HTTP-probes the per-user ser
 ### scripts/verify.sh
 
 - `nginx_health`: `curl -fsS http://localhost:${config.modules.web_terminals.nginx_port}/`
-- Per-user probe (`probe_web_terminal`): not an HTTP health check — execs into the user's container as uid 1000 and confirms it can create and remove a probe file under both `/app/${config.facility.prefix}-assistant/_agent_data/` and `/data/claude-config/`. This catches volume-permission problems but does not individually probe the artifact/ariel/lattice companion ports.
+- Per-user probe (`probe_web_terminal`): not an HTTP health check — execs into the user's container as uid 1000 and confirms it can create and remove a probe file under both `/app/${config.facility.prefix}-assistant/_agent_data/` and `/data/claude-config/`. This catches volume-permission problems but does not individually probe the companion-panel ports.
 
 ### .env.template
 
@@ -330,7 +339,7 @@ curl -X POST 'http://${config.deploy.host}:<port>/api/chat?stream=false' \
   -d '{"prompt": "summarize the last hour"}'
 ```
 
-`<port>` is `${config.modules.web_terminals.web_base_port} + <user_index>` — the REST API rides on the `web` family port, the same one the terminal UI uses, not the artifact/ariel/lattice ports. Scripts that don't care which user runs the prompt can pin to user[0]; scripts that want isolation per requester should pick deterministically.
+`<port>` is `${config.modules.web_terminals.web_base_port} + <user_index>` — the REST API rides on the `web` family port, the same one the terminal UI uses, not the companion-panel ports. Scripts that don't care which user runs the prompt can pin to user[0]; scripts that want isolation per requester should pick deterministically.
 
 ---
 
@@ -390,7 +399,7 @@ Every `command:` should reference `/app/...`, never `/builds/...`. If the latter
 | User's CLAUDE.md is empty | The seeding step (`osprey deploy up`/`seed`) couldn't reach the named volume — verify the volume exists and is mounted |
 | Claude session "forgets" between visits | Named volume was destroyed — `osprey deploy nuke`, `decommission --purge`/`prune --purge`, or someone manually `volume rm`'d it |
 | All web terminals see the same memory | Containers are sharing a volume — check the per-user `volumes:` block in the compose overlay rendered correctly (no anchor reuse bug) |
-| nginx serves landing page but reverse-proxy to user URLs returns 502 | Per-user service's env-var-overridden listen port doesn't match nginx's upstream for that family — check `OSPREY_WEB_PORT`/`OSPREY_ARTIFACT_SERVER_PORT`/`OSPREY_ARIEL_PORT`/`OSPREY_LATTICE_DASHBOARD_PORT` inside the container against the `*_base_port + index` nginx expects. (The `web` family's unconfigured default is `8087` — a service still listening on that default instead of its assigned host port is the usual cause under `network_mode: host`.) |
+| nginx serves landing page but reverse-proxy to user URLs returns 502 | Per-user service's env-var-overridden listen port doesn't match nginx's upstream for that family — check `OSPREY_WEB_PORT` and the companion `OSPREY_*_PORT` vars inside the container against the `*_base_port + index` nginx expects. (The `web` family's unconfigured default is `8087` — a service still listening on that default instead of its assigned host port is the usual cause under `network_mode: host`.) |
 
 ### Updating per-user CLAUDE.md and skills without redeploying images
 

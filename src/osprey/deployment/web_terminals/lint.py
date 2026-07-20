@@ -4,8 +4,8 @@ Encodes validation rules 11 (port range overlap), 12 (reserved service names), a
 13 (empty ``users[]`` warning/error interaction with ``modules.benchmarks``) from
 ``references/facility-config-schema.md``. The renderer and the build-profile
 interview both derive everything from ``users[]``, so "consistency" here means: no
-duplicate user names, and every user can actually be allocated a full four-family
-port set via :func:`allocate_ports`.
+duplicate user names, and every user can actually be allocated a full port-family
+set via :func:`allocate_ports`.
 """
 
 from __future__ import annotations
@@ -323,7 +323,10 @@ def _check_bare_list_port_drift_risk(users: list[Any]) -> list[Finding]:
 def _check_port_families_allocatable(
     web_terminals: dict[str, Any], users: list[Any]
 ) -> list[Finding]:
-    """Consistency rule: every user must resolve a full four-family port set."""
+    """Consistency rule: every user must resolve a full port-family set (the
+    ``web`` family plus one family per registry companion server — see
+    ``ports.FAMILY_BASE_FIELDS``). Companion families carry registry defaults,
+    so in practice only a missing ``web_base_port`` can fail this."""
     if not users:
         return []
     base_ports = base_ports_from_config(web_terminals)

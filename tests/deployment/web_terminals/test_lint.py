@@ -151,8 +151,25 @@ def test_lint_disabled_module_reports_nothing() -> None:
     assert findings == []
 
 
-def test_lint_missing_port_family_is_an_error() -> None:
-    """A user list that can't fully resolve allocate_ports() is a consistency error."""
+def test_lint_missing_web_base_port_is_an_error() -> None:
+    """A user list that can't fully resolve allocate_ports() is a consistency
+    error. `web` is the only family without a registry default, so it is the
+    one whose absence still fails."""
+    # Arrange
+    config = copy.deepcopy(_CLEAN_CONFIG)
+    del config["modules"]["web_terminals"]["web_base_port"]
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.incomplete_port_families" for f in errors)
+
+
+def test_lint_missing_companion_base_port_is_not_an_error() -> None:
+    """A companion family's base port falls back to its registry default — a
+    config written before that panel existed must keep linting clean."""
     # Arrange
     config = copy.deepcopy(_CLEAN_CONFIG)
     del config["modules"]["web_terminals"]["lattice_base_port"]
@@ -161,8 +178,7 @@ def test_lint_missing_port_family_is_an_error() -> None:
     findings = lint_web_terminals(config)
 
     # Assert
-    errors = _errors(findings)
-    assert any(f.code == "web_terminals.incomplete_port_families" for f in errors)
+    assert not any(f.code == "web_terminals.incomplete_port_families" for f in _errors(findings))
 
 
 def test_lint_username_bad_charset_is_an_error() -> None:
