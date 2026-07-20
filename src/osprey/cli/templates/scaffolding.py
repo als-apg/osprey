@@ -363,9 +363,9 @@ def materialize_tier_artifacts(project_dir: Path, tier: int, channel_finder_mode
 
     The preset ships:
     - channel databases under
-      ``data/channel_databases/tiers/tier{1,2,3}/<paradigm>.json``
+      ``data/channel_databases/tiers/tier{1,3}/<paradigm>.json``
     - benchmark query files under
-      ``data/benchmarks/cross_paradigm/queries/tier{1,2,3}_queries.json``
+      ``data/benchmarks/cross_paradigm/queries/tier{1,3}_queries.json``
 
     After ``osprey build``, this helper picks the requested ``tier`` and:
     - copies the active paradigm's DB to the flat
@@ -381,7 +381,10 @@ def materialize_tier_artifacts(project_dir: Path, tier: int, channel_finder_mode
 
     Args:
         project_dir: Root directory of the rendered project.
-        tier: Tier number (1, 2, or 3) selecting the source subdirectories.
+        tier: Tier number (1 or 3) selecting the source subdirectories. Tier 1
+            ships only the ``in_context`` paradigm; the build-profile validator
+            rejects tier 1 paired with a non-in_context channel_finder_mode
+            before this step, so a missing tier1/<paradigm>.json here is a bug.
         channel_finder_mode: Paradigm selector from the build profile. Must
             be one of ``"in_context"``, ``"hierarchical"``, ``"middle_layer"``.
 
@@ -436,13 +439,6 @@ def materialize_tier_artifacts(project_dir: Path, tier: int, channel_finder_mode
             f"Tier-routed benchmark queries file not found: {queries_src} (tier={tier})"
         )
     pairs.append((queries_src, queries_dst))
-
-    # The preset ships the canonical hierarchical.json at flat_root as the
-    # generator's source-of-truth. End users only need the tier-filtered
-    # active paradigm file — drop the canonical before materialization.
-    canonical_source = flat_root / "hierarchical.json"
-    if canonical_source.exists():
-        canonical_source.unlink()
 
     for src, dst in pairs:
         shutil.copy2(src, dst)

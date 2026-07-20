@@ -8,7 +8,11 @@ from typing import Any
 import yaml
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from osprey.cli.build_profile import VALID_CHANNEL_FINDER_MODES
+from osprey.cli.build_profile import (
+    VALID_CHANNEL_FINDER_MODES,
+    default_tier_for_mode,
+    tier_mode_conflict,
+)
 from osprey.cli.styles import console
 from osprey.cli.templates import claude_code, manifest, scaffolding
 from osprey.cli.templates._rendering import render_template as _render_template
@@ -121,7 +125,7 @@ class TemplateManager:
         context: dict[str, Any] | None = None,
         force: bool = False,
         artifacts: dict[str, list[str]] | None = None,
-        tier: int = 1,
+        tier: int | None = None,
     ) -> Path:
         """Create complete project from template.
 
@@ -139,6 +143,12 @@ class TemplateManager:
             context: Additional template context variables
             force: If True, skip existence check (used when caller already handled deletion)
             artifacts: Profile-driven artifact selection (hooks, rules, skills, agents, etc.)
+            tier: Channel-database tier (1|3) to materialize. When ``None`` (the
+                default), the paradigm-aware rule derives it from
+                ``channel_finder_mode`` (in_context → 1, else → 3), matching
+                ``BuildProfile.resolved_tier``. An explicit tier is honored but
+                validated against the paradigm, so a tier/mode mismatch raises a
+                legible rule error instead of an opaque FileNotFoundError.
 
         Returns:
             Path to created project directory
@@ -310,7 +320,24 @@ class TemplateManager:
         # bundles without a tiers/ subtree (e.g. hello_world).
         channel_finder_mode = ctx.get("channel_finder_mode")
         if channel_finder_mode is not None:
-            scaffolding.materialize_tier_artifacts(project_dir, tier, channel_finder_mode)
+            # Resolve the build-time tier with the same paradigm-aware rule the
+            # build-profile validator applies, so programmatic callers that omit
+            # `tier` (or pin a mismatched one) can't reach the materializer with a
+            # tier/paradigm mismatch — that would surface as an opaque
+            # FileNotFoundError instead of a legible rule error.
+            if tier is None:
+                effective_tier = default_tier_for_mode(channel_finder_mode)
+            else:
+                # Mirror BuildProfile.validate() at this boundary: range-check
+                # first (so tier=2 gets the legible {1,3} error, not a later
+                # FileNotFoundError), then the tier/paradigm conflict rule.
+                if tier not in (1, 3):
+                    raise BuildProfileError(f"tier must be 1 or 3 (got {tier!r})")
+                conflict = tier_mode_conflict(tier, channel_finder_mode)
+                if conflict:
+                    raise BuildProfileError(conflict)
+                effective_tier = tier
+            scaffolding.materialize_tier_artifacts(project_dir, effective_tier, channel_finder_mode)
             scaffolding.prune_csv_build_artifacts(project_dir, channel_finder_mode)
 
         # 7. Create _agent_data directory structure

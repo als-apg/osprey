@@ -62,6 +62,79 @@ class TestTemplateManager:
         assert (project_dir / "CLAUDE.md").exists()
         assert (project_dir / ".mcp.json").exists()
 
+    def test_create_project_in_context_derives_tier1(self, tmp_path):
+        """Omitting ``tier`` with an in_context paradigm derives tier 1 and
+        materializes the tier-1 DB (the paradigm-aware default, not a hardcoded
+        1 — and provably tier 1, not tier 3)."""
+        from pathlib import Path
+
+        manager = TemplateManager()
+
+        project_dir = manager.create_project(
+            project_name="test-project",
+            output_dir=tmp_path,
+            data_bundle="control_assistant",
+            context={"channel_finder_mode": "in_context"},
+        )
+
+        assert project_dir.exists()
+        assert (project_dir / "config.yml").exists()
+
+        # The materialized flat DB must be byte-equal to the preset's TIER-1
+        # in_context source. Tier 1 is a filtered subset of tier 3, so this
+        # assertion fails if the derivation had (wrongly) resolved tier 3.
+        preset_tier1 = (
+            Path(__file__).resolve().parents[2]
+            / "src"
+            / "osprey"
+            / "templates"
+            / "apps"
+            / "control_assistant"
+            / "data"
+            / "channel_databases"
+            / "tiers"
+            / "tier1"
+            / "in_context.json"
+        )
+        flat = project_dir / "data" / "channel_databases" / "in_context.json"
+        assert flat.is_file()
+        assert flat.read_bytes() == preset_tier1.read_bytes()
+
+    def test_create_project_explicit_tier1_hierarchical_rejected(self, tmp_path):
+        """An explicit ``tier=1`` paired with a non-in_context paradigm is
+        rejected with the rule-naming error at the creation boundary, not left
+        to surface as an opaque FileNotFoundError inside the materializer."""
+        from osprey.errors import BuildProfileError
+
+        manager = TemplateManager()
+
+        with pytest.raises(
+            BuildProfileError, match="tier 1 requires channel_finder_mode: in_context"
+        ):
+            manager.create_project(
+                project_name="test-project",
+                output_dir=tmp_path,
+                data_bundle="control_assistant",
+                context={"channel_finder_mode": "hierarchical"},
+                tier=1,
+            )
+
+    def test_create_project_explicit_tier2_rejected(self, tmp_path):
+        """An out-of-range explicit ``tier`` is rejected with the {1,3} rule
+        error at the creation boundary, mirroring BuildProfile.validate()."""
+        from osprey.errors import BuildProfileError
+
+        manager = TemplateManager()
+
+        with pytest.raises(BuildProfileError, match="tier must be 1 or 3"):
+            manager.create_project(
+                project_name="test-project",
+                output_dir=tmp_path,
+                data_bundle="control_assistant",
+                context={"channel_finder_mode": "in_context"},
+                tier=2,
+            )
+
     def test_duplicate_project_raises_error(self, tmp_path):
         """Test that creating duplicate project raises error."""
         manager = TemplateManager()
