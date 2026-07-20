@@ -22,7 +22,7 @@ host, brought up with a single ``osprey deploy up``.
 
    **Prerequisites:** The concepts need none. To stand the stack up you'll
    want Docker (or Podman) and a generated project — the
-   ``control-assistant`` preset ships everything pre-wired, and
+   ``multi-user-demo`` preset ships everything pre-wired, and
    :doc:`multi-user-demo` walks through it end to end.
 
 Single-user is still the front door
@@ -43,7 +43,7 @@ front of one machine; :doc:`operate` covers it.
 The multi-user stack is strictly opt-in. It lives in a
 ``modules.web_terminals`` block in the project's ``config.yml``, and the *only*
 command that reads that block is ``osprey deploy``. ``osprey web`` never looks
-at it — so a project that carries the block (the ``control-assistant`` preset
+at it — so a project that carries the block (the ``multi-user-demo`` preset
 ships one) still runs single-user exactly as before. Reach for the multi-user
 stack when several people need their own terminal on a shared machine, and
 stay with ``osprey web`` for everything else.
@@ -57,7 +57,7 @@ How it works
        B[Browser] -->|:9080| N[nginx landing page]
        N -->|/u/alice/| A[alice's terminal container]
        N -->|/u/bob/| Bo[bob's terminal container]
-       A --- S[(shared services:<br/>scan bridge · dispatcher · databases)]
+       A --- S[(shared services:<br/>databases · telemetry)]
        Bo --- S
 
 Three ideas carry the whole design:
@@ -74,8 +74,9 @@ configuration volume automatically — no per-user setup steps.
 *personas*, and each persona is its own rendered OSPREY project with its own
 ``config.yml``, permissions, skills, and tool servers. Because permissions are
 a property of a project, the tiers are genuinely different agents — not one
-agent with a UI toggle. The demo ships two: a restricted *operator* and a
-*physicist* with the scan tooling switched on. ``osprey deploy up``
+agent with a UI toggle. The demo ships two: a *read-only* tier and a
+*read-write* tier — the same agent and tool surface, differing on exactly one
+config key (``control_system.writes_enabled``). ``osprey deploy up``
 auto-renders any persona project that doesn't exist yet and builds its
 container image locally, so no registry or CI is involved.
 
@@ -93,7 +94,7 @@ Running the stack
    .. tab-item:: Switching it on
 
       The whole feature is one config block. This is what the
-      ``control-assistant`` preset renders into ``config.yml``:
+      ``multi-user-demo`` preset renders into ``config.yml``:
 
       .. code-block:: yaml
 
@@ -106,28 +107,32 @@ Running the stack
              artifact_base_port: 9291
              ariel_base_port: 9391
              lattice_base_port: 9491
-             default_persona: operator
+             channel_finder_base_port: 9591
+             default_persona: readonly
              users:
              - alice                   # bare name → default_persona
              - name: bob
                index: 1
-               persona: physicist
+               persona: readwrite
              personas:
-               operator:
-                 project: control-assistant-operator
-                 project_path: ../control-assistant-operator
-                 build_profile: control-assistant-operator
-               physicist:
-                 project: control-assistant-physicist
-                 project_path: ../control-assistant-physicist
-                 build_profile: control-assistant-physicist
+               readonly:
+                 project: multi-user-demo-readonly
+                 project_path: ../multi-user-demo-readonly
+                 build_profile: multi-user-demo-readonly
+               readwrite:
+                 project: multi-user-demo-readwrite
+                 project_path: ../multi-user-demo-readwrite
+                 build_profile: multi-user-demo-readwrite
 
       The ``users`` list is the roster — the single source of truth for who
       exists. A bare name resolves to ``default_persona``; an entry with an
       explicit ``persona`` picks its tier. Each user's host ports are
-      ``base + index`` in every port family (web, artifact gallery, ARIEL,
-      lattice dashboard), so alice (index 0) serves her terminal on ``9091``
-      and bob (index 1) on ``9092``.
+      ``base + index`` in every port family — one family per companion panel
+      (artifact gallery, ARIEL, channel finder, lattice dashboard, …) plus the
+      terminal itself — so alice (index 0) serves her terminal on ``9091`` and
+      bob (index 1) on ``9092``. A panel whose ``*_base_port`` you don't set
+      falls back to its built-in default, so the block above lists them only
+      to make the layout visible.
 
       .. tip::
 
@@ -212,8 +217,9 @@ Try it
       :link: multi-user-demo
       :link-type: doc
 
-      Stand up the two-persona demo — an operator and a physicist, one
-      container each — from a fresh checkout with one build and one deploy.
+      Stand up the two-persona demo — a read-only and a write-capable tier,
+      one container each — from a fresh checkout with one build and one
+      deploy.
 
 .. toctree::
    :hidden:

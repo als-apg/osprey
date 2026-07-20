@@ -125,18 +125,6 @@ config:
   claude_code.servers.bluesky.enabled: true
   # system.timezone: America/Los_Angeles
   # system.facility_name: My Facility
-  # Container-name prefix for the multi-user web-terminal stack below. Web
-  # container names are `<prefix>-nginx` / `<prefix>-web-<user>`, so this MUST be
-  # a non-empty valid Docker name start ([a-zA-Z0-9]) — an empty prefix renders
-  # `-nginx`, which Docker rejects and `osprey deploy up` fails on. Keep it short
-  # and distinct from the project name (used for image tags). Set to your own
-  # facility abbreviation when you copy this preset.
-  facility.prefix: ca
-  # Landing-URL origin for the multi-user web stack: render refuses to build
-  # OSPREY_TERMINAL_LANDING_URL without deploy.fqdn once users are configured.
-  # 127.0.0.1 matches the single-trusted-host demo posture; set your
-  # browser-reachable hostname when deploying anywhere else.
-  deploy.fqdn: 127.0.0.1
   # EVENTS panel — surfaces the event-dispatcher dashboard as an in-terminal tab.
   # URL defaults to the host-run dispatcher (127.0.0.1:8020); override
   # EVENT_DISPATCHER_URL for containerized/remote web terminals.
@@ -158,46 +146,6 @@ config:
   web.panels.health.url: "${BLUESKY_PANELS_URL:-http://localhost:8095}"
   web.panels.health.path: /health-panel/
   web.panels.health.health_endpoint: /health
-  # ── Multi-user web-terminal stack ──────────────────────────────────────────
-  # Turns this preset into the two-persona multi-user product: an operator tier
-  # and a physicist tier, each its own rendered project and container image.
-  #
-  # This MUST stay ONE literal dotted key — `modules.web_terminals` addressing
-  # the whole module subtree with a nested value. A nested `modules:` mapping
-  # under `config:` would wholesale-replace the rendered `modules` subtree,
-  # silently dropping any sibling module: config_writer applies each dotted key
-  # verbatim, setting only the addressed leaf (see utils/config_writer.py).
-  #
-  # `image_source: local` means `osprey deploy up` builds each persona's image
-  # itself from `project_path`; the referenced persona projects are auto-rendered
-  # from their `build_profile` preset before the build, so a bare `osprey build`
-  # of this preset plus `osprey deploy up` stands the whole stack up with no
-  # registry. Each persona's `project` equals its `project_path` basename — the
-  # invariant persona auto-render relies on to land the rendered project exactly
-  # where the catalog mounts it.
-  modules.web_terminals:
-    enabled: true
-    image_source: local
-    nginx_port: 9080            # public-facing reverse proxy / landing page
-    web_base_port: 9091         # first per-user web-terminal port
-    artifact_base_port: 9291    # first per-user artifact-gallery port
-    ariel_base_port: 9391       # first per-user ARIEL search port
-    lattice_base_port: 9491     # first per-user lattice-dashboard port
-    default_persona: operator   # roster entries with no persona resolve here
-    users:
-      - alice                   # bare string → default_persona (operator)
-      - name: bob
-        index: 1
-        persona: physicist
-    personas:
-      operator:
-        project: control-assistant-operator
-        project_path: ../control-assistant-operator
-        build_profile: control-assistant-operator
-      physicist:
-        project: control-assistant-physicist
-        project_path: ../control-assistant-physicist
-        build_profile: control-assistant-physicist
 
 # ── Event dispatch (optional) ────────────────────────────────────────────────
 # Turns external events (webhooks) into headless agent runs. This ships a set of

@@ -1,15 +1,19 @@
-"""Tests for the control-assistant persona presets.
+"""Tests for the multi-user demo persona presets.
 
-The ``control-assistant`` base preset ships the full control-room capability
-set. Two persona presets extend it to carve out capability tiers:
+The ``multi-user-demo`` base preset is the hosting project for the multi-user
+web-terminal demo: nginx, the landing page, and one terminal container per
+roster user — deliberately scan-free (no Bluesky bridge, no Virtual
+Accelerator, no panels sidecar). Two persona presets extend it to carve out
+capability postures that differ on exactly one axis,
+``control_system.writes_enabled``:
 
-* ``control-assistant-physicist`` — full-capability tier; opts into the scan
-  MCP server for Bluesky-bridge scan plans (this file).
-* ``control-assistant-operator`` — reduced tier (appended by a later task).
+* ``multi-user-demo-readwrite`` — write-capable tier; channel writes pass the
+  ordinary safety chain (writes-check, limits, human approval).
+* ``multi-user-demo-readonly`` — read-only tier; every write surface refuses.
 
-The base's own ``web_terminals`` block is also exercised here (appended by a
-later task). Each persona owns its own test section below; shared render
-helpers live at the top so new sections append without restructuring.
+The base's own ``web_terminals`` roster block is also exercised here. Each
+persona owns its own test section below; shared render helpers live at the top
+so new sections append without restructuring.
 """
 
 from __future__ import annotations
@@ -28,9 +32,9 @@ from osprey.utils.config_writer import config_update_fields
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-# Config key the bluesky MCP server reads to decide whether to register (see
-# osprey.registry.mcp — the ``bluesky`` server is ``default_enabled=False``).
-SCAN_ENABLED_KEY = "claude_code.servers.bluesky.enabled"
+# The single config key the two persona tiers differ on — the reference
+# monitor's master write switch (see osprey.connectors.control_system.base).
+WRITES_KEY = "control_system.writes_enabled"
 
 
 def resolve_preset(name: str) -> BuildProfile:
@@ -47,157 +51,164 @@ def resolve_preset(name: str) -> BuildProfile:
 
 
 # ---------------------------------------------------------------------------
-# Physicist persona (full-capability tier)
+# Read-write persona (write-capable tier)
 # ---------------------------------------------------------------------------
 
 
-class TestPhysicistPersona:
-    """The physicist preset extends the base and opts into scan tooling."""
+class TestReadwritePersona:
+    """The readwrite preset extends the base and arms the write path."""
 
-    def test_extends_control_assistant_base(self) -> None:
-        """The physicist preset inherits the base's identity fields."""
-        profile = resolve_preset("control-assistant-physicist")
+    def test_extends_multi_user_demo_base(self) -> None:
+        """The readwrite preset inherits the base's identity fields."""
+        profile = resolve_preset("multi-user-demo-readwrite")
         # Child wins on name; base flows through for the rest.
-        assert profile.name == "Control Assistant (Physicist)"
+        assert profile.name == "Multi-User Demo (Read-Write)"
         assert profile.data_bundle == "control_assistant"
         assert profile.provider == "anthropic"
 
-    def test_enables_scan_server(self) -> None:
-        """The scan MCP server is opted in via the literal dotted config key."""
-        profile = resolve_preset("control-assistant-physicist")
-        assert profile.config.get(SCAN_ENABLED_KEY) is True
+    def test_enables_writes(self) -> None:
+        """The write switch is armed via the literal dotted config key."""
+        profile = resolve_preset("multi-user-demo-readwrite")
+        assert profile.config.get(WRITES_KEY) is True
 
-    def test_scan_key_is_flat_not_nested(self) -> None:
+    def test_writes_key_is_flat_not_nested(self) -> None:
         """The override is a flat dotted key, never nested YAML under ``config:``.
 
         Nested YAML would deep-merge into and clobber the base's rendered config
-        subtree, so the physicist must carry the literal ``key.path`` form.
+        subtree, so the persona must carry the literal ``key.path`` form.
         """
-        profile = resolve_preset("control-assistant-physicist")
-        assert SCAN_ENABLED_KEY in profile.config
-        assert "claude_code" not in profile.config
-
-    def test_retains_full_base_skill_set(self) -> None:
-        """Extending the base must not drop any base skills, and in particular
-        must keep ``writing-bluesky-plans`` — the scan-plan authoring skill the
-        physicist's scan server backs.
-        """
-        base = resolve_preset("control-assistant")
-        physicist = resolve_preset("control-assistant-physicist")
-        # Every base skill is retained (extends unions string lists).
-        assert set(base.skills).issubset(set(physicist.skills))
-        assert "writing-bluesky-plans" in physicist.skills
+        profile = resolve_preset("multi-user-demo-readwrite")
+        assert WRITES_KEY in profile.config
+        assert "control_system" not in profile.config
 
     def test_retains_base_config_overrides(self) -> None:
-        """Adding the scan key must not drop the base's own config overrides."""
-        physicist = resolve_preset("control-assistant-physicist")
+        """Arming writes must not drop the base's own config overrides."""
+        profile = resolve_preset("multi-user-demo-readwrite")
         # A representative base override survives the merge.
-        assert physicist.config.get("control_system.type") == "mock"
+        assert profile.config.get("control_system.type") == "mock"
 
 
 # ---------------------------------------------------------------------------
-# Operator persona (restricted control-room tier)
+# Read-only persona (observation tier)
 # ---------------------------------------------------------------------------
 
 
-class TestOperatorPersona:
-    """The operator preset extends the base and drops scan-plan authoring."""
+class TestReadonlyPersona:
+    """The readonly preset extends the base and pins the write switch off."""
 
-    def test_extends_control_assistant_base(self) -> None:
-        """The operator preset inherits the base's identity fields."""
-        profile = resolve_preset("control-assistant-operator")
+    def test_extends_multi_user_demo_base(self) -> None:
+        """The readonly preset inherits the base's identity fields."""
+        profile = resolve_preset("multi-user-demo-readonly")
         # Child wins on name; base flows through for the rest.
-        assert profile.name == "Control Assistant (Operator)"
+        assert profile.name == "Multi-User Demo (Read-Only)"
         assert profile.data_bundle == "control_assistant"
         assert profile.provider == "anthropic"
 
-    def test_excludes_bluesky_scan_skill(self) -> None:
-        """The scan-plan authoring skill is subtracted from the inherited set."""
-        base = resolve_preset("control-assistant")
-        operator = resolve_preset("control-assistant-operator")
-        # The base ships the skill; the operator tier must not.
-        assert "writing-bluesky-plans" in base.skills
-        assert "writing-bluesky-plans" not in operator.skills
+    def test_disables_writes(self) -> None:
+        """The write switch is pinned off via the literal dotted config key.
 
-    def test_retains_all_other_base_skills(self) -> None:
-        """Excluding one skill must not disturb the rest of the inherited set."""
-        base = resolve_preset("control-assistant")
-        operator = resolve_preset("control-assistant-operator")
-        # Only the scan skill is removed; every other base skill survives.
-        expected = [s for s in base.skills if s != "writing-bluesky-plans"]
-        assert operator.skills == expected
-
-    def test_disables_scan_server(self) -> None:
-        """The scan MCP server is explicitly denied via the literal dotted key."""
-        profile = resolve_preset("control-assistant-operator")
-        assert profile.config.get(SCAN_ENABLED_KEY) is False
-
-    def test_scan_key_is_flat_not_nested(self) -> None:
-        """The override is a flat dotted key, never nested YAML under ``config:``.
-
-        Nested YAML would deep-merge into and clobber the base's rendered config
-        subtree, so the operator must carry the literal ``key.path`` form.
+        The base already defaults it false; the persona pins it explicitly so
+        the tier boundary cannot drift silently if the base's default changes.
         """
-        profile = resolve_preset("control-assistant-operator")
-        assert SCAN_ENABLED_KEY in profile.config
-        assert "claude_code" not in profile.config
+        profile = resolve_preset("multi-user-demo-readonly")
+        assert profile.config.get(WRITES_KEY) is False
+
+    def test_writes_key_is_flat_not_nested(self) -> None:
+        """The override is a flat dotted key, never nested YAML under ``config:``."""
+        profile = resolve_preset("multi-user-demo-readonly")
+        assert WRITES_KEY in profile.config
+        assert "control_system" not in profile.config
 
     def test_retains_base_config_overrides(self) -> None:
-        """Denying the scan server must not drop the base's own config overrides."""
-        operator = resolve_preset("control-assistant-operator")
+        """Pinning writes off must not drop the base's own config overrides."""
+        profile = resolve_preset("multi-user-demo-readonly")
         # A representative base override survives the merge.
-        assert operator.config.get("control_system.type") == "mock"
-
-    def test_leaves_other_artifact_lists_intact(self) -> None:
-        """Only ``skills`` is touched; all other base artifact lists pass through.
-
-        The ``exclude:`` mechanism subtracts from ``skills`` alone, so rules,
-        hooks, agents, output styles, web panels, and dependencies must match the
-        base preset entry-for-entry.
-        """
-        base = resolve_preset("control-assistant")
-        operator = resolve_preset("control-assistant-operator")
-        assert operator.rules == base.rules
-        assert operator.hooks == base.hooks
-        assert operator.agents == base.agents
-        assert operator.output_styles == base.output_styles
-        assert operator.web_panels == base.web_panels
-        assert operator.dependencies == base.dependencies
+        assert profile.config.get("control_system.type") == "mock"
 
 
 # ---------------------------------------------------------------------------
-# Persona attachment (deploy_services: false)
+# The single-axis invariant
+# ---------------------------------------------------------------------------
+
+
+class TestSingleAxis:
+    """The demo's whole point: the two tiers are identical projects except for
+    the one write-switch key. Any second difference that creeps in would turn
+    the demo's story ("one switch, every write surface") into a lie, so the
+    invariant is asserted wholesale rather than key-by-key.
+    """
+
+    def test_personas_differ_only_on_writes_enabled(self) -> None:
+        readonly = resolve_preset("multi-user-demo-readonly")
+        readwrite = resolve_preset("multi-user-demo-readwrite")
+
+        ro_cfg = dict(readonly.config)
+        rw_cfg = dict(readwrite.config)
+        assert ro_cfg.pop(WRITES_KEY) is False
+        assert rw_cfg.pop(WRITES_KEY) is True
+        # With the axis key removed, the rendered config overrides are identical.
+        assert ro_cfg == rw_cfg
+
+    def test_personas_share_every_artifact_list(self) -> None:
+        """No tier is defined by artifact removal — both inherit the base's
+        artifact set verbatim (the boundary is enforcement, not absence)."""
+        readonly = resolve_preset("multi-user-demo-readonly")
+        readwrite = resolve_preset("multi-user-demo-readwrite")
+        base = resolve_preset("multi-user-demo")
+        for persona in (readonly, readwrite):
+            assert persona.skills == base.skills
+            assert persona.rules == base.rules
+            assert persona.hooks == base.hooks
+            assert persona.agents == base.agents
+            assert persona.output_styles == base.output_styles
+            assert persona.web_panels == base.web_panels
+
+    def test_safety_chain_hooks_are_shipped(self) -> None:
+        """The write-capable tier is supervised, not unguarded: the hooks that
+        gate a write (writes-check, limits, approval) ship in the base and are
+        inherited by both personas."""
+        base = resolve_preset("multi-user-demo")
+        for hook in ("writes-check", "limits", "approval"):
+            assert hook in base.hooks
+
+
+# ---------------------------------------------------------------------------
+# Persona attachment (deploy_services: false) + scan-free posture
 # ---------------------------------------------------------------------------
 
 
 class TestPersonaAttachment:
     """Both personas are attached projects: they build per-user terminal images
-    only and connect to the shared services stack the base project deploys, so
-    they must set ``deploy_services: false`` while the base leaves it defaulted
-    true. Their inherited service blocks still parse and validate — they just
-    scaffold nothing at build time.
+    only and connect to the shared web tier the base project deploys, so they
+    must set ``deploy_services: false`` while the base leaves it defaulted true.
     """
 
     def test_base_is_self_contained(self) -> None:
-        """The base preset deploys its own services stack (default posture)."""
-        assert resolve_preset("control-assistant").deploy_services is True
+        """The base preset deploys its own web tier (default posture)."""
+        assert resolve_preset("multi-user-demo").deploy_services is True
 
-    def test_operator_is_attached(self) -> None:
-        assert resolve_preset("control-assistant-operator").deploy_services is False
+    def test_readonly_is_attached(self) -> None:
+        assert resolve_preset("multi-user-demo-readonly").deploy_services is False
 
-    def test_physicist_is_attached(self) -> None:
-        assert resolve_preset("control-assistant-physicist").deploy_services is False
+    def test_readwrite_is_attached(self) -> None:
+        assert resolve_preset("multi-user-demo-readwrite").deploy_services is False
 
-    def test_attached_personas_still_validate(self) -> None:
-        """Marking a persona attached does not disturb the rest of the profile —
-        ``resolve_preset`` parses and validates it (raising on any error).
-        The inherited bluesky/virtual_accelerator/bluesky_panels blocks survive.
+    def test_family_is_scan_free(self) -> None:
+        """The demo family deliberately ships no scan stack: no Bluesky bridge,
+        no Virtual Accelerator, no panels sidecar, no event dispatch. The full
+        scan stack lives in ``control-assistant``; keeping it out of this family
+        is what keeps the multi-user demo about multi-user provisioning.
         """
-        for name in ("control-assistant-operator", "control-assistant-physicist"):
+        for name in (
+            "multi-user-demo",
+            "multi-user-demo-readonly",
+            "multi-user-demo-readwrite",
+        ):
             profile = resolve_preset(name)
-            assert profile.bluesky is not None
-            assert profile.virtual_accelerator is not None
-            assert profile.bluesky_panels is not None
+            assert profile.bluesky is None
+            assert profile.virtual_accelerator is None
+            assert profile.bluesky_panels is None
+            assert profile.dispatch is None
 
 
 # ---------------------------------------------------------------------------
@@ -226,7 +237,7 @@ def _render_config_overrides(tmp_path: Path, seed: dict) -> dict:
     config_path = tmp_path / "config.yml"
     with config_path.open("w", encoding="utf-8") as fh:
         yaml.safe_dump(seed, fh)
-    overrides = resolve_preset("control-assistant").config
+    overrides = resolve_preset("multi-user-demo").config
     config_update_fields(config_path, overrides)
     with config_path.open("r", encoding="utf-8") as fh:
         return yaml.safe_load(fh)
@@ -246,17 +257,9 @@ class TestBaseWebTerminals:
         A nested mapping would deep-merge over the rendered ``modules`` subtree
         and drop sibling modules; the literal dotted key sets only its own leaf.
         """
-        base = resolve_preset("control-assistant")
+        base = resolve_preset("multi-user-demo")
         assert WEB_TERMINALS_KEY in base.config
         assert "modules" not in base.config
-
-    def test_ships_bluesky_bridge_on_8090(self) -> None:
-        """The top-level ``bluesky:`` block ships the bridge on port 8090 — the
-        port the physicist tier's scan MCP server defaults ``BLUESKY_BRIDGE_URL``
-        to — so ``_inject_bluesky`` deploys the bridge service."""
-        base = resolve_preset("control-assistant")
-        assert base.bluesky is not None
-        assert base.bluesky.port == 8090
 
     def test_rendered_config_keeps_sibling_modules(self, tmp_path: Path) -> None:
         """Rendering the overrides adds ``modules.web_terminals`` without
@@ -285,31 +288,32 @@ class TestBaseWebTerminals:
 
     def test_rendered_web_terminals_shape(self, tmp_path: Path) -> None:
         """The rendered ``modules.web_terminals`` subtree matches the two-persona
-        demo shape: local image source, operator default, an operator/physicist
+        demo shape: local image source, readonly default, a readonly/readwrite
         catalog whose ``project`` equals its ``project_path`` basename, and a
-        roster mapping alice→operator (via default) and bob→physicist."""
+        roster mapping alice→readonly (via default) and bob→readwrite."""
         rendered = _render_config_overrides(tmp_path, {"system": {}})
         wt = rendered["modules"]["web_terminals"]
 
         assert wt["enabled"] is True
         assert wt["image_source"] == "local"
-        assert wt["default_persona"] == "operator"
+        assert wt["default_persona"] == "readonly"
         assert wt["nginx_port"] == 9080
         assert wt["web_base_port"] == 9091
         assert wt["artifact_base_port"] == 9291
         assert wt["ariel_base_port"] == 9391
         assert wt["lattice_base_port"] == 9491
+        assert wt["channel_finder_base_port"] == 9591
 
-        # Roster: alice is a bare string (inherits default_persona: operator);
-        # bob is object-form with an explicit index and the physicist persona.
+        # Roster: alice is a bare string (inherits default_persona: readonly);
+        # bob is object-form with an explicit index and the readwrite persona.
         assert wt["users"][0] == "alice"
-        assert wt["users"][1] == {"name": "bob", "index": 1, "persona": "physicist"}
+        assert wt["users"][1] == {"name": "bob", "index": 1, "persona": "readwrite"}
 
         personas = wt["personas"]
-        assert set(personas) == {"operator", "physicist"}
+        assert set(personas) == {"readonly", "readwrite"}
         for name, profile in (
-            ("operator", "control-assistant-operator"),
-            ("physicist", "control-assistant-physicist"),
+            ("readonly", "multi-user-demo-readonly"),
+            ("readwrite", "multi-user-demo-readwrite"),
         ):
             entry = personas[name]
             # Name invariant: project == basename(project_path).
@@ -327,6 +331,26 @@ class TestBaseWebTerminals:
         """
         rendered = _render_config_overrides(tmp_path, {"system": {}})
         assert _errors(lint_web_terminals(rendered)) == []
+
+    def test_demo_ships_companion_panels_multi_user(self) -> None:
+        """Feature parity: multi-user must not shed single-user companion panels.
+
+        The channel-finder panel was once dropped from this preset to dodge a
+        per-user port collision (its family was missing from the port-family
+        derivation) — the fix is per-user ports, never removing the feature.
+        """
+        base = resolve_preset("multi-user-demo")
+        assert "channel-finder" in base.web_panels
+        assert "ariel" in base.web_panels
+
+    def test_control_assistant_no_longer_hosts_the_web_tier(self) -> None:
+        """The multi-user roster moved out of ``control-assistant`` into this
+        family — the scan tutorial preset must not carry a web-terminals block
+        (or its web-tier-only companion keys) referencing deleted personas."""
+        base = resolve_preset("control-assistant")
+        assert WEB_TERMINALS_KEY not in base.config
+        assert "facility.prefix" not in base.config
+        assert "deploy.fqdn" not in base.config
 
 
 # ---------------------------------------------------------------------------
@@ -356,7 +380,7 @@ class TestFacilityPrefix:
     def test_base_config_sets_nonempty_facility_prefix(self) -> None:
         """The override is carried as the literal ``facility.prefix`` dotted key
         (never a nested ``facility:`` mapping) with a non-empty value."""
-        base = resolve_preset("control-assistant")
+        base = resolve_preset("multi-user-demo")
         assert FACILITY_PREFIX_KEY in base.config
         assert "facility" not in base.config
         prefix = base.config[FACILITY_PREFIX_KEY]
@@ -399,7 +423,7 @@ class TestDeployFqdn:
     def test_base_config_sets_deploy_fqdn(self) -> None:
         """Carried as the literal ``deploy.fqdn`` dotted key (never a nested
         ``deploy:`` mapping) with a non-empty string value."""
-        base = resolve_preset("control-assistant")
+        base = resolve_preset("multi-user-demo")
         assert "deploy.fqdn" in base.config
         assert "deploy" not in base.config
         fqdn = base.config["deploy.fqdn"]

@@ -1216,14 +1216,14 @@ class TestDeployServicesKnob:
         # No services/ directory at all.
         assert not (project / "services").exists()
 
-    def test_operator_persona_builds_attached(self, runner: CliRunner, tmp_path: Path) -> None:
-        """The shipped operator persona preset builds as an attached project."""
+    def test_readonly_persona_builds_attached(self, runner: CliRunner, tmp_path: Path) -> None:
+        """The shipped read-only persona preset builds as an attached project."""
         result = runner.invoke(
             build,
             [
                 "op",
                 "--preset",
-                "control-assistant-operator",
+                "multi-user-demo-readonly",
                 "--skip-deps",
                 "--skip-lifecycle",
                 "--output-dir",

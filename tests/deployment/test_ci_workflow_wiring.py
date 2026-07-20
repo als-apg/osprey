@@ -45,8 +45,8 @@ GATE_JOB = "all-checks-passed"
 SECRET_TOKEN = "secrets.ALS_APG_API_KEY"
 TILED_TEST_FILE = "tests/e2e/test_tiled_roundtrip.py"
 VA_TEST_FILE = "tests/e2e/test_va_substrate_equivalence.py"
-DEMO_JOB = "control-assistant-demo-e2e"
-DEMO_TEST_FILE = "tests/e2e/test_control_assistant_demo.py"
+DEMO_JOB = "multi-user-demo-e2e"
+DEMO_TEST_FILE = "tests/e2e/test_multi_user_demo.py"
 LIFECYCLE_TEST_FILE = "tests/e2e/test_deploy_lifecycle.py"
 ORM_JOB = "orm-roundtrip-e2e"
 ORM_TEST_FILE = "tests/e2e/test_orm_roundtrip.py"
@@ -324,30 +324,30 @@ def test_bluesky_stack_is_a_core_dependency() -> None:
 
 
 # ---------------------------------------------------------------------------
-# (e) control-assistant-demo-e2e lane + the dockerbuild --ignore guard
+# (e) multi-user-demo-e2e lane + the dockerbuild --ignore guard
 # ---------------------------------------------------------------------------
 
 
-def test_control_assistant_demo_job_exists(workflow: dict[str, Any]) -> None:
+def test_multi_user_demo_job_exists(workflow: dict[str, Any]) -> None:
     assert DEMO_JOB in _jobs(workflow)
 
 
-def test_control_assistant_demo_job_exists__mutation_drops_job() -> None:
+def test_multi_user_demo_job_exists__mutation_drops_job() -> None:
     mutated = copy.deepcopy(_load_workflow())
     del mutated["jobs"][DEMO_JOB]
     with pytest.raises(AssertionError):
         assert DEMO_JOB in _jobs(mutated)
 
 
-def test_control_assistant_demo_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
+def test_multi_user_demo_job_has_no_llm_secret(workflow: dict[str, Any]) -> None:
     assert not _job_declares_secret(workflow, DEMO_JOB, SECRET_TOKEN)
 
 
-def test_all_checks_passed_needs_control_assistant_demo(workflow: dict[str, Any]) -> None:
+def test_all_checks_passed_needs_multi_user_demo(workflow: dict[str, Any]) -> None:
     assert DEMO_JOB in _jobs(workflow)[GATE_JOB]["needs"]
 
 
-def test_all_checks_passed_needs_control_assistant_demo__mutation_drops_needs_entry() -> None:
+def test_all_checks_passed_needs_multi_user_demo__mutation_drops_needs_entry() -> None:
     mutated = copy.deepcopy(_load_workflow())
     _jobs(mutated)[GATE_JOB]["needs"].remove(DEMO_JOB)
     with pytest.raises(AssertionError):

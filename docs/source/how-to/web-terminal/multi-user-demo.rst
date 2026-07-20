@@ -4,28 +4,25 @@ Run the Multi-User Demo
 
 How to stand up the two-persona multi-user Web Terminal from a fresh checkout:
 one ``osprey build`` renders the demo project, one ``osprey deploy up`` brings up
-a landing page and a separate container for each user — **alice**, a control-room
-operator, and **bob**, a physicist with the extra scan tooling. No per-user
-builds, no registry.
+a landing page and a separate container for each user — **alice**, whose session
+is read-only, and **bob**, whose session can write to the control system. No
+per-user builds, no registry.
 
 .. dropdown:: What You'll Learn
    :color: primary
    :icon: book
 
-   - Building the demo project from the ``control-assistant`` preset
+   - Building the demo project from the ``multi-user-demo`` preset
    - How ``osprey deploy up`` auto-renders both persona projects and builds
      their images
-   - The grouped landing page, and what separates the operator and physicist
-     tiers
+   - The grouped landing page, and what separates the read-only and
+     read-write tiers
+   - Seeing the write boundary refuse — and approve — a real write
    - Logging out and switching between users
-   - What it takes to move from the ``mock`` control system to the Virtual
-     Accelerator so the physicist can run real scans
    - The demo's honest security posture (plain HTTP on a trusted host)
 
    **Prerequisites:** Docker (or Podman) installed; your model-provider
    credentials (the preset defaults to Anthropic — set ``ANTHROPIC_API_KEY``).
-   New to the Control Assistant? Start with
-   :doc:`/getting-started/control-assistant`.
 
 The demo in two commands
 ========================
@@ -35,14 +32,14 @@ bring the stack up from inside it:
 
 .. code-block:: bash
 
-   # 1. Render the demo project from the control-assistant preset
-   osprey build control-assistant-demo --preset control-assistant
+   # 1. Render the demo project from the multi-user-demo preset
+   osprey build multi-user-demo --preset multi-user-demo
 
    # 2. From inside the project, bring the whole stack up
-   cd control-assistant-demo
+   cd multi-user-demo
    osprey deploy up
 
-That is the entire setup. The ``control-assistant`` preset ships a
+That is the entire setup. The ``multi-user-demo`` preset ships a
 ``modules.web_terminals`` block that turns this single project into the
 two-persona product, so no extra flags or configuration are needed.
 
@@ -50,9 +47,7 @@ two-persona product, so no extra flags or configuration are needed.
 
    The personas' agent needs your provider credentials at run time. Add them to
    the project's ``.env`` before ``osprey deploy up`` (the preset defaults to
-   Anthropic — set ``ANTHROPIC_API_KEY``). ``osprey deploy up`` auto-generates
-   the dispatcher's bearer tokens into the same ``.env`` for you, so a fresh
-   deploy is otherwise secure by default with nothing else to edit.
+   Anthropic — set ``ANTHROPIC_API_KEY``).
 
 .. note::
 
@@ -68,32 +63,31 @@ What ``osprey deploy up`` does
 The one ``osprey deploy up`` invocation does three things in order, all from the
 single project you built:
 
-#. **Auto-renders the two persona projects.** The preset declares an *operator*
-   persona and a *physicist* persona, each its own rendered OSPREY project. For
+#. **Auto-renders the two persona projects.** The preset declares a *readonly*
+   persona and a *readwrite* persona, each its own rendered OSPREY project. For
    any persona whose project directory does not yet exist, ``deploy up`` renders
    it from the persona's ``build_profile`` preset — the equivalent of
-   ``osprey build control-assistant-operator --preset control-assistant-operator``
-   — landing it as a sibling of the demo project (``../control-assistant-operator``
-   and ``../control-assistant-physicist``). An already-rendered project is
-   user-owned and never overwritten; a half-written one errors with a
-   remediation hint rather than being rebuilt over.
+   ``osprey build multi-user-demo-readonly --preset multi-user-demo-readonly``
+   — landing it as a sibling of the demo project
+   (``../multi-user-demo-readonly`` and ``../multi-user-demo-readwrite``). An
+   already-rendered project is user-owned and never overwritten; a half-written
+   one errors with a remediation hint rather than being rebuilt over.
 
 #. **Builds each persona's image.** In the preset's local mode
    (``image_source: local``), ``deploy up`` builds each persona's
-   ``…-operator:local`` / ``…-physicist:local`` image itself from that rendered
+   ``…-readonly:local`` / ``…-readwrite:local`` image itself from that rendered
    project — no registry, no CI.
 
-#. **Brings up the stack.** An nginx reverse proxy (container ``ca-nginx``)
+#. **Brings up the stack.** An nginx reverse proxy (container ``mu-nginx``)
    serves the landing page on ``http://127.0.0.1:9080``, and one Web Terminal
-   container comes up per user — ``ca-web-alice`` on host port ``9091`` and
-   ``ca-web-bob`` on ``9092`` — each reached through the landing page. (The
-   ``ca-`` prefix is the preset's ``facility.prefix``; change it for your site.)
+   container comes up per user — ``mu-web-alice`` on host port ``9091`` and
+   ``mu-web-bob`` on ``9092`` — each reached through the landing page. (The
+   ``mu-`` prefix is the preset's ``facility.prefix``; change it for your site.)
 
-Alongside the two user containers, the as-shipped preset brings up its supporting
-services: PostgreSQL and OpenObserve (storage and telemetry), the Bluesky bridge
-(port ``8090``), and the event dispatcher with one worker. The Virtual
-Accelerator is **not** among them — it joins only when you add its build block,
-covered below.
+Alongside the two user containers, the preset brings up its supporting
+services: PostgreSQL and OpenObserve (storage and telemetry). That is the whole
+stack — the demo is deliberately small, so what you are looking at *is* the
+multi-user machinery, not a control-room product wrapped around it.
 
 Stop the stack again with ``osprey deploy down``; check on it with
 ``osprey deploy status``.
@@ -105,10 +99,9 @@ Stop the stack again with ``osprey deploy down``; check on it with
    Linux VM — enable *host networking* in Docker Desktop (Settings → Resources
    → Network) so the stack's ports reach your browser.
 
-   If another OSPREY deployment already occupies a service port on this host
-   (the event dispatcher's default ``8020`` is the usual collision), change it
-   in the project's ``config.yml`` (``services.event_dispatcher.port``) before
-   ``osprey deploy up``.
+   If another OSPREY deployment already occupies a service port on this host,
+   change it in the project's ``config.yml`` (e.g.
+   ``services.postgresql.port_host``) before ``osprey deploy up``.
 
 The landing page
 ================
@@ -117,50 +110,71 @@ Open ``http://127.0.0.1:9080``. The landing page groups the users into cards,
 each labelled with the persona it resolves to:
 
 .. figure:: /_static/resources/multi_user_landing.png
-   :alt: The multi-user landing page — two user cards, alice tagged OPERATOR and bob tagged PHYSICIST, under a Terminals heading
+   :alt: The multi-user landing page — two user cards under a Terminals heading,
+         each badged with the persona its session resolves to
    :align: center
    :width: 100%
 
-   The grouped landing page: alice resolves to the operator persona, bob to the
-   physicist. Click a card to open that user's session.
+   The grouped landing page: alice resolves to the readonly persona, bob to
+   readwrite. Click a card to open that user's session.
 
 alice is a bare roster entry, so she resolves to the preset's
-``default_persona`` (operator). bob names his persona (physicist) explicitly.
+``default_persona`` (readonly). bob names his persona (readwrite) explicitly.
 Clicking a card opens that user's terminal at ``/u/<name>/``, proxied by nginx
 to the user's own container.
 
-Two tiers, two capability sets
-==============================
+Two sessions, two write postures
+================================
 
 Each persona is a self-contained OSPREY project with its **own** permissions,
 because permissions are a property of a project's ``config.yml`` — the two tiers
-are genuinely different agents, not one agent with a UI toggle.
+are genuinely different agents, not one agent with a UI toggle. They differ on
+exactly **one** config key, the reference monitor's master write switch:
 
 .. list-table::
    :header-rows: 1
-   :widths: 20 40 40
+   :widths: 14 30 56
 
    * - User
-     - Persona
-     - Scan tooling
+     - ``control_system.writes_enabled``
+     - What that means in the session
    * - **alice**
-     - operator
-     - None. The scan-plan authoring skill is excluded and the bluesky MCP
-       server is denied, so scan tooling never appears — even if a downstream
-       overlay tried to re-enable it.
+     - ``false``
+     - Read-only. Channel reads, the channel finder, the archiver, and logbook
+       search all work — but every write surface refuses: channel writes,
+       read-write Python execution, all of it, from the single switch.
    * - **bob**
-     - physicist
-     - Full. The bluesky MCP server is switched on, so bob can author and
-       validate the two shipped scan-plan types.
+     - ``true``
+     - Write-capable — and supervised, not unguarded. A channel write still
+       passes the writes-check hook, per-channel min/max limits, and a human
+       approval prompt before the connector executes it.
 
-The physicist's two scan-plan types are an orbit **response matrix** and an
-n-dimensional **grid scan** — the only scan plans the stack ships. They reach
-the machine through the Bluesky bridge service the preset brings up on port
-``8090``.
+The posture is a property of the **session**, not a statement about the person:
+which teammates get a write-capable tier is your roster's call, and the demo's
+point is that the framework provisions genuinely different postures from one
+deployment.
 
-Note the verb: bob can *author and validate* scans out of the box, but
-**launching** one is a hardware write, and the demo does not arm that path — see
-`Running real scans`_ below.
+See the boundary work
+---------------------
+
+The boundary is enforced, not asserted — so you can watch it act. Open each
+user's terminal and ask both agents to do the same two things:
+
+**Read.** Ask either agent about a channel — a corrector setpoint, a BPM
+reading. Both sessions answer identically: reads are ungated on both tiers.
+
+**Write.** Ask each agent to change a setpoint. In bob's session the write
+goes to a human approval prompt, then executes (against the demo's mock
+control system, which accepts and stores it). In alice's session the same
+request is **refused**: the write tool is denied in her project's rendered
+permissions, and the refusal states plainly that writes are disabled in her
+configuration.
+
+Both agents carry the *same* tool surface — the readonly tier is not a
+stripped-down agent that never heard of writing. It is the same agent whose
+write path is switched off in its own project, which is exactly what you want
+to demonstrate to a control room: the boundary holds at the enforcement layer,
+not at the menu.
 
 Logging out and switching users
 ================================
@@ -170,61 +184,6 @@ logout route, clears the local session pointer, and returns you to the landing
 page. From there, pick another card to open a different user — a switch always
 starts a **fresh** session for the new user rather than resuming the previous
 one.
-
-Running real scans
-==================
-
-Out of the box the demo runs against the **mock** control system
-(``control_system.type: mock``): every channel returns a synthesized value, with
-no container and no network. That is deliberately safe for browsing and for the
-operator tier — but the mock does not track setpoints, so it cannot actually
-*run* a scan.
-
-Giving the physicist a control system that scans can move is a **deliberate
-reconfiguration**, not a runtime toggle. Two things have to change together, and
-both are build-time changes — apply them, rebuild, and redeploy:
-
-#. **Deploy the Virtual Accelerator.** The Virtual Accelerator is a
-   containerized PyAT soft-IOC that serves real EPICS Channel Access, so
-   corrector setpoints move a lattice and BPM readbacks respond. The shipped
-   preset has **no** ``virtual_accelerator:`` block, so nothing serves live
-   Channel Access. Supplying that block at build time — its minimal form is the
-   single flag ``--set virtual_accelerator.port=5064`` — makes ``osprey build``
-   inject the soft-IOC as a deployed service.
-
-#. **Point the connector at it.** Set
-   ``control_system.type: virtual_accelerator`` (a single dotted-key override,
-   matching the preset's own config convention) in place of ``mock``, so the
-   connector — and the scan bridge, which reads the same value — talk to that
-   IOC. The physicist's response-matrix and grid-scan plans then settle-wait on
-   real ``:RB`` readbacks tracking each ``:SP`` setpoint.
-
-The Virtual Accelerator's full mechanics — the three-state ``control_system.type``
-switch, starting the container, write limits, and how ``osprey sim apply``
-scenarios behave — are covered in :doc:`/how-to/use-virtual-accelerator`; the
-same ``--set`` / override shape used there applies to this stack.
-
-.. note::
-
-   On macOS the Virtual Accelerator runs inside a container VM, and EPICS
-   broadcast discovery does not cross that boundary. The container is reached in
-   EPICS name-server mode (``EPICS_CA_NAME_SERVERS``) instead — the one
-   host-to-container configuration that works reliably across runtimes.
-
-Arming a scan write
--------------------
-
-Even with the Virtual Accelerator in place, **launching** a scan is a hardware
-write, and the demo does not arm that path for you. The Bluesky bridge's launch
-route is fail-closed: it returns HTTP 503 until ``BLUESKY_LAUNCH_TOKEN`` is set
-in the bridge's environment. And ``osprey deploy up`` deliberately **refuses** to
-mint that token while ``control_system.writes_enabled`` is on under local Python
-execution — an unsandboxed agent could otherwise read the token back and bypass
-the write-approval gate — so container-based Python execution is required to run
-a scan with writes enabled. Until the path is armed, the physicist can author and
-validate the two shipped plan types but not commit them. This is the same honest
-posture as the rest of the demo: capabilities are visible, but real writes stay
-gated.
 
 Security posture
 ================

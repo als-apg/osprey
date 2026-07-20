@@ -160,28 +160,37 @@ Excluding an entry the base never declared is a silent no-op. Declaring
 ``exclude:`` in a profile that has no ``extends:`` only sees the profile's own
 lists — there is nothing inherited to remove — so it does nothing useful.
 
-**Worked example: an operator persona.** The bundled
-``control-assistant-operator`` preset builds a restricted control-room tier on
-top of ``control-assistant`` by excluding the one scan-related skill:
+**Worked example: a scan-free tier.** A facility profile can build a
+restricted tier on top of ``control-assistant`` by excluding the scan-related
+skills:
 
 .. code-block:: yaml
 
-   name: Control Assistant (Operator)
+   name: Control Assistant (No Scans)
    extends: control-assistant
 
    exclude:
      skills:
        - writing-bluesky-plans
+       - operating-bluesky-scans
 
    config:
      claude_code.servers.bluesky.enabled: false
 
-The ``exclude:`` drops ``writing-bluesky-plans`` from the inherited skill set, so
-the operator tier never enters the scan-plan authoring workflow; the ``config:``
-override keeps the bluesky MCP server off as well. Because an operator building from
-this preset cannot re-add the skill with ``--set skills=[writing-bluesky-plans]``
-(that merges pre-exclusion and is stripped again), the restriction holds unless
-the profile itself is edited.
+The ``exclude:`` drops the scan skills from the inherited skill set, so this
+tier never enters the scan-plan workflow; the ``config:`` override keeps the
+bluesky MCP server off as well. Because a user building from this profile
+cannot re-add a skill with ``--set skills=[writing-bluesky-plans]`` (that
+merges pre-exclusion and is stripped again), the restriction holds unless the
+profile itself is edited.
+
+.. note::
+
+   ``exclude:`` carves a tier by *removing* capability. When the boundary you
+   want is "may not write," prefer flipping the enforcement switch instead —
+   the bundled ``multi-user-demo-readonly`` preset differs from its
+   write-capable sibling only on ``control_system.writes_enabled``, leaving
+   the tool surface identical (see :doc:`web-terminal/multi-user-demo`).
 
 
 Quick Start
