@@ -876,3 +876,45 @@ code {
   .form-row { grid-template-columns: 1fr; }
   .foot-row { flex-direction: column; align-items: stretch; }
 }
+
+/* ---- UI-mode axis: Simple (operator-facing) deltas ----
+ *
+ * Expert stays pixel-identical: every rule below is gated on
+ * html[data-ui-mode="simple"]. Simple keeps the operator's job — pick a plan,
+ * set the essential parameters, launch — and strips the expert scaffolding:
+ * the Source (raw code) tab, the shared-draft binding chrome, the trust/
+ * provenance internals (sidebar status dots, provenance folder headers, the
+ * detail status line), and the connector-arming footnote. Validation still
+ * surfaces in plain language: the unvalidated-note, the launch-outcome banner,
+ * the draft-rejected banner and the root error all stay visible, and the live
+ * parameter readout is kept as friendly guidance. The Launch action is
+ * promoted to a single full-width primary affordance. Token-only, both themes.
+ */
+
+/* Flatten the sidebar to a plain plan list: no trust dots, no provenance
+ * folder headers (the <details> stay open, so their rows show ungrouped). */
+html[data-ui-mode="simple"] .plan-row .dot,
+html[data-ui-mode="simple"] .folder-summary {
+  display: none;
+}
+
+/* Drop the expert detail scaffolding. */
+html[data-ui-mode="simple"] .tabs,
+html[data-ui-mode="simple"] .status-line,
+html[data-ui-mode="simple"] #session-note,
+html[data-ui-mode="simple"] .draft-status,
+html[data-ui-mode="simple"] #draft-unknown-banner,
+html[data-ui-mode="simple"] .detail-foot .footnote {
+  display: none;
+}
+
+/* Promote Launch to a single, prominent, full-width primary action. */
+html[data-ui-mode="simple"] .foot-row {
+  flex-direction: column;
+  align-items: stretch;
+}
+html[data-ui-mode="simple"] #launch-btn {
+  width: 100%;
+  font-size: 15px;
+  padding: 12px 18px;
+}

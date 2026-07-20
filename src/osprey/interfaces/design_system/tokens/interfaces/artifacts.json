@@ -1,5 +1,5 @@
 {
-  "$description": "Artifacts-only extension tokens: the 'memory domain' violet accent (art-violet-*). Source: artifacts/static/css/gallery.css lines 34-38 (dark) and 161-164 (light). Purely a decorative brand accent (not body text), so the high-contrast family opts out via $extensions.inherits rather than duplicating an identical group: these saturated violet values already read at equal-or-better contrast against high-contrast's more extreme (near-black/near-white) backgrounds than they do against dark/light's own.",
+  "$description": "Artifacts-only extension tokens: the 'memory domain' violet accent (art-violet-*) plus the workspace browse-shell constants (art-panel-*, art-browser-band-height). The violet source is artifacts/static/css/gallery.css lines 34-38 (dark) and 161-164 (light) — a decorative brand accent (not body text), so the high-contrast family opts out via $extensions.inherits rather than duplicating an identical group: these saturated violet values already read at equal-or-better contrast against high-contrast's more extreme (near-black/near-white) backgrounds than they do against dark/light's own. The art-panel-*/art-browser-band-height group is the stacked two-card browse shell (a compact browser band above a dominant detail card): theme-independent layout constants (identical in both groups, mirroring web_terminal.json's wt-header-height pattern) so the high-contrast/apex families inherit them unchanged too.",
   "$extensions": { "inherits": { "high-contrast-dark": "dark", "high-contrast-light": "light", "apex-dark": "dark", "apex-light": "light" } },
   "dark": {
     "art-violet": {
@@ -7,7 +7,10 @@
       "light": { "$value": "{color.violet.100}", "$type": "color" },
       "dark": { "$value": "{color.violet.400}", "$type": "color" },
       "glow": { "$value": "rgba(159, 122, 234, 0.2)", "$type": "color", "$description": "art-violet.base (#9f7aea) at 20% alpha." }
-    }
+    },
+    "art-panel-radius": { "$value": "2px", "$type": "dimension", "$description": "Grafana-style card corner radius for the browse-view cards and their in-card chrome (frame 2a). Theme-independent layout constant." },
+    "art-panel-gap": { "$value": "8px", "$type": "dimension", "$description": "Canvas gutter around and between the stacked browser band + detail cards (padding:8px;gap:8px workspace region). Theme-independent." },
+    "art-browser-band-height": { "$value": "210px", "$type": "dimension", "$description": "Height of the scrollable artifact-list strip in the browse-view browser band (the #sidebar-body list). Bounded so the detail card below stays dominant; the list scrolls within it. Theme-independent." }
   },
   "light": {
     "art-violet": {
@@ -15,6 +18,9 @@
       "light": { "$value": "{color.violet.600}", "$type": "color" },
       "dark": { "$value": "{color.violet.700}", "$type": "color" },
       "glow": { "$value": "rgba(124, 58, 237, 0.1)", "$type": "color", "$description": "art-violet.base (#7c3aed) at 10% alpha." }
-    }
+    },
+    "art-panel-radius": { "$value": "2px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." },
+    "art-panel-gap": { "$value": "8px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." },
+    "art-browser-band-height": { "$value": "210px", "$type": "dimension", "$description": "Theme-independent layout constant — identical to dark's value." }
   }
 }

@@ -3,6 +3,11 @@
 <head>
 <meta charset="utf-8">
 <script src="/design-system/js/theme-boot.js"></script>
+<!-- UI-mode axis (expert|simple): stamp data-ui-mode on <html> pre-paint from
+     ?mode= / localStorage / server attr, mirroring theme-boot.js for theme.
+     Must run synchronously here, ahead of every stylesheet, so the mode-gated
+     layout never flashes the wrong shell. -->
+<script src="/design-system/js/mode-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">
 <link rel="stylesheet" href="/design-system/css/base.css">
 <script type="module">
@@ -1016,6 +1021,136 @@ table.runs-table tbody tr.active { background: var(--accent-tint-12); }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--neutral-tint-20); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--neutral-tint-35); }
+
+/* ============================================================
+   Simple mode — operator-facing status summary + plain event
+   cards, shown only under html[data-ui-mode="simple"]. The full
+   expert dashboard (.main-layout) and the header's internal
+   controls (layout-preset segment + terse counters) are hidden;
+   when the attribute is absent or "expert" this block is inert,
+   so expert output is byte-identical to before.
+   ============================================================ */
+.simple-view { display: none; }
+:root[data-ui-mode="simple"] .main-layout { display: none; }
+:root[data-ui-mode="simple"] header .mode-seg,
+:root[data-ui-mode="simple"] header .stats { display: none; }
+:root[data-ui-mode="simple"] .simple-view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: calc(100vh - 48px);
+  overflow-y: auto;
+  padding: 24px;
+  background: var(--bg-primary);
+}
+
+.simple-status {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  padding: 20px 22px;
+  flex-shrink: 0;
+}
+.simple-status-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex-shrink: 0;
+  background: var(--color-success);
+  box-shadow: 0 0 6px var(--color-success);
+}
+.simple-status.is-busy .simple-status-dot {
+  background: var(--color-warning);
+  box-shadow: 0 0 6px var(--color-warning);
+}
+.simple-status.is-error .simple-status-dot {
+  background: var(--color-error);
+  box-shadow: 0 0 6px var(--color-error);
+}
+.simple-status-headline {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.35;
+}
+.simple-status-detail {
+  font-family: var(--font-display);
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.simple-events-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.simple-events-title {
+  padding: 14px 20px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border-default);
+}
+.simple-events-list { display: flex; flex-direction: column; }
+.simple-event {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-default);
+}
+.simple-event:last-child { border-bottom: none; }
+.simple-event-icon {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--text-muted);
+}
+.simple-event-ok .simple-event-icon { background: var(--color-success); }
+.simple-event-err .simple-event-icon { background: var(--color-error); }
+.simple-event-live .simple-event-icon { background: var(--color-warning); }
+.simple-event-main { flex: 1; min-width: 0; }
+.simple-event-name {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  word-break: break-word;
+}
+.simple-event-outcome {
+  font-family: var(--font-display);
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.simple-event-time {
+  font-family: var(--font-display);
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.simple-empty {
+  padding: 40px 20px;
+  text-align: center;
+  font-family: var(--font-display);
+  font-size: 13px;
+  color: var(--text-muted);
+}
 </style>
 <link rel="stylesheet" href="/static/fonts/fonts.css">
 </head>
@@ -1126,6 +1261,22 @@ table.runs-table tbody tr.active { background: var(--accent-tint-12); }
         <div id="tab-contents"></div>
       </div>
     </div>
+  </div>
+</div>
+
+<!-- Simple mode — operator-facing summary. Hidden under expert; shown and
+     populated (by renderSimple) only when data-ui-mode="simple". -->
+<div class="simple-view" id="simple-view">
+  <div class="simple-status" id="simple-status">
+    <div class="simple-status-dot"></div>
+    <div>
+      <div class="simple-status-headline" id="simple-status-headline">Checking the dispatcher…</div>
+      <div class="simple-status-detail" id="simple-status-detail"></div>
+    </div>
+  </div>
+  <div class="simple-events-card">
+    <div class="simple-events-title">Recent activity</div>
+    <div class="simple-events-list" id="simple-events-list"></div>
   </div>
 </div>
 
@@ -1646,6 +1797,80 @@ function renderRuns() {
   }
 }
 
+// ---- Simple mode ----------------------------------------------------------
+// A single operator-facing summary card + a plain list of recent events. It
+// reads the same `state` the expert dashboard does, but shows only outcomes in
+// plain words — no run ids, durations, turn/tool counts, failure classes, or
+// worker internals. Safe to call anytime; a no-op if the simple DOM is absent.
+
+function formatAgeFriendly(sec) {
+  if (sec == null) return '';
+  if (sec < 60) return 'just now';
+  if (sec < 3600) { const m = Math.round(sec / 60); return m + (m === 1 ? ' minute ago' : ' minutes ago'); }
+  if (sec < 86400) { const h = Math.round(sec / 3600); return h + (h === 1 ? ' hour ago' : ' hours ago'); }
+  const d = Math.round(sec / 86400); return d + (d === 1 ? ' day ago' : ' days ago');
+}
+function simpleOutcome(status) {
+  if (status === 'completed') return { cls: 'simple-event-ok', text: 'Completed successfully' };
+  if (status === 'error') return { cls: 'simple-event-err', text: 'Did not finish' };
+  return { cls: 'simple-event-live', text: 'Running now' };
+}
+function renderSimple() {
+  const statusEl = $('#simple-status');
+  const headlineEl = $('#simple-status-headline');
+  const detailEl = $('#simple-status-detail');
+  const listEl = $('#simple-events-list');
+  if (!statusEl || !listEl) return;
+
+  const runs = state.runs || [];
+  const pending = runs.filter(r => r.status === 'pending').length;
+  const errors = runs.filter(r => r.status === 'error').length;
+  const completed = runs.filter(r => r.status === 'completed').length;
+  const plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+
+  statusEl.classList.remove('is-busy', 'is-error');
+  if (state.worker_error) {
+    statusEl.classList.add('is-error');
+    headlineEl.textContent = 'The dispatcher cannot reach its worker right now.';
+    detailEl.textContent = 'The recent activity below may be out of date until the connection recovers.';
+  } else if (errors > 0) {
+    statusEl.classList.add('is-error');
+    headlineEl.textContent = 'The dispatcher is running, but ' + plural(errors, 'event') + (errors === 1 ? ' needs' : ' need') + ' a look.';
+    detailEl.textContent = completed > 0
+      ? plural(completed, 'other event') + ' completed successfully.'
+      : 'See the list below for what happened.';
+  } else if (pending > 0) {
+    statusEl.classList.add('is-busy');
+    headlineEl.textContent = 'The dispatcher is running, with ' + plural(pending, 'event') + ' in progress.';
+    detailEl.textContent = completed > 0
+      ? plural(completed, 'event') + ' completed recently.'
+      : 'Everything is proceeding normally.';
+  } else if (completed > 0) {
+    headlineEl.textContent = 'The dispatcher is healthy — every recent event completed.';
+    detailEl.textContent = plural(completed, 'event') + ' completed in the recent history.';
+  } else {
+    headlineEl.textContent = 'The dispatcher is running normally.';
+    detailEl.textContent = 'No events have been dispatched recently.';
+  }
+
+  listEl.textContent = '';
+  if (runs.length === 0) {
+    listEl.appendChild(el('div', { className: 'simple-empty', textContent: 'No events have run yet. They will appear here as they happen.' }));
+    return;
+  }
+  for (const r of runs.slice(0, 12)) {
+    const outcome = simpleOutcome(r.status);
+    const card = el('div', { className: 'simple-event ' + outcome.cls });
+    card.appendChild(el('div', { className: 'simple-event-icon' }));
+    const main = el('div', { className: 'simple-event-main' });
+    main.appendChild(el('div', { className: 'simple-event-name', textContent: r.trigger_name || 'Manual run' }));
+    main.appendChild(el('div', { className: 'simple-event-outcome', textContent: outcome.text }));
+    card.appendChild(main);
+    card.appendChild(el('div', { className: 'simple-event-time', textContent: formatAgeFriendly(r.age_sec) }));
+    listEl.appendChild(card);
+  }
+}
+
 function openRunInTab(run) {
   if (!run || !run.run_id) return;
   const existing = tabs.find(t => t.runId === run.run_id);
@@ -2117,6 +2342,7 @@ function render() {
   renderTriggers();
   renderTimeline();
   renderRuns();
+  renderSimple();
 
   const pending = (state.runs || []).find(r => r.status === 'pending' && r.has_stream);
   if (pending && !tabs.find(t => t.runId === pending.run_id)) openRunInTab(pending);
@@ -2138,12 +2364,28 @@ function render() {
   updateInspectorInfo();
 }
 
+// Live Expert<->Simple switch broadcast by the hub (panel-manager postMessage).
+// The pre-paint rung (mode-boot.js) set the initial data-ui-mode; this is the
+// runtime flip. Coerce anything but "simple" to "expert", stamp <html>, and
+// re-render Simple so its content is fresh on arrival. Mirrors gallery.js.
+window.addEventListener('message', (e) => {
+  if (e.origin !== window.location.origin) return;
+  if (e.data && e.data.type === 'osprey-mode-change' && e.data.mode) {
+    const mode = e.data.mode === 'simple' ? 'simple' : 'expert';
+    document.documentElement.setAttribute('data-ui-mode', mode);
+    renderSimple();
+  }
+});
+
 function init() {
   loadFiltersFromUrl();
   applyLayout();
   wireResizers();
   wireFilters();
   startPolling();
+  // Seed the Simple view once so it shows a valid state even before (or
+  // without) a reachable backend — fetchState only calls render() on success.
+  renderSimple();
   document.addEventListener('keydown', (e) => {
     if (e.key === '/' && document.activeElement && !['INPUT','TEXTAREA'].includes(document.activeElement.tagName)) {
       e.preventDefault();

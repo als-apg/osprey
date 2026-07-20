@@ -304,5 +304,6 @@ export function createUI(figureNames) {
     initSidebarTabs,
     setupDragAndDrop,
     restorePanelOrder,
+    reflowFigures: _reflowFigures,
   };
 }

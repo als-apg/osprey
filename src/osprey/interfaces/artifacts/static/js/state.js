@@ -206,3 +206,19 @@ export function getFilteredArtifacts(searchQuery = "") {
 
   return filtered;
 }
+
+/**
+ * The full artifact list sorted newest-first, independent of the active
+ * type filter and the pinned-first ordering getFilteredArtifacts() applies.
+ * Simple mode's "latest result" + "Results from this session" list read this.
+ *
+ * Session scoping is unchanged: `artifacts` already holds exactly what the
+ * last fetch returned — the current session's artifacts when a session scope
+ * has been received, or (when none has) the most-recent set across sessions,
+ * because fetchArtifacts() adds no `session_id` filter without a
+ * currentSessionId. So this is never empty when any artifacts exist.
+ * @returns {any[]}
+ */
+export function getRecentArtifacts() {
+  return [...artifacts].sort((a, b) => (b.timestamp || "").localeCompare(a.timestamp || ""));
+}

@@ -8,6 +8,10 @@
        before any stylesheet. Live theme changes are handled by the
        theme-manager FOLLOWER role in app.js. -->
   <script src="/design-system/js/theme-boot.js"></script>
+  <!-- UI-mode boot: applies data-ui-mode (expert/simple) pre-paint, same
+       zero-dependency in-<head> contract as theme-boot. Live Expert<->Simple
+       switches are handled by the message listener in app.js. -->
+  <script src="/design-system/js/mode-boot.js"></script>
   <link rel="stylesheet" href="/design-system/css/tokens.css">
   <link rel="stylesheet" href="/design-system/css/base.css">
   <!-- Fonts (self-hosted, no external CDN) -->
@@ -49,6 +53,10 @@
         <span class="stat-value">—</span>
         <span class="stat-unit">m</span>
       </div>
+      <!-- Simple mode: one plain-language status line replaces the dense stat
+           chips above. Hidden in Expert (default); shown under
+           html[data-ui-mode="simple"]. Populated from state in render.js. -->
+      <span id="lattice-simple-status" class="lattice-simple-status"></span>
     </div>
     <div class="topbar-actions">
       <button id="btn-layout" class="action-btn" title="Toggle panel layout">

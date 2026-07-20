@@ -17,27 +17,6 @@
   pointer-events: none;
 }
 
-/* CRT scanline + vignette over the whole overlay */
-.welcome-overlay::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: var(--wt-welcome-scanline-bg);
-  pointer-events: none;
-  z-index: 1;
-  opacity: var(--wt-crt-scanline-opacity);
-}
-
-.welcome-overlay::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(ellipse at center, transparent 50%, var(--overlay-black-60) 100%);
-  pointer-events: none;
-  z-index: 1;
-  opacity: var(--wt-crt-vignette-opacity);
-}
-
 .welcome-terminal {
   position: relative;
   z-index: 2;
@@ -140,37 +119,35 @@
 .header {
   height: var(--wt-header-height);
   display: flex;
-  align-items: stretch;
-  background: var(--bg-secondary);
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  background: var(--bg-primary);
   border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
 }
 
 .header-left {
-  flex: 0 1 40%;
-  min-width: 360px;
+  flex: 0 0 auto;
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 16px;
-  border-right: 1px solid var(--border-default);
+  align-items: baseline;
+  gap: var(--space-2);
 }
 
 .header-right {
-  flex: 1 1 60%;
-  min-width: 240px;
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 12px;
+  justify-content: flex-end;
 }
 
 .header-logo {
   font-family: var(--font-display);
-  font-weight: var(--weight-bold);
-  font-size: var(--text-2xl);
-  letter-spacing: -0.02em;
-  color: var(--color-accent-light);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-xl);
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
 }
 
 /* apex theme: reserve the brand serif (Instrument Serif) for the brand
@@ -187,19 +164,17 @@
   letter-spacing: 0;
 }
 
-/* Optional per-deployment name badge (web.app_name), pinned to the header's
-   right so otherwise-identical terminals are distinguishable. */
+/* Optional per-deployment name badge (web.app_name) — a bordered chip in the
+   header's right cluster so otherwise-identical terminals are distinguishable. */
 .header-app-name {
-  font-family: var(--font-mono);
-  font-size: var(--text-base);
-  font-weight: var(--weight-medium);
-  color: var(--text-secondary);
-  letter-spacing: 0.04em;
-  padding: 3px 10px;
-  margin-right: var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-md);
+  font-weight: var(--weight-regular);
+  color: var(--text-primary);
+  padding: 5px 10px;
   border: 1px solid var(--border-default);
-  border-radius: 5px /* hygiene-allow-scale: off-scale legacy value, designer to rationalize */;
-  background: var(--bg-elevated);
+  border-radius: var(--radius-xs);
+  background: var(--bg-panel);
   white-space: nowrap;
   max-width: 240px;
   overflow: hidden;
@@ -208,92 +183,262 @@
 
 .header-title {
   font-family: var(--font-mono);
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   font-weight: var(--weight-regular);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.14em;
 }
 
-/* ---- Header Tabs ---- */
+/* ---- Header action cluster (bordered chips, frame 2a) ---- */
 
-.header-tabs {
+/* The theme switcher and settings gear render as `.header-icon-btn` (base style
+   in drawer.css); reshape them into 28px bordered chips only within the header,
+   leaving the drawer's own icon buttons untouched. */
+.header .header-actions {
+  gap: var(--space-2);
+}
+
+.header .header-icon-btn {
+  width: 28px;
+  height: 28px;
+  font-size: var(--text-md);
+  color: var(--text-secondary);
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+}
+
+.header .header-icon-btn:hover {
+  color: var(--color-accent-light);
+  border-color: var(--border-accent);
+  background: var(--bg-elevated);
+}
+
+/* Segmented Expert/Simple toggle. The active segment is driven purely off
+   html[data-ui-mode] so it already reflects the resolved mode before any script
+   runs. */
+.header-mode-toggle {
   display: flex;
+  flex-shrink: 0;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+}
+
+.mode-segment {
+  display: inline-flex;
   align-items: center;
-  gap: 2px;
-  height: 100%;
-  flex: 1 1 auto;
-  /* Allow the flex item to shrink below content width so overflow can scroll
-     instead of pushing tabs off-viewport / under .header-actions. */
-  min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  /* Scroll without a visible scrollbar (Firefox, legacy Edge). */
+  gap: 5px;
+  padding: 5px 12px;
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--weight-regular);
+  color: var(--text-secondary);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color var(--wt-transition-fast), background var(--wt-transition-fast);
+}
+
+.mode-segment + .mode-segment {
+  border-left: 1px solid var(--border-default);
+}
+
+.mode-segment:hover {
+  color: var(--text-primary);
+}
+
+html[data-ui-mode="expert"] .mode-segment[data-mode="expert"],
+html[data-ui-mode="simple"] .mode-segment[data-mode="simple"] {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  font-weight: var(--weight-medium);
+}
+
+.mode-segment-icon {
+  font-size: var(--text-md);
+  line-height: var(--leading-none);
+}
+
+/* ---- Simple-mode shell density (frame 2b) ----
+
+   Density deltas are pure `display` gating off html[data-ui-mode="simple"] so
+   expert restores perfectly on a live toggle-back and no DOM is torn down. Only
+   shell chrome is affected — the PTY, rail, theme switcher, "+ New" chip, and
+   in-terminal Claude Code output (its model/context/token status line and any
+   approval prompts) are untouched and stay fully functional.
+
+   Resting (expert) state: the simple-only affordances are hidden. The help chip
+   is scoped under .header so its display:none outranks the base
+   .header-icon-btn { display: flex } it also carries (drawer.css loads after
+   this file, so equal-specificity would otherwise reveal it in expert too). */
+.terminal-label-simple {
+  display: none;
+}
+
+.header .header-help-chip {
+  display: none;
+  text-decoration: none;
+}
+
+/* Simple: swap the mono SESSION <hex> + selector for the plain "Connected"
+   label, and reveal the header help chip. */
+html[data-ui-mode="simple"] .terminal-label {
+  display: none;
+}
+
+html[data-ui-mode="simple"] .terminal-label-simple {
+  display: inline;
+}
+
+html[data-ui-mode="simple"] .session-selector {
+  display: none;
+}
+
+html[data-ui-mode="simple"] .header-help-chip {
+  display: flex;
+}
+
+/* ---- Panel Rail (left icon rail) ---- */
+
+/* The rail region is one 74px column stacking the panel entries (nav) above the
+   add-panel control, both sharing the same 4px vertical rhythm so the "+" reads
+   as the last cell in the column. It replaces the old horizontal header tabs. */
+.panel-rail-region {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  width: 74px;
+  flex-shrink: 0;
+  padding: 10px 0;
+  background: var(--bg-primary);
+  border-right: 1px solid var(--border-default);
+  /* MUST NOT clip or scroll: the "+" popover escapes this column to the right,
+     and any scrollable ancestor would both clip it and get focus-scrolled
+     sideways when the menu focuses its first item. Vertical overflow of the
+     entry list is handled one level down, on .panel-rail. */
+}
+
+.panel-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  /* The entry list, not the region, absorbs vertical overflow — it shrinks
+     (min-height: 0) and scrolls, keeping the "+" cell below it always visible
+     and the region itself unclipped for the popover. */
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  /* Scroll without a visible scrollbar (Firefox, legacy Edge / WebKit). */
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
 
-/* Scroll without a visible scrollbar (Chrome, Safari, WebKit). */
-.header-tabs::-webkit-scrollbar { display: none; }
+.panel-rail::-webkit-scrollbar { display: none; }
 
-.header-tab {
+/* One panel entry: a flat 62×52 cell with a stacked icon + label. Active state
+   is a filled cell with an amber left-edge accent (see .active). */
+.panel-rail-button {
+  position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 0 14px;
-  height: 100%;
-  flex: 0 0 auto;
-  white-space: nowrap;
-  cursor: pointer;
+  justify-content: center;
+  gap: 3px;
+  width: 62px;
+  height: 52px;
+  padding: 0;
   border: none;
+  border-left: 2px solid transparent;
+  border-radius: var(--radius-xs);
   background: transparent;
-  border-bottom: 2px solid transparent;
-  font-family: var(--font-display);
-  font-size: var(--text-lg);
-  font-weight: var(--weight-medium);
-  color: var(--text-muted);
-  letter-spacing: 0.02em;
-  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: color var(--wt-transition-fast), background var(--wt-transition-fast),
+    border-color var(--wt-transition-fast);
 }
 
-.header-tab:hover { color: var(--text-secondary); }
-
-.header-tab.active {
-  color: var(--color-accent-light);
-  border-bottom-color: var(--color-accent-light);
+.panel-rail-button:hover {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
 }
 
-.header-tab.disabled {
+.panel-rail-button.active {
+  color: var(--text-primary);
+  background: var(--bg-elevated);
+  border-left-color: var(--color-warning);
+}
+
+.panel-rail-button.disabled {
   opacity: 0.35;
   pointer-events: none;
 }
 
-/* Tab hidden by server visibility config; toggled by SSE show/hide events */
-.header-tab.tab-hidden {
+/* Entry hidden by server visibility config; toggled by SSE show/hide events. */
+.panel-rail-button.panel-rail-hidden {
   display: none;
 }
 
-.header-tab .tab-led {
+/* Health LED — a small dot pinned to the entry's top-right so it reads at a
+   glance without competing with the icon. Absent (transparent) until a panel
+   first reports healthy, matching the rail's calm resting state. */
+.panel-rail-led {
+  position: absolute;
+  top: 6px;
+  right: 8px;
   width: 5px;
   height: 5px;
-  border-radius: 50%;
-  background: var(--text-muted);
+  border-radius: var(--radius-full);
+  background: transparent;
   transition: background var(--wt-transition-normal);
 }
 
-.header-tab .tab-led.healthy { background: var(--color-success); }
-.header-tab .tab-led.offline { background: var(--color-error); }
+.panel-rail-led.healthy { background: var(--color-success); }
+.panel-rail-led.offline { background: transparent; }
 
-/* Per-tab close "×" — browser-tab style, revealed on hover / when active. */
-.header-tab .tab-close {
+/* Glyph — mapped from the panel id via data-icon, with a generic fallback for
+   runtime/custom panels. */
+.panel-rail-icon {
+  font-size: var(--text-xl);
+  line-height: var(--leading-none);
+}
+
+.panel-rail-icon::before { content: "\25c8"; }                         /* ◈ fallback */
+.panel-rail-icon[data-icon="artifacts"]::before { content: "\25a4"; } /* ▤ workspace */
+.panel-rail-icon[data-icon="ariel"]::before { content: "\25ce"; }     /* ◎ ariel */
+.panel-rail-icon[data-icon="channel-finder"]::before { content: "\2315"; } /* ⌕ channels */
+.panel-rail-icon[data-icon="lattice"]::before { content: "\2b21"; }   /* ⬡ lattice */
+.panel-rail-icon[data-icon="okf"]::before { content: "\1f56e"; }      /* 🕮 knowledge */
+
+.panel-rail-label {
+  font-size: var(--text-xs);
+  line-height: var(--leading-none);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+  box-sizing: border-box;
+}
+
+/* Per-entry close "×" — decorative, revealed on hover / when active. Pinned to
+   the top-left so it never collides with the health LED. */
+.panel-rail-close {
+  position: absolute;
+  top: 4px;
+  left: 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 15px;
-  height: 15px;
-  margin-left: 1px;
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xl);
+  width: 14px;
+  height: 14px;
+  border-radius: var(--radius-xs);
+  font-size: var(--text-lg);
   line-height: var(--leading-none);
   color: var(--text-muted);
   opacity: 0;
@@ -302,62 +447,63 @@
     background var(--wt-transition-fast);
 }
 
-.header-tab:hover .tab-close,
-.header-tab.active .tab-close { opacity: 0.7; }
+/* Revealed on hover only — the active cell stays clean (close via hover or the
+   keyboard Delete/Backspace shortcut). */
+.panel-rail-button:hover .panel-rail-close { opacity: 0.7; }
 
-.header-tab .tab-close:hover {
+.panel-rail-close:hover {
   opacity: 1;
   color: var(--color-error);
   background: var(--accent-tint-08);
 }
 
-/* An offline (disabled) tab is inert, but its "×" stays clickable and visible so
-   a panel whose backend is down can always be dismissed. */
-.header-tab.disabled .tab-close {
+/* An offline (disabled) entry is inert, but its "×" stays clickable and visible
+   so a panel whose backend is down can always be dismissed. */
+.panel-rail-button.disabled .panel-rail-close {
   pointer-events: auto;
   opacity: 0.6;
 }
 
-/* ---- Add-panel "+" control ---- */
+/* ---- Add-panel "+" control (last cell of the rail) ---- */
 
 .panel-add {
   position: relative;
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  flex: 0 0 auto;
-  margin: 0 6px;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .panel-add-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 62px;
+  height: 52px;
   padding: 0;
-  font-size: var(--text-3xl);
+  font-size: var(--text-xl);
   line-height: var(--leading-none);
   color: var(--text-muted);
   background: transparent;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
+  border: none;
+  border-radius: var(--radius-xs);
   cursor: pointer;
-  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
-    background var(--wt-transition-fast);
+  transition: color var(--wt-transition-fast), background var(--wt-transition-fast);
 }
 
 .panel-add-btn:hover,
 .panel-add-btn[aria-expanded="true"] {
   color: var(--color-accent-light);
-  border-color: var(--color-accent-light);
-  background: var(--accent-tint-08);
+  background: var(--bg-elevated);
 }
 
+/* The popover opens to the RIGHT of the rail (the "+" sits in a narrow left
+   column), top-aligned to the button. */
 .panel-add-menu {
   display: none;
   position: absolute;
-  top: calc(100% + 6px);
-  right: 0;
+  top: 0;
+  left: calc(100% + 8px);
   min-width: 240px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-default);
@@ -459,9 +605,19 @@
 
 /* ---- Main layout ---- */
 
-.main-container {
+.shell-body {
   display: flex;
   height: calc(100vh - var(--wt-header-height) - var(--wt-status-bar-height));
+  overflow: hidden;
+}
+
+/* The resizable terminal/workspace split. Fills the row beside the rail; the
+   resize handle measures THIS element's width, so the rail lives outside it
+   (in .shell-body) to keep the split math correct. */
+.main-container {
+  display: flex;
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
 }
 
@@ -472,61 +628,88 @@
   min-width: 360px;
   display: flex;
   flex-direction: column;
-  background: var(--bg-terminal);
+  background: var(--bg-primary);
+  padding: var(--space-2);
+  box-sizing: border-box;
   position: relative;
 }
 
+/* Flat card framing the session header + terminal body: hairline border, 2px
+   radius, panel surface. The interior (session row, prompt/status lines) is
+   refined by the terminal-card restyle task; this is the enclosing chrome. */
+.terminal-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+  overflow: hidden;
+}
+
+/* Session header row inside the card (frame 2a): LED · mono session label ·
+   selector · "+ New" chip, on the panel surface with a hairline underline. */
 .terminal-header {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: 6px 12px;
-  background: var(--bg-secondary);
+  gap: 9px;
+  padding: 8px 12px;
+  background: var(--bg-panel);
   border-bottom: 1px solid var(--border-default);
   flex-shrink: 0;
 }
 
 .session-led {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
   background: var(--text-muted);
   flex-shrink: 0;
 }
 
 .session-led.active {
-  background: var(--color-accent-light);
-  animation: ledPulse 3s ease-in-out infinite; /* hygiene-allow-scale: decorative animation timing, not interaction-transition scale */
+  background: var(--color-success);
 }
 
 .terminal-label {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
-  color: var(--text-muted);
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.1em;
 }
 
-.new-session-btn {
-  font-family: var(--font-mono);
+/* Simple-mode "Connected" label (frame 2b): plain-language, sans, sentence-case
+   — the reassuring counterpart to the mono uppercase SESSION <hex>. */
+.terminal-label-simple {
+  font-family: var(--font-display);
   font-size: var(--text-sm);
   font-weight: var(--weight-medium);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
-  background: transparent;
+  color: var(--text-secondary);
+}
+
+/* "+ New" chip — bg-elevated fill, hairline border, matching the frame's chip
+   idiom (not the old bordered mono button). */
+.new-session-btn {
+  font-family: var(--font-display);
+  font-size: var(--text-base);
+  font-weight: var(--weight-regular);
+  color: var(--text-secondary);
+  background: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-sm);
-  padding: 2px 8px;
+  border-radius: var(--radius-xs);
+  padding: 3px 9px;
   cursor: pointer;
-  transition: all var(--wt-transition-fast);
+  transition: color var(--wt-transition-fast), border-color var(--wt-transition-fast),
+    background var(--wt-transition-fast);
   margin-left: auto;
 }
 
 .new-session-btn:hover {
   color: var(--color-accent-light);
-  border-color: var(--color-accent-light);
+  border-color: var(--border-accent);
   background: var(--accent-tint-08);
 }
 
@@ -535,43 +718,15 @@
   cursor: default;
 }
 
+/* Terminal body surface — the darker bg.terminal, distinct from the panel-bg
+   session row above it. */
 .terminal-body {
   flex: 1;
   position: relative;
   overflow: hidden;
   padding: var(--space-2);
   box-sizing: border-box;
-}
-
-/* CRT scanline overlay */
-.terminal-body::after {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  pointer-events: none;
-  background: var(--wt-crt-scanline-bg);
-  z-index: 1;
-  opacity: var(--wt-crt-scanline-opacity);
-}
-
-/* Inner glow on active terminal */
-.terminal-body.active {
-  box-shadow: inset 0 0 60px var(--accent-tint-04);
-}
-
-/* Terminal bezel */
-.terminal-bezel {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  box-shadow: var(--wt-crt-bezel-shadow);
-  pointer-events: none;
-  z-index: 2;
+  background: var(--bg-terminal);
 }
 
 /* xterm.js overrides */
