@@ -1,9 +1,14 @@
-"""Grow the shipped tier-3 channel databases to the full ALS-U AR inventory.
+"""Regenerate the shipped tier-3 and tier-1 channel databases from the spec.
 
-Emits all three shipped tier-3 channel-database formats --
-``hierarchical.json``, ``in_context.json``, ``middle_layer.json`` (under
-``src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/
-tier3/``) -- address-identically, from two declarative sources:
+This module is the single documented command that regenerates every committed
+channel-database artifact. Run in place from the repo root::
+
+    .venv/bin/python -m osprey.services.channel_finder.tools.generate_from_spec
+
+It emits, address-identically, all three shipped tier-3 channel-database
+formats -- ``hierarchical.json``, ``in_context.json``, ``middle_layer.json``
+(under ``src/osprey/templates/apps/control_assistant/data/channel_databases/
+tiers/tier3/``) -- from two declarative sources:
 
 * :data:`osprey.simulation.facility_spec.ALS_U_AR` -- the 11 SR-ring
   families and their grown device counts.
@@ -12,6 +17,13 @@ tier3/``) -- address-identically, from two declarative sources:
 
 Address format: ``SR:{system}:{family}:{DD}:{FIELD}:{SUBFIELD}``, where
 ``DD`` is the zero-padded 2-digit device id. Ring is always ``SR``.
+
+The same invocation also derives ``tiers/tier1/in_context.json`` as a declared
+subset of tier 3 (see :data:`TIER1_FILTER` / :func:`apply_tier1_filter`): tier 1
+is never authored independently -- it is exactly the tier-1 channels of tier 3.
+The tier-1 emission is merge-preserve like tier 3 (existing entries kept
+verbatim, filter-selected additions appended), so once tier 1 already equals the
+filter of tier 3 the regeneration is a byte-identical no-op.
 
 Merge-preserve semantics
 -------------------------
@@ -38,7 +50,10 @@ established by their structural analog (QF, SF, SD respectively).
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from osprey.services.channel_finder.databases.hierarchical import HierarchicalChannelDatabase
@@ -54,6 +69,11 @@ TIER3_FILENAMES: dict[str, str] = {
     "in_context": "in_context.json",
     "middle_layer": "middle_layer.json",
 }
+
+# Tier 1 ships only the in_context paradigm; its filename lives beside the
+# tier-3 dir under ``tiers/tier1/``.
+TIER1_DIRNAME = "tier1"
+TIER1_IN_CONTEXT_FILENAME = "in_context.json"
 
 # Devices per DeviceList "sector" bucket in middle_layer.json's per-family
 # _setup block, mirroring the shipped SR arrays (SF/SD pack 1 device per
@@ -297,6 +317,117 @@ def _grow_in_context(data: dict[str, Any]) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# Tier-1 filter
+# ---------------------------------------------------------------------------
+#
+# Tier 1 is not an independently authored database: it is a declared subset of
+# tier 3. This is the single importable definition of that subset -- consumed
+# by the generator (to derive ``tiers/tier1/in_context.json``), by the CLI, and
+# by the drift-gate tests. A tier-3 channel is a tier-1 channel iff its address
+# is on the ``SR`` ring, its family is one of the eight tier-1 families, its
+# FIELD is the single field that family contributes to tier 1, and its SUBFIELD
+# is one of ``{SP, RB, X, Y}`` (the measured/commanded analog leaves -- no
+# STATUS, GOLDEN, or OFFSET). Five families are the tier-1 subset of the
+# ``ALS_U_AR`` spec families (DIPOLE/QF/HCM/VCM current + BPM position); the
+# other three (DCCT/CAVITY/GAUGE) are hand-authored non-spec tier-3 content.
+
+
+@dataclass(frozen=True)
+class Tier1Filter:
+    """Declared predicate selecting the tier-1 channel subset of tier 3.
+
+    Attributes:
+        rings: Rings whose channels are eligible (tier 1 is ``SR``-only).
+        field_by_family: The eight tier-1 families mapped to the single
+            tier-3 FIELD each contributes to tier 1 (e.g. ``QF -> CURRENT``,
+            ``BPM -> POSITION``). Membership in this map *is* the family
+            allow-list.
+        subfields: Eligible SUBFIELDs -- the analog measured/commanded leaves
+            (``SP``/``RB`` for current, ``X``/``Y`` for position).
+    """
+
+    rings: frozenset[str]
+    field_by_family: Mapping[str, str]
+    subfields: frozenset[str]
+
+    @property
+    def families(self) -> frozenset[str]:
+        """The tier-1 family allow-list (the keys of :attr:`field_by_family`)."""
+        return frozenset(self.field_by_family)
+
+    def matches(self, address: str) -> bool:
+        """Return whether a tier-3 ``address`` belongs to the tier-1 subset."""
+        parts = address.split(":")
+        if len(parts) != 6:
+            return False
+        ring, _system, family, _device, field, subfield = parts
+        return (
+            ring in self.rings
+            and self.field_by_family.get(family) == field
+            and subfield in self.subfields
+        )
+
+
+TIER1_FILTER = Tier1Filter(
+    rings=frozenset({RING}),
+    field_by_family=MappingProxyType(
+        {
+            "DIPOLE": "CURRENT",
+            "QF": "CURRENT",
+            "HCM": "CURRENT",
+            "VCM": "CURRENT",
+            "DCCT": "CURRENT",
+            "BPM": "POSITION",
+            "CAVITY": "VOLTAGE",
+            "GAUGE": "PRESSURE",
+        }
+    ),
+    subfields=frozenset({"SP", "RB", "X", "Y"}),
+)
+
+
+def apply_tier1_filter(tier3_channels: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Select the tier-1 channels from a sequence of tier-3 channel entries.
+
+    Applies :data:`TIER1_FILTER` to each entry's ``address`` and returns the
+    matching entries verbatim, preserving input order. Tier 1 is a pure subset
+    of tier 3, so entries are never rewritten -- only selected.
+
+    Args:
+        tier3_channels: Tier-3 ``in_context`` channel dicts (each with an
+            ``address`` key), e.g. the ``"channels"`` list of a loaded
+            ``tier3/in_context.json``.
+
+    Returns:
+        The subset of ``tier3_channels`` whose addresses are tier-1 channels.
+    """
+    return [c for c in tier3_channels if TIER1_FILTER.matches(c["address"])]
+
+
+def _grow_in_context_tier1(
+    data: dict[str, Any], tier3_channels: Iterable[dict[str, Any]]
+) -> dict[str, Any]:
+    """Grow ``data`` (a loaded tier-1 ``in_context.json``) from tier 3 in place.
+
+    Merge-preserve, mirroring :func:`_grow_in_context`: every tier-1 channel of
+    ``tier3_channels`` (per :data:`TIER1_FILTER`) that is not already present is
+    appended verbatim; existing entries are kept in place. Because tier 1 is a
+    pure subset of tier 3, once it already holds the full filtered set this is a
+    byte-identical no-op.
+    """
+    channels: list[dict[str, str]] = data.setdefault("channels", [])
+    have = {c["address"] for c in channels}
+
+    for entry in apply_tier1_filter(tier3_channels):
+        if entry["address"] not in have:
+            channels.append(dict(entry))
+
+    meta = data.setdefault("_metadata", {})
+    meta["total_channels"] = len(channels)
+    return data
+
+
+# ---------------------------------------------------------------------------
 # Cross-paradigm identity gate
 # ---------------------------------------------------------------------------
 
@@ -349,21 +480,28 @@ def _dump(path: Path, data: dict[str, Any]) -> None:
 
 
 def generate(source_dir: Path | str, dest_dir: Path | str | None = None) -> dict[str, Path]:
-    """Regenerate the three tier-3 channel databases from ``source_dir``.
+    """Regenerate the shipped tier-3 and tier-1 channel databases.
 
     Grows the ALS-U AR SR-ring families to their full :data:`ALS_U_AR`
     inventory while preserving every other address byte-for-byte, writes the
-    result to ``dest_dir`` (defaults to ``source_dir`` -- an in-place
-    regeneration), and verifies cross-paradigm address identity before
-    returning.
+    three tier-3 paradigms to ``dest_dir`` (defaults to ``source_dir`` -- an
+    in-place regeneration), and verifies cross-paradigm address identity.
+
+    If a sibling ``../tier1/in_context.json`` exists (the standard shipped
+    layout), it is also regenerated as the tier-1 subset of the freshly grown
+    tier-3 ``in_context`` inventory (see :data:`TIER1_FILTER`). The tier-1
+    derivation is merge-preserve, so an already-current tier 1 is rewritten
+    byte-identically.
 
     Args:
         source_dir: Directory containing the three shipped tier-3 files.
-        dest_dir: Directory to write the regenerated files to. Defaults to
-            ``source_dir``.
+        dest_dir: Directory to write the regenerated tier-3 files to. Defaults
+            to ``source_dir``. Tier 1 is written to ``dest_dir/../tier1``.
 
     Returns:
-        ``{format_name: written_path}`` for the three tier-3 files.
+        ``{format_name: written_path}`` for every regenerated file. Always the
+        three tier-3 paradigms; additionally ``"tier1_in_context"`` when a
+        sibling tier-1 database was present and regenerated.
     """
     source_dir = Path(source_dir)
     dest_dir = Path(dest_dir) if dest_dir is not None else source_dir
@@ -381,6 +519,18 @@ def generate(source_dir: Path | str, dest_dir: Path | str | None = None) -> dict
     verify_cross_paradigm_identity(
         written["hierarchical"], written["in_context"], written["middle_layer"]
     )
+
+    # Tier 1 is a declared subset of tier 3, kept beside the tier-3 dir. When
+    # the shipped tier-1 database is present, keep it in sync from the grown
+    # tier-3 in_context inventory just written.
+    tier1_src = source_dir.parent / TIER1_DIRNAME / TIER1_IN_CONTEXT_FILENAME
+    if tier1_src.exists():
+        tier1_dest = dest_dir.parent / TIER1_DIRNAME / TIER1_IN_CONTEXT_FILENAME
+        tier1_data = _grow_in_context_tier1(_load(tier1_src), ctx_data["channels"])
+        tier1_dest.parent.mkdir(parents=True, exist_ok=True)
+        _dump(tier1_dest, tier1_data)
+        written["tier1_in_context"] = tier1_dest
+
     return written
 
 
