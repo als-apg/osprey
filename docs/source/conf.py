@@ -327,6 +327,13 @@ mermaid_output_format = "raw"
 # Mermaid version to use
 mermaid_version = "11.8.0"
 
+# Size each diagram to its own aspect ratio. The extension's default is a flat
+# `height: 500px` on every rendered SVG, which letterboxes a wide `flowchart LR`
+# into a near-square box (the multi-user diagram is 6.5:1 but rendered at
+# 0.98:1, ~68% of it empty). "auto" lets the browser derive height from the
+# SVG's viewBox instead.
+mermaid_height = "auto"
+
 # Mermaid initialization with dynamic light/dark theme support
 mermaid_init_js = """
 // Disable automatic initialization to control rendering manually

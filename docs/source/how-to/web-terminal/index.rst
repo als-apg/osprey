@@ -47,13 +47,13 @@ between companion tools without ever leaving the page.
 
       Add your own tools as themed side panels that sit beside the chat.
 
-   .. grid-item-card:: Multi-user demo
-      :link: multi-user-demo
+   .. grid-item-card:: Multi-user
+      :link: multi-user
       :link-type: doc
       :shadow: md
 
-      Stand up the two-persona demo — an operator and a physicist, one
-      container each — with a single build and deploy.
+      Serve a whole team from one host — a landing page plus a private
+      containerized terminal per user, in capability tiers.
 
 .. toctree::
    :hidden:
@@ -61,4 +61,4 @@ between companion tools without ever leaving the page.
    operate
    theming
    panels
-   multi-user-demo
+   multi-user
