@@ -66,7 +66,7 @@ dependencies = [
     # als-apg routing). >=0.1.46 needed for list_subagents/
     # get_subagent_messages, which the e2e trace collector uses to read sub-agent
     # transcripts (CLI >=2.1.x no longer streams them through query()).
-    "claude-agent-sdk==0.2.110",
+    "claude-agent-sdk==0.2.123",
     # Data processing - required for archiver connectors and data handling
     # Archiver connectors return pandas DataFrames for time-series data
     "pandas>=2.2.3",
