@@ -219,6 +219,13 @@ class VisualTarget:
     # the baseline shows the actual working interface.
     dismiss_welcome: bool = False
     wait_selector: str | None = None
+    # The web-terminal hub now boots a dockview workspace (dock-workspace.js)
+    # whose default artifacts panel docks as an overlay iframe (dock-iframe.js).
+    # Unlike the pre-dock split, the grid and its overlay settle a beat after the
+    # rail renders, so ``dock_shell`` targets wait for the dockview grid AND the
+    # auto-docked artifacts overlay iframe to be on screen before the screenshot —
+    # otherwise the baseline can capture a half-built (empty) grid.
+    dock_shell: bool = False
     # UI-mode axis. Mode-aware surfaces capture the full theme x mode matrix
     # (baseline ``{name}_{theme}_{mode}.png``); ``(None,)`` keeps a surface on
     # the theme-only pair with the original ``{name}_{theme}.png`` names (the
@@ -314,7 +321,11 @@ TARGETS: list[VisualTarget] = [
         _web_terminal_hub_server,
         path="/",
         dismiss_welcome=True,
-        wait_selector='button[data-panel-id="artifacts"]',
+        # Scope to the rail button: overlay iframes now also carry
+        # data-panel-id="artifacts" in the docked shell, so the bare attribute
+        # selector is ambiguous.
+        wait_selector='button.panel-rail-button[data-panel-id="artifacts"]',
+        dock_shell=True,
         modes=MODES,
     ),
     VisualTarget(
@@ -467,6 +478,15 @@ def test_visual_snapshot(tmp_path, chromium_browser, target: VisualTarget, pytes
                         expect(page.locator(target.wait_selector)).to_be_attached(timeout=10_000)
                     if target.dismiss_welcome:
                         page.locator("#welcome-dismiss").click(timeout=15_000)
+                    if target.dock_shell:
+                        # The dockview grid and the auto-docked artifacts overlay
+                        # iframe settle a beat after the rail renders; wait for both
+                        # so the baseline captures the built default layout, not a
+                        # half-constructed (empty) grid.
+                        expect(page.locator(".dv-groupview").first).to_be_visible(timeout=10_000)
+                        expect(
+                            page.locator('.dock-iframe-overlay iframe[data-panel-id="artifacts"]')
+                        ).to_be_visible(timeout=10_000)
                     # Let async init (panel health polling, SSE-driven layout,
                     # font swaps) settle before the screenshot.
                     page.wait_for_timeout(600)

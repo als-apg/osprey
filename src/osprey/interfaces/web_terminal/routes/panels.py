@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import ipaddress
 import logging
 import socket
@@ -113,6 +114,21 @@ def _browser_panel_url(cp: dict) -> str:
     return f"{prefix}/panel/{cp['id']}"
 
 
+def _project_key(project_cwd: str | None) -> str:
+    """Return a stable, opaque per-project key for client-side layout persistence.
+
+    The key is the first 16 hex chars of the sha256 digest of the *resolved*
+    project directory path. Resolving first means equivalent paths (symlinks,
+    trailing slashes, ``.`` segments) collapse to one key, so the same project
+    yields the same key across server restarts, while distinct projects differ.
+
+    Used by the client as the ``osprey-dock-layout-<project_key>`` localStorage
+    suffix, so one browser origin can persist a separate dock layout per project.
+    """
+    resolved = str(Path(project_cwd).resolve()) if project_cwd else ""
+    return hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:16]
+
+
 @router.get("/api/panels")
 async def get_panels(request: Request):
     """Return the full panel state in one payload.
@@ -134,7 +150,13 @@ async def get_panels(request: Request):
             "allow_runtime_panels": bool,  # whether the human "+" may add a URL panel
             "presets":  [...],          # config-defined layouts: [{"name", "panels": [id,...]}]
             "ui_mode":  str,            # resolved web.ui_mode ("expert" | "simple")
+            "project_key": str,         # stable 16-hex per-project key (layout persistence)
         }
+
+    ``project_key`` is an opaque, stable per-project identifier (16 hex chars,
+    a truncated sha256 of the resolved project directory). The client uses it as
+    the ``osprey-dock-layout-<project_key>`` localStorage suffix so dock layouts
+    persist independently per project on a shared browser origin.
 
     ``ui_mode`` mirrors the server-rendered ``<html data-ui-mode>`` attribute so
     the client can read the resolved mode after boot. First paint must never
@@ -173,6 +195,7 @@ async def get_panels(request: Request):
     # "expert" default mirrors app.DEFAULT_UI_MODE — kept as a literal here to
     # avoid a routes->app import cycle.
     ui_mode = getattr(request.app.state, "web_ui_mode", "expert")
+    project_key = _project_key(getattr(request.app.state, "project_cwd", None))
     return {
         "enabled": enabled,
         "custom": custom,
@@ -183,6 +206,7 @@ async def get_panels(request: Request):
         "allow_runtime_panels": allow_runtime,
         "presets": presets,
         "ui_mode": ui_mode,
+        "project_key": project_key,
     }
 
 

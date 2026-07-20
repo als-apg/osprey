@@ -1,0 +1,94 @@
+/* OSPREY Web Terminal — dockview theme bridge
+ *
+ * Maps dockview-core's `--dv-*` custom properties onto OSPREY design tokens so
+ * the docking chrome (tab strips, group surfaces, sashes, drop targets, floating
+ * groups, context menus) reads as part of the OSPREY UI instead of dockview's
+ * stock GitHub/abyss palettes. Loaded AFTER the vendored dockview.css (see
+ * index.html) so these overrides win the cascade.
+ *
+ * Theme following is token-driven, not duplicated per mode: every value below
+ * resolves to an OSPREY token whose own value already flips with the active
+ * `html[data-theme]` (tokens.css owns that), so ONE mapping covers both light and
+ * dark. dock-workspace.js additionally swaps dockview's own `dockview-theme-dark`
+ * / `dockview-theme-light` base class on #dock-root as the live theme changes, so
+ * any base `--dv-*` var not remapped here still falls back to a correct
+ * light/dark default rather than a fixed one.
+ *
+ * The `--dv-*` declarations are intentionally scoped to dockview's theme classes
+ * (never `:root` or `[data-theme=...]`) — the design-system hygiene scanner
+ * forbids defining custom properties in those blocks outside design_system/.
+ *
+ * Selector shape: the vendored dockview-core BUNDLE injects its own copy of
+ * dockview.css into <head> at load time — AFTER these <link>ed overrides — so a
+ * bare `.dockview-theme-*` selector would lose the order tiebreak to the stock
+ * theme blocks. Compounding with `.dock-root` (and covering the `.dv-shell`
+ * element dockview stamps its own theme class on, which sits BETWEEN the root
+ * and every panel) wins on specificity instead of order, deterministically.
+ */
+
+.dock-root.dockview-theme-dark,
+.dock-root.dockview-theme-light,
+.dock-root .dv-shell.dockview-theme-dark,
+.dock-root .dv-shell.dockview-theme-light {
+  /* Surfaces */
+  --dv-group-view-background-color: var(--bg-primary);
+  --dv-tabs-and-actions-container-background-color: var(--bg-secondary);
+  --dv-activegroup-visiblepanel-tab-background-color: var(--bg-primary);
+  --dv-activegroup-hiddenpanel-tab-background-color: var(--bg-secondary);
+  --dv-inactivegroup-visiblepanel-tab-background-color: var(--bg-secondary);
+  --dv-inactivegroup-hiddenpanel-tab-background-color: var(--bg-secondary);
+
+  /* Tab text: the active tab reads primary, everything backgrounded is dimmer. */
+  --dv-activegroup-visiblepanel-tab-color: var(--text-primary);
+  --dv-activegroup-hiddenpanel-tab-color: var(--text-secondary);
+  --dv-inactivegroup-visiblepanel-tab-color: var(--text-secondary);
+  --dv-inactivegroup-hiddenpanel-tab-color: var(--text-muted);
+
+  /* Borders / separators (all consumed as bare colors by dockview.css). */
+  --dv-separator-border: var(--border-default);
+  --dv-tab-divider-color: var(--border-default);
+  --dv-paneview-header-border-color: var(--border-default);
+  --dv-sash-color: var(--border-default);
+
+  /* Accent-driven interaction: resize sash, drop target, focus outline. */
+  --dv-active-sash-color: var(--color-accent);
+  --dv-paneview-active-outline-color: var(--color-accent);
+  --dv-drag-over-background-color: var(--accent-tint-20);
+  --dv-drag-over-border: 2px solid var(--color-accent);
+  --dv-icon-hover-background-color: var(--bg-elevated);
+
+  /* Floating groups + context menu (elevated overlay surfaces). */
+  --dv-floating-box-shadow: var(--shadow-dialog);
+  --dv-floating-titlebar-background-color: var(--bg-secondary);
+  --dv-context-menu-background-color: var(--bg-elevated);
+  --dv-context-menu-color: var(--text-primary);
+  --dv-tabs-container-scrollbar-color: var(--border-default);
+
+  /* Type + shape + motion onto the emitted scales (flat OSPREY chrome). */
+  --dv-tab-font-size: var(--text-sm);
+  --dv-tab-border-radius: var(--radius-none);
+  --dv-border-radius: var(--radius-none);
+  --dv-sash-border-radius: var(--radius-none);
+  --dv-tab-group-chip-border-radius: var(--radius-sm);
+  --dv-dropdown-border-radius: var(--radius-md);
+  --dv-transition-duration: var(--duration-fast);
+  --dv-active-sash-transition-duration: var(--duration-fast);
+}
+
+/* Terminal panel de-labeling: its card carries its own `.terminal-header`
+ * ("Session" label + New-session control), so the terminal panel's dock tab
+ * title is left empty (see dock-workspace.js) to avoid a double label. An empty
+ * title renders an empty `.dv-default-tab-content`, so `:empty` targets exactly
+ * that de-labeled tab — no panel-id selector needed — and keeps it a minimal but
+ * still-grabbable drag handle rather than collapsing to nothing. */
+.dv-tab .dv-default-tab-content:empty {
+  min-width: var(--space-5);
+}
+
+/* Simple mode is a locked layout. dock-workspace.js disables drag/float
+ * (disableDnd) and sash resize (api.locked) at runtime; closing a panel is a
+ * click rather than a drag, so its per-tab close control is suppressed here.
+ * display:none overrides dockview's own visibility toggle on the active tab. */
+html[data-ui-mode="simple"] .dv-tab .dv-default-tab-action {
+  display: none;
+}

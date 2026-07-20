@@ -15,7 +15,14 @@
  * state and issues no fetches — the parent (panel-manager) passes closures for
  * the two actions and for the current hidden-panel/allow-URL state, so the menu
  * stays a dumb view over whatever the panel manager knows.
+ *
+ * The one dock coupling: a "Show panel" pick docks the revealed panel BESIDE the
+ * active dock group (dock-sync.dockPanelBesideActive) before the reveal POST, so
+ * it lands where the operator is working rather than on the adapter's default
+ * anchor. That call no-ops without a dockview shell, keeping the menu portable.
  */
+
+import { dockPanelBesideActive } from './dock-sync.js';
 
 /**
  * @typedef {object} HiddenPanel
@@ -170,6 +177,10 @@ export function initPanelAddMenu(opts) {
         // textContent — panel.label is server/agent-supplied JSON (never innerHTML).
         item.textContent = panel.label;
         item.addEventListener('click', () => {
+          // Dock the placeholder beside the active group first, then reveal it —
+          // the adapter adopts the pre-placed placeholder by id (no-op without a
+          // dock shell). The reveal itself POSTs the visibility + focus.
+          dockPanelBesideActive(panel.id, panel.label);
           opts.onShowPanel(panel.id);
           closeMenu();
         });
