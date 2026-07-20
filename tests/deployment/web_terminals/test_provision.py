@@ -425,6 +425,234 @@ def test_env_production_local_mode_defaults_when_image_source_absent_is_registry
 
 
 # ---------------------------------------------------------------------------
+# ensure_env_production -- claude_code provider auth-secret coverage. The
+# generator must ship the auth secret of every claude_code.provider a web
+# container will actually authenticate with (deploy config's own on the
+# zero-migration path, each referenced persona project's under a catalog),
+# and must fail loudly -- not generate a dead file -- when one is missing.
+# ---------------------------------------------------------------------------
+
+
+def _write_persona_project(tmp_path, name, provider):
+    project_dir = tmp_path / name
+    project_dir.mkdir()
+    (project_dir / "config.yml").write_text(
+        f"project_name: {name}\nclaude_code:\n  provider: {provider}\n", encoding="utf-8"
+    )
+    return name  # catalog project_path, relative to the deploy project root
+
+
+def _persona_config(tmp_path, personas: dict[str, str]) -> dict:
+    """A local-mode deploy config whose catalog references rendered persona
+    projects, one per ``{persona_name: provider}`` entry."""
+    catalog = {
+        persona: {
+            "project": f"{persona}-proj",
+            "project_path": _write_persona_project(tmp_path, f"{persona}-proj", provider),
+        }
+        for persona, provider in personas.items()
+    }
+    first = next(iter(personas))
+    return {
+        "facility": {"timezone": "UTC"},
+        "modules": {
+            "web_terminals": {
+                "enabled": True,
+                "image_source": "local",
+                "default_persona": first,
+                "personas": catalog,
+                "users": [
+                    {"name": "alice", "index": 0, "persona": persona} for persona in personas
+                ],
+            },
+        },
+    }
+
+
+def test_env_production_zero_migration_copies_own_claude_code_secret(tmp_path):
+    """No persona catalog: the deploy config's own claude_code.provider is what
+    the web container runs, so its auth secret is copied -- and required."""
+    _write_dotenv(tmp_path / ".env", {"CBORG_API_KEY": "cc-secret"})
+    config = {
+        "facility": {},
+        "claude_code": {"provider": "cborg"},
+        "modules": {"web_terminals": {"image_source": "local"}},
+    }
+
+    generated = provision.parse_dotenv_file(provision.ensure_env_production(config, tmp_path))
+
+    assert generated["CBORG_API_KEY"] == "cc-secret"
+
+
+def test_env_production_copies_each_persona_projects_claude_code_secret(tmp_path):
+    """Persona catalog: every referenced persona project's own provider secret
+    ships, even when the deploy config's provider differs."""
+    _write_dotenv(
+        tmp_path / ".env",
+        {"ALS_APG_API_KEY": "persona-secret", "CBORG_API_KEY": "deploy-secret"},
+    )
+    config = _persona_config(tmp_path, {"operator": "als-apg"})
+    config["claude_code"] = {"provider": "cborg"}
+
+    generated = provision.parse_dotenv_file(provision.ensure_env_production(config, tmp_path))
+
+    assert generated["ALS_APG_API_KEY"] == "persona-secret"
+    # The deploy config's own provider secret is copied too (extra, not required).
+    assert generated["CBORG_API_KEY"] == "deploy-secret"
+
+
+def test_env_production_missing_persona_claude_code_secret_raises_actionably(tmp_path):
+    """A referenced persona's provider secret absent from .env must raise --
+    naming the var, the provider, and the persona -- never generate a file
+    that produces healthy-looking, unauthenticated terminals."""
+    _write_dotenv(tmp_path / ".env", {"SOMETHING_ELSE": "x"})
+    config = _persona_config(tmp_path, {"operator": "als-apg"})
+
+    with pytest.raises(RuntimeError, match=r"ALS_APG_API_KEY.*\.env") as excinfo:
+        provision.ensure_env_production(config, tmp_path)
+
+    assert "als-apg" in str(excinfo.value)
+    assert "operator" in str(excinfo.value)
+    assert not (tmp_path / ".env.production").exists()
+
+
+def test_env_production_deploy_configs_own_secret_not_required_under_catalog(tmp_path):
+    """With a persona catalog in play the per-user containers run persona
+    projects, so the deploy config's own provider secret is copy-if-present
+    but its absence must NOT fail the deploy."""
+    _write_dotenv(tmp_path / ".env", {"ALS_APG_API_KEY": "persona-secret"})
+    config = _persona_config(tmp_path, {"operator": "als-apg"})
+    config["claude_code"] = {"provider": "anthropic"}  # ANTHROPIC_API_KEY not in .env
+
+    generated = provision.parse_dotenv_file(provision.ensure_env_production(config, tmp_path))
+
+    assert generated["ALS_APG_API_KEY"] == "persona-secret"
+    assert "ANTHROPIC_API_KEY" not in generated
+
+
+def test_env_production_custom_provider_secret_derived_from_api_providers(tmp_path):
+    """A custom proxy provider (defined under api.providers, not built in)
+    derives <NAME>_API_KEY -- the same rule the launch-time resolver uses."""
+    _write_dotenv(tmp_path / ".env", {"MY_PROXY_API_KEY": "custom-secret"})
+    config = {
+        "facility": {},
+        "api": {"providers": {"my-proxy": {"base_url": "https://proxy.example.org"}}},
+        "claude_code": {"provider": "my-proxy"},
+        "modules": {"web_terminals": {"image_source": "local"}},
+    }
+
+    generated = provision.parse_dotenv_file(provision.ensure_env_production(config, tmp_path))
+
+    assert generated["MY_PROXY_API_KEY"] == "custom-secret"
+
+
+def test_env_production_unknown_provider_is_skipped_not_raised(tmp_path):
+    """A provider name known neither to CLAUDE_CODE_PROVIDERS nor to
+    api.providers contributes nothing here -- rejecting it is the launch-time
+    resolver's job, with its own actionable error."""
+    _write_dotenv(tmp_path / ".env", {"CBORG_API_KEY": "x"})
+    config = {
+        "facility": {},
+        "claude_code": {"provider": "frobnicator"},
+        "modules": {"web_terminals": {"image_source": "local"}},
+    }
+
+    result = provision.ensure_env_production(config, tmp_path)
+
+    assert result.is_file()
+
+
+def test_env_production_stale_existing_file_without_credentials_warns(tmp_path, caplog):
+    """The never-clobber rule keeps a stale pre-provider-change file in
+    service; the deploy must at least say so, naming the missing var."""
+    (tmp_path / ".env.production").write_text("TZ=UTC\n", encoding="utf-8")
+    config = _persona_config(tmp_path, {"operator": "als-apg"})
+
+    with caplog.at_level("WARNING"):
+        result = provision.ensure_env_production(config, tmp_path)
+
+    assert result.read_text(encoding="utf-8") == "TZ=UTC\n"  # still never clobbered
+    assert "ALS_APG_API_KEY" in caplog.text
+    assert "none of the LLM credential" in caplog.text
+
+
+def test_env_production_existing_file_with_credential_does_not_warn(tmp_path, caplog):
+    (tmp_path / ".env.production").write_text("ALS_APG_API_KEY=ok\n", encoding="utf-8")
+    config = _persona_config(tmp_path, {"operator": "als-apg"})
+
+    with caplog.at_level("WARNING"):
+        provision.ensure_env_production(config, tmp_path)
+
+    assert "none of the LLM credential" not in caplog.text
+
+
+# ---------------------------------------------------------------------------
+# _warn_if_web_stack_unreachable -- advisory post-up host-reachability probe
+# (the Docker Desktop network_mode:host trap: healthy stack, unreachable host).
+# ---------------------------------------------------------------------------
+
+_PROBE_CONFIG = {"modules": {"web_terminals": {"enabled": True, "nginx_port": 9080}}}
+
+
+def test_web_stack_reachable_no_warning(monkeypatch, caplog):
+    class _Resp:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setattr(provision.urllib.request, "urlopen", lambda url, timeout: _Resp())
+
+    with caplog.at_level("WARNING"):
+        provision._warn_if_web_stack_unreachable(_PROBE_CONFIG, attempts=2, delay=0)
+
+    assert "not reachable" not in caplog.text
+
+
+def test_web_stack_unreachable_warns_with_docker_desktop_hint(monkeypatch, caplog):
+    def _refuse(url, timeout):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(provision.urllib.request, "urlopen", _refuse)
+    monkeypatch.setattr(provision.sys, "platform", "darwin")
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+
+    with caplog.at_level("WARNING"):
+        provision._warn_if_web_stack_unreachable(_PROBE_CONFIG, attempts=2, delay=0)
+
+    assert "http://127.0.0.1:9080/" in caplog.text
+    assert "Enable host networking" in caplog.text
+
+
+def test_web_stack_unreachable_on_linux_warns_without_desktop_hint(monkeypatch, caplog):
+    def _refuse(url, timeout):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(provision.urllib.request, "urlopen", _refuse)
+    monkeypatch.setattr(provision.sys, "platform", "linux")
+    monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
+
+    with caplog.at_level("WARNING"):
+        provision._warn_if_web_stack_unreachable(_PROBE_CONFIG, attempts=2, delay=0)
+
+    assert "not reachable" in caplog.text
+    assert "Enable host networking" not in caplog.text
+
+
+def test_web_stack_http_error_counts_as_reachable(monkeypatch, caplog):
+    def _http_error(url, timeout):
+        raise provision.urllib.error.HTTPError(url, 502, "Bad Gateway", None, None)
+
+    monkeypatch.setattr(provision.urllib.request, "urlopen", _http_error)
+
+    with caplog.at_level("WARNING"):
+        provision._warn_if_web_stack_unreachable(_PROBE_CONFIG, attempts=2, delay=0)
+
+    assert "not reachable" not in caplog.text
+
+
+# ---------------------------------------------------------------------------
 # build_persona_images -- local-mode per-persona image builder
 # ---------------------------------------------------------------------------
 

@@ -681,13 +681,16 @@ def test_local_mode_unresolvable_persona_raises_before_any_compose_call(
     assert _mode_wiring_collab == []  # no compose subprocess ever ran
 
 
-def test_local_mode_calls_ensure_env_production_then_auto_render_then_build_then_compose(
+def test_local_mode_calls_auto_render_then_ensure_env_production_then_build_then_compose(
     monkeypatch, tmp_path, _mode_wiring_collab
 ):
-    """The local-mode preflight order is load-bearing: ensure_env_production,
-    THEN auto-render any missing persona project, THEN build its image, THEN
-    compose. A spy on _auto_render_missing_personas (overriding the fixture's
-    inert stub) proves the wiring line actually runs it -- and runs it BEFORE
+    """The local-mode preflight order is load-bearing: auto-render any missing
+    persona project FIRST, then ensure_env_production, then build the image,
+    then compose. ensure_env_production's claude_code credential sweep reads
+    each rendered persona's config.yml, so on a first deploy it must run
+    after auto-render (and still before any compose call). A spy on
+    _auto_render_missing_personas (overriding the fixture's inert stub)
+    proves the wiring line actually runs it -- and runs it BEFORE
     build_persona_images, which needs the rendered context to exist."""
     order: list[str] = []
     config = _web_terminals_config("local")
@@ -719,8 +722,8 @@ def test_local_mode_calls_ensure_env_production_then_auto_render_then_build_then
     # the web `up -d`; no deployed_services, no pull in local mode) after all
     # three preflight steps, in this order.
     assert order == [
-        "ensure_env_production",
         "auto_render",
+        "ensure_env_production",
         "build_persona_images",
         "compose",
         "compose",
