@@ -4,7 +4,7 @@ Proves three frontend behaviors that the FastAPI TestClient cannot reach because
 it doesn't run a real browser or a live SSE stream:
 
   CC-1  hide-active switches / empty-states
-  CF-2  register adds a tab without rebuilding existing tabs (no renderTabs call)
+  CF-2  register adds a rail entry without rebuilding existing ones (no createRail call)
   CC-3  register does NOT auto-activate the new tab
 
 Each test launches a real uvicorn server in a background thread, drives events
@@ -40,7 +40,7 @@ try:
 except ImportError:  # pragma: no cover
     _PLAYWRIGHT_AVAILABLE = False
 
-pytestmark = pytest.mark.slow
+pytestmark = [pytest.mark.browser, pytest.mark.slow]
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +194,7 @@ def _open_page(browser, base_url: str) -> Page:
 
 
 def test_visibility_hide_and_show(tmp_path, chromium_browser):
-    """SSE panel_visibility toggles .tab-hidden so the tab appears and disappears.
+    """SSE panel_visibility toggles .panel-rail-hidden so the entry appears and disappears.
 
     Arrange: both artifacts and data-viz are visible at page load.
     Act: POST hide → POST show via /api/panel-visibility.
@@ -223,7 +223,7 @@ def test_visibility_hide_and_show(tmp_path, chromium_browser):
         )
         assert r.status_code == 200
 
-        # Assert — SSE adds .tab-hidden (display:none), so tab is no longer visible
+        # Assert — SSE adds .panel-rail-hidden (display:none), so tab is no longer visible
         expect(data_viz_tab).not_to_be_visible(timeout=5_000)
 
         # Act — broadcast show event
@@ -233,7 +233,7 @@ def test_visibility_hide_and_show(tmp_path, chromium_browser):
         )
         assert r.status_code == 200
 
-        # Assert — .tab-hidden removed, tab visible again
+        # Assert — .panel-rail-hidden removed, tab visible again
         expect(data_viz_tab).to_be_visible(timeout=5_000)
 
         page.close()
@@ -289,8 +289,8 @@ def test_hide_last_visible_panel_shows_empty_state(tmp_path, chromium_browser):
 def test_register_adds_tab_non_destructively(tmp_path, chromium_browser):
     """CF-2/CC-3: panel_register appends a tab; active tab is intact; not auto-activated.
 
-    CF-2: addPanel() appends exactly one <button> to #header-tabs WITHOUT calling
-          renderTabs() (which does innerHTML='' and destroys live state).
+    CF-2: addPanel() appends exactly one <button> to #panel-rail WITHOUT calling
+          createRail() (which does replaceChildren() and destroys live state).
     CC-3: the newly registered panel is NOT auto-activated — activateTab() is not
           called, so the new tab never gets the 'active' CSS class.
 
@@ -315,7 +315,7 @@ def test_register_adds_tab_non_destructively(tmp_path, chromium_browser):
         expect(artifacts_active).to_be_attached(timeout=10_000)
 
         # Record DOM state: count tabs so we can verify exactly one was appended.
-        initial_tab_count = page.locator(".header-tab").count()
+        initial_tab_count = page.locator(".panel-rail-button").count()
 
         # Act — register a new panel; patch SSRF validation (async) to always pass
         with patch(
@@ -337,12 +337,12 @@ def test_register_adds_tab_non_destructively(tmp_path, chromium_browser):
         # Iframes also carry data-panel-id; target the button specifically.
         monitor_tab = page.locator('button[data-panel-id="monitor"]')
         expect(monitor_tab).to_be_visible(timeout=5_000)
-        final_tab_count = page.locator(".header-tab").count()
+        final_tab_count = page.locator(".panel-rail-button").count()
         assert final_tab_count == initial_tab_count + 1, (
             f"Expected exactly one new tab; tab delta was {final_tab_count - initial_tab_count}"
         )
 
-        # Assert CF-2 cont. — artifacts tab still active (renderTabs() clears 'active')
+        # Assert CF-2 cont. — artifacts tab still active (createRail() clears 'active')
         expect(artifacts_active).to_be_attached(timeout=2_000)
 
         # Assert CC-3 — monitor tab is present but NOT active
@@ -377,7 +377,7 @@ def test_add_menu_reveals_hidden_panel(tmp_path, chromium_browser):
         page = _open_page(chromium_browser, base_url)
         # Scope to the tab strip: once the "+" menu opens, its menu item also
         # carries data-panel-id="data-viz", so target the header tab specifically.
-        data_viz_tab = page.locator('button.header-tab[data-panel-id="data-viz"]')
+        data_viz_tab = page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
         expect(data_viz_tab).to_be_visible(timeout=10_000)
 
         # Hide it so it becomes a known-but-hidden panel the "+" menu can offer.
@@ -396,6 +396,64 @@ def test_add_menu_reveals_hidden_panel(tmp_path, chromium_browser):
 
         # Assert — the tab is revealed again.
         expect(data_viz_tab).to_be_visible(timeout=5_000)
+
+        page.close()
+
+
+def test_add_menu_opens_unclipped_beside_rail(tmp_path, chromium_browser):
+    """The "+" popover renders fully on-screen, to the right of the rail.
+
+    The rail column is a narrow scroll container; if it also clips horizontally,
+    the popover (absolutely positioned outside it) is invisible, and focusing
+    the first menu item drags the whole rail off-screen via focus auto-scroll.
+    Playwright's visibility check does not see ancestor clipping, so this test
+    asserts geometry: menu box inside the viewport and past the rail edge, and
+    no horizontal scroll displacement of the rail region.
+    """
+    workspace = tmp_path / "_agent_data"
+    workspace.mkdir()
+
+    with _live_server(
+        workspace,
+        enabled_panels={"artifacts"},
+        custom_panels=[_CUSTOM_DATA_VIZ],
+    ) as (base_url, _app):
+        page = _open_page(chromium_browser, base_url)
+        expect(page.locator("#panel-add-btn")).to_be_visible(timeout=10_000)
+
+        # Hide a panel so the menu has a focusable "Show panel" item — the
+        # focus auto-scroll only fires when there is something to focus.
+        r = requests.post(
+            f"{base_url}/api/panel-visibility",
+            json={"panel": "data-viz", "visible": False},
+        )
+        assert r.status_code == 200
+        expect(
+            page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
+        ).not_to_be_visible(timeout=5_000)
+
+        page.locator("#panel-add-btn").click()
+        expect(page.locator(".panel-add-menu.open")).to_be_visible(timeout=5_000)
+
+        geo = page.evaluate(
+            """() => {
+                const menu = document.getElementById('panel-add-menu').getBoundingClientRect();
+                const btn = document.getElementById('panel-add-btn').getBoundingClientRect();
+                const region = document.querySelector('.panel-rail-region');
+                return {
+                    menuLeft: menu.left,
+                    menuRight: menu.right,
+                    btnLeft: btn.left,
+                    railWidth: region.getBoundingClientRect().width,
+                    railScrollLeft: region.scrollLeft,
+                    viewportWidth: window.innerWidth,
+                };
+            }"""
+        )
+        assert geo["railScrollLeft"] == 0, f"opening the menu horizontally scrolled the rail: {geo}"
+        assert geo["btnLeft"] >= 0, f'"+" button pushed off-screen: {geo}'
+        assert geo["menuLeft"] >= geo["railWidth"], f"menu not clear of the rail column: {geo}"
+        assert geo["menuRight"] <= geo["viewportWidth"], f"menu overflows viewport: {geo}"
 
         page.close()
 
@@ -425,9 +483,9 @@ def test_close_button_hides_panel(tmp_path, chromium_browser):
 
         # Act — reveal and click the "×" inside the tab.
         data_viz_tab.hover()
-        page.locator('button[data-panel-id="data-viz"] .tab-close').click()
+        page.locator('button[data-panel-id="data-viz"] .panel-rail-close').click()
 
-        # Assert — SSE echo added .tab-hidden, so the tab is gone.
+        # Assert — SSE echo added .panel-rail-hidden, so the tab is gone.
         expect(data_viz_tab).not_to_be_visible(timeout=5_000)
 
         page.close()
@@ -532,12 +590,12 @@ def test_reshow_after_empty_state_rebuilds_iframe(tmp_path, chromium_browser):
         custom_panels=[],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        artifacts_tab = page.locator('button.header-tab[data-panel-id="artifacts"]')
+        artifacts_tab = page.locator('button.panel-rail-button[data-panel-id="artifacts"]')
         expect(artifacts_tab).to_be_visible(timeout=10_000)
 
         # Close the only panel → empty state.
         artifacts_tab.hover()
-        page.locator('button[data-panel-id="artifacts"] .tab-close').click()
+        page.locator('button[data-panel-id="artifacts"] .panel-rail-close').click()
         expect(page.locator("#panel-content").get_by_text("No panels visible")).to_be_visible(
             timeout=5_000
         )
@@ -571,7 +629,7 @@ def test_keyboard_delete_closes_focused_tab(tmp_path, chromium_browser):
         custom_panels=[_CUSTOM_DATA_VIZ],
     ) as (base_url, _app):
         page = _open_page(chromium_browser, base_url)
-        data_viz_tab = page.locator('button.header-tab[data-panel-id="data-viz"]')
+        data_viz_tab = page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
         expect(data_viz_tab).to_be_visible(timeout=10_000)
 
         data_viz_tab.focus()
@@ -646,8 +704,8 @@ def test_apply_preset_shows_members_hides_rest(tmp_path, chromium_browser):
         ]
         page = _open_page(chromium_browser, base_url)
 
-        artifacts_tab = page.locator('button.header-tab[data-panel-id="artifacts"]')
-        data_viz_tab = page.locator('button.header-tab[data-panel-id="data-viz"]')
+        artifacts_tab = page.locator('button.panel-rail-button[data-panel-id="artifacts"]')
+        data_viz_tab = page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
         expect(artifacts_tab).to_be_visible(timeout=10_000)
         expect(data_viz_tab).to_be_visible(timeout=10_000)
 
@@ -657,9 +715,9 @@ def test_apply_preset_shows_members_hides_rest(tmp_path, chromium_browser):
 
         # Assert — data-viz is the sole visible tab and is active; artifacts hidden.
         expect(data_viz_tab).to_be_visible(timeout=5_000)
-        expect(page.locator('button.header-tab[data-panel-id="data-viz"].active')).to_be_attached(
-            timeout=5_000
-        )
+        expect(
+            page.locator('button.panel-rail-button[data-panel-id="data-viz"].active')
+        ).to_be_attached(timeout=5_000)
         expect(artifacts_tab).not_to_be_visible(timeout=5_000)
 
         # Assert — no blank state was left behind (show-before-hide ordering).
@@ -701,7 +759,7 @@ def test_apply_preset_offline_first_member_focuses_healthy(tmp_path, chromium_br
         ]
         page = _open_page(chromium_browser, base_url)
 
-        data_viz_tab = page.locator('button.header-tab[data-panel-id="data-viz"]')
+        data_viz_tab = page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
         expect(data_viz_tab).to_be_visible(timeout=10_000)
 
         page.locator("#panel-add-btn").click()
@@ -709,12 +767,12 @@ def test_apply_preset_offline_first_member_focuses_healthy(tmp_path, chromium_br
 
         # The healthy member becomes active (the offline primary cannot), and the
         # non-member artifacts tab is hidden — with no blank pane in between.
-        expect(page.locator('button.header-tab[data-panel-id="data-viz"].active')).to_be_attached(
-            timeout=5_000
-        )
-        expect(page.locator('button.header-tab[data-panel-id="artifacts"]')).not_to_be_visible(
-            timeout=5_000
-        )
+        expect(
+            page.locator('button.panel-rail-button[data-panel-id="data-viz"].active')
+        ).to_be_attached(timeout=5_000)
+        expect(
+            page.locator('button.panel-rail-button[data-panel-id="artifacts"]')
+        ).not_to_be_visible(timeout=5_000)
         expect(page.locator("#panel-content").get_by_text("No panels visible")).to_have_count(0)
 
         page.close()
@@ -766,12 +824,14 @@ def test_hidden_default_panel_falls_back_to_visible_panel(tmp_path, chromium_bro
 
             # The visible, healthy panel must be the one on screen.
             expect(
-                page.locator('button.header-tab[data-panel-id="data-viz"].active')
+                page.locator('button.panel-rail-button[data-panel-id="data-viz"].active')
             ).to_have_count(1, timeout=10_000)
             expect(page.locator('iframe[data-panel-id="data-viz"]')).to_be_visible(timeout=5_000)
 
             # ...and the hidden default must NOT have surfaced itself.
-            expect(page.locator('button.header-tab[data-panel-id="artifacts"]')).not_to_be_visible()
+            expect(
+                page.locator('button.panel-rail-button[data-panel-id="artifacts"]')
+            ).not_to_be_visible()
 
             page.close()
 
@@ -826,9 +886,11 @@ def test_hidden_default_settling_late_still_yields_slot(tmp_path, chromium_brows
             page.evaluate("document.getElementById('welcome-overlay')?.remove()")
 
             expect(
-                page.locator('button.header-tab[data-panel-id="data-viz"].active')
+                page.locator('button.panel-rail-button[data-panel-id="data-viz"].active')
             ).to_have_count(1, timeout=15_000)
-            expect(page.locator('button.header-tab[data-panel-id="artifacts"]')).not_to_be_visible()
+            expect(
+                page.locator('button.panel-rail-button[data-panel-id="artifacts"]')
+            ).not_to_be_visible()
 
             page.close()
 
@@ -887,15 +949,15 @@ def test_hidden_panel_does_not_auto_activate(tmp_path, chromium_browser):
             # go healthy.  Without this, a stub that never came up would make
             # every assertion below pass for the wrong reason.
             expect(
-                page.locator('button.header-tab[data-panel-id="data-viz"]:not(.disabled)')
+                page.locator('button.panel-rail-button[data-panel-id="data-viz"]:not(.disabled)')
             ).to_have_count(1, timeout=10_000)
 
-            data_viz_tab = page.locator('button.header-tab[data-panel-id="data-viz"]')
+            data_viz_tab = page.locator('button.panel-rail-button[data-panel-id="data-viz"]')
             # It stays hidden...
             expect(data_viz_tab).not_to_be_visible(timeout=5_000)
             # ...never becomes the active tab...
             expect(
-                page.locator('button.header-tab[data-panel-id="data-viz"].active')
+                page.locator('button.panel-rail-button[data-panel-id="data-viz"].active')
             ).to_have_count(0)
             # ...and its iframe is never mounted-and-shown.  activateTab is what
             # creates the iframe and clears .hidden, so a visible data-viz iframe

@@ -510,6 +510,36 @@ runSelect.addEventListener('change', () => {
   selectRun(runSelect.value);
 });
 
+/**
+ * In Simple mode the operator shouldn't have to hunt for the newest run — as
+ * soon as a run list exists (and nothing is already selected) surface the
+ * latest one front and center (the run list is newest-first, so the first real
+ * option is the newest). No-op in Expert, or when a run is already chosen (a
+ * `?run_id=` deep link or a manual pick).
+ */
+function maybeAutoSelectLatest() {
+  if (document.documentElement.dataset.uiMode !== 'simple') return;
+  if (state.runId) return;
+  const firstReal = runSelect.querySelector('option[value]:not([value=""])');
+  if (firstReal instanceof HTMLOptionElement) {
+    selectRun(firstReal.value);
+  }
+}
+
+// Live Expert<->Simple flip broadcast by the hub. mode-boot.js set the initial
+// data-ui-mode pre-paint; this is the runtime flip. The layout deltas are all
+// CSS (Simple hides the dense data table and run internals, keeping the run
+// picker, the outcome badge, and the trace plot); the one behavioral delta is
+// auto-surfacing the latest run when arriving in Simple with nothing selected.
+window.addEventListener('message', (e) => {
+  if (e.origin !== window.location.origin) return;
+  if (e.data && e.data.type === 'osprey-mode-change' && e.data.mode) {
+    const mode = e.data.mode === 'simple' ? 'simple' : 'expert';
+    document.documentElement.setAttribute('data-ui-mode', mode);
+    if (mode === 'simple') maybeAutoSelectLatest();
+  }
+});
+
 /** @returns {string|null} */
 function initialRunIdFromUrl() {
   try {
@@ -536,6 +566,9 @@ async function init() {
     selectRun(initial);
   } else if (loaded) {
     setEmptyState('Select a run above to view its results.');
+    // Simple mode surfaces the newest run without a manual pick (no-op in
+    // Expert, which opens on the empty state above).
+    maybeAutoSelectLatest();
   }
   // else: loadRunList() already set the unreachable-API empty state.
 }

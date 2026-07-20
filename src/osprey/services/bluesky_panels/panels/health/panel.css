@@ -232,3 +232,65 @@ body.embedded .panel-chrome {
   align-items: center;
   gap: 6px;
 }
+
+/* ---- UI-mode axis: Simple (operator-facing) deltas ----
+ *
+ * Expert stays pixel-identical to before: every rule below is gated on
+ * html[data-ui-mode="simple"]. Simple strips the diagnostic internals — probe
+ * kind, latency metric, raw detail text, the raw ok/unhealthy pill vocabulary,
+ * the legend — down to one plain-language overall line plus a single
+ * OK / Needs-attention word per service tile. Token-only, so both themes stay
+ * correct in both modes. */
+
+/* Present in the DOM in both modes; Expert never reveals them. */
+.rollup-plain,
+.card-status-simple {
+  display: none;
+}
+
+html[data-ui-mode="simple"] .lead,
+html[data-ui-mode="simple"] .rollup-label,
+html[data-ui-mode="simple"] #rollup-pill,
+html[data-ui-mode="simple"] .rollup-updated,
+html[data-ui-mode="simple"] .probe-kind,
+html[data-ui-mode="simple"] .metric,
+html[data-ui-mode="simple"] .card .detail,
+html[data-ui-mode="simple"] .card-header .pill,
+html[data-ui-mode="simple"] .footnote {
+  display: none;
+}
+
+html[data-ui-mode="simple"] .rollup-plain {
+  display: inline;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+html[data-ui-mode="simple"] .card-status-simple {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+}
+html[data-ui-mode="simple"] .card[data-status="ok"] .card-status-simple {
+  color: var(--color-success);
+  background: var(--success-tint-08);
+  border-color: var(--color-success);
+}
+html[data-ui-mode="simple"] .card[data-status="unhealthy"] .card-status-simple {
+  color: var(--color-error);
+  background: var(--error-tint-08);
+  border-color: var(--color-error);
+}
+html[data-ui-mode="simple"] .card[data-status="unknown"] .card-status-simple {
+  color: var(--text-muted);
+  background: var(--neutral-tint-08);
+  border-color: var(--border-default);
+}

@@ -260,3 +260,19 @@ body.embedded .panel-chrome { display: none; }
   height: 10px;
   border-radius: 2px;
 }
+
+/* ---- UI-mode axis: Simple (operator-facing) deltas ----
+ *
+ * Expert stays pixel-identical: every rule below is gated on
+ * html[data-ui-mode="simple"]. Simple keeps the latest-run essentials — the
+ * run picker, the outcome badge, and the trace plot — and drops the dense
+ * internals: the raw data table, the mono run-meta line (uid / completion /
+ * launched-by), and the plot's technical caption. panel.js auto-selects the
+ * newest run in this mode so the result is front and center. Token-only, so
+ * both themes stay correct. */
+html[data-ui-mode="simple"] .lead,
+html[data-ui-mode="simple"] #run-meta,
+html[data-ui-mode="simple"] #table-card,
+html[data-ui-mode="simple"] .chart-caption {
+  display: none;
+}

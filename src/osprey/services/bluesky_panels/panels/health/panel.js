@@ -69,8 +69,33 @@ const SERVICE_ORDER = [
 const rollupBanner = /** @type {HTMLElement} */ (document.getElementById('rollup-banner'));
 const rollupPill = /** @type {HTMLElement} */ (document.getElementById('rollup-pill'));
 const rollupUpdated = /** @type {HTMLElement} */ (document.getElementById('rollup-updated'));
+const rollupPlain = /** @type {HTMLElement} */ (document.getElementById('rollup-plain'));
 const unavailableEl = /** @type {HTMLElement} */ (document.getElementById('unavailable'));
 const grid = /** @type {HTMLElement} */ (document.getElementById('service-grid'));
+
+/**
+ * Plain-language restatement of a rollup/service status, shown only in Simple
+ * mode. Keeps the operator-facing surface free of the raw `unhealthy`/`unknown`
+ * vocabulary the Expert pills use.
+ *
+ * @param {string} status
+ * @returns {string}
+ */
+function plainRollup(status) {
+  if (status === 'ok') return 'Scan system ready';
+  if (status === 'unhealthy') return 'Scan system needs attention';
+  return 'Checking scan system…';
+}
+
+/**
+ * @param {string} status
+ * @returns {string}
+ */
+function plainService(status) {
+  if (status === 'ok') return 'OK';
+  if (status === 'unhealthy') return 'Needs attention';
+  return 'Checking…';
+}
 
 /**
  * @param {string} status
@@ -106,10 +131,11 @@ function renderCard(meta, health) {
   const latency = health ? formatLatency(health.latency_ms) : '—';
   const cardClass = status === 'unhealthy' ? 'card unhealthy' : 'card';
   return `
-    <article class="${cardClass}" data-service="${escapeHtml(meta.key)}">
+    <article class="${cardClass}" data-service="${escapeHtml(meta.key)}" data-status="${escapeHtml(status)}">
       <div class="card-header">
         <h2>${escapeHtml(meta.label)}</h2>
         <span class="${pillClass(status)}">${escapeHtml(status)}</span>
+        <span class="card-status-simple">${escapeHtml(plainService(status))}</span>
       </div>
       <p class="probe-kind">${escapeHtml(meta.probeKind)}</p>
       <div class="metric">
@@ -134,6 +160,7 @@ function renderUnavailable() {
   rollupPill.className = 'pill unknown';
   rollupPill.textContent = 'unavailable';
   rollupUpdated.textContent = '';
+  rollupPlain.textContent = 'Scan system status unavailable';
   grid.innerHTML = SERVICE_ORDER.map((meta) => renderCard(meta, undefined)).join('');
 }
 
@@ -148,6 +175,7 @@ function renderHealth(data) {
   rollupPill.className = pillClass(rollup);
   rollupPill.textContent = rollup;
   rollupUpdated.textContent = `updated ${new Date().toLocaleTimeString()}`;
+  rollupPlain.textContent = plainRollup(rollup);
 
   const byName = new Map((data.services || []).map((service) => [service.name, service]));
   grid.innerHTML = SERVICE_ORDER.map((meta) => renderCard(meta, byName.get(meta.key))).join('');
@@ -171,6 +199,19 @@ async function poll() {
     renderUnavailable();
   }
 }
+
+// Live Expert<->Simple flip broadcast by the hub. mode-boot.js already set the
+// initial data-ui-mode pre-paint; this is the runtime flip. Every mode delta
+// is CSS-only (both the plain rollup line and the per-card simple status word
+// are always in the DOM, gated by html[data-ui-mode]), so stamping the
+// attribute is all that's needed — no re-poll or re-render.
+window.addEventListener('message', (e) => {
+  if (e.origin !== window.location.origin) return;
+  if (e.data && e.data.type === 'osprey-mode-change' && e.data.mode) {
+    const mode = e.data.mode === 'simple' ? 'simple' : 'expert';
+    document.documentElement.setAttribute('data-ui-mode', mode);
+  }
+});
 
 poll();
 setInterval(poll, POLL_INTERVAL_MS);

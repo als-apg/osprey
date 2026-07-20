@@ -22,6 +22,21 @@ initTheme({ role: 'follower' });
 
 applyEmbedded();
 
+// Live Expert<->Simple switch broadcast by the hub's header toggle. The
+// pre-paint rung (mode-boot.js) already set the initial data-ui-mode; this is
+// the runtime flip. Coerce anything non-"simple" to "expert", re-stamp the
+// attribute (CSS deltas key off it), then re-mount the active view so the
+// in-context renderer repaints its plain cards <-> dense table. Mirrors the
+// ARIEL panel's app.js listener.
+window.addEventListener('message', (e) => {
+  if (e.origin !== window.location.origin) return;
+  if (e.data && e.data.type === 'osprey-mode-change' && e.data.mode) {
+    const mode = e.data.mode === 'simple' ? 'simple' : 'expert';
+    document.documentElement.setAttribute('data-ui-mode', mode);
+    remountCurrentView();
+  }
+});
+
 /** @typedef {{ mount: (container: HTMLElement) => void, unmount: () => void }} ViewModule */
 
 /** @type {Record<string, ViewModule>} */
@@ -98,6 +113,14 @@ function activateView(viewName) {
   currentView = viewName;
   state.setActiveView(viewName);
   VIEWS[viewName].mount(container);
+}
+
+/** Force a re-mount of the active view (e.g. after a live UI-mode flip). */
+function remountCurrentView() {
+  if (!currentView) return;
+  const view = currentView;
+  currentView = null;
+  activateView(view);
 }
 
 // ---- Navigation ----

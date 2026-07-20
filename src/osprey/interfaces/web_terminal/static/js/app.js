@@ -2,7 +2,7 @@
 
 import { initTerminal, fitTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal, clearStoredSessionId } from './terminal.js';
 import { onConnectionStateChange, fetchJSON, withPrefix } from './api.js';
-import { initPanelManager } from './panel-manager.js';
+import { initPanelManager, broadcastMode } from './panel-manager.js';
 import '/design-system/js/components/osprey-drawer.js';
 import { initSettings } from './settings.js';
 import { initMemoryGallery } from './memory-gallery.js';
@@ -21,6 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initKeyboardShortcuts();
   initNewSessionButton();
   initLogoutButton();
+  initModeToggle();
   initDrawerTriggerHighlight();
   initSettings();
   initMemoryGallery();
@@ -102,6 +103,36 @@ export function initLogoutButton() {
   });
 }
 
+/* ---- UI Mode Toggle (Expert / Simple) ---- */
+
+/**
+ * Wire the header segmented Expert/Simple toggle. The active segment is styled
+ * purely off html[data-ui-mode] (see terminal.css), and mode-boot.js already
+ * resolved the initial mode pre-paint; this only handles the runtime flip:
+ * swap the attribute, persist the explicit choice, drop a leftover one-shot
+ * ?mode= (mirrors theme-manager's _stripQueryTheme), and broadcast to panels.
+ */
+function initModeToggle() {
+  const STORAGE_KEY = 'osprey-ui-mode';
+  const toggle = document.getElementById('mode-toggle');
+  if (!toggle) return;
+
+  toggle.addEventListener('click', (e) => {
+    const target = e.target instanceof Element ? e.target.closest('.mode-segment') : null;
+    if (!(target instanceof HTMLElement)) return;
+    const mode = target.dataset.mode;
+    if (mode !== 'expert' && mode !== 'simple') return;
+
+    document.documentElement.setAttribute('data-ui-mode', mode);
+    try {
+      localStorage.setItem(STORAGE_KEY, mode);
+    } catch { /* storage blocked — mode still applies for this session */ }
+    stripQueryMode();
+    // Panels read the current mode off <html>, so broadcast only after the swap.
+    broadcastMode();
+  });
+}
+
 /**
  * `landing_url` comes from operator config, not user input, but it's still a
  * live navigation sink — reject anything that isn't a same-origin relative
@@ -119,6 +150,23 @@ function isSafeLandingUrl(/** @type {string} */ url) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Strip a one-shot `mode` param from the URL's query string, if present,
+ * without adding a history entry — the mode-axis twin of theme-manager's
+ * _stripQueryTheme(). Once the user makes an explicit choice, a leftover
+ * `?mode=` must not out-rank it (or localStorage) on the next reload.
+ */
+function stripQueryMode() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has('mode')) return;
+    params.delete('mode');
+    const query = params.toString();
+    const url = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
+    window.history.replaceState(window.history.state, '', url);
+  } catch { /* non-browser environment or a blocked history API — non-fatal */ }
 }
 
 /* ---- Drawer Trigger Highlight ---- */
@@ -207,14 +255,15 @@ function initResizeHandle() {
     rightPanel.style.flex = 'none';
     rightPanel.style.width = (totalWidth - termWidth) + 'px';
 
-    // Sync header split to match the panel split
+    // Sync header split to match the column split: the panel column is on the
+    // left (beside the rail), the terminal on the right.
     if (headerLeft) {
       headerLeft.style.flex = 'none';
-      headerLeft.style.width = termWidth + 'px';
+      headerLeft.style.width = (totalWidth - termWidth) + 'px';
     }
     if (headerRight) {
       headerRight.style.flex = 'none';
-      headerRight.style.width = (totalWidth - termWidth) + 'px';
+      headerRight.style.width = termWidth + 'px';
     }
   }
 
@@ -235,7 +284,9 @@ function initResizeHandle() {
     const dx = e.clientX - startX;
     const totalWidth = container.getBoundingClientRect().width - handleWidth;
 
-    let newTermWidth = startTermWidth + dx;
+    // The terminal is the RIGHT column: dragging the handle right widens the
+    // panel column and shrinks the terminal, so dx subtracts.
+    let newTermWidth = startTermWidth - dx;
     const minTerm = 280;
     const maxTerm = totalWidth * 0.85;
 
@@ -262,9 +313,6 @@ function initResizeHandle() {
     fitTerminal();
   });
 }
-
-/* ---- Docs Link ---- */
-// Documentation link is static — no backend call needed.
 
 /* ---- Iframe Paste Bridge ---- */
 

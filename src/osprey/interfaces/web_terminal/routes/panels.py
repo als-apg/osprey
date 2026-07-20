@@ -133,7 +133,13 @@ async def get_panels(request: Request):
             "labels":   {id: label},    # display labels for enabled built-in panels
             "allow_runtime_panels": bool,  # whether the human "+" may add a URL panel
             "presets":  [...],          # config-defined layouts: [{"name", "panels": [id,...]}]
+            "ui_mode":  str,            # resolved web.ui_mode ("expert" | "simple")
         }
+
+    ``ui_mode`` mirrors the server-rendered ``<html data-ui-mode>`` attribute so
+    the client can read the resolved mode after boot. First paint must never
+    depend on this field — the SSR attribute is the authoritative first-paint
+    rung; this is the API-side echo for later client mode resolution.
 
     ``presets`` is the config-defined "Layouts" list (``web.presets``), resolved
     at startup against the live panel set and carried in config order. It is
@@ -163,6 +169,10 @@ async def get_panels(request: Request):
     labels = {pid: BUILTIN_PANEL_LABELS[pid] for pid in enabled if pid in BUILTIN_PANEL_LABELS}
     allow_runtime = bool(getattr(request.app.state, "allow_runtime_panels", False))
     presets = list(getattr(request.app.state, "panel_presets", []))
+    # Echo the resolved UI mode (server-rendered onto <html data-ui-mode>).
+    # "expert" default mirrors app.DEFAULT_UI_MODE — kept as a literal here to
+    # avoid a routes->app import cycle.
+    ui_mode = getattr(request.app.state, "web_ui_mode", "expert")
     return {
         "enabled": enabled,
         "custom": custom,
@@ -172,6 +182,7 @@ async def get_panels(request: Request):
         "labels": labels,
         "allow_runtime_panels": allow_runtime,
         "presets": presets,
+        "ui_mode": ui_mode,
     }
 
 

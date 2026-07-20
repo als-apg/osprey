@@ -495,3 +495,108 @@ body.embedded .logo { display: none; }
   margin-top: var(--ariel-space-4);
   color: var(--text-secondary);
 }
+
+/* ================================================================
+   UI Mode: Simple (frame 1b)
+   Every delta gates on html[data-ui-mode="simple"]; Expert mode (the
+   default) is left untouched, so it stays pixel-identical to today.
+   The .nav-simple-link element ships hidden and only appears here.
+   ================================================================ */
+
+/* Header: the four-tab strip collapses to one plain-language browse link. */
+.nav-simple-link {
+  display: none;
+}
+
+html[data-ui-mode="simple"] .nav {
+  display: none;
+}
+
+html[data-ui-mode="simple"] .nav-simple-link {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--ariel-space-2) var(--ariel-space-4);
+  font-size: var(--ariel-text-sm);
+  font-weight: 500;
+  color: var(--color-accent-light);
+  border-radius: var(--ariel-radius-md);
+  text-decoration: none;
+  transition: all var(--transition-fast);
+}
+
+html[data-ui-mode="simple"] .nav-simple-link:hover {
+  color: var(--color-accent);
+  background: var(--surface-hover);
+  text-decoration: none;
+}
+
+/* Search view: one search box + button is all Simple mode exposes — hide the
+   mode tabs, the advanced-options bar, and its panel. Trim the hero to a
+   single friendly line by dropping the descriptive subtitle. */
+html[data-ui-mode="simple"] .search-mode-tabs,
+html[data-ui-mode="simple"] .search-options-bar,
+html[data-ui-mode="simple"] .advanced-panel {
+  display: none;
+}
+
+html[data-ui-mode="simple"] .search-hero p {
+  display: none;
+}
+
+/* Simple results header: a single friendly line, no modes/exec-time column. */
+.results-header-simple {
+  justify-content: flex-start;
+}
+
+/* Browse view degrades gracefully: hide the relevance score and the
+   keyword/attachment footer (advanced-only chrome) on Expert cards when they
+   are viewed under Simple mode. */
+html[data-ui-mode="simple"] .entry-card .score-badge,
+html[data-ui-mode="simple"] .entry-card .entry-card-footer {
+  display: none;
+}
+
+/* ---- Simple result cards (plain: title · date · author · summary) ---- */
+.entry-card-simple {
+  background: var(--surface-card);
+  border: 1px solid var(--neutral-tint-10);
+  border-radius: var(--ariel-radius-lg);
+  padding: var(--ariel-space-5);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.entry-card-simple:hover {
+  border-color: var(--neutral-tint-35);
+  background: var(--bg-secondary);
+}
+
+.entry-card-simple-title {
+  font-size: var(--ariel-text-lg);
+  font-weight: 600;
+  letter-spacing: var(--tracking-normal);
+  color: var(--text-primary);
+  margin-bottom: var(--ariel-space-2);
+}
+
+.entry-card-simple-meta {
+  font-size: var(--ariel-text-sm);
+  color: var(--text-muted);
+  margin-bottom: var(--ariel-space-3);
+}
+
+.entry-card-simple-summary {
+  color: var(--text-secondary);
+  line-height: var(--ariel-leading-relaxed);
+  margin-bottom: var(--ariel-space-3);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.entry-card-simple-link {
+  font-size: var(--ariel-text-sm);
+  font-weight: 500;
+  color: var(--color-accent-light);
+}

@@ -18,10 +18,21 @@ import {
   setCurrentSessionId,
   getShowAllSessions,
   setShowAllSessions,
+  getRecentArtifacts,
+  fileUrl,
   fetchArtifacts as fetchArtifactsData,
   fetchFocus,
 } from "./state.js";
-import { initTypeRegistry } from "./types.js";
+import {
+  initTypeRegistry,
+  thumbnailHtml,
+  typeIcon,
+  formatTime,
+  formatFullTime,
+  isNewThisSession,
+  openUrl,
+  escapeHtml,
+} from "./types.js";
 import { initSplitPaneResize, createSidebarRenderer } from "./render.js";
 import { createPreviewRenderer } from "./preview.js";
 import { renderTimeseriesView, _tsChartTheme } from "./timeseries.js";
@@ -35,6 +46,27 @@ const searchInput = /** @type {HTMLInputElement} */ (document.getElementById("se
 const sidebarBody = /** @type {HTMLElement} */ (document.getElementById("sidebar-body"));
 const sidebar = document.getElementById("browse-sidebar");
 const resizeHandle = document.getElementById("resize-handle");
+
+// ---- Simple-mode DOM refs (frame 2b) ----
+const simpleEmpty = document.getElementById("simple-empty");
+const simpleResult = document.getElementById("simple-result");
+const simpleResultTitle = document.getElementById("simple-result-title");
+const simpleResultBadge = /** @type {HTMLElement} */ (document.getElementById("simple-result-badge"));
+const simpleOpenFull = /** @type {HTMLAnchorElement} */ (document.getElementById("simple-open-full"));
+const simpleSave = /** @type {HTMLAnchorElement} */ (document.getElementById("simple-save"));
+const simpleResultPreview = document.getElementById("simple-result-preview");
+const simpleResultCaption = document.getElementById("simple-result-caption");
+const simpleListCount = document.getElementById("simple-list-count");
+const simpleListBody = /** @type {HTMLElement} */ (document.getElementById("simple-list-body"));
+const simpleShowAll = /** @type {HTMLElement} */ (document.getElementById("simple-show-all"));
+
+// Page-load timestamp for the "NEW" badge (an artifact created this session).
+// Independent of render.js's own _sessionStart; both are just page-load time.
+const _sessionStart = new Date().toISOString();
+// Simple mode's session list truncates to the most recent few until the user
+// clicks "Show all"; latched here so re-renders (SSE, fetch) keep it expanded.
+let simpleShowAllResults = false;
+const SIMPLE_LIST_LIMIT = 6;
 
 // ---- State ----
 // artifacts/selectedArtifact/focusedArtifact/activeFilter/currentSessionId/
@@ -93,6 +125,84 @@ function updateHeaderCount() {
   if (headerCount) /** @type {any} */ (headerCount).textContent = getArtifacts().length;
 }
 
+// ---- Simple Mode (frame 2b) ----
+// The Simple layout renders from the same artifact list + selection/focus
+// state as Expert, into its own #view-artifacts-simple section (shown only
+// under html[data-ui-mode="simple"]). renderSimple() is called alongside the
+// sidebar re-render on every data change, so switching modes shows fresh
+// content instantly. It writes into hidden DOM in Expert mode, which is cheap.
+
+/**
+ * The artifact Simple mode shows in the big latest-result card: the
+ * user-selected one if it's still in the list, else the agent-focused one,
+ * else the newest.
+ * @param {any[]} recent - newest-first artifact list
+ * @returns {any|null}
+ */
+function simpleResultArtifact(recent) {
+  const sel = getSelectedArtifact();
+  if (sel && recent.some((a) => a.id === sel.id)) return sel;
+  const foc = getFocusedArtifact();
+  if (foc && recent.some((a) => a.id === foc.id)) return foc;
+  return recent[0] || null;
+}
+
+/**
+ * Simple mode's inline preview. Reuses types.js's thumbnailHtml (same
+ * <img>/<iframe> markup the Expert preview builds) — the result card's CSS
+ * sizes it full-bleed rather than as a thumbnail.
+ * @param {any} a
+ * @returns {string}
+ */
+function simplePreviewHtml(a) {
+  return thumbnailHtml(a);
+}
+
+/** @returns {void} */
+function renderSimple() {
+  if (!simpleListBody) return;
+  // Only the active Simple layout needs rebuilding: in Expert mode this DOM is
+  // hidden, so skip the sort + innerHTML churn on every SSE/fetch event. The
+  // osprey-mode-change handler re-renders on the switch into Simple, so the
+  // view is always fresh when shown.
+  if (document.documentElement.dataset.uiMode !== "simple") return;
+  const recent = getRecentArtifacts();
+  const latest = simpleResultArtifact(recent);
+
+  if (!latest) {
+    simpleEmpty?.classList.remove("hidden");
+    simpleResult?.classList.add("hidden");
+  } else {
+    simpleEmpty?.classList.add("hidden");
+    simpleResult?.classList.remove("hidden");
+    if (simpleResultTitle) simpleResultTitle.textContent = latest.title;
+    if (simpleResultBadge) simpleResultBadge.hidden = !isNewThisSession(latest, _sessionStart);
+    if (simpleOpenFull) simpleOpenFull.href = openUrl(latest);
+    if (simpleSave) { simpleSave.href = fileUrl(latest); simpleSave.setAttribute("download", latest.filename); }
+    if (simpleResultPreview) simpleResultPreview.innerHTML = simplePreviewHtml(latest);
+    if (simpleResultCaption) {
+      simpleResultCaption.textContent =
+        latest.description || `${latest.title} · ${formatFullTime(latest.timestamp)}`;
+    }
+  }
+
+  if (simpleListCount) simpleListCount.textContent = String(recent.length);
+  if (simpleShowAll) simpleShowAll.hidden = recent.length <= SIMPLE_LIST_LIMIT;
+  const shown = simpleShowAllResults ? recent : recent.slice(0, SIMPLE_LIST_LIMIT);
+  const selId = latest?.id;
+  simpleListBody.innerHTML = shown
+    .map(
+      (a) => `
+    <div class="simple-list-item ${a.id === selId ? "selected" : ""}" data-id="${escapeHtml(a.id)}">
+      <span class="simple-list-item-icon">${typeIcon(a.artifact_type)}</span>
+      <span class="simple-list-item-name" title="${escapeHtml(a.title)}">${escapeHtml(a.title)}</span>
+      ${isNewThisSession(a, _sessionStart) ? '<span class="simple-badge-new">NEW</span>' : ""}
+      <span class="simple-list-item-time">${escapeHtml(formatTime(a.timestamp))}</span>
+    </div>`
+    )
+    .join("");
+}
+
 // ---- API ----
 // showErrorBanner/hideErrorBanner/fetchArtifacts/fetchFocus now live in
 // state.js. fetchArtifacts() no longer triggers render effects itself
@@ -107,6 +217,7 @@ function fetchArtifacts() {
       updateHeaderCount();
       sidebarRenderer.rebuildTypeChips();
       sidebarRenderer.renderSidebar();
+      renderSimple();
     },
   });
 }
@@ -219,6 +330,7 @@ function applyFocus(artifact, wantFullscreen) {
   setFocusedArtifact(artifact);
   sidebarRenderer.renderSidebar();
   previewRenderer.renderPreview();
+  renderSimple();
   if (wantFullscreen) previewRenderer.enterFullscreen(artifact);
 }
 
@@ -264,6 +376,7 @@ function connectSSE() {
       updateHeaderCount();
       sidebarRenderer.rebuildTypeChips();
       sidebarRenderer.renderSidebar();
+      renderSimple();
       return;
     }
 
@@ -279,6 +392,7 @@ function connectSSE() {
           previewRenderer.renderPreview();
         }
         sidebarRenderer.renderSidebar();
+        renderSimple();
       }
       return;
     }
@@ -374,6 +488,14 @@ window.addEventListener("message", (e) => {
     setShowAllSessions(false);
     fetchArtifacts();
   }
+  // Live Expert<->Simple switch broadcast by the hub (mode-toggle task). The
+  // pre-paint rung (mode-boot.js) already set the initial data-ui-mode; this
+  // is the runtime flip. Re-render Simple so its content is fresh on arrival.
+  if (e.data && e.data.type === "osprey-mode-change" && e.data.mode) {
+    const mode = e.data.mode === "simple" ? "simple" : "expert";
+    document.documentElement.setAttribute("data-ui-mode", mode);
+    renderSimple();
+  }
 });
 
 // ---- Init ----
@@ -387,6 +509,23 @@ if (allSessionsBtn) {
     setShowAllSessions(!getShowAllSessions());
     allSessionsBtn.classList.toggle("active", getShowAllSessions());
     fetchArtifacts();
+  });
+}
+
+// Simple mode: clicking a session-list row promotes it to the shown result.
+if (simpleListBody) {
+  simpleListBody.addEventListener("click", (e) => {
+    const row = /** @type {HTMLElement} */ (e.target).closest(".simple-list-item");
+    if (!row) return;
+    const id = row.getAttribute("data-id");
+    const a = getArtifacts().find((x) => x.id === id);
+    if (a) { setSelectedArtifact(a); renderSimple(); }
+  });
+}
+if (simpleShowAll) {
+  simpleShowAll.addEventListener("click", () => {
+    simpleShowAllResults = true;
+    renderSimple();
   });
 }
 initTypeRegistry().then(() => {

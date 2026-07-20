@@ -12,6 +12,11 @@
        are handled by the theme-manager FOLLOWER role in app.js. -->
   <script src="/design-system/js/theme-boot.js"></script>
 
+  <!-- Mode boot: applies data-ui-mode (expert/simple) pre-paint, same zero-dep
+       synchronous contract as theme-boot.js. Live Expert<->Simple switches are
+       handled by the osprey-mode-change listener in app.js. -->
+  <script src="/design-system/js/mode-boot.js"></script>
+
   <!-- Design system tokens (shared across every OSPREY interface) -->
   <link rel="stylesheet" href="/design-system/css/tokens.css" />
   <link rel="stylesheet" href="/design-system/css/base.css" />
@@ -52,6 +57,26 @@
       <footer id="bundle-health" class="bundle-health" hidden aria-live="polite"></footer>
     </aside>
     <main id="reader">
+      <!-- Reading-focused (Simple) affordance: hidden in Expert, a sticky
+           "Browse all pages" bar in Simple that returns to the structure
+           overview (the plain doc list). Sits OUTSIDE #reader-content because
+           app.js replaces that element's innerHTML on every render. -->
+      <div class="reader-topbar">
+        <button type="button" id="browse-all" class="browse-all-btn">
+          <svg class="browse-all-icon" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round"
+               stroke-linejoin="round" aria-hidden="true">
+            <line x1="8" y1="6" x2="21" y2="6" />
+            <line x1="8" y1="12" x2="21" y2="12" />
+            <line x1="8" y1="18" x2="21" y2="18" />
+            <line x1="3" y1="6" x2="3.01" y2="6" />
+            <line x1="3" y1="12" x2="3.01" y2="12" />
+            <line x1="3" y1="18" x2="3.01" y2="18" />
+          </svg>
+          Browse all pages
+          <span class="browse-all-arrow" aria-hidden="true">&rarr;</span>
+        </button>
+      </div>
       <div id="reader-content">
         <p class="muted">Loading knowledge base…</p>
       </div>

@@ -856,6 +856,22 @@ draftAffordanceEl.addEventListener('click', () => {
   void draftClient.onAffordanceClick();
 });
 
+// Live Expert<->Simple flip broadcast by the hub. mode-boot.js set the initial
+// data-ui-mode pre-paint; this is the runtime flip. Every layout delta is CSS
+// (Simple hides the Source tab, draft chrome, and trust internals, and promotes
+// Launch); the one behavioral concern is that Simple hides the Source tab —
+// force the Parameters view so a flip made while Source was active doesn't leave
+// the operator on a now-hidden pane.
+window.addEventListener('message', (event) => {
+  if (event.origin !== window.location.origin) return;
+  const data = /** @type {{type?: string, mode?: string}} */ (event.data);
+  if (data && data.type === 'osprey-mode-change' && data.mode) {
+    const mode = data.mode === 'simple' ? 'simple' : 'expert';
+    document.documentElement.setAttribute('data-ui-mode', mode);
+    if (mode === 'simple') setActiveTab('params');
+  }
+});
+
 // ---- boot ----
 
 void loadPlans();

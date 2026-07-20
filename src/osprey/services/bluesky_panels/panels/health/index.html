@@ -10,6 +10,13 @@
   for the same rule applied to the sibling stylesheet).
 -->
 <script src="/design-system/js/theme-boot.js"></script>
+<!--
+  Pre-paint UI-mode boot: stamps data-ui-mode (expert|simple) from the host's
+  `?mode=` before first paint, the same zero-dep contract as theme-boot above.
+  Live Expert<->Simple flips arrive as the hub's `osprey-mode-change`
+  postMessage, handled in panel.js.
+-->
+<script src="/design-system/js/mode-boot.js"></script>
 <link rel="stylesheet" href="/design-system/css/tokens.css">
 <link rel="stylesheet" href="/design-system/css/base.css">
 <!-- Self-hosted brand fonts (Outfit / JetBrains Mono), root-absolute so it
@@ -53,6 +60,11 @@
     <span class="rollup-label">Overall status</span>
     <span id="rollup-pill" class="pill unknown" data-role="pill">checking&hellip;</span>
     <span id="rollup-updated" class="rollup-updated"></span>
+    <!-- Simple-mode plain-language restatement of the rollup: hidden in
+         Expert, shown (and the raw label/pill/timestamp hidden) under
+         html[data-ui-mode="simple"]. Text is set by panel.js alongside the
+         pill so the two never disagree. -->
+    <span id="rollup-plain" class="rollup-plain">Checking scan system&hellip;</span>
   </section>
 
   <div id="unavailable" class="card unavailable" hidden>

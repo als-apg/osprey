@@ -13,6 +13,9 @@
        trusting any 'light'/'dark' string handed to it. -->
   <script src="/design-system/js/theme-boot.js"></script>
 
+  <!-- FOUC prevention: applies data-ui-mode (expert/simple) before any CSS loads -->
+  <script src="/design-system/js/mode-boot.js"></script>
+
   <!-- Design system tokens -->
   <link rel="stylesheet" href="/design-system/css/tokens.css">
   <link rel="stylesheet" href="/design-system/css/base.css">
@@ -45,7 +48,11 @@
 </head>
 <body>
   <div class="app-container">
-    <!-- Header -->
+    <!-- App header — slim wordmark + theme + status. In the web-terminal shell
+         (body.embedded) the shell chrome supplies the wordmark, theme toggle
+         and status, so this whole bar is hidden (frame 2a); the browse view's
+         own two cards fill the panel. The count / All Sessions / refresh
+         controls now live in the browser-column card header below. -->
     <header class="header">
       <div class="header-inner">
         <div class="header-left">
@@ -59,21 +66,8 @@
             </div>
             <span class="logo-text">WORKSPACE</span>
           </a>
-          <span class="header-artifact-count" id="header-count" title="Total artifacts">0</span>
         </div>
         <div class="header-right">
-          <button class="btn btn-session-toggle" id="all-sessions-btn" title="Show artifacts from all sessions">
-            All Sessions
-          </button>
-          <button class="btn btn-icon btn-header-refresh" id="refresh-btn" title="Refresh all data">
-            <svg class="refresh-icon" width="16" height="16" viewBox="0 0 24 24"
-                 fill="none" stroke="currentColor" stroke-width="2"
-                 stroke-linecap="round" stroke-linejoin="round">
-              <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
-              <path d="M3.51 9a9 9 0 0114.85-3.36L23 10"/>
-              <path d="M20.49 15a9 9 0 01-14.85 3.36L1 14"/>
-            </svg>
-          </button>
           <osprey-theme-switcher></osprey-theme-switcher>
           <span class="status-indicator" id="health-indicator">
             <span class="status-dot healthy"></span>
@@ -83,33 +77,51 @@
       </div>
     </header>
 
-    <!-- Filter Bar -->
-    <nav class="filter-bar" id="filter-bar">
-      <div class="filter-bar-inner">
-        <button class="filter-chip active" data-filter="all">ALL</button>
-        <button class="filter-chip" data-filter="pinned" title="Pinned items" hidden>
-          <svg class="filter-chip-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M15 4.5L7.5 12 4 8.5"/>
-            <line x1="12" y1="17" x2="12" y2="22"/>
-            <path d="M9 11l-4 4"/>
-            <path d="M5 19l4-4"/>
-            <path d="M14.5 4l5 5-4.5 4.5-5-5z"/>
-          </svg>
-          Pinned <span class="chip-count"></span>
-        </button>
-        <!-- Type chips populated dynamically by JS from the type registry -->
-        <span class="filter-chip-separator" id="filter-type-chips"></span>
-      </div>
-    </nav>
-
     <!-- Main Content -->
     <main class="main">
-      <!-- Browse View — Split Pane: sidebar (tree/timeline) + preview -->
+      <!-- Browse View — two cards on the neutral canvas (frame 2a): a left
+           browser-column card beside a large detail/preview card. -->
       <section id="view-artifacts-browse" class="view active">
         <div class="browse-layout">
-          <!-- Left sidebar — file tree / activity timeline -->
+          <!-- Left browser column — card: header + filter chips + tree/timeline -->
           <aside class="browse-sidebar" id="browse-sidebar">
+            <!-- Card header: title + count + All Sessions + refresh -->
+            <div class="browser-card-header">
+              <span class="browser-card-title">Workspace</span>
+              <span class="header-artifact-count" id="header-count" title="Total artifacts">0</span>
+              <button class="btn btn-session-toggle" id="all-sessions-btn" title="Show artifacts from all sessions">
+                All Sessions
+              </button>
+              <button class="btn btn-icon btn-header-refresh" id="refresh-btn" title="Refresh all data">
+                <svg class="refresh-icon" width="16" height="16" viewBox="0 0 24 24"
+                     fill="none" stroke="currentColor" stroke-width="2"
+                     stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
+                  <path d="M3.51 9a9 9 0 0114.85-3.36L23 10"/>
+                  <path d="M20.49 15a9 9 0 01-14.85 3.36L1 14"/>
+                </svg>
+              </button>
+            </div>
+            <!-- Filter chips -->
+            <nav class="filter-bar" id="filter-bar">
+              <div class="filter-bar-inner">
+                <button class="filter-chip active" data-filter="all">ALL</button>
+                <button class="filter-chip" data-filter="pinned" title="Pinned items" hidden>
+                  <svg class="filter-chip-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M15 4.5L7.5 12 4 8.5"/>
+                    <line x1="12" y1="17" x2="12" y2="22"/>
+                    <path d="M9 11l-4 4"/>
+                    <path d="M5 19l4-4"/>
+                    <path d="M14.5 4l5 5-4.5 4.5-5-5z"/>
+                  </svg>
+                  Pinned <span class="chip-count"></span>
+                </button>
+                <!-- Type chips populated dynamically by JS from the type registry -->
+                <span class="filter-chip-separator" id="filter-type-chips"></span>
+              </div>
+            </nav>
             <div class="sidebar-header">
+              <!-- Types/Activity toggle beside an inline filter input (frame 2a). -->
               <div class="sidebar-controls-row">
                 <div class="sidebar-mode-toggle">
                   <button class="mode-btn active" data-mode="tree" title="Group by type">
@@ -126,34 +138,39 @@
                     Activity
                   </button>
                 </div>
-                <div class="sidebar-layout-toggle" id="layout-toggle">
-                  <button class="layout-btn active" data-layout="list" title="List view">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
-                    </svg>
-                  </button>
-                  <button class="layout-btn" data-layout="gallery" title="Gallery view">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <rect x="3" y="3" width="7" height="7" rx="1"/>
-                      <rect x="14" y="3" width="7" height="7" rx="1"/>
-                      <rect x="3" y="14" width="7" height="7" rx="1"/>
-                      <rect x="14" y="14" width="7" height="7" rx="1"/>
-                    </svg>
-                  </button>
+                <div class="sidebar-search">
+                  <svg class="sidebar-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="11" cy="11" r="7"/>
+                    <path d="M21 21l-4.35-4.35"/>
+                  </svg>
+                  <input
+                    type="text"
+                    id="search"
+                    class="sidebar-search-input"
+                    placeholder="Filter..."
+                    autocomplete="off"
+                  >
                 </div>
               </div>
-              <div class="sidebar-search">
-                <svg class="sidebar-search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="11" cy="11" r="7"/>
-                  <path d="M21 21l-4.35-4.35"/>
-                </svg>
-                <input
-                  type="text"
-                  id="search"
-                  class="sidebar-search-input"
-                  placeholder="Filter..."
-                  autocomplete="off"
-                >
+              <!-- List/gallery layout toggle: kept in the DOM for its JS hooks
+                   (gallery.js binds .layout-btn / #layout-toggle) but hidden.
+                   Frame 2a's ~220px browser column has no room for a
+                   thumbnail-gallery view, so the type/activity tree is the
+                   sole layout here. -->
+              <div class="sidebar-layout-toggle" id="layout-toggle" hidden>
+                <button class="layout-btn active" data-layout="list" title="List view">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
+                  </svg>
+                </button>
+                <button class="layout-btn" data-layout="gallery" title="Gallery view">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="7" height="7" rx="1"/>
+                    <rect x="14" y="3" width="7" height="7" rx="1"/>
+                    <rect x="3" y="14" width="7" height="7" rx="1"/>
+                    <rect x="14" y="14" width="7" height="7" rx="1"/>
+                  </svg>
+                </button>
               </div>
             </div>
             <div class="sidebar-body" id="sidebar-body">
@@ -180,6 +197,52 @@
             </div>
             <div class="preview-content hidden" id="preview-content">
               <!-- Preview rendered dynamically -->
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Simple View — a big latest-result card above a friendly
+           "Results from this session" list (frame 2b). Shown only when
+           html[data-ui-mode="simple"]; the browse view (Expert) is the
+           default. Both share the same artifact data + session scoping;
+           gallery.js populates this section (renderSimple). -->
+      <section id="view-artifacts-simple">
+        <div class="simple-layout">
+          <!-- Latest result -->
+          <div class="simple-result-card">
+            <div class="simple-empty" id="simple-empty">
+              <div class="preview-empty-inner">
+                <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1">
+                  <rect x="6" y="6" width="36" height="36" rx="4" stroke-dasharray="4 4"/>
+                  <path d="M6 32l12-12 8 8 6-6 10 10"/>
+                  <circle cx="16" cy="16" r="3"/>
+                </svg>
+                <p>No results yet</p>
+              </div>
+            </div>
+            <div class="simple-result hidden" id="simple-result">
+              <div class="simple-result-header">
+                <span class="simple-result-title" id="simple-result-title"></span>
+                <span class="simple-badge-new" id="simple-result-badge" hidden>NEW</span>
+                <div class="simple-result-actions">
+                  <a class="btn btn-primary" id="simple-open-full" target="_blank" rel="noopener">Open full size</a>
+                  <a class="btn btn-secondary" id="simple-save">Save</a>
+                </div>
+              </div>
+              <div class="simple-result-preview" id="simple-result-preview"></div>
+              <div class="simple-result-caption" id="simple-result-caption"></div>
+            </div>
+          </div>
+          <!-- Results from this session -->
+          <div class="simple-list-card">
+            <div class="simple-list-header">
+              <span class="simple-list-title">Results from this session</span>
+              <span class="simple-list-count" id="simple-list-count">0</span>
+              <button class="simple-show-all" id="simple-show-all" hidden>Show all &rarr;</button>
+            </div>
+            <div class="simple-list-body" id="simple-list-body">
+              <!-- Session results rendered dynamically -->
             </div>
           </div>
         </div>

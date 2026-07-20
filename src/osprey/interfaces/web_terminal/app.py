@@ -264,6 +264,45 @@ def resolve_web_theme_id(
     return next(iter(sorted(valid_ids)), "dark")
 
 
+#: The two supported web UI modes. ``expert`` is the full split-pane terminal
+#: workspace; ``simple`` is the pared-down operator layout. ``expert`` is the
+#: default so an absent/misconfigured ``web.ui_mode`` never strands a deployment
+#: in the reduced surface.
+UI_MODES = ("expert", "simple")
+DEFAULT_UI_MODE = "expert"
+
+
+def resolve_ui_mode(configured: str) -> str:
+    """Resolve the ``web.ui_mode`` config value into a concrete UI mode.
+
+    ``configured`` must be one of :data:`UI_MODES` (``"expert"`` or
+    ``"simple"``). Anything else — a typo, ``None``, an empty string — is
+    logged as a warning and resolved to :data:`DEFAULT_UI_MODE`.
+
+    Mirrors the warn+fallback shape of :func:`resolve_web_theme_id`: it never
+    raises, so a bad value degrades to the safe default instead of blocking
+    server startup.
+
+    Args:
+        configured: The raw ``web.ui_mode`` config value.
+
+    Returns:
+        A concrete mode string in :data:`UI_MODES` — the value stamped onto
+        ``<html data-ui-mode>`` for the pre-paint mode-boot rung, which only
+        honors a real mode.
+    """
+    if configured in UI_MODES:
+        return configured
+
+    logger.warning(
+        "Unknown web.ui_mode %r (expected one of %s); falling back to %r.",
+        configured,
+        list(UI_MODES),
+        DEFAULT_UI_MODE,
+    )
+    return DEFAULT_UI_MODE
+
+
 def _load_panel_config() -> tuple[set[str], list[dict], str | None]:
     """Read web.panels and web.default_panel from config.yml.
 
@@ -573,6 +612,28 @@ def _create_lifespan(
             )
             app.state.web_theme_id = "dark"
 
+        # ── Web UI mode (SSR no-flash attribute, Task 5.1) ──
+        # Resolved once at startup and server-rendered onto <html data-ui-mode>
+        # so the pre-paint mode-boot script (Task 5.2) first-paints in the right
+        # mode. GET /api/panels also carries ui_mode, but first paint must never
+        # depend on that API field — this server-rendered attribute is the
+        # authoritative first-paint rung. Read via load_osprey_config (the same
+        # top-level `web` section the panel loaders in this file use). Fails open
+        # to the default mode on any config-read error.
+        try:
+            from osprey.utils.workspace import load_osprey_config
+
+            configured_ui_mode = load_osprey_config().get("web", {}).get("ui_mode", DEFAULT_UI_MODE)
+            app.state.web_ui_mode = resolve_ui_mode(configured_ui_mode)
+        except Exception:  # noqa: BLE001 — never let config load block startup
+            logger.warning(
+                "Could not resolve web.ui_mode (config load failed); "
+                "server-rendering fallback mode %r",
+                DEFAULT_UI_MODE,
+                exc_info=True,
+            )
+            app.state.web_ui_mode = DEFAULT_UI_MODE
+
         # ── Regenerate stale Claude Code artifacts on launch ──
         # config.yml is a build-time input: safety-critical fields (e.g. the
         # writes_enabled kill-switch baked into settings.json's permissions.deny)
@@ -768,6 +829,7 @@ def create_app(
     async def root(request: Request):
         app_name = getattr(request.app.state, "app_name", "")
         web_theme_id = getattr(request.app.state, "web_theme_id", "dark")
+        web_ui_mode = getattr(request.app.state, "web_ui_mode", DEFAULT_UI_MODE)
         terminal_user = getattr(request.app.state, "terminal_user", "")
         landing_url = getattr(request.app.state, "landing_url", "")
         return templates.TemplateResponse(
@@ -776,6 +838,7 @@ def create_app(
             {
                 "app_name": app_name,
                 "web_theme_id": web_theme_id,
+                "web_ui_mode": web_ui_mode,
                 "terminal_user": terminal_user,
                 "landing_url": landing_url,
                 "url_prefix": url_prefix,
