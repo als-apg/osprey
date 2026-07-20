@@ -31,6 +31,7 @@ Compatibility is documented in release notes, not encoded in the version string.
 - `CITATION.cff`, enabling GitHub's "Cite this repository" button.
 - `SECURITY.md` documenting private vulnerability reporting, plus a bug-report issue template.
 - `NOTICE`, carrying the Berkeley Lab endorsement clause, Enhancements grant, and U.S. Government rights notice that previously sat inside `LICENSE.txt`. The licensing terms are unchanged; `LICENSE.txt` is now the unmodified BSD 3-Clause text, so automated tooling identifies the license correctly.
+- The channel-finder benchmark suite gains near-miss *discrimination* queries — pairs that separate the correct channel from a plausible-but-wrong neighbour — and a stratified end-to-end evaluation slice. Development/CI only; not needed to install or run OSPREY.
 
 ### Changed
 
@@ -49,11 +50,14 @@ Compatibility is documented in release notes, not encoded in the version string.
 - Every interface's light/dark toggle is now the shared `<osprey-theme-switcher>` custom element (previously per-interface markup); it's consistently hidden when a panel is embedded in the Web Terminal hub (the hub owns theme chrome there) and visible when opened standalone.
 - JSON artifacts in the Artifacts gallery now render through a syntax-highlighted, collapsible inline viewer instead of a plain read-only iframe of the raw file.
 - Artifacts gallery: timeseries table values now use magnitude-adaptive precision (≤5 significant figures, scientific notation for extremes) and a compact month/day + HH:MM:SS index format.
+- The channel-finder tier databases are now generated for all three paradigms (`in_context`, `hierarchical`, `middle_layer`) from a single `FacilitySpec` by one generator, and drift-gate tests fail if a committed database no longer matches that spec. Tier 1 now ships the `in_context` paradigm only, and the valid build tiers are `1` and `3`.
+- ARIEL seed and scenario logbooks now name devices by their flat control-system identifiers (for example `QF08`, `CAVITY01`, `VALVE05`), matching the channel namespace, with a naming guard that keeps them from drifting back to the older hierarchical forms.
 
 ### Removed
 
 - Retired the Tuning optimization panel and its companion web server. It is no longer a built-in panel, and `web_panels: [tuning]` entries should be removed from project configs.
 - Dropped the unused `basePath` iframe query parameter from the Web Terminal.
+- Retired the tier-2 channel databases and their benchmark query set; build profiles can no longer select tier 2.
 
 ### Fixed
 
