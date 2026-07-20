@@ -75,7 +75,7 @@ dependencies = [
     # Networking and protocols
     "aiohttp>=3.10",  # Required by litellm (ConnectionTimeoutError added in 3.10)
     "websocket-client>=1.7.0",
-    "urllib3>=2.4.0",
+    "urllib3>=2.7.0",
     "certifi>=2025.4.26",
     "charset-normalizer>=3.4.2",
     "idna>=3.10",
