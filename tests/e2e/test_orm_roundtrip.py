@@ -194,9 +194,15 @@ def deployed_orm_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Dep
     # E2E_REUSE_IMAGES=1 skips this for fast local iteration on the test
     # itself when the osprey source is unchanged; never set it in CI.
     if not os.environ.get("E2E_REUSE_IMAGES"):
-        subprocess.run(["docker", "rmi", "-f", _orm_stack.VA_IMAGE], capture_output=True, text=True)
         subprocess.run(
-            ["docker", "rmi", "-f", _orm_stack.BRIDGE_IMAGE], capture_output=True, text=True
+            ["docker", "rmi", "-f", _orm_stack.va_image("orm-roundtrip")],
+            capture_output=True,
+            text=True,
+        )
+        subprocess.run(
+            ["docker", "rmi", "-f", _orm_stack.bridge_image("orm-roundtrip")],
+            capture_output=True,
+            text=True,
         )
 
     try:

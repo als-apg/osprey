@@ -22,7 +22,19 @@ the als-apg provider. This is the only test that proves the *shipped*
 entrypoint actually serves an agent — ``claude --version`` proves the binary
 launches, not that the assembled image answers a prompt.
 
-Both tests share one image build (module-scoped fixture). The image is built
+Three further tests cover the fast-dev-rebuild layer split:
+
+- ``test_rebuild_without_changes_is_fully_cached`` — a no-change rebuild runs
+  every RUN/COPY step from the layer cache,
+- ``test_equal_version_dev_wheel_lands_local_code`` — a staged dev wheel whose
+  version equals the deps-layer copy still lands its code (pip's silent
+  equal-version skip is defeated by ``--no-deps --force-reinstall``),
+- ``test_final_image_has_no_toolchain_and_carries_project_label`` — the C
+  toolchain is purged from the final image and the ``com.osprey.project``
+  label is stamped.
+
+The smoke/HTTP/cache/hygiene tests share one image build (the module-scoped
+``built_image`` fixture); the sentinel test builds its own. The image is built
 with ``--set provider=als-apg`` so the in-image ``config.yml`` resolves to the
 provider CI can reach; LLM credentials are injected at ``docker run`` time
 (never baked into the image).
@@ -42,12 +54,15 @@ CI job (runs in its own dockerfile-e2e job).
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
+import sys
 import time
 import urllib.error
 import urllib.request
 import uuid
+from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
@@ -127,20 +142,43 @@ def _render_hello_world(out_dir) -> "tuple":
     return project, PROJECT_NAME
 
 
-def _build_image(project, tag: str) -> None:
-    """Run ``docker build`` on the generated Dockerfile."""
-    build_cmd = ["docker", "build", *_PLATFORM_ARGS, "-t", tag]
+def _build_image(project, tag: str, *, progress_plain: bool = False) -> subprocess.CompletedProcess:
+    """Run ``docker build`` on the generated Dockerfile; return the completed process.
+
+    Passes the same ``com.osprey.project`` label ``osprey deploy`` stamps via
+    ``_project_image_build_cmd``, so label assertions here cover the shape the
+    real build path produces. ``DOCKER_BUILDKIT=1`` pins the BuildKit builder
+    for every build so layer-cache semantics (and ``--progress=plain`` output,
+    used by the cache-hit test) are uniform across docker versions.
+    """
+    build_cmd = [
+        "docker",
+        "build",
+        *_PLATFORM_ARGS,
+        "-t",
+        tag,
+        "--label",
+        f"com.osprey.project={PROJECT_NAME}",
+    ]
+    if progress_plain:
+        build_cmd += ["--progress=plain"]
     pip_spec = os.environ.get("OSPREY_E2E_PIP_SPEC")
     if pip_spec:
         build_cmd += ["--build-arg", f"OSPREY_PIP_SPEC={pip_spec}"]
     build_cmd.append(".")
     build = subprocess.run(
-        build_cmd, cwd=project, capture_output=True, text=True, timeout=BUILD_TIMEOUT
+        build_cmd,
+        cwd=project,
+        capture_output=True,
+        text=True,
+        timeout=BUILD_TIMEOUT,
+        env={**os.environ, "DOCKER_BUILDKIT": "1"},
     )
     assert build.returncode == 0, (
         f"docker build failed:\n--- stdout ---\n{build.stdout[-4000:]}"
         f"\n--- stderr ---\n{build.stderr[-4000:]}"
     )
+    return build
 
 
 @pytest.fixture(scope="module")
@@ -292,6 +330,197 @@ def test_generated_image_serves_agent_over_http(built_image):
         assert (data.get("num_turns") or 0) >= 1, "expected at least one agent turn"
     finally:
         subprocess.run(["docker", "rm", "-f", cid], capture_output=True)
+
+
+# ── Layer cache, dev-wheel sentinel, and image hygiene ───────────────────────
+#
+# Regression tests for the fast-dev-rebuild layer split: a cached deps layer
+# (toolchain installed and purged in the same RUN) followed by a dev-only
+# wheel layer (`COPY .dockerignore *.wh[l]` + `--no-deps --force-reinstall`).
+
+
+# BuildKit --progress=plain step header for real Dockerfile instructions, e.g.
+# "#8 [ 4/10] RUN apt-get update ..." (stage-qualified "[stage-0 4/10]" in
+# multi-stage builds). FROM steps are excluded on purpose: BuildKit reports
+# base-image resolution as DONE even on a fully cached rebuild.
+_STEP_HEADER_RE = re.compile(r"^#(\d+) \[\s*(?:[\w.-]+ +)?\d+/\d+\] +(RUN|COPY) (.*)$", re.M)
+_CACHED_STEP_RE = re.compile(r"^#(\d+) CACHED", re.M)
+
+
+def test_rebuild_without_changes_is_fully_cached(built_image):
+    """A no-change rebuild must run every RUN/COPY step from the layer cache.
+
+    This is the payoff of the layer split + `.dockerignore` hygiene (excluding
+    the regenerated ``build/`` dir): rebuilding an unchanged project must not
+    re-run pip, apt, or the project COPY. The module fixture primed the cache;
+    build again with ``--progress=plain`` and assert every Dockerfile RUN/COPY
+    step is reported CACHED.
+    """
+    _tag, project, _project_name, _out_dir = built_image
+    rebuild_tag = f"osprey-dockerfile-e2e-cachehit:{uuid.uuid4().hex[:8]}"
+    try:
+        build = _build_image(project, rebuild_tag, progress_plain=True)
+        progress = build.stdout + build.stderr
+
+        steps = {
+            sid: f"{kind} {rest.strip()}" for sid, kind, rest in _STEP_HEADER_RE.findall(progress)
+        }
+        assert steps, (
+            f"no RUN/COPY step headers found in --progress=plain output — "
+            f"progress format changed?\n{progress[-4000:]}"
+        )
+        cached = set(_CACHED_STEP_RE.findall(progress))
+        uncached = {sid: instr for sid, instr in steps.items() if sid not in cached}
+        assert not uncached, (
+            "steps re-executed on a no-change rebuild (cache miss):\n"
+            + "\n".join(f"  #{sid} {instr[:120]}" for sid, instr in sorted(uncached.items()))
+            + f"\n--- progress tail ---\n{progress[-4000:]}"
+        )
+    finally:
+        subprocess.run(["docker", "rmi", "-f", rebuild_tag], capture_output=True)
+
+
+# Marker baked into the sentinel wheel; asserting it imports in the final
+# image proves the staged local wheel really landed despite an equal version.
+SENTINEL_MARKER = "fast-dev-rebuild-sentinel"
+
+
+def _build_sentinel_wheel(version: str, work_dir: Path) -> Path:
+    """Build a local osprey wheel pinned to ``version`` containing a sentinel module.
+
+    Copies the minimal build inputs (``pyproject.toml``, ``README.md``,
+    ``src/osprey``) to a scratch tree, stamps ``__version__`` to ``version``,
+    injects ``osprey/_e2e_sentinel.py``, and runs ``python -m build --wheel``.
+    Returns the built wheel path (inside ``work_dir``).
+    """
+    import osprey as _osprey
+
+    source_root = Path(_osprey.__file__).resolve().parents[2]
+    wheel_src = work_dir / "wheel-src"
+    dist_dir = work_dir / "dist"
+    shutil.copytree(
+        source_root / "src" / "osprey",
+        wheel_src / "src" / "osprey",
+        ignore=shutil.ignore_patterns("__pycache__", "*.py[cod]"),
+    )
+    for name in ("pyproject.toml", "README.md"):
+        shutil.copy2(source_root / name, wheel_src / name)
+
+    # Stamp the version hatchling reads ([tool.hatch.version] -> __init__.py).
+    init_path = wheel_src / "src" / "osprey" / "__init__.py"
+    stamped, n = re.subn(
+        r'__version__ = "[^"]+"', f'__version__ = "{version}"', init_path.read_text(), count=1
+    )
+    assert n == 1, "could not stamp __version__ in the wheel source copy"
+    init_path.write_text(stamped)
+
+    (wheel_src / "src" / "osprey" / "_e2e_sentinel.py").write_text(
+        f'SENTINEL = "{SENTINEL_MARKER}"\n'
+    )
+
+    build = subprocess.run(
+        [sys.executable, "-m", "build", "--wheel", "--outdir", str(dist_dir)],
+        cwd=wheel_src,
+        capture_output=True,
+        text=True,
+        timeout=600,
+    )
+    assert build.returncode == 0, (
+        f"sentinel wheel build failed:\n--- stdout ---\n{build.stdout[-3000:]}"
+        f"\n--- stderr ---\n{build.stderr[-3000:]}"
+    )
+    wheels = list(dist_dir.glob("*.whl"))
+    assert len(wheels) == 1, f"expected exactly one built wheel, found {wheels}"
+    return wheels[0]
+
+
+def test_equal_version_dev_wheel_lands_local_code(tmp_path):
+    """Regression: a staged wheel must win even when pip sees an equal version.
+
+    Plain ``pip install`` silently skips a wheel whose version equals the copy
+    the deps layer already primed ("Requirement already satisfied") — the
+    historical failure mode where ``--dev`` rebuilds shipped stale framework
+    code. The wheel layer's ``--no-deps --force-reinstall`` exists to defeat
+    that skip. Prove it end to end: build the image with no wheel, read the
+    version the deps layer resolved, stage a locally built wheel with that
+    EXACT version plus a sentinel module, rebuild, and assert the sentinel is
+    importable in the final image.
+    """
+    project, _project_name = _render_hello_world(tmp_path)
+    suffix = uuid.uuid4().hex[:8]
+    base_tag = f"osprey-dockerfile-e2e-sentinel-base:{suffix}"
+    dev_tag = f"osprey-dockerfile-e2e-sentinel-dev:{suffix}"
+    try:
+        # 1. Base build (no wheel staged): the installed osprey IS the version
+        #    the deps layer resolved from OSPREY_PIP_SPEC. Note: the dist name
+        #    is osprey-framework, so read osprey.__version__, not importlib
+        #    metadata for "osprey".
+        _build_image(project, base_tag)
+        primed = _docker_run(base_tag, "python", "-c", "import osprey; print(osprey.__version__)")
+        assert primed.returncode == 0, primed.stderr
+        primed_version = primed.stdout.strip()
+        assert primed_version, "could not read the deps-layer osprey version"
+
+        # 2. Stage a version-equal sentinel wheel in the build context and
+        #    rebuild — exactly what `osprey deploy up --dev` does.
+        wheel = _build_sentinel_wheel(primed_version, tmp_path)
+        shutil.copy2(wheel, project / wheel.name)
+        _build_image(project, dev_tag)
+
+        # 3. Local code landed despite the equal version.
+        probe = _docker_run(
+            dev_tag,
+            "python",
+            "-c",
+            "from osprey._e2e_sentinel import SENTINEL; print(SENTINEL)",
+        )
+        assert probe.returncode == 0, (
+            f"sentinel module missing — the staged wheel was silently skipped "
+            f"(pip equal-version skip regression):\n{probe.stderr}"
+        )
+        assert SENTINEL_MARKER in probe.stdout
+
+        # The version really was equal — i.e. plain pip WOULD have skipped it.
+        version_after = _docker_run(
+            dev_tag, "python", "-c", "import osprey; print(osprey.__version__)"
+        )
+        assert version_after.stdout.strip() == primed_version
+    finally:
+        subprocess.run(["docker", "rmi", "-f", base_tag], capture_output=True)
+        subprocess.run(["docker", "rmi", "-f", dev_tag], capture_output=True)
+
+
+def test_final_image_has_no_toolchain_and_carries_project_label(built_image):
+    """The deps layer's purge-in-same-RUN kept the C toolchain out of the image,
+    and the build carries the ``com.osprey.project`` label the deploy path
+    stamps (``_build_image`` passes it the way ``_project_image_build_cmd``
+    does, so ``osprey deploy nuke`` can identify the image)."""
+    tag, _project, _project_name, _out_dir = built_image
+
+    for pkg in ("build-essential", "python3-dev"):
+        check = _docker_run(tag, "sh", "-c", f"dpkg -s {pkg}")
+        assert check.returncode != 0, (
+            f"{pkg} is installed in the final image — the deps layer must purge "
+            f"the toolchain inside the same RUN:\n{check.stdout[-1000:]}"
+        )
+
+    inspect = subprocess.run(
+        [
+            "docker",
+            "image",
+            "inspect",
+            "-f",
+            '{{ index .Config.Labels "com.osprey.project" }}',
+            tag,
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert inspect.returncode == 0, inspect.stderr
+    assert inspect.stdout.strip() == PROJECT_NAME, (
+        f"com.osprey.project label missing or wrong: {inspect.stdout.strip()!r}"
+    )
 
 
 if __name__ == "__main__":

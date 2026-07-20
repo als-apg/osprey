@@ -64,13 +64,46 @@ VA_CA_PORT = 5064
 # a shared dev machine without a port collision.
 BRIDGE_PORT = 18102
 
-BRIDGE_IMAGE = "osprey-bluesky-bridge:local"
-VA_IMAGE = "osprey-va:local"
-# Container names are intentionally NOT module constants here: a deployed
-# service's container_name is ``<project>-<service>``
-# (services/*/docker-compose.yml.j2), so it depends on the caller's
-# project_name. Derive it at the call site (e.g. ``f"{project_name}-bluesky-bridge"``)
-# rather than hardcode a host-global name that is wrong for any non-default project.
+# Locally-built service image tags are intentionally NOT module constants here:
+# each service compose template defaults its image to
+# ``{{ osprey_labels.project_name }}-<service>:local`` (rendered from
+# ``resolve_project_name``), and every caller of this module builds under a
+# DIFFERENT project name -- so the tag depends on the caller's project_name.
+# Derive it at the call site via the helpers below rather than hardcode a
+# host-global name that is wrong for any non-default project. Container names
+# follow the same ``<project>-<service>`` rule -- derive those at the call site
+# too (e.g. ``f"{project_name}-bluesky-bridge"``).
+
+
+def _service_image(project_name: str, service: str) -> str:
+    """Derive a locally-built ``<project>-<service>:local`` image tag the way
+    the service compose templates do.
+
+    The templates default their image to
+    ``{{ osprey_labels.project_name }}-<service>:local`` -- rendered from
+    :func:`osprey.deployment.compose_generator.resolve_project_name` -- so a
+    caller that force-rebuilds via ``docker rmi -f`` must target that SAME
+    project-prefixed tag, never a host-global name.
+    """
+    from osprey.deployment.compose_generator import resolve_project_name
+
+    return f"{resolve_project_name({'project_name': project_name})}-{service}:local"
+
+
+def bridge_image(project_name: str) -> str:
+    """``<project>-bluesky-bridge:local`` for ``project_name``."""
+    return _service_image(project_name, "bluesky-bridge")
+
+
+def va_image(project_name: str) -> str:
+    """``<project>-va:local`` for ``project_name``."""
+    return _service_image(project_name, "va")
+
+
+def panels_image(project_name: str) -> str:
+    """``<project>-bluesky-panels:local`` for ``project_name``."""
+    return _service_image(project_name, "bluesky-panels")
+
 
 BUILD_TIMEOUT_SEC = 300
 

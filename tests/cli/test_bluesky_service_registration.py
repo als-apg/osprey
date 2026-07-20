@@ -57,8 +57,8 @@ def test_inject_bluesky_default_config(tmp_path: Path) -> None:
     # demo_runner defaults OFF — a facility profile must opt in explicitly;
     # it must never silently override real device/plan wiring.
     assert svc["demo_runner"] is False
-    # No pinned image: the service builds the local image (compose template
-    # defaults to osprey-bluesky-bridge:local + a build: section).
+    # No pinned image: the service builds the project's local image (compose
+    # template defaults to <project>-bluesky-bridge:local + a build: section).
     assert "image" not in svc
 
     # deployed_services is additive — keeps postgresql, adds bluesky.
