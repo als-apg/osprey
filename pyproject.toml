@@ -60,7 +60,7 @@ dependencies = [
     "openai>=2.45.0",
     "anthropic",
     "google-generativeai",
-    "ollama>=0.5.1",
+    "ollama>=0.6.2",
     # Advanced code generation
     # Claude Code SDK - pinned. Bundles CLI 2.1.191 (verified to work with
     # als-apg routing). >=0.1.46 needed for list_subagents/
