@@ -159,9 +159,23 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     # `deploy up` before the bridge/Tiled containers it creates alongside it
     # ever start. Moved to a high, unassigned port -- same defensive
     # convention as this fixture's own BRIDGE_PORT choice above.
+    #
+    # modules.web_terminals.enabled: false drops the preset's per-persona
+    # web-terminal stack (two persona images + nginx, all built locally):
+    # nothing in this proof touches persona routing, and the deploy-up
+    # credential preflight would otherwise abort for the personas' missing
+    # LLM key. Persona coverage lives in the dedicated web-terminals lanes.
+    # One dotted LEAF key on purpose -- overriding just `.enabled` leaves
+    # the preset's `modules.web_terminals` siblings intact, whereas a nested
+    # `modules:` mapping would wholesale-replace the subtree (same
+    # convention as tests/e2e/_orm_stack.py).
     override_path = base / "override.yml"
     override_path.write_text(
-        "dispatch: null\nconfig:\n  services.postgresql.port_host: 15432\n", encoding="utf-8"
+        "dispatch: null\n"
+        "config:\n"
+        "  services.postgresql.port_host: 15432\n"
+        "  modules.web_terminals.enabled: false\n",
+        encoding="utf-8",
     )
 
     # bluesky.port/demo_runner/tiled_enabled are all leaf scalars under the

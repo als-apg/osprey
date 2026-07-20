@@ -440,6 +440,11 @@ def _write_scan_env(project_dir: Path, sp: str, rb: str) -> None:
         "BLUESKY_EPICS_SUBSTRATE": "1",
         "BLUESKY_EPICS_MOTORS": f"{SCAN_MOTOR}={sp}|{rb}",
         "BLUESKY_EPICS_DETECTORS": f"{SCAN_DETECTOR}={rb}",
+        # The deploy-up credential preflight requires each persona's LLM key
+        # in .env before it will generate .env.production; this test never
+        # sends an authenticated prompt through the web terminals (it checks
+        # topology and routing only), so a placeholder satisfies the gate.
+        "ANTHROPIC_API_KEY": "fake-llm-key-value",
     }
     env_path = project_dir / ".env"
     existing = env_path.read_text(encoding="utf-8") if env_path.exists() else ""
