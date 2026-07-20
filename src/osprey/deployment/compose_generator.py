@@ -619,8 +619,7 @@ def _copy_local_framework_for_override(out_dir):
             except OSError:
                 pass
             logger.warning(
-                f"Failed to write {LOCAL_REQUIREMENTS_FILENAME} for dev override: "
-                f"{manifest_error}"
+                f"Failed to write {LOCAL_REQUIREMENTS_FILENAME} for dev override: {manifest_error}"
             )
             return False
 

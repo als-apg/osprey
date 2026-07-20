@@ -710,11 +710,7 @@ def _warn_unignored_build_dir(project_root: str) -> None:
     if not (Path(project_root) / "build").exists():
         return
     dockerignore = Path(project_root) / ".dockerignore"
-    lines = (
-        dockerignore.read_text(encoding="utf-8").splitlines()
-        if dockerignore.is_file()
-        else []
-    )
+    lines = dockerignore.read_text(encoding="utf-8").splitlines() if dockerignore.is_file() else []
     if any(line.strip().rstrip("/") == "build" for line in lines):
         return
     logger.warning(

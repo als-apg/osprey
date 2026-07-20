@@ -198,9 +198,7 @@ class TestDeployCommandActions:
                         "osprey.deployment.compose_generator.subprocess.run",
                         side_effect=fake_run,
                     ):
-                        result = cli_runner.invoke(
-                            deploy, ["clean", "--config", str(config_file)]
-                        )
+                        result = cli_runner.invoke(deploy, ["clean", "--config", str(config_file)])
 
         assert result.exit_code == 0
         assert captured_envs, "clean_deployment did not shell out to any subprocess"

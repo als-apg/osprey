@@ -35,10 +35,10 @@ SERVICES_DIR = pathlib.Path(osprey.__file__).parent / "templates" / "services"
 # The four managed services and their pinned primer spec (what the deps layer
 # installs from PyPI). Only the virtual accelerator carries an extra.
 PRIMER_SPEC = {
-    "event_dispatcher": 'osprey-framework==$OSPREY_VERSION',
-    "virtual_accelerator": 'osprey-framework[virtual-accelerator]==$OSPREY_VERSION',
-    "bluesky": 'osprey-framework==$OSPREY_VERSION',
-    "bluesky_panels": 'osprey-framework==$OSPREY_VERSION',
+    "event_dispatcher": "osprey-framework==$OSPREY_VERSION",
+    "virtual_accelerator": "osprey-framework[virtual-accelerator]==$OSPREY_VERSION",
+    "bluesky": "osprey-framework==$OSPREY_VERSION",
+    "bluesky_panels": "osprey-framework==$OSPREY_VERSION",
 }
 SERVICES = sorted(PRIMER_SPEC)
 
@@ -129,7 +129,7 @@ class TestLayerSplit:
         # fatal (explicit exit 1 branch).
         assert '[ "$OSPREY_DEV" = "1" ]' in deps, f"{service}: fallback not gated on OSPREY_DEV=1"
         assert "exit 1" in deps, f"{service}: no fail-loud branch for a non-dev pin miss"
-        assert 'ARG OSPREY_DEV' in _dockerfile(service), f"{service}: OSPREY_DEV arg not declared"
+        assert "ARG OSPREY_DEV" in _dockerfile(service), f"{service}: OSPREY_DEV arg not declared"
 
     def test_trailing_project_label_is_last(self, service):
         instrs = _instructions(_dockerfile(service))

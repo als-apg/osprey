@@ -181,9 +181,7 @@ class TestExternalConflict:
             [
                 {
                     "Names": ["other-openobserve"],
-                    "Ports": [
-                        {"host_ip": "127.0.0.1", "host_port": port, "container_port": 5080}
-                    ],
+                    "Ports": [{"host_ip": "127.0.0.1", "host_port": port, "container_port": 5080}],
                     "Labels": {"com.docker.compose.project": "other"},
                 }
             ]

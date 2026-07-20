@@ -1725,9 +1725,7 @@ _FIXTURE_WHEEL_METADATA = (
 
 # The manifest _FIXTURE_WHEEL_METADATA must produce: extras excluded, non-extra
 # markers verbatim, sorted, one per line, trailing newline.
-_FIXTURE_WHEEL_EXPECTED_MANIFEST = (
-    "aiohttp\nsoftioc>=4.5\ntomli>=2; python_version < \"3.11\"\n"
-)
+_FIXTURE_WHEEL_EXPECTED_MANIFEST = 'aiohttp\nsoftioc>=4.5\ntomli>=2; python_version < "3.11"\n'
 
 
 def _write_fixture_wheel(path: Path) -> None:
@@ -1893,9 +1891,7 @@ def _rendered_dispatcher_build_args(
     monkeypatch.chdir(tmp_path)
     prepare_compose_files(str(config_path), dev_mode=True)
     compose_file = tmp_path / "build" / "services" / "event_dispatcher" / "docker-compose.yml"
-    return yaml.safe_load(compose_file.read_text())["services"]["event-dispatcher"]["build"][
-        "args"
-    ]
+    return yaml.safe_load(compose_file.read_text())["services"]["event-dispatcher"]["build"]["args"]
 
 
 def test_rendered_compose_carries_osprey_dev_when_wheel_staged(
@@ -1939,9 +1935,7 @@ def test_rendered_compose_omits_osprey_dev_on_memoized_build_failure(
     prepare_compose_files(str(config_path), dev_mode=True)
 
     compose_file = tmp_path / "build" / "services" / "event_dispatcher" / "docker-compose.yml"
-    args = yaml.safe_load(compose_file.read_text())["services"]["event-dispatcher"]["build"][
-        "args"
-    ]
+    args = yaml.safe_load(compose_file.read_text())["services"]["event-dispatcher"]["build"]["args"]
     assert "OSPREY_DEV" not in args
     service_ctx = tmp_path / "build" / "services" / "event_dispatcher"
     assert not list(service_ctx.glob("*.whl")), "no wheel may be staged on a failed build"
