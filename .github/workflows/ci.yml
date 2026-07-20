@@ -414,7 +414,7 @@ jobs:
       uses: actions/checkout@v7
 
     - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -492,7 +492,7 @@ jobs:
         fetch-depth: 0
 
     - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -669,7 +669,7 @@ jobs:
         fetch-depth: 0
 
     - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -731,7 +731,7 @@ jobs:
         fetch-depth: 0
 
     - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -803,7 +803,7 @@ jobs:
         fetch-depth: 0
 
     - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -870,7 +870,7 @@ jobs:
         fetch-depth: 0
 
     - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -915,7 +915,7 @@ jobs:
         fetch-depth: 0
 
     - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -965,7 +965,7 @@ jobs:
         fetch-depth: 0
 
     - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -1011,7 +1011,7 @@ jobs:
         fetch-depth: 0
 
     - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -1058,7 +1058,7 @@ jobs:
         fetch-depth: 0
 
     - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -1102,7 +1102,7 @@ jobs:
         fetch-depth: 0
 
     - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -1147,7 +1147,7 @@ jobs:
         fetch-depth: 0
 
     - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
@@ -1195,7 +1195,7 @@ jobs:
         fetch-depth: 0
 
     - name: Log in to ghcr (openobserve mirror)
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ghcr.io
         username: ${{ github.actor }}
