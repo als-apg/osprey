@@ -1,6 +1,6 @@
 /* OSPREY Web Terminal — Application Entry Point */
 
-import { initTerminal, fitTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal, clearStoredSessionId } from './terminal.js';
+import { initTerminal, focusTerminal, getTerminalDimensions, pasteToTerminal, clearStoredSessionId } from './terminal.js';
 import { onConnectionStateChange, fetchJSON, withPrefix } from './api.js';
 import { initPanelManager, broadcastMode } from './panel-manager.js';
 import '/design-system/js/components/osprey-drawer.js';
@@ -10,14 +10,30 @@ import { initScaffoldGallery } from './scaffold-gallery.js';
 import { initHookDebug } from './hook-debug.js';
 import { initSessionSelector, startNewSession } from './sessions.js';
 import { initTheme } from '/design-system/js/theme-manager.js';
+import { initChat } from './chat.js';
+import { initDockWorkspace, applyDockMode } from './dock-workspace.js';
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme({ role: 'hub' });
   initTerminal('terminal-container');
+  // Simple-mode operator chat. Guarded so a chat init failure can't break the
+  // rest of the boot (the expert terminal is already up at this point).
+  try {
+    initChat('operator-container');
+  } catch (err) {
+    console.error('Failed to init operator chat:', err);
+  }
   initPanelManager('right-panel');
   initSessionSelector('session-selector');
   initStatusBar();
-  initResizeHandle();
+  // Dock the terminal + workspace panels into the dockview shell (replaces the
+  // old fixed resize-handle split). Guarded so a dock init failure can't break
+  // the rest of boot — the source subtrees stay in the page if it no-ops.
+  try {
+    initDockWorkspace();
+  } catch (err) {
+    console.error('Failed to init dock workspace:', err);
+  }
   initKeyboardShortcuts();
   initNewSessionButton();
   initLogoutButton();
@@ -130,6 +146,10 @@ function initModeToggle() {
     stripQueryMode();
     // Panels read the current mode off <html>, so broadcast only after the swap.
     broadcastMode();
+    // Dock half of the flip: stash+lock into the simple layout, or reconcile+
+    // restore the expert layout. Runs after the CSS/attribute swap so the dock
+    // reads the target mode; no-ops until the workspace shell exists.
+    applyDockMode(mode);
   });
 }
 
@@ -222,96 +242,6 @@ function initStatusBar() {
       clockEl.textContent = new Date().toLocaleTimeString('en-US', { hour12: false });
     }, 1000);
   }
-}
-
-/* ---- Resize Handle ---- */
-
-function initResizeHandle() {
-  const handle = document.getElementById('resize-handle');
-  const terminalPanel = /** @type {HTMLElement} */ (document.querySelector('.terminal-panel'));
-  const rightPanel = /** @type {HTMLElement} */ (document.querySelector('.files-panel'));
-  const container = /** @type {HTMLElement} */ (document.querySelector('.main-container'));
-  const headerLeft = /** @type {HTMLElement} */ (document.querySelector('.header-left'));
-  const headerRight = /** @type {HTMLElement} */ (document.querySelector('.header-right'));
-
-  if (!handle || !terminalPanel || !rightPanel || !container) return;
-
-  const handleWidth = 5;
-  let isDragging = false;
-  let startX = 0;
-  let startTermWidth = 0;
-
-  // Track the terminal's share of total width so the split scales with
-  // the browser window.  null = CSS default (no user drag yet).
-  /** @type {number | null} */
-  let terminalRatio = null;
-
-  function applyRatio() {
-    if (terminalRatio === null) return;
-    const totalWidth = container.getBoundingClientRect().width - handleWidth;
-    const termWidth = Math.max(280, Math.min(totalWidth * 0.85, totalWidth * terminalRatio));
-    terminalPanel.style.flex = 'none';
-    terminalPanel.style.width = termWidth + 'px';
-    rightPanel.style.flex = 'none';
-    rightPanel.style.width = (totalWidth - termWidth) + 'px';
-
-    // Sync header split to match the column split: the panel column is on the
-    // left (beside the rail), the terminal on the right.
-    if (headerLeft) {
-      headerLeft.style.flex = 'none';
-      headerLeft.style.width = (totalWidth - termWidth) + 'px';
-    }
-    if (headerRight) {
-      headerRight.style.flex = 'none';
-      headerRight.style.width = termWidth + 'px';
-    }
-  }
-
-  handle.addEventListener('mousedown', (e) => {
-    isDragging = true;
-    startX = e.clientX;
-    startTermWidth = terminalPanel.getBoundingClientRect().width;
-
-    document.body.classList.add('resizing');
-    handle.classList.add('dragging');
-
-    e.preventDefault();
-  });
-
-  document.addEventListener('mousemove', (e) => {
-    if (!isDragging) return;
-
-    const dx = e.clientX - startX;
-    const totalWidth = container.getBoundingClientRect().width - handleWidth;
-
-    // The terminal is the RIGHT column: dragging the handle right widens the
-    // panel column and shrinks the terminal, so dx subtracts.
-    let newTermWidth = startTermWidth - dx;
-    const minTerm = 280;
-    const maxTerm = totalWidth * 0.85;
-
-    newTermWidth = Math.max(minTerm, Math.min(maxTerm, newTermWidth));
-
-    // Store as a ratio so it scales with window resize.
-    terminalRatio = newTermWidth / totalWidth;
-    applyRatio();
-
-    fitTerminal();
-  });
-
-  document.addEventListener('mouseup', () => {
-    if (!isDragging) return;
-    isDragging = false;
-    document.body.classList.remove('resizing');
-    handle.classList.remove('dragging');
-    fitTerminal();
-  });
-
-  // Recalculate the split when the browser window resizes.
-  window.addEventListener('resize', () => {
-    applyRatio();
-    fitTerminal();
-  });
 }
 
 /* ---- Iframe Paste Bridge ---- */

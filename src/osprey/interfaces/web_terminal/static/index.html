@@ -54,6 +54,17 @@
   <!-- marked.js -->
   <script src="{{ prefixed(vendor_url('marked', '/static/vendor/marked.min.js')) }}"></script>
 
+  <!-- DOMPurify: sanitizes marked's HTML output before it reaches the DOM -->
+  <script src="{{ vendor_url('DOMPurify', '/static/vendor/purify.min.js') }}"></script>
+
+  <!-- dockview: docking workspace. UMD global window['dockview-core']. CSS before
+       the OSPREY styles below so our theming can override the base dockview rules. -->
+  <link rel="stylesheet" href="{{ vendor_url('dockview-core css', '/static/vendor/dockview.css') }}">
+  <!-- OSPREY theme bridge: remaps dockview's --dv-* onto design tokens. Must load
+       AFTER dockview.css so these overrides win the cascade. -->
+  <link rel="stylesheet" href="/static/css/dockview-overrides.css">
+  <script src="{{ vendor_url('dockview-core', '/static/vendor/dockview-core.min.js') }}"></script>
+
   <!-- OSPREY styles -->
   <link rel="stylesheet" href="{{ prefixed('/static/css/terminal.css') }}">
   <link rel="stylesheet" href="{{ prefixed('/static/css/files.css') }}">
@@ -123,45 +134,57 @@
       </div>
     </div>
 
-    <!-- Resizable split: workspace | terminal (measured by the resize handle).
-         The panel column sits directly beside the rail that selects it; the
-         terminal keeps the right column. (#right-panel keeps its historical id
-         — it is a frozen contract with panel-manager/tests, not a position.) -->
+    <!-- Dockview workspace: fills the row beside the rail. #dock-root is the
+         dockview-managed grid; dock-workspace.js adopts the terminal card below
+         into the shell's one native dockview panel at boot. Service panels dock
+         as overlay-backed placeholders (dock-iframe.js) — the first opens left
+         of the terminal at the old 60/40 split.
+         (#right-panel keeps its historical id — a frozen contract with
+         panel-manager/tests, not a position.) -->
     <div class="main-container">
 
-    <!-- Panel column (left, beside the rail) — service panes -->
-    <div class="files-panel" id="right-panel">
-      <div class="panel-content" id="panel-content">
-        <!-- Active panel's iframe or empty state -->
-      </div>
-    </div>
+      <!-- Dockview mounts its managed grid here. -->
+      <div class="dock-root" id="dock-root"></div>
 
-    <!-- Resize Handle -->
-    <div class="resize-handle" id="resize-handle">
-      <div class="resize-handle-grip"></div>
-    </div>
+      <!-- Source subtrees parked here at load — kept OUT of #dock-root because
+           dockview fully manages its root's children. `display: contents` lets
+           them lay out normally during the (paint-free) boot tick so xterm opens
+           against a sized element. The terminal card is ADOPTED (moved, not
+           cloned) into its dockview panel; #right-panel is the FALLBACK iframe
+           host only (no dockview) and is hidden by dock-workspace.js in docked
+           mode. -->
+      <div class="dock-panel-sources" id="dock-panel-sources">
 
-    <!-- Terminal Panel (Right) -->
-    <div class="terminal-panel">
-      <div class="terminal-card">
-        <div class="terminal-header">
-          <span class="session-led" id="session-led"></span>
-          <span class="terminal-label" id="terminal-label">Session</span>
-          <!-- Simple-mode label: a static plain-language "Connected" that replaces
-               the mono SESSION <hex> + selector. CSS-gated off html[data-ui-mode]
-               so the swap tracks live mode flips; terminal.js keeps writing the
-               (now hidden) #terminal-label harmlessly, and expert restores on
-               toggle-back. -->
-          <span class="terminal-label-simple">Connected</span>
-          <div class="session-selector" id="session-selector"></div>
-          <button class="new-session-btn" id="new-session-btn" title="New Session">+ New</button>
+        <!-- Panel column: fallback-mode service-iframe host + empty state. -->
+        <div class="files-panel" id="right-panel">
+          <div class="panel-content" id="panel-content">
+            <!-- Active panel's iframe or empty state -->
+          </div>
         </div>
-        <div class="terminal-body" id="terminal-body">
-          <div id="terminal-container"></div>
-          <div id="operator-container" class="operator-container"></div>
+
+        <!-- Terminal / chat card -->
+        <div class="terminal-panel">
+          <div class="terminal-card">
+            <div class="terminal-header">
+              <span class="session-led" id="session-led"></span>
+              <span class="terminal-label" id="terminal-label">Session</span>
+              <!-- Simple-mode label: a static plain-language "Connected" that replaces
+                   the mono SESSION <hex> + selector. CSS-gated off html[data-ui-mode]
+                   so the swap tracks live mode flips; terminal.js keeps writing the
+                   (now hidden) #terminal-label harmlessly, and expert restores on
+                   toggle-back. -->
+              <span class="terminal-label-simple">Connected</span>
+              <div class="session-selector" id="session-selector"></div>
+              <button class="new-session-btn" id="new-session-btn" title="New Session">+ New</button>
+            </div>
+            <div class="terminal-body" id="terminal-body">
+              <div id="terminal-container"></div>
+              <div id="operator-container" class="operator-container"></div>
+            </div>
+          </div>
         </div>
-      </div>
-    </div>
+
+      </div><!-- /.dock-panel-sources -->
 
     </div><!-- /.main-container -->
 

@@ -24,7 +24,6 @@ Skips cleanly when the chromium headless binary is not installed.
 
 from __future__ import annotations
 
-import re
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -449,12 +448,16 @@ def test_hidden_iframe_activation_repair(tmp_path, chromium_browser):
                 == "dark"
             )
 
-            # Switch away — the follower iframe is now hidden, not destroyed.
+            # Switch away — the follower iframe is concealed, not destroyed. Under
+            # the docked shell a backgrounded panel is hidden by display, not by a
+            # `hidden` class: its overlay iframe goes display:none once its
+            # placeholder stops being the active dock tab (dock-iframe.js
+            # syncGeometry), or, in fallback mode, via a plain display toggle. The
+            # cached iframe element — and so the follower's live theme state —
+            # persists across the hide for the re-activation repair below.
+            follower_iframe = page.locator('iframe[data-panel-id="follower"]')
             page.locator('button[data-panel-id="artifacts"]').click()
-            _hidden_class = re.compile(r"(^|\s)hidden(\s|$)")
-            expect(page.locator('iframe[data-panel-id="follower"]')).to_have_class(
-                _hidden_class, timeout=5_000
-            )
+            expect(follower_iframe).to_be_hidden(timeout=5_000)
 
             # Change theme while the panel is hidden.
             page.click("osprey-theme-switcher .theme-switcher-mode")
@@ -462,9 +465,7 @@ def test_hidden_iframe_activation_repair(tmp_path, chromium_browser):
 
             # Reactivate — activateTab() must resend the theme unconditionally.
             follower_tab.click()
-            expect(page.locator('iframe[data-panel-id="follower"]')).not_to_have_class(
-                _hidden_class, timeout=5_000
-            )
+            expect(follower_iframe).to_be_visible(timeout=5_000)
             follower_frame.wait_for_function(
                 "document.documentElement.getAttribute('data-theme') === 'light'", timeout=5_000
             )

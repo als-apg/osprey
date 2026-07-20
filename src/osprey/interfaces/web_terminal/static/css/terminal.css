@@ -611,21 +611,59 @@ html[data-ui-mode="simple"] .header-help-chip {
   overflow: hidden;
 }
 
-/* The resizable terminal/workspace split. Fills the row beside the rail; the
-   resize handle measures THIS element's width, so the rail lives outside it
-   (in .shell-body) to keep the split math correct. */
+/* Workspace region: fills the row beside the rail and hosts the dockview grid
+   (#dock-root). position: relative anchors any drag-time overlay layer added by
+   the follow-on dock tasks. */
 .main-container {
+  position: relative;
   display: flex;
   flex: 1;
   min-width: 0;
   overflow: hidden;
 }
 
+/* Dockview-managed grid — fills the region. */
+.dock-root {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  position: relative;
+}
+
+/* Holder for the source subtrees before dock-workspace.js boots; `display:
+   contents` keeps them laid out during the boot tick (so xterm opens against a
+   sized element) while adding no box of its own. After boot the terminal card
+   has been adopted into its dockview panel and #right-panel (fallback-only
+   iframe host) is hidden inline by dock-workspace.js. */
+.dock-panel-sources {
+  display: contents;
+}
+
+/* Neutral fill host wrapping each adopted subtree so it fills its dockview panel
+   regardless of the subtree's own flex-basis (the old split relied on the
+   subtree being a flex child of .main-container; dockview sizes the group). */
+.dock-panel-host {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Pointer-shield: while a dockview drag is active, neutralize pointer capture on
+   panel iframes so a separate-document iframe can't swallow the drag events
+   dockview needs for drop-target detection. dock-workspace.js toggles the class
+   on drag start/end; this mirrors the guarantee dockview already makes for its
+   own draggables across the whole gesture. */
+.main-container.dock-dragging iframe {
+  pointer-events: none;
+}
+
 /* ---- Terminal panel ---- */
 
 .terminal-panel {
-  flex: 0 1 40%;
-  min-width: 360px;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
   display: flex;
   flex-direction: column;
   background: var(--bg-primary);
@@ -737,6 +775,18 @@ html[data-ui-mode="simple"] .header-help-chip {
 
 #terminal-container .xterm {
   height: 100%;
+}
+
+/* ---- Mode gate: PTY vs operator chat console ----
+   Expert shows the xterm PTY (#terminal-container); simple swaps in the
+   operator chat console (#operator-container, styled in operator.css). Both
+   stay mounted inside .terminal-body — this is pure display gating off
+   html[data-ui-mode] (resolved pre-paint by the FOUC boot script), so a live
+   mode flip tears down no DOM and either view restores exactly on toggle-back.
+   The matching rule that reveals #operator-container in simple mode lives in
+   operator.css. */
+html[data-ui-mode="simple"] #terminal-container {
+  display: none;
 }
 
 /* ---- Animations ---- */

@@ -144,7 +144,13 @@ class TestRenderedDataTheme:
             next(gen, None)
 
     def test_looks_up_web_theme_key_with_osprey_default(self, workspace_dir):
-        """The lifespan reads exactly `web.theme` with default 'osprey'."""
+        """The lifespan resolves the theme from `web.theme` with default 'osprey'.
+
+        The lifespan reads other `web.*` keys too (e.g. the chat-pool bounds),
+        so this asserts the theme *contract* — that `web.theme` is queried with
+        the 'osprey' default and the rendered result reflects it — rather than
+        that the theme read is the lifespan's only config lookup.
+        """
         with (
             patch(
                 "osprey.interfaces.web_terminal.app._load_web_config",
@@ -157,7 +163,7 @@ class TestRenderedDataTheme:
         ):
             body = client.get("/").text
 
-        mock_get_config_value.assert_called_once_with("web.theme", "osprey")
+        mock_get_config_value.assert_any_call("web.theme", "osprey")
         assert 'data-theme="dark"' in body
 
     def test_missing_config_yml_fails_open_to_dark(self, workspace_dir):

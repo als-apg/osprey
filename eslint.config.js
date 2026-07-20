@@ -21,6 +21,7 @@ export default [
         ...globals.browser,
         Plotly: 'readonly',
         marked: 'readonly',
+        DOMPurify: 'readonly',
         hljs: 'readonly',
         katex: 'readonly',
         Terminal: 'readonly',

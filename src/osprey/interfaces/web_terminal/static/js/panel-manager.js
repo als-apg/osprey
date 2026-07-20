@@ -16,6 +16,8 @@ import { getTheme } from '/design-system/js/theme-manager.js';
 import { getCurrentSessionId } from './terminal.js';
 import { applyPreset, wirePanelHeaderControls } from './panel-presets.js';
 import { setPanelVisibility, setPanelFocus, registerUrlPanel } from './panel-commands.js';
+import { initDockIframeAdapter, adoptIframe, focusPanel, hidePanel, setKnownServicePanels } from './dock-iframe.js';
+import { initDockSync, withEchoSuppressed } from './dock-sync.js';
 import {
   createRail,
   addEntry,
@@ -157,6 +159,17 @@ export async function initPanelManager(panelId) {
   contentEl = /** @type {HTMLElement} */ (containerEl.querySelector('#panel-content') || containerEl.querySelector('.panel-content'));
   if (!railEl || !contentEl) return;
 
+  // Hand the iframe adapter its fallback mount host. When the dockview shell is
+  // up, panel iframes live in the adapter's overlay layer instead (dockview
+  // re-parents panel content on regroup, which reloads iframes — see the
+  // dock-spike verdict and dock-iframe.js); without a shell they mount here.
+  initDockIframeAdapter({ fallbackHost: contentEl });
+
+  // Bridge dockview gestures back to the server-owned panel state: a human dock
+  // tab focus / close POSTs the same setPanelFocus / setPanelVisibility the rail
+  // and agent use. Wires lazily once the dockview shell is up; no-ops without it.
+  initDockSync();
+
   // Fetch panel config and filter PANELS before rendering
   let panelConfig = null;
   try {
@@ -229,6 +242,10 @@ export async function initPanelManager(panelId) {
   // Config-defined layouts for the "+" menu's Layouts section (empty by default).
   panelPresets = panelConfig?.presets || [];
 
+  // Registry final for this load — the adapter may now prune any restored
+  // placeholder whose service no longer exists (reconcile keeps all iframe:*).
+  setKnownServicePanels(PANELS.map((p) => p.id));
+
   // Render the rail entries
   renderRail();
 
@@ -267,8 +284,7 @@ export async function initPanelManager(panelId) {
         ps.url = cp.url;
         ps.configLoaded = true;
         if (!cp.healthEndpoint) {
-          ps.healthy = true;
-          enableTab(cp.id);
+          assumeHealthy(cp);
         } else {
           const panel = PANELS.find(p => p.id === cp.id);
           if (panel) startHealthPolling(panel);
@@ -316,7 +332,13 @@ export async function initPanelManager(panelId) {
           // CC-1: if we just hid the currently active panel, switch away from it
           if (!visible && panel === activeTabId) {
             // Conceal the outgoing iframe immediately so it doesn't bleed through
-            panelState[panel]?.iframe?.classList.add('hidden');
+            // (adapter drops its dock placeholder and suppresses the overlay iframe;
+            // the cached element is kept for a later re-show). Wrapped in the echo
+            // guard: dropping the placeholder makes dockview auto-activate the
+            // stacked neighbor, and that programmatic active-panel change is a
+            // server-applied echo — it must not POST focus back (the deliberate
+            // non-POSTing fallback below owns where focus lands).
+            withEchoSuppressed(() => hidePanel(panel));
             // Find the first panel that is visible, healthy, and not the one being hidden
             const fallback = PANELS.find(
               p => p.id !== panel && visiblePanels.has(p.id) && panelState[p.id]?.healthy
@@ -394,6 +416,8 @@ function addPanel(spec) {
     path: spec.path || '/',
   };
   PANELS.push(normalized);
+  // Keep the adapter's known-service set current (never orphan a runtime panel).
+  setKnownServicePanels(PANELS.map((p) => p.id));
 
   panelState[spec.id] = {
     url: null,
@@ -415,8 +439,7 @@ function addPanel(spec) {
     ps.url = spec.url;
     ps.configLoaded = true;
     if (!spec.healthEndpoint) {
-      ps.healthy = true;
-      enableTab(spec.id);
+      assumeHealthy(normalized);
     } else {
       startHealthPolling(normalized);
     }
@@ -448,9 +471,7 @@ async function initPanel(panel) {
     // External panels (healthEndpoint === null) skip health polling —
     // mark healthy immediately so the tab is enabled.
     if (panel.healthEndpoint == null) {  // null or undefined → skip polling
-      state.healthy = true;
-      enableTab(panel.id);
-      updateTabState(panel);
+      assumeHealthy(panel);
     } else {
       startHealthPolling(panel);
     }
@@ -529,10 +550,10 @@ async function pollHealth(panel) {
     updateTabState(panel);
     updateStatusBar(panel);
 
-    // First time healthy — enable the tab, then let the shared policy decide
+    // First time healthy — enable the entry, then let the shared policy decide
     // whether this newly-healthy panel should take an empty slot.
     if (state.healthy && !wasHealthy) {
-      enableTab(panel.id);
+      setEntryEnabled(railEl, panel.id, true);
       ensureActivePanel();
     }
   } catch {
@@ -546,14 +567,22 @@ async function pollHealth(panel) {
 
 // ---- Entry State ----
 
-/** @param {string} panelId */
-function enableTab(panelId) {
-  setEntryEnabled(railEl, panelId, true);
-}
-
 /** @param {Panel} panel */
 function updateTabState(panel) {
   setHealth(railEl, panel.id, panelState[panel.id].healthy);
+}
+
+/**
+ * A panel with no health endpoint is assumed permanently healthy: mark it so,
+ * enable its rail entry, and paint the LED green. Consolidates the built-in,
+ * custom-config, and runtime-addPanel paths so none can enable an entry while
+ * leaving its LED at the offline default.
+ * @param {Panel} panel
+ */
+function assumeHealthy(panel) {
+  panelState[panel.id].healthy = true;
+  setEntryEnabled(railEl, panel.id, true);
+  updateTabState(panel);
 }
 
 /** @param {Panel} panel */
@@ -683,21 +712,26 @@ function activateTab(panelId, { userInitiated = false, auto = false } = {}) {
   // canvas opts out of the hub's card chrome (see files.css [data-active-panel]).
   if (containerEl) containerEl.dataset.activePanel = panelId;
 
-  // Hide all iframes
-  for (const panel of PANELS) {
-    const ps = panelState[panel.id];
-    if (ps.iframe) ps.iframe.classList.add('hidden');
-  }
+  // Clear any stale empty-state placeholder before revealing a panel. isConnected
+  // guards a cached ref that was detached by renderEmptyState's innerHTML wipe
+  // (fallback mode, where iframes live in #panel-content) — rebuild rather than
+  // re-show a node no longer in the DOM. In overlay mode iframes live outside
+  // #panel-content, so the wipe never detaches them and the cached ref is reused.
+  contentEl.querySelector('.artifacts-empty-state')?.remove();
 
-  // Show or create the selected iframe. isConnected guards a cached ref that was
-  // detached by renderEmptyState's innerHTML wipe — rebuild (and clear the stale
-  // empty-state placeholder) rather than re-showing a node no longer in the DOM.
-  if (state.iframe && state.iframe.isConnected) {
-    state.iframe.classList.remove('hidden');
-  } else {
-    contentEl.querySelector('.artifacts-empty-state')?.remove();
-    createIframe(panelId);
-  }
+  // Create the iframe (first activation) and bring it forward, suppressing the
+  // others. Both run inside the dock-sync echo guard: createIframe's adoptIframe
+  // adds a dockview placeholder that auto-activates, and focusPanel drives a
+  // programmatic active-tab change — each is an applied echo (server- or rail-
+  // driven), never a fresh human dock gesture, so neither must POST focus back.
+  // The adapter maps focus onto dockview's active-tab geometry in overlay mode,
+  // or a plain display toggle in fallback mode.
+  withEchoSuppressed(() => {
+    if (!state.iframe || !state.iframe.isConnected) {
+      createIframe(panelId);
+    }
+    focusPanel(panelId);
+  });
 
   // Re-send current theme, mode and session ID to the newly visible iframe
   // (handles edge cases where a postMessage was missed while hidden/loading)
@@ -792,13 +826,10 @@ function createIframe(panelId) {
   // the iframe loads the UI root rather than the API root.
   const panel = PANELS.find(p => p.id === panelId);
   const panelPath = panel?.path && panel.path !== '/' ? panel.path : '';
-  const baseUrl = state.pendingUrl || (state.url + panelPath);
-  const targetUrl = baseUrl;
+  const targetUrl = state.pendingUrl || (state.url + panelPath);
   state.pendingUrl = null;
-  // state.url is already the server-prefixed `<prefix>/panel/<id>` (2.2), so
-  // targetUrl is root-relative and already carries the prefix. `new URL(path,
-  // origin)` for a leading-slash path preserves the full path verbatim —
-  // see the matching comment in navigatePanel() above.
+  // targetUrl is the already-prefixed, root-relative `state.url` (+ optional
+  // subpath); `new URL(path, origin)` preserves it verbatim — see navigatePanel().
   const embedUrl = new URL(targetUrl, window.location.origin);
   embedUrl.searchParams.set('embedded', 'true');
   embedUrl.searchParams.set('theme', /** @type {string} */ (getTheme()));
@@ -815,10 +846,17 @@ function createIframe(panelId) {
     sendSessionToIframe(iframe);
   });
 
-  contentEl.appendChild(iframe);
+  // Hand the element to the dock adapter, which mounts it in the overlay layer
+  // (dockview shell present) or in #panel-content (fallback). The adapter owns
+  // the iframe's geometry from here; panel-manager keeps owning its src, sandbox,
+  // health and the theme/mode/session postMessage protocol above.
   state.iframe = iframe;
+  adoptIframe(panelId, iframe, { title: panel?.label || panelId });
 
-  // Forward resize events to the iframe so embedded apps re-render
+  // Forward resize events to the iframe so embedded apps re-render. Observing
+  // #panel-content covers the fallback (in-content) mount and the workspace-panel
+  // resizes; the adapter additionally re-dispatches resize when it re-lays the
+  // overlay iframe to a new dock rectangle.
   const observer = new ResizeObserver(() => {
     if (iframe.contentWindow) {
       try {

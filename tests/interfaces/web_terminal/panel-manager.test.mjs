@@ -8,7 +8,7 @@
  *     fetch, both via fetchJSON (prefixed internally)
  *   - the /api/files/events EventSource, via createEventSource (prefixed
  *     internally)
- *   - the /api/panel-focus POST on a user-initiated tab switch (via
+ *   - the /api/panel-focus POST on a user-initiated rail switch (via
  *     panel-commands.js, prefixed with withPrefix)
  *   - the iframe-src builders in navigatePanel()/createIframe(): state.url
  *     arrives from the server ALREADY prefixed (routes/panels.py's
@@ -33,11 +33,11 @@ function jsonOk(body) {
   return { ok: true, status: 200, statusText: 'OK', json: async () => body };
 }
 
-/** Renders the DOM initPanelManager expects: a container with #panel-content, and a sibling #header-tabs. */
+/** Renders the DOM initPanelManager expects: a container with #panel-content, and a sibling #panel-rail. */
 function renderContainer() {
   document.body.innerHTML = `
+    <nav id="panel-rail"></nav>
     <div id="panel-manager"><div id="panel-content"></div></div>
-    <div id="header-tabs"></div>
   `;
 }
 
@@ -149,7 +149,7 @@ describe('/api/files/events EventSource (via createEventSource)', () => {
   });
 });
 
-describe('/api/panel-focus POST on a user-initiated tab switch', () => {
+describe('/api/panel-focus POST on a user-initiated rail switch', () => {
   /**
    * @param {string|undefined} prefix
    * @param {string} expectedUrl
@@ -240,7 +240,7 @@ describe('iframe src: state.url arrives already server-prefixed (2.2) and must n
   });
 });
 
-describe('tab LEDs for custom panels without a health endpoint', () => {
+describe('rail LEDs for custom panels without a health endpoint', () => {
   test('a null-healthEndpoint panel renders a healthy LED, not the offline default', async () => {
     window.__OSPREY_PREFIX__ = '';
     renderContainer();
@@ -264,11 +264,11 @@ describe('tab LEDs for custom panels without a health endpoint', () => {
     const { initPanelManager } = await freshImport();
     await initPanelManager('panel-manager');
 
-    const tab = document.querySelector('[data-panel-id="results"]');
-    if (!(tab instanceof HTMLElement)) throw new Error('expected a results tab');
-    expect(tab.classList.contains('disabled')).toBe(false);
-    const led = tab.querySelector('.tab-led');
-    if (!(led instanceof HTMLElement)) throw new Error('expected a tab LED');
-    expect(led.className).toBe('tab-led healthy');
+    const entry = document.querySelector('[data-panel-id="results"]');
+    if (!(entry instanceof HTMLElement)) throw new Error('expected a results rail entry');
+    expect(entry.classList.contains('disabled')).toBe(false);
+    const led = entry.querySelector('.panel-rail-led');
+    if (!(led instanceof HTMLElement)) throw new Error('expected a rail LED');
+    expect(led.className).toBe('panel-rail-led healthy');
   });
 });
