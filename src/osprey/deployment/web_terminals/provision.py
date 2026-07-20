@@ -1168,6 +1168,13 @@ def deploy_up_web_terminals(
     logger.info(f"Running command:\n    {' '.join(up_cmd)}")
     subprocess.run(up_cmd, env=run_env, check=True)
 
+    # Hot-reload nginx: `up -d` never restarts a running nginx whose
+    # bind-mounted nginx.conf/landing.html CONTENT changed — the container
+    # definition is unchanged, so compose reconciles nothing and the freshly
+    # rendered routes silently never take effect. `nginx -s reload` is
+    # zero-downtime and a no-op when the config is unchanged.
+    _reload_nginx_config(web_cmd, run_env)
+
     # -----------------------------------------------------------------------
     # POST-UP HOOK — web-terminal reconcile complete (`compose up -d`
     # succeeded, containers running). Linger runs first so a rootless-podman
@@ -1185,6 +1192,26 @@ def deploy_up_web_terminals(
     seed_user_containers(config, env=run_env)
     _run_verify_script(project_root, run_env)
     _warn_if_web_stack_unreachable(config)
+
+
+def _reload_nginx_config(web_cmd: list[str], run_env: dict[str, str]) -> None:
+    """Advisory nginx config hot-reload after the web stack's ``up -d``.
+
+    Scoped to the web compose invocation (``exec -T nginx``) so no container
+    name is guessed. Advisory like :func:`_run_verify_script`: nginx validates
+    the new config before applying it and keeps serving the old one on
+    failure, and a reload that cannot run at all (container still starting)
+    warns rather than failing a deploy that did reconcile.
+    """
+    reload_cmd = web_cmd + ["exec", "-T", "nginx", "nginx", "-s", "reload"]
+    logger.info(f"Running command:\n    {' '.join(reload_cmd)}")
+    result = subprocess.run(reload_cmd, env=run_env, capture_output=True, text=True)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        logger.warning(
+            "nginx config reload failed (rendered nginx.conf changes may not be "
+            f"live until the nginx container restarts): {detail}"
+        )
 
 
 def _warn_if_web_stack_unreachable(config: dict, attempts: int = 5, delay: float = 2.0) -> None:

@@ -206,8 +206,9 @@ def captured_web_runs(monkeypatch, tmp_path):
 
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", _fake_write_artifacts)
 
-    def _fake_run(cmd, env=None, check=False):
+    def _fake_run(cmd, env=None, check=False, **kwargs):
         calls.append({"cmd": list(cmd), "env": env})
+        return _FakeCompletedProcess(returncode=0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
     return {"calls": calls, "written": written}
@@ -406,8 +407,9 @@ def captured_combined_runs(monkeypatch, tmp_path):
 
     monkeypatch.setattr(container_lifecycle, "_ensure_service_tokens", _fake_tokens)
 
-    def _fake_run(cmd, env=None, check=False):
+    def _fake_run(cmd, env=None, check=False, **kwargs):
         calls.append({"cmd": list(cmd), "env": env})
+        return _FakeCompletedProcess(returncode=0)
 
     monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
     return {"calls": calls, "build_calls": build_calls, "token_calls": token_calls}
@@ -514,10 +516,11 @@ class _FakeCompletedProcess:
 
 def test_web_deploy_docker_runtime_linger_adds_no_subprocess_calls(captured_web_runs, tmp_path):
     """captured_web_runs defaults to docker -- the post-up hook's linger step
-    must add zero subprocess calls beyond the ordinary rm preflight + pull + up."""
+    must add zero subprocess calls beyond the ordinary rm preflight + pull + up
+    + nginx config reload."""
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
-    assert len(captured_web_runs["calls"]) == 3
+    assert len(captured_web_runs["calls"]) == 4
 
 
 def test_web_deploy_calls_enable_linger_in_post_up_hook(monkeypatch, tmp_path):
@@ -536,7 +539,11 @@ def test_web_deploy_calls_enable_linger_in_post_up_hook(monkeypatch, tmp_path):
     monkeypatch.setattr(container_lifecycle, "verify_runtime_is_running", lambda config: (True, ""))
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["podman", "compose"])
     monkeypatch.setattr(provision, "write_web_terminal_artifacts", lambda config, dest_dir=".": [])
-    monkeypatch.setattr(container_lifecycle.subprocess, "run", lambda *a, **k: None)
+    monkeypatch.setattr(
+        container_lifecycle.subprocess,
+        "run",
+        lambda *a, **k: _FakeCompletedProcess(returncode=0),
+    )
 
     linger_calls = []
     monkeypatch.setattr(
@@ -648,6 +655,42 @@ def test_registry_mode_still_pulls(monkeypatch, tmp_path, _mode_wiring_collab):
     assert any("up" in cmd and "-d" in cmd for cmd in cmds)
 
 
+def test_up_hot_reloads_nginx_after_web_stack_up(monkeypatch, tmp_path, _mode_wiring_collab):
+    """`up -d` never restarts a running nginx whose bind-mounted config CONTENT
+    changed (the container definition is unchanged), so the post-up hook must
+    issue a `compose exec nginx nginx -s reload` — after the web stack's up."""
+    (tmp_path / ".env.production").write_text("", encoding="utf-8")
+    config = _web_terminals_config("registry")
+    monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
+
+    cmds = [c["cmd"] for c in _mode_wiring_collab]
+    reload_idx = next(
+        (i for i, cmd in enumerate(cmds) if cmd[-4:] == ["nginx", "nginx", "-s", "reload"]), None
+    )
+    assert reload_idx is not None, f"no nginx reload argv emitted: {cmds}"
+    assert "exec" in cmds[reload_idx] and "-T" in cmds[reload_idx]
+    up_idx = next(i for i, cmd in enumerate(cmds) if "up" in cmd and "-d" in cmd)
+    assert reload_idx > up_idx
+
+
+def test_nginx_reload_failure_is_advisory(monkeypatch, tmp_path, _mode_wiring_collab):
+    """A failing nginx reload (e.g. container still starting) warns but never
+    fails a deploy that did reconcile."""
+    (tmp_path / ".env.production").write_text("", encoding="utf-8")
+    config = _web_terminals_config("registry")
+    monkeypatch.setattr(container_lifecycle, "prepare_compose_files", lambda *a, **k: (config, []))
+
+    def _fake_run(cmd, **kwargs):
+        rc = 1 if "exec" in cmd else 0
+        return _FakeCompletedProcess(returncode=rc)
+
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
+
+    container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)  # must not raise
+
+
 def test_registry_mode_raises_before_any_compose_call_when_env_production_missing(
     monkeypatch, tmp_path, _mode_wiring_collab
 ):
@@ -718,13 +761,14 @@ def test_local_mode_calls_auto_render_then_ensure_env_production_then_build_then
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
-    # Exactly two compose calls (the stale-container `rm -f` preflight, then
-    # the web `up -d`; no deployed_services, no pull in local mode) after all
-    # three preflight steps, in this order.
+    # Exactly three compose calls (the stale-container `rm -f` preflight, the
+    # web `up -d`, then the advisory nginx config reload; no deployed_services,
+    # no pull in local mode) after all three preflight steps, in this order.
     assert order == [
         "auto_render",
         "ensure_env_production",
         "build_persona_images",
+        "compose",
         "compose",
         "compose",
     ]
@@ -815,6 +859,8 @@ def test_registry_mode_calls_ensure_env_production_before_pull_before_up(
     def _fake_run(cmd, **kwargs):
         if "rm" in cmd:
             order.append("rm")
+        elif "exec" in cmd:
+            order.append("nginx_reload")
         else:
             order.append("pull" if "pull" in cmd else "up")
         return _FakeCompletedProcess(returncode=0)
@@ -823,7 +869,7 @@ def test_registry_mode_calls_ensure_env_production_before_pull_before_up(
 
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=False)
 
-    assert order == ["ensure_env_production", "rm", "pull", "up"]
+    assert order == ["ensure_env_production", "rm", "pull", "up", "nginx_reload"]
 
 
 def test_post_up_hook_order_is_linger_then_seed_then_verify(
@@ -1438,9 +1484,12 @@ def test_web_services_dev_mode_splits_build_from_up(monkeypatch, tmp_path):
     monkeypatch.setattr(provision, "_run_verify_script", lambda *a, **k: None)
     monkeypatch.setattr(provision, "get_runtime_command", lambda config: ["docker", "compose"])
     runs: list = []
-    monkeypatch.setattr(
-        container_lifecycle.subprocess, "run", lambda cmd, env=None, **k: runs.append(list(cmd))
-    )
+
+    def _fake_run(cmd, env=None, **k):
+        runs.append(list(cmd))
+        return _FakeCompletedProcess(returncode=0)
+
+    monkeypatch.setattr(container_lifecycle.subprocess, "run", _fake_run)
     container_lifecycle.deploy_up(str(tmp_path / "config.yml"), detached=True, dev_mode=True)
 
     # The services-stack invocations (the ones carrying the services compose file).

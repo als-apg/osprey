@@ -904,3 +904,19 @@ def test_mcp_topology_custom_url_server_config_is_a_separate_namespace() -> None
         "nginx/nginx.conf",
         "nginx/landing.html",
     }
+
+
+def test_nginx_landing_location_is_exact_match_only() -> None:
+    """The landing page is served for `/` ONLY — every other unmatched path 404s.
+
+    A prefix `location /` catch-all would answer stray API calls (e.g. a panel
+    fetch that lost its `/u/<user>` prefix) with 200 + landing HTML, hiding the
+    bug behind a downstream JSON parse error instead of a visible 404.
+    """
+    # Act
+    artifacts = render_web_terminals(copy.deepcopy(_MULTI_USER_CONFIG))
+    nginx_conf = artifacts["nginx/nginx.conf"]
+
+    # Assert
+    assert "location = / {" in nginx_conf
+    assert not re.search(r"location / \{", nginx_conf)
