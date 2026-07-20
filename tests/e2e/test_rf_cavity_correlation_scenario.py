@@ -1,4 +1,4 @@
-"""End-to-end test for the RF-cavity-C1 thermal-excursion scenario.
+"""End-to-end test for the RF-cavity CAVITY01 thermal-excursion scenario.
 
 Operator-style prompt — one diagnostic imperative, one deliverable, no
 subsystem hints:
@@ -9,7 +9,7 @@ This is the cross-paradigm benchmark's RF scenario. It tests whether the
 agent can, from a bare beam-dump report, (a) enumerate the canonical
 suspects for unplanned beam loss (RF trip / vacuum event / magnet fault /
 etc.) without being told, (b) discover and retrieve the relevant telemetry
-for each suspect, (c) commit to a single cavity (C1 / device 01) as the
+for each suspect, (c) commit to a single cavity (CAVITY01, device 01) as the
 fault source based on the telemetry signature, and (d) name the mechanism
 (thermal detuning → reflected-power spike → forward-power trip).
 
@@ -20,8 +20,8 @@ carries these as *relative* timestamps (``when: {days_ago, time}``); applying
 the scenario resolves them against one apply-time anchor (newest entry lands
 two days before today) and seeds them into ARIEL. The telemetry ground truth
 lives in the same bundle (``data/simulation/scenarios/rf-thermal/``): the three
-C1 thermal excursions are declared at normalized window fractions (0.20, 0.55,
-0.85), so they appear at those relative positions in any window the agent
+CAVITY01 thermal excursions are declared at normalized window fractions (0.20,
+0.55, 0.85), so they appear at those relative positions in any window the agent
 chooses and the test stays date-agnostic. The test activates the scenario after
 building the project via ``activate_scenarios(project, "rf-thermal")``, which
 also purges + reseeds the logbook so narrative and telemetry share one clock;
@@ -35,10 +35,10 @@ The agent must:
 2. Discover RF cavity + DCCT + vacuum-gauge channel addresses via
    channel-finder.
 3. Pull a sensible time window via ``mcp__controls__archiver_read`` for
-   both cavities (so it can contrast C1 against C2) and at least DCCT.
+   both cavities (so it can contrast CAVITY01 against CAVITY02) and at least DCCT.
 4. Produce a plot via the data-visualizer subagent showing the correlated
-   excursions on C1 with C2 stable for reference.
-5. Identify cavity C1 (not C2) as the source and name the thermal-detuning
+   excursions on CAVITY01 with CAVITY02 stable for reference.
+5. Identify CAVITY01 (not CAVITY02) as the source and name the thermal-detuning
    mechanism.
 
 Run with:
@@ -88,25 +88,25 @@ pytestmark = [
 @pytest.mark.asyncio
 async def test_rf_cavity_c1_correlation_flow(tmp_path: Path) -> None:
     """Operator reports a beam dump; agent must cross-reference logbook +
-    telemetry and finger cavity C1 thermal excursions as the cause.
+    telemetry and finger CAVITY01 thermal excursions as the cause.
 
     Tests the full puzzle:
         phenomenon → parallel investigation (logbook + telemetry) →
         channel discovery → archiver retrieval → visualization → root cause.
 
     Tool-trace assertions are the deterministic contract; the LLM judge
-    layer guards against the agent fetching data but failing to name C1.
+    layer guards against the agent fetching data but failing to name CAVITY01.
 
     The ARIEL logbook is seeded deterministically at setup by
     ``activate_scenarios(project, "rf-thermal")``: it purges and reseeds the DB
-    from the scenario bundle so the cavity-C1 arc (DEMO-026/027/028) is present
+    from the scenario bundle so the CAVITY01 arc (DEMO-026/027/028) is present
     and matches the telemetry against one apply-time clock — no manual pre-seed,
     and no stale/wrong-preset DB to silently derail the agent. Needs a running
     ARIEL postgres (not provisioned on CI). See tests/e2e/README.md.
 
     Skipped on CI (no backend). Marked ``flaky(reruns=2)`` to absorb the rare
     stochastic miss where the agent gathers the evidence but fails to commit to
-    cavity C1.
+    CAVITY01.
     """
     # Prerequisite: this scenario's logbook-search sub-agent needs a live,
     # seeded ARIEL Postgres. Without it, ARIEL searches fail with a 5s pool
@@ -135,7 +135,7 @@ async def test_rf_cavity_c1_correlation_flow(tmp_path: Path) -> None:
         tier=3,
     )
     # Switch the mock connectors' data substrate to the ``rf-thermal`` scenario
-    # bundle — the C1 thermal excursions at window fractions 0.20/0.55/0.85 —
+    # bundle — the CAVITY01 thermal excursions at window fractions 0.20/0.55/0.85 —
     # and seed its DEMO-026/027/028 incident arc into ARIEL (purge + reseed) so
     # logbook and telemetry share one apply-time clock.
     activate_scenarios(project, "rf-thermal")
@@ -181,7 +181,7 @@ async def test_rf_cavity_c1_correlation_flow(tmp_path: Path) -> None:
     )
 
     # The archiver payload(s) must address RF cavity channels — the entire
-    # logbook story is about cavity C1, so an agent that fetches only DCCT
+    # logbook story is about CAVITY01, so an agent that fetches only DCCT
     # has failed to follow the trail.
     archiver_payloads = " ".join(str(t.input) for t in archiver_calls).lower()
     assert "cavity" in archiver_payloads or "rf" in archiver_payloads, (
@@ -207,10 +207,10 @@ async def test_rf_cavity_c1_correlation_flow(tmp_path: Path) -> None:
     )
 
     # --- Diagnostic conclusion -------------------------------------------------
-    # The logbook unambiguously names C1 (DEMO-026/027/028) and the archiver
-    # data unambiguously shows three thermal excursions on C1/K1 with C2/K2
-    # stable for contrast. The agent must commit to C1 and connect the
-    # thermal excursions to the beam dumps.
+    # The logbook unambiguously names CAVITY01 (DEMO-026/027/028) and the
+    # archiver data unambiguously shows three thermal excursions on CAVITY01
+    # with CAVITY02 stable for contrast. The agent must commit to CAVITY01 and
+    # connect the thermal excursions to the beam dumps.
     eval = await judge.evaluate(
         _to_workflow_result(query, result),
         expectations=(
@@ -220,23 +220,23 @@ async def test_rf_cavity_c1_correlation_flow(tmp_path: Path) -> None:
             "do not re-penalize those steps.\n"
             "\n"
             "The agent must commit to a specific RF cavity as the fault "
-            "source — 'cavity C1', 'cavity 01', 'first cavity', or "
-            "equivalent (the logbook uses 'C1' narratively, the channel "
-            "database uses device '01' — same instrument, either form "
-            "is correct). A non-specific 'an RF cavity', 'one of the "
+            "source — 'CAVITY01', 'cavity 01', 'first cavity', or "
+            "equivalent (the logbook and the channel database both name "
+            "device 01 — same instrument, any of these forms is "
+            "correct). A non-specific 'an RF cavity', 'one of the "
             "cavities', or 'the RF system' is NOT a pass. The agent "
             "should also offer some causal mechanism — thermal / "
             "cooling / detuning / interlock-related — exact "
-            "terminology not required; 'C1 tripped due to a thermal "
+            "terminology not required; 'CAVITY01 tripped due to a thermal "
             "or cooling issue' is sufficient.\n"
             "\n"
-            "Bonus, not required for pass: explicit C2 / device 02 "
+            "Bonus, not required for pass: explicit CAVITY02 / device 02 "
             "stable-for-contrast statement, and cross-referencing the "
-            "logbook's prior-incident narrative about recurring C1 "
+            "logbook's prior-incident narrative about recurring CAVITY01 "
             "thermal events and the cooling-manifold investigation/"
             "repair.\n"
             "\n"
-            "Failures: naming C2 instead of C1, attributing the dump "
+            "Failures: naming CAVITY02 instead of CAVITY01, attributing the dump "
             "to vacuum / magnets / injection (the archiver data "
             "unambiguously points to RF), or hedging without "
             "committing to a specific cavity."
