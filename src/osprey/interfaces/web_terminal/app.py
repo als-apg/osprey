@@ -6,8 +6,9 @@ via PTY) on the left and a live workspace file viewer on the right.
 
 from __future__ import annotations
 
+import asyncio
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -543,7 +544,34 @@ def _create_lifespan(
             )
         max_bg = int(config.get("max_background_sessions", 5))
         app.state.pty_registry = PtyRegistry(max_background=max_bg)
-        app.state.operator_registry = OperatorRegistry()
+
+        # ── Simple-mode chat pool bounds (Task 1.7) ──
+        # Three knobs bound the operator-chat pool; each fails open to its
+        # default so a missing/broken config never blocks startup. Read from
+        # the top-level `web` section (same section as web.theme/web.ui_mode).
+        # The route handlers re-read the two timeouts off app.state via getattr
+        # with these same defaults, so the attribute names are load-bearing.
+        try:
+            from osprey.utils.config import get_config_value
+
+            chat_turn_timeout_s = float(get_config_value("web.chat_turn_timeout_s", 600))
+            chat_idle_timeout_s = float(get_config_value("web.chat_idle_timeout_s", 1800))
+            chat_max_sessions = int(get_config_value("web.chat_max_sessions", 5))
+        except Exception:  # noqa: BLE001 — never let config load block startup
+            logger.warning(
+                "Could not resolve web.chat_* config keys; using defaults "
+                "(turn=600s, idle=1800s, max=5)",
+                exc_info=True,
+            )
+            chat_turn_timeout_s, chat_idle_timeout_s, chat_max_sessions = 600.0, 1800.0, 5
+        app.state.chat_turn_timeout_s = chat_turn_timeout_s
+        app.state.chat_idle_timeout_s = chat_idle_timeout_s
+        app.state.chat_max_sessions = chat_max_sessions
+
+        app.state.operator_registry = OperatorRegistry(
+            chat_max_sessions=chat_max_sessions,
+            chat_idle_seconds=chat_idle_timeout_s,
+        )
         app.state.project_cwd = str(
             Path(project_dir).resolve() if project_dir else Path.cwd().resolve()
         )
@@ -768,7 +796,35 @@ def _create_lifespan(
             trust_env=False,
         )
 
+        # ── Idle chat-session reaper (Task 1.7) ──
+        # Periodically evicts idle chat sessions (per the registry's idle
+        # predicate, which also collects zombie-busy sessions) so an abandoned
+        # Simple-mode tab does not pin a pool slot indefinitely. Fail-open at
+        # every level: a per-cycle exception is swallowed+logged, and the whole
+        # task is wrapped so a reaper crash can never take the app down. Interval
+        # is idle_timeout/4, clamped to [30s, 300s].
+        reap_interval = max(30.0, min(chat_idle_timeout_s / 4.0, 300.0))
+        registry = app.state.operator_registry
+
+        async def _reap_idle_chats() -> None:
+            while True:
+                await asyncio.sleep(reap_interval)
+                try:
+                    reaped = await registry.reap_idle_chat_sessions()
+                    if reaped:
+                        logger.info("Idle chat reaper evicted %d session(s)", reaped)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:  # noqa: BLE001 — one bad cycle must not kill the reaper
+                    logger.warning("Idle chat reaper cycle failed", exc_info=True)
+
+        reaper_task = asyncio.create_task(_reap_idle_chats())
+
         yield
+
+        reaper_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await reaper_task
 
         await app.state.proxy_client.aclose()
 
