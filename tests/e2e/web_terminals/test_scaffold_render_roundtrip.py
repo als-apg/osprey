@@ -43,13 +43,25 @@ import pytest
 import yaml
 
 from osprey.deployment.web_terminals.lint import lint_web_terminals
-from osprey.deployment.web_terminals.ports import allocate_ports
+from osprey.deployment.web_terminals.ports import (
+    PANEL_ENV_VARS,
+    allocate_ports,
+    base_ports_from_config,
+)
 from osprey.deployment.web_terminals.render import render_web_terminals
 
 pytestmark = pytest.mark.e2e
 
-_PORT_FAMILIES = ("web", "artifact", "ariel", "lattice")
-_FAMILY_ENV_VARS = {
+# The generator's full family set — web plus one family per registry companion
+# server, derived exactly the way the render derives it (a newly registered
+# panel shows up here without touching this file).
+_FAMILY_ENV_VARS = {"web": "OSPREY_WEB_PORT", **PANEL_ENV_VARS}
+_PORT_FAMILIES = tuple(_FAMILY_ENV_VARS)
+
+# The classic four families the REAL als-profiles compose carries — that
+# external artifact predates the registry-derived families, so Part 2 parses
+# it with this historical set only (never the full derived set above).
+_ALS_CLASSIC_ENV_VARS = {
     "web": "OSPREY_WEB_PORT",
     "artifact": "OSPREY_ARTIFACT_SERVER_PORT",
     "ariel": "OSPREY_ARIEL_PORT",
@@ -123,19 +135,16 @@ def _sample_config() -> dict:
 
 def test_scaffold_render_consistency_across_all_generated_artifacts() -> None:
     """The full generator (render + lint) produces internally-consistent,
-    four-port-family artifacts for a sample facility-config, with a clean lint
+    per-family artifacts for a sample facility-config, with a clean lint
     (zero findings, not just zero errors)."""
     # Arrange
     config = _sample_config()
     web_terminals = config["modules"]["web_terminals"]
     roster = web_terminals["users"]
     users = [entry["name"] for entry in roster]
-    base_ports = {
-        "web": web_terminals["web_base_port"],
-        "artifact": web_terminals["artifact_base_port"],
-        "ariel": web_terminals["ariel_base_port"],
-        "lattice": web_terminals["lattice_base_port"],
-    }
+    # Same effective base set the render allocates from: config values plus
+    # registry defaults for families the config doesn't pin.
+    base_ports = base_ports_from_config(web_terminals)
 
     # Act
     findings = lint_web_terminals(config)
@@ -180,7 +189,7 @@ def test_scaffold_render_consistency_across_all_generated_artifacts() -> None:
         service = compose["services"][f"web-{user}"]
         env = _env_map(service["environment"])
 
-        # All four port families allocated, matching allocate_ports() exactly,
+        # Every port family allocated, matching allocate_ports() exactly,
         # and never colliding across users or families.
         expected = allocate_ports(base_ports, index)
         actual = {family: int(env[var]) for family, var in _FAMILY_ENV_VARS.items()}
@@ -275,10 +284,10 @@ def _als_profiles_topology(host_compose_path: Path) -> tuple[list[str], dict[str
         if not isinstance(name, str) or not name.startswith("web-"):
             continue
         env_map = _env_map((svc or {}).get("environment") or [])
-        if not all(var in env_map for var in _FAMILY_ENV_VARS.values()):
+        if not all(var in env_map for var in _ALS_CLASSIC_ENV_VARS.values()):
             continue
         user = name[len("web-") :]
-        ports = {family: int(env_map[var]) for family, var in _FAMILY_ENV_VARS.items()}
+        ports = {family: int(env_map[var]) for family, var in _ALS_CLASSIC_ENV_VARS.items()}
         entries.append((user, ports))
 
     assert entries, (
@@ -287,7 +296,9 @@ def _als_profiles_topology(host_compose_path: Path) -> tuple[list[str], dict[str
     )
     entries.sort(key=lambda entry: entry[1]["web"])
     users = [user for user, _ in entries]
-    base_ports = {family: min(ports[family] for _, ports in entries) for family in _PORT_FAMILIES}
+    base_ports = {
+        family: min(ports[family] for _, ports in entries) for family in _ALS_CLASSIC_ENV_VARS
+    }
     return users, base_ports
 
 
@@ -303,9 +314,10 @@ def test_generator_reproduces_als_profiles_topology_shape() -> None:
     """A facility-config built from als-profiles' REAL per-user port topology
     (parsed live from ``docker-compose.host.yml``, never hardcoded) renders
     through the same generator and reproduces that topology's SHAPE: same
-    users, four families per user, matching per-user container/volume names —
-    with the Phase-1 reconciliations applied (8087 internal port, fixed
-    ``OSPREY_TERMINAL_USER``)."""
+    users, the classic four families at als-profiles' real ports (newer
+    registry families allocate from their defaults), matching per-user
+    container/volume names — with the Phase-1 reconciliations applied
+    (8087 internal port, fixed ``OSPREY_TERMINAL_USER``)."""
     # Arrange
     users, base_ports = _als_profiles_topology(_ALS_HOST_COMPOSE)
     config = {
@@ -335,6 +347,10 @@ def test_generator_reproduces_als_profiles_topology_shape() -> None:
             }
         },
     }
+
+    # The effective base set the render allocates from: als-profiles' real
+    # classic-four bases plus registry defaults for the newer families.
+    full_base_ports = base_ports_from_config(config["modules"]["web_terminals"])
 
     # Act
     findings = lint_web_terminals(config)
@@ -375,8 +391,9 @@ def test_generator_reproduces_als_profiles_topology_shape() -> None:
         assert env["OSPREY_TERMINAL_USER"] == user
         assert "ALS_TERMINAL_USER" not in env
 
-        # Four families reproduce the exact als-profiles host ports (index-aligned).
-        expected = allocate_ports(base_ports, index)
+        # The classic four families reproduce the exact als-profiles host ports
+        # (index-aligned); the newer registry families allocate from defaults.
+        expected = allocate_ports(full_base_ports, index)
         actual = {family: int(env[var]) for family, var in _FAMILY_ENV_VARS.items()}
         assert actual == expected, f"user {user!r} ports diverged from als-profiles topology"
         for port in actual.values():
