@@ -102,7 +102,7 @@
   <li><strong>C1 &harr; "01" bridge is natural-language only.</strong> No alias table; channel description says "cavity 01", logbook says "C1".</li>
 </ul>
 
-<div class="warn"><strong>Tier setting (critical).</strong> <code>init_project</code> in <code>tests/e2e/sdk_helpers.py</code> defaults <code>tier=1</code>, which contains no <code>SR:VAC:GAUGE</code> channels &mdash; the vacuum agent cannot discover the gauges and spins without retrieving data. Both scenario tests therefore pass <code>tier=3</code> explicitly so the full simulated facility is discoverable. If you clone these scenarios, do the same.</div>
+<div class="warn"><strong>Tier setting (critical).</strong> <code>init_project</code> in <code>tests/e2e/sdk_helpers.py</code> derives the tier from the preset's paradigm when none is passed (<code>in_context</code> &rarr; tier 1, otherwise tier 3); tier 1 contains no <code>SR:VAC:GAUGE</code> channels, so the vacuum agent cannot discover the gauges and spins without retrieving data. Both scenario tests therefore pass <code>tier=3</code> explicitly so the full simulated facility is discoverable regardless of paradigm. If you clone these scenarios, do the same.</div>
 
 </body>
 </html>

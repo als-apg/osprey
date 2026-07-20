@@ -583,5 +583,61 @@
       "SR:DIAG:NEUTRON:02:DOSE_RATE:INST"
     ],
     "category": "tier-boundary"
+  },
+  {
+    "user_query": "What's the current setpoint for the fourth achromat focusing quadrupole?",
+    "targeted_pv": [
+      "SR:MAG:QFA:04:CURRENT:SP"
+    ],
+    "category": "near-miss"
+  },
+  {
+    "user_query": "Give me the readback current on achromat focusing quad 9.",
+    "targeted_pv": [
+      "SR:MAG:QFA:09:CURRENT:RB"
+    ],
+    "category": "near-miss"
+  },
+  {
+    "user_query": "Read back the current on the second harmonic focusing sextupole.",
+    "targeted_pv": [
+      "SR:MAG:SHF:02:CURRENT:RB"
+    ],
+    "category": "near-miss"
+  },
+  {
+    "user_query": "What is the setpoint of harmonic focusing sextupole 11?",
+    "targeted_pv": [
+      "SR:MAG:SHF:11:CURRENT:SP"
+    ],
+    "category": "near-miss"
+  },
+  {
+    "user_query": "What's the setpoint for the third harmonic defocusing sextupole?",
+    "targeted_pv": [
+      "SR:MAG:SHD:03:CURRENT:SP"
+    ],
+    "category": "near-miss"
+  },
+  {
+    "user_query": "Give me the readback for harmonic defocusing sextupole 8.",
+    "targeted_pv": [
+      "SR:MAG:SHD:08:CURRENT:RB"
+    ],
+    "category": "near-miss"
+  },
+  {
+    "user_query": "What's the current setpoint on the fifth defocusing sextupole?",
+    "targeted_pv": [
+      "SR:MAG:SD:05:CURRENT:SP"
+    ],
+    "category": "near-miss"
+  },
+  {
+    "user_query": "Read the current on defocusing sextupole 10.",
+    "targeted_pv": [
+      "SR:MAG:SD:10:CURRENT:RB"
+    ],
+    "category": "near-miss"
   }
 ]
