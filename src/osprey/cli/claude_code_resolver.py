@@ -16,10 +16,12 @@ design.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from osprey.cli.claude_code_telemetry import (
     TELEMETRY_ENV_VARS,
@@ -28,6 +30,8 @@ from osprey.cli.claude_code_telemetry import (
     _running_in_container,
 )
 from osprey.models.tiers import VALID_TIERS
+
+logger = logging.getLogger("osprey.cli.claude_code_resolver")
 
 CLAUDE_CODE_PROVIDERS: dict[str, dict] = {
     "anthropic": {
@@ -287,6 +291,69 @@ def _env_lookup(project_dir: Path) -> dict[str, str]:
     return {**os.environ, **_load_dotenv(project_dir)}
 
 
+_PROXY_ENV_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
+
+# WHATWG URL preprocessing: leading/trailing C0 controls (U+0000–U+001F) and
+# space are stripped before parsing. Mirrored here so the predicate matches
+# the runtime's parser instead of flagging copy-paste whitespace artifacts.
+_C0_AND_SPACE = "".join(map(chr, range(0x21)))
+
+
+def _warn_on_invalid_proxy_env(environ: dict[str, str]) -> None:
+    """Warn (never rewrite) when a proxy env var cannot be parsed as a URL.
+
+    Claude Code's runtime rejects any ``*_PROXY`` value its WHATWG URL parser
+    cannot handle (``Invalid proxy URL``) and refuses to start: no scheme, no
+    host, a non-numeric port, whitespace, or a comma-joined list all crash it.
+    It accepts any WHATWG-parseable URL, including non-http schemes like
+    ``socks5://``, so the predicate here must be scheme-agnostic — a bare
+    ``startswith("http")`` check would false-positive on a working SOCKS proxy
+    at every launch. ``urlsplit`` alone is more lenient than the runtime (it
+    permits empty hosts and whitespace, and defers port validation until
+    ``.port`` is accessed), so the check forces ``.port`` and rejects
+    remaining whitespace in the scheme/authority. It is also *stricter* than a
+    WHATWG parser in two ways, mirrored/accepted here: WHATWG preprocessing
+    strips leading/trailing space/C0 controls and removes tab/CR/LF before
+    parsing (mirrored — such values are validated after the same cleanup, and
+    spaces in the path are fine since WHATWG percent-encodes them), and WHATWG
+    normalizes slash-elided special-scheme forms like ``http:proxy.corp:3128``
+    to ``http://proxy.corp:3128/`` (a known, accepted over-warn: ``urlsplit``
+    yields no host there, so this rare typo shape is flagged even though the
+    runtime would start — the warning is advisory). On the CLI path the
+    runtime's own error is visible, but on the web-terminal and dispatch-worker
+    paths a startup crash is opaque — this warning is the only surface that
+    names the cause there. The value is deliberately left in place: blanking it
+    would break other consumers of the proxy vars (httpx, requests, DuckDB) in
+    a quieter way and hide the misconfiguration instead of reporting it.
+    """
+    for var in _PROXY_ENV_VARS:
+        value = environ.get(var, "")
+        if not value:
+            continue
+        # Validate what a WHATWG parser would see, not the raw value: strip
+        # leading/trailing space/C0 controls, remove tab/CR/LF anywhere.
+        cleaned = value.strip(_C0_AND_SPACE)
+        cleaned = cleaned.replace("\t", "").replace("\n", "").replace("\r", "")
+        try:
+            parts = urlsplit(cleaned)
+            _ = parts.port  # raises ValueError on a non-numeric/malformed port
+            # Whitespace in the path is percent-encoded by WHATWG, so only
+            # scheme/authority whitespace is fatal to the runtime.
+            valid = bool(parts.scheme and parts.hostname) and not any(
+                c.isspace() for c in parts.scheme + parts.netloc
+            )
+        except ValueError:
+            valid = False
+        if not valid:
+            logger.warning(
+                "%s=%r is not a valid proxy URL — Claude Code will refuse to "
+                "start ('Invalid proxy URL'). Fix or unset it in your shell "
+                "environment or the project .env.",
+                var,
+                value,
+            )
+
+
 def inject_provider_env(
     environ: dict[str, str],
     spec: ClaudeCodeModelSpec,
@@ -302,10 +369,9 @@ def inject_provider_env(
     ``.mcp.json`` ``${VAR}`` references (``EPICS_CA_ADDR_LIST``,
     ``PHOEBUS_BRIDGE_URL``, ``BLUESKY_*``) from ``os.environ``, so this is a
     full host-propagation contract — narrowing it would silently break control-
-    system MCP addressing. ``.env`` wins over a stale shell export. (Footgun:
-    an unparseable ``HTTP_PROXY`` in ``.env`` is carried straight through;
-    mitigated upstream by dropping proxy placeholders from ``env.example``, so
-    ``.env`` should not carry them — #352.)
+    system MCP addressing. ``.env`` wins over a stale shell export. An
+    unparseable ``HTTP_PROXY`` (from ``.env`` or the shell) is carried straight
+    through but reported via :func:`_warn_on_invalid_proxy_env` — #352.
 
     Args:
         environ: Environment dict to mutate (typically os.environ).
@@ -320,6 +386,11 @@ def inject_provider_env(
     if project_dir is not None:
         for key, value in _load_dotenv(project_dir).items():
             environ[key] = value
+
+    # After the overlay, so it sees the effective value regardless of whether
+    # it came from .env or a shell export. This is the chokepoint shared by all
+    # launch paths (CLI, web terminal, dispatch worker).
+    _warn_on_invalid_proxy_env(environ)
 
     # Read auth secret BEFORE scrubbing — auth_secret_env may be in MANAGED_ENV_VARS
     # (e.g. ANTHROPIC_API_KEY for the anthropic provider)
