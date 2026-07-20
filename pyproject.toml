@@ -124,7 +124,7 @@ dependencies = [
     # the aioca Channel Access backend the EPICS substrate devices need.
     "bluesky>=1.15.1",
     "ophyd-async[ca]>=0.16,<1.0",
-    "tiled[client]>=0.1",
+    "tiled[client]>=0.2.14",
     "duckdb>=1.5.1",
     "tenacity>=9.1.4",
     # Cross-version TypedDict/NotRequired — pydantic v2.12 rejects typing.TypedDict on py<3.12.
