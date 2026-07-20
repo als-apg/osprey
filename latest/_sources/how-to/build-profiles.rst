@@ -120,6 +120,79 @@ unchanged. A preset-name probe is tried first; if it misses, path
 resolution runs.
 
 
+.. _profile-exclude:
+
+Excluding inherited entries
+---------------------------
+
+``extends:`` union-merges your string lists onto the base's, so a child can only
+*add* to the sets it inherits — never remove an entry the base contributed. The
+``exclude:`` key subtracts entries from those inherited lists:
+
+.. code-block:: yaml
+
+   extends: control-assistant
+
+   exclude:
+     skills:
+       - writing-bluesky-plans
+
+``exclude:`` maps a field name to a list of entries to remove. It accepts only
+the string-list fields a profile inherits: ``skills``, ``rules``, ``hooks``,
+``agents``, ``output_styles``, ``web_panels``, and ``dependencies``. Naming any
+other field (e.g. the ``config`` mapping) is a load-time error.
+
+**Layering.** ``exclude:`` is applied after each ``extends`` merge, against that
+layer's merged result. Two consequences follow, and the second is easy to trip
+over:
+
+- A *deeper* ``extends`` layer that re-declares an excluded entry wins. If a
+  base lists ``[a, b, c]``, a middle profile excludes ``b``, and a profile that
+  extends the middle profile re-adds ``b``, then ``b`` survives — the re-add
+  merges in after the exclusion ran.
+- An **override file** (``-O``) or a **``--set``** value cannot re-add an
+  excluded entry. Both merge into the top profile layer *before* ``extends`` is
+  resolved, so the same exclusion strips them out again. To restore an excluded
+  entry you must edit the profile that declares the ``exclude:`` (or a layer
+  deeper than it) — you cannot layer it back on from the command line.
+
+Excluding an entry the base never declared is a silent no-op. Declaring
+``exclude:`` in a profile that has no ``extends:`` only sees the profile's own
+lists — there is nothing inherited to remove — so it does nothing useful.
+
+**Worked example: a scan-free tier.** A facility profile can build a
+restricted tier on top of ``control-assistant`` by excluding the scan-related
+skills:
+
+.. code-block:: yaml
+
+   name: Control Assistant (No Scans)
+   extends: control-assistant
+
+   exclude:
+     skills:
+       - writing-bluesky-plans
+       - operating-bluesky-scans
+
+   config:
+     claude_code.servers.bluesky.enabled: false
+
+The ``exclude:`` drops the scan skills from the inherited skill set, so this
+tier never enters the scan-plan workflow; the ``config:`` override keeps the
+bluesky MCP server off as well. Because a user building from this profile
+cannot re-add a skill with ``--set skills=[writing-bluesky-plans]`` (that
+merges pre-exclusion and is stripped again), the restriction holds unless the
+profile itself is edited.
+
+.. note::
+
+   ``exclude:`` carves a tier by *removing* capability. When the boundary you
+   want is "may not write," prefer flipping the enforcement switch instead —
+   the bundled ``multi-user-demo-readonly`` preset differs from its
+   write-capable sibling only on ``control_system.writes_enabled``, leaving
+   the tool surface identical (see :doc:`web-terminal/multi-user-demo`).
+
+
 Quick Start
 ===========
 
@@ -219,6 +292,13 @@ Profile YAML Schema
      - string
      - ``project``
      - Python used by MCP servers: ``project`` (project venv), ``build`` (build-time Python), or an absolute path.
+   * - ``port_block``
+     - int
+     - ``0``
+     - Per-project host-port band (``0``–``8``). ``0`` keeps today's default ports; a
+       non-zero block shifts every host-published default onto a dedicated band so
+       two projects built from the same profile can run on one host. A port left at
+       its default moves with the block; a port set to any other value is preserved.
 
 
 Configuration Overrides
@@ -700,8 +780,9 @@ bundled preset profile (``src/osprey/profiles/presets/<preset>.yml``),
 but your user profile can customize it: ``agents:``, ``rules:``,
 ``hooks:``, and ``skills:`` are first-class profile fields, and
 ``extends:`` union-merges your additions with the preset's set. To
-drop a preset artifact entirely, build from a standalone profile or
-edit the preset directly.
+drop a preset artifact entirely, subtract it with ``exclude:`` (see
+:ref:`profile-exclude`), build from a standalone profile, or edit the
+preset directly.
 
 
 Troubleshooting

@@ -378,6 +378,10 @@
 <li class="toctree-l2"><a class="reference internal" href="../how-to/web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../how-to/web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="../how-to/web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="../how-to/web-terminal/multi-user.html">Multi-User Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="../how-to/web-terminal/multi-user-demo.html">Run the Multi-User Demo</a></li>
+</ul>
+</details></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="../how-to/use-cli-chat.html">Use the CLI Chat Interface</a></li>
@@ -560,7 +564,8 @@ osprey<span class="w"> </span>build<span class="w"> </span>--list-presets
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>ACTION<span class="w"> </span><span class="o">[</span>OPTIONS<span class="o">]</span>
 </pre></div>
 </div>
-<p><strong>Actions:</strong> <code class="docutils literal notranslate"><span class="pre">up</span></code>, <code class="docutils literal notranslate"><span class="pre">down</span></code>, <code class="docutils literal notranslate"><span class="pre">restart</span></code>, <code class="docutils literal notranslate"><span class="pre">status</span></code>, <code class="docutils literal notranslate"><span class="pre">build</span></code>, <code class="docutils literal notranslate"><span class="pre">clean</span></code>, <code class="docutils literal notranslate"><span class="pre">rebuild</span></code>.</p>
+<p><strong>Actions:</strong> <code class="docutils literal notranslate"><span class="pre">up</span></code>, <code class="docutils literal notranslate"><span class="pre">down</span></code>, <code class="docutils literal notranslate"><span class="pre">restart</span></code>, <code class="docutils literal notranslate"><span class="pre">status</span></code>, <code class="docutils literal notranslate"><span class="pre">build</span></code>, <code class="docutils literal notranslate"><span class="pre">clean</span></code>, <code class="docutils literal notranslate"><span class="pre">rebuild</span></code>,
+<code class="docutils literal notranslate"><span class="pre">decommission</span></code>, <code class="docutils literal notranslate"><span class="pre">prune</span></code>, <code class="docutils literal notranslate"><span class="pre">nuke</span></code>, <code class="docutils literal notranslate"><span class="pre">seed</span></code>.</p>
 <ul class="simple">
 <li><p><code class="docutils literal notranslate"><span class="pre">up</span></code> – Start all configured services.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">down</span></code> – Stop all services.</p></li>
@@ -569,6 +574,11 @@ osprey<span class="w"> </span>build<span class="w"> </span>--list-presets
 <li><p><code class="docutils literal notranslate"><span class="pre">build</span></code> – Build/prepare compose files without starting services.</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">clean</span></code> – Remove containers and volumes (destructive).</p></li>
 <li><p><code class="docutils literal notranslate"><span class="pre">rebuild</span></code> – Clean, rebuild, and restart services.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">decommission</span> <span class="pre">USER</span></code> – Remove a single user’s web-terminal workspace.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">prune</span></code> – Remove workspaces for users no longer in the user index.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">nuke</span></code> – Tear down the entire multi-user web-terminal stack (destructive).</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">seed</span> <span class="pre">[USER]</span></code> – (Re)seed web-terminal workspaces from the user index;
+<code class="docutils literal notranslate"><span class="pre">USER</span></code> targets one user, omit to reseed all.</p></li>
 </ul>
 <p><strong>Options (apply to all actions):</strong></p>
 <p><code class="docutils literal notranslate"><span class="pre">-p,</span> <span class="pre">--project</span> <span class="pre">DIRECTORY</span></code> – Project directory (default: current directory or <code class="docutils literal notranslate"><span class="pre">OSPREY_PROJECT</span></code>).</p>
@@ -576,10 +586,18 @@ osprey<span class="w"> </span>build<span class="w"> </span>--list-presets
 <p><code class="docutils literal notranslate"><span class="pre">-d,</span> <span class="pre">--detached</span></code> – Run services in detached mode (for <code class="docutils literal notranslate"><span class="pre">up</span></code>, <code class="docutils literal notranslate"><span class="pre">restart</span></code>, <code class="docutils literal notranslate"><span class="pre">rebuild</span></code>).</p>
 <p><code class="docutils literal notranslate"><span class="pre">--dev</span></code> – Copy local osprey package to containers instead of using PyPI version.</p>
 <p><code class="docutils literal notranslate"><span class="pre">--expose</span></code> – Expose services on all network interfaces (<code class="docutils literal notranslate"><span class="pre">0.0.0.0</span></code>).</p>
+<p><strong>Lifecycle flags (multi-user web-terminal actions):</strong></p>
+<p><code class="docutils literal notranslate"><span class="pre">--archive</span></code> – Archive a user’s workspace before removing it (<code class="docutils literal notranslate"><span class="pre">decommission</span></code>/<code class="docutils literal notranslate"><span class="pre">prune</span></code> only; mutually exclusive with <code class="docutils literal notranslate"><span class="pre">--purge</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--purge</span></code> – Permanently delete a user’s workspace without archiving (<code class="docutils literal notranslate"><span class="pre">decommission</span></code>/<code class="docutils literal notranslate"><span class="pre">prune</span></code> only; mutually exclusive with <code class="docutils literal notranslate"><span class="pre">--archive</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">-y,</span> <span class="pre">--yes</span></code> – Assume yes to confirmation prompts (<code class="docutils literal notranslate"><span class="pre">decommission</span></code>/<code class="docutils literal notranslate"><span class="pre">prune</span></code>/<code class="docutils literal notranslate"><span class="pre">nuke</span></code>).</p>
+<p><code class="docutils literal notranslate"><span class="pre">--dry-run</span></code> – Show what would happen without making changes (<code class="docutils literal notranslate"><span class="pre">prune</span></code> only).</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>deploy<span class="w"> </span>up<span class="w"> </span>-d
 osprey<span class="w"> </span>deploy<span class="w"> </span>status
 osprey<span class="w"> </span>deploy<span class="w"> </span>rebuild<span class="w"> </span>--dev
 osprey<span class="w"> </span>deploy<span class="w"> </span>down
+osprey<span class="w"> </span>deploy<span class="w"> </span>decommission<span class="w"> </span>alice<span class="w"> </span>--archive
+osprey<span class="w"> </span>deploy<span class="w"> </span>prune<span class="w"> </span>--dry-run
+osprey<span class="w"> </span>deploy<span class="w"> </span>nuke<span class="w"> </span>--yes
 </pre></div>
 </div>
 </section>
@@ -787,11 +805,22 @@ and your file at the canonical output path.</p>
 <dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">unclaim</span> <span class="pre">NAME</span></code></dt><dd><p>Release ownership and restore framework management. The next
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">claude</span> <span class="pre">regen</span></code> will overwrite the file with the framework template.</p>
 </dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">lint</span> <span class="pre">--config</span> <span class="pre">PATH</span></code></dt><dd><p>Validate the <code class="docutils literal notranslate"><span class="pre">modules.web_terminals</span></code> stanza of a facility config
+(port-family allocation, reserved service names, duplicate users, persona
+references). Exits non-zero on error-severity findings; warnings do not
+fail the check, so it is safe to wire into a CI gate.</p>
+</dd>
+<dt><code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">scaffold</span> <span class="pre">web-terminals</span> <span class="pre">render</span> <span class="pre">--config</span> <span class="pre">PATH</span> <span class="pre">-o</span> <span class="pre">DIRECTORY</span></code></dt><dd><p>Render the multi-user deployment artifacts (docker-compose overlay, nginx
+routing fragment, static landing page) into <code class="docutils literal notranslate"><span class="pre">-o/--output</span></code>. Lints first by
+default and aborts on errors; <code class="docutils literal notranslate"><span class="pre">--no-lint</span></code> skips the pre-check.</p>
+</dd>
 </dl>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>scaffold<span class="w"> </span>list<span class="w">                           </span><span class="c1"># Show all artifacts</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>claim<span class="w"> </span>agents/channel-finder<span class="w">    </span><span class="c1"># Claim for editing</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>diff<span class="w"> </span>agents/channel-finder<span class="w">     </span><span class="c1"># Compare yours vs framework</span>
 osprey<span class="w"> </span>scaffold<span class="w"> </span>unclaim<span class="w"> </span>rules/safety<span class="w">           </span><span class="c1"># Restore framework management</span>
+osprey<span class="w"> </span>scaffold<span class="w"> </span>web-terminals<span class="w"> </span>lint<span class="w"> </span>--config<span class="w"> </span>facility-config.yml
+osprey<span class="w"> </span>scaffold<span class="w"> </span>web-terminals<span class="w"> </span>render<span class="w"> </span>--config<span class="w"> </span>facility-config.yml<span class="w"> </span>-o<span class="w"> </span>deploy/
 </pre></div>
 </div>
 </section>

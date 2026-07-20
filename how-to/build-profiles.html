@@ -66,7 +66,7 @@ const initStyles = () => {
 
 pre.mermaid > svg {
     /* Same as .mermaid-container > pre > svg */
-    height: 500px;
+    height: auto;
     width: 100%;
     max-width: 100% !important;
 }`;
@@ -85,7 +85,7 @@ pre.mermaid > svg {
 }
 
 .mermaid-container > pre > svg {
-    height: 500px;
+    height: auto;
     width: 100%;
     max-width: 100% !important;
 }
@@ -813,6 +813,10 @@ window.addEventListener("load", load);</script>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="web-terminal/multi-user.html">Multi-User Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="web-terminal/multi-user-demo.html">Run the Multi-User Demo</a></li>
+</ul>
+</details></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
@@ -1023,6 +1027,69 @@ so existing multi-file layouts (like the ALS profiles repo) keep working
 unchanged. A preset-name probe is tried first; if it misses, path
 resolution runs.</p>
 </section>
+<section id="excluding-inherited-entries">
+<span id="profile-exclude"></span><h3>Excluding inherited entries<a class="headerlink" href="#excluding-inherited-entries" title="Link to this heading">#</a></h3>
+<p><code class="docutils literal notranslate"><span class="pre">extends:</span></code> union-merges your string lists onto the base’s, so a child can only
+<em>add</em> to the sets it inherits — never remove an entry the base contributed. The
+<code class="docutils literal notranslate"><span class="pre">exclude:</span></code> key subtracts entries from those inherited lists:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">extends</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-assistant</span>
+
+<span class="nt">exclude</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">skills</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">writing-bluesky-plans</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">exclude:</span></code> maps a field name to a list of entries to remove. It accepts only
+the string-list fields a profile inherits: <code class="docutils literal notranslate"><span class="pre">skills</span></code>, <code class="docutils literal notranslate"><span class="pre">rules</span></code>, <code class="docutils literal notranslate"><span class="pre">hooks</span></code>,
+<code class="docutils literal notranslate"><span class="pre">agents</span></code>, <code class="docutils literal notranslate"><span class="pre">output_styles</span></code>, <code class="docutils literal notranslate"><span class="pre">web_panels</span></code>, and <code class="docutils literal notranslate"><span class="pre">dependencies</span></code>. Naming any
+other field (e.g. the <code class="docutils literal notranslate"><span class="pre">config</span></code> mapping) is a load-time error.</p>
+<p><strong>Layering.</strong> <code class="docutils literal notranslate"><span class="pre">exclude:</span></code> is applied after each <code class="docutils literal notranslate"><span class="pre">extends</span></code> merge, against that
+layer’s merged result. Two consequences follow, and the second is easy to trip
+over:</p>
+<ul class="simple">
+<li><p>A <em>deeper</em> <code class="docutils literal notranslate"><span class="pre">extends</span></code> layer that re-declares an excluded entry wins. If a
+base lists <code class="docutils literal notranslate"><span class="pre">[a,</span> <span class="pre">b,</span> <span class="pre">c]</span></code>, a middle profile excludes <code class="docutils literal notranslate"><span class="pre">b</span></code>, and a profile that
+extends the middle profile re-adds <code class="docutils literal notranslate"><span class="pre">b</span></code>, then <code class="docutils literal notranslate"><span class="pre">b</span></code> survives — the re-add
+merges in after the exclusion ran.</p></li>
+<li><p>An <strong>override file</strong> (<code class="docutils literal notranslate"><span class="pre">-O</span></code>) or a <strong>``–set``</strong> value cannot re-add an
+excluded entry. Both merge into the top profile layer <em>before</em> <code class="docutils literal notranslate"><span class="pre">extends</span></code> is
+resolved, so the same exclusion strips them out again. To restore an excluded
+entry you must edit the profile that declares the <code class="docutils literal notranslate"><span class="pre">exclude:</span></code> (or a layer
+deeper than it) — you cannot layer it back on from the command line.</p></li>
+</ul>
+<p>Excluding an entry the base never declared is a silent no-op. Declaring
+<code class="docutils literal notranslate"><span class="pre">exclude:</span></code> in a profile that has no <code class="docutils literal notranslate"><span class="pre">extends:</span></code> only sees the profile’s own
+lists — there is nothing inherited to remove — so it does nothing useful.</p>
+<p><strong>Worked example: a scan-free tier.</strong> A facility profile can build a
+restricted tier on top of <code class="docutils literal notranslate"><span class="pre">control-assistant</span></code> by excluding the scan-related
+skills:</p>
+<div class="highlight-yaml notranslate"><div class="highlight"><pre><span></span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">Control Assistant (No Scans)</span>
+<span class="nt">extends</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">control-assistant</span>
+
+<span class="nt">exclude</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">skills</span><span class="p">:</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">writing-bluesky-plans</span>
+<span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">operating-bluesky-scans</span>
+
+<span class="nt">config</span><span class="p">:</span>
+<span class="w">  </span><span class="nt">claude_code.servers.bluesky.enabled</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span>
+</pre></div>
+</div>
+<p>The <code class="docutils literal notranslate"><span class="pre">exclude:</span></code> drops the scan skills from the inherited skill set, so this
+tier never enters the scan-plan workflow; the <code class="docutils literal notranslate"><span class="pre">config:</span></code> override keeps the
+bluesky MCP server off as well. Because a user building from this profile
+cannot re-add a skill with <code class="docutils literal notranslate"><span class="pre">--set</span> <span class="pre">skills=[writing-bluesky-plans]</span></code> (that
+merges pre-exclusion and is stripped again), the restriction holds unless the
+profile itself is edited.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p><code class="docutils literal notranslate"><span class="pre">exclude:</span></code> carves a tier by <em>removing</em> capability. When the boundary you
+want is “may not write,” prefer flipping the enforcement switch instead —
+the bundled <code class="docutils literal notranslate"><span class="pre">multi-user-demo-readonly</span></code> preset differs from its
+write-capable sibling only on <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>, leaving
+the tool surface identical (see <a class="reference internal" href="web-terminal/multi-user-demo.html"><span class="doc">Run the Multi-User Demo</span></a>).</p>
+</div>
+</section>
 </section>
 <section id="quick-start">
 <h2>Quick Start<a class="headerlink" href="#quick-start" title="Link to this heading">#</a></h2>
@@ -1138,6 +1205,14 @@ a complete Osprey agent project at <code class="docutils literal notranslate"><s
 <td><p>string</p></td>
 <td><p><code class="docutils literal notranslate"><span class="pre">project</span></code></p></td>
 <td><p>Python used by MCP servers: <code class="docutils literal notranslate"><span class="pre">project</span></code> (project venv), <code class="docutils literal notranslate"><span class="pre">build</span></code> (build-time Python), or an absolute path.</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">port_block</span></code></p></td>
+<td><p>int</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">0</span></code></p></td>
+<td><p>Per-project host-port band (<code class="docutils literal notranslate"><span class="pre">0</span></code>–<code class="docutils literal notranslate"><span class="pre">8</span></code>). <code class="docutils literal notranslate"><span class="pre">0</span></code> keeps today’s default ports; a
+non-zero block shifts every host-published default onto a dedicated band so
+two projects built from the same profile can run on one host. A port left at
+its default moves with the block; a port set to any other value is preserved.</p></td>
 </tr>
 </tbody>
 </table>
@@ -1604,8 +1679,9 @@ bundled preset profile (<code class="docutils literal notranslate"><span class="
 but your user profile can customize it: <code class="docutils literal notranslate"><span class="pre">agents:</span></code>, <code class="docutils literal notranslate"><span class="pre">rules:</span></code>,
 <code class="docutils literal notranslate"><span class="pre">hooks:</span></code>, and <code class="docutils literal notranslate"><span class="pre">skills:</span></code> are first-class profile fields, and
 <code class="docutils literal notranslate"><span class="pre">extends:</span></code> union-merges your additions with the preset’s set. To
-drop a preset artifact entirely, build from a standalone profile or
-edit the preset directly.</p>
+drop a preset artifact entirely, subtract it with <code class="docutils literal notranslate"><span class="pre">exclude:</span></code> (see
+<a class="reference internal" href="#profile-exclude"><span class="std std-ref">Excluding inherited entries</span></a>), build from a standalone profile, or edit the
+preset directly.</p>
 </section>
 <section id="troubleshooting">
 <h2>Troubleshooting<a class="headerlink" href="#troubleshooting" title="Link to this heading">#</a></h2>
@@ -1686,6 +1762,7 @@ directory must contain a <code class="docutils literal notranslate"><span class=
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#preset-profile-project">Preset → Profile → Project</a><ul class="visible nav section-nav flex-column">
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#inheriting-from-a-preset">Inheriting from a preset</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#excluding-inherited-entries">Excluding inherited entries</a></li>
 </ul>
 </li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quick-start">Quick Start</a></li>

@@ -378,6 +378,10 @@
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="web-terminal/multi-user.html">Multi-User Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="web-terminal/multi-user-demo.html">Run the Multi-User Demo</a></li>
+</ul>
+</details></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
@@ -498,7 +502,7 @@ enabled, and the Virtual Accelerator container (see
 </div>
 </details><section id="overview">
 <h2>Overview<a class="headerlink" href="#overview" title="Link to this heading">#</a></h2>
-<p>The agent composes a Bluesky scan plan through three MCP tools
+<p>The agent composes a Bluesky scan plan through three drafting tools
 (<code class="docutils literal notranslate"><span class="pre">get_draft</span></code> / <code class="docutils literal notranslate"><span class="pre">set_draft</span></code> / <code class="docutils literal notranslate"><span class="pre">clear_draft</span></code>) against a
 single <strong>shared draft</strong> held on the Bluesky bridge. The human’s PLAN panel
 binds to that same draft: every field the agent sets is broadcast over SSE
@@ -514,12 +518,15 @@ settle-wait a corrector’s readback against its setpoint, which every scan
 plan needs between grid points. Point the tutorial at the Virtual
 Accelerator instead, which does:</p>
 <div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>osprey<span class="w"> </span>config<span class="w"> </span>set-control-system<span class="w"> </span>virtual_accelerator
+osprey<span class="w"> </span>deploy<span class="w"> </span>up
 </pre></div>
 </div>
-<p>That’s the only change. See <a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a> for starting the
-container itself — this guide assumes it’s already running. Everything else
-(the bluesky MCP server, the PLAN and SCAN RESULTS panels) ships enabled in
-the Control Assistant preset.</p>
+<p>That’s the only configuration change — the second command re-stages it so the
+already-running services pick it up. The soft-IOC itself ships as part of the
+stack, so there is no separate container to start; see
+<a class="reference internal" href="use-virtual-accelerator.html"><span class="doc">Use the Virtual Accelerator</span></a> for the details. Everything else (the bluesky
+MCP server, the PLAN and SCAN RESULTS panels) ships enabled in the Control
+Assistant preset.</p>
 </section>
 <section id="ask-the-agent">
 <h2>Ask the agent<a class="headerlink" href="#ask-the-agent" title="Link to this heading">#</a></h2>
@@ -531,8 +538,9 @@ at every point.
 </pre></div>
 </div>
 <p>The agent resolves this into a <code class="docutils literal notranslate"><span class="pre">grid_scan</span></code> plan draft — two
-<code class="docutils literal notranslate"><span class="pre">axes</span></code> entries (one per corrector, each with its own <code class="docutils literal notranslate"><span class="pre">start</span></code>/<code class="docutils literal notranslate"><span class="pre">stop</span></code>/
-<code class="docutils literal notranslate"><span class="pre">num_points</span></code>) and a <code class="docutils literal notranslate"><span class="pre">detectors</span></code> list naming the two BPM readbacks — and
+<code class="docutils literal notranslate"><span class="pre">axes</span></code> entries (one per corrector, each naming its <code class="docutils literal notranslate"><span class="pre">setpoint</span></code> channel
+plus <code class="docutils literal notranslate"><span class="pre">start</span></code>/<code class="docutils literal notranslate"><span class="pre">stop</span></code>/<code class="docutils literal notranslate"><span class="pre">num_points</span></code>) and a <code class="docutils literal notranslate"><span class="pre">detectors</span></code> list naming the
+two BPM readbacks — and
 stages the whole thing in a single <code class="docutils literal notranslate"><span class="pre">set_draft</span></code> call, noting the <code class="docutils literal notranslate"><span class="pre">revision</span></code>
 it returns. This is staging only: composing the draft never touches hardware,
 never requires arming, and never triggers an approval prompt.</p>
@@ -547,8 +555,10 @@ starts live updates.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
 <p>Binding always requires this one click or selection, even if the agent
-set the draft first. The panel never silently jumps to a plan you weren’t
-already looking at — it just tells you one is waiting.</p>
+set the draft first: an <em>unbound</em> panel never silently jumps to a plan you
+weren’t already looking at — it just tells you one is waiting. Once bound,
+the panel does follow the draft if the agent switches it to a different
+plan, so what you are looking at always matches what a Launch would send.</p>
 </div>
 <p>Once bound, a <strong>Draft bound</strong> indicator appears next to a <strong>Discard</strong>
 button, and every field the agent set (or sets from here) glows briefly as
@@ -564,16 +574,22 @@ side — never requires arming.</p>
 <section id="launch">
 <h2>Launch<a class="headerlink" href="#launch" title="Link to this heading">#</a></h2>
 <p>Once the plan validates, click <strong>Launch plan</strong>, then <strong>Confirm launch</strong>.
-This launches the <em>exact draft revision the panel just showed you</em> — the
-sidecar re-reads the draft once more first, and if it has moved on since
-(someone else edited it, or it was cleared) you get a clear “stale, please
-resync” message instead of a mismatched launch.</p>
+This launches the <em>exact draft revision the panel just showed you</em>: the
+panel flushes any pending edit and pins that revision to the request, and
+the bridge refuses the launch if the draft has moved on since (someone else
+edited it, or it was cleared). You get a clear “the draft changed since you
+last saw it — refreshed, review and launch again” message instead of a
+mismatched launch. The same pin also makes a double-click harmless — a
+revision that has already been launched is rejected rather than run twice.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>Draft editing needs no arming, but launching still does: the same
-launch-token and <code class="docutils literal notranslate"><span class="pre">writes_enabled</span></code> gates that guard the agent’s own
-<code class="docutils literal notranslate"><span class="pre">launch_run</span></code> guard this click too. The connector is the sole write
-gate, on both paths.</p>
+<p>Draft editing needs no arming, but launching still does. The human and
+agent launch paths are gated differently, and it is worth knowing which
+you are on: this click is checked against the <strong>launch token</strong> only, and
+when that token is unset the panel reports an inert <em>“writes not armed”</em>
+rather than launching. The agent’s own <code class="docutils literal notranslate"><span class="pre">launch_run</span></code> additionally
+requires <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code>. Neither path can launch an
+unarmed stack; only the agent path also honours the writes switch.</p>
 </div>
 </section>
 <section id="results">

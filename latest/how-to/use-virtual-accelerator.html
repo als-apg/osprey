@@ -378,6 +378,10 @@
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/operate.html">Run the Web Terminal</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/theming.html">Theming</a></li>
 <li class="toctree-l2"><a class="reference internal" href="web-terminal/panels.html">Panels</a></li>
+<li class="toctree-l2 has-children"><a class="reference internal" href="web-terminal/multi-user.html">Multi-User Deployment</a><details><summary><span class="toctree-toggle" role="presentation"><i class="fa-solid fa-chevron-down"></i></span></summary><ul>
+<li class="toctree-l3"><a class="reference internal" href="web-terminal/multi-user-demo.html">Run the Multi-User Demo</a></li>
+</ul>
+</details></li>
 </ul>
 </details></li>
 <li class="toctree-l1"><a class="reference internal" href="use-cli-chat.html">Use the CLI Chat Interface</a></li>
@@ -485,7 +489,7 @@ behind the storage-ring lattice channels, so correctors move and BPMs respond.</
 <ul class="simple">
 <li><p class="sd-card-text">What the Virtual Accelerator is (and is not)</p></li>
 <li><p class="sd-card-text">The three-state <code class="docutils literal notranslate"><span class="pre">control_system.type</span></code> switch</p></li>
-<li><p class="sd-card-text">Starting the container and pointing the tutorial at it</p></li>
+<li><p class="sd-card-text">Pointing a project at the soft-IOC the stack already deploys</p></li>
 <li><p class="sd-card-text">How <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> scenarios behave in Virtual Accelerator mode</p></li>
 <li><p class="sd-card-text">Write limits, and the archiver live-vs-history divergence</p></li>
 </ul>
@@ -531,11 +535,16 @@ exactly as it does the mock or a real machine; only the backend changes.</p>
 </section>
 <section id="quickstart">
 <h2>Quickstart<a class="headerlink" href="#quickstart" title="Link to this heading">#</a></h2>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># 1. Start the Virtual Accelerator container (serves EPICS CA on localhost)</span>
-./scripts/va/run_va.sh
-
-<span class="c1"># 2. Point the tutorial project at it</span>
+<p>The Control Assistant stack <strong>already deploys</strong> the Virtual Accelerator: the
+preset’s <code class="docutils literal notranslate"><span class="pre">virtual_accelerator:</span></code> block renders a compose service, so
+<code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">deploy</span> <span class="pre">up</span></code> brings the soft-IOC up alongside the rest of the stack.
+What ships pointed at <code class="docutils literal notranslate"><span class="pre">mock</span></code> is the <em>connector</em>, not the container — so
+switching backends is a config change, not a new deployment.</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># 1. Point the project at the soft-IOC it already deploys</span>
 osprey<span class="w"> </span>config<span class="w"> </span>set-control-system<span class="w"> </span>virtual_accelerator
+
+<span class="c1"># 2. Re-deploy so the running services pick up the new connector</span>
+osprey<span class="w"> </span>deploy<span class="w"> </span>up
 
 <span class="c1"># 3. Run the assistant as usual — the agent now talks to real Channel Access</span>
 osprey<span class="w"> </span>web
@@ -544,24 +553,46 @@ osprey<span class="w"> </span>web
 <p>Switch back to the mock at any time with
 <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">config</span> <span class="pre">set-control-system</span> <span class="pre">mock</span></code>. The <code class="docutils literal notranslate"><span class="pre">epics</span></code> block keeps its
 production values throughout.</p>
-</section>
-<section id="starting-the-container">
-<h2>Starting the container<a class="headerlink" href="#starting-the-container" title="Link to this heading">#</a></h2>
-<p>The Virtual Accelerator image is defined under <code class="docutils literal notranslate"><span class="pre">docker/virtual-accelerator/</span></code>;
-see its <code class="docutils literal notranslate"><span class="pre">README.md</span></code> for build details. Launch it with the provided script:</p>
-<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./scripts/va/run_va.sh
-</pre></div>
-</div>
-<p>The script publishes Channel Access on <code class="docutils literal notranslate"><span class="pre">127.0.0.1:5064</span></code> using EPICS
-name-server mode — the one host-to-container configuration that works reliably
-across container runtimes (broadcast discovery does not cross the container VM
-boundary). The tutorial’s <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> connector block is already
-configured to match, so no client-side EPICS environment setup is needed.</p>
 <div class="admonition note">
 <p class="admonition-title">Note</p>
-<p>The container mounts the project’s <code class="docutils literal notranslate"><span class="pre">data/simulation</span></code> <strong>directory</strong> (never a
-single file) read-only, so <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> on the host stays visible to
-the running IOC. This is handled for you by <code class="docutils literal notranslate"><span class="pre">run_va.sh</span></code>.</p>
+<p>Step 2 is what makes the switch take effect for <strong>deployed services</strong>.
+<code class="docutils literal notranslate"><span class="pre">set-control-system</span></code> edits the project’s <code class="docutils literal notranslate"><span class="pre">config.yml</span></code>, but services do
+not read that file directly — each gets a copy staged into its own directory
+at deploy time. A purely local <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">web</span></code> run picks the change up
+immediately; anything already running in a container does not, until you
+re-deploy. No image rebuild is involved either way.</p>
+</div>
+</section>
+<section id="connecting-to-the-ioc">
+<h2>Connecting to the IOC<a class="headerlink" href="#connecting-to-the-ioc" title="Link to this heading">#</a></h2>
+<p>The container serves Channel Access on <code class="docutils literal notranslate"><span class="pre">127.0.0.1:5064</span></code> in EPICS name-server
+mode — the one host-to-container configuration that works reliably across
+container runtimes, since broadcast discovery does not cross the container VM
+boundary. The project’s <code class="docutils literal notranslate"><span class="pre">virtual_accelerator</span></code> connector block is configured to
+match and sets <code class="docutils literal notranslate"><span class="pre">EPICS_CA_NAME_SERVERS</span></code> itself, so no client-side EPICS
+environment setup is needed.</p>
+</section>
+<section id="running-from-a-source-checkout">
+<h2>Running from a source checkout<a class="headerlink" href="#running-from-a-source-checkout" title="Link to this heading">#</a></h2>
+<p>If you are working from an OSPREY <strong>source checkout</strong> rather than a generated
+project — developing the IOC itself, or running it without deploying a stack —
+launch the container directly:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./scripts/va/run_va.sh<span class="w"> </span><span class="o">[</span>DATA_DIR<span class="o">]</span>
+</pre></div>
+</div>
+<p>The image is defined under <code class="docutils literal notranslate"><span class="pre">docker/virtual-accelerator/</span></code>; see its
+<code class="docutils literal notranslate"><span class="pre">README.md</span></code> for build details. The script builds the image if it is missing
+(<code class="docutils literal notranslate"><span class="pre">OSPREY_VA_REBUILD=1</span></code> forces a rebuild) and runs in the foreground.</p>
+<div class="admonition warning">
+<p class="admonition-title">Warning</p>
+<p><code class="docutils literal notranslate"><span class="pre">DATA_DIR</span></code> is the <code class="docutils literal notranslate"><span class="pre">data/simulation</span></code> <strong>directory</strong> (never a single file)
+that the container mounts read-only. It defaults to the <em>packaged preset’s</em>
+copy, <strong>not</strong> your project — so with no argument, <code class="docutils literal notranslate"><span class="pre">osprey</span> <span class="pre">sim</span> <span class="pre">apply</span></code> in
+your project writes a scenario file the running IOC never sees. Pass your
+project’s directory explicitly to use its scenarios:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>./scripts/va/run_va.sh<span class="w"> </span>~/my-project/data/simulation
+</pre></div>
+</div>
 </div>
 </section>
 <section id="scenarios">
@@ -573,15 +604,25 @@ channel values reflect the new scenario. Switching scenarios also resets any
 values you wrote during the session, mirroring the mock engine’s semantics — the
 simulation engine is the single implementation behind both backends, so they
 cannot drift apart.</p>
+<p>This assumes the IOC is reading the same project’s <code class="docutils literal notranslate"><span class="pre">data/simulation</span></code>. That is
+automatic for the deployed service; if you launched the container by hand, see
+the warning under <a class="reference internal" href="#running-from-a-source-checkout">Running from a source checkout</a>.</p>
 </section>
 <section id="write-limits">
 <h2>Write limits<a class="headerlink" href="#write-limits" title="Link to this heading">#</a></h2>
-<p>Every writable setpoint carries a min/max range in the project’s
-<code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code>. A write outside a channel’s range is rejected before it
-reaches the IOC; an in-range write goes through. The mandatory write-approval
-flow and the <code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> switch apply unchanged — the
-Virtual Accelerator connector inherits the same write-safety wiring as the EPICS
+<p>Channels listed in the project’s <code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code> carry a min/max range,
+and a write outside that range is rejected before it reaches the IOC; an
+in-range write goes through. The mandatory write-approval flow and the
+<code class="docutils literal notranslate"><span class="pre">control_system.writes_enabled</span></code> switch apply unchanged — the Virtual
+Accelerator connector inherits the same write-safety wiring as the EPICS
 connector.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>The tutorial runs the limits checker in permissive mode
+(<code class="docutils literal notranslate"><span class="pre">limits_checking.allow_unlisted_channels:</span> <span class="pre">true</span></code>), so a channel <em>absent</em>
+from <code class="docutils literal notranslate"><span class="pre">channel_limits.json</span></code> is not blocked. Range enforcement covers listed
+channels; it is not a closed allowlist here.</p>
+</div>
 </section>
 <section id="archiver-live-values-vs-history">
 <h2>Archiver: live values vs. history<a class="headerlink" href="#archiver-live-values-vs-history" title="Link to this heading">#</a></h2>
@@ -650,7 +691,8 @@ future addition.</p>
     <ul class="visible nav section-nav flex-column">
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#overview">Overview</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#quickstart">Quickstart</a></li>
-<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#starting-the-container">Starting the container</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#connecting-to-the-ioc">Connecting to the IOC</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#running-from-a-source-checkout">Running from a source checkout</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#scenarios">Scenarios</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#write-limits">Write limits</a></li>
 <li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#archiver-live-values-vs-history">Archiver: live values vs. history</a></li>

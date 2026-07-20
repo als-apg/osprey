@@ -279,7 +279,7 @@ You may also override the non-abstract ``write_multiple_channels()`` method if y
 Your connector must return the standard data models from ``osprey.connectors.control_system.base``: :class:`~osprey.connectors.control_system.base.ChannelValue`, :class:`~osprey.connectors.control_system.base.ChannelMetadata`, :class:`~osprey.connectors.control_system.base.ChannelWriteResult`, and :class:`~osprey.connectors.control_system.base.WriteVerification`.
 
 Registering Custom Connectors
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+-----------------------------
 
 **Direct registration** (simplest approach):
 
