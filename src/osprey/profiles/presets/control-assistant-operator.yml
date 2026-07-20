@@ -14,6 +14,11 @@ name: Control Assistant (Operator)
 
 extends: control-assistant
 
+# Attached project: the persona builds per-user terminal images only and
+# connects to the shared services stack another OSPREY project deploys on the
+# same host. No services are scaffolded (empty `deployed_services`, no services/).
+deploy_services: false
+
 # ── Excluded artifacts ───────────────────────────────────────────────────────
 # `exclude:` subtracts entries from the base's inherited string lists (applied
 # after each extends merge). `writing-bluesky-plans` is the only scan-related
@@ -31,3 +36,8 @@ config:
   # ENABLED (the single-user demo wants the full scan stack), so this override
   # is what actually keeps the operator tier out of scan tooling.
   claude_code.servers.bluesky.enabled: false
+  # Attached persona: the hosting project owns the web-terminal tier (nginx,
+  # landing, per-user containers). Without this override the inherited roster
+  # would make a persona-dir deploy try to host a second web tier on the same
+  # host ports.
+  modules.web_terminals.enabled: false

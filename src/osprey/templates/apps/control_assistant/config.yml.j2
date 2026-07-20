@@ -114,6 +114,7 @@ container_runtime: auto
 # ============================================================
 # Only PostgreSQL is needed for ARIEL logbook search
 
+{% if deploy_services | default(true) %}
 services:
   postgresql:
     path: ./services/postgresql
@@ -141,6 +142,15 @@ services:
 deployed_services:
   - postgresql
   - openobserve
+{% else %}
+# Attached project (deploy_services: false): this project connects to a
+# services stack another OSPREY project deployed on the same host, so it
+# scaffolds no services of its own. The empty `deployed_services` list is
+# explicit so `osprey deploy` finds it and launches nothing.
+services: {}
+
+deployed_services: []
+{% endif %}
 
 # ============================================================
 # SAFETY CONTROLS

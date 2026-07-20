@@ -166,6 +166,41 @@ class TestOperatorPersona:
 
 
 # ---------------------------------------------------------------------------
+# Persona attachment (deploy_services: false)
+# ---------------------------------------------------------------------------
+
+
+class TestPersonaAttachment:
+    """Both personas are attached projects: they build per-user terminal images
+    only and connect to the shared services stack the base project deploys, so
+    they must set ``deploy_services: false`` while the base leaves it defaulted
+    true. Their inherited service blocks still parse and validate — they just
+    scaffold nothing at build time.
+    """
+
+    def test_base_is_self_contained(self) -> None:
+        """The base preset deploys its own services stack (default posture)."""
+        assert resolve_preset("control-assistant").deploy_services is True
+
+    def test_operator_is_attached(self) -> None:
+        assert resolve_preset("control-assistant-operator").deploy_services is False
+
+    def test_physicist_is_attached(self) -> None:
+        assert resolve_preset("control-assistant-physicist").deploy_services is False
+
+    def test_attached_personas_still_validate(self) -> None:
+        """Marking a persona attached does not disturb the rest of the profile —
+        ``resolve_preset`` parses and validates it (raising on any error).
+        The inherited bluesky/virtual_accelerator/bluesky_panels blocks survive.
+        """
+        for name in ("control-assistant-operator", "control-assistant-physicist"):
+            profile = resolve_preset(name)
+            assert profile.bluesky is not None
+            assert profile.virtual_accelerator is not None
+            assert profile.bluesky_panels is not None
+
+
+# ---------------------------------------------------------------------------
 # Base preset: multi-user web-terminal block
 # ---------------------------------------------------------------------------
 

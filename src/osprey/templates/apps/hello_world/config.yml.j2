@@ -178,6 +178,7 @@ artifact_server:
 # `osprey health` recognizes it) and add its name to `deployed_services:` to
 # actually launch it with `osprey deploy up`.
 
+{% if deploy_services | default(true) %}
 services:
   # Local telemetry backend for the OSPREY agent — a single-binary OTLP
   # logs/metrics store (see the `telemetry:` block under `claude_code:` below
@@ -195,6 +196,13 @@ services:
 # Services to deploy with `osprey deploy up`
 deployed_services:
   - openobserve
+{% else %}
+# Attached project (deploy_services: false): connects to a services stack
+# another OSPREY project deployed on the same host, so it scaffolds nothing.
+services: {}
+
+deployed_services: []
+{% endif %}
 
 # ============================================================
 # CLAUDE CODE INTEGRATION
