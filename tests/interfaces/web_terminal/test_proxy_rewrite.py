@@ -157,3 +157,48 @@ class TestProxyPrefixIntegration:
         resp = client.get("/panel/my-dash/static/js/gallery.js")
         assert resp.status_code == 200
         assert resp.text == 'var x = "/panel/my-dash/static/js/foo.js";'
+
+
+class TestPanelBundleRewriteCollisions:
+    """Shipped prefix-aware panel bundles must not collide with the rewrite list.
+
+    The bluesky-panels bundles compute their API prefix at runtime
+    (``panelApiPrefix()``) and prepend it to fetch paths. If such a bundle also
+    embeds a quote-delimited literal starting with one of the proxy's
+    ``_REWRITE_PREFIXES``, the proxy rewrites the literal server-side and the
+    runtime prefix is prepended on top — a double-prefixed URL that 404s (or,
+    worse, appears to work only while the runtime prefix is broken).
+
+    Asset prefixes are exempt: bare ``/design-system/…``, ``/static/…``, and
+    ``/assets/…`` specifiers are exactly what the rewrite exists for (module
+    imports and stylesheet hrefs cannot be runtime-prefixed).
+    """
+
+    ASSET_PREFIXES = ("/design-system/", "/static/", "/assets/")
+
+    def test_bluesky_panel_bundles_have_no_api_literal_collisions(self):
+        import re
+        from pathlib import Path
+
+        import osprey.services.bluesky_panels as bp
+        from osprey.interfaces.web_terminal.routes.proxy import _REWRITE_PREFIXES
+
+        panels_dir = Path(bp.__file__).parent / "panels"
+        assert panels_dir.is_dir(), f"panel bundles not found at {panels_dir}"
+
+        api_prefixes = [p for p in _REWRITE_PREFIXES if p not in self.ASSET_PREFIXES]
+        offenders: list[str] = []
+        for path in sorted(panels_dir.rglob("*")):
+            if path.suffix not in {".js", ".html", ".css"}:
+                continue
+            body = path.read_text()
+            for prefix in api_prefixes:
+                pattern = r"""(?<=["'`])""" + re.escape(prefix)
+                for match in re.finditer(pattern, body):
+                    line = body.count("\n", 0, match.start()) + 1
+                    offenders.append(f"{path.relative_to(panels_dir)}:{line}: {prefix!r}")
+        assert not offenders, (
+            "quote-delimited literals in prefix-aware panel bundles collide with "
+            "_REWRITE_PREFIXES (the proxy would rewrite them, double-prefixing the "
+            "runtime panelApiPrefix()):\n  " + "\n  ".join(offenders)
+        )

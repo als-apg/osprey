@@ -239,3 +239,36 @@ describe('iframe src: state.url arrives already server-prefixed (2.2) and must n
     await assertIframeSrc('', '/panel/artifacts');
   });
 });
+
+describe('tab LEDs for custom panels without a health endpoint', () => {
+  test('a null-healthEndpoint panel renders a healthy LED, not the offline default', async () => {
+    window.__OSPREY_PREFIX__ = '';
+    renderContainer();
+    vi.stubGlobal('fetch', vi.fn(async (/** @type {string} */ url) => {
+      if (url === '/api/panels') {
+        return jsonOk({
+          enabled: [],
+          custom: [
+            { id: 'results', label: 'RESULTS', url: '/panel/results', healthEndpoint: null, path: '/results/' },
+          ],
+          default: null,
+          visible: ['results'],
+          active: null,
+          labels: {},
+        });
+      }
+      return jsonOk({});
+    }));
+    stubEventSource();
+
+    const { initPanelManager } = await freshImport();
+    await initPanelManager('panel-manager');
+
+    const tab = document.querySelector('[data-panel-id="results"]');
+    if (!(tab instanceof HTMLElement)) throw new Error('expected a results tab');
+    expect(tab.classList.contains('disabled')).toBe(false);
+    const led = tab.querySelector('.tab-led');
+    if (!(led instanceof HTMLElement)) throw new Error('expected a tab LED');
+    expect(led.className).toBe('tab-led healthy');
+  });
+});

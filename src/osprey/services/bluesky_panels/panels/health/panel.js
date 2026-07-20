@@ -9,16 +9,21 @@
  * panel.
  *
  * Requests are prefix-relative so the panel works both standalone (mounted
- * by the sidecar at `/health-panel`) and reverse-proxied by the web
+ * by the sidecar at its health-panel mount) and reverse-proxied by the web
  * terminal at `/panel/{id}/…`, which strips its own `/panel/{id}` segment
  * before forwarding.
+ *
+ * API paths are passed to `api()` WITHOUT a leading slash: a quote-delimited
+ * root-absolute `GET /health/…` literal would collide with the web-terminal
+ * proxy's content rewrite list and get double-prefixed (guarded by
+ * tests/interfaces/web_terminal/test_proxy_rewrite.py).
  *
  * @module panel
  */
 
 import { escapeHtml, panelApiPrefix } from '/design-system/js/dom.js';
 
-/** How often to re-poll `/health/full`, in milliseconds. */
+/** How often to re-poll the full-health endpoint, in milliseconds. */
 const POLL_INTERVAL_MS = 5000;
 
 /** @typedef {{name: string, status: string, detail: string, latency_ms: number}} ServiceHealth */
@@ -35,11 +40,11 @@ const PREFIX = panelApiPrefix();
 /**
  * Build a sidecar API path, honoring the reverse-proxy prefix above.
  *
- * @param {string} path
+ * @param {string} path - Sidecar path WITHOUT a leading slash (see module doc).
  * @returns {string}
  */
 function api(path) {
-  return PREFIX + path;
+  return `${PREFIX}/${path}`;
 }
 
 /**
@@ -119,7 +124,7 @@ function renderCard(meta, health) {
 /**
  * Render the health-unavailable state: hides the rollup banner and service
  * grid content behind a clean error card rather than showing stale or
- * partially-built markup. Used both when `/health/full` itself fails/
+ * partially-built markup. Used both when the full-health fetch fails/
  * non-200s and when the panel is served standalone with no live sidecar
  * behind it (e.g. the visual regression harness).
  */
@@ -149,13 +154,13 @@ function renderHealth(data) {
 }
 
 /**
- * Poll `/health/full` once. Any failure -- network error, non-200, or a
- * response that doesn't parse as JSON -- degrades to the unavailable state
- * rather than throwing or leaving stale content on screen.
+ * Poll the full-health endpoint once. Any failure -- network error, non-200,
+ * or a response that doesn't parse as JSON -- degrades to the unavailable
+ * state rather than throwing or leaving stale content on screen.
  */
 async function poll() {
   try {
-    const response = await fetch(api('/health/full'));
+    const response = await fetch(api('health/full'));
     if (!response.ok) {
       renderUnavailable();
       return;

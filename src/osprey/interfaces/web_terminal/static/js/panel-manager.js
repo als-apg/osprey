@@ -254,12 +254,12 @@ export async function initPanelManager(panelId) {
       if (ps && cp.url) {
         ps.url = cp.url;
         ps.configLoaded = true;
-        if (!cp.healthEndpoint) {
-          ps.healthy = true;
-          enableTab(cp.id);
-        } else {
+        if (cp.healthEndpoint) {
           const panel = PANELS.find(p => p.id === cp.id);
           if (panel) startHealthPolling(panel);
+        } else {
+          ps.healthy = true;
+          updateTabState(cp.id);  // no poll loop will ever repaint this tab
         }
       }
     }
@@ -427,7 +427,7 @@ function addPanel(spec) {
     ps.configLoaded = true;
     if (!spec.healthEndpoint) {
       ps.healthy = true;
-      enableTab(spec.id);
+      updateTabState(spec.id);
     } else {
       startHealthPolling(normalized);
     }
@@ -460,8 +460,7 @@ async function initPanel(panel) {
     // mark healthy immediately so the tab is enabled.
     if (panel.healthEndpoint == null) {  // null or undefined → skip polling
       state.healthy = true;
-      enableTab(panel.id);
-      updateTabState(panel);
+      updateTabState(panel.id);
     } else {
       startHealthPolling(panel);
     }
@@ -537,18 +536,17 @@ async function pollHealth(panel) {
     });
     const wasHealthy = state.healthy;
     state.healthy = resp.ok;
-    updateTabState(panel);
+    updateTabState(panel.id);
     updateStatusBar(panel);
 
-    // First time healthy — enable the tab, then let the shared policy decide
-    // whether this newly-healthy panel should take an empty slot.
+    // First time healthy — let the shared policy decide whether this
+    // newly-healthy panel should take an empty slot.
     if (state.healthy && !wasHealthy) {
-      enableTab(panel.id);
       ensureActivePanel();
     }
   } catch {
     state.healthy = false;
-    updateTabState(panel);
+    updateTabState(panel.id);
     updateStatusBar(panel);
   } finally {
     state.polling = false;
@@ -557,20 +555,19 @@ async function pollHealth(panel) {
 
 // ---- Tab State ----
 
-/** @param {string} panelId */
-function enableTab(panelId) {
+/**
+ * Repaint a tab's visual state from panelState: the LED class, and — once
+ * healthy — the initial 'disabled' state (tabs are never re-disabled).
+ * @param {string} panelId
+ */
+function updateTabState(panelId) {
   const tab = tabsEl.querySelector(`[data-panel-id="${panelId}"]`);
-  if (tab) tab.classList.remove('disabled');
-}
-
-/** @param {Panel} panel */
-function updateTabState(panel) {
-  const tab = tabsEl.querySelector(`[data-panel-id="${panel.id}"]`);
   if (!tab) return;
 
+  if (panelState[panelId].healthy) tab.classList.remove('disabled');
   const led = tab.querySelector('.tab-led');
   if (led) {
-    led.className = 'tab-led ' + (panelState[panel.id].healthy ? 'healthy' : 'offline');
+    led.className = 'tab-led ' + (panelState[panelId].healthy ? 'healthy' : 'offline');
   }
 }
 
