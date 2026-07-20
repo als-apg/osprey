@@ -1,9 +1,11 @@
 """Drift sentinel for the unified cross-paradigm benchmark queries.
 
-Validates that every ``targeted_pv`` in the tier{1,2,3}_queries.json files
-shipped under ``data/benchmarks/cross_paradigm/queries/`` resolves against the
-matching tier's channel database tree
-(``data/channel_databases/tiers/tier{1,2,3}/{in_context,hierarchical,middle_layer}.json``).
+Validates that every ``targeted_pv`` in the per-tier queries.json files shipped
+under ``data/benchmarks/cross_paradigm/queries/`` resolves against the matching
+tier's channel database tree
+(``data/channel_databases/tiers/tier{N}/{in_context,hierarchical,middle_layer}.json``).
+The tiers checked and the paradigms expected per tier are driven by
+:data:`TIER_PARADIGMS` (tier 1 = in_context only; tier 3 = all three).
 
 This is the cheap, no-LLM cross-paradigm drift sentinel — if the tier DBs
 diverge from the queries (as they did pre-2026-05 across paper-vs-core), this
@@ -17,17 +19,18 @@ import json
 import pytest
 
 from osprey.services.channel_finder.benchmarks.generator import (
-    TEMPLATE_DB_PATH,
+    TEMPLATE_DATA_DIR,
+    TIER_PARADIGMS,
     validate_queries,
 )
 
-# TEMPLATE_DB_PATH lives at <template>/data/channel_databases/hierarchical.json,
-# so walk up three components to reach the template root.
-TEMPLATE_DIR = TEMPLATE_DB_PATH.parents[2]
-QUERIES_DIR = TEMPLATE_DIR / "data" / "benchmarks" / "cross_paradigm" / "queries"
-TIERS_ROOT = TEMPLATE_DIR / "data" / "channel_databases" / "tiers"
+# Derive the shipped-artifact locations from the preset data root rather than
+# walking parents[] off the (tier-nested) template DB path.
+QUERIES_DIR = TEMPLATE_DATA_DIR / "benchmarks" / "cross_paradigm" / "queries"
+TIERS_ROOT = TEMPLATE_DATA_DIR / "channel_databases" / "tiers"
 
-_TIER_NUMS: tuple[int, ...] = (1, 2, 3)
+# The published tiers are exactly the keys of the paradigm map (tier 2 retired).
+_TIER_NUMS: tuple[int, ...] = tuple(TIER_PARADIGMS)
 
 
 class TestUnifiedQueriesShipped:
@@ -71,7 +74,10 @@ class TestUnifiedQueriesValidateAgainstTierDbs:
             for n in _TIER_NUMS
             if (QUERIES_DIR / f"tier{n}_queries.json").exists()
         }
-        assert tier_queries, "No tier query files found — expected tier1/2/3_queries.json"
+        assert tier_queries, (
+            "No tier query files found — expected "
+            + ", ".join(f"tier{n}_queries.json" for n in _TIER_NUMS)
+        )
 
         result = validate_queries(tier_queries=tier_queries, output_dir=TIERS_ROOT)
 

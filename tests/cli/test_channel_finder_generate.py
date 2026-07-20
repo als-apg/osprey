@@ -51,8 +51,15 @@ class TestGenerateSubcommand:
         assert len(data["channels"]) == len(all_channels)
 
     def test_in_context_channel_count_tier1(self, runner, tmp_path):
-        """--tier 1 in_context.json should have TIER_1.target_count channels."""
-        from osprey.services.channel_finder.benchmarks.generator import TIER_1
+        """--tier 1 in_context.json should hold exactly the tier-1 filtered channels."""
+        from osprey.services.channel_finder.benchmarks.generator import (
+            TIER_1,
+            filter_channels,
+            load_template,
+        )
+
+        _, all_channels = load_template()
+        expected = len(filter_channels(all_channels, TIER_1))
 
         runner.invoke(
             channel_finder,
@@ -60,7 +67,7 @@ class TestGenerateSubcommand:
         )
 
         data = json.loads((tmp_path / "in_context.json").read_text())
-        assert len(data["channels"]) == TIER_1.target_count
+        assert len(data["channels"]) == expected
 
     def test_hierarchical_channel_count(self, runner, tmp_path):
         """hierarchical.json should have all template channels (default, no tier filter)."""
@@ -119,12 +126,15 @@ class TestGenerateSubcommand:
         assert not (tmp_path / "middle_layer.json").exists()
 
     def test_generate_tier1(self, runner, tmp_path):
-        """--tier 1 generates all 3 files at tier 1 scale."""
+        """--tier 1 generates only the in_context view at tier 1 scale."""
         from osprey.services.channel_finder.benchmarks.generator import (
             TIER_1,
-            collect_middle_layer_pvs,
-            expand_hierarchy,
+            filter_channels,
+            load_template,
         )
+
+        _, all_channels = load_template()
+        expected = len(filter_channels(all_channels, TIER_1))
 
         result = runner.invoke(
             channel_finder,
@@ -132,19 +142,22 @@ class TestGenerateSubcommand:
         )
         assert result.exit_code == 0
 
-        # in_context: TIER_1.target_count channels at tier 1
+        # Tier 1 is in_context-only: the flat view holds the filtered channels...
         ic_data = json.loads((tmp_path / "in_context.json").read_text())
-        assert len(ic_data["channels"]) == TIER_1.target_count
+        assert len(ic_data["channels"]) == expected
 
-        # hierarchical: tier 1 produces fewer channels
-        h_data = json.loads((tmp_path / "hierarchical.json").read_text())
-        h_channels = expand_hierarchy(h_data)
-        assert len(h_channels) == TIER_1.target_count
+        # ...and the tree/middle-layer views are not emitted.
+        assert not (tmp_path / "hierarchical.json").exists()
+        assert not (tmp_path / "middle_layer.json").exists()
 
-        # middle_layer: tier 1 produces fewer channels
-        ml_data = json.loads((tmp_path / "middle_layer.json").read_text())
-        ml_pvs = collect_middle_layer_pvs(ml_data)
-        assert len(ml_pvs) == TIER_1.target_count
+    def test_generate_tier1_rejects_non_in_context_format(self, runner, tmp_path):
+        """--tier 1 with a non-in_context --format is refused."""
+        result = runner.invoke(
+            channel_finder,
+            ["generate", "--output-dir", str(tmp_path), "--tier", "1", "--format", "hierarchical"],
+        )
+        assert result.exit_code != 0
+        assert "in_context" in result.output
 
     def test_generate_custom_source(self, runner, tmp_path):
         """--source custom.json loads from a custom hierarchical template."""
