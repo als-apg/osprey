@@ -110,6 +110,22 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     base = tmp_path_factory.mktemp("dispatch_deploy_build")
     project_dir = base / PROJECT_NAME
 
+    # modules.web_terminals.enabled: false drops the preset's per-persona
+    # web-terminal stack (two persona images + nginx, all built locally):
+    # nothing in the dispatch pipeline touches persona routing, and the
+    # deploy-up credential preflight would otherwise abort for the persona
+    # presets' pinned anthropic provider (the parent project's
+    # `provider=als-apg` --set does not reach the auto-rendered persona
+    # projects). Persona coverage lives in the dedicated web-terminals
+    # lanes. One dotted LEAF key on purpose -- overriding just `.enabled`
+    # leaves the preset's `modules.web_terminals` siblings intact, whereas
+    # a nested `modules:` mapping would wholesale-replace the subtree
+    # (same convention as tests/e2e/_orm_stack.py).
+    override_path = base / "override.yml"
+    override_path.write_text(
+        "config:\n  modules.web_terminals.enabled: false\n", encoding="utf-8"
+    )
+
     build = _run(
         [
             str(osprey_bin),
@@ -117,6 +133,8 @@ def deployed_stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
             PROJECT_NAME,
             "--preset",
             "control-assistant",
+            "--override",
+            str(override_path),
             "--set",
             "provider=als-apg",
             "--set",
