@@ -83,8 +83,21 @@ jobs:
       run: uv sync --extra dev --extra virtual-accelerator
 
     - name: Run unit tests
+      # Coverage is measured only on the cell that uploads to Codecov below —
+      # the other three cells were paying ~25% runtime (measured) for a report
+      # nobody reads. Deliberately NOT pytest-xdist-parallelized: the unit
+      # suite relies on serial collection order to dodge cross-test
+      # global-state bleed (stdlib subprocess.run monkeypatches, loguru sink
+      # reconfiguration), and under -n 4 it flakes ~1 test per run with a
+      # different victim each time. Parallelizing this lane first requires
+      # fixing that isolation debt.
       run: |
-        uv run pytest tests/ --ignore=tests/e2e -v --tb=short --cov=src/osprey --cov-report=xml --cov-report=term
+        if [ "${{ matrix.python-version }}" = "3.11" ] && [ "${{ matrix.os }}" = "ubuntu-latest" ]; then
+          COV_ARGS="--cov=src/osprey --cov-report=xml --cov-report=term"
+        else
+          COV_ARGS=""
+        fi
+        uv run pytest tests/ --ignore=tests/e2e -v --tb=short $COV_ARGS
 
     - name: Upload coverage reports to Codecov
       uses: codecov/codecov-action@v7
@@ -556,7 +569,15 @@ jobs:
           # dispatch input (channel-finder-benchmarks): they are a
           # statistical quality score with flaky reruns, not a per-PR
           # correctness gate.
-          uv run pytest tests/e2e/ -v --tb=short \
+          # -n 4 --dist loadfile (pytest-xdist): this lane is ~18 min of
+          # real-LLM round-trips at near-zero CPU, so four workers cut it to
+          # roughly the slowest single file. loadfile (not load) keeps every
+          # file's tests on one worker, preserving in-file ordering and
+          # module-scoped fixtures — the documented registry-order hazard is
+          # about mixing e2e with unit tests, not about file-level
+          # parallelism. The only fixed-port stacks in this lane
+          # (grid-scan/ORM VA on 5064) are GitHub-Actions-skipped anyway.
+          uv run pytest tests/e2e/ -v --tb=short -n 4 --dist loadfile \
             --ignore=tests/e2e/test_preset_agentic.py \
             --ignore=tests/e2e/test_dispatch_deploy.py \
             --ignore=tests/e2e/test_dispatch_overlay_visibility.py \
