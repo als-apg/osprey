@@ -157,8 +157,8 @@ dev = [
     "pre-commit",
     "ruff",
     "build",  # Required for 'osprey deploy up --dev' to build local wheel
-    "testcontainers[postgres]>=4.0.0",  # Real PostgreSQL for integration tests
-    "testcontainers[mongodb]>=4.0.0",  # MongoDB for archiver-mongodb integration tests
+    "testcontainers[postgres]>=4.14.2",  # Real PostgreSQL for integration tests
+    "testcontainers[mongodb]>=4.14.2",  # MongoDB for archiver-mongodb integration tests
     "docker>=7.0.0",  # Docker SDK for testcontainers availability check
     "psycopg[binary,pool]>=3.1.0,<4.0.0",  # ARIEL search integration tests
     "psycopg-pool>=3.1.0,<4.0.0",  # ARIEL search integration tests
