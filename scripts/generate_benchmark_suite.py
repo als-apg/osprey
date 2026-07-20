@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
-"""Regenerate the 9 tier channel databases from the hierarchical template.
+"""Regenerate the shipped tier channel databases via the canonical spec pipeline.
 
-Produces (under ``--output-dir``, defaulting to the in-tree preset location
-``src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/``):
+Thin wrapper over
+:func:`osprey.services.channel_finder.tools.generate_from_spec.generate` -- the
+single canonical regeneration of every committed channel-database artifact. That
+pipeline grows the tier-3 cross-paradigm views (``in_context``, ``hierarchical``,
+``middle_layer``) from the facility spec and derives tier-1's ``in_context``
+subset from them. This script adds a query-integrity ``--validate`` pass over the
+shipped per-tier query sets.
 
-  tier1/  (in_context.json, hierarchical.json, middle_layer.json)
-  tier2/  (in_context.json, hierarchical.json, middle_layer.json)
-  tier3/  (in_context.json, hierarchical.json, middle_layer.json)
+Tier 2 is retired: only tiers 1 and 3 are published. Tier 1 ships the
+``in_context`` paradigm only; tier 3 ships all three. The published tiers (and
+the paradigms each ships) come from
+:data:`osprey.services.channel_finder.benchmarks.generator.TIER_PARADIGMS`.
 
-Tier query sets are NOT regenerated — they live alongside the preset at
-``src/osprey/templates/apps/control_assistant/data/benchmarks/cross_paradigm/queries/``
-and are the canonical source-of-truth for ``--validate``.
+Regeneration is merge-preserve and idempotent: regenerating in place (the
+default) rewrites the committed artifacts byte-for-byte.
 
 Usage:
     python scripts/generate_benchmark_suite.py
@@ -21,69 +26,32 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
-# Add src to path for direct script execution
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+# Add scripts/ to path for the sibling shared-helper import under direct execution.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from osprey.services.channel_finder.benchmarks.generator import (
-    TEMPLATE_DB_PATH,
-    TIER_1,
-    TIER_2,
-    TIER_3,
-    expand_hierarchy,
-    format_hierarchical,
-    format_in_context,
-    format_middle_layer,
+from _tier_db_common import (  # noqa: E402
+    PRESET_TIERS_DIR,
+    collect_tier_queries,
+    regenerate_tier_databases,
     validate_queries,
-)
-
-TIERS = [(1, TIER_1), (2, TIER_2), (3, TIER_3)]
-QUERY_SOURCE_DIR = (
-    Path(__file__).resolve().parent.parent
-    / "src"
-    / "osprey"
-    / "templates"
-    / "apps"
-    / "control_assistant"
-    / "data"
-    / "benchmarks"
-    / "cross_paradigm"
-    / "queries"
 )
 
 
 def generate_suite(output_dir: Path) -> None:
-    """Generate all 9 benchmark databases."""
-    print(f"Loading template from {TEMPLATE_DB_PATH}")
-    tree_data = json.loads(TEMPLATE_DB_PATH.read_text(encoding="utf-8"))
-    channels = expand_hierarchy(tree_data)
-    print(f"Expanded {len(channels)} total channels")
+    """Regenerate the shipped tier databases into ``output_dir``.
 
-    for tier_num, tier_spec in TIERS:
-        tier_dir = output_dir / f"tier{tier_num}"
-        tier_dir.mkdir(parents=True, exist_ok=True)
-
-        # In-context
-        ic_data = format_in_context(channels, tier_spec)
-        (tier_dir / "in_context.json").write_text(json.dumps(ic_data, indent=2), encoding="utf-8")
-
-        # Hierarchical
-        hier_data = format_hierarchical(tree_data, tier_spec)
-        (tier_dir / "hierarchical.json").write_text(
-            json.dumps(hier_data, indent=2), encoding="utf-8"
-        )
-
-        # Middle layer
-        ml_data = format_middle_layer(channels, tier_spec)
-        (tier_dir / "middle_layer.json").write_text(json.dumps(ml_data, indent=2), encoding="utf-8")
-
-        # Channel count from in-context (envelope format)
-        count = len(ic_data["channels"])
-        print(f"  Tier {tier_num}: {count} channels (3 databases)")
-
+    Delegates to the canonical spec-driven generator, reading the committed
+    tier-3 seeds and writing the grown tier-3 paradigms plus the derived
+    tier-1 ``in_context`` subset under ``output_dir``.  The default
+    ``output_dir`` is the in-tree preset location, for which this is a
+    byte-identical in-place regeneration.
+    """
+    written = regenerate_tier_databases(output_dir)
+    for name, path in written.items():
+        print(f"  {name}: {path}")
     print(f"\nSuite generated in {output_dir}/")
 
 
@@ -92,16 +60,12 @@ def run_validation(output_dir: Path) -> bool:
 
     Reads queries from the canonical in-tree location (``QUERY_SOURCE_DIR``)
     rather than from a subdir of ``output_dir``.  ``output_dir`` is the
-    tier-DB tree being validated.
+    tier-DB tree being validated.  Only the published tiers (the keys of
+    :data:`TIER_PARADIGMS`) are validated.
     """
     print("\nValidating query sets against databases...")
 
-    tier_queries: dict[int, Path] = {}
-
-    for tier_num in (1, 2, 3):
-        path = QUERY_SOURCE_DIR / f"tier{tier_num}_queries.json"
-        if path.exists():
-            tier_queries[tier_num] = path
+    tier_queries = collect_tier_queries()
 
     if not tier_queries:
         print("  No query files found, skipping validation")
@@ -132,15 +96,15 @@ def run_validation(output_dir: Path) -> bool:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Generate the complete benchmark suite (9 DBs + 3 query sets)"
+        description="Regenerate the shipped tier databases (canonical spec pipeline) + validate"
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("src/osprey/templates/apps/control_assistant/data/channel_databases/tiers"),
+        default=PRESET_TIERS_DIR,
         help=(
-            "Output directory for the 9 tier DBs "
-            "(default: src/osprey/templates/apps/control_assistant/data/channel_databases/tiers/)"
+            "Output directory for the regenerated tier DBs "
+            "(default: the in-tree control_assistant preset tiers/ location)"
         ),
     )
     parser.add_argument(
