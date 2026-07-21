@@ -609,6 +609,68 @@ def test_catalog_present_all_users_on_default_persona_is_byte_identical_image_an
         assert f"{user}-agent-data:/app/dls-assistant/_agent_data" in catalog_svc["volumes"]
 
 
+def test_persona_extra_mounts_render_as_extra_per_user_volume_lines() -> None:
+    """A persona's `extra_mounts` render as additional `volumes:` entries on every
+    user of that persona, after the two default (claude-config, agent-data) mounts."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+    web_terminals = config["modules"]["web_terminals"]
+    web_terminals["default_persona"] = "assistant"
+    web_terminals["personas"] = {
+        "assistant": {
+            "project": "dls-assistant",
+            "project_path": "../dls-assistant",
+            "build_profile": "profiles/assistant.yml",
+        },
+        "gui": {
+            "project": "dls-gui",
+            "project_path": "../dls-gui",
+            "build_profile": "profiles/gui.yml",
+            "extra_mounts": ["/opt/site-data:/app/site-data:ro", "shared-cache:/app/cache"],
+        },
+    }
+    web_terminals["users"] = [
+        {"name": "alice", "index": 0},  # default persona, no extra_mounts
+        {"name": "bob", "index": 1, "persona": "gui"},
+    ]
+
+    # Act
+    artifacts = render_web_terminals(config)
+    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
+
+    # Assert — bob (gui) carries the two default mounts plus the persona's two
+    bob_volumes = compose["services"]["web-bob"]["volumes"]
+    assert bob_volumes == [
+        "bob-claude-config:/data/claude-config",
+        "bob-agent-data:/app/dls-gui/_agent_data",
+        "/opt/site-data:/app/site-data:ro",
+        "shared-cache:/app/cache",
+    ]
+    # alice (default persona, no extra_mounts) keeps exactly the two default mounts
+    assert compose["services"]["web-alice"]["volumes"] == [
+        "alice-claude-config:/data/claude-config",
+        "alice-agent-data:/app/dls-assistant/_agent_data",
+    ]
+
+
+def test_no_extra_mounts_leaves_only_the_two_default_volume_lines() -> None:
+    """A no-personas config (the zero-migration default) emits exactly the two
+    default per-user volume lines — the extra_mounts loop adds nothing."""
+    # Arrange
+    config = copy.deepcopy(_MULTI_USER_CONFIG)
+
+    # Act
+    artifacts = render_web_terminals(config)
+    compose = yaml.safe_load(artifacts["docker-compose.web.yml"])
+
+    # Assert
+    for user in config["modules"]["web_terminals"]["users"]:
+        assert compose["services"][f"web-{user}"]["volumes"] == [
+            f"{user}-claude-config:/data/claude-config",
+            f"{user}-agent-data:/app/dls-assistant/_agent_data",
+        ]
+
+
 def test_auth_default_none() -> None:
     """No `web_terminals.auth` stanza -> auth_method defaults to 'none' (v1 has no auth)."""
     # Arrange

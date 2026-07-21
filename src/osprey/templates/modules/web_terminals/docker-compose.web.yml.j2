@@ -30,12 +30,16 @@
       `allocate_ports()` — persona resolution and port arithmetic both stay
       in Python; this template only iterates. Each entry is
       `{"user": str, "image": str, "project": str, "container_project_dir": str,
-      "panel_env": list, **allocate_ports(base_ports, index)}`:
+      "extra_mounts": list, "panel_env": list, **allocate_ports(base_ports, index)}`:
         {
           "user": str,                  # bare username, e.g. "thellert"
           "image": str,                 # resolved by resolve_personas() -> per-svc `image:`
           "project": str,               # resolved by resolve_personas() (not read by this template)
           "container_project_dir": str, # resolved by resolve_personas() -> agent-data mount root
+          "extra_mounts": [str, ...],   # resolved by resolve_personas() from the persona's
+                                        #   `extra_mounts` -> extra per-user `volumes:` lines
+                                        #   (compose volume strings, e.g. "/opt/data:/app/data:ro").
+                                        #   Empty list (the zero-migration default) emits none.
           "web": int,        # web_base_port + index -> OSPREY_WEB_PORT / OSPREY_TERMINAL_WEB_PORT
           "panel_env": [     # ONE entry per FRAMEWORK_WEB_SERVERS companion family,
             {"name": str,    #   derived by render.py from the registry's port_env_var
@@ -162,6 +166,9 @@ services:
     volumes:
       - {{ svc.user }}-claude-config:/data/claude-config
       - {{ svc.user }}-agent-data:{{ svc.container_project_dir }}/_agent_data
+{%- for mount in svc.extra_mounts %}
+      - {{ mount }}
+{%- endfor %}
     healthcheck:
       # osprey web's own default listen port is the fixed constant 8087
       # (cli/web_cmd.py) — only relevant to a bare `osprey web` with no

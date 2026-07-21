@@ -169,9 +169,13 @@ def resolve_personas(
 
     Returns:
         One ``{"name", "index", "persona", "image", "project",
-        "container_project_dir"}`` dict per surviving :func:`normalize_users`
-        entry, in the same order. ``persona`` is the resolved catalog key, or
-        ``None`` when no persona is in effect for that entry.
+        "container_project_dir", "extra_mounts"}`` dict per surviving
+        :func:`normalize_users` entry, in the same order. ``persona`` is the
+        resolved catalog key, or ``None`` when no persona is in effect for that
+        entry. ``extra_mounts`` is the persona's ``extra_mounts`` list (compose
+        volume strings applied to every user of that persona), defaulting to
+        ``[]`` — both when no persona is in effect and when the catalog entry
+        sets none.
 
     Raises:
         ValueError: See ``strict`` above.
@@ -213,7 +217,9 @@ def resolve_personas(
     def _zero_migration_entry(name: str, index: int, persona: str | None) -> dict[str, Any]:
         """The zero-migration resolution: today's exact pre-persona values, with
         ``persona`` carried through for logging (``None`` when no persona is in
-        effect, or the unresolvable reference on the lenient degrade path)."""
+        effect, or the unresolvable reference on the lenient degrade path).
+        ``extra_mounts`` is empty here — the zero-migration path has no catalog
+        entry to read persona-level host mounts from."""
         return {
             "name": name,
             "index": index,
@@ -221,6 +227,7 @@ def resolve_personas(
             "image": default_image,
             "project": default_project,
             "container_project_dir": default_container_dir,
+            "extra_mounts": [],
         }
 
     resolved: list[dict[str, Any]] = []
@@ -251,6 +258,16 @@ def resolve_personas(
         if not isinstance(project, str) or not project:
             project = default_project
 
+        # Persona-level host mounts, applied to every user of this persona. A
+        # non-list drops to []; individual non-string/empty entries are dropped
+        # (well-formedness — the colon-part syntax — is lint's job).
+        extra_mounts_raw = catalog_entry.get("extra_mounts")
+        extra_mounts = (
+            [mount for mount in extra_mounts_raw if isinstance(mount, str) and mount]
+            if isinstance(extra_mounts_raw, list)
+            else []
+        )
+
         is_default = persona_ref == default_persona_name
 
         if image_source == "local":
@@ -270,6 +287,7 @@ def resolve_personas(
                 "image": image,
                 "project": project,
                 "container_project_dir": container_project_dir,
+                "extra_mounts": extra_mounts,
             }
         )
 

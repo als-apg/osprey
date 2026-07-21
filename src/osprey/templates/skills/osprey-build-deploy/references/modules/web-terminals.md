@@ -137,12 +137,30 @@ modules:
         project: "als-analysis"
         project_path: "../als-analysis"
         build_profile: "profiles/analysis.yml"
+        extra_mounts:                            # optional per-persona host mounts
+          - "/opt/site-data:/app/site-data:ro"
     users:
       - alice                              # no persona: → resolves to default_persona
       - name: "bob"
         index: 1                           # required for object-form entries
         persona: "analysis"                # explicit persona reference
 ```
+
+### Persona-level extra mounts
+
+A persona may declare `extra_mounts` — a list of compose volume strings appended
+to the `volumes:` block of **every** user resolving to that persona, after the two
+managed per-user mounts (the `<user>-claude-config` and `<user>-agent-data` named
+volumes). Each entry is a plain compose volume string: a host-path bind
+(`/opt/site-data:/app/site-data:ro`) or a named volume
+(`shared-cache:/app/cache`), with 2 or 3 non-empty colon-separated parts. It is
+persona-scoped, not per-user — mounts shared by a whole persona (a read-only
+reference dataset, a shared cache) belong here, so they attach identically to
+every user of that persona without repeating them on each roster entry. A
+malformed entry (wrong colon count, or a non-list `extra_mounts` value) is a lint
+ERROR. Omitting the key is the zero-migration default (no extra mounts). The
+un-personaed roster (no `personas:` catalog at all) never gains an extra mount —
+there is no catalog entry to read them from.
 
 ### Registry-mode operator flow (CI-built images, the default)
 

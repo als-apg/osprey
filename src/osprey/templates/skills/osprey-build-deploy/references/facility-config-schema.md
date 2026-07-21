@@ -294,6 +294,8 @@ modules:
         project: "als-analysis"
         project_path: "../als-analysis"
         build_profile: "profiles/analysis.yml"
+        extra_mounts:                      # optional; volume lines added to every user of this persona
+          - "/opt/site-data:/app/site-data:ro"
     mcp:
       topology: "per_container_stdio"      # per_container_stdio (default, only accepted value) | shared_http (rejected — see note below)
     landing:                               # grouped landing page served at nginx_port
@@ -388,6 +390,9 @@ personas:
     project: "als-assistant"              # rendered project name
     project_path: "../als-assistant"      # rendered project dir (local-mode build context)
     build_profile: "profiles/assistant.yml"  # registry mode: committed profile path (local mode: a bundled preset name)
+    extra_mounts:                         # optional — extra volume lines for every user of this persona
+      - "/opt/site-data:/app/site-data:ro"
+      - "shared-cache:/app/cache"
 ```
 
 | Field | Type | Required | Notes |
@@ -395,6 +400,7 @@ personas:
 | `project` | string | yes | The persona's rendered project name. In local mode this must equal that project's own `config.yml` `project_name` — a mismatch is a lint ERROR (otherwise a silently dead mount/path) |
 | `project_path` | path | required if `image_source: local` | Path to the persona's rendered project directory (the local-mode build context). In local mode, `deploy up` **auto-renders** this project from `build_profile` when the directory is absent (see `build_profile` below), so pre-building each persona by hand is optional. An existing render is user-owned and never overwritten; a *partial* render (missing `Dockerfile` or `config.yml`) is an ERROR; a missing directory with no usable `build_profile` cannot be auto-rendered |
 | `build_profile` | path or preset name | see Notes | The source the persona's project is rendered from — consumed differently per mode. **Registry mode:** a path to the persona's committed build-profile YAML, fed as the positional profile to the one `.gitlab-ci.yml` build job generated per non-default persona (required for a non-default persona; lint ERROR if missing). **Local mode:** a **bundled preset name**, passed to `osprey build --preset <build_profile>` by `deploy up`'s auto-render — so it must name a bundled preset (see `--list-presets`), not a file path. Required in local mode for any persona whose `project_path` is not already rendered |
+| `extra_mounts` | list of strings | no | Extra compose volume strings appended to the `volumes:` block of **every** user resolving to this persona, after the two managed per-user mounts (claude-config, agent-data). Each entry is a plain compose volume string — a host-path bind (`/opt/site-data:/app/site-data:ro`) or a named volume (`shared-cache:/app/cache`) — with 2 or 3 non-empty colon-separated parts (`source:target` or `source:target:mode`); a malformed entry is a lint ERROR. Persona-level, not per-user: mounts common to a whole persona live here, not on individual roster entries. Omit entirely (the default `[]`) for no extra mounts — zero-migration |
 
 **Image naming** is derived deterministically — never set by hand:
 
@@ -621,6 +627,7 @@ When the interview writes or updates this file, validate:
     - In local mode, a persona's `project` must equal its own `project_path`'s `config.yml` `project_name` — ERROR on mismatch (the two diverging silently produces a dead mount/path at runtime).
     - In registry mode, every referenced non-default persona must set `build_profile` — ERROR if absent (there would be no CI input to build its image).
     - `image_source: registry` (the default) with no `registry.url` set is an ERROR; `image_source: local` with `registry.url` set is a WARNING (the value is simply unused).
+    - Every `personas.<name>.extra_mounts` entry must be a compose volume string with 2 or 3 non-empty colon-separated parts (`source:target` or `source:target:mode`) — a malformed entry, or a non-list `extra_mounts` value, is an ERROR (it would render a broken per-user `volumes:` line).
 15. **`mcp.topology`** — only `per_container_stdio` is accepted. `shared_http` (or any other value) is an ERROR at lint time and a `ValueError` at render time.
 
 If validation fails, do not silently overwrite — surface the error and ask the user to confirm the fix.

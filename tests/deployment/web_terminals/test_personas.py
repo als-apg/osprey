@@ -140,6 +140,7 @@ def test_resolve_personas_no_catalog_resolves_to_todays_values() -> None:
             "image": "registry.example.org/osprey/web-terminal:latest",
             "project": "als-assistant",
             "container_project_dir": "/app/als-assistant",
+            "extra_mounts": [],
         },
         {
             "name": "bob",
@@ -148,6 +149,7 @@ def test_resolve_personas_no_catalog_resolves_to_todays_values() -> None:
             "image": "registry.example.org/osprey/web-terminal:latest",
             "project": "als-assistant",
             "container_project_dir": "/app/als-assistant",
+            "extra_mounts": [],
         },
     ]
 
@@ -189,6 +191,7 @@ def test_resolve_personas_default_persona_keeps_unsuffixed_registry_image() -> N
             "image": "registry.example.org/osprey/web-terminal:latest",
             "project": "als-assistant",
             "container_project_dir": "/app/als-assistant",
+            "extra_mounts": [],
         }
     ]
 
@@ -239,6 +242,7 @@ def test_resolve_personas_non_default_persona_registry_mode_suffixes_image() -> 
             "image": "registry.example.org/osprey/web-terminal-gui:latest",
             "project": "als-gui-assistant",
             "container_project_dir": "/app/als-gui-assistant",
+            "extra_mounts": [],
         }
     ]
 
@@ -319,6 +323,7 @@ def test_resolve_personas_local_mode_without_catalog_lenient_degrades() -> None:
             "image": "registry.example.org/osprey/web-terminal:latest",
             "project": "als-assistant",
             "container_project_dir": "/app/als-assistant",
+            "extra_mounts": [],
         }
     ]
 
@@ -358,6 +363,7 @@ def test_resolve_personas_unknown_persona_ref_lenient_degrades() -> None:
             "image": "registry.example.org/osprey/web-terminal:latest",
             "project": "als-assistant",
             "container_project_dir": "/app/als-assistant",
+            "extra_mounts": [],
         }
     ]
 
@@ -393,3 +399,120 @@ def test_resolve_personas_registry_cfg_missing_url_defaults_to_empty_string() ->
 
     # Assert
     assert result[0]["image"] == "/web-terminal:latest"
+
+
+# ---------------------------------------------------------------------------
+# resolve_personas() — persona extra_mounts
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_personas_reads_extra_mounts_from_catalog_entry() -> None:
+    """A persona's `extra_mounts` list is carried onto every user of that persona."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "gmartino", "index": 0, "persona": "gui"}],
+        "personas": {
+            "gui": {
+                "project": "als-gui",
+                "extra_mounts": ["/opt/site-data:/app/site-data:ro", "cache-vol:/app/cache"],
+            }
+        },
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["extra_mounts"] == [
+        "/opt/site-data:/app/site-data:ro",
+        "cache-vol:/app/cache",
+    ]
+
+
+def test_resolve_personas_default_persona_also_carries_extra_mounts() -> None:
+    """The default persona is not special-cased for `extra_mounts` — its list is
+    carried through like any other persona's."""
+    # Arrange
+    web_terminals = {
+        "users": ["alice"],
+        "default_persona": "cli",
+        "personas": {"cli": {"project": "als-assistant", "extra_mounts": ["/data:/app/data:ro"]}},
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["extra_mounts"] == ["/data:/app/data:ro"]
+
+
+def test_resolve_personas_no_persona_defaults_extra_mounts_to_empty_list() -> None:
+    """The zero-migration path (no persona in effect) resolves `extra_mounts` to
+    an empty list — there is no catalog entry to read host mounts from."""
+    # Arrange
+    web_terminals = {"users": ["alice"]}
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["extra_mounts"] == []
+
+
+def test_resolve_personas_catalog_entry_without_extra_mounts_defaults_to_empty_list() -> None:
+    """A persona that sets no `extra_mounts` resolves to an empty list, not a
+    missing key."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "gmartino", "index": 0, "persona": "gui"}],
+        "personas": {"gui": {"project": "als-gui"}},
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["extra_mounts"] == []
+
+
+def test_resolve_personas_extra_mounts_defensive_reads() -> None:
+    """A non-list `extra_mounts` drops to `[]`; a list with non-string/empty
+    entries keeps only the well-formed strings (colon-part syntax is lint's job)."""
+    # Arrange
+    web_terminals = {
+        "users": [
+            {"name": "a", "index": 0, "persona": "bad"},
+            {"name": "b", "index": 1, "persona": "mixed"},
+        ],
+        "personas": {
+            "bad": {"project": "als-bad", "extra_mounts": "not-a-list"},
+            "mixed": {
+                "project": "als-mixed",
+                "extra_mounts": ["/ok:/app/ok:ro", 42, "", None, "/two:/app/two"],
+            },
+        },
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    by_name = {entry["name"]: entry["extra_mounts"] for entry in result}
+    assert by_name["a"] == []
+    assert by_name["b"] == ["/ok:/app/ok:ro", "/two:/app/two"]
+
+
+def test_resolve_personas_lenient_degrade_extra_mounts_empty() -> None:
+    """An unresolvable persona ref degrading to the zero-migration values carries
+    an empty `extra_mounts` (no catalog entry to read from)."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "persona": "ghost"}],
+        "personas": {"cli": {"project": "als-assistant"}},
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als", strict=False)
+
+    # Assert
+    assert result[0]["extra_mounts"] == []

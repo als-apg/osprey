@@ -98,6 +98,7 @@ def render_web_terminals(config: Any) -> dict[str, str]:
                 "image": entry["image"],
                 "project": entry["project"],
                 "container_project_dir": entry["container_project_dir"],
+                "extra_mounts": entry["extra_mounts"],
                 **user_ports,
                 # One env line per companion family, derived from the web-server
                 # registry (PANEL_ENV_VARS) so a newly registered companion is

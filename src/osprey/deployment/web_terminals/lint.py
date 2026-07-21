@@ -115,6 +115,7 @@ def lint_web_terminals(config: Any) -> list[Finding]:
     findings.extend(_check_local_mode_requires_catalog(web_terminals))
     findings.extend(_check_persona_project_paths(web_terminals, users))
     findings.extend(_check_registry_mode_build_profile(web_terminals, users))
+    findings.extend(_check_persona_extra_mounts(web_terminals))
     findings.extend(_check_unknown_mcp_topology(web_terminals))
     return findings
 
@@ -896,6 +897,57 @@ def _check_registry_mode_build_profile(
                 ),
             )
         )
+    return findings
+
+
+def _is_valid_mount_string(value: Any) -> bool:
+    """A compose bind/volume mount string: 2 or 3 non-empty ``:``-separated parts
+    (``source:target`` or ``source:target:mode``, e.g. ``/opt/data:/app/data:ro``)."""
+    if not isinstance(value, str):
+        return False
+    parts = value.split(":")
+    return len(parts) in (2, 3) and all(parts)
+
+
+def _check_persona_extra_mounts(web_terminals: dict[str, Any]) -> list[Finding]:
+    """Every ``modules.web_terminals.personas.<name>.extra_mounts`` entry must be a
+    compose volume string (2 or 3 non-empty colon-separated parts). These generic
+    host-path mounts are applied to every user of that persona, so a malformed
+    entry would render a broken per-user ``volumes:`` line — reject it here. The
+    ``extra_mounts`` key is optional; an entry that omits it is never flagged."""
+    findings: list[Finding] = []
+    for persona_name, entry in _persona_catalog(web_terminals).items():
+        if not isinstance(entry, dict):
+            continue
+        raw = entry.get("extra_mounts")
+        if raw is None:
+            continue
+        if not isinstance(raw, list):
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.persona_extra_mounts_not_list",
+                    message=(
+                        f"modules.web_terminals.personas[{persona_name!r}].extra_mounts "
+                        f"must be a list of compose volume strings, got {type(raw).__name__}"
+                    ),
+                )
+            )
+            continue
+        for mount in raw:
+            if not _is_valid_mount_string(mount):
+                findings.append(
+                    Finding(
+                        severity="error",
+                        code="web_terminals.persona_invalid_extra_mount",
+                        message=(
+                            f"modules.web_terminals.personas[{persona_name!r}]."
+                            f"extra_mounts entry {mount!r} is not a valid compose volume "
+                            "string; expected 'source:target' or 'source:target:mode' "
+                            "with non-empty colon-separated parts"
+                        ),
+                    )
+                )
     return findings
 
 

@@ -1238,6 +1238,91 @@ def test_lint_registry_mode_non_default_persona_with_build_profile_reports_no_er
     assert not any(f.code == "web_terminals.persona_missing_build_profile" for f in errors)
 
 
+# --- persona extra_mounts syntax ---------------------------------------------
+
+
+def test_lint_valid_persona_extra_mounts_reports_no_error() -> None:
+    """Well-formed compose volume strings (2 or 3 non-empty colon parts) pass."""
+    # Arrange
+    config = _persona_config(
+        web_terminals={
+            "personas": {
+                "assistant": {
+                    "project": "als-assistant",
+                    "extra_mounts": ["/opt/site-data:/app/site-data:ro", "cache:/app/cache"],
+                },
+            },
+        },
+        registry={"url": "registry.example.org:5050"},
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert not any(f.code.startswith("web_terminals.persona_") for f in errors)
+    assert not any("extra_mount" in f.code for f in errors)
+
+
+def test_lint_malformed_persona_extra_mount_string_is_an_error() -> None:
+    """An entry that isn't a 2-or-3-part colon string renders a broken volume line."""
+    # Arrange
+    config = _persona_config(
+        web_terminals={
+            "personas": {
+                "assistant": {
+                    "project": "als-assistant",
+                    # no colon at all, empty part, and too many parts
+                    "extra_mounts": ["no-colon", "/a::ro", "/a:/b:ro:extra"],
+                },
+            },
+        },
+        registry={"url": "registry.example.org:5050"},
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = [f for f in _errors(findings) if f.code == "web_terminals.persona_invalid_extra_mount"]
+    assert len(errors) == 3
+    assert any("no-colon" in f.message for f in errors)
+
+
+def test_lint_non_list_persona_extra_mounts_is_an_error() -> None:
+    """`extra_mounts` must be a list; a scalar is a distinct, reported error."""
+    # Arrange
+    config = _persona_config(
+        web_terminals={
+            "personas": {
+                "assistant": {"project": "als-assistant", "extra_mounts": "/a:/b:ro"},
+            },
+        },
+        registry={"url": "registry.example.org:5050"},
+    )
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert any(f.code == "web_terminals.persona_extra_mounts_not_list" for f in errors)
+
+
+def test_lint_absent_persona_extra_mounts_reports_no_error() -> None:
+    """A persona that omits `extra_mounts` is never flagged — the key is optional."""
+    # Arrange
+    config = _persona_config(registry={"url": "registry.example.org:5050"})
+
+    # Act
+    findings = lint_web_terminals(config)
+
+    # Assert
+    errors = _errors(findings)
+    assert not any("extra_mount" in f.code for f in errors)
+
+
 def test_lint_unknown_mcp_topology_is_an_error() -> None:
     """`shared_http` (and any other unrecognized value) is fail-closed at lint
     time too — the lint-side mirror of render.py's ValueError."""
