@@ -98,6 +98,12 @@ def _get_default_artifacts() -> list[BuildArtifact]:
             output_path=".claude/agents/facility-knowledge.md",
             description="Facility knowledge sub-agent",
         ),
+        BuildArtifact(
+            canonical_name="agents/pyat-specialist",
+            template_path="claude/agents/pyat-specialist.md.j2",
+            output_path=".claude/agents/pyat-specialist.md",
+            description="Lattice/optics computation sub-agent (pyAT)",
+        ),
         # ── Rules ────────────────────────────────────────────────────
         BuildArtifact(
             canonical_name="rules/safety",

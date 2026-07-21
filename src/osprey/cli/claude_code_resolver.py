@@ -77,6 +77,7 @@ AGENT_DEFAULT_TIERS: dict[str, str] = {
     "logbook-search": "sonnet",
     "logbook-deep-research": "opus",
     "data-visualizer": "sonnet",
+    "pyat-specialist": "sonnet",
 }
 
 # Env vars that settings.json controls — scrubbed from shell before launch

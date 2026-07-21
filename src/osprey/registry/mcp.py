@@ -410,6 +410,16 @@ FRAMEWORK_AGENTS: dict[str, AgentDefinition] = {
             "parameters, or any documented facility knowledge."
         ),
     ),
+    "pyat-specialist": AgentDefinition(
+        name="pyat-specialist",
+        server_dependency="python",
+        description=(
+            "Delegate to this agent when the user needs lattice/optics quantities "
+            "computed from the accelerator model (orbit, tunes, beta functions, "
+            "dispersion, response matrices) — it writes and executes pyAT code "
+            "against the simulated ALS-U AR ring."
+        ),
+    ),
 }
 
 
