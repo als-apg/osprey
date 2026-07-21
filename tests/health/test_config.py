@@ -352,7 +352,7 @@ def test_empty_metadata_override_block() -> None:
 def test_core_category_names_content() -> None:
     assert "providers" in CORE_CATEGORY_NAMES
     assert "claude_cli_pinned" in CORE_CATEGORY_NAMES
-    assert len(CORE_CATEGORY_NAMES) == 9
+    assert len(CORE_CATEGORY_NAMES) == 11
 
 
 # --- timeout resolution helpers ---------------------------------------------

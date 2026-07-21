@@ -28,6 +28,8 @@ _CANONICAL_NAMES = (
     "claude_cli",
     "claude_cli_pinned",
     "model_chat",
+    "ariel",
+    "channel_finder",
 )
 
 
@@ -61,7 +63,7 @@ class TestCoreRegistry:
     def test_canonical_names_present_without_import(self):
         assert set(CORE_CATEGORY_NAMES) == set(_CANONICAL_NAMES)
         assert set(CORE_CATEGORIES) == set(_CANONICAL_NAMES)
-        assert len(CORE_CATEGORIES) == 9
+        assert len(CORE_CATEGORIES) == 11
 
     def test_contains(self):
         assert "configuration" in CORE_CATEGORIES

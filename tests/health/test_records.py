@@ -52,7 +52,14 @@ def _write_config(project: Path, body: str) -> Path:
 class TestPolicySets:
     def test_config_dependent_names(self):
         assert CONFIG_DEPENDENT == frozenset(
-            {"openobserve", "providers", "claude_cli_pinned", "model_chat"}
+            {
+                "openobserve",
+                "providers",
+                "claude_cli_pinned",
+                "model_chat",
+                "ariel",
+                "channel_finder",
+            }
         )
 
     def test_on_demand_core_names(self):

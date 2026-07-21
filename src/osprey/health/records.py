@@ -46,7 +46,9 @@ _ConfigLoader = Callable[[], "tuple[dict[str, Any] | None, dict[str, Any] | None
 
 # Core categories that read the loaded config and therefore degrade to a single
 # "config unavailable" skip row when the config could not be loaded/parsed.
-CONFIG_DEPENDENT = frozenset({"openobserve", "providers", "claude_cli_pinned", "model_chat"})
+CONFIG_DEPENDENT = frozenset(
+    {"openobserve", "providers", "claude_cli_pinned", "model_chat", "ariel", "channel_finder"}
+)
 
 # Core categories in the on_demand cost class (gated behind ``--full``).
 ON_DEMAND_CORE = frozenset({"claude_cli_pinned", "model_chat"})
@@ -227,7 +229,9 @@ def build_records(
             continue
 
         factory = get_core_category_factory(name)
-        if name == "file_system":
+        if name in ("file_system", "channel_finder"):
+            # Both resolve on-disk paths relative to the project root, so they
+            # take the same ``cwd`` thread-through the uniform call omits.
             func = factory(expanded, context=None, cwd=project_path)
         else:
             func = factory(expanded, context=None)
