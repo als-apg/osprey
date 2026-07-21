@@ -15,7 +15,7 @@ from pathlib import Path
 
 from fastmcp.exceptions import ToolError
 
-from osprey.mcp_server.ariel.server import make_error, mcp, serialize_entry
+from osprey.mcp_server.ariel.server import build_entry_url, make_error, mcp, serialize_entry
 from osprey.mcp_server.ariel.server_context import get_ariel_context
 
 logger = logging.getLogger("osprey.mcp_server.ariel.tools.entry")
@@ -95,22 +95,23 @@ async def entry_get(
         # matches search/browse (serialize_entry) instead of emitting raw UTC.
         from osprey.utils.config import to_facility_iso
 
-        return json.dumps(
-            {
-                "entry_id": entry["entry_id"],
-                "source_system": entry["source_system"],
-                "timestamp": to_facility_iso(entry["timestamp"]),
-                "author": entry.get("author", ""),
-                "raw_text": entry["raw_text"],
-                "attachments": entry.get("attachments", []),
-                "metadata": entry.get("metadata", {}),
-                "summary": entry.get("summary"),
-                "keywords": entry.get("keywords", []),
-                "created_at": to_facility_iso(entry["created_at"]),
-                "updated_at": to_facility_iso(entry["updated_at"]),
-            },
-            default=str,
-        )
+        result = {
+            "entry_id": entry["entry_id"],
+            "source_system": entry["source_system"],
+            "timestamp": to_facility_iso(entry["timestamp"]),
+            "author": entry.get("author", ""),
+            "raw_text": entry["raw_text"],
+            "attachments": entry.get("attachments", []),
+            "metadata": entry.get("metadata", {}),
+            "summary": entry.get("summary"),
+            "keywords": entry.get("keywords", []),
+            "created_at": to_facility_iso(entry["created_at"]),
+            "updated_at": to_facility_iso(entry["updated_at"]),
+        }
+        entry_url = build_entry_url(entry["entry_id"], entry["source_system"])
+        if entry_url is not None:
+            result["entry_url"] = entry_url
+        return json.dumps(result, default=str)
 
     except ToolError:
         raise

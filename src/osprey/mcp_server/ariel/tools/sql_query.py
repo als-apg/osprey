@@ -9,7 +9,7 @@ import logging
 
 from fastmcp.exceptions import ToolError
 
-from osprey.mcp_server.ariel.server import make_error, mcp
+from osprey.mcp_server.ariel.server import build_entry_url, make_error, mcp
 from osprey.mcp_server.ariel.server_context import get_ariel_context
 from osprey.services.ariel_search.search.sql_query import (
     format_sql_result,
@@ -72,6 +72,16 @@ async def sql_query(
 
         # execute_sql_query re-validates internally
         rows = await execute_sql_query(service.pool, query, max_rows=max_rows)
+
+        # Egress: rows that select an entry_id column gain a canonical entry_url
+        # (config-driven). Rows without entry_id (aggregates, projections) and
+        # ARIEL-native entries are left untouched by build_entry_url. Injected
+        # before formatting so the text view carries the URL too.
+        for row in rows:
+            if isinstance(row, dict) and row.get("entry_id"):
+                entry_url = build_entry_url(row.get("entry_id"), row.get("source_system"))
+                if entry_url is not None:
+                    row["entry_url"] = entry_url
 
         formatted = format_sql_result(rows)
 
