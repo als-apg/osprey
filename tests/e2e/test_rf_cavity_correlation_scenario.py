@@ -86,7 +86,7 @@ pytestmark = [
 
 @pytest.mark.flaky(reruns=2)  # multi-step agentic; absorb rare LLM stochastic misses
 @pytest.mark.asyncio
-async def test_rf_cavity_c1_correlation_flow(tmp_path: Path) -> None:
+async def test_rf_cavity01_correlation_flow(tmp_path: Path) -> None:
     """Operator reports a beam dump; agent must cross-reference logbook +
     telemetry and finger CAVITY01 thermal excursions as the cause.
 
