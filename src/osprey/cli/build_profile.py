@@ -1074,6 +1074,54 @@ def _load_preset_raw(name: str) -> tuple[dict[str, Any], Path]:
     return raw, target
 
 
+def _hash_resolved_profile(raw: dict[str, Any], profile_path: Path) -> str:
+    """Canonical content hash of a profile dict after ``extends`` resolution.
+
+    Hashes the *resolved* content (canonical JSON, sorted keys) rather than
+    file bytes, so comment/ordering churn is invisible while a change in any
+    ``extends`` parent is not.
+    """
+    import hashlib
+    import json
+
+    resolved = _resolve_extends(dict(raw), profile_path)
+    canonical = json.dumps(resolved, sort_keys=True, default=str)
+    return f"sha256:{hashlib.sha256(canonical.encode('utf-8')).hexdigest()}"
+
+
+def compute_preset_hash(preset_name: str) -> str | None:
+    """Content hash of a bundled preset as resolved (post-``extends``).
+
+    Stamped into ``.osprey-manifest.json`` at build time and compared by the
+    deploy-side staleness advisory
+    (:mod:`osprey.deployment.staleness`). Returns ``None`` when the preset is
+    unknown or unreadable — callers treat that as "cannot compare", never as
+    drift.
+    """
+    try:
+        raw, path = _load_preset_raw(preset_name)
+        return _hash_resolved_profile(raw, path)
+    except Exception:
+        return None
+
+
+def compute_profile_hash(profile_path: Path) -> str | None:
+    """Content hash of a positional profile YAML as resolved (post-``extends``).
+
+    Counterpart of :func:`compute_preset_hash` for ``osprey build NAME
+    PROFILE.yml`` invocations. Returns ``None`` when the file is missing or
+    unreadable.
+    """
+    try:
+        path = Path(profile_path)
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return None
+        return _hash_resolved_profile(raw, path)
+    except Exception:
+        return None
+
+
 def _parse_set_pairs(pairs: tuple[str, ...]) -> dict[str, Any]:
     """Parse ``--set KEY.PATH=VALUE`` pairs into a nested dict.
 

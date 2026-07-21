@@ -19,6 +19,7 @@ from osprey.deployment.compose_generator import (
     prepare_compose_files,
     resolve_project_name,
 )
+from osprey.deployment.deploy_summary import log_endpoint_summary
 from osprey.deployment.facility_config import normalize_facility_config
 from osprey.deployment.host_ports import (
     find_port_conflicts,
@@ -30,6 +31,7 @@ from osprey.deployment.runtime_helper import (
     runtime_env,
     verify_runtime_is_running,
 )
+from osprey.deployment.staleness import warn_if_project_stale
 from osprey.deployment.web_terminals.provision import (
     deploy_down_web_terminals,
     deploy_up_web_terminals,
@@ -925,6 +927,12 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     """
     config, compose_files = prepare_compose_files(config_path, dev_mode, expose_network)
 
+    # Advisory staleness check BEFORE anything deploys: a project rendered by
+    # an older framework/preset self-describes an out-of-date service set in
+    # config.yml, so the deploy below would "succeed" at the wrong goal with
+    # no error anywhere. Never blocks (see warn_if_project_stale).
+    warn_if_project_stale(Path(config_path).resolve().parent)
+
     web_terminals_enabled = _web_terminals_enabled(config)
 
     # A web-terminals-only deploy (no backend services) is valid, so the
@@ -934,6 +942,10 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
             "No services configured for this project — deployed_services is empty in "
             "config.yml. Skipping osprey deploy up."
         )
+        # Still say what is (not) reachable — an unexpectedly empty deploy is
+        # the classic stale-render shape, and "web terminal (not configured)"
+        # is the line that makes it diagnosable.
+        log_endpoint_summary(config, compose_files)
         return
 
     # Shared-disk host path (if configured) must exist before either path
@@ -984,6 +996,7 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
 
     if web_terminals_enabled:
         deploy_up_web_terminals(config, compose_files, dev_mode, env, _env_file_args())
+        log_endpoint_summary(config, compose_files)
         return
 
     # Pin COMPOSE_PROJECT_NAME so this deploy owns its own compose project (and
@@ -1038,7 +1051,11 @@ def deploy_up(config_path, detached=False, dev_mode=False, expose_network=False)
     logger.info(f"Running command:\n    {' '.join(cmd)}")
     if detached:
         subprocess.run(cmd, env=run_env, check=True)
+        log_endpoint_summary(config, compose_files)
     else:
+        # execvpe replaces this process, so the summary must print first —
+        # compose's own output follows it.
+        log_endpoint_summary(config, compose_files)
         os.execvpe(cmd[0], cmd, run_env)
 
 
