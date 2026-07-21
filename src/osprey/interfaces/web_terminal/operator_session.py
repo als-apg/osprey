@@ -410,9 +410,7 @@ class OperatorSession:
                     )
                 except TimeoutError:
                     if loop.time() >= deadline:
-                        raise TurnSilenceTimeout(
-                            "no SDK event before the turn deadline"
-                        ) from None
+                        raise TurnSilenceTimeout("no SDK event before the turn deadline") from None
                     yield {"type": "heartbeat"}
                     continue
 
