@@ -1,9 +1,8 @@
 """Tests for AskSage provider adapter.
 
-The ``xfail(strict=True)`` tests in TestAskSageGetAvailableModels assert the
-argo-aligned contract that ``get_available_models`` documents but does not
-honor -- see issue #400. They are strict so that landing the fix turns them
-into unexpected passes rather than leaving stale assertions behind.
+The fallback tests in TestAskSageGetAvailableModels assert the argo-aligned
+contract that ``get_available_models`` honors: every error path and missing
+credentials fall back to the static defaults (issue #400).
 """
 
 import json
@@ -27,10 +26,9 @@ class SampleOutput(BaseModel):
 def _clear_models_cache():
     """Reset the class-level model cache around every test.
 
-    asksage writes ``self._models_cache`` (issue #400), so the class attribute
-    is not mutated today and this guard is a no-op. It is kept deliberately:
-    the #400 fix switches the writes to ``cls._models_cache``, at which point a
-    leaked value would silently short-circuit unrelated tests.
+    ``get_available_models`` writes ``type(self)._models_cache`` (issue #400),
+    so a successful fetch in one test would otherwise leak into the next and
+    silently short-circuit its request.
     """
     AskSageProviderAdapter._models_cache = None
     yield
@@ -132,7 +130,6 @@ class TestAskSageGetAvailableModels:
 
         assert mock_get.call_count == 1
 
-    @pytest.mark.xfail(strict=True, reason="#400: self._models_cache shadows the class attribute")
     def test_cache_is_shared_across_instances(self):
         """Test the model cache is shared across adapter instances, as argo's is.
 
@@ -176,25 +173,21 @@ class TestAskSageGetAvailableModels:
 
     # --- Fallback contract (issue #400) -------------------------------------
     #
-    # asksage returns a (False, str) tuple from these paths instead of falling
-    # back to static defaults the way argo.get_available_models does. The
-    # assertions below encode the documented contract, not today's behavior.
+    # Every error path and missing credentials fall back to the static defaults,
+    # matching argo.get_available_models.
 
-    @pytest.mark.xfail(strict=True, reason="#400: returns (False, str), not list[str]")
     def test_missing_api_key_falls_back_to_defaults(self):
         """Test missing API key falls back to static defaults."""
         provider = AskSageProviderAdapter()
         result = provider.get_available_models(api_key=None, base_url="https://test")
         assert result == provider.available_models
 
-    @pytest.mark.xfail(strict=True, reason="#400: returns (False, str), not list[str]")
     def test_missing_base_url_falls_back_to_defaults(self):
         """Test missing base URL falls back to static defaults."""
         provider = AskSageProviderAdapter()
         result = provider.get_available_models(api_key="key", base_url=None)
         assert result == provider.available_models
 
-    @pytest.mark.xfail(strict=True, reason="#400: returns (False, str), not list[str]")
     def test_auth_failure_falls_back_to_defaults(self):
         """Test a 401 falls back to static defaults."""
         provider = AskSageProviderAdapter()
@@ -204,7 +197,6 @@ class TestAskSageGetAvailableModels:
 
         assert result == provider.available_models
 
-    @pytest.mark.xfail(strict=True, reason="#400: returns (False, str), not list[str]")
     def test_server_error_falls_back_to_defaults(self):
         """Test a non-200/401 status falls back to static defaults."""
         provider = AskSageProviderAdapter()
@@ -214,7 +206,6 @@ class TestAskSageGetAvailableModels:
 
         assert result == provider.available_models
 
-    @pytest.mark.xfail(strict=True, reason="#400: returns (False, str), not list[str]")
     def test_timeout_falls_back_to_defaults(self):
         """Test a timeout falls back to static defaults."""
         provider = AskSageProviderAdapter()
@@ -223,7 +214,6 @@ class TestAskSageGetAvailableModels:
 
         assert result == provider.available_models
 
-    @pytest.mark.xfail(strict=True, reason="#400: returns (False, str), not list[str]")
     def test_request_exception_falls_back_to_defaults(self):
         """Test a connection error falls back to static defaults."""
         provider = AskSageProviderAdapter()
@@ -232,7 +222,6 @@ class TestAskSageGetAvailableModels:
 
         assert result == provider.available_models
 
-    @pytest.mark.xfail(strict=True, reason="#400: returns (False, str), not list[str]")
     def test_unexpected_error_falls_back_to_defaults(self):
         """Test an unexpected error falls back to static defaults."""
         provider = AskSageProviderAdapter()
@@ -240,85 +229,6 @@ class TestAskSageGetAvailableModels:
             result = provider.get_available_models(api_key="key", base_url="https://test")
 
         assert result == provider.available_models
-
-
-class TestAskSageGetAvailableModelsCurrentBehavior:
-    """Pin today's incorrect error-path returns so regressions stay visible.
-
-    These assert the (False, str) tuples that issue #400 tracks. They are NOT
-    the contract -- the xfail tests above assert that. They exist because the
-    xfails cover those lines without verifying anything (coverage marks a line
-    executed before its assertion fails), which would leave every error path
-    unpinned and drop real coverage of this module to 87%.
-
-    Delete this class when #400 lands; the xfails above become the passing spec.
-    """
-
-    def test_missing_api_key_returns_tuple(self):
-        """Test missing API key returns a (False, reason) tuple today."""
-        provider = AskSageProviderAdapter()
-        assert provider.get_available_models(api_key=None, base_url="https://test") == (
-            False,
-            "API key not set",
-        )
-
-    def test_missing_base_url_returns_tuple(self):
-        """Test missing base URL returns a (False, reason) tuple today."""
-        provider = AskSageProviderAdapter()
-        assert provider.get_available_models(api_key="key", base_url=None) == (
-            False,
-            "Base URL not configured",
-        )
-
-    def test_auth_failure_returns_tuple(self):
-        """Test a 401 returns a (False, reason) tuple today."""
-        provider = AskSageProviderAdapter()
-        with patch("requests.get") as mock_get:
-            mock_get.return_value = Mock(status_code=401)
-            result = provider.get_available_models(api_key="bad", base_url="https://test")
-
-        assert result == (False, "Authentication failed (invalid API key?)")
-
-    def test_server_error_returns_tuple_with_status(self):
-        """Test a non-200/401 status returns a (False, reason) tuple today."""
-        provider = AskSageProviderAdapter()
-        with patch("requests.get") as mock_get:
-            mock_get.return_value = Mock(status_code=500)
-            result = provider.get_available_models(api_key="key", base_url="https://test")
-
-        assert result == (False, "API returned status 500")
-
-    def test_timeout_returns_tuple(self):
-        """Test a timeout returns a (False, reason) tuple today."""
-        provider = AskSageProviderAdapter()
-        with patch("requests.get", side_effect=requests.Timeout()):
-            result = provider.get_available_models(api_key="key", base_url="https://test")
-
-        assert result == (False, "Connection timeout")
-
-    def test_request_exception_returns_tuple(self):
-        """Test a connection error returns a (False, reason) tuple today."""
-        provider = AskSageProviderAdapter()
-        with patch("requests.get", side_effect=requests.RequestException("refused")):
-            result = provider.get_available_models(api_key="key", base_url="https://test")
-
-        assert result == (False, "Connection failed: refused")
-
-    def test_unexpected_error_returns_tuple(self):
-        """Test an unexpected error returns a (False, reason) tuple today."""
-        provider = AskSageProviderAdapter()
-        with patch("requests.get", side_effect=ValueError("malformed")):
-            result = provider.get_available_models(api_key="key", base_url="https://test")
-
-        assert result == (False, "Health check failed: malformed")
-
-    def test_error_reason_is_truncated(self):
-        """Test long error reasons are truncated to 50 characters."""
-        provider = AskSageProviderAdapter()
-        with patch("requests.get", side_effect=requests.RequestException("x" * 200)):
-            result = provider.get_available_models(api_key="key", base_url="https://test")
-
-        assert result == (False, f"Connection failed: {'x' * 50}")
 
 
 class TestAskSageExecuteCompletion:

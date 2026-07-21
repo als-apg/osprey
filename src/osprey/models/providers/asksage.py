@@ -55,18 +55,18 @@ class AskSageProviderAdapter(BaseProvider):
         """
         Dynamically fetch available models.
 
-        Falls back to static defaults if the request fails.
+        Falls back to static defaults if the request fails or credentials are
+        missing. The cache is written at the class level so it is shared across
+        the fresh adapter instance built for each completion (completion.py).
         """
         if self._models_cache is not None and not force_refresh:
             return self._models_cache
 
         import requests
 
-        if not api_key:
-            return False, "API key not set"
-
-        if not base_url:
-            return False, "Base URL not configured"
+        if not api_key or not base_url:
+            type(self)._models_cache = self.available_models
+            return self.available_models
 
         try:
             test_url = base_url.rstrip("/") + "/models"
@@ -76,33 +76,24 @@ class AskSageProviderAdapter(BaseProvider):
             if response.status_code == 200:
                 js = response.json()
                 models = [model["id"] for model in js["data"]]
-                self._models_cache = models
+                type(self)._models_cache = models
                 logger.debug(f"AskSage: models: {models}")
                 return models
-            elif response.status_code == 401:
-                logger.debug(
-                    f"Failed to refresh models from API ({response.status_code}); using static defaults"
-                )
-                return False, "Authentication failed (invalid API key?)"
-            else:
-                logger.debug(
-                    f"Failed to refresh models from API ({response.status_code}); using static defaults"
-                )
-                return False, f"API returned status {response.status_code}"
 
+            logger.debug(
+                f"Failed to refresh models from API ({response.status_code}); using static defaults"
+            )
         except requests.Timeout:
             logger.debug("Failed to refresh models from API (timeout); using static defaults")
-            return False, "Connection timeout"
         except requests.RequestException as e:
             logger.debug(
-                "Failed to refresh models from API (RequestException); using static defaults"
+                f"Failed to refresh models from API (RequestException: {str(e)[:50]}); "
+                "using static defaults"
             )
-            return False, f"Connection failed: {str(e)[:50]}"
         except Exception as e:
             logger.debug(f"Failed to refresh models from API: {str(e)[:50]}; using static defaults")
-            return False, f"Health check failed: {str(e)[:50]}"
 
-        self._models_cache = self.available_models
+        type(self)._models_cache = self.available_models
         return self.available_models
 
     def execute_completion(
