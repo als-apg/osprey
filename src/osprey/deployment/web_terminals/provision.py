@@ -16,7 +16,14 @@ import os
 import subprocess
 from pathlib import Path
 
-from osprey.deployment.runtime_helper import get_runtime_command, runtime_env
+import yaml
+
+from osprey.deployment.runtime_helper import (
+    get_container_image_id,
+    get_image_id,
+    get_runtime_command,
+    runtime_env,
+)
 from osprey.deployment.web_terminals.artifacts import write_web_terminal_artifacts
 from osprey.deployment.web_terminals.env_production import ensure_env_production
 from osprey.deployment.web_terminals.persona_images import (
@@ -273,6 +280,15 @@ def deploy_up_web_terminals(
     logger.info(f"Running command:\n    {' '.join(up_cmd)}")
     subprocess.run(up_cmd, env=run_env, check=True)
 
+    # podman-compose 1.0.6 never recreates a container on a same-tag digest
+    # change, so a re-pulled `:latest` (or any moving tag) leaves the previous
+    # image's container running after the `up` above. Reconcile that drift by
+    # force-recreating only the services whose running image ID no longer
+    # matches their tag's freshly resolved image ID. No-op on docker (its
+    # compose already recreates after a pull — double-recreating would bounce
+    # live terminals).
+    _reconcile_web_stack_image_drift(config, web_cmd, run_env)
+
     # Hot-reload nginx: `up -d` never restarts a running nginx whose
     # bind-mounted nginx.conf/landing.html CONTENT changed — the container
     # definition is unchanged, so compose reconciles nothing and the freshly
@@ -297,6 +313,76 @@ def deploy_up_web_terminals(
     seed_user_containers(config, env=run_env)
     run_verify_script(project_root, run_env)
     warn_if_web_stack_unreachable(config)
+
+
+def _reconcile_web_stack_image_drift(
+    config: dict, web_cmd: list[str], run_env: dict[str, str]
+) -> None:
+    """Force-recreate web-stack containers whose running image ID drifted from
+    their tag.
+
+    ``podman-compose`` 1.0.6 treats a container as up-to-date whenever its
+    service definition is unchanged, so a same-tag digest change (a re-pulled
+    ``:latest``, or any moving tag) never triggers a recreate — ``up -d`` leaves
+    the container running the previous image. This inspects, for each service
+    the rendered ``docker-compose.web.yml`` declares, the image ID its ``image:``
+    reference now resolves to versus the image ID its running container was
+    created from, and runs ``up -d --force-recreate`` for exactly the services
+    that differ.
+
+    Gated to podman: ``docker compose`` already recreates a service after its
+    image is re-pulled, so a second forced recreate here would needlessly bounce
+    a live terminal. Every inspection is advisory — a service whose image or
+    container can't be inspected (missing image, container not yet created) is
+    skipped, never aborting the deploy — and an all-match run issues no compose
+    command at all.
+
+    :param config: Raw deploy config (selects the runtime).
+    :param web_cmd: The web stack's ``<runtime> compose -f docker-compose.web.yml
+        [--env-file ...]`` base argv, reused verbatim so the recreate runs
+        against the same compose project as the preceding ``up``.
+    :param run_env: The ``COMPOSE_PROJECT_NAME``-pinned environment shared by
+        every web-stack invocation.
+    """
+    runtime = get_runtime_command(config)[0]
+    if runtime != "podman":
+        return
+
+    # The rendered compose file (written at the top of deploy_up_web_terminals)
+    # is the single source of truth for which services exist and what image /
+    # container name each carries -- reading it here keeps this reconcile free
+    # of any per-service name reconstruction and covers nginx and every
+    # per-user terminal uniformly.
+    try:
+        compose_doc = yaml.safe_load(Path("docker-compose.web.yml").read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        logger.warning(
+            "image-drift reconcile skipped: could not read docker-compose.web.yml: %s", exc
+        )
+        return
+
+    services = (compose_doc or {}).get("services") or {}
+    changed: list[str] = []
+    for service_name, service in services.items():
+        service = service or {}
+        image = service.get("image")
+        container = service.get("container_name")
+        if not image or not container:
+            continue
+        tag_id = get_image_id(runtime, image, env=run_env)
+        running_id = get_container_image_id(runtime, container, env=run_env)
+        if tag_id is None or running_id is None:
+            # Missing image or not-yet-created container -- advisory skip.
+            continue
+        if tag_id != running_id:
+            changed.append(service_name)
+
+    if not changed:
+        return
+
+    recreate_cmd = web_cmd + ["up", "-d", "--force-recreate", *changed]
+    logger.info(f"Running command:\n    {' '.join(recreate_cmd)}")
+    subprocess.run(recreate_cmd, env=run_env, check=True)
 
 
 def deploy_down_web_terminals(

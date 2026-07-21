@@ -269,6 +269,7 @@ modules:
   web_terminals:
     enabled: true
     nginx_port: 9080                       # public-facing reverse proxy / landing page
+    nginx_image: "nginx:1.27-alpine"       # OPTIONAL — reverse-proxy image; default shown. Point at a private mirror on hosts that can't pull docker.io
     web_base_port: 9091                    # first per-user web-terminal port      → OSPREY_WEB_PORT (required)
     # Companion-panel families — OPTIONAL; each falls back to its registry
     # default (shown) when omitted. Every FRAMEWORK_WEB_SERVERS panel has one.
@@ -282,8 +283,10 @@ modules:
       - name: "gmartino"                   # object form — same container, explicit fields
         index: 1                           # required for object-form entries — explicit port-offset (see note below)
         persona: "analysis"                # optional; key into personas.<name> below
+        display_name: "Operations"         # optional; window/tab title → OSPREY_WEB_APP_NAME (see note below)
       - scleemann
     image_source: "registry"               # registry (default) | local — see note below
+    image_tag: "latest"                    # registry-mode image tag; ${VAR} expanded at render time — see note below
     default_persona: "assistant"           # required when image_source: local; see note below
     personas:                              # optional catalog — omit entirely for zero-migration behavior
       assistant:                           # persona name — matches users[].persona / default_persona
@@ -294,6 +297,8 @@ modules:
         project: "als-analysis"
         project_path: "../als-analysis"
         build_profile: "profiles/analysis.yml"
+        extra_mounts:                      # optional; volume lines added to every user of this persona
+          - "/opt/site-data:/app/site-data:ro"
     mcp:
       topology: "per_container_stdio"      # per_container_stdio (default, only accepted value) | shared_http (rejected — see note below)
     landing:                               # grouped landing page served at nginx_port
@@ -318,6 +323,7 @@ modules:
 |-------|------|----------|-------|
 | `enabled` | bool | yes | Off by default |
 | `nginx_port` | int | yes | Reverse proxy + landing page port; must be unique across `ports.*` |
+| `nginx_image` | string | no (default `nginx:1.27-alpine`) | Image reference for the reverse-proxy service — the one image in the web stack not built from the facility's own project. The default pulls from docker.io; hosts locked to a private registry mirror must point this at their mirror (e.g. `registry.example.com:5050/mirrors/nginx:1.27-alpine`), or the nginx service is unpullable. A non-string is a lint ERROR; an empty string is a lint WARN (the default applies) |
 | `web_base_port` | int | yes | First per-user web-terminal port. The compose overlay declares it into each per-user container as `OSPREY_TERMINAL_WEB_PORT`, which `osprey web`'s `resolve_web_port()` treats as authoritative over `--port`/`OSPREY_WEB_PORT`/config (exact parallel to `OSPREY_TERMINAL_BIND_HOST` below) |
 | `artifact_base_port` | int | no (default 9291) | First per-user artifact-gallery port; binds `OSPREY_ARTIFACT_SERVER_PORT` |
 | `ariel_base_port` | int | no (default 9391) | First per-user ARIEL search port; binds `OSPREY_ARIEL_PORT` |
@@ -326,6 +332,7 @@ modules:
 | `okf_base_port` | int | no (default 9691) | First per-user OKF knowledge-panel port; binds `OSPREY_FACILITY_KNOWLEDGE_PORT` |
 | `users` | list of strings and/or objects | yes | May be empty when `enabled: true` (see validation rule below). See "User roster entries" below for the object form |
 | `image_source` | enum | no | `registry` (default — today's behavior: `deploy up` pulls a CI-built image) or `local` (`deploy up` builds each referenced persona's image itself from its `project_path`; no CI/registry needed). Fail-closed default; an unrecognized value is a lint ERROR. See "Personas" below |
+| `image_tag` | string | no (default `latest`) | Registry-mode tag baked into every pulled image ref (`web-terminal:<tag>`, `web-terminal-<persona>:<tag>`). `${VAR}`/`$VAR` references are expanded against the **process environment at render time** and emitted as a literal tag, so the rendered compose file self-carries a fixed pin (a pull-free re-`up` re-ups that exact tag rather than whatever `latest` points at locally) — there is no compose-side `${...}` interpolation. A referenced variable that is unset at render time expands to empty, which lint warns on (tagless `web-terminal:`). Ignored in `local` mode, where images are built as `:local` |
 | `default_persona` | string | required if `image_source: local`, or if any `personas` catalog is present and some `users[]` entry has no `persona:` of its own | The persona a roster entry resolves to when it declares no `persona:` key. See "Personas" below |
 | `personas.<name>` | map of objects | no | Catalog of heterogeneous personas — own project, own image, own permissions. Omit entirely (no `personas:` block, no `persona:` keys anywhere) for exactly today's behavior. See "Personas" below |
 | `mcp.topology` | enum | no | `per_container_stdio` (default — today's behavior) is the only accepted value. `shared_http` is a recognized but rejected value — lint ERROR and render `ValueError`. See "MCP topology" below and `references/modules/web-terminals.md` for the deferral rationale |
@@ -365,6 +372,7 @@ users:
   - name: "bob"
     index: 1                             # required in object form — explicit port-offset (see below)
     persona: "analysis"                  # optional — key into personas.<name>
+    display_name: "Operations"           # optional — window/tab title → OSPREY_WEB_APP_NAME
 ```
 
 | Field | Type | Required | Notes |
@@ -372,6 +380,7 @@ users:
 | `name` | string | yes | The username; drives the container name (`${facility.prefix}-web-${name}`), named volumes, and the nginx route |
 | `index` | int (non-negative, non-bool) | yes, for an object-form entry | Explicit port-offset. A bare-string entry has no `index` field at all (its offset is inferred from list position); the moment an entry is written in object form, `index` must be present and a valid non-negative, non-bool int, or lint rejects it — there is no "infer it anyway" fallback for object-form entries. `osprey deploy decommission` freezes every *surviving* entry to this object form (assigning each its current positional index) before deleting the target user, so removing an earlier user from the list can never shift a later survivor's allocated ports; this is a tooling-managed migration, not something to hand-author in the interview |
 | `persona` | string | no | Key into `modules.web_terminals.personas`. Falls back to `default_persona` when absent; falls back further to "no persona in effect" (today's single-image, single-project behavior) when neither is set |
+| `display_name` | string | no | Human-facing window/tab title for this user's terminal. Emitted into the container as `OSPREY_WEB_APP_NAME`, which `osprey web` treats as authoritative over the per-image `web.app_name` in `config.yml` — the only way to vary the title per user, since every per-user container on a shared image otherwise reads the same baked `web.app_name`. Omit it (the default) to emit no env line at all and inherit `web.app_name`. Must be a string when present (a non-string is a lint ERROR); bare-string roster entries can't carry one |
 
 ### Personas
 
@@ -388,6 +397,10 @@ personas:
     project: "als-assistant"              # rendered project name
     project_path: "../als-assistant"      # rendered project dir (local-mode build context)
     build_profile: "profiles/assistant.yml"  # registry mode: committed profile path (local mode: a bundled preset name)
+    extra_mounts:                         # optional — extra volume lines for every user of this persona
+      - "/opt/site-data:/app/site-data:ro"
+      - "shared-cache:/app/cache"
+    seed_base: true                       # optional (default true); false → seed from this persona's extra.md alone, no base prepend
 ```
 
 | Field | Type | Required | Notes |
@@ -395,6 +408,8 @@ personas:
 | `project` | string | yes | The persona's rendered project name. In local mode this must equal that project's own `config.yml` `project_name` — a mismatch is a lint ERROR (otherwise a silently dead mount/path) |
 | `project_path` | path | required if `image_source: local` | Path to the persona's rendered project directory (the local-mode build context). In local mode, `deploy up` **auto-renders** this project from `build_profile` when the directory is absent (see `build_profile` below), so pre-building each persona by hand is optional. An existing render is user-owned and never overwritten; a *partial* render (missing `Dockerfile` or `config.yml`) is an ERROR; a missing directory with no usable `build_profile` cannot be auto-rendered |
 | `build_profile` | path or preset name | see Notes | The source the persona's project is rendered from — consumed differently per mode. **Registry mode:** a path to the persona's committed build-profile YAML, fed as the positional profile to the one `.gitlab-ci.yml` build job generated per non-default persona (required for a non-default persona; lint ERROR if missing). **Local mode:** a **bundled preset name**, passed to `osprey build --preset <build_profile>` by `deploy up`'s auto-render — so it must name a bundled preset (see `--list-presets`), not a file path. Required in local mode for any persona whose `project_path` is not already rendered |
+| `extra_mounts` | list of strings | no | Extra compose volume strings appended to the `volumes:` block of **every** user resolving to this persona, after the two managed per-user mounts (claude-config, agent-data). Each entry is a plain compose volume string — a host-path bind (`/opt/site-data:/app/site-data:ro`) or a named volume (`shared-cache:/app/cache`) — with 2 or 3 non-empty colon-separated parts (`source:target` or `source:target:mode`); a malformed entry is a lint ERROR. Persona-level, not per-user: mounts common to a whole persona live here, not on individual roster entries. Omit entirely (the default `[]`) for no extra mounts — zero-migration |
+| `seed_base` | bool | no (default `true`) | Whether this persona's users are seeded with the shared `docker/web-terminal-context/base.md` prepended ahead of their own `extra.md` at `deploy up`/`deploy seed` time. `true` (default) is the historical behavior. Set `false` to seed such a user from its `extra.md` **alone**, with no base prepend — for a persona whose shipped identity must not be silently altered by a base-context change. When every seeded user opts out, `base.md` may be absent entirely; if any seeded user keeps `seed_base: true`, `base.md` is still required. A non-boolean value is a lint ERROR (the opt-out is otherwise silently ignored). Seeding only — has no effect on the rendered image or compose output |
 
 **Image naming** is derived deterministically — never set by hand:
 
@@ -621,6 +636,7 @@ When the interview writes or updates this file, validate:
     - In local mode, a persona's `project` must equal its own `project_path`'s `config.yml` `project_name` — ERROR on mismatch (the two diverging silently produces a dead mount/path at runtime).
     - In registry mode, every referenced non-default persona must set `build_profile` — ERROR if absent (there would be no CI input to build its image).
     - `image_source: registry` (the default) with no `registry.url` set is an ERROR; `image_source: local` with `registry.url` set is a WARNING (the value is simply unused).
+    - Every `personas.<name>.extra_mounts` entry must be a compose volume string with 2 or 3 non-empty colon-separated parts (`source:target` or `source:target:mode`) — a malformed entry, or a non-list `extra_mounts` value, is an ERROR (it would render a broken per-user `volumes:` line).
 15. **`mcp.topology`** — only `per_container_stdio` is accepted. `shared_http` (or any other value) is an ERROR at lint time and a `ValueError` at render time.
 
 If validation fails, do not silently overwrite — surface the error and ask the user to confirm the fix.

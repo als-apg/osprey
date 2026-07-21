@@ -21,6 +21,7 @@ from osprey.deployment.web_terminals.personas import (
     SUPPORTED_MCP_TOPOLOGY,
     as_dict,
     effective_image_source,
+    resolve_image_tag,
     resolve_personas,
 )
 from osprey.deployment.web_terminals.ports import (
@@ -100,6 +101,7 @@ def lint_web_terminals(config: Any) -> list[Finding]:
     findings.extend(_check_duplicate_users(users))
     findings.extend(_check_reserved_names(users))
     findings.extend(_check_username_charset(users))
+    findings.extend(_check_display_name(users))
     findings.extend(_check_invalid_index(users))
     findings.extend(_check_duplicate_index(users))
     findings.extend(_check_bare_list_port_drift_risk(users))
@@ -107,15 +109,19 @@ def lint_web_terminals(config: Any) -> list[Finding]:
     findings.extend(_check_port_overlap(root, web_terminals, users))
     findings.extend(_check_persona_charset(web_terminals))
     findings.extend(_check_persona_reserved_names(web_terminals))
+    findings.extend(_check_persona_seed_base(web_terminals))
     findings.extend(_check_default_persona_exists(web_terminals))
     findings.extend(_check_unknown_persona_reference(root, web_terminals, users))
     findings.extend(_check_empty_facility_prefix(root, web_terminals, users))
     findings.extend(_check_unknown_image_source(web_terminals))
+    findings.extend(_check_image_tag_empty(web_terminals))
     findings.extend(_check_registry_url_coherence(root, web_terminals))
     findings.extend(_check_local_mode_requires_catalog(web_terminals))
     findings.extend(_check_persona_project_paths(web_terminals, users))
     findings.extend(_check_registry_mode_build_profile(web_terminals, users))
+    findings.extend(_check_persona_extra_mounts(web_terminals))
     findings.extend(_check_unknown_mcp_topology(web_terminals))
+    findings.extend(_check_nginx_image(web_terminals))
     return findings
 
 
@@ -232,6 +238,37 @@ def _check_username_charset(users: list[Any]) -> list[Finding]:
                     ),
                 )
             )
+    return findings
+
+
+def _check_display_name(users: list[Any]) -> list[Finding]:
+    """An object-form entry's optional ``display_name`` (the per-user window/tab
+    title emitted as ``OSPREY_WEB_APP_NAME``) must be a string when present.
+
+    The renderer reads it defensively (:func:`resolve_personas` drops a non-string
+    one rather than emitting a broken env line), so a bad value degrades silently
+    at render time; this check pulls that config typo forward to lint/build time
+    as an ERROR. An empty string is a well-formed (if inert) value — the template
+    guards on truthiness and simply emits no env line — so it is not flagged here.
+    """
+    findings: list[Finding] = []
+    for user in users:
+        if not isinstance(user, dict) or "display_name" not in user:
+            continue
+        display_name = user.get("display_name")
+        if isinstance(display_name, str):
+            continue
+        name = user.get("name", user)
+        findings.append(
+            Finding(
+                severity="error",
+                code="web_terminals.invalid_display_name",
+                message=(
+                    f"modules.web_terminals.users entry {name!r} has a non-string "
+                    f"display_name {display_name!r}; display_name must be a string"
+                ),
+            )
+        )
     return findings
 
 
@@ -487,6 +524,33 @@ def _check_persona_reserved_names(web_terminals: dict[str, Any]) -> list[Finding
     return findings
 
 
+def _check_persona_seed_base(web_terminals: dict[str, Any]) -> list[Finding]:
+    """A persona catalog entry's ``seed_base``, when present, must be a boolean.
+
+    ``seed_base`` opts a persona's users out of the mandatory shared base-context
+    prepend at seed time (default ``true``). A non-boolean value (e.g. a YAML
+    string ``"false"``) is a config typo — ``resolve_personas`` defensively
+    coerces it back to ``True``, so without this check the opt-out would silently
+    not take effect. Reported here so the mistake fails the config instead."""
+    findings: list[Finding] = []
+    for persona_name, entry in _persona_catalog(web_terminals).items():
+        if not isinstance(entry, dict) or "seed_base" not in entry:
+            continue
+        value = entry["seed_base"]
+        if not isinstance(value, bool):
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.persona_invalid_seed_base",
+                    message=(
+                        f"modules.web_terminals.personas[{persona_name!r}].seed_base "
+                        f"{value!r} is not a boolean; seed_base must be true or false"
+                    ),
+                )
+            )
+    return findings
+
+
 def _check_default_persona_exists(web_terminals: dict[str, Any]) -> list[Finding]:
     """``default_persona``, when set, must name an entry in the persona catalog
     — the entry every roster user with no ``persona:`` of its own inherits."""
@@ -595,6 +659,32 @@ def _check_unknown_image_source(web_terminals: dict[str, Any]) -> list[Finding]:
             message=(
                 f"modules.web_terminals.image_source {value!r} is not a recognized "
                 f"value; expected one of {sorted(_VALID_IMAGE_SOURCES)}"
+            ),
+        )
+    ]
+
+
+def _check_image_tag_empty(web_terminals: dict[str, Any]) -> list[Finding]:
+    """Registry mode bakes ``modules.web_terminals.image_tag`` literally into
+    every pulled image ref (``web-terminal:<tag>``). When the field references a
+    ``${VAR}`` that is unset at lint/render time (or is otherwise empty), it
+    resolves to an empty string and the ref degrades to a tagless
+    ``web-terminal:`` no registry can pull. Warn so the misconfiguration
+    surfaces here rather than at ``deploy up``. Scoped to registry mode — local
+    mode builds ``:local`` images and never reads ``image_tag``."""
+    if effective_image_source(web_terminals) != "registry":
+        return []
+    if resolve_image_tag(web_terminals):
+        return []
+    return [
+        Finding(
+            severity="warn",
+            code="web_terminals.empty_image_tag",
+            message=(
+                "modules.web_terminals.image_tag resolves to an empty string "
+                "(likely a ${VAR} whose variable is unset at render time); the "
+                "rendered image ref would be a tagless 'web-terminal:' that no "
+                "registry can pull"
             ),
         )
     ]
@@ -899,6 +989,57 @@ def _check_registry_mode_build_profile(
     return findings
 
 
+def _is_valid_mount_string(value: Any) -> bool:
+    """A compose bind/volume mount string: 2 or 3 non-empty ``:``-separated parts
+    (``source:target`` or ``source:target:mode``, e.g. ``/opt/data:/app/data:ro``)."""
+    if not isinstance(value, str):
+        return False
+    parts = value.split(":")
+    return len(parts) in (2, 3) and all(parts)
+
+
+def _check_persona_extra_mounts(web_terminals: dict[str, Any]) -> list[Finding]:
+    """Every ``modules.web_terminals.personas.<name>.extra_mounts`` entry must be a
+    compose volume string (2 or 3 non-empty colon-separated parts). These generic
+    host-path mounts are applied to every user of that persona, so a malformed
+    entry would render a broken per-user ``volumes:`` line — reject it here. The
+    ``extra_mounts`` key is optional; an entry that omits it is never flagged."""
+    findings: list[Finding] = []
+    for persona_name, entry in _persona_catalog(web_terminals).items():
+        if not isinstance(entry, dict):
+            continue
+        raw = entry.get("extra_mounts")
+        if raw is None:
+            continue
+        if not isinstance(raw, list):
+            findings.append(
+                Finding(
+                    severity="error",
+                    code="web_terminals.persona_extra_mounts_not_list",
+                    message=(
+                        f"modules.web_terminals.personas[{persona_name!r}].extra_mounts "
+                        f"must be a list of compose volume strings, got {type(raw).__name__}"
+                    ),
+                )
+            )
+            continue
+        for mount in raw:
+            if not _is_valid_mount_string(mount):
+                findings.append(
+                    Finding(
+                        severity="error",
+                        code="web_terminals.persona_invalid_extra_mount",
+                        message=(
+                            f"modules.web_terminals.personas[{persona_name!r}]."
+                            f"extra_mounts entry {mount!r} is not a valid compose volume "
+                            "string; expected 'source:target' or 'source:target:mode' "
+                            "with non-empty colon-separated parts"
+                        ),
+                    )
+                )
+    return findings
+
+
 def _check_unknown_mcp_topology(web_terminals: dict[str, Any]) -> list[Finding]:
     """Lint-side mirror of render.py's ``_check_mcp_topology`` fail-closed
     ``ValueError`` (Task 2.5) — ``shared_http`` and any other unrecognized
@@ -921,3 +1062,40 @@ def _check_unknown_mcp_topology(web_terminals: dict[str, Any]) -> list[Finding]:
             ),
         )
     ]
+
+
+def _check_nginx_image(web_terminals: dict[str, Any]) -> list[Finding]:
+    """``nginx_image``, when set, overrides the nginx service's image reference —
+    the one image in the web stack not built from the facility's own project, so
+    a facility whose hosts pull only from a private registry mirror points it
+    there. Absent is fine (the render-time default applies); a non-string is an
+    ERROR, and an empty/whitespace-only string is a WARN (it would fall back to
+    the default via the template's ``| default(...)``, so it is inert but almost
+    certainly a mistake)."""
+    if "nginx_image" not in web_terminals:
+        return []
+    value = web_terminals.get("nginx_image")
+    if not isinstance(value, str):
+        return [
+            Finding(
+                severity="error",
+                code="web_terminals.invalid_nginx_image",
+                message=(
+                    f"modules.web_terminals.nginx_image {value!r} is not a string; "
+                    "it must be an image reference, e.g. "
+                    "'registry.example.com:5050/mirrors/nginx:1.27-alpine'"
+                ),
+            )
+        ]
+    if not value.strip():
+        return [
+            Finding(
+                severity="warn",
+                code="web_terminals.empty_nginx_image",
+                message=(
+                    "modules.web_terminals.nginx_image is set but empty; the default "
+                    "nginx image applies. Remove the key or set a real image reference"
+                ),
+            )
+        ]
+    return []

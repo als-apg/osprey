@@ -86,6 +86,38 @@ def test_normalize_users_drops_malformed_entries() -> None:
     assert result == [{"name": "alice", "index": 0}]
 
 
+def test_normalize_users_carries_string_display_name_through() -> None:
+    """An object entry's string `display_name` is carried onto the normalized entry."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "display_name": "Operations"}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert
+    assert result == [{"name": "alice", "index": 0, "display_name": "Operations"}]
+
+
+def test_normalize_users_omits_display_name_key_when_absent() -> None:
+    """An entry with no `display_name` keeps the plain two-key shape (no None key)."""
+    # Act / Assert — bare string and object-without-display_name both stay two-key
+    assert normalize_users(["alice"]) == [{"name": "alice", "index": 0}]
+    assert normalize_users([{"name": "bob", "index": 1}]) == [{"name": "bob", "index": 1}]
+
+
+def test_normalize_users_drops_non_string_display_name() -> None:
+    """A non-string `display_name` (a config typo) is dropped defensively; the rest
+    of a well-formed entry still normalizes."""
+    # Arrange
+    users_raw = [{"name": "alice", "index": 0, "display_name": 123}]
+
+    # Act
+    result = normalize_users(users_raw)
+
+    # Assert — entry survives (name/index valid), display_name omitted
+    assert result == [{"name": "alice", "index": 0}]
+
+
 def test_normalize_users_empty_list_returns_empty_list() -> None:
     """An empty users list normalizes to an empty list."""
     # Act / Assert
@@ -140,6 +172,8 @@ def test_resolve_personas_no_catalog_resolves_to_todays_values() -> None:
             "image": "registry.example.org/osprey/web-terminal:latest",
             "project": "als-assistant",
             "container_project_dir": "/app/als-assistant",
+            "extra_mounts": [],
+            "seed_base": True,
         },
         {
             "name": "bob",
@@ -148,6 +182,8 @@ def test_resolve_personas_no_catalog_resolves_to_todays_values() -> None:
             "image": "registry.example.org/osprey/web-terminal:latest",
             "project": "als-assistant",
             "container_project_dir": "/app/als-assistant",
+            "extra_mounts": [],
+            "seed_base": True,
         },
     ]
 
@@ -189,6 +225,8 @@ def test_resolve_personas_default_persona_keeps_unsuffixed_registry_image() -> N
             "image": "registry.example.org/osprey/web-terminal:latest",
             "project": "als-assistant",
             "container_project_dir": "/app/als-assistant",
+            "extra_mounts": [],
+            "seed_base": True,
         }
     ]
 
@@ -239,6 +277,8 @@ def test_resolve_personas_non_default_persona_registry_mode_suffixes_image() -> 
             "image": "registry.example.org/osprey/web-terminal-gui:latest",
             "project": "als-gui-assistant",
             "container_project_dir": "/app/als-gui-assistant",
+            "extra_mounts": [],
+            "seed_base": True,
         }
     ]
 
@@ -319,6 +359,8 @@ def test_resolve_personas_local_mode_without_catalog_lenient_degrades() -> None:
             "image": "registry.example.org/osprey/web-terminal:latest",
             "project": "als-assistant",
             "container_project_dir": "/app/als-assistant",
+            "extra_mounts": [],
+            "seed_base": True,
         }
     ]
 
@@ -358,6 +400,8 @@ def test_resolve_personas_unknown_persona_ref_lenient_degrades() -> None:
             "image": "registry.example.org/osprey/web-terminal:latest",
             "project": "als-assistant",
             "container_project_dir": "/app/als-assistant",
+            "extra_mounts": [],
+            "seed_base": True,
         }
     ]
 
@@ -378,6 +422,74 @@ def test_resolve_personas_preserves_normalize_users_index_freezing() -> None:
     assert result[0]["index"] == 5
 
 
+def test_resolve_personas_exposes_display_name_when_set() -> None:
+    """A roster entry's `display_name` is threaded onto the resolved svc dict as a
+    `display_name` key (here on the no-persona zero-migration path)."""
+    # Arrange
+    web_terminals = {"users": [{"name": "alice", "index": 0, "display_name": "Operations"}]}
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result == [
+        {
+            "name": "alice",
+            "index": 0,
+            "persona": None,
+            "image": "registry.example.org/osprey/web-terminal:latest",
+            "project": "als-assistant",
+            "container_project_dir": "/app/als-assistant",
+            "extra_mounts": [],
+            "seed_base": True,
+            "display_name": "Operations",
+        }
+    ]
+
+
+def test_resolve_personas_display_name_threads_through_persona_branch() -> None:
+    """`display_name` is orthogonal to persona resolution — it rides through a
+    fully-resolved non-default persona entry too, not only the zero-migration path."""
+    # Arrange
+    web_terminals = {
+        "users": [
+            {"name": "gmartino", "index": 0, "persona": "gui", "display_name": "Control GUI"}
+        ],
+        "default_persona": "cli",
+        "personas": {
+            "cli": {"project": "als-assistant", "project_path": "profiles/cli"},
+            "gui": {"project": "als-gui-assistant", "project_path": "profiles/gui"},
+        },
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["persona"] == "gui"
+    assert result[0]["image"] == "registry.example.org/osprey/web-terminal-gui:latest"
+    assert result[0]["display_name"] == "Control GUI"
+
+
+def test_resolve_personas_omits_display_name_key_when_unset_or_empty() -> None:
+    """No `display_name` (or an empty-string one) omits the key entirely, so the
+    resolved entry stays byte-identical to a pre-`display_name` resolution."""
+    # Arrange
+    web_terminals = {
+        "users": [
+            "alice",  # bare string — never carries one
+            {"name": "bob", "index": 1},  # object form, no display_name
+            {"name": "carol", "index": 2, "display_name": ""},  # empty is inert
+        ]
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert — no entry carries a display_name key
+    assert all("display_name" not in entry for entry in result)
+
+
 def test_resolve_personas_empty_users_returns_empty_list() -> None:
     """An empty/missing roster resolves to an empty list regardless of catalog."""
     # Act / Assert
@@ -393,3 +505,251 @@ def test_resolve_personas_registry_cfg_missing_url_defaults_to_empty_string() ->
 
     # Assert
     assert result[0]["image"] == "/web-terminal:latest"
+
+
+# ---------------------------------------------------------------------------
+# resolve_personas() — persona extra_mounts
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_personas_reads_extra_mounts_from_catalog_entry() -> None:
+    """A persona's `extra_mounts` list is carried onto every user of that persona."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "gmartino", "index": 0, "persona": "gui"}],
+        "personas": {
+            "gui": {
+                "project": "als-gui",
+                "extra_mounts": ["/opt/site-data:/app/site-data:ro", "cache-vol:/app/cache"],
+            }
+        },
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["extra_mounts"] == [
+        "/opt/site-data:/app/site-data:ro",
+        "cache-vol:/app/cache",
+    ]
+
+
+def test_resolve_personas_default_persona_also_carries_extra_mounts() -> None:
+    """The default persona is not special-cased for `extra_mounts` — its list is
+    carried through like any other persona's."""
+    # Arrange
+    web_terminals = {
+        "users": ["alice"],
+        "default_persona": "cli",
+        "personas": {"cli": {"project": "als-assistant", "extra_mounts": ["/data:/app/data:ro"]}},
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["extra_mounts"] == ["/data:/app/data:ro"]
+
+
+def test_resolve_personas_no_persona_defaults_extra_mounts_to_empty_list() -> None:
+    """The zero-migration path (no persona in effect) resolves `extra_mounts` to
+    an empty list — there is no catalog entry to read host mounts from."""
+    # Arrange
+    web_terminals = {"users": ["alice"]}
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["extra_mounts"] == []
+
+
+def test_resolve_personas_catalog_entry_without_extra_mounts_defaults_to_empty_list() -> None:
+    """A persona that sets no `extra_mounts` resolves to an empty list, not a
+    missing key."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "gmartino", "index": 0, "persona": "gui"}],
+        "personas": {"gui": {"project": "als-gui"}},
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["extra_mounts"] == []
+
+
+def test_resolve_personas_extra_mounts_defensive_reads() -> None:
+    """A non-list `extra_mounts` drops to `[]`; a list with non-string/empty
+    entries keeps only the well-formed strings (colon-part syntax is lint's job)."""
+    # Arrange
+    web_terminals = {
+        "users": [
+            {"name": "a", "index": 0, "persona": "bad"},
+            {"name": "b", "index": 1, "persona": "mixed"},
+        ],
+        "personas": {
+            "bad": {"project": "als-bad", "extra_mounts": "not-a-list"},
+            "mixed": {
+                "project": "als-mixed",
+                "extra_mounts": ["/ok:/app/ok:ro", 42, "", None, "/two:/app/two"],
+            },
+        },
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    by_name = {entry["name"]: entry["extra_mounts"] for entry in result}
+    assert by_name["a"] == []
+    assert by_name["b"] == ["/ok:/app/ok:ro", "/two:/app/two"]
+
+
+def test_resolve_personas_lenient_degrade_extra_mounts_empty() -> None:
+    """An unresolvable persona ref degrading to the zero-migration values carries
+    an empty `extra_mounts` (no catalog entry to read from)."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "persona": "ghost"}],
+        "personas": {"cli": {"project": "als-assistant"}},
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als", strict=False)
+
+    # Assert
+    assert result[0]["extra_mounts"] == []
+
+
+# ---------------------------------------------------------------------------
+# image_tag seam
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_personas_image_tag_defaults_to_latest() -> None:
+    """No `image_tag` key resolves to the pre-seam `:latest` registry tag."""
+    # Arrange
+    web_terminals = {"users": ["alice"]}
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["image"] == "registry.example.org/osprey/web-terminal:latest"
+
+
+def test_resolve_personas_image_tag_explicit_literal_is_emitted_verbatim() -> None:
+    """A plain literal `image_tag` (no env reference) is baked into the image
+    ref exactly as written, for both default and non-default persona images."""
+    # Arrange
+    web_terminals = {
+        "users": ["alice", {"name": "gmartino", "index": 1, "persona": "gui"}],
+        "default_persona": "cli",
+        "image_tag": "v2026.7.8",
+        "personas": {
+            "cli": {"project": "als-assistant", "project_path": "profiles/cli"},
+            "gui": {"project": "als-gui-assistant", "project_path": "profiles/gui"},
+        },
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    images = {entry["name"]: entry["image"] for entry in result}
+    assert images == {
+        "alice": "registry.example.org/osprey/web-terminal:v2026.7.8",
+        "gmartino": "registry.example.org/osprey/web-terminal-gui:v2026.7.8",
+    }
+
+
+def test_resolve_personas_image_tag_expands_env_var_at_render_time(monkeypatch) -> None:
+    """A `${VAR}` reference in `image_tag` expands against the process
+    environment to a literal tag — no `${...}` survives into the image ref."""
+    # Arrange
+    monkeypatch.setenv("IMAGE_TAG", "v9.9.9")
+    web_terminals = {"users": ["alice"], "image_tag": "${IMAGE_TAG}"}
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["image"] == "registry.example.org/osprey/web-terminal:v9.9.9"
+
+
+def test_resolve_personas_image_tag_unset_env_var_expands_to_empty(monkeypatch) -> None:
+    """An `image_tag` referencing an unset variable expands to the empty string
+    (not a surviving `${...}`), yielding a tagless ref that lint warns on."""
+    # Arrange
+    monkeypatch.delenv("IMAGE_TAG", raising=False)
+    web_terminals = {"users": ["alice"], "image_tag": "${IMAGE_TAG}"}
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["image"] == "registry.example.org/osprey/web-terminal:"
+
+
+# ---------------------------------------------------------------------------
+# resolve_personas() — seed_base opt-out
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_personas_seed_base_defaults_true_for_catalog_entry() -> None:
+    """A catalog entry with no `seed_base` key resolves to the default, True."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "persona": "gui"}],
+        "personas": {"gui": {"project": "als-gui"}},
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["seed_base"] is True
+
+
+def test_resolve_personas_seed_base_false_is_carried_through() -> None:
+    """`seed_base: false` on a catalog entry resolves to False for its users."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "persona": "gui"}],
+        "personas": {"gui": {"project": "als-gui", "seed_base": False}},
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["seed_base"] is False
+
+
+def test_resolve_personas_seed_base_non_bool_coerces_to_true() -> None:
+    """A non-bool `seed_base` (a config typo lint reports separately) must not
+    propagate — it defensively coerces to the safe default, True."""
+    # Arrange
+    web_terminals = {
+        "users": [{"name": "alice", "index": 0, "persona": "gui"}],
+        "personas": {"gui": {"project": "als-gui", "seed_base": "false"}},
+    }
+
+    # Act
+    result = resolve_personas(web_terminals, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["seed_base"] is True
+
+
+def test_resolve_personas_no_persona_entry_is_seed_base_true() -> None:
+    """The zero-migration path (no persona in effect) always keeps the base
+    prepend — seed_base is only opt-out-able through a catalog entry."""
+    # Act
+    result = resolve_personas({"users": ["alice"]}, _REGISTRY, "als")
+
+    # Assert
+    assert result[0]["seed_base"] is True
