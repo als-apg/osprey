@@ -146,6 +146,67 @@ config:
   web.panels.health.url: "${BLUESKY_PANELS_URL:-http://localhost:8095}"
   web.panels.health.path: /health-panel/
   web.panels.health.health_endpoint: /health
+  # ── Multi-user web-terminal stack (built-in) ───────────────────────────────
+  # The tutorial ships natively multi-user: `osprey deploy up` stands up nginx,
+  # the landing page, and one web-terminal container per roster user, alongside
+  # the scan stack above. Single-user onboarding is unchanged — `osprey web`
+  # never reads this block (only `osprey deploy` does), so a plain host-run
+  # terminal works at any time. To deploy backend services without the web
+  # tier, set `modules.web_terminals.enabled: false` in the rendered config.yml.
+  #
+  # Container-name prefix for the web stack: names are `<prefix>-nginx` /
+  # `<prefix>-web-<user>`, so this MUST be a non-empty valid Docker name start
+  # ([a-zA-Z0-9]). Keep it short and distinct from the project name (used for
+  # image tags). Set to your own facility abbreviation when you copy this preset.
+  facility.prefix: ca
+  # Landing-URL origin for the multi-user web stack: render refuses to build
+  # OSPREY_TERMINAL_LANDING_URL without deploy.fqdn once users are configured.
+  # 127.0.0.1 matches the single-trusted-host tutorial posture; set your
+  # browser-reachable hostname when deploying anywhere else.
+  deploy.fqdn: 127.0.0.1
+  # This MUST stay ONE literal dotted key — `modules.web_terminals` addressing
+  # the whole module subtree with a nested value. A nested `modules:` mapping
+  # under `config:` would wholesale-replace the rendered `modules` subtree,
+  # silently dropping any sibling module: config_writer applies each dotted key
+  # verbatim, setting only the addressed leaf (see utils/config_writer.py).
+  #
+  # `image_source: local` means `osprey deploy up` builds each persona's image
+  # itself from `project_path`; the referenced persona projects are auto-rendered
+  # from their `build_profile` preset before the build, so a bare `osprey build`
+  # of this preset plus `osprey deploy up` stands the whole stack up with no
+  # registry. Each persona's `project` equals its `project_path` basename — the
+  # invariant persona auto-render relies on to land the rendered project exactly
+  # where the catalog mounts it.
+  modules.web_terminals:
+    enabled: true
+    image_source: local
+    nginx_port: 9080            # public-facing reverse proxy / landing page
+    # Per-user port families: user i gets base + i in each family. Every
+    # companion panel gets its own family (the containers share the host
+    # network namespace, so per-user offsets are what prevent collisions);
+    # families omitted here fall back to registry defaults (registry/web.py).
+    # All families sit above the tutorial's own service ports (5064, 8020,
+    # 8090/8091/8095) so the two stacks never collide on one host.
+    web_base_port: 9091           # first per-user web-terminal port
+    artifact_base_port: 9291      # first per-user artifact-gallery port
+    ariel_base_port: 9391         # first per-user ARIEL search port
+    lattice_base_port: 9491       # first per-user lattice-dashboard port
+    channel_finder_base_port: 9591  # first per-user channel-finder panel port
+    default_persona: physicist  # roster entries with no persona resolve here
+    users:
+      - alice                   # bare string → default_persona (physicist)
+      - name: bob
+        index: 1
+        persona: operator
+    personas:
+      physicist:
+        project: control-assistant-physicist
+        project_path: ../control-assistant-physicist
+        build_profile: control-assistant-physicist
+      operator:
+        project: control-assistant-operator
+        project_path: ../control-assistant-operator
+        build_profile: control-assistant-operator
 
 # ── Event dispatch (optional) ────────────────────────────────────────────────
 # Turns external events (webhooks) into headless agent runs. This ships a set of
