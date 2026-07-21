@@ -5,7 +5,8 @@
  * Single gallery for all artifacts with type filtering, pin flag,
  * and inline timeseries rendering.
  */
-import { initTheme, subscribe, chartSeries } from "/design-system/js/theme-manager.js";
+import { initTheme, subscribe } from "/design-system/js/theme-manager.js";
+import { onModeChange } from "/design-system/js/frame-params.js";
 import { applyEmbedded } from "/design-system/js/frame-params.js";
 import "/design-system/js/components/osprey-theme-switcher.js";
 import {
@@ -35,7 +36,7 @@ import {
 } from "./types.js";
 import { initSplitPaneResize, createSidebarRenderer } from "./render.js";
 import { createPreviewRenderer } from "./preview.js";
-import { renderTimeseriesView, _tsChartTheme } from "./timeseries.js";
+import { renderTimeseriesView, restyleVisibleChart } from "./timeseries.js";
 
 // ---- DOM Refs ----
 
@@ -110,7 +111,7 @@ sidebarRenderer = createSidebarRenderer({
 
 // ---- Health / Header UI ----
 // escapeHtml/formatSize/formatTime/formatFullTime/formatDate/openUrl/
-// isNewThisSession/sendToTerminal/requestColorPass/typeBadge/typeColor now
+// isNewThisSession/requestColorPass/typeBadge/typeColor now
 // live in types.js, consumed directly by render.js/preview.js instead of
 // through this module; updateHealth/updateHeaderCount stay here — they
 // touch this module's own top-level DOM refs (healthDot/headerCount), not
@@ -445,36 +446,9 @@ function _forwardThemeToPreviewFrames(theme) {
   });
 }
 
-function _restyleTimeseriesChart() {
-  // Target the actual Plotly graph div inside the container, not the
-  // outer #ts-viewport wrapper.
-  const tsChart = document.querySelector("#ts-viewport [data-ts-chart]");
-  if (!tsChart || typeof Plotly === "undefined") return;
-  const t = _tsChartTheme();
-  try {
-    Plotly.relayout(tsChart, {
-      paper_bgcolor: t.paper_bgcolor, plot_bgcolor: t.plot_bgcolor,
-      "font.color": t.font.color,
-      "xaxis.gridcolor": t.xaxis.gridcolor, "xaxis.linecolor": t.line,
-      "yaxis.gridcolor": t.yaxis.gridcolor, "yaxis.linecolor": t.line,
-      "legend.bgcolor": t.legendBg, "legend.bordercolor": t.legendBorder,
-    });
-    // relayout doesn't touch trace colors, so the data lines and their legend
-    // dots keep the prior theme's palette until reload. Restyle each trace's
-    // line+marker to the current series palette so they re-theme live too.
-    const series = chartSeries();
-    const traces = /** @type {any} */ (tsChart).data || [];
-    if (series.length && traces.length) {
-      const colors = traces.map((/** @type {any} */ _t, /** @type {number} */ i) => series[i % series.length]);
-      Plotly.restyle(tsChart, { "line.color": colors, "marker.color": colors });
-    }
-  // eslint-disable-next-line no-empty -- intentional empty catch: Plotly relayout is best-effort restyle
-  } catch {}
-}
-
 subscribe((theme) => {
   _forwardThemeToPreviewFrames(theme);
-  _restyleTimeseriesChart();
+  restyleVisibleChart();
 });
 
 // Session changes are unrelated to theming and stay a plain message
@@ -488,15 +462,12 @@ window.addEventListener("message", (e) => {
     setShowAllSessions(false);
     fetchArtifacts();
   }
-  // Live Expert<->Simple switch broadcast by the hub (mode-toggle task). The
-  // pre-paint rung (mode-boot.js) already set the initial data-ui-mode; this
-  // is the runtime flip. Re-render Simple so its content is fresh on arrival.
-  if (e.data && e.data.type === "osprey-mode-change" && e.data.mode) {
-    const mode = e.data.mode === "simple" ? "simple" : "expert";
-    document.documentElement.setAttribute("data-ui-mode", mode);
-    renderSimple();
-  }
 });
+
+// Live Expert<->Simple switch broadcast by the hub — the shared receive-side
+// helper stamps data-ui-mode; re-render Simple so its content is fresh on
+// arrival.
+onModeChange(() => renderSimple());
 
 // ---- Init ----
 

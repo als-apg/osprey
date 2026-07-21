@@ -41,6 +41,7 @@
 
 import { renderSchemaForm } from './schema-form.js';
 import { panelApiPrefix } from '/design-system/js/dom.js';
+import { onModeChange } from '/design-system/js/frame-params.js';
 import {
   createDraftClient,
   resolvePinnedRevision,
@@ -862,14 +863,8 @@ draftAffordanceEl.addEventListener('click', () => {
 // Launch); the one behavioral concern is that Simple hides the Source tab —
 // force the Parameters view so a flip made while Source was active doesn't leave
 // the operator on a now-hidden pane.
-window.addEventListener('message', (event) => {
-  if (event.origin !== window.location.origin) return;
-  const data = /** @type {{type?: string, mode?: string}} */ (event.data);
-  if (data && data.type === 'osprey-mode-change' && data.mode) {
-    const mode = data.mode === 'simple' ? 'simple' : 'expert';
-    document.documentElement.setAttribute('data-ui-mode', mode);
-    if (mode === 'simple') setActiveTab('params');
-  }
+onModeChange((mode) => {
+  if (mode === 'simple') setActiveTab('params');
 });
 
 // ---- boot ----

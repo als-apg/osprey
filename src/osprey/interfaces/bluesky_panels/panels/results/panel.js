@@ -33,6 +33,7 @@
 
 import { escapeHtml, panelApiPrefix } from '/design-system/js/dom.js';
 import { chartSeries, chartTheme, subscribe } from '/design-system/js/theme-manager.js';
+import { onModeChange } from '/design-system/js/frame-params.js';
 
 /** @typedef {{
  *   id: string,
@@ -531,13 +532,8 @@ function maybeAutoSelectLatest() {
 // CSS (Simple hides the dense data table and run internals, keeping the run
 // picker, the outcome badge, and the trace plot); the one behavioral delta is
 // auto-surfacing the latest run when arriving in Simple with nothing selected.
-window.addEventListener('message', (e) => {
-  if (e.origin !== window.location.origin) return;
-  if (e.data && e.data.type === 'osprey-mode-change' && e.data.mode) {
-    const mode = e.data.mode === 'simple' ? 'simple' : 'expert';
-    document.documentElement.setAttribute('data-ui-mode', mode);
-    if (mode === 'simple') maybeAutoSelectLatest();
-  }
+onModeChange((mode) => {
+  if (mode === 'simple') maybeAutoSelectLatest();
 });
 
 /** @returns {string|null} */
